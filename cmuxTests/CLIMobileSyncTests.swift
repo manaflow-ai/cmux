@@ -191,6 +191,61 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testIOSStatusRendersPairingQRCodeWhenURLIsAvailable() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("ios-qr")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let pairingURL = "cmux-ios://pair?v=1&payload=test"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            XCTAssertEqual(method, "mobile_sync.status")
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: self.iosStatusPayload(
+                    enabled: true,
+                    listenerState: "listening",
+                    tailscaleAvailable: true,
+                    selectedAddress: "100.64.1.2",
+                    listenerHost: "100.64.1.2",
+                    listenerPort: 49152,
+                    pairingURL: pairingURL
+                )
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["ios", "status"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("Endpoint: 100.64.1.2:49152 (Tailscale)\n"))
+        XCTAssertTrue(result.stdout.contains("Pairing QR:\n"))
+        XCTAssertTrue(result.stdout.contains("██"))
+        XCTAssertTrue(result.stdout.contains("Pairing URL: \(pairingURL)\n"))
+    }
+
     func testIOSStatusJSONForwardsSocketPayload() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("ios-json")
@@ -244,15 +299,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
         enabled: Bool,
         listenerState: String,
         tailscaleAvailable: Bool,
-        selectedAddress: String?
+        selectedAddress: String?,
+        listenerHost: String? = nil,
+        listenerPort: Int? = nil,
+        debugLoopback: Bool = false,
+        pairingURL: String? = nil
     ) -> [String: Any] {
         let selectedAddressValue: Any = selectedAddress.map { $0 as Any } ?? NSNull()
         let addresses: [[String: Any]] = selectedAddress.map {
             [["interface": "utun4", "address": $0, "kind": "ipv4"]]
         } ?? []
+        let hostValue: Any = listenerHost.map { $0 as Any } ?? NSNull()
+        let portValue: Any = listenerPort.map { $0 as Any } ?? NSNull()
+        let pairingValue: Any = pairingURL.map { $0 as Any } ?? NSNull()
         return [
             "enabled": enabled,
-            "listener": ["state": listenerState],
+            "listener": [
+                "state": listenerState,
+                "host": hostValue,
+                "port": portValue,
+                "debug_loopback": debugLoopback,
+            ],
+            "pairing_url": pairingValue,
             "tailscale": [
                 "available": tailscaleAvailable,
                 "selected_address": selectedAddressValue,

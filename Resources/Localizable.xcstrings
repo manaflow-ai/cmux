@@ -106905,8 +106905,8 @@
     "settings.automation.mobileSync.subtitleOn": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Enabled. Pairing will require Tailscale; this build keeps the listener stopped until the server phase lands." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "有効です。ペアリングには Tailscale が必要です。このビルドではサーバーフェーズまでリスナーは停止したままです。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Enabled. cmux listens only on Tailscale and only while the Mac app is open." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "有効です。cmux は Mac アプリが開いている間だけ Tailscale で待ち受けます。" } }
       }
     },
     "settings.automation.mobileSync.subtitleOff": {

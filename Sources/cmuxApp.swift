@@ -5252,11 +5252,10 @@ struct SettingsView: View {
         Binding(
             get: { mobileSyncEnabled },
             set: { newValue in
-                let status = MobileSyncActions.setEnabled(
-                    newValue,
-                    tabManager: nil,
-                    defaults: .standard
-                )
+                let manager = AppDelegate.shared?.tabManager
+                let status = newValue
+                    ? MobileSyncServerController.shared.enable(tabManager: manager)
+                    : MobileSyncServerController.shared.disable(tabManager: manager)
                 mobileSyncEnabled = status.settings.enabled
             }
         )
@@ -5266,7 +5265,7 @@ struct SettingsView: View {
         if mobileSyncEnabled {
             return String(
                 localized: "settings.automation.mobileSync.subtitleOn",
-                defaultValue: "Enabled. Pairing will require Tailscale; this build keeps the listener stopped until the server phase lands."
+                defaultValue: "Enabled. cmux listens only on Tailscale and only while the Mac app is open."
             )
         }
         return String(
@@ -7175,9 +7174,8 @@ struct SettingsView: View {
         appIconMode = AppIconSettings.defaultMode.rawValue
         AppIconSettings.applyIcon(.automatic)
         socketControlMode = SocketControlSettings.defaultMode.rawValue
-        mobileSyncEnabled = MobileSyncActions.disable(
-            tabManager: nil,
-            defaults: .standard
+        mobileSyncEnabled = MobileSyncServerController.shared.disable(
+            tabManager: AppDelegate.shared?.tabManager
         ).settings.enabled
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
         customClaudePath = ""

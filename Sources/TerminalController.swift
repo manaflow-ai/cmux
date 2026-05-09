@@ -3078,17 +3078,17 @@ class TerminalController {
 
     private func v2MobileSyncStatus(params: [String: Any]) -> [String: Any] {
         let manager = v2ResolveTabManager(params: params)
-        return MobileSyncActions.status(tabManager: manager).socketPayload
+        return MobileSyncServerController.shared.status(tabManager: manager).socketPayload
     }
 
     private func v2MobileSyncEnable(params: [String: Any]) -> [String: Any] {
         let manager = v2ResolveTabManager(params: params)
-        return MobileSyncActions.enable(tabManager: manager).socketPayload
+        return MobileSyncServerController.shared.enable(tabManager: manager).socketPayload
     }
 
     private func v2MobileSyncDisable(params: [String: Any]) -> [String: Any] {
         let manager = v2ResolveTabManager(params: params)
-        return MobileSyncActions.disable(tabManager: manager).socketPayload
+        return MobileSyncServerController.shared.disable(tabManager: manager).socketPayload
     }
 
 #if DEBUG

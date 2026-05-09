@@ -1,6 +1,9 @@
 import Foundation
 import CMUXAgentLaunch
 import CoreFoundation
+#if canImport(CoreImage)
+import CoreImage
+#endif
 import CryptoKit
 import Darwin
 #if canImport(LocalAuthentication)
@@ -4245,6 +4248,10 @@ struct CMUXCLI {
         let enabled = (payload["enabled"] as? Bool) == true
         let listener = payload["listener"] as? [String: Any]
         let listenerState = (listener?["state"] as? String) ?? "unknown"
+        let listenerHost = listener?["host"] as? String
+        let listenerPort = listener?["port"] as? Int
+        let debugLoopback = (listener?["debug_loopback"] as? Bool) == true
+        let pairingURL = payload["pairing_url"] as? String
         let tailscale = payload["tailscale"] as? [String: Any]
         let tailscaleAvailable = (tailscale?["available"] as? Bool) == true
         let selectedAddress = tailscale?["selected_address"] as? String
@@ -4254,6 +4261,10 @@ struct CMUXCLI {
 
         print("Mobile Sync: \(enabled ? "enabled" : "disabled")")
         print("Listener: \(listenerState)")
+        if let listenerHost, let listenerPort {
+            let mode = debugLoopback ? "DEBUG loopback" : "Tailscale"
+            print("Endpoint: \(listenerHost):\(listenerPort) (\(mode))")
+        }
         if tailscaleAvailable {
             if let selectedAddress, !selectedAddress.isEmpty {
                 print("Tailscale: available (\(selectedAddress))")
@@ -4266,6 +4277,60 @@ struct CMUXCLI {
         print("Workspaces: \(workspaceCount)")
         print("Terminals: \(terminalCount)")
         print("Active attachments: \(activeAttachmentCount)")
+        if let pairingURL {
+            if let qrCode = terminalQRCode(for: pairingURL) {
+                print("Pairing QR:")
+                print(qrCode)
+            }
+            print("Pairing URL: \(pairingURL)")
+        }
+    }
+
+    private func terminalQRCode(for value: String) -> String? {
+#if canImport(CoreImage)
+        guard let data = value.data(using: .utf8),
+              let filter = CIFilter(name: "CIQRCodeGenerator") else {
+            return nil
+        }
+        filter.setValue(data, forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let outputImage = filter.outputImage else {
+            return nil
+        }
+        let extent = outputImage.extent.integral
+        let width = Int(extent.width)
+        let height = Int(extent.height)
+        guard width > 0, height > 0 else {
+            return nil
+        }
+
+        var pixels = [UInt8](repeating: 255, count: width * height)
+        let context = CIContext(options: [.useSoftwareRenderer: true])
+        context.render(
+            outputImage,
+            toBitmap: &pixels,
+            rowBytes: width,
+            bounds: extent,
+            format: .R8,
+            colorSpace: nil
+        )
+
+        let quietZone = 2
+        var lines: [String] = []
+        for y in (-quietZone)..<(height + quietZone) {
+            var line = ""
+            for x in (-quietZone)..<(width + quietZone) {
+                let isBlack = (0..<width).contains(x) &&
+                    (0..<height).contains(y) &&
+                    pixels[y * width + x] < 128
+                line += isBlack ? "██" : "  "
+            }
+            lines.append(line)
+        }
+        return lines.joined(separator: "\n")
+#else
+        return nil
+#endif
     }
 
     private func debugString(_ value: Any?) -> String? {

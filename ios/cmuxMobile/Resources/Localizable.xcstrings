@@ -22,7 +22,35 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "ペアリング" } }
       }
     },
+    "mobile.pairing.cameraDenied" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Camera Access Required" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "カメラへのアクセスが必要です" } }
+      }
+    },
+    "mobile.pairing.cameraUnavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Camera Unavailable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "カメラを使用できません" } }
+      }
+    },
     "mobile.pairing.scan" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Scan QR Code" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "QR コードをスキャン" } }
+      }
+    },
+    "mobile.pairing.scannerCancel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Cancel" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "キャンセル" } }
+      }
+    },
+    "mobile.pairing.scannerTitle" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Scan QR Code" } },
@@ -85,6 +113,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "サインアウト" } }
       }
     },
+    "mobile.terminal.inputPlaceholder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Send to terminal" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナルに送信" } }
+      }
+    },
     "mobile.terminal.new" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -97,6 +132,13 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Terminal" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナル" } }
+      }
+    },
+    "mobile.terminal.send" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Send" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "送信" } }
       }
     },
     "mobile.workspace.emptyTitle" : {

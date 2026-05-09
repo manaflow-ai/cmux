@@ -1,7 +1,11 @@
 import Foundation
+@preconcurrency import AVFoundation
 import CMUXMobileSyncCore
 import Observation
 import SwiftUI
+#if os(iOS)
+@preconcurrency import UIKit
+#endif
 
 public struct CMUXMobileAppView: View {
     @State private var store: CMUXMobileShellStore
@@ -75,6 +79,7 @@ struct PairingView: View {
     @Binding var pairingCode: String
     let connect: () -> Void
     let signOut: () -> Void
+    @State private var isShowingScanner = false
 
     var body: some View {
         NavigationStack {
@@ -99,10 +104,10 @@ struct PairingView: View {
 
                 Section {
                     Button {
+                        isShowingScanner = true
                     } label: {
                         Label(L10n.string("mobile.pairing.scan", defaultValue: "Scan QR Code"), systemImage: "camera.viewfinder")
                     }
-                    .disabled(true)
                     .accessibilityIdentifier("MobileScanQRCodeButton")
 
                     TextField(
@@ -121,6 +126,13 @@ struct PairingView: View {
                 }
             }
             .navigationTitle(L10n.string("mobile.pairing.navigationTitle", defaultValue: "Pairing"))
+            .sheet(isPresented: $isShowingScanner) {
+                MobilePairingScannerSheet { scannedCode in
+                    pairingCode = scannedCode
+                    isShowingScanner = false
+                    connect()
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: signOut) {
@@ -132,6 +144,211 @@ struct PairingView: View {
         }
     }
 }
+
+#if os(iOS)
+struct MobilePairingScannerSheet: View {
+    let onCode: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var authorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                switch authorizationStatus {
+                case .authorized:
+                    QRCodeScannerView { code in
+                        onCode(code)
+                    }
+                    .ignoresSafeArea(edges: .bottom)
+                case .notDetermined:
+                    ProgressView()
+                        .task {
+                            await requestCameraAccess()
+                        }
+                case .denied, .restricted:
+                    ContentUnavailableView(
+                        L10n.string("mobile.pairing.cameraDenied", defaultValue: "Camera Access Required"),
+                        systemImage: "camera.fill"
+                    )
+                @unknown default:
+                    ContentUnavailableView(
+                        L10n.string("mobile.pairing.cameraUnavailable", defaultValue: "Camera Unavailable"),
+                        systemImage: "camera.fill"
+                    )
+                }
+            }
+            .navigationTitle(L10n.string("mobile.pairing.scannerTitle", defaultValue: "Scan QR Code"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Text(L10n.string("mobile.pairing.scannerCancel", defaultValue: "Cancel"))
+                    }
+                    .accessibilityIdentifier("MobileScannerCancelButton")
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func requestCameraAccess() async {
+        let granted = await withCheckedContinuation { continuation in
+            AVCaptureDevice.requestAccess(for: .video) { granted in
+                continuation.resume(returning: granted)
+            }
+        }
+        authorizationStatus = granted ? .authorized : AVCaptureDevice.authorizationStatus(for: .video)
+    }
+}
+
+struct QRCodeScannerView: UIViewControllerRepresentable {
+    let onCode: (String) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onCode: onCode)
+    }
+
+    func makeUIViewController(context: Context) -> QRCodeScannerViewController {
+        QRCodeScannerViewController(coordinator: context.coordinator)
+    }
+
+    func updateUIViewController(_ uiViewController: QRCodeScannerViewController, context: Context) {
+        context.coordinator.onCode = onCode
+    }
+
+    final class Coordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate {
+        var onCode: (String) -> Void
+        private var didScan = false
+
+        init(onCode: @escaping (String) -> Void) {
+            self.onCode = onCode
+        }
+
+        func metadataOutput(
+            _ output: AVCaptureMetadataOutput,
+            didOutput metadataObjects: [AVMetadataObject],
+            from connection: AVCaptureConnection
+        ) {
+            guard !didScan,
+                  let metadata = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
+                  metadata.type == .qr,
+                  let value = metadata.stringValue,
+                  value.hasPrefix("cmux-ios://") else {
+                return
+            }
+            didScan = true
+            onCode(value)
+        }
+    }
+}
+
+final class QRCodeScannerViewController: UIViewController {
+    private let coordinator: QRCodeScannerView.Coordinator
+    private let captureSession = AVCaptureSession()
+    private let sessionQueue = DispatchQueue(label: "dev.cmux.mobile.qr-scanner")
+    private var previewLayer: AVCaptureVideoPreviewLayer?
+    private var isConfigured = false
+
+    init(coordinator: QRCodeScannerView.Coordinator) {
+        self.coordinator = coordinator
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+        configureSession()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        previewLayer?.frame = view.bounds
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        startSession()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        stopSession()
+    }
+
+    private func configureSession() {
+        guard let videoDevice = AVCaptureDevice.default(for: .video),
+              let videoInput = try? AVCaptureDeviceInput(device: videoDevice),
+              captureSession.canAddInput(videoInput) else {
+            showUnavailable()
+            return
+        }
+        captureSession.addInput(videoInput)
+
+        let metadataOutput = AVCaptureMetadataOutput()
+        guard captureSession.canAddOutput(metadataOutput) else {
+            showUnavailable()
+            return
+        }
+        captureSession.addOutput(metadataOutput)
+        metadataOutput.setMetadataObjectsDelegate(coordinator, queue: .main)
+        metadataOutput.metadataObjectTypes = [.qr]
+
+        let layer = AVCaptureVideoPreviewLayer(session: captureSession)
+        layer.videoGravity = .resizeAspectFill
+        layer.frame = view.bounds
+        view.layer.addSublayer(layer)
+        previewLayer = layer
+        isConfigured = true
+    }
+
+    private func startSession() {
+        guard isConfigured else { return }
+        sessionQueue.async { [captureSession] in
+            guard !captureSession.isRunning else { return }
+            captureSession.startRunning()
+        }
+    }
+
+    private func stopSession() {
+        guard isConfigured else { return }
+        sessionQueue.async { [captureSession] in
+            guard captureSession.isRunning else { return }
+            captureSession.stopRunning()
+        }
+    }
+
+    private func showUnavailable() {
+        let label = UILabel()
+        label.text = L10n.string("mobile.pairing.cameraUnavailable", defaultValue: "Camera Unavailable")
+        label.textColor = .white
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+        ])
+    }
+}
+#else
+struct MobilePairingScannerSheet: View {
+    let onCode: (String) -> Void
+
+    var body: some View {
+        ContentUnavailableView(
+            L10n.string("mobile.pairing.cameraUnavailable", defaultValue: "Camera Unavailable"),
+            systemImage: "camera.fill"
+        )
+    }
+}
+#endif
 
 struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
@@ -152,8 +369,10 @@ struct WorkspaceShellView: View {
                         get: { store.selectedTerminalID },
                         set: { store.selectTerminal($0) }
                     ),
+                    terminalInputText: $store.terminalInputText,
                     createWorkspace: store.createWorkspace,
-                    createTerminal: store.createTerminal
+                    createTerminal: store.createTerminal,
+                    sendTerminalInput: store.sendTerminalInput
                 )
             } else {
                 ContentUnavailableView(
@@ -214,8 +433,10 @@ struct WorkspaceDetailView: View {
     let host: String
     let workspace: MobileWorkspacePreview
     @Binding var selectedTerminalID: MobileTerminalPreview.ID?
+    @Binding var terminalInputText: String
     let createWorkspace: () -> Void
     let createTerminal: () -> Void
+    let sendTerminalInput: () -> Void
 
     private var selectedTerminal: MobileTerminalPreview? {
         workspace.terminals.first { $0.id == selectedTerminalID } ?? workspace.terminals.first
@@ -235,6 +456,13 @@ struct WorkspaceDetailView: View {
             Divider()
 
             TerminalPreviewSurface(terminal: selectedTerminal, workspace: workspace)
+
+            Divider()
+
+            TerminalInputBar(
+                text: $terminalInputText,
+                send: sendTerminalInput
+            )
         }
         .navigationTitle(workspace.name)
         .navigationBarTitleDisplayMode(.inline)
@@ -298,6 +526,36 @@ struct WorkspaceToolbar: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+        .background(.bar)
+    }
+}
+
+struct TerminalInputBar: View {
+    @Binding var text: String
+    let send: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            TextField(
+                L10n.string("mobile.terminal.inputPlaceholder", defaultValue: "Send to terminal"),
+                text: $text
+            )
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .submitLabel(.send)
+            .onSubmit(send)
+            .accessibilityIdentifier("MobileTerminalInputField")
+
+            Button(action: send) {
+                Image(systemName: "paperplane.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .accessibilityLabel(L10n.string("mobile.terminal.send", defaultValue: "Send"))
+            .accessibilityIdentifier("MobileTerminalSendButton")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
         .background(.bar)
     }
 }

@@ -1,6 +1,8 @@
 import Darwin
 import CoreGraphics
 import Foundation
+import Network
+import CMUXMobileSyncCore
 
 nonisolated struct MobileWorkspaceID: Hashable, Sendable, Codable, CustomStringConvertible {
     let rawValue: UUID
@@ -666,6 +668,34 @@ nonisolated struct MobileSyncStatusSnapshot: Equatable, Sendable, Codable {
     let workspaceCount: Int
     let terminalCount: Int
     let activeAttachmentCount: Int
+    let listenerHost: String?
+    let listenerPort: Int?
+    let pairingURL: String?
+    let debugLoopback: Bool
+
+    init(
+        settings: MobileSyncSettingsSnapshot,
+        listenerState: MobileSyncListenerState,
+        tailscale: MobileSyncTailscaleDetection,
+        workspaceCount: Int,
+        terminalCount: Int,
+        activeAttachmentCount: Int,
+        listenerHost: String? = nil,
+        listenerPort: Int? = nil,
+        pairingURL: String? = nil,
+        debugLoopback: Bool = false
+    ) {
+        self.settings = settings
+        self.listenerState = listenerState
+        self.tailscale = tailscale
+        self.workspaceCount = workspaceCount
+        self.terminalCount = terminalCount
+        self.activeAttachmentCount = activeAttachmentCount
+        self.listenerHost = listenerHost
+        self.listenerPort = listenerPort
+        self.pairingURL = pairingURL
+        self.debugLoopback = debugLoopback
+    }
 }
 
 enum MobileSyncStatusBuilder {
@@ -699,11 +729,18 @@ enum MobileSyncStatusBuilder {
 extension MobileSyncStatusSnapshot {
     nonisolated var socketPayload: [String: Any] {
         let selectedAddressValue: Any = tailscale.selectedAddress.map { $0.address as Any } ?? NSNull()
+        let listenerHostValue: Any = listenerHost.map { $0 as Any } ?? NSNull()
+        let listenerPortValue: Any = listenerPort.map { $0 as Any } ?? NSNull()
+        let pairingURLValue: Any = pairingURL.map { $0 as Any } ?? NSNull()
         return [
             "enabled": settings.enabled,
             "listener": [
                 "state": listenerState.rawValue,
+                "host": listenerHostValue,
+                "port": listenerPortValue,
+                "debug_loopback": debugLoopback,
             ],
+            "pairing_url": pairingURLValue,
             "tailscale": [
                 "available": tailscale.isAvailable,
                 "selected_address": selectedAddressValue,
@@ -719,5 +756,683 @@ extension MobileSyncStatusSnapshot {
             "terminal_count": terminalCount,
             "active_attachment_count": activeAttachmentCount,
         ]
+    }
+}
+
+enum MobileSyncServerError: Error, LocalizedError {
+    case listenerFailed(String)
+    case missingPort
+    case invalidPairingPayload
+
+    var errorDescription: String? {
+        switch self {
+        case .listenerFailed(let message):
+            return message
+        case .missingPort:
+            return "Mobile sync listener did not report a port"
+        case .invalidPairingPayload:
+            return "Mobile sync pairing payload could not be created"
+        }
+    }
+}
+
+final class MobileSyncServer {
+    typealias RequestHandler = ([String: Any]) -> [String: Any]
+
+    private let host: String
+    private let handler: RequestHandler
+    private let queue = DispatchQueue(label: "com.cmux.mobile-sync.server")
+    private var listener: NWListener?
+    private var connections: [UUID: MobileSyncServerConnection] = [:]
+
+    private(set) var port: Int?
+
+    init(host: String, handler: @escaping RequestHandler) {
+        self.host = host
+        self.handler = handler
+    }
+
+    func start(timeout: TimeInterval = 2.0) throws {
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(host), port: .any)
+        let listener = try NWListener(using: parameters)
+        self.listener = listener
+
+        let ready = DispatchSemaphore(value: 0)
+        let failure = LockedValue<Error?>(nil)
+        listener.stateUpdateHandler = { [weak self] state in
+            switch state {
+            case .ready:
+                self?.port = listener.port.map { Int($0.rawValue) }
+                ready.signal()
+            case .failed(let error):
+                failure.set(MobileSyncServerError.listenerFailed(error.localizedDescription))
+                ready.signal()
+            default:
+                break
+            }
+        }
+        listener.newConnectionHandler = { [weak self] connection in
+            self?.accept(connection)
+        }
+        listener.start(queue: queue)
+
+        guard ready.wait(timeout: .now() + timeout) == .success else {
+            stop()
+            throw MobileSyncServerError.listenerFailed("Timed out starting mobile sync listener")
+        }
+        if let error = failure.value {
+            stop()
+            throw error
+        }
+        guard port != nil else {
+            stop()
+            throw MobileSyncServerError.missingPort
+        }
+    }
+
+    func stop() {
+        listener?.cancel()
+        listener = nil
+        let activeConnections = Array(connections.values)
+        connections.removeAll()
+        for connection in activeConnections {
+            connection.cancel()
+        }
+        port = nil
+    }
+
+    private func accept(_ connection: NWConnection) {
+        let id = UUID()
+        let session = MobileSyncServerConnection(connection: connection, handler: handler) { [weak self] in
+            self?.connections.removeValue(forKey: id)
+        }
+        connections[id] = session
+        session.start(on: queue)
+    }
+}
+
+private final class MobileSyncServerConnection {
+    private let connection: NWConnection
+    private let handler: MobileSyncServer.RequestHandler
+    private let onClose: () -> Void
+    private var buffer = Data()
+    private var didClose = false
+
+    init(
+        connection: NWConnection,
+        handler: @escaping MobileSyncServer.RequestHandler,
+        onClose: @escaping () -> Void
+    ) {
+        self.connection = connection
+        self.handler = handler
+        self.onClose = onClose
+    }
+
+    func start(on queue: DispatchQueue) {
+        connection.start(queue: queue)
+        receive()
+    }
+
+    func cancel() {
+        close()
+    }
+
+    private func receive() {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, error in
+            guard let self else { return }
+            if let data, !data.isEmpty {
+                self.buffer.append(data)
+                self.processBufferedFrames()
+            }
+            if error != nil || isComplete {
+                self.close()
+                return
+            }
+            self.receive()
+        }
+    }
+
+    private func processBufferedFrames() {
+        do {
+            let frames = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+            for frame in frames {
+                send(responsePayload(for: frame))
+            }
+        } catch {
+            send(errorEnvelope(id: nil, code: "invalid_frame", message: error.localizedDescription))
+            close()
+        }
+    }
+
+    private func responsePayload(for frame: Data) -> Data {
+        let id: Any?
+        do {
+            guard let request = try JSONSerialization.jsonObject(with: frame) as? [String: Any] else {
+                return errorEnvelope(id: nil, code: "invalid_json", message: "Request must be a JSON object")
+            }
+            id = request["id"]
+            let result = handler(request)
+            if let error = result["error"] as? [String: Any] {
+                return errorEnvelope(id: id, error: error)
+            }
+            let envelope: [String: Any] = [
+                "id": id ?? NSNull(),
+                "ok": true,
+                "result": result,
+            ]
+            return try JSONSerialization.data(withJSONObject: envelope)
+        } catch {
+            return errorEnvelope(id: nil, code: "invalid_request", message: error.localizedDescription)
+        }
+    }
+
+    private func errorEnvelope(id: Any?, code: String, message: String) -> Data {
+        let envelope: [String: Any] = [
+            "id": id ?? NSNull(),
+            "ok": false,
+            "error": [
+                "code": code,
+                "message": message,
+            ],
+        ]
+        return (try? JSONSerialization.data(withJSONObject: envelope)) ?? Data()
+    }
+
+    private func errorEnvelope(id: Any?, error: [String: Any]) -> Data {
+        let envelope: [String: Any] = [
+            "id": id ?? NSNull(),
+            "ok": false,
+            "error": error,
+        ]
+        return (try? JSONSerialization.data(withJSONObject: envelope)) ?? Data()
+    }
+
+    private func send(_ payload: Data) {
+        do {
+            let frame = try MobileSyncFrameCodec.encodeFrame(payload)
+            connection.send(content: frame, completion: .contentProcessed { _ in })
+        } catch {
+            close()
+        }
+    }
+
+    private func close() {
+        guard !didClose else { return }
+        didClose = true
+        connection.cancel()
+        onClose()
+    }
+}
+
+private final class LockedValue<Value> {
+    private let lock = NSLock()
+    private var storage: Value
+
+    init(_ value: Value) {
+        storage = value
+    }
+
+    var value: Value {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func set(_ value: Value) {
+        lock.lock()
+        storage = value
+        lock.unlock()
+    }
+}
+
+@MainActor
+final class MobileSyncServerController {
+    static let shared = MobileSyncServerController()
+
+    private var server: MobileSyncServer?
+    private var listenerHost: String?
+    private var listenerPort: Int?
+    private var pairingURL: String?
+    private var debugLoopback = false
+
+    private init() {}
+
+    func status(tabManager: TabManager?) -> MobileSyncStatusSnapshot {
+        let settings = MobileSyncSettings.snapshot()
+        if settings.enabled {
+            reconcileStarted(tabManager: tabManager)
+        } else {
+            stop()
+        }
+        return snapshot(tabManager: tabManager)
+    }
+
+    func enable(tabManager: TabManager?) -> MobileSyncStatusSnapshot {
+        MobileSyncSettings.setEnabled(true)
+        reconcileStarted(tabManager: tabManager)
+        return snapshot(tabManager: tabManager)
+    }
+
+    func disable(tabManager: TabManager?) -> MobileSyncStatusSnapshot {
+        MobileSyncSettings.setEnabled(false)
+        stop()
+        return snapshot(tabManager: tabManager)
+    }
+
+    private func reconcileStarted(tabManager: TabManager?) {
+        guard server == nil else { return }
+        let tailscale = MobileSyncTailscaleDetector.detectCurrentSystem()
+        let bind = bindTarget(tailscale: tailscale)
+        guard let bind else {
+            listenerHost = nil
+            listenerPort = nil
+            pairingURL = nil
+            debugLoopback = false
+            return
+        }
+
+        let nextServer = MobileSyncServer(host: bind.host) { [weak tabManager] request in
+            Self.handle(request: request, tabManager: tabManager)
+        }
+        do {
+            try nextServer.start()
+            server = nextServer
+            listenerHost = bind.host
+            listenerPort = nextServer.port
+            debugLoopback = bind.debugLoopback
+            pairingURL = makePairingURL(
+                host: bind.host,
+                port: nextServer.port,
+                debugLoopback: bind.debugLoopback
+            )
+        } catch {
+            nextServer.stop()
+            server = nil
+            listenerHost = nil
+            listenerPort = nil
+            pairingURL = nil
+            debugLoopback = false
+        }
+    }
+
+    private func stop() {
+        server?.stop()
+        server = nil
+        listenerHost = nil
+        listenerPort = nil
+        pairingURL = nil
+        debugLoopback = false
+    }
+
+    private func snapshot(tabManager: TabManager?) -> MobileSyncStatusSnapshot {
+        let settings = MobileSyncSettings.snapshot()
+        let tailscale = MobileSyncTailscaleDetector.detectCurrentSystem()
+        let workspaces = tabManager.map(MobileWorkspaceSnapshot.snapshots(from:)) ?? []
+        let listenerState: MobileSyncListenerState = {
+            guard settings.enabled else { return .stopped }
+            if server != nil { return .listening }
+            return tailscale.isAvailable ? .stopped : .waitingForTailscale
+        }()
+        return MobileSyncStatusSnapshot(
+            settings: settings,
+            listenerState: listenerState,
+            tailscale: tailscale,
+            workspaceCount: workspaces.count,
+            terminalCount: workspaces.reduce(0) { $0 + $1.terminals.count },
+            activeAttachmentCount: 0,
+            listenerHost: listenerHost,
+            listenerPort: listenerPort,
+            pairingURL: pairingURL,
+            debugLoopback: debugLoopback
+        )
+    }
+
+    private struct BindTarget {
+        let host: String
+        let debugLoopback: Bool
+    }
+
+    private func bindTarget(tailscale: MobileSyncTailscaleDetection) -> BindTarget? {
+#if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_MOBILE_SYNC_DEBUG_LOOPBACK"] == "1" {
+            return BindTarget(host: "127.0.0.1", debugLoopback: true)
+        }
+#endif
+        guard let address = tailscale.selectedAddress else { return nil }
+        return BindTarget(host: address.address, debugLoopback: false)
+    }
+
+    private func makePairingURL(host: String, port: Int?, debugLoopback: Bool) -> String? {
+        guard let port else { return nil }
+        let hostName = ProcessInfo.processInfo.hostName
+        let payload = try? MobileSyncPairingPayload(
+            macDeviceID: hostName.isEmpty ? "cmux-mac" : hostName,
+            macDisplayName: hostName.isEmpty ? nil : hostName,
+            host: host,
+            port: port,
+            expiresAt: Date().addingTimeInterval(10 * 60),
+            transport: debugLoopback ? .debugLoopback : .tailscale
+        )
+        return try? payload?.encodedURL().absoluteString
+    }
+
+    private static func handle(request: [String: Any], tabManager: TabManager?) -> [String: Any] {
+        let method = request["method"] as? String
+        switch method {
+        case "system.ping":
+            return ["pong": true]
+        case "workspace.list", "mobile_sync.workspace_list":
+            return workspaceListPayload(tabManager: tabManager)
+        case "workspace.create", "mobile_sync.workspace_create":
+            return createWorkspacePayload(request: request, tabManager: tabManager)
+        case "terminal.create", "mobile_sync.terminal_create":
+            return createTerminalPayload(request: request, tabManager: tabManager)
+        case "terminal.input", "mobile_sync.terminal_input":
+            return terminalInputPayload(request: request, tabManager: tabManager)
+        case "terminal.snapshot", "mobile_sync.terminal_snapshot":
+            return terminalSnapshotPayload(request: request, tabManager: tabManager)
+        default:
+            return [
+                "error": [
+                    "code": "unknown_method",
+                    "message": "Unknown mobile sync method",
+                ],
+            ]
+        }
+    }
+
+    private static func workspaceListPayload(tabManager: TabManager?) -> [String: Any] {
+        var payload: [String: Any] = ["workspaces": []]
+        DispatchQueue.main.sync {
+            let workspaces = tabManager.map(MobileWorkspaceSnapshot.snapshots(from:)) ?? []
+            let encoder = JSONEncoder()
+            guard let data = try? encoder.encode(workspaces),
+                  let objects = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+                return
+            }
+            payload = [
+                "workspaces": objects,
+                "workspace_count": objects.count,
+                "terminal_count": workspaces.reduce(0) { $0 + $1.terminals.count },
+            ]
+        }
+        return payload
+    }
+
+    private static func createWorkspacePayload(request: [String: Any], tabManager: TabManager?) -> [String: Any] {
+        var payload = errorPayload(code: "unavailable", message: "TabManager not available")
+        DispatchQueue.main.sync {
+            guard let tabManager else { return }
+            let params = requestParams(request)
+            let title = normalizedString(params["title"])
+            let workingDirectory = normalizedString(params["working_directory"])
+            let initialInput = normalizedString(params["initial_input"])
+            let workspace = tabManager.addWorkspace(
+                title: title,
+                workingDirectory: workingDirectory,
+                initialTerminalInput: initialInput,
+                select: true,
+                eagerLoadTerminal: true
+            )
+            payload = workspaceListPayloadOnMain(tabManager: tabManager)
+            payload["created_workspace_id"] = workspace.id.uuidString
+            payload["created_terminal_id"] = workspace.focusedTerminalPanel?.id.uuidString ?? NSNull()
+        }
+        return payload
+    }
+
+    private static func createTerminalPayload(request: [String: Any], tabManager: TabManager?) -> [String: Any] {
+        var payload = errorPayload(code: "unavailable", message: "TabManager not available")
+        DispatchQueue.main.sync {
+            guard let tabManager else { return }
+            let params = requestParams(request)
+            guard let workspace = resolveWorkspace(params: params, tabManager: tabManager) else {
+                payload = errorPayload(code: "not_found", message: "Workspace not found")
+                return
+            }
+            tabManager.selectedTabId = workspace.id
+            workspace.clearSplitZoom()
+            guard let terminal = workspace.newTerminalSurfaceInFocusedPane(
+                focus: true,
+                initialInput: normalizedString(params["initial_input"])
+            ) else {
+                payload = errorPayload(code: "internal_error", message: "Failed to create terminal")
+                return
+            }
+            payload = workspaceListPayloadOnMain(tabManager: tabManager)
+            payload["created_workspace_id"] = workspace.id.uuidString
+            payload["created_terminal_id"] = terminal.id.uuidString
+        }
+        return payload
+    }
+
+    private static func terminalInputPayload(request: [String: Any], tabManager: TabManager?) -> [String: Any] {
+        var payload = errorPayload(code: "unavailable", message: "TabManager not available")
+        DispatchQueue.main.sync {
+            guard let tabManager else { return }
+            let params = requestParams(request)
+            guard let text = params["text"] as? String, !text.isEmpty else {
+                payload = errorPayload(code: "invalid_params", message: "Missing text")
+                return
+            }
+            guard let workspace = resolveWorkspace(params: params, tabManager: tabManager) else {
+                payload = errorPayload(code: "not_found", message: "Workspace not found")
+                return
+            }
+            let terminalID = normalizedString(params["surface_id"])
+                .flatMap(UUID.init(uuidString:))
+                ?? normalizedString(params["terminal_id"]).flatMap(UUID.init(uuidString:))
+                ?? workspace.focusedPanelId
+            guard let terminalID,
+                  let terminal = workspace.terminalPanel(for: terminalID) else {
+                payload = errorPayload(code: "not_found", message: "Terminal not found")
+                return
+            }
+            terminal.sendText(text)
+            if terminal.surface.surface != nil {
+                terminal.surface.forceRefresh(reason: "mobileSync.terminalInput")
+            }
+            payload = [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": terminal.id.uuidString,
+                "accepted": true,
+            ]
+        }
+        return payload
+    }
+
+    private static func terminalSnapshotPayload(request: [String: Any], tabManager: TabManager?) -> [String: Any] {
+        var payload = errorPayload(code: "unavailable", message: "TabManager not available")
+        DispatchQueue.main.sync {
+            guard let tabManager else { return }
+            let params = requestParams(request)
+            guard let workspace = resolveWorkspace(params: params, tabManager: tabManager) else {
+                payload = errorPayload(code: "not_found", message: "Workspace not found")
+                return
+            }
+            let terminalID = normalizedString(params["surface_id"])
+                .flatMap(UUID.init(uuidString:))
+                ?? normalizedString(params["terminal_id"]).flatMap(UUID.init(uuidString:))
+                ?? workspace.focusedPanelId
+            guard let terminalID,
+                  let terminal = workspace.terminalPanel(for: terminalID) else {
+                payload = errorPayload(code: "not_found", message: "Terminal not found")
+                return
+            }
+            let maxScrollbackRows = max(
+                1,
+                min(intValue(params["max_scrollback_rows"]) ?? 500, 10_000)
+            )
+            do {
+                let snapshot = try MobileTerminalGhosttySnapshotExporter.snapshot(
+                    terminalPanel: terminal,
+                    maxScrollbackRows: maxScrollbackRows
+                )
+                let encoded = try snapshot.encodedValidatedJSON()
+                guard let snapshotObject = try JSONSerialization.jsonObject(with: encoded) as? [String: Any] else {
+                    payload = errorPayload(code: "internal_error", message: "Failed to encode terminal snapshot")
+                    return
+                }
+                payload = [
+                    "snapshot": snapshotObject,
+                    "snapshot_base64": encoded.base64EncodedString(),
+                    "schema_version": MobileTerminalGhosttySnapshot.currentSchemaVersion,
+                    "max_scrollback_rows": maxScrollbackRows,
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": terminal.id.uuidString,
+                ]
+            } catch {
+                payload = errorPayload(
+                    code: "internal_error",
+                    message: "Failed to build terminal snapshot: \(error.localizedDescription)"
+                )
+            }
+        }
+        return payload
+    }
+
+    private static func workspaceListPayloadOnMain(tabManager: TabManager?) -> [String: Any] {
+        let workspaces = tabManager.map(MobileWorkspaceSnapshot.snapshots(from:)) ?? []
+        let encoder = JSONEncoder()
+        guard let data = try? encoder.encode(workspaces),
+              let objects = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return ["workspaces": []]
+        }
+        return [
+            "workspaces": objects,
+            "workspace_count": objects.count,
+            "terminal_count": workspaces.reduce(0) { $0 + $1.terminals.count },
+        ]
+    }
+
+    private static func requestParams(_ request: [String: Any]) -> [String: Any] {
+        request["params"] as? [String: Any] ?? request
+    }
+
+    private static func resolveWorkspace(params: [String: Any], tabManager: TabManager) -> Workspace? {
+        if let workspaceID = normalizedString(params["workspace_id"]).flatMap(UUID.init(uuidString:)) {
+            return tabManager.tabs.first { $0.id == workspaceID }
+        }
+        return tabManager.selectedWorkspace ?? tabManager.tabs.first
+    }
+
+    private static func normalizedString(_ value: Any?) -> String? {
+        guard let string = value as? String else { return nil }
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func intValue(_ value: Any?) -> Int? {
+        if let int = value as? Int {
+            return int
+        }
+        if let number = value as? NSNumber {
+            return number.intValue
+        }
+        if let string = value as? String {
+            return Int(string)
+        }
+        return nil
+    }
+
+    private static func errorPayload(code: String, message: String) -> [String: Any] {
+        [
+            "error": [
+                "code": code,
+                "message": message,
+            ],
+        ]
+    }
+}
+
+enum MobileTerminalGhosttySnapshotExporter {
+    @MainActor
+    static func snapshot(
+        terminalPanel: TerminalPanel,
+        maxScrollbackRows: Int
+    ) throws -> MobileTerminalGhosttySnapshot {
+        guard let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileSync.terminalSnapshot") else {
+            throw MobileTerminalSnapshotExportError.surfaceUnavailable
+        }
+        let surfaceSize = ghostty_surface_size(surface)
+        let columns = Int(surfaceSize.columns)
+        let rows = Int(surfaceSize.rows)
+        guard columns > 0, rows > 0 else {
+            throw MobileTerminalSnapshotExportError.invalidGridSize
+        }
+        guard let viewportText = readGhosttySelectionText(surface: surface, pointTag: GHOSTTY_POINT_VIEWPORT) else {
+            throw MobileTerminalSnapshotExportError.viewportUnavailable
+        }
+        let scrollbackText = readGhosttySelectionText(surface: surface, pointTag: GHOSTTY_POINT_SURFACE) ?? ""
+        let activeScreen: MobileTerminalGhosttyScreen = {
+            switch ghostty_surface_active_screen(surface) {
+            case GHOSTTY_SURFACE_SCREEN_ALTERNATE:
+                return .alternate
+            default:
+                return .primary
+            }
+        }()
+        return try MobileTerminalGhosttySnapshot.fromGhosttyText(
+            terminalID: terminalPanel.id.uuidString,
+            columns: columns,
+            rows: rows,
+            scrollbackText: scrollbackText,
+            viewportText: viewportText,
+            maxScrollbackRows: maxScrollbackRows,
+            activeScreen: activeScreen,
+            streamOffset: 0
+        )
+    }
+
+    private static func readGhosttySelectionText(surface: ghostty_surface_t, pointTag: ghostty_point_tag_e) -> String? {
+        let topLeft = ghostty_point_s(
+            tag: pointTag,
+            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+            x: 0,
+            y: 0
+        )
+        let bottomRight = ghostty_point_s(
+            tag: pointTag,
+            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+            x: 0,
+            y: 0
+        )
+        let selection = ghostty_selection_s(
+            top_left: topLeft,
+            bottom_right: bottomRight,
+            rectangle: false
+        )
+
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else {
+            return nil
+        }
+        defer {
+            ghostty_surface_free_text(surface, &text)
+        }
+
+        guard let ptr = text.text, text.text_len > 0 else {
+            return ""
+        }
+        let rawData = Data(bytes: ptr, count: Int(text.text_len))
+        return String(decoding: rawData, as: UTF8.self)
+    }
+
+    private enum MobileTerminalSnapshotExportError: LocalizedError {
+        case surfaceUnavailable
+        case invalidGridSize
+        case viewportUnavailable
+
+        var errorDescription: String? {
+            switch self {
+            case .surfaceUnavailable:
+                return "Terminal surface is unavailable"
+            case .invalidGridSize:
+                return "Terminal grid size is invalid"
+            case .viewportUnavailable:
+                return "Terminal viewport is unavailable"
+            }
+        }
     }
 }

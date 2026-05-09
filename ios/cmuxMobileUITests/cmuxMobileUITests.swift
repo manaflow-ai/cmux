@@ -14,7 +14,7 @@ final class cmuxMobileUITests: XCTestCase {
         app.buttons["MobileSignInButton"].tap()
 
         XCTAssertTrue(app.textFields["MobilePairingCodeField"].waitForExistence(timeout: 4))
-        XCTAssertFalse(app.buttons["MobileScanQRCodeButton"].isEnabled)
+        XCTAssertTrue(app.buttons["MobileScanQRCodeButton"].isEnabled)
         app.textFields["MobilePairingCodeField"].tap()
         app.textFields["MobilePairingCodeField"].typeText("debug")
         app.buttons["MobileConnectButton"].tap()
@@ -70,6 +70,23 @@ final class cmuxMobileUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["LAZYGIT"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.staticTexts["files branches log"].exists)
         XCTAssertTrue(app.staticTexts["q quit"].exists)
+    }
+
+    @MainActor
+    func testTerminalInputBarSendsPreviewText() throws {
+        let app = launchApp()
+        try connect(app)
+
+        let field = app.textFields["MobileTerminalInputField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 4))
+        field.tap()
+        field.typeText("pwd")
+
+        let sendButton = app.buttons["MobileTerminalSendButton"]
+        XCTAssertTrue(sendButton.waitForExistence(timeout: 4))
+        sendButton.tap()
+
+        XCTAssertTrue(app.staticTexts["> pwd"].waitForExistence(timeout: 4))
     }
 
     @MainActor

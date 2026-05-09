@@ -1,4 +1,6 @@
 import AppKit
+import CMUXMobileSyncCore
+import Darwin
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -157,6 +159,60 @@ final class MobileSyncModelTests: XCTestCase {
         XCTAssertEqual(status.socketPayload["enabled"] as? Bool, false)
     }
 
+    func testMobileSyncServerRespondsToLengthPrefixedPing() throws {
+        let server = MobileSyncServer(host: "127.0.0.1") { request in
+            [
+                "method": request["method"] as? String ?? "",
+                "pong": request["method"] as? String == "system.ping",
+            ]
+        }
+        try server.start()
+        defer { server.stop() }
+
+        let port = try XCTUnwrap(server.port)
+        let response = try sendMobileSyncRequest(
+            port: port,
+            request: [
+                "id": "ping-1",
+                "method": "system.ping",
+            ]
+        )
+
+        XCTAssertEqual(response["id"] as? String, "ping-1")
+        XCTAssertEqual(response["ok"] as? Bool, true)
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["method"] as? String, "system.ping")
+        XCTAssertEqual(result["pong"] as? Bool, true)
+    }
+
+    func testMobileSyncServerReturnsProtocolErrorsAsFailedEnvelopes() throws {
+        let server = MobileSyncServer(host: "127.0.0.1") { _ in
+            [
+                "error": [
+                    "code": "not_found",
+                    "message": "Terminal not found",
+                ],
+            ]
+        }
+        try server.start()
+        defer { server.stop() }
+
+        let port = try XCTUnwrap(server.port)
+        let response = try sendMobileSyncRequest(
+            port: port,
+            request: [
+                "id": "missing-terminal",
+                "method": "terminal.snapshot",
+            ]
+        )
+
+        XCTAssertEqual(response["id"] as? String, "missing-terminal")
+        XCTAssertEqual(response["ok"] as? Bool, false)
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "not_found")
+        XCTAssertEqual(error["message"] as? String, "Terminal not found")
+    }
+
     @MainActor
     func testMobileSyncActionsPersistEnableDisableState() {
         let suiteName = "MobileSyncActionsTests.\(UUID().uuidString)"
@@ -287,5 +343,85 @@ final class MobileSyncModelTests: XCTestCase {
 
     private nonisolated func sendableValue<T: Sendable>(_ value: T) -> T {
         value
+    }
+
+    private nonisolated func sendMobileSyncRequest(
+        port: Int,
+        request: [String: Any]
+    ) throws -> [String: Any] {
+        let socketFD = socket(AF_INET, SOCK_STREAM, 0)
+        guard socketFD >= 0 else {
+            throw posixError()
+        }
+        defer { close(socketFD) }
+
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(UInt16(port).bigEndian)
+        guard inet_pton(AF_INET, "127.0.0.1", &address.sin_addr) == 1 else {
+            throw posixError()
+        }
+
+        let connected = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+                Darwin.connect(socketFD, socketAddress, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard connected == 0 else {
+            throw posixError()
+        }
+
+        let requestData = try JSONSerialization.data(withJSONObject: request)
+        let frame = try MobileSyncFrameCodec.encodeFrame(requestData)
+        try writeAll(frame, to: socketFD)
+
+        let header = try readExact(byteCount: MobileSyncFrameCodec.headerByteCount, from: socketFD)
+        let length = header.reduce(UInt32(0)) { partial, byte in
+            (partial << 8) | UInt32(byte)
+        }
+        let payload = try readExact(byteCount: Int(length), from: socketFD)
+        guard let response = try JSONSerialization.jsonObject(with: payload) as? [String: Any] else {
+            throw NSError(domain: "MobileSyncModelTests", code: 1)
+        }
+        return response
+    }
+
+    private nonisolated func writeAll(_ data: Data, to socketFD: Int32) throws {
+        try data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return }
+            var written = 0
+            while written < rawBuffer.count {
+                let result = Darwin.send(
+                    socketFD,
+                    baseAddress.advanced(by: written),
+                    rawBuffer.count - written,
+                    0
+                )
+                guard result > 0 else {
+                    throw posixError()
+                }
+                written += result
+            }
+        }
+    }
+
+    private nonisolated func readExact(byteCount: Int, from socketFD: Int32) throws -> Data {
+        var data = Data()
+        while data.count < byteCount {
+            var chunk = [UInt8](repeating: 0, count: byteCount - data.count)
+            let received = chunk.withUnsafeMutableBytes { buffer in
+                Darwin.recv(socketFD, buffer.baseAddress, buffer.count, 0)
+            }
+            guard received > 0 else {
+                throw posixError()
+            }
+            data.append(contentsOf: chunk.prefix(received))
+        }
+        return data
+    }
+
+    private nonisolated func posixError() -> NSError {
+        NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
     }
 }
