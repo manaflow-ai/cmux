@@ -539,13 +539,22 @@ final class WindowBrowserHostView: NSView {
             return nil
         }
         // Mirror terminal portal routing: while tab-reorder drags are active,
-        // pass through to SwiftUI drop targets behind the portal host.
+        // prefer pane-local drop targets owned by the portal slot. Fall through
+        // to SwiftUI targets only when the browser pane itself is not the target.
         // Browser hover routing also arrives as cursor/enter events and may not
         // report a pressed-button state, so include that path here.
+        let dragPasteboardTypes = NSPasteboard(name: .drag).types
         if Self.shouldPassThroughToDragTargets(
-            pasteboardTypes: NSPasteboard(name: .drag).types,
+            pasteboardTypes: dragPasteboardTypes,
             eventType: eventType
         ) {
+            if let paneDropTarget = paneDropTargetForDrag(
+                at: point,
+                pasteboardTypes: dragPasteboardTypes,
+                eventType: eventType
+            ) {
+                return paneDropTarget
+            }
             return nil
         }
 
@@ -587,6 +596,32 @@ final class WindowBrowserHostView: NSView {
         )
 #endif
         return hitView === self ? nil : hitView
+    }
+
+    private func paneDropTargetForDrag(
+        at point: NSPoint,
+        pasteboardTypes: [NSPasteboard.PasteboardType]?,
+        eventType: NSEvent.EventType?
+    ) -> BrowserPaneDropTargetView? {
+        guard BrowserPaneDropTargetView.shouldCaptureHitTesting(
+            pasteboardTypes: pasteboardTypes,
+            eventType: eventType
+        ) else {
+            return nil
+        }
+
+        for slot in subviews.reversed() {
+            guard let slot = slot as? WindowBrowserSlotView,
+                  !slot.isHidden,
+                  slot.alphaValue > 0,
+                  slot.frame.contains(point) else { continue }
+            let pointInSlot = slot.convert(point, from: self)
+            if let target = slot.paneDropTargetForDrop(at: pointInSlot) {
+                return target
+            }
+        }
+
+        return nil
     }
 
     override func mouseDown(with event: NSEvent) {
