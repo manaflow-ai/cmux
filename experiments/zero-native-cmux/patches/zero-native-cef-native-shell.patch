@@ -1,0 +1,530 @@
+diff --git a/src/platform/macos/cef_host.mm b/src/platform/macos/cef_host.mm
+index ce9c747..07cb2e2 100644
+--- a/src/platform/macos/cef_host.mm
++++ b/src/platform/macos/cef_host.mm
+@@ -29,6 +29,10 @@ @interface ZeroNativeChromiumApplication : NSApplication <CefAppProtocol>
+ @property(nonatomic, assign) BOOL handlingSendEvent;
+ @end
+ 
++@protocol ZeroNativeCmuxWorkbenchHost <NSObject>
++- (void)navigateNativeBrowserToString:(NSString *)value windowId:(uint64_t)windowId;
++@end
++
+ namespace {
+ 
+ static const char *kBridgeMessageName = "zero_native_bridge";
+@@ -40,6 +44,10 @@ @interface ZeroNativeChromiumApplication : NSApplication <CefAppProtocol>
+ static NSString *ZeroNativeAbsolutePath(NSString *path);
+ static NSString *ZeroNativeExistingPath(NSString *path);
+ static NSString *ZeroNativeCefFrameworkPath(void);
++static NSString *ZeroNativeBrowserSubprocessPath(void);
++static bool ZeroNativeIsCefHelperProcess(void);
++static bool ZeroNativeShouldUseHelperLoader(void);
++static void ZeroNativeRunCefSubprocessIfNeeded(void);
+ static NSString *ZeroNativeOriginForURL(NSURL *url);
+ static BOOL ZeroNativePolicyListMatches(NSArray<NSString *> *values, NSURL *url);
+ 
+@@ -121,6 +129,18 @@ void OnContextCreated(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
+ static CefScopedLibraryLoader g_cef_library_loader;
+ static bool g_cef_library_loaded = false;
+ 
++static void ZeroNativeRunCefSubprocessIfNeeded() {
++    if (!ZeroNativeShouldUseHelperLoader()) return;
++    if (!g_cef_library_loader.LoadInHelper()) {
++        fprintf(stderr, "failed to load Chromium Embedded Framework in helper\n");
++        exit(1);
++    }
++    CefMainArgs args(*_NSGetArgc(), *_NSGetArgv());
++    CefRefPtr<ZeroNativeCefApp> app = new ZeroNativeCefApp();
++    const int exit_code = CefExecuteProcess(args, app, nullptr);
++    exit(exit_code >= 0 ? exit_code : 1);
++}
++
+ static void shutdownCefIfNeeded() {
+     if (!g_cef_initialized || g_cef_shutdown) return;
+     CefShutdown();
+@@ -133,7 +153,8 @@ static void ensureCefInitialized() {
+     g_cef_shutdown = false;
+ 
+     if (!g_cef_library_loaded) {
+-        if (!g_cef_library_loader.LoadInMain()) {
++        const bool helper_process = ZeroNativeShouldUseHelperLoader();
++        if (!(helper_process ? g_cef_library_loader.LoadInHelper() : g_cef_library_loader.LoadInMain())) {
+             fprintf(stderr, "failed to load Chromium Embedded Framework\n");
+             return;
+         }
+@@ -154,7 +175,7 @@ static void ensureCefInitialized() {
+     NSString *cefDataRoot = [appSupport stringByAppendingPathComponent:@"zero-native/CEF"];
+     NSString *cefCachePath = [cefDataRoot stringByAppendingPathComponent:@"Default"];
+     [[NSFileManager defaultManager] createDirectoryAtPath:cefCachePath withIntermediateDirectories:YES attributes:nil error:nil];
+-    NSString *executablePath = [NSBundle mainBundle].executablePath ?: [[[NSProcessInfo processInfo] arguments] firstObject];
++    NSString *executablePath = ZeroNativeBrowserSubprocessPath();
+     CefString(&settings.framework_dir_path).FromString(frameworkPath.UTF8String);
+     CefString(&settings.resources_dir_path).FromString(resourcesPath.UTF8String);
+     CefString(&settings.root_cache_path).FromString(cefDataRoot.UTF8String);
+@@ -223,6 +244,33 @@ static void ensureCefInitialized() {
+     return [devRoot stringByAppendingPathComponent:@"Release/Chromium Embedded Framework.framework"];
+ }
+ 
++static NSString *ZeroNativeBrowserSubprocessPath(void) {
++    NSBundle *bundle = [NSBundle mainBundle];
++    NSString *executablePath = bundle.executablePath ?: [[[NSProcessInfo processInfo] arguments] firstObject];
++    NSString *executableName = executablePath.lastPathComponent;
++    if (executableName.length == 0) return executablePath;
++    NSString *helperName = [executableName stringByAppendingString:@" Helper"];
++    NSString *helperPath = [[[[bundle privateFrameworksPath] stringByAppendingPathComponent:[helperName stringByAppendingString:@".app"]] stringByAppendingPathComponent:@"Contents/MacOS"] stringByAppendingPathComponent:helperName];
++    if (ZeroNativeExistingPath(helperPath)) return helperPath;
++    return executablePath;
++}
++
++static bool ZeroNativeIsCefHelperProcess(void) {
++    int argc = *_NSGetArgc();
++    char **argv = *_NSGetArgv();
++    for (int index = 1; index < argc; index += 1) {
++        const char *arg = argv[index];
++        if (arg && strncmp(arg, "--type=", 7) == 0) return true;
++    }
++    return false;
++}
++
++static bool ZeroNativeShouldUseHelperLoader(void) {
++    if (!ZeroNativeIsCefHelperProcess()) return false;
++    NSString *bundleExtension = [NSBundle mainBundle].bundlePath.pathExtension.lowercaseString ?: @"";
++    return [bundleExtension isEqualToString:@"app"];
++}
++
+ static NSRect ZeroNativeConstrainFrame(NSRect frame) {
+     NSScreen *screen = [NSScreen mainScreen];
+     if (!screen) return frame;
+@@ -305,20 +353,188 @@ - (void)sendEvent:(NSEvent *)event {
+ 
+ @end
+ 
++@interface ZeroNativeCmuxGhosttySlotView : NSView
++@property(nonatomic, assign) NSInteger terminalCount;
++- (void)incrementTerminalCount;
++@end
++
++@implementation ZeroNativeCmuxGhosttySlotView
++
++- (instancetype)initWithFrame:(NSRect)frameRect {
++    self = [super initWithFrame:frameRect];
++    if (!self) return nil;
++    _terminalCount = 1;
++    self.wantsLayer = YES;
++    self.layer.masksToBounds = YES;
++    return self;
++}
++
++- (BOOL)isOpaque {
++    return YES;
++}
++
++- (void)incrementTerminalCount {
++    self.terminalCount += 1;
++    self.needsDisplay = YES;
++}
++
++- (void)drawRect:(NSRect)dirtyRect {
++    (void)dirtyRect;
++    [[NSColor colorWithCalibratedWhite:0.055 alpha:1.0] setFill];
++    NSRectFill(self.bounds);
++
++    const CGFloat headerHeight = 38.0;
++    NSRect header = NSMakeRect(0, self.bounds.size.height - headerHeight, self.bounds.size.width, headerHeight);
++    [[NSColor colorWithCalibratedWhite:0.095 alpha:1.0] setFill];
++    NSRectFill(header);
++
++    NSDictionary *headerAttrs = @{
++        NSFontAttributeName: [NSFont systemFontOfSize:13 weight:NSFontWeightSemibold],
++        NSForegroundColorAttributeName: [NSColor colorWithCalibratedWhite:0.92 alpha:1.0],
++    };
++    [@"Ghostty" drawInRect:NSInsetRect(header, 12, 10) withAttributes:headerAttrs];
++
++    NSDictionary *pillAttrs = @{
++        NSFontAttributeName: [NSFont systemFontOfSize:11 weight:NSFontWeightMedium],
++        NSForegroundColorAttributeName: [NSColor colorWithCalibratedWhite:0.68 alpha:1.0],
++    };
++    NSString *slot = [NSString stringWithFormat:@"native AppKit slot  %ld", (long)self.terminalCount];
++    [slot drawInRect:NSMakeRect(self.bounds.size.width - 150, header.origin.y + 11, 138, 18) withAttributes:pillAttrs];
++
++    NSMutableParagraphStyle *style = [[NSMutableParagraphStyle alloc] init];
++    style.lineSpacing = 4;
++    NSDictionary *terminalAttrs = @{
++        NSFontAttributeName: [NSFont monospacedSystemFontOfSize:12 weight:NSFontWeightRegular],
++        NSForegroundColorAttributeName: [NSColor colorWithCalibratedRed:0.82 green:0.89 blue:0.94 alpha:1.0],
++        NSParagraphStyleAttributeName: style,
++    };
++    NSString *body = @"$ zero-cmux native shell\n$ ghostty host = NSView\n$ chromium owns only browser content\n$ next step: mount live ghostty_surface_new here";
++    [body drawInRect:NSInsetRect(NSMakeRect(0, 0, self.bounds.size.width, self.bounds.size.height - headerHeight), 14, 16) withAttributes:terminalAttrs];
++}
++
++@end
++
++@interface ZeroNativeCmuxWorkbenchView : NSView
++@property(nonatomic, weak) id<ZeroNativeCmuxWorkbenchHost> host;
++@property(nonatomic, assign) uint64_t windowId;
++@property(nonatomic, strong) ZeroNativeCmuxGhosttySlotView *terminalSlot;
++@property(nonatomic, strong) NSView *browserPane;
++@property(nonatomic, strong) NSView *browserContainer;
++@property(nonatomic, strong) NSTextField *titleLabel;
++@property(nonatomic, strong) NSTextField *addressField;
++@property(nonatomic, strong) NSButton *goButton;
++@property(nonatomic, strong) NSButton *addTerminalButton;
++- (void)setBrowserURLString:(NSString *)urlString;
++@end
++
++@implementation ZeroNativeCmuxWorkbenchView
++
++- (instancetype)initWithFrame:(NSRect)frameRect {
++    self = [super initWithFrame:frameRect];
++    if (!self) return nil;
++
++    self.wantsLayer = YES;
++    self.layer.backgroundColor = [NSColor separatorColor].CGColor;
++
++    _terminalSlot = [[ZeroNativeCmuxGhosttySlotView alloc] initWithFrame:NSZeroRect];
++    [self addSubview:_terminalSlot];
++
++    _browserPane = [[NSView alloc] initWithFrame:NSZeroRect];
++    _browserPane.wantsLayer = YES;
++    _browserPane.layer.backgroundColor = NSColor.windowBackgroundColor.CGColor;
++    [self addSubview:_browserPane];
++
++    _browserContainer = [[NSView alloc] initWithFrame:NSZeroRect];
++    _browserContainer.wantsLayer = YES;
++    _browserContainer.layer.backgroundColor = NSColor.whiteColor.CGColor;
++    [_browserPane addSubview:_browserContainer];
++
++    _titleLabel = [NSTextField labelWithString:@"Chrome"];
++    _titleLabel.font = [NSFont systemFontOfSize:13 weight:NSFontWeightSemibold];
++    _titleLabel.translatesAutoresizingMaskIntoConstraints = YES;
++    [_browserPane addSubview:_titleLabel];
++
++    _addressField = [[NSTextField alloc] initWithFrame:NSZeroRect];
++    _addressField.font = [NSFont systemFontOfSize:13];
++    _addressField.bezelStyle = NSTextFieldRoundedBezel;
++    _addressField.stringValue = @"https://zero-native.dev";
++    _addressField.target = self;
++    _addressField.action = @selector(go:);
++    [_browserPane addSubview:_addressField];
++
++    _goButton = [NSButton buttonWithTitle:@"Go" target:self action:@selector(go:)];
++    _goButton.bezelStyle = NSBezelStyleRounded;
++    [_browserPane addSubview:_goButton];
++
++    _addTerminalButton = [NSButton buttonWithTitle:@"+" target:self action:@selector(newTerminal:)];
++    _addTerminalButton.bezelStyle = NSBezelStyleRounded;
++    [_browserPane addSubview:_addTerminalButton];
++
++    return self;
++}
++
++- (void)layout {
++    [super layout];
++
++    const CGFloat minTerminalWidth = 320.0;
++    const CGFloat maxTerminalFraction = 0.48;
++    CGFloat terminalWidth = floor(self.bounds.size.width * 0.38);
++    terminalWidth = MAX(minTerminalWidth, MIN(terminalWidth, floor(self.bounds.size.width * maxTerminalFraction)));
++    if (self.bounds.size.width < 760) terminalWidth = floor(self.bounds.size.width * 0.42);
++
++    self.terminalSlot.frame = NSMakeRect(0, 0, terminalWidth, self.bounds.size.height);
++    self.browserPane.frame = NSMakeRect(terminalWidth + 1, 0, self.bounds.size.width - terminalWidth - 1, self.bounds.size.height);
++
++    const CGFloat chromeHeight = 40.0;
++    const CGFloat padding = 8.0;
++    self.titleLabel.frame = NSMakeRect(padding, self.browserPane.bounds.size.height - 28, 70, 20);
++
++    CGFloat buttonWidth = 42.0;
++    CGFloat newTerminalWidth = 30.0;
++    CGFloat fieldX = 82.0;
++    CGFloat fieldY = self.browserPane.bounds.size.height - 32.0;
++    CGFloat fieldWidth = MAX(120.0, self.browserPane.bounds.size.width - fieldX - buttonWidth - newTerminalWidth - padding * 4);
++    self.addressField.frame = NSMakeRect(fieldX, fieldY, fieldWidth, 24);
++
++    self.goButton.frame = NSMakeRect(NSMaxX(self.addressField.frame) + padding, fieldY - 1, buttonWidth, 26);
++    self.addTerminalButton.frame = NSMakeRect(NSMaxX(self.goButton.frame) + padding, fieldY - 1, newTerminalWidth, 26);
++
++    self.browserContainer.frame = NSMakeRect(0, 0, self.browserPane.bounds.size.width, MAX(0, self.browserPane.bounds.size.height - chromeHeight));
++}
++
++- (void)setBrowserURLString:(NSString *)urlString {
++    if (urlString.length == 0) return;
++    self.addressField.stringValue = urlString;
++}
++
++- (void)go:(id)sender {
++    (void)sender;
++    [self.host navigateNativeBrowserToString:self.addressField.stringValue windowId:self.windowId];
++}
++
++- (void)newTerminal:(id)sender {
++    (void)sender;
++    [self.terminalSlot incrementTerminalCount];
++}
++
++@end
++
+ @interface ZeroNativeChromiumWindowDelegate : NSObject <NSWindowDelegate>
+ @property(nonatomic, assign) ZeroNativeChromiumHost *host;
+ @property(nonatomic, assign) uint64_t windowId;
+ @end
+ 
+-@interface ZeroNativeChromiumHost : NSObject
++@interface ZeroNativeChromiumHost : NSObject <ZeroNativeCmuxWorkbenchHost>
+ @property(nonatomic, strong) NSWindow *window;
+ @property(nonatomic, strong) NSView *browserContainer;
+ @property(nonatomic, strong) ZeroNativeChromiumWindowDelegate *delegate;
+ @property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSWindow *> *windows;
+ @property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSView *> *browserContainers;
++@property(nonatomic, strong) NSMutableDictionary<NSNumber *, ZeroNativeCmuxWorkbenchView *> *nativeWorkbenchViews;
+ @property(nonatomic, strong) NSMutableDictionary<NSNumber *, ZeroNativeChromiumWindowDelegate *> *delegates;
+ @property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSString *> *bridgeOrigins;
+ @property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSString *> *internalURLPrefixes;
++@property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSString *> *inlineHTMLSources;
+ @property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSString *> *windowLabels;
+ @property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSString *> *fallbackURLs;
+ @property(nonatomic, strong) NSTimer *timer;
+@@ -335,10 +551,11 @@ @interface ZeroNativeChromiumHost : NSObject
+ @property(nonatomic) CefRefPtr<CefBrowser> browser;
+ @property(nonatomic, assign) std::map<uint64_t, CefRefPtr<ZeroNativeCefClient>> *cefClients;
+ @property(nonatomic, assign) std::map<uint64_t, CefRefPtr<CefBrowser>> *browsers;
++@property(nonatomic, assign) BOOL cmuxNativeShellEnabled;
+ @property(nonatomic, strong) NSArray<NSString *> *allowedNavigationOrigins;
+ @property(nonatomic, strong) NSArray<NSString *> *allowedExternalURLs;
+ @property(nonatomic, assign) NSInteger externalLinkAction;
+-- (instancetype)initWithAppName:(NSString *)appName title:(NSString *)title width:(double)width height:(double)height;
++- (instancetype)initWithAppName:(NSString *)appName bundleIdentifier:(NSString *)bundleIdentifier title:(NSString *)title width:(double)width height:(double)height;
+ - (void)configureApplication;
+ - (void)buildMenuBar;
+ - (NSMenuItem *)menuItem:(NSString *)title action:(SEL)action key:(NSString *)key modifiers:(NSEventModifierFlags)modifiers;
+@@ -360,6 +577,9 @@ - (BOOL)isInternalURL:(NSURL *)url;
+ - (BOOL)allowsNavigationURL:(NSURL *)url;
+ - (BOOL)openExternalURLIfAllowed:(NSURL *)url;
+ - (void)setBrowser:(CefRefPtr<CefBrowser>)browser windowId:(uint64_t)windowId;
++- (void)loadInlineHTMLIfNeededForWindowId:(uint64_t)windowId browser:(CefRefPtr<CefBrowser>)browser;
++- (void)updateNativeBrowserURLString:(NSString *)urlString windowId:(uint64_t)windowId;
++- (void)navigateNativeBrowserToString:(NSString *)value windowId:(uint64_t)windowId;
+ - (NSString *)fallbackURLForWindowId:(uint64_t)windowId;
+ - (NSString *)bridgeOriginForWindowId:(uint64_t)windowId sourceURL:(NSString *)sourceURL;
+ - (void)receiveBridgePayload:(NSString *)payload origin:(NSString *)origin windowId:(uint64_t)windowId;
+@@ -393,9 +613,11 @@ - (void)windowWillClose:(NSNotification *)notification {
+     NSNumber *key = @(self.windowId);
+     [self.host.windows removeObjectForKey:key];
+     [self.host.browserContainers removeObjectForKey:key];
++    [self.host.nativeWorkbenchViews removeObjectForKey:key];
+     [self.host.delegates removeObjectForKey:key];
+     [self.host.bridgeOrigins removeObjectForKey:key];
+     [self.host.internalURLPrefixes removeObjectForKey:key];
++    [self.host.inlineHTMLSources removeObjectForKey:key];
+     [self.host.windowLabels removeObjectForKey:key];
+     [self.host.fallbackURLs removeObjectForKey:key];
+     if (self.host.browsers) self.host.browsers->erase(self.windowId);
+@@ -410,7 +632,7 @@ - (void)windowWillClose:(NSNotification *)notification {
+ 
+ @implementation ZeroNativeChromiumHost
+ 
+-- (instancetype)initWithAppName:(NSString *)appName title:(NSString *)title width:(double)width height:(double)height {
++- (instancetype)initWithAppName:(NSString *)appName bundleIdentifier:(NSString *)bundleIdentifier title:(NSString *)title width:(double)width height:(double)height {
+     self = [super init];
+     if (!self) return nil;
+ 
+@@ -418,12 +640,15 @@ - (instancetype)initWithAppName:(NSString *)appName title:(NSString *)title widt
+     ensureCefInitialized();
+     [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+     self.appName = appName.length > 0 ? appName : @"zero-native";
++    self.cmuxNativeShellEnabled = [bundleIdentifier isEqualToString:@"com.cmux.zero-native"] || [self.appName isEqualToString:@"zero-cmux"];
+     [self configureApplication];
+     self.windows = [[NSMutableDictionary alloc] init];
+     self.browserContainers = [[NSMutableDictionary alloc] init];
++    self.nativeWorkbenchViews = [[NSMutableDictionary alloc] init];
+     self.delegates = [[NSMutableDictionary alloc] init];
+     self.bridgeOrigins = [[NSMutableDictionary alloc] init];
+     self.internalURLPrefixes = [[NSMutableDictionary alloc] init];
++    self.inlineHTMLSources = [[NSMutableDictionary alloc] init];
+     self.windowLabels = [[NSMutableDictionary alloc] init];
+     self.fallbackURLs = [[NSMutableDictionary alloc] init];
+     self.cefClients = new std::map<uint64_t, CefRefPtr<ZeroNativeCefClient>>();
+@@ -536,9 +761,21 @@ - (BOOL)createWindowWithId:(uint64_t)windowId title:(NSString *)title label:(NSS
+     [window setTitle:title.length > 0 ? title : @"zero-native"];
+     if (!restoreFrame) [window center];
+ 
+-    NSView *browserContainer = [[NSView alloc] initWithFrame:rect];
+-    browserContainer.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+-    window.contentView = browserContainer;
++    NSView *browserContainer = nil;
++    ZeroNativeCmuxWorkbenchView *workbenchView = nil;
++    if (self.cmuxNativeShellEnabled) {
++        workbenchView = [[ZeroNativeCmuxWorkbenchView alloc] initWithFrame:rect];
++        workbenchView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
++        workbenchView.host = self;
++        workbenchView.windowId = windowId;
++        browserContainer = workbenchView.browserContainer;
++        window.contentView = workbenchView;
++        [workbenchView layoutSubtreeIfNeeded];
++    } else {
++        browserContainer = [[NSView alloc] initWithFrame:rect];
++        browserContainer.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
++        window.contentView = browserContainer;
++    }
+ 
+     ZeroNativeChromiumWindowDelegate *delegate = [[ZeroNativeChromiumWindowDelegate alloc] init];
+     delegate.host = self;
+@@ -548,6 +785,7 @@ - (BOOL)createWindowWithId:(uint64_t)windowId title:(NSString *)title label:(NSS
+ 
+     self.windows[key] = window;
+     self.browserContainers[key] = browserContainer;
++    if (workbenchView) self.nativeWorkbenchViews[key] = workbenchView;
+     self.delegates[key] = delegate;
+     self.windowLabels[key] = label.length > 0 ? label : (makeMain ? @"main" : @"");
+     (*self.cefClients)[windowId] = client;
+@@ -601,14 +839,16 @@ - (void)runWithCallback:(zero_native_appkit_event_callback_t)callback context:(v
+     [self.window makeKeyAndOrderFront:nil];
+     [NSApp activateIgnoringOtherApps:YES];
+ 
+-    [self emitEvent:(zero_native_appkit_event_t){ .kind = ZERO_NATIVE_APPKIT_EVENT_START }];
+-    [self emitResize];
+-    [self emitWindowFrameForWindowId:1 open:YES];
+     self.timer = [NSTimer scheduledTimerWithTimeInterval:(1.0 / 60.0)
+                                                  target:self
+                                                selector:@selector(emitFrame)
+                                                userInfo:nil
+                                                 repeats:YES];
++    dispatch_async(dispatch_get_main_queue(), ^{
++        [self emitEvent:(zero_native_appkit_event_t){ .kind = ZERO_NATIVE_APPKIT_EVENT_START }];
++        [self emitResize];
++        [self emitWindowFrameForWindowId:1 open:YES];
++    });
+     [NSApp run];
+     shutdownCefIfNeeded();
+ }
+@@ -702,9 +942,9 @@ - (void)loadSource:(NSString *)source kind:(NSInteger)kind assetRoot:(NSString *
+     NSString *bridgeOrigin = nil;
+     NSString *internalURLPrefix = nil;
+     if (kind == 0) {
+-        urlString = temporaryHtmlUrl(source);
++        urlString = @"about:blank";
+         bridgeOrigin = @"zero://inline";
+-        internalURLPrefix = urlString;
++        internalURLPrefix = @"zero://inline/";
+     } else if (kind == 2) {
+         NSString *resolvedRoot = ZeroNativeResolvedAssetRoot(assetRoot ?: @"");
+         NSString *assetEntry = entry.length > 0 ? entry : @"index.html";
+@@ -726,11 +966,17 @@ - (void)loadSource:(NSString *)source kind:(NSInteger)kind assetRoot:(NSString *
+     } else {
+         [self.internalURLPrefixes removeObjectForKey:key];
+     }
++    if (kind == 0) {
++        self.inlineHTMLSources[key] = source ?: @"";
++    } else {
++        [self.inlineHTMLSources removeObjectForKey:key];
++    }
+     if (kind == 2 && spaFallback) {
+         self.fallbackURLs[key] = urlString;
+     } else {
+         [self.fallbackURLs removeObjectForKey:key];
+     }
++    [self updateNativeBrowserURLString:urlString windowId:windowId];
+     NSView *container = self.browserContainers[@(windowId)] ?: self.browserContainer;
+     CefRefPtr<CefBrowser> browser;
+     if (self.browsers) {
+@@ -738,7 +984,11 @@ - (void)loadSource:(NSString *)source kind:(NSInteger)kind assetRoot:(NSString *
+         if (browser_it != self.browsers->end()) browser = browser_it->second;
+     }
+     if (browser) {
+-        browser->GetMainFrame()->LoadURL(std::string(urlString.UTF8String));
++        if (kind == 0) {
++            [self loadInlineHTMLIfNeededForWindowId:windowId browser:browser];
++        } else {
++            browser->GetMainFrame()->LoadURL(std::string(urlString.UTF8String));
++        }
+         return;
+     }
+ 
+@@ -769,6 +1019,7 @@ - (BOOL)allowsNavigationURL:(NSURL *)url {
+     NSString *scheme = url.scheme.lowercaseString ?: @"";
+     if (scheme.length == 0 || [scheme isEqualToString:@"about"]) return YES;
+     if ([self isInternalURL:url]) return YES;
++    if (self.cmuxNativeShellEnabled && ([scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"])) return YES;
+     return ZeroNativePolicyListMatches(self.allowedNavigationOrigins, url);
+ }
+ 
+@@ -784,6 +1035,37 @@ - (void)setBrowser:(CefRefPtr<CefBrowser>)browser windowId:(uint64_t)windowId {
+     if (windowId == 1) self.browser = browser;
+ }
+ 
++- (void)updateNativeBrowserURLString:(NSString *)urlString windowId:(uint64_t)windowId {
++    ZeroNativeCmuxWorkbenchView *workbench = self.nativeWorkbenchViews[@(windowId)];
++    [workbench setBrowserURLString:urlString];
++}
++
++- (NSString *)normalizedBrowserURLString:(NSString *)value {
++    NSString *trimmed = [value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
++    if (trimmed.length == 0) return @"about:blank";
++    NSURL *url = [NSURL URLWithString:trimmed];
++    if (url.scheme.length > 0) return trimmed;
++    return [@"https://" stringByAppendingString:trimmed];
++}
++
++- (void)navigateNativeBrowserToString:(NSString *)value windowId:(uint64_t)windowId {
++    NSString *urlString = [self normalizedBrowserURLString:value ?: @""];
++    [self updateNativeBrowserURLString:urlString windowId:windowId];
++    if (!self.browsers) return;
++    auto it = self.browsers->find(windowId);
++    if (it == self.browsers->end() || !it->second) return;
++    it->second->GetMainFrame()->LoadURL(std::string(urlString.UTF8String));
++}
++
++- (void)loadInlineHTMLIfNeededForWindowId:(uint64_t)windowId browser:(CefRefPtr<CefBrowser>)browser {
++    NSString *html = self.inlineHTMLSources[@(windowId)];
++    if (html.length == 0 || !browser) return;
++    NSData *htmlJSONData = [NSJSONSerialization dataWithJSONObject:@[ html ] options:0 error:nil];
++    NSString *htmlJSON = htmlJSONData ? [[NSString alloc] initWithData:htmlJSONData encoding:NSUTF8StringEncoding] : @"[\"\"]";
++    NSString *script = [NSString stringWithFormat:@"(function(){var html=%@;document.open();document.write(html[0]);document.close();})();", htmlJSON];
++    browser->GetMainFrame()->ExecuteJavaScript(std::string(script.UTF8String), "zero://inline/", 0);
++}
++
+ - (NSString *)fallbackURLForWindowId:(uint64_t)windowId {
+     return self.fallbackURLs[@(windowId)];
+ }
+@@ -882,6 +1164,7 @@ static BOOL ZeroNativePolicyListMatches(NSArray<NSString *> *values, NSURL *url)
+ 
+ void ZeroNativeCefClient::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
+     [host_ setBrowser:browser windowId:window_id_];
++    [host_ loadInlineHTMLIfNeededForWindowId:window_id_ browser:browser];
+ }
+ 
+ void ZeroNativeCefClient::OnLoadError(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, ErrorCode errorCode, const CefString& errorText, const CefString& failedUrl) {
+@@ -904,7 +1187,10 @@ static BOOL ZeroNativePolicyListMatches(NSArray<NSString *> *values, NSURL *url)
+     std::string url = request ? request->GetURL().ToString() : std::string();
+     NSString *urlString = [[NSString alloc] initWithBytes:url.data() length:url.size() encoding:NSUTF8StringEncoding] ?: @"";
+     NSURL *nsURL = [NSURL URLWithString:urlString];
+-    if ([host_ allowsNavigationURL:nsURL]) return false;
++    if ([host_ allowsNavigationURL:nsURL]) {
++        [host_ updateNativeBrowserURLString:urlString windowId:window_id_];
++        return false;
++    }
+     if ([host_ openExternalURLIfAllowed:nsURL]) return true;
+     return true;
+ }
+@@ -926,16 +1212,16 @@ static BOOL ZeroNativePolicyListMatches(NSArray<NSString *> *values, NSURL *url)
+ } // namespace
+ 
+ zero_native_appkit_host_t *zero_native_appkit_create(const char *app_name, size_t app_name_len, const char *window_title, size_t window_title_len, const char *bundle_id, size_t bundle_id_len, const char *icon_path, size_t icon_path_len, const char *window_label, size_t window_label_len, double x, double y, double width, double height, int restore_frame) {
++    ZeroNativeRunCefSubprocessIfNeeded();
+     @autoreleasepool {
+-        (void)bundle_id;
+-        (void)bundle_id_len;
+         (void)icon_path;
+         (void)icon_path_len;
+         (void)window_label;
+         (void)window_label_len;
+         NSString *appNameString = [[NSString alloc] initWithBytes:app_name length:app_name_len encoding:NSUTF8StringEncoding] ?: @"zero-native";
++        NSString *bundleIdentifierString = [[NSString alloc] initWithBytes:bundle_id length:bundle_id_len encoding:NSUTF8StringEncoding] ?: @"";
+         NSString *titleString = [[NSString alloc] initWithBytes:window_title length:window_title_len encoding:NSUTF8StringEncoding] ?: appNameString;
+-        ZeroNativeChromiumHost *host = [[ZeroNativeChromiumHost alloc] initWithAppName:appNameString title:titleString width:width height:height];
++        ZeroNativeChromiumHost *host = [[ZeroNativeChromiumHost alloc] initWithAppName:appNameString bundleIdentifier:bundleIdentifierString title:titleString width:width height:height];
+         if (restore_frame) {
+             [host.window setFrame:ZeroNativeConstrainFrame(NSMakeRect(x, y, width, height)) display:NO];
+         }

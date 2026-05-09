@@ -8,6 +8,21 @@ if [ ! -d "$ZERO_NATIVE_DIR/.git" ]; then
   git clone --depth 1 https://github.com/vercel-labs/zero-native.git "$ZERO_NATIVE_DIR"
 fi
 
+shopt -s nullglob
+PATCHES=("$ROOT"/patches/*.patch)
+shopt -u nullglob
+
+for PATCH in "${PATCHES[@]}"; do
+  if git -C "$ZERO_NATIVE_DIR" apply --check "$PATCH" >/dev/null 2>&1; then
+    git -C "$ZERO_NATIVE_DIR" apply "$PATCH"
+  elif git -C "$ZERO_NATIVE_DIR" apply --reverse --check "$PATCH" >/dev/null 2>&1; then
+    :
+  else
+    echo "Failed to apply Zero Native patch: ${PATCH##*/}" >&2
+    exit 1
+  fi
+done
+
 if command -v zero-native >/dev/null 2>&1; then
   ZERO_NATIVE_CLI=(zero-native)
 else

@@ -5,124 +5,10 @@ const ghostty_contract = @import("ghostty-contract");
 
 pub const panic = std.debug.FullPanic(zero_native.debug.capturePanic);
 
-const html =
-    \\<!doctype html>
-    \\<html>
-    \\<head>
-    \\  <meta charset="utf-8">
-    \\  <meta name="viewport" content="width=device-width, initial-scale=1">
-    \\  <meta http-equiv="Content-Security-Policy" content="default-src 'self' zero://inline zero://app https: data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src https: http: data:;">
-    \\  <style>
-    \\    :root { color-scheme: light dark; --bg:#f6f7f8; --panel:#ffffff; --ink:#17191c; --muted:#68707a; --line:#d9dde3; --active:#1463ff; --terminal:#101214; --terminal-ink:#e8edf2; }
-    \\    @media (prefers-color-scheme: dark) { :root { --bg:#111316; --panel:#191c20; --ink:#eff2f5; --muted:#99a1ad; --line:#2a3038; --active:#6ba4ff; --terminal:#08090a; --terminal-ink:#dfe7ee; } }
-    \\    * { box-sizing: border-box; }
-    \\    body { margin:0; height:100vh; overflow:hidden; background:var(--bg); color:var(--ink); font:13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing:0; }
-    \\    button, input { font:inherit; }
-    \\    .app { height:100vh; display:grid; grid-template-columns:230px 1fr; grid-template-rows:40px 1fr; }
-    \\    .top { grid-column:1 / -1; display:flex; align-items:center; gap:10px; padding:0 12px; border-bottom:1px solid var(--line); background:var(--panel); }
-    \\    .brand { font-weight:650; }
-    \\    .pill { border:1px solid var(--line); border-radius:999px; padding:3px 8px; color:var(--muted); white-space:nowrap; }
-    \\    .spacer { flex:1; }
-    \\    .sidebar { border-right:1px solid var(--line); background:var(--panel); padding:10px; overflow:auto; }
-    \\    .workspace { width:100%; border:1px solid var(--line); border-radius:7px; background:var(--bg); color:var(--ink); padding:9px 10px; text-align:left; }
-    \\    .workspace + .workspace { margin-top:8px; }
-    \\    .main { min-width:0; min-height:0; display:grid; grid-template-rows:38px 1fr; }
-    \\    .tabs { display:flex; gap:6px; align-items:center; padding:6px 8px; border-bottom:1px solid var(--line); background:var(--panel); overflow:auto; }
-    \\    .tab { height:26px; border:1px solid var(--line); border-radius:7px; background:transparent; color:var(--ink); padding:0 10px; display:flex; align-items:center; gap:7px; white-space:nowrap; }
-    \\    .tab.active { border-color:color-mix(in srgb, var(--active) 45%, var(--line)); background:color-mix(in srgb, var(--active) 11%, transparent); }
-    \\    .tool { height:26px; width:30px; border:1px solid var(--line); border-radius:7px; background:transparent; color:var(--ink); }
-    \\    .content { min-width:0; min-height:0; display:grid; grid-template-columns:minmax(360px, 0.95fr) minmax(420px, 1.05fr); gap:1px; background:var(--line); }
-    \\    .pane { min-width:0; min-height:0; background:var(--panel); display:grid; grid-template-rows:34px 1fr; }
-    \\    .pane-head { display:flex; align-items:center; gap:8px; min-width:0; padding:0 8px; border-bottom:1px solid var(--line); }
-    \\    .pane-title { font-weight:600; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    \\    .address { flex:1; min-width:80px; height:24px; border:1px solid var(--line); border-radius:7px; background:var(--bg); color:var(--ink); padding:0 8px; }
-    \\    .go { height:24px; border:1px solid var(--line); border-radius:7px; background:var(--bg); color:var(--ink); padding:0 9px; }
-    \\    .terminal { background:var(--terminal); color:var(--terminal-ink); padding:14px; font:12px ui-monospace, SFMono-Regular, Menlo, monospace; overflow:auto; }
-    \\    .terminal .muted { color:#8f9aa5; }
-    \\    iframe { width:100%; height:100%; border:0; background:white; }
-    \\    .empty { display:grid; place-items:center; color:var(--muted); }
-    \\  </style>
-    \\</head>
-    \\<body>
-    \\  <div class="app">
-    \\    <div class="top">
-    \\      <div class="brand">cmux zero</div>
-    \\      <div class="pill" id="browser-engine">browser</div>
-    \\      <div class="pill" id="terminal-engine">terminal</div>
-    \\      <div class="spacer"></div>
-    \\      <button class="tool" id="new-terminal" title="New terminal">+</button>
-    \\      <button class="tool" id="new-browser" title="New browser">B</button>
-    \\    </div>
-    \\    <aside class="sidebar" id="workspaces"></aside>
-    \\    <main class="main">
-    \\      <div class="tabs" id="tabs"></div>
-    \\      <div class="content" id="content"></div>
-    \\    </main>
-    \\  </div>
-    \\  <script>
-    \\    const state = { panes: [], selectedPaneId: 0 };
-    \\    const q = (s) => document.querySelector(s);
-    \\    async function invoke(command, payload = {}) {
-    \\      return await window.zero.invoke(command, payload);
-    \\    }
-    \\    function paneIcon(kind) { return kind === "terminal" ? "T" : "B"; }
-    \\    function browserPane() { return state.panes.find((p) => p.kind === "browser") || state.panes[0]; }
-    \\    function terminalPane() { return state.panes.find((p) => p.kind === "terminal") || state.panes[0]; }
-    \\    function render() {
-    \\      q("#browser-engine").textContent = state.browserEngine;
-    \\      q("#terminal-engine").textContent = state.terminalEngine;
-    \\      q("#workspaces").innerHTML = `<button class="workspace">main<br><span style="color:var(--muted)">${state.panes.length} panes</span></button>`;
-    \\      q("#tabs").innerHTML = state.panes.map((p) => `<button class="tab ${p.id === state.selectedPaneId ? "active" : ""}" data-pane="${p.id}"><span>${paneIcon(p.kind)}</span><span>${p.title}</span></button>`).join("");
-    \\      for (const tab of document.querySelectorAll(".tab")) {
-    \\        tab.onclick = async () => {
-    \\          Object.assign(state, await invoke("workbench.focusPane", { paneId: Number(tab.dataset.pane) }));
-    \\          render();
-    \\        };
-    \\      }
-    \\      const terminal = terminalPane();
-    \\      const browser = browserPane();
-    \\      q("#content").innerHTML = `
-    \\        <section class="pane">
-    \\          <div class="pane-head"><div class="pane-title">${terminal ? terminal.title : "Terminal"}</div><div class="pill">Ghostty</div></div>
-    \\          <div class="terminal" data-native-slot="${terminal ? "ghostty:" + terminal.id : ""}">
-    \\            <div class="muted">$ native-slot ${terminal ? terminal.id : "none"}</div>
-    \\            <div>$ ${terminal ? terminal.cwd : "~"}</div>
-    \\            <div class="muted">surface=${terminal ? terminal.host : "ghostty"} context=split io=exec</div>
-    \\          </div>
-    \\        </section>
-    \\        <section class="pane">
-    \\          <div class="pane-head">
-    \\            <div class="pane-title">${browser ? browser.title : "Browser"}</div>
-    \\            <input class="address" id="address" value="${browser ? browser.url : ""}">
-    \\            <button class="go" id="go">Go</button>
-    \\          </div>
-    \\          ${browser ? `<iframe src="${browser.url}"></iframe>` : `<div class="empty">No browser pane</div>`}
-    \\        </section>`;
-    \\      const go = q("#go");
-    \\      if (go && browser) {
-    \\        go.onclick = async () => {
-    \\          Object.assign(state, await invoke("workbench.navigateBrowser", { paneId: browser.id, url: q("#address").value }));
-    \\          render();
-    \\        };
-    \\      }
-    \\    }
-    \\    async function refresh() {
-    \\      Object.assign(state, await invoke("workbench.snapshot"));
-    \\      render();
-    \\    }
-    \\    q("#new-terminal").onclick = async () => { Object.assign(state, await invoke("workbench.addTerminal")); render(); };
-    \\    q("#new-browser").onclick = async () => { Object.assign(state, await invoke("workbench.addBrowser")); render(); };
-    \\    refresh().catch((error) => {
-    \\      q("#content").innerHTML = `<div class="empty">${error.code || "error"}: ${error.message}</div>`;
-    \\    });
-    \\  </script>
-    \\</body>
-    \\</html>
-;
-
 const MaxPanes = 8;
 const MaxTitle = 80;
 const MaxURL = 512;
+const initial_browser_url = "https://zero-native.dev";
 
 const PaneKind = enum {
     terminal,
@@ -176,7 +62,7 @@ const bridge_policies = [_]zero_native.BridgeCommandPolicy{
     .{ .name = "workbench.navigateBrowser" },
 };
 
-const allowed_origins = [_][]const u8{ "zero://inline", "zero://app" };
+const allowed_origins = [_][]const u8{ "zero://inline", "zero://app", "https://zero-native.dev" };
 
 const WorkbenchApp = struct {
     panes: [MaxPanes]Pane = undefined,
@@ -196,7 +82,7 @@ const WorkbenchApp = struct {
         return .{
             .context = self,
             .name = "zero-cmux",
-            .source = zero_native.WebViewSource.html(html),
+            .source = zero_native.WebViewSource.url(initial_browser_url),
         };
     }
 
@@ -290,7 +176,7 @@ const WorkbenchApp = struct {
     fn writeSnapshot(self: *@This(), output: []u8) ![]const u8 {
         const contract = ghostty_contract.current();
         var writer = std.Io.Writer.fixed(output);
-        try writer.writeAll("{\"browserEngine\":\"chromium-cef\",\"terminalEngine\":");
+        try writer.writeAll("{\"browserEngine\":\"chromium-cef\",\"layoutOwner\":\"appkit-native\",\"terminalEngine\":");
         try writeJsonString(&writer, contract.terminal_engine);
         try writer.writeAll(",\"ghostty\":{\"hostPlatform\":");
         try writeJsonString(&writer, contract.host_platform);
@@ -380,8 +266,17 @@ test "snapshot declares chromium browser panes and Ghostty terminal host" {
     , .{ .origin = "zero://inline" }, &output);
 
     try std.testing.expect(std.mem.indexOf(u8, response, "\"ok\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, response, "appkit-native") != null);
     try std.testing.expect(std.mem.indexOf(u8, response, "chromium-cef") != null);
     try std.testing.expect(std.mem.indexOf(u8, response, "ghostty") != null);
+}
+
+test "app loads the Chromium browser URL instead of a terminal HTML shell" {
+    var app_state = WorkbenchApp.init();
+    const app_value = app_state.app();
+
+    try std.testing.expectEqual(zero_native.WebViewSourceKind.url, app_value.source.kind);
+    try std.testing.expectEqualStrings(initial_browser_url, app_value.source.bytes);
 }
 
 test "browser navigation normalizes hostnames" {
