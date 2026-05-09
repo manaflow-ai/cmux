@@ -323,7 +323,7 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
 
         baselineApp.terminate()
 
-        let (hintedApp, hintedDataPath) = launchApp()
+        let (hintedApp, hintedDataPath) = launchApp(alwaysShowShortcutHints: true)
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: hintedApp, timeout: 8.0))
         XCTAssertTrue(waitForBonsplitSetupReady(atPath: hintedDataPath, timeout: 8.0))
 
@@ -369,14 +369,16 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
         }
     }
 
-    private func launchApp() -> (XCUIApplication, String) {
+    private func launchApp(alwaysShowShortcutHints: Bool = false) -> (XCUIApplication, String) {
         let app = XCUIApplication()
         let dataPath = "/tmp/cmux-ui-test-titlebar-shortcut-hints-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
-        app.launchEnvironment["CMUX_UI_TEST_SHORTCUT_HINTS_ALWAYS_SHOW"] = "1"
+        if alwaysShowShortcutHints {
+            app.launchEnvironment["CMUX_UI_TEST_SHORTCUT_HINTS_ALWAYS_SHOW"] = "1"
+        }
         app.launchArguments += ["-workspacePresentationMode", "standard"]
         let options = XCTExpectedFailure.Options()
         options.isStrict = false

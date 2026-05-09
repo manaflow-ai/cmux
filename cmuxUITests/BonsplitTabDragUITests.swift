@@ -206,7 +206,10 @@ final class BonsplitTabDragUITests: XCTestCase {
 
         let closeButton = app.buttons["RightSidebar.closeButton"]
         XCTAssertTrue(closeButton.waitForExistence(timeout: 5.0), "Expected close button inside the right sidebar chrome.")
-        XCTAssertTrue(closeButton.isHittable, "Expected right sidebar close button to be hittable. button=\(closeButton.debugDescription)")
+        XCTAssertTrue(
+            waitForCondition(timeout: 3.0) { closeButton.isHittable },
+            "Expected right sidebar close button to be hittable. button=\(closeButton.debugDescription)"
+        )
 
         let shortcutHint = app.staticTexts["rightSidebarCloseShortcutHint"]
         XCTAssertTrue(shortcutHint.waitForExistence(timeout: 5.0), "Expected Cmd+Option+B hint over the close button.")

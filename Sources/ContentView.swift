@@ -2159,7 +2159,7 @@ struct ContentView: View {
                 #if DEBUG
                 cmuxDebugLog("rightSidebar.closeButton")
                 #endif
-                _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
+                _ = AppDelegate.shared?.closeRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
             }
         )
         .frame(width: rightSidebarWidth)
