@@ -139,11 +139,21 @@ relay, startup, and session-state path as `cmux ssh`. `cmux vm ssh-info <id>` is
 debugging command.
 
 Plain `cmux ssh` uses OpenSSH control sockets and `ControlPersist` by default. If the foreground
-SSH process exits after sleep or a network transition, the workspace can defer reconnection until
-OpenSSH confirms the foreground channel is ready again. Cloud VM provider sessions that expose only
-short-lived gateway credentials may still require a fresh attach lease, so Cloud VM terminal panes
-must keep the remote workspace state visible and show the existing disconnect banner rather than
-falling back silently to a local shell.
+SSH process exits after sleep or a network transition, the startup wrapper retries the same command
+before reporting the session ended. `cmux ssh` and `cmux vm ssh` share this wrapper, so both paths
+surface reconnect progress in the terminal and keep workspace remote state visible while the daemon
+or proxy controller reconnects. Cloud VM provider sessions that expose only short-lived gateway
+credentials may still require a fresh attach lease; after the retry limit is exhausted, the terminal
+prints the existing disconnect banner instead of falling back silently to a local shell.
+
+Manual sleep/network smoke:
+
+1. Start a Cloud VM, then attach with `cmux vm ssh <id>`.
+2. Confirm the terminal reaches a remote prompt and the sidebar shows the workspace as connected.
+3. Disable Wi-Fi or sleep the Mac long enough for OpenSSH to exit.
+4. Restore the network and confirm the terminal prints a reconnect attempt and either lands back in
+   a remote prompt or clearly reports that the remote session ended.
+5. Confirm the sidebar shows `Reconnecting` during retry and `Connected` after recovery.
 
 ## Effect conventions
 

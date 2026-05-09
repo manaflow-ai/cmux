@@ -862,6 +862,9 @@ func TestCLIBrowserAutomationPositionals(t *testing.T) {
 		if got := params["text"]; got != "dev@example.com" {
 			t.Fatalf("expected text, got %v", got)
 		}
+		if _, ok := params["value"]; ok {
+			t.Fatalf("browser.fill should not send value param: %#v", params)
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for browser fill request")
 	}

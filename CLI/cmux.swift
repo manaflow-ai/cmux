@@ -5157,8 +5157,10 @@ struct CMUXCLI {
             "cmux_remote_bootstrap_b64=\(shellQuote(encodedBootstrapScript))",
             "cmux_remote_bootstrap=\"$(printf %s \"$cmux_remote_bootstrap_b64\" | base64 -d 2>/dev/null || printf %s \"$cmux_remote_bootstrap_b64\" | base64 -D 2>/dev/null)\"",
             "cmux_remote_bootstrap=\"$(printf '%s' \"$cmux_remote_bootstrap\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_surface_id/g\")\"",
-            "if ! printf '%s' \"$cmux_remote_bootstrap\" | command \(installSSHPrefix) -T \(shellQuote(options.destination)) \(shellQuote(remoteBootstrapInstallCommand)); then",
-            "  exit 1",
+            "printf '%s' \"$cmux_remote_bootstrap\" | command \(installSSHPrefix) -T \(shellQuote(options.destination)) \(shellQuote(remoteBootstrapInstallCommand))",
+            "cmux_remote_install_status=$?",
+            "if [ \"$cmux_remote_install_status\" -ne 0 ]; then",
+            "  exit \"$cmux_remote_install_status\"",
             "fi",
             "cmux_remote_command_template=\(shellQuote(remoteCommandTemplate))",
             "cmux_remote_command=\"$(printf '%s' \"$cmux_remote_command_template\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_surface_id/g\")\"",
@@ -5694,20 +5696,45 @@ struct CMUXCLI {
         scriptLines += [
             "rm -f -- \"$0\" 2>/dev/null || true",
             "CMUX_SSH_SESSION_ENDED=0",
+            "CMUX_SSH_STARTUP_PID=$$",
+            "export CMUX_SSH_STARTUP_PID",
+            "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\"",
+            "case \"$cmux_ssh_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_reconnect_limit=20 ;; esac",
+            "cmux_ssh_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
+            "case \"$cmux_ssh_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_reconnect_delay=2 ;; esac",
+            "cmux_ssh_retry=0",
+            "CMUX_SSH_CHILD_PID=",
+            "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
             "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); }",
-            "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
+            "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; CMUX_SSH_SESSION_ENDED=1; trap - EXIT HUP INT TERM; if [ -n \"${CMUX_SSH_CHILD_PID:-}\" ]; then kill -TERM \"$CMUX_SSH_CHILD_PID\" 2>/dev/null || true; fi; exit \"$cmux_ssh_signal_status\"; }",
             "trap 'cmux_ssh_session_end' EXIT",
             "trap 'cmux_ssh_signal_exit 129' HUP",
             "trap 'cmux_ssh_signal_exit 130' INT",
             "trap 'cmux_ssh_signal_exit 143' TERM",
+            "while :; do",
         ]
         if isShellSnippet {
-            scriptLines.append(sshCommand)
+            scriptLines += [
+                "  (",
+                "    \(sshCommand)",
+                "  ) &",
+            ]
         } else {
-            scriptLines.append("command \(sshCommand)")
+            scriptLines.append("  command \(sshCommand) &")
         }
         scriptLines += [
-            "cmux_ssh_status=$?",
+            "  CMUX_SSH_CHILD_PID=$!",
+            "  wait \"$CMUX_SSH_CHILD_PID\"",
+            "  cmux_ssh_status=$?",
+            "  CMUX_SSH_CHILD_PID=",
+            "  case \"$cmux_ssh_status\" in 129) cmux_ssh_signal_exit 129 ;; 130) cmux_ssh_signal_exit 130 ;; 143) cmux_ssh_signal_exit 143 ;; esac",
+            "  if [ \"$cmux_ssh_status\" -eq 0 ]; then break; fi",
+            "  if [ \"$cmux_ssh_status\" -ne 255 ]; then break; fi",
+            "  cmux_ssh_retry=$((cmux_ssh_retry + 1))",
+            "  if [ \"$cmux_ssh_retry\" -gt \"$cmux_ssh_reconnect_limit\" ]; then break; fi",
+            "  cmux_ssh_note '\\n\\033[33m[cmux] ssh exited with status %s; reconnecting (attempt %s/%s).\\033[0m\\n\\033[2m[cmux] close this pane or press Ctrl-C to stop reconnecting.\\033[0m\\n' \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"",
+            "  if [ \"$cmux_ssh_reconnect_delay\" -gt 0 ]; then sleep \"$cmux_ssh_reconnect_delay\"; fi",
+            "done",
             "trap - EXIT HUP INT TERM",
             "cmux_ssh_session_end",
             // Hold the pane so the user can see the error instead of silently falling
@@ -5715,9 +5742,7 @@ struct CMUXCLI {
             // after the startup command exits, and a dead VM looks identical to "I never
             // SSH'd" — the surface shows `Last login: ... on ttys072` + a local prompt.
             "if [ \"$cmux_ssh_status\" -ne 0 ]; then",
-            "  printf '\\n\\033[31m[cmux] ssh exited with status %s.\\033[0m\\n' \"$cmux_ssh_status\" >&2",
-            "  printf '\\033[2m[cmux] the remote VM may have been paused, destroyed, or lost network.\\033[0m\\n' >&2",
-            "  printf '\\033[2m[cmux] press Enter to close this pane.\\033[0m\\n' >&2",
+            "  cmux_ssh_note '\\n\\033[31m[cmux] ssh exited with status %s.\\033[0m\\n\\033[2m[cmux] the remote VM may have been paused, destroyed, or lost network.\\033[0m\\n\\033[2m[cmux] press Enter to close this pane.\\033[0m\\n' \"$cmux_ssh_status\"",
             "  IFS= read -r _cmux_dismiss_key 2>/dev/null || true",
             "fi",
             "exit $cmux_ssh_status",

@@ -11,8 +11,8 @@ describe("VM image resolver", () => {
     });
     expect(resolveVmImage("freestyle", undefined, {})).toMatchObject({
       provider: "freestyle",
-      image: "sh-w2otfp1g287lzrpuc2gr",
-      imageVersion: "freestyle-tooling-20260509f",
+      image: "sh-17agfasevrc18c8f15nn",
+      imageVersion: "freestyle-tooling-20260509d",
     });
   });
 

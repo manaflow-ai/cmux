@@ -374,7 +374,12 @@ func runBrowserRelay(socketPath string, args []string, jsonOutput bool, refreshA
 		}
 	}
 	if spec.allowPositionalValue {
-		applyBrowserValuePositionals(params, parsed.positional, browserSpecSupportsParam(spec, "text"))
+		applyBrowserValuePositionals(
+			params,
+			parsed.positional,
+			browserSpecSupportsParam(spec, "value"),
+			browserSpecSupportsParam(spec, "text"),
+		)
 	}
 	if spec.useWorkspaceEnv {
 		applyWorkspaceEnvFallback(params)
@@ -405,7 +410,7 @@ func browserSpecSupportsParam(spec browserCommandSpec, paramKey string) bool {
 	return false
 }
 
-func applyBrowserValuePositionals(params map[string]any, positionals []string, allowTextMirror bool) {
+func applyBrowserValuePositionals(params map[string]any, positionals []string, allowValue bool, allowText bool) {
 	if len(positionals) == 0 {
 		return
 	}
@@ -413,19 +418,23 @@ func applyBrowserValuePositionals(params map[string]any, positionals []string, a
 		params["selector"] = positionals[0]
 		positionals = positionals[1:]
 	}
-	if _, ok := params["value"]; !ok {
-		if len(positionals) > 0 {
-			params["value"] = strings.Join(positionals, " ")
-		} else if text, ok := params["text"]; ok {
-			params["value"] = text
+	joined := strings.Join(positionals, " ")
+	if allowValue {
+		if _, ok := params["value"]; !ok {
+			if joined != "" {
+				params["value"] = joined
+			} else if text, ok := params["text"]; ok {
+				params["value"] = text
+			}
 		}
 	}
-	if allowTextMirror {
-		if _, ok := params["text"]; ok {
-			return
-		}
-		if value, ok := params["value"]; ok {
-			params["text"] = value
+	if allowText {
+		if _, ok := params["text"]; !ok {
+			if joined != "" {
+				params["text"] = joined
+			} else if value, ok := params["value"]; ok {
+				params["text"] = value
+			}
 		}
 	}
 }

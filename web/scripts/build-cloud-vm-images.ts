@@ -91,46 +91,56 @@ function defaultTag(): string {
   return `ws-${stamp}`;
 }
 
-const target = (argValue("--target") ?? "all") as Target;
-if (!["e2b", "freestyle", "all"].includes(target)) {
-  throw new Error("--target must be e2b, freestyle, or all");
-}
-const tag = (argValue("--tag") ?? defaultTag()).trim();
-const skipCache = hasFlag("--skip-cache");
-const binaryPath = path.join(buildRoot, tag, "cmuxd-remote-linux-amd64");
-
-mkdirSync(path.dirname(binaryPath), { recursive: true });
-
-await buildRemoteDaemon(binaryPath);
-const imageMetadata = {
-  builtAt: new Date().toISOString(),
-  cmuxdRemoteCommit: await gitRevParse(path.join(repoRoot, "daemon/remote")),
-  binarySha256: sha256File(binaryPath),
-  builderScriptVersion: sha256File(fileURLToPath(import.meta.url)),
-  nodeMajor: NODE_MAJOR,
-  agentToolPackageSpecs: cloudAgentToolPackageSpecs().map((tool) => tool.packageSpec),
-  validationStatus: "passed" as const,
-};
-
-const output: Record<string, unknown> = {
-  tag,
-  binaryPath,
-  ...imageMetadata,
-  manifestEntries: [],
-};
-
-if (target === "e2b" || target === "all") {
-  const e2b = await buildE2BTemplate(tag, binaryPath, skipCache, imageMetadata);
-  output.e2b = e2b;
-  (output.manifestEntries as unknown[]).push(e2b.manifestEntry);
-}
-if (target === "freestyle" || target === "all") {
-  const freestyle = await buildFreestyleSnapshot(tag, binaryPath, skipCache, imageMetadata);
-  output.freestyle = freestyle;
-  (output.manifestEntries as unknown[]).push(freestyle.manifestEntry);
+if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
+  await main();
 }
 
-console.log(JSON.stringify(output, null, 2));
+async function main(): Promise<void> {
+  const target = (argValue("--target") ?? "all") as Target;
+  if (!["e2b", "freestyle", "all"].includes(target)) {
+    throw new Error("--target must be e2b, freestyle, or all");
+  }
+  const tag = (argValue("--tag") ?? defaultTag()).trim();
+  const skipCache = hasFlag("--skip-cache");
+  const binaryPath = path.join(buildRoot, tag, "cmuxd-remote-linux-amd64");
+
+  mkdirSync(path.dirname(binaryPath), { recursive: true });
+
+  await buildRemoteDaemon(binaryPath);
+  const agentTools = cloudAgentToolPackageSpecs();
+  const imageMetadata = {
+    builtAt: new Date().toISOString(),
+    cmuxdRemoteCommit: await gitRevParse(path.join(repoRoot, "daemon/remote")),
+    binarySha256: sha256File(binaryPath),
+    builderScriptVersion: sha256File(fileURLToPath(import.meta.url)),
+    nodeMajor: NODE_MAJOR,
+    agentToolPackageSpecs: agentTools.map((tool) => tool.packageSpec),
+    agentToolResolvedVersions: Object.fromEntries(
+      agentTools.map((tool) => [tool.name, tool.resolvedVersion]),
+    ),
+    validationStatus: "passed" as const,
+  };
+
+  const output: Record<string, unknown> = {
+    tag,
+    binaryPath,
+    ...imageMetadata,
+    manifestEntries: [],
+  };
+
+  if (target === "e2b" || target === "all") {
+    const e2b = await buildE2BTemplate(tag, binaryPath, skipCache, imageMetadata);
+    output.e2b = e2b;
+    (output.manifestEntries as unknown[]).push(e2b.manifestEntry);
+  }
+  if (target === "freestyle" || target === "all") {
+    const freestyle = await buildFreestyleSnapshot(tag, binaryPath, skipCache, imageMetadata);
+    output.freestyle = freestyle;
+    (output.manifestEntries as unknown[]).push(freestyle.manifestEntry);
+  }
+
+  console.log(JSON.stringify(output, null, 2));
+}
 
 async function buildRemoteDaemon(outPath: string): Promise<void> {
   await runCommand(
@@ -188,6 +198,7 @@ async function buildE2BTemplate(
       cmuxdRemoteCommit: metadata.cmuxdRemoteCommit,
       builtAt: metadata.builtAt,
       builderScriptVersion: metadata.builderScriptVersion,
+      agentToolResolvedVersions: metadata.agentToolResolvedVersions,
       validationStatus: metadata.validationStatus,
       notes: imageNotes(metadata),
     },
@@ -206,6 +217,7 @@ async function buildFreestyleSnapshot(
   const daemonURL = await remoteDaemonBuildURL(tag, daemonPath);
   const fs = new Freestyle({ fetch: fetchWithTimeout(FREESTYLE_SNAPSHOT_CREATE_TIMEOUT_MS) });
   const name = `cmuxd-ws-${tag}`;
+  const createStartedAt = new Date().toISOString();
   let result: unknown;
   try {
     result = await fs.vms.snapshots.create({
@@ -223,6 +235,7 @@ async function buildFreestyleSnapshot(
     const recovered = await waitForFreestyleSnapshotByName(
       fs,
       name,
+      createStartedAt,
       FREESTYLE_SNAPSHOT_RECOVERY_TIMEOUT_MS,
     );
     if (!recovered) throw err;
@@ -251,6 +264,7 @@ async function buildFreestyleSnapshot(
       cmuxdRemoteCommit: metadata.cmuxdRemoteCommit,
       builtAt: metadata.builtAt,
       builderScriptVersion: metadata.builderScriptVersion,
+      agentToolResolvedVersions: metadata.agentToolResolvedVersions,
       validationStatus: metadata.validationStatus,
       notes: imageNotes(metadata),
     },
@@ -273,9 +287,10 @@ type FreestyleSnapshotListResponse = {
   readonly snapshots?: readonly FreestyleSnapshotRecord[] | null;
 };
 
-async function findFreestyleSnapshotByName(
+export async function findFreestyleSnapshotByName(
   fs: Freestyle,
   name: string,
+  notBefore: string,
   signal: AbortSignal,
 ): Promise<FreestyleSnapshotRecord | null> {
   const response = await fs.fetch(freestyleSnapshotListURL(), {
@@ -289,7 +304,9 @@ async function findFreestyleSnapshotByName(
   const matches = (json.snapshots ?? [])
     .filter((snapshot) =>
       snapshot.name === name &&
-      snapshot.deleted !== true
+      snapshot.deleted !== true &&
+      typeof snapshot.createdAt === "string" &&
+      snapshot.createdAt >= notBefore
     )
     .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
   const latest = matches[0];
@@ -303,16 +320,17 @@ async function findFreestyleSnapshotByName(
   return latest;
 }
 
-async function waitForFreestyleSnapshotByName(
+export async function waitForFreestyleSnapshotByName(
   fs: Freestyle,
   name: string,
+  notBefore: string,
   timeoutMs: number,
 ): Promise<FreestyleSnapshotRecord | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     while (!controller.signal.aborted) {
-      const snapshot = await findFreestyleSnapshotByName(fs, name, controller.signal);
+      const snapshot = await findFreestyleSnapshotByName(fs, name, notBefore, controller.signal);
       if (snapshot) return snapshot;
       await waitForRetryInterval(FREESTYLE_SNAPSHOT_RECOVERY_POLL_INTERVAL_MS, controller.signal);
     }
@@ -358,16 +376,33 @@ type CloudAgentToolPackage = {
   readonly name: string;
   readonly envVar: string;
   readonly packageSpec: string;
+  readonly resolvedVersion: string;
   readonly binaries: readonly string[];
 };
 
-function cloudAgentToolPackageSpecs(): CloudAgentToolPackage[] {
+export function cloudAgentToolPackageSpecs(): CloudAgentToolPackage[] {
   return CLOUD_AGENT_TOOLS.flatMap((tool) => {
     const raw = process.env[tool.envVar]?.trim();
     if (raw && isDisabledValue(raw)) return [];
     const packageSpec = raw || tool.packageSpec;
-    return [{ ...tool, packageSpec }];
+    const resolvedVersion = pinnedNpmPackageVersion(packageSpec);
+    if (!resolvedVersion) {
+      throw new Error(`${tool.envVar} must be pinned to an exact npm package version; got ${packageSpec}`);
+    }
+    return [{ ...tool, packageSpec, resolvedVersion }];
   });
+}
+
+function pinnedNpmPackageVersion(packageSpec: string): string | null {
+  const trimmed = packageSpec.trim();
+  const versionSeparator = trimmed.startsWith("@")
+    ? trimmed.indexOf("@", 1)
+    : trimmed.lastIndexOf("@");
+  if (versionSeparator <= 0) return null;
+  const version = trimmed.slice(versionSeparator + 1).trim();
+  if (!version || version === "latest") return null;
+  if (version.startsWith("^") || version.startsWith("~") || version.includes("*")) return null;
+  return version;
 }
 
 function cloudToolInstallCommands(): string[] {
@@ -533,7 +568,7 @@ function errorSummary(err: unknown): string {
   return String(err);
 }
 
-function waitForRetryInterval(ms: number, signal: AbortSignal): Promise<void> {
+export function waitForRetryInterval(ms: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) return Promise.reject(abortError());
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -567,6 +602,7 @@ type ImageBuildMetadata = {
   readonly builderScriptVersion: string;
   readonly nodeMajor: string;
   readonly agentToolPackageSpecs: readonly string[];
+  readonly agentToolResolvedVersions: Record<string, string>;
   readonly validationStatus: "passed" | "failed" | "unknown";
 };
 
