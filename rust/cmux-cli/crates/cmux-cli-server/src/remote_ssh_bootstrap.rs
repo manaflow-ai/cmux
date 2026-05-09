@@ -294,6 +294,7 @@ async fn ssh_exec(
     timeout: Duration,
 ) -> Result<std::process::Output> {
     let mut args = ssh_common_arguments(config, true);
+    args.push(config.destination.clone());
     args.extend(["sh".to_string(), "-s".to_string()]);
     run_process("/usr/bin/ssh", &args, timeout, Some(script)).await
 }
@@ -337,7 +338,8 @@ async fn run_process(
     timeout: Duration,
     stdin_payload: Option<&str>,
 ) -> Result<std::process::Output> {
-    let mut child = Command::new(executable)
+    let mut command = Command::new(executable);
+    command
         .args(arguments)
         .stdin(if stdin_payload.is_some() {
             Stdio::piped()
@@ -346,20 +348,27 @@ async fn run_process(
         })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    let mut child = command
         .spawn()
         .with_context(|| format!("launch {}", executable))?;
-    if let Some(payload) = stdin_payload {
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin
-                .write_all(payload.as_bytes())
-                .await
-                .with_context(|| format!("write script to {}", executable))?;
+
+    tokio::time::timeout(timeout, async move {
+        if let Some(payload) = stdin_payload {
+            if let Some(mut stdin) = child.stdin.take() {
+                stdin
+                    .write_all(payload.as_bytes())
+                    .await
+                    .with_context(|| format!("write script to {}", executable))?;
+            }
         }
-    }
-    tokio::time::timeout(timeout, child.wait_with_output())
-        .await
-        .with_context(|| format!("{} timed out after {}s", executable, timeout.as_secs()))?
-        .with_context(|| format!("wait for {}", executable))
+        child
+            .wait_with_output()
+            .await
+            .with_context(|| format!("wait for {}", executable))
+    })
+    .await
+    .with_context(|| format!("{} timed out after {}s", executable, timeout.as_secs()))?
 }
 
 fn ssh_common_arguments(config: &RemoteSshBootstrapConfig, batch_mode: bool) -> Vec<String> {
