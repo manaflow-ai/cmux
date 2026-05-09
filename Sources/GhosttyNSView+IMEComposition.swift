@@ -50,7 +50,8 @@ extension GhosttyNSView {
             // events out of the terminal so keys such as Down can open
             // candidates instead of moving the shell cursor.
             guard textInputHandledEvent, isInputMethodSource(inputSourceId) else { return false }
-            return !shouldAllowDeferredNumpadIMEFallback(event)
+            return shouldKeepNoMarkedIMECommandInsideTextInput(event)
+                && !shouldAllowDeferredNumpadIMEFallback(event)
         }
 
         if before.text != after.text {
@@ -83,6 +84,23 @@ extension GhosttyNSView {
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.function, .capsLock])
         return flags == [.numericPad]
+    }
+
+    func shouldKeepNoMarkedIMECommandInsideTextInput(_ event: NSEvent?) -> Bool {
+        guard let event else { return false }
+        let flags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        guard flags.isEmpty || flags == [.shift] else { return false }
+
+        switch Int(event.keyCode) {
+        case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow,
+             kVK_PageUp, kVK_PageDown, kVK_Home, kVK_End,
+             kVK_Space:
+            return true
+        default:
+            return false
+        }
     }
 
     func isTraditionalZhuyinInputSource(_ sourceId: String?) -> Bool {
