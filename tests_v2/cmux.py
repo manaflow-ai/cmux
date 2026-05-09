@@ -985,13 +985,20 @@ class cmux:
         panel: Union[str, int],
         paths: list[str],
         route: str = "text_destination",
-    ) -> None:
+        payload: str = "file_urls",
+    ) -> dict:
         sid = self._resolve_surface_id(panel)
-        self._call(
+        res = self._call(
             "debug.terminal.simulate_file_drop",
-            {"surface_id": sid, "paths": [str(path) for path in paths], "route": route},
+            {
+                "surface_id": sid,
+                "paths": [str(path) for path in paths],
+                "route": route,
+                "payload": payload,
+            },
             timeout_s=30.0,
         )
+        return dict(res or {})
 
     def read_terminal_text(self, panel: Union[str, int, None] = None) -> str:
         params: Dict[str, Any] = {}

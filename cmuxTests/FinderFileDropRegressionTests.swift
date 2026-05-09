@@ -235,6 +235,32 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
     }
 
+    func testImagePasteboardDropMaterializesEveryImageForRemoteUpload() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-multi-image-remote-drop-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        let items = try [
+            makeImagePasteboardItem(color: .systemRed),
+            makeImagePasteboardItem(color: .systemGreen),
+        ]
+        XCTAssertTrue(pasteboard.writeObjects(items))
+
+        let plan = GhosttyNSView.dropPlanForTesting(
+            pasteboard: pasteboard,
+            isRemoteTerminalSurface: true
+        )
+
+        guard case .uploadFiles(let urls) = plan else {
+            return XCTFail("expected remote image upload plan, got \(plan)")
+        }
+        defer {
+            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(urls)
+        }
+
+        XCTAssertEqual(urls.count, 2)
+        XCTAssertTrue(urls.allSatisfy { $0.lastPathComponent.hasPrefix("clipboard-") && $0.pathExtension == "png" })
+        XCTAssertTrue(urls.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
+    }
+
     func testSuccessfulPanelTextDropFocusesDestinationPanel() {
         let workspace = Workspace(title: "Tests")
         guard let terminalId = workspace.focusedPanelId,
@@ -403,5 +429,11 @@ final class FinderFileDropRegressionTests: XCTestCase {
             ),
             "Sources/App.swift"
         )
+    }
+
+    private func makeImagePasteboardItem(color: NSColor) throws -> NSPasteboardItem {
+        let item = NSPasteboardItem()
+        item.setData(try make1x1PNG(color: color), forType: .png)
+        return item
     }
 }
