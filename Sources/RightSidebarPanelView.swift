@@ -180,15 +180,11 @@ struct RightSidebarPanelView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            VStack(spacing: 0) {
-                modeBar
-                    .rightSidebarChromeBottomBorder()
-                contentForMode
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-
-            focusShortcutHintOverlay
+        VStack(spacing: 0) {
+            modeBar
+                .rightSidebarChromeBottomBorder()
+            contentForMode
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .shortcutHintVisibilityAnimation(value: focusShortcutHintMonitor.isModifierPressed)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -249,6 +245,9 @@ struct RightSidebarPanelView: View {
             closeButton
         }
         .rightSidebarChromeBar(leadingPadding: 4, trailingPadding: 6, height: titlebarHeight)
+        .overlay(alignment: .topLeading) {
+            focusShortcutHintOverlay
+        }
         .background(MinimalModeTitlebarControlHitRegionView())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("RightSidebarModeBar")
@@ -310,26 +309,23 @@ struct RightSidebarPanelView: View {
             alwaysShowShortcutHints: alwaysShowShortcutHints,
             modifierPressed: focusShortcutHintMonitor.isModifierPressed
         )
-        ZStack(alignment: .topLeading) {
-            if showsFocusShortcutHint {
-                ShortcutHintPill(
-                    shortcut: shortcut,
-                    fontSize: 9,
-                    emphasis: 1.05
+        if showsFocusShortcutHint {
+            ShortcutHintPill(
+                shortcut: shortcut,
+                fontSize: 9,
+                emphasis: 1.05
+            )
+                .padding(.leading, 6)
+                .padding(.top, 5)
+                .offset(
+                    x: CGFloat(ShortcutHintDebugSettings.clamped(focusShortcutHintXOffset)),
+                    y: CGFloat(ShortcutHintDebugSettings.clamped(focusShortcutHintYOffset))
                 )
-                    .padding(.leading, 6)
-                    .padding(.top, 5)
-                    .offset(
-                        x: CGFloat(ShortcutHintDebugSettings.clamped(focusShortcutHintXOffset)),
-                        y: CGFloat(ShortcutHintDebugSettings.clamped(focusShortcutHintYOffset))
-                    )
-                    .shortcutHintTransition()
-                    .accessibilityIdentifier("rightSidebarFocusShortcutHint")
-                    .zIndex(10)
-            }
+                .shortcutHintTransition()
+                .accessibilityIdentifier("rightSidebarFocusShortcutHint")
+                .allowsHitTesting(false)
+                .zIndex(10)
         }
-        .allowsHitTesting(false)
-        .shortcutHintVisibilityAnimation(value: showsFocusShortcutHint)
     }
 
     @ViewBuilder
