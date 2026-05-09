@@ -661,6 +661,44 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNotEqual(firstFingerprint, secondFingerprint)
     }
 
+    func testRestorableAgentIndexFallsBackToPanelIdAfterWorkspaceUUIDRegenerates() throws {
+        // Workspace UUIDs are regenerated on every cmux launch. The hook record
+        // captures (workspaceId, surfaceId) from CMUX_WORKSPACE_ID/CMUX_SURFACE_ID
+        // at SessionStart time, but on the next launch the live workspace.id is a
+        // different UUID. The strict (workspaceId, panelId) lookup misses, so the
+        // autosave drops the agent field and the next relaunch can't resume.
+        // The index should fall back to a panelId-only lookup so the agent stays
+        // attached to the panel across launches.
+        let recordedWorkspaceId = UUID()
+        let panelId = UUID()
+        let index = try makeRestorableAgentIndex(
+            kind: .claude,
+            workspaceId: recordedWorkspaceId,
+            panelId: panelId,
+            sessionId: "claude-session-restore",
+            arguments: [
+                "/usr/local/bin/claude",
+                "--model",
+                "sonnet",
+            ]
+        )
+
+        // Same lifetime: strict match still works.
+        let strict = try XCTUnwrap(index.snapshot(workspaceId: recordedWorkspaceId, panelId: panelId))
+        XCTAssertEqual(strict.sessionId, "claude-session-restore")
+
+        // Post-relaunch: workspace UUID is regenerated, panel UUID is the new one
+        // assigned to the restored panel. The index should still resolve via
+        // the panelId fallback.
+        let regeneratedWorkspaceId = UUID()
+        let resolved = try XCTUnwrap(index.snapshot(workspaceId: regeneratedWorkspaceId, panelId: panelId))
+        XCTAssertEqual(resolved.sessionId, "claude-session-restore")
+        XCTAssertEqual(resolved.kind, .claude)
+
+        // Unknown panelId still misses (no false positives).
+        XCTAssertNil(index.snapshot(workspaceId: regeneratedWorkspaceId, panelId: UUID()))
+    }
+
     func testResolvedWindowFramePrefersSavedDisplayIdentity() {
         let savedFrame = SessionRectSnapshot(x: 1_200, y: 100, width: 600, height: 400)
         let savedDisplay = SessionDisplaySnapshot(

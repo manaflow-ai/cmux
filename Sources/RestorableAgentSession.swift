@@ -474,7 +474,7 @@ private struct RestorableAgentHookSessionStoreFile: Codable, Sendable {
 }
 
 struct RestorableAgentSessionIndex: Sendable {
-    static let empty = RestorableAgentSessionIndex(snapshotsByPanel: [:])
+    static let empty = RestorableAgentSessionIndex(snapshotsByPanel: [:], snapshotsByPanelId: [:])
 
     struct PanelKey: Hashable, Sendable {
         let workspaceId: UUID
@@ -482,9 +482,18 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     private let snapshotsByPanel: [PanelKey: SessionRestorableAgentSnapshot]
+    // Workspace UUIDs are regenerated on every cmux launch, so a hook record
+    // saved as (workspaceA, panelA) won't match a lookup with (workspaceB, panelA)
+    // after relaunch even though it's the same panel. Panel UUIDs (== surface IDs
+    // == CMUX_SURFACE_ID) are stable per snapshot save and unique enough across
+    // the hook records, so this fallback recovers the agent for that panel.
+    private let snapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot]
 
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        snapshotsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
+        if let exact = snapshotsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] {
+            return exact
+        }
+        return snapshotsByPanelId[panelId]
     }
 
     static func load(
@@ -574,7 +583,18 @@ struct RestorableAgentSessionIndex: Sendable {
             resolved[key] = detected
         }
 
-        return RestorableAgentSessionIndex(snapshotsByPanel: resolved.mapValues(\.snapshot))
+        var byPanelId: [UUID: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
+        for (key, value) in resolved {
+            if let existing = byPanelId[key.panelId], existing.updatedAt >= value.updatedAt {
+                continue
+            }
+            byPanelId[key.panelId] = value
+        }
+
+        return RestorableAgentSessionIndex(
+            snapshotsByPanel: resolved.mapValues(\.snapshot),
+            snapshotsByPanelId: byPanelId.mapValues(\.snapshot)
+        )
     }
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
@@ -585,7 +605,11 @@ struct RestorableAgentSessionIndex: Sendable {
         return rawValue
     }
 
-    private init(snapshotsByPanel: [PanelKey: SessionRestorableAgentSnapshot]) {
+    private init(
+        snapshotsByPanel: [PanelKey: SessionRestorableAgentSnapshot],
+        snapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot]
+    ) {
         self.snapshotsByPanel = snapshotsByPanel
+        self.snapshotsByPanelId = snapshotsByPanelId
     }
 }
