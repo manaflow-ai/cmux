@@ -211,10 +211,10 @@ enum TerminalImageTransferPlanner {
 
         switch target {
         case .local:
-            return .insertText(insertedText(for: fileURLs))
+            return .insertText(insertedText(forFileURLs: fileURLs))
         case .remote(let remoteTarget):
             guard fileURLs.allSatisfy(isRemoteUploadableFileURL) else {
-                return .insertText(insertedText(for: fileURLs))
+                return .insertText(insertedText(forFileURLs: fileURLs))
             }
             return .uploadFiles(fileURLs, remoteTarget)
         }
@@ -278,10 +278,14 @@ enum TerminalImageTransferPlanner {
         GhosttyPasteboardHelper.escapeForShell(value)
     }
 
-    private static func insertedText(for fileURLs: [URL]) -> String {
-        fileURLs
-            .map { escapeForShell($0.path) }
+    static func insertedText(forPathStrings paths: [String]) -> String {
+        paths
+            .map(escapeForShell)
             .joined(separator: " ")
+    }
+
+    static func insertedText(forFileURLs fileURLs: [URL]) -> String {
+        insertedText(forPathStrings: fileURLs.map(\.path))
     }
 
     private static func isRemoteUploadableFileURL(_ fileURL: URL) -> Bool {

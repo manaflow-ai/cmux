@@ -15,6 +15,34 @@ enum KeyboardShortcutSettings {
     static var shortcutLookupObserver: ((Action) -> Void)?
     #endif
 
+    static var publicShortcutActions: [Action] {
+        Action.allCases.filter(\.isPublicShortcutAction)
+    }
+
+    static var settingsVisibleActions: [Action] {
+        orderedSettingsVisibleActions(
+            from: publicShortcutActions.filter { $0 != .showHideAllWindows }
+        )
+    }
+
+    private static func orderedSettingsVisibleActions(from actions: [Action]) -> [Action] {
+        let colocatedSidebarActions = [
+            .focusRightSidebar,
+            .toggleFileExplorer,
+            .findInDirectory,
+        ].filter(actions.contains)
+        let actionSet = Set(colocatedSidebarActions)
+        let baseActions = actions.filter { !actionSet.contains($0) }
+
+        guard let anchorIndex = baseActions.firstIndex(of: .jumpToUnread) else {
+            return colocatedSidebarActions + baseActions
+        }
+
+        var orderedActions = baseActions
+        orderedActions.insert(contentsOf: colocatedSidebarActions, at: anchorIndex + 1)
+        return orderedActions
+    }
+
     enum ShortcutRecordingRejection: Equatable {
         case bareKeyNotAllowed
         case conflictsWithAction(Action)
@@ -131,7 +159,7 @@ enum KeyboardShortcutSettings {
             case .sendFeedback: return String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback")
             case .showNotifications: return String(localized: "shortcut.showNotifications.label", defaultValue: "Show Notifications")
             case .jumpToUnread: return String(localized: "shortcut.jumpToUnread.label", defaultValue: "Jump to Latest Unread")
-            case .focusRightSidebar: return String(localized: "shortcut.focusRightSidebar.label", defaultValue: "Focus Right Sidebar")
+            case .focusRightSidebar: return String(localized: "shortcut.focusRightSidebar.label", defaultValue: "Toggle Right Sidebar")
             case .switchRightSidebarToFiles: return String(localized: "shortcut.switchRightSidebarToFiles.label", defaultValue: "Show Sidebar Files")
             case .switchRightSidebarToFind: return String(localized: "shortcut.switchRightSidebarToFind.label", defaultValue: "Show Sidebar Find")
             case .switchRightSidebarToSessions: return String(localized: "shortcut.switchRightSidebarToSessions.label", defaultValue: "Show Sidebar Vault")
@@ -163,7 +191,7 @@ enum KeyboardShortcutSettings {
             case .equalizeSplits: return String(localized: "shortcut.equalizeSplits.label", defaultValue: "Equalize Splits")
             case .splitBrowserRight: return String(localized: "shortcut.splitBrowserRight.label", defaultValue: "Split Browser Right")
             case .splitBrowserDown: return String(localized: "shortcut.splitBrowserDown.label", defaultValue: "Split Browser Down")
-            case .toggleFileExplorer: return String(localized: "shortcut.toggleFileExplorer.label", defaultValue: "Toggle File Explorer")
+            case .toggleFileExplorer: return String(localized: "shortcut.toggleFileExplorer.label", defaultValue: "Toggle Right Sidebar")
             case .saveFilePreview: return String(localized: "shortcut.saveFilePreview.label", defaultValue: "Save File Preview")
             case .openBrowser: return String(localized: "shortcut.openBrowser.label", defaultValue: "Open Browser")
             case .focusBrowserAddressBar: return String(localized: "command.browserFocusAddressBar.title", defaultValue: "Focus Address Bar")
@@ -186,6 +214,19 @@ enum KeyboardShortcutSettings {
         }
 
         var defaultsKey: String { "shortcut.\(rawValue)" }
+
+        var isPublicShortcutAction: Bool {
+            switch self {
+            case .switchRightSidebarToFiles,
+                 .switchRightSidebarToFind,
+                 .switchRightSidebarToSessions,
+                 .switchRightSidebarToFeed,
+                 .switchRightSidebarToDock:
+                return false
+            default:
+                return true
+            }
+        }
 
         var defaultShortcut: StoredShortcut {
             switch self {
@@ -230,17 +271,15 @@ enum KeyboardShortcutSettings {
             case .jumpToUnread:
                 return StoredShortcut(key: "u", command: true, shift: true, option: false, control: false)
             case .focusRightSidebar:
-                return StoredShortcut(key: "e", command: true, shift: true, option: false, control: false)
-            case .switchRightSidebarToFiles:
-                return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
-            case .switchRightSidebarToFind:
-                return StoredShortcut(key: "2", command: false, shift: false, option: false, control: true)
-            case .switchRightSidebarToSessions:
-                return StoredShortcut(key: "3", command: false, shift: false, option: false, control: true)
-            case .switchRightSidebarToFeed:
-                return StoredShortcut(key: "4", command: false, shift: false, option: false, control: true)
-            case .switchRightSidebarToDock:
-                return StoredShortcut(key: "5", command: false, shift: false, option: false, control: true)
+                return StoredShortcut(key: "b", command: true, shift: false, option: true, control: false)
+            case .switchRightSidebarToFiles,
+                 .switchRightSidebarToFind,
+                 .switchRightSidebarToSessions,
+                 .switchRightSidebarToFeed,
+                 .switchRightSidebarToDock:
+                // Legacy cmux.json bindings still resolve, but these mode
+                // switches do not ship as public default shortcuts.
+                return .unbound
             case .triggerFlash:
                 return StoredShortcut(key: "h", command: true, shift: true, option: false, control: false)
             case .nextSidebarTab:
@@ -291,7 +330,7 @@ enum KeyboardShortcutSettings {
             case .selectWorkspaceByNumber:
                 return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
             case .toggleFileExplorer:
-                return StoredShortcut(key: "b", command: true, shift: false, option: true, control: false)
+                return StoredShortcut(key: "e", command: true, shift: true, option: false, control: false)
             case .saveFilePreview:
                 return StoredShortcut(key: "s", command: true, shift: false, option: false, control: false)
             case .openBrowser:
