@@ -22902,23 +22902,40 @@ async fn compatibility_workspace_remote_terminal_session_end_v2(
         compatibility_workspace_remote_clear_reconnect_state(daemon, workspace_id).await;
         compatibility_workspace_remote_stop_daemon_proxy(daemon, workspace_id).await;
         compatibility_workspace_remote_stop_ssh_relay(daemon, workspace_id).await;
-        daemon
-            .remote_daemon_proxy_configs
-            .lock()
+        if compatibility_workspace_remote_terminal_end_should_preserve_config(&remote) {
+            let retry_suffix = compatibility_workspace_remote_schedule_reconnect(
+                daemon,
+                workspace_id,
+                Duration::from_secs(4),
+            )
             .await
-            .remove(&workspace_id);
-        daemon
-            .remote_ssh_relay_configs
-            .lock()
-            .await
-            .remove(&workspace_id);
-        daemon
-            .remote_ephemeral_configs
-            .lock()
-            .await
-            .remove(&workspace_id);
-        remote = compatibility_default_remote_status_value();
-        compatibility_store_workspace_remote_config(daemon, workspace_id, None).await?;
+            .map(compatibility_workspace_remote_retry_suffix)
+            .unwrap_or_default();
+            compatibility_workspace_remote_mark_ssh_bootstrap_error(
+                &mut remote,
+                &format!(
+                    "Remote daemon bootstrap failed: terminal SSH session ended before bootstrap completed{retry_suffix}"
+                ),
+            );
+        } else {
+            daemon
+                .remote_daemon_proxy_configs
+                .lock()
+                .await
+                .remove(&workspace_id);
+            daemon
+                .remote_ssh_relay_configs
+                .lock()
+                .await
+                .remove(&workspace_id);
+            daemon
+                .remote_ephemeral_configs
+                .lock()
+                .await
+                .remove(&workspace_id);
+            remote = compatibility_default_remote_status_value();
+            compatibility_store_workspace_remote_config(daemon, workspace_id, None).await?;
+        }
     }
     if changed {
         compatibility_store_workspace_remote_status(daemon, workspace_id, remote.clone()).await?;
@@ -22936,6 +22953,38 @@ async fn compatibility_workspace_remote_terminal_session_end_v2(
         object.insert("relay_port".to_string(), serde_json::json!(relay_port));
     }
     Ok(response)
+}
+
+fn compatibility_workspace_remote_terminal_end_should_preserve_config(
+    remote: &serde_json::Value,
+) -> bool {
+    let Some(object) = remote.as_object() else {
+        return false;
+    };
+    if object
+        .get("configured_by")
+        .and_then(serde_json::Value::as_str)
+        != Some("cmx-rust")
+    {
+        return false;
+    }
+    if object
+        .get("has_terminal_startup_command")
+        .and_then(serde_json::Value::as_bool)
+        != Some(true)
+    {
+        return false;
+    }
+    if object.get("connected").and_then(serde_json::Value::as_bool) == Some(true) {
+        return false;
+    }
+    let daemon_state = object
+        .get("daemon")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|daemon| daemon.get("state"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unavailable");
+    matches!(daemon_state, "unavailable" | "bootstrapping" | "error")
 }
 
 fn compatibility_workspace_remote_terminal_session_end_needs_native(
