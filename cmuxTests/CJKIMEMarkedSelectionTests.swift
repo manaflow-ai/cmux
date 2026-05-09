@@ -651,6 +651,72 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
+    func testZhuyinReturnForwardsToTerminalAfterCompositionIsCleared() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let terminalSurface = hostedTerminal.surface
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            window.orderOut(nil)
+            withExtendedLifetime(terminalSurface) {}
+        }
+
+        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
+        surfaceView.setMarkedText(
+            "ㄋ",
+            selectedRange: NSRange(location: 1, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        surfaceView.unmarkText()
+        XCTAssertFalse(surfaceView.hasMarkedText())
+
+        installCJKIMEInterpretKeyEventsSwizzle()
+        cjkIMEInterpretKeyEventsHook = { candidateView, events in
+            guard candidateView === surfaceView,
+                  let event = events.first,
+                  Int(event.keyCode) == kVK_Return else {
+                return false
+            }
+            return true
+        }
+
+        var forwardedText: [String] = []
+        var forwardedPressKeyCodes: [UInt32] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            if let text = keyEvent.text {
+                forwardedText.append(String(cString: text))
+            } else {
+                forwardedPressKeyCodes.append(keyEvent.keycode)
+            }
+        }
+
+        let event = try keyEvent(
+            text: "\r",
+            keyCode: UInt16(kVK_Return),
+            windowNumber: window.windowNumber
+        )
+
+        window.makeFirstResponder(surfaceView)
+        withExtendedLifetime(terminalSurface) {
+            surfaceView.keyDown(with: event)
+        }
+
+        XCTAssertEqual(forwardedText, [])
+        XCTAssertEqual(
+            forwardedPressKeyCodes,
+            [UInt32(kVK_Return)],
+            "Plain Return after Zhuyin composition is cleared must execute in the terminal"
+        )
+    }
+
     func testDoesNotSuppressNonInputMethodDeadKeyCommandWhenMarkedTextIsUnchanged() throws {
         let view = GhosttyNSView(frame: .zero)
         let event = try keyEvent(
