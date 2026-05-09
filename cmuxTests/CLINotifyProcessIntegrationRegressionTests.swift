@@ -437,12 +437,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     func testBrowserProfilesCreateClearAndDeleteRouteToSocketMethods() throws {
         let cliPath = try bundledCLIPath()
-        let cases: [(name: String, arguments: [String], expectedMethod: String, expectedParam: String, responseResult: [String: Any])] = [
+        let cases: [(name: String, arguments: [String], expectedMethod: String, expectedParams: [String], responseResult: [String: Any])] = [
             (
                 "create",
                 ["browser", "profiles", "add", "Agent Smoke"],
                 "browser.profiles.create",
-                #""name":"Agent Smoke""#,
+                [#""name":"Agent Smoke""#],
                 [
                     "created": true,
                     "profile": [
@@ -458,14 +458,21 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "clear",
                 ["browser", "profiles", "clear", "Agent Smoke"],
                 "browser.profiles.clear",
-                #""profile":"Agent Smoke""#,
+                [#""profile":"Agent Smoke""#],
+                ["cleared": true, "count": 1, "profiles": []]
+            ),
+            (
+                "clear-force",
+                ["browser", "profiles", "clear", "Agent Smoke", "--force"],
+                "browser.profiles.clear",
+                [#""profile":"Agent Smoke""#, #""force":true"#],
                 ["cleared": true, "count": 1, "profiles": []]
             ),
             (
                 "delete",
                 ["browser", "profiles", "delete", "Agent Smoke"],
                 "browser.profiles.delete",
-                #""profile":"Agent Smoke""#,
+                [#""profile":"Agent Smoke""#],
                 [
                     "deleted": true,
                     "profile": [
@@ -497,7 +504,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 }
 
                 XCTAssertEqual(method, testCase.expectedMethod)
-                XCTAssertTrue(line.contains(testCase.expectedParam), line)
+                for expectedParam in testCase.expectedParams {
+                    XCTAssertTrue(line.contains(expectedParam), line)
+                }
                 return self.v2Response(id: id, ok: true, result: testCase.responseResult)
             }
 

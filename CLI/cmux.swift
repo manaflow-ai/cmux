@@ -7173,6 +7173,9 @@ struct CMUXCLI {
                 } else {
                     throw CLIError(message: "browser profiles \(profileVerb) requires a profile or --all")
                 }
+                if hasFlag(profileArgs, name: "--force") {
+                    params["force"] = true
+                }
                 let payload = try client.sendV2(method: "browser.profiles.clear", params: params, responseTimeout: 120)
                 if effectiveJSONOutput {
                     print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
@@ -20812,6 +20815,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           browser dialog <accept|dismiss> [text]
           browser download [wait] [--path <path>] [--timeout-ms <ms>]
           browser profiles <list|add|rename|clear|delete> [...]
+          browser profiles clear <profile|--all> [--force]
           browser import [...]
           browser cookies <get|set|clear> [...]
           browser storage <local|session> <get|set|clear> [...]
