@@ -210,12 +210,19 @@ final class BonsplitTabDragUITests: XCTestCase {
 
         let shortcutHint = app.staticTexts["rightSidebarCloseShortcutHint"]
         XCTAssertTrue(shortcutHint.waitForExistence(timeout: 5.0), "Expected Cmd+Option+B hint over the close button.")
+        let focusShortcutHint = app.staticTexts["rightSidebarFocusShortcutHint"]
+        XCTAssertTrue(focusShortcutHint.waitForExistence(timeout: 5.0), "Expected Cmd+Shift+E hint inside the right sidebar.")
         let window = app.windows.element(boundBy: 0)
         XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist.")
         XCTAssertGreaterThanOrEqual(
             shortcutHint.frame.minY,
             window.frame.minY - 1,
             "Expected close shortcut hint to stay inside the visible window bounds. hint=\(shortcutHint.frame) window=\(window.frame)"
+        )
+        XCTAssertGreaterThanOrEqual(
+            focusShortcutHint.frame.minY,
+            window.frame.minY - 1,
+            "Expected focus shortcut hint to stay inside the visible window bounds. hint=\(focusShortcutHint.frame) window=\(window.frame)"
         )
         XCTAssertLessThanOrEqual(
             abs(shortcutHint.frame.midX - closeButton.frame.midX),

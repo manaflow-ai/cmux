@@ -390,6 +390,9 @@ struct cmuxApp: App {
                     ) {
                         AboutTitlebarDebugWindowController.shared.show()
                     }
+                    Button("Right Sidebar Debug…") {
+                        RightSidebarDebugWindowController.shared.show()
+                    }
                     Button("Sidebar Debug…") {
                         SidebarDebugWindowController.shared.show()
                     }
@@ -1109,6 +1112,7 @@ struct cmuxApp: App {
         BrowserImportHintDebugWindowController.shared.show()
         BrowserProfilePopoverDebugWindowController.shared.show()
         AboutTitlebarDebugWindowController.shared.show()
+        RightSidebarDebugWindowController.shared.show()
         SidebarDebugWindowController.shared.show()
         BackgroundDebugWindowController.shared.show()
         StartupAppearanceDebugWindowController.shared.show()
@@ -1605,6 +1609,10 @@ private enum DebugWindowConfigSnapshot {
         shortcutHintTitlebarYOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.titlebarHintYKey, fallback: ShortcutHintDebugSettings.defaultTitlebarHintY)))
         shortcutHintPaneTabXOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.paneHintXKey, fallback: ShortcutHintDebugSettings.defaultPaneHintX)))
         shortcutHintPaneTabYOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.paneHintYKey, fallback: ShortcutHintDebugSettings.defaultPaneHintY)))
+        shortcutHintRightSidebarCloseXOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.rightSidebarCloseHintXKey, fallback: ShortcutHintDebugSettings.defaultRightSidebarCloseHintX)))
+        shortcutHintRightSidebarCloseYOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.rightSidebarCloseHintYKey, fallback: ShortcutHintDebugSettings.defaultRightSidebarCloseHintY)))
+        shortcutHintRightSidebarFocusXOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.rightSidebarFocusHintXKey, fallback: ShortcutHintDebugSettings.defaultRightSidebarFocusHintX)))
+        shortcutHintRightSidebarFocusYOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.rightSidebarFocusHintYKey, fallback: ShortcutHintDebugSettings.defaultRightSidebarFocusHintY)))
         shortcutHintAlwaysShow=\(boolValue(defaults, key: ShortcutHintDebugSettings.alwaysShowHintsKey, fallback: ShortcutHintDebugSettings.defaultAlwaysShowHints))
         shortcutHintShowOnCommandHold=\(boolValue(defaults, key: ShortcutHintDebugSettings.showHintsOnCommandHoldKey, fallback: ShortcutHintDebugSettings.defaultShowHintsOnCommandHold))
         shortcutHintShowOnControlHold=\(boolValue(defaults, key: ShortcutHintDebugSettings.showHintsOnControlHoldKey, fallback: ShortcutHintDebugSettings.defaultShowHintsOnControlHold))
@@ -1710,6 +1718,10 @@ private struct DebugWindowControlsView: View {
     @AppStorage(ShortcutHintDebugSettings.titlebarHintYKey) private var titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
     @AppStorage(ShortcutHintDebugSettings.paneHintXKey) private var paneShortcutHintXOffset = ShortcutHintDebugSettings.defaultPaneHintX
     @AppStorage(ShortcutHintDebugSettings.paneHintYKey) private var paneShortcutHintYOffset = ShortcutHintDebugSettings.defaultPaneHintY
+    @AppStorage(ShortcutHintDebugSettings.rightSidebarCloseHintXKey) private var rightSidebarCloseShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
+    @AppStorage(ShortcutHintDebugSettings.rightSidebarCloseHintYKey) private var rightSidebarCloseShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintY
+    @AppStorage(ShortcutHintDebugSettings.rightSidebarFocusHintXKey) private var rightSidebarFocusShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintX
+    @AppStorage(ShortcutHintDebugSettings.rightSidebarFocusHintYKey) private var rightSidebarFocusShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintY
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
@@ -1771,6 +1783,9 @@ private struct DebugWindowControlsView: View {
                         ) {
                             AboutTitlebarDebugWindowController.shared.show()
                         }
+                        Button("Right Sidebar Debug…") {
+                            RightSidebarDebugWindowController.shared.show()
+                        }
                         Button("Sidebar Debug…") {
                             SidebarDebugWindowController.shared.show()
                         }
@@ -1825,6 +1840,7 @@ private struct DebugWindowControlsView: View {
                             BrowserImportHintDebugWindowController.shared.show()
                             BrowserProfilePopoverDebugWindowController.shared.show()
                             AboutTitlebarDebugWindowController.shared.show()
+                            RightSidebarDebugWindowController.shared.show()
                             SidebarDebugWindowController.shared.show()
                             BackgroundDebugWindowController.shared.show()
                             BonsplitTabBarDebugWindowController.shared.show()
@@ -1859,6 +1875,18 @@ private struct DebugWindowControlsView: View {
                             "Pane Ctrl/Cmd+1…9",
                             x: $paneShortcutHintXOffset,
                             y: $paneShortcutHintYOffset
+                        )
+
+                        hintOffsetSection(
+                            "Right Sidebar X Cmd+Option+B",
+                            x: $rightSidebarCloseShortcutHintXOffset,
+                            y: $rightSidebarCloseShortcutHintYOffset
+                        )
+
+                        hintOffsetSection(
+                            "Right Sidebar Focus Cmd+Shift+E",
+                            x: $rightSidebarFocusShortcutHintXOffset,
+                            y: $rightSidebarFocusShortcutHintYOffset
                         )
 
                         HStack(spacing: 12) {
@@ -2049,6 +2077,10 @@ private struct DebugWindowControlsView: View {
         titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
         paneShortcutHintXOffset = ShortcutHintDebugSettings.defaultPaneHintX
         paneShortcutHintYOffset = ShortcutHintDebugSettings.defaultPaneHintY
+        rightSidebarCloseShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
+        rightSidebarCloseShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintY
+        rightSidebarFocusShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintX
+        rightSidebarFocusShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintY
         alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     }
 
@@ -2083,6 +2115,10 @@ private struct DebugWindowControlsView: View {
         shortcutHintTitlebarYOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(titlebarShortcutHintYOffset)))
         shortcutHintPaneTabXOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(paneShortcutHintXOffset)))
         shortcutHintPaneTabYOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(paneShortcutHintYOffset)))
+        shortcutHintRightSidebarCloseXOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(rightSidebarCloseShortcutHintXOffset)))
+        shortcutHintRightSidebarCloseYOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(rightSidebarCloseShortcutHintYOffset)))
+        shortcutHintRightSidebarFocusXOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(rightSidebarFocusShortcutHintXOffset)))
+        shortcutHintRightSidebarFocusYOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(rightSidebarFocusShortcutHintYOffset)))
         shortcutHintAlwaysShow=\(alwaysShowShortcutHints)
         """
         let pasteboard = NSPasteboard.general
@@ -2737,6 +2773,135 @@ private final class SidebarDebugWindowController: NSWindowController, NSWindowDe
     }
 }
 
+private final class RightSidebarDebugWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = RightSidebarDebugWindowController()
+
+    private init() {
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 330),
+            styleMask: [.titled, .closable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Right Sidebar Debug"
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.isMovableByWindowBackground = true
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.rightSidebarDebug")
+        window.center()
+        window.contentView = NSHostingView(rootView: RightSidebarDebugView())
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show() {
+        window?.center()
+        window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+private struct RightSidebarDebugView: View {
+    @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
+    private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
+    @AppStorage(ShortcutHintDebugSettings.rightSidebarCloseHintXKey)
+    private var closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
+    @AppStorage(ShortcutHintDebugSettings.rightSidebarCloseHintYKey)
+    private var closeShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintY
+    @AppStorage(ShortcutHintDebugSettings.rightSidebarFocusHintXKey)
+    private var focusShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintX
+    @AppStorage(ShortcutHintDebugSettings.rightSidebarFocusHintYKey)
+    private var focusShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintY
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Right Sidebar Debug")
+                    .font(.headline)
+
+                GroupBox("Shortcut Hints") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Toggle("Always show shortcut hints", isOn: $alwaysShowShortcutHints)
+
+                        hintOffsetSection(
+                            "X Button Cmd+Option+B",
+                            x: $closeShortcutHintXOffset,
+                            y: $closeShortcutHintYOffset
+                        )
+
+                        hintOffsetSection(
+                            "Focus Cmd+Shift+E",
+                            x: $focusShortcutHintXOffset,
+                            y: $focusShortcutHintYOffset
+                        )
+
+                        HStack(spacing: 12) {
+                            Button("Reset Right Sidebar Hints") {
+                                resetRightSidebarHintOffsets()
+                            }
+                            Button("Copy Config") {
+                                copyRightSidebarHintConfig()
+                            }
+                        }
+                    }
+                    .padding(.top, 2)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private func hintOffsetSection(_ title: String, x: Binding<Double>, y: Binding<Double>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            sliderRow("X", value: x)
+            sliderRow("Y", value: y)
+        }
+    }
+
+    private func sliderRow(_ label: String, value: Binding<Double>) -> some View {
+        HStack(spacing: 8) {
+            Text(label)
+            Slider(value: value, in: ShortcutHintDebugSettings.offsetRange)
+            Text(String(format: "%.1f", ShortcutHintDebugSettings.clamped(value.wrappedValue)))
+                .font(.caption)
+                .monospacedDigit()
+                .frame(width: 44, alignment: .trailing)
+        }
+    }
+
+    private func resetRightSidebarHintOffsets() {
+        closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
+        closeShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintY
+        focusShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintX
+        focusShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintY
+    }
+
+    private func copyRightSidebarHintConfig() {
+        let payload = """
+        shortcutHintRightSidebarCloseXOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(closeShortcutHintXOffset)))
+        shortcutHintRightSidebarCloseYOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(closeShortcutHintYOffset)))
+        shortcutHintRightSidebarFocusXOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(focusShortcutHintXOffset)))
+        shortcutHintRightSidebarFocusYOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(focusShortcutHintYOffset)))
+        shortcutHintAlwaysShow=\(alwaysShowShortcutHints)
+        """
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(payload, forType: .string)
+    }
+}
+
 private struct AboutPanelView: View {
     @Environment(\.openURL) private var openURL
 
@@ -2845,6 +3010,10 @@ private struct SidebarDebugView: View {
     @AppStorage(ShortcutHintDebugSettings.titlebarHintYKey) private var titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
     @AppStorage(ShortcutHintDebugSettings.paneHintXKey) private var paneShortcutHintXOffset = ShortcutHintDebugSettings.defaultPaneHintX
     @AppStorage(ShortcutHintDebugSettings.paneHintYKey) private var paneShortcutHintYOffset = ShortcutHintDebugSettings.defaultPaneHintY
+    @AppStorage(ShortcutHintDebugSettings.rightSidebarCloseHintXKey) private var rightSidebarCloseShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
+    @AppStorage(ShortcutHintDebugSettings.rightSidebarCloseHintYKey) private var rightSidebarCloseShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintY
+    @AppStorage(ShortcutHintDebugSettings.rightSidebarFocusHintXKey) private var rightSidebarFocusShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintX
+    @AppStorage(ShortcutHintDebugSettings.rightSidebarFocusHintYKey) private var rightSidebarFocusShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintY
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
@@ -2976,6 +3145,18 @@ private struct SidebarDebugView: View {
                             x: $paneShortcutHintXOffset,
                             y: $paneShortcutHintYOffset
                         )
+
+                        hintOffsetSection(
+                            "Right Sidebar X Cmd+Option+B",
+                            x: $rightSidebarCloseShortcutHintXOffset,
+                            y: $rightSidebarCloseShortcutHintYOffset
+                        )
+
+                        hintOffsetSection(
+                            "Right Sidebar Focus Cmd+Shift+E",
+                            x: $rightSidebarFocusShortcutHintXOffset,
+                            y: $rightSidebarFocusShortcutHintYOffset
+                        )
                     }
                     .padding(.top, 2)
                 }
@@ -3086,6 +3267,10 @@ private struct SidebarDebugView: View {
         titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
         paneShortcutHintXOffset = ShortcutHintDebugSettings.defaultPaneHintX
         paneShortcutHintYOffset = ShortcutHintDebugSettings.defaultPaneHintY
+        rightSidebarCloseShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
+        rightSidebarCloseShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintY
+        rightSidebarFocusShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintX
+        rightSidebarFocusShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintY
         alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     }
 
@@ -3110,6 +3295,10 @@ private struct SidebarDebugView: View {
         shortcutHintTitlebarYOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(titlebarShortcutHintYOffset)))
         shortcutHintPaneTabXOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(paneShortcutHintXOffset)))
         shortcutHintPaneTabYOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(paneShortcutHintYOffset)))
+        shortcutHintRightSidebarCloseXOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(rightSidebarCloseShortcutHintXOffset)))
+        shortcutHintRightSidebarCloseYOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(rightSidebarCloseShortcutHintYOffset)))
+        shortcutHintRightSidebarFocusXOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(rightSidebarFocusShortcutHintXOffset)))
+        shortcutHintRightSidebarFocusYOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(rightSidebarFocusShortcutHintYOffset)))
         shortcutHintAlwaysShow=\(alwaysShowShortcutHints)
         """
         let pasteboard = NSPasteboard.general

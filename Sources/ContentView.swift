@@ -9835,6 +9835,10 @@ enum ShortcutHintDebugSettings {
     static let titlebarHintYKey = "shortcutHintTitlebarYOffset"
     static let paneHintXKey = "shortcutHintPaneTabXOffset"
     static let paneHintYKey = "shortcutHintPaneTabYOffset"
+    static let rightSidebarCloseHintXKey = "shortcutHintRightSidebarCloseXOffset"
+    static let rightSidebarCloseHintYKey = "shortcutHintRightSidebarCloseYOffset"
+    static let rightSidebarFocusHintXKey = "shortcutHintRightSidebarFocusXOffset"
+    static let rightSidebarFocusHintYKey = "shortcutHintRightSidebarFocusYOffset"
     static let alwaysShowHintsKey = "shortcutHintAlwaysShow"
     static let showHintsOnCommandHoldKey = "shortcutHintShowOnCommandHold"
     static let showHintsOnControlHoldKey = "shortcutHintShowOnControlHold"
@@ -9845,6 +9849,10 @@ enum ShortcutHintDebugSettings {
     static let defaultTitlebarHintY = 0.0
     static let defaultPaneHintX = 0.0
     static let defaultPaneHintY = 0.0
+    static let defaultRightSidebarCloseHintX = 0.0
+    static let defaultRightSidebarCloseHintY = -3.0
+    static let defaultRightSidebarFocusHintX = 0.0
+    static let defaultRightSidebarFocusHintY = 0.0
     static let defaultAlwaysShowHints = false
     static let defaultShowHintsOnCommandHold = true
     static let defaultShowHintsOnControlHold = true

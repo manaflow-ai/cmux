@@ -160,6 +160,14 @@ struct RightSidebarPanelView: View {
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
     private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
+    @AppStorage(ShortcutHintDebugSettings.rightSidebarCloseHintXKey)
+    private var closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
+    @AppStorage(ShortcutHintDebugSettings.rightSidebarCloseHintYKey)
+    private var closeShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintY
+    @AppStorage(ShortcutHintDebugSettings.rightSidebarFocusHintXKey)
+    private var focusShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintX
+    @AppStorage(ShortcutHintDebugSettings.rightSidebarFocusHintYKey)
+    private var focusShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintY
     @AppStorage(RightSidebarBetaFeatureSettings.feedEnabledKey)
     private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
@@ -285,7 +293,10 @@ struct RightSidebarPanelView: View {
             if showsShortcutHint {
                 ShortcutHintPill(shortcut: shortcut, fontSize: 9, emphasis: 1.05)
                     .fixedSize(horizontal: true, vertical: false)
-                    .offset(y: -3)
+                    .offset(
+                        x: CGFloat(ShortcutHintDebugSettings.clamped(closeShortcutHintXOffset)),
+                        y: CGFloat(ShortcutHintDebugSettings.clamped(closeShortcutHintYOffset))
+                    )
                     .shortcutHintTransition()
                     .accessibilityIdentifier("rightSidebarCloseShortcutHint")
                     .allowsHitTesting(false)
@@ -298,16 +309,25 @@ struct RightSidebarPanelView: View {
     @ViewBuilder
     private var focusShortcutHintOverlay: some View {
         let _ = keyboardShortcutSettingsObserver.revision
-        let showsFocusShortcutHint = focusShortcutHintMonitor.isModifierPressed
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .focusRightSidebar)
+        let showsFocusShortcutHint = titlebarShortcutHintShouldShow(
+            shortcut: shortcut,
+            alwaysShowShortcutHints: alwaysShowShortcutHints,
+            modifierPressed: focusShortcutHintMonitor.isModifierPressed
+        )
         ZStack(alignment: .topLeading) {
             if showsFocusShortcutHint {
                 ShortcutHintPill(
-                    shortcut: KeyboardShortcutSettings.shortcut(for: .focusRightSidebar),
+                    shortcut: shortcut,
                     fontSize: 9,
                     emphasis: 1.05
                 )
                     .padding(.leading, 6)
                     .padding(.top, 5)
+                    .offset(
+                        x: CGFloat(ShortcutHintDebugSettings.clamped(focusShortcutHintXOffset)),
+                        y: CGFloat(ShortcutHintDebugSettings.clamped(focusShortcutHintYOffset))
+                    )
                     .shortcutHintTransition()
                     .accessibilityIdentifier("rightSidebarFocusShortcutHint")
                     .zIndex(10)
