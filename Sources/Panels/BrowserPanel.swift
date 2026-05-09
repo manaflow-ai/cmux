@@ -716,6 +716,7 @@ enum BrowserInsecureHTTPSettings {
     static let allowlistKey = "browserInsecureHTTPAllowlist"
     static let defaultAllowlistPatterns = [
         "localhost",
+        "*.localhost",
         "127.0.0.1",
         "::1",
         "0.0.0.0",
@@ -1788,13 +1789,17 @@ final class BrowserPortalAnchorView: NSView {
 
 @MainActor
 final class BrowserPanel: Panel, ObservableObject {
-    private static let remoteLoopbackProxyAliasHost = "cmux-loopback.localtest.me"
+    private static let remoteLoopbackProxyAliasHost = RemoteLoopbackProxyAlias.aliasHost
     private static let remoteLoopbackHosts: Set<String> = [
         "localhost",
         "127.0.0.1",
         "::1",
         "0.0.0.0",
     ]
+
+    private static func isRemoteLoopbackHost(_ host: String) -> Bool {
+        remoteLoopbackHosts.contains(host) || host.hasSuffix(".localhost")
+    }
 
     /// Shared process pool for cookie sharing across all browser panels
     private static let sharedProcessPool = WKProcessPool()
@@ -3949,20 +3954,26 @@ final class BrowserPanel: Panel, ObservableObject {
     private static func remoteProxyDisplayURL(for url: URL?) -> URL? {
         guard let url else { return nil }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return url }
-        guard host == BrowserInsecureHTTPSettings.normalizeHost(remoteLoopbackProxyAliasHost) else { return url }
+        guard let displayHost = RemoteLoopbackProxyAlias.localhostFamilyHost(
+            forAliasHost: host,
+            aliasHost: remoteLoopbackProxyAliasHost
+        ) else { return url }
 
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        components?.host = "localhost"
+        components?.host = displayHost
         return components?.url ?? url
     }
 
     private static func remoteProxyLoopbackAliasURL(for url: URL) -> URL? {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" else { return nil }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return nil }
-        guard remoteLoopbackHosts.contains(host) else { return nil }
+        guard Self.isRemoteLoopbackHost(host) else { return nil }
 
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        components?.host = remoteLoopbackProxyAliasHost
+        components?.host = RemoteLoopbackProxyAlias.browserAliasHost(
+            forLoopbackHost: host,
+            aliasHost: remoteLoopbackProxyAliasHost
+        )
         return components?.url
     }
 
@@ -4214,6 +4225,13 @@ extension BrowserPanel {
     }
 }
 
+private func browserBareHostCandidate(_ lowercasedInput: String) -> String {
+    let end = lowercasedInput.firstIndex { character in
+        character == ":" || character == "/" || character == "?" || character == "#"
+    } ?? lowercasedInput.endIndex
+    return String(lowercasedInput[..<end])
+}
+
 func resolveBrowserNavigableURL(_ input: String) -> URL? {
     let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
@@ -4222,7 +4240,11 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
     // Check localhost/loopback before generic URL parsing because
     // URL(string: "localhost:3777") treats "localhost" as a scheme.
     let lower = trimmed.lowercased()
-    if lower.hasPrefix("localhost") || lower.hasPrefix("127.0.0.1") || lower.hasPrefix("[::1]") {
+    let bareHost = browserBareHostCandidate(lower)
+    if lower.hasPrefix("localhost") ||
+        lower.hasPrefix("127.0.0.1") ||
+        lower.hasPrefix("[::1]") ||
+        (bareHost != ".localhost" && bareHost.hasSuffix(".localhost")) {
         return URL(string: "http://\(trimmed)")
     }
 

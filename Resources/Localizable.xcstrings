@@ -64460,115 +64460,115 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me."
+            "value": "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "警告プロンプトなしでcmuxで開けるHTTP（非HTTPS）ホストを制御します。デフォルトにはlocalhost、127.0.0.1、::1、0.0.0.0、*.localtest.meが含まれます。"
+            "value": "警告プロンプトなしでcmuxで開けるHTTP（非HTTPS）ホストを制御します。デフォルトにはlocalhost、*.localhost、127.0.0.1、::1、0.0.0.0、*.localtest.meが含まれます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "控制哪些 HTTP（非 HTTPS）主机可以在 cmux 中打开而不显示警告提示。默认包括 localhost、127.0.0.1、::1、0.0.0.0 和 *.localtest.me。"
+            "value": "控制哪些 HTTP（非 HTTPS）主机可以在 cmux 中打开而不显示警告提示。默认包括 localhost、*.localhost、127.0.0.1、::1、0.0.0.0 和 *.localtest.me。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "控制哪些 HTTP（非 HTTPS）主機可以在 cmux 中開啟而不顯示警告提示。預設包含 localhost、127.0.0.1、::1、0.0.0.0 和 *.localtest.me。"
+            "value": "控制哪些 HTTP（非 HTTPS）主機可以在 cmux 中開啟而不顯示警告提示。預設包含 localhost、*.localhost、127.0.0.1、::1、0.0.0.0 和 *.localtest.me。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux에서 경고 없이 열 수 있는 HTTP(비HTTPS) 호스트를 제어합니다. 기본값에는 localhost, 127.0.0.1, ::1, 0.0.0.0 및 *.localtest.me가 포함됩니다."
+            "value": "cmux에서 경고 없이 열 수 있는 HTTP(비HTTPS) 호스트를 제어합니다. 기본값에는 localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 및 *.localtest.me가 포함됩니다."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Steuert, welche HTTP-Hosts (nicht HTTPS) ohne Warnhinweis in cmux geöffnet werden können. Standardmäßig enthalten: localhost, 127.0.0.1, ::1, 0.0.0.0 und *.localtest.me."
+            "value": "Steuert, welche HTTP-Hosts (nicht HTTPS) ohne Warnhinweis in cmux geöffnet werden können. Standardmäßig enthalten: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 und *.localtest.me."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controla qué hosts HTTP (no HTTPS) pueden abrirse en cmux sin un mensaje de advertencia. Los valores predeterminados incluyen localhost, 127.0.0.1, ::1, 0.0.0.0 y *.localtest.me."
+            "value": "Controla qué hosts HTTP (no HTTPS) pueden abrirse en cmux sin un mensaje de advertencia. Los valores predeterminados incluyen localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 y *.localtest.me."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Contrôle quels hôtes HTTP (non HTTPS) peuvent s'ouvrir dans cmux sans avertissement. Les valeurs par défaut incluent localhost, 127.0.0.1, ::1, 0.0.0.0 et *.localtest.me."
+            "value": "Contrôle quels hôtes HTTP (non HTTPS) peuvent s'ouvrir dans cmux sans avertissement. Les valeurs par défaut incluent localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 et *.localtest.me."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controlla quali host HTTP (non HTTPS) possono aprirsi in cmux senza un avviso. I valori predefiniti includono localhost, 127.0.0.1, ::1, 0.0.0.0 e *.localtest.me."
+            "value": "Controlla quali host HTTP (non HTTPS) possono aprirsi in cmux senza un avviso. I valori predefiniti includono localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 e *.localtest.me."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Styrer hvilke HTTP-værter (ikke-HTTPS) der kan åbnes i cmux uden advarselsmeddelelse. Standardindstillinger inkluderer localhost, 127.0.0.1, ::1, 0.0.0.0 og *.localtest.me."
+            "value": "Styrer hvilke HTTP-værter (ikke-HTTPS) der kan åbnes i cmux uden advarselsmeddelelse. Standardindstillinger inkluderer localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 og *.localtest.me."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Określa, które hosty HTTP (inne niż HTTPS) mogą być otwierane w cmux bez ostrzeżenia. Domyślnie uwzględniono localhost, 127.0.0.1, ::1, 0.0.0.0 i *.localtest.me."
+            "value": "Określa, które hosty HTTP (inne niż HTTPS) mogą być otwierane w cmux bez ostrzeżenia. Domyślnie uwzględniono localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 i *.localtest.me."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Определяет, какие HTTP (не HTTPS) хосты могут открываться в cmux без предупреждения. По умолчанию включены localhost, 127.0.0.1, ::1, 0.0.0.0 и *.localtest.me."
+            "value": "Определяет, какие HTTP (не HTTPS) хосты могут открываться в cmux без предупреждения. По умолчанию включены localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 и *.localtest.me."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kontroliše koji HTTP (ne-HTTPS) hostovi mogu biti otvoreni u cmux bez upozorenja. Podrazumijevani uključuju localhost, 127.0.0.1, ::1, 0.0.0.0 i *.localtest.me."
+            "value": "Kontroliše koji HTTP (ne-HTTPS) hostovi mogu biti otvoreni u cmux bez upozorenja. Podrazumijevani uključuju localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 i *.localtest.me."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتحكم في مضيفي HTTP (غير HTTPS) الذين يمكنهم الفتح في cmux بدون رسالة تحذير. الافتراضيات تشمل localhost و 127.0.0.1 و ::1 و 0.0.0.0 و *.localtest.me."
+            "value": "يتحكم في مضيفي HTTP (غير HTTPS) الذين يمكنهم الفتح في cmux بدون رسالة تحذير. الافتراضيات تشمل localhost و *.localhost و 127.0.0.1 و ::1 و 0.0.0.0 و *.localtest.me."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Styrer hvilke HTTP-verter (ikke HTTPS) som kan åpnes i cmux uten advarselsmelding. Standardverdier inkluderer localhost, 127.0.0.1, ::1, 0.0.0.0 og *.localtest.me."
+            "value": "Styrer hvilke HTTP-verter (ikke HTTPS) som kan åpnes i cmux uten advarselsmelding. Standardverdier inkluderer localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 og *.localtest.me."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controla quais hosts HTTP (não HTTPS) podem abrir no cmux sem um aviso. Os padrões incluem localhost, 127.0.0.1, ::1, 0.0.0.0 e *.localtest.me."
+            "value": "Controla quais hosts HTTP (não HTTPS) podem abrir no cmux sem um aviso. Os padrões incluem localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 e *.localtest.me."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ควบคุมว่าโฮสต์ HTTP (ไม่ใช่ HTTPS) ใดที่สามารถเปิดใน cmux โดยไม่ต้องแสดงคำเตือน ค่าเริ่มต้นรวมถึง localhost, 127.0.0.1, ::1, 0.0.0.0 และ *.localtest.me"
+            "value": "ควบคุมว่าโฮสต์ HTTP (ไม่ใช่ HTTPS) ใดที่สามารถเปิดใน cmux โดยไม่ต้องแสดงคำเตือน ค่าเริ่มต้นรวมถึง localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 และ *.localtest.me"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hangi HTTP (HTTPS olmayan) ana bilgisayarlarının cmux'ta uyarı istemi olmadan açılabileceğini kontrol eder. Varsayılanlar localhost, 127.0.0.1, ::1, 0.0.0.0 ve *.localtest.me içerir."
+            "value": "Hangi HTTP (HTTPS olmayan) ana bilgisayarlarının cmux'ta uyarı istemi olmadan açılabileceğini kontrol eder. Varsayılanlar localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 ve *.localtest.me içerir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Визначає, які HTTP (не HTTPS) хости можуть відкриватися в cmux без попередження. Типово включає localhost, 127.0.0.1, ::1, 0.0.0.0 та *.localtest.me."
+            "value": "Визначає, які HTTP (не HTTPS) хости можуть відкриватися в cmux без попередження. Типово включає localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 та *.localtest.me."
           }
         }
       }
@@ -64579,115 +64579,115 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "One host or wildcard per line (for example: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "One host or wildcard per line (for example: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1行に1つのホストまたはワイルドカード（例: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me）。"
+            "value": "1行に1つのホストまたはワイルドカード（例: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me）。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "每行一个主机或通配符（例如：localhost、127.0.0.1、::1、0.0.0.0、*.localtest.me）。"
+            "value": "每行一个主机或通配符（例如：localhost、*.localhost、127.0.0.1、::1、0.0.0.0、*.localtest.me）。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "每行一個主機或萬用字元（例如：localhost、127.0.0.1、::1、0.0.0.0、*.localtest.me）。"
+            "value": "每行一個主機或萬用字元（例如：localhost、*.localhost、127.0.0.1、::1、0.0.0.0、*.localtest.me）。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "한 줄에 하나의 호스트 또는 와일드카드 (예: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "한 줄에 하나의 호스트 또는 와일드카드 (예: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Host oder Platzhalter pro Zeile (zum Beispiel: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Ein Host oder Platzhalter pro Zeile (zum Beispiel: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un host o comodín por línea (por ejemplo: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Un host o comodín por línea (por ejemplo: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un hôte ou caractère générique par ligne (par exemple : localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Un hôte ou caractère générique par ligne (par exemple : localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un host o wildcard per riga (ad esempio: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Un host o wildcard per riga (ad esempio: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Én vært eller wildcard pr. linje (f.eks.: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Én vært eller wildcard pr. linje (f.eks.: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jeden host lub wzorzec na wiersz (na przykład: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Jeden host lub wzorzec na wiersz (na przykład: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Один хост или шаблон на строку (например: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Один хост или шаблон на строку (например: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jedan host ili zamjenski znak po redu (na primjer: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Jedan host ili zamjenski znak po redu (na primjer: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مضيف واحد أو حرف بدل لكل سطر (مثال: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "مضيف واحد أو حرف بدل لكل سطر (مثال: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Én vert eller jokertegn per linje (for eksempel: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Én vert eller jokertegn per linje (for eksempel: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Um host ou curinga por linha (por exemplo: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Um host ou curinga por linha (por exemplo: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "โฮสต์หรือ wildcard หนึ่งรายการต่อบรรทัด (ตัวอย่าง: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)"
+            "value": "โฮสต์หรือ wildcard หนึ่งรายการต่อบรรทัด (ตัวอย่าง: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Satır başına bir ana bilgisayar veya joker karakter (örneğin: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Satır başına bir ana bilgisayar veya joker karakter (örneğin: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Один хост або шаблон на рядок (наприклад: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Один хост або шаблон на рядок (наприклад: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         }
       }
