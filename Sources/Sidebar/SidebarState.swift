@@ -2,6 +2,7 @@ import AppKit
 import CoreGraphics
 import SwiftUI
 
+@MainActor
 final class SidebarState: ObservableObject {
     @Published private(set) var isVisible: Bool
     @Published var persistedWidth: CGFloat

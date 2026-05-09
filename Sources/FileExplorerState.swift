@@ -3,6 +3,7 @@ import SwiftUI
 
 // MARK: - State (visibility toggle)
 
+@MainActor
 final class FileExplorerState: ObservableObject {
     private static let modeKey = "rightSidebar.mode"
 

@@ -64,6 +64,7 @@ final class SidebarWidthPolicyTests: XCTestCase {
         XCTAssertFalse(range.contains(686.1))
     }
 
+    @MainActor
     func testLeftSidebarVisibilityTogglePublishesSingleInvalidation() {
         let state = SidebarState(isVisible: true)
         var invalidationCount = 0
@@ -77,6 +78,7 @@ final class SidebarWidthPolicyTests: XCTestCase {
         XCTAssertEqual(invalidationCount, 1)
     }
 
+    @MainActor
     func testRightSidebarVisibilityTogglePublishesSingleInvalidation() {
         let defaults = UserDefaults.standard
         let hadStoredVisibility = defaults.object(forKey: "fileExplorer.isVisible") != nil

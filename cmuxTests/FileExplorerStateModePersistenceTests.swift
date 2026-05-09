@@ -7,6 +7,7 @@ import XCTest
 @testable import cmux
 #endif
 
+@MainActor
 final class FileExplorerStateModePersistenceTests: XCTestCase {
     private let modeKey = "rightSidebar.mode"
     private let feedEnabledKey = RightSidebarBetaFeatureSettings.feedEnabledKey
