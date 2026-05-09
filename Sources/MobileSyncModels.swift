@@ -594,6 +594,7 @@ nonisolated struct MobileSyncSettingsSnapshot: Equatable, Sendable, Codable {
 enum MobileSyncSettings {
     nonisolated static let enabledKey = "mobileSyncEnabled"
     nonisolated static let defaultEnabled = false
+    nonisolated static let didChangeNotification = Notification.Name("cmux.mobileSyncSettingsDidChange")
 
     @MainActor
     static func snapshot(defaults: UserDefaults = .standard) -> MobileSyncSettingsSnapshot {
@@ -605,7 +606,56 @@ enum MobileSyncSettings {
 
     @MainActor
     static func setEnabled(_ enabled: Bool, defaults: UserDefaults = .standard) {
+        let previous = snapshot(defaults: defaults).enabled
         defaults.set(enabled, forKey: enabledKey)
+        guard previous != enabled else { return }
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
+    }
+}
+
+enum MobileSyncActions {
+    @MainActor
+    static func enable(
+        tabManager: TabManager?,
+        defaults: UserDefaults = .standard,
+        tailscale: MobileSyncTailscaleDetection? = nil
+    ) -> MobileSyncStatusSnapshot {
+        setEnabled(true, tabManager: tabManager, defaults: defaults, tailscale: tailscale)
+    }
+
+    @MainActor
+    static func disable(
+        tabManager: TabManager?,
+        defaults: UserDefaults = .standard,
+        tailscale: MobileSyncTailscaleDetection? = nil
+    ) -> MobileSyncStatusSnapshot {
+        setEnabled(false, tabManager: tabManager, defaults: defaults, tailscale: tailscale)
+    }
+
+    @MainActor
+    static func setEnabled(
+        _ enabled: Bool,
+        tabManager: TabManager?,
+        defaults: UserDefaults = .standard,
+        tailscale: MobileSyncTailscaleDetection? = nil
+    ) -> MobileSyncStatusSnapshot {
+        MobileSyncSettings.setEnabled(enabled, defaults: defaults)
+        return status(tabManager: tabManager, defaults: defaults, tailscale: tailscale)
+    }
+
+    @MainActor
+    static func status(
+        tabManager: TabManager?,
+        defaults: UserDefaults = .standard,
+        tailscale: MobileSyncTailscaleDetection? = nil,
+        activeAttachmentCount: Int = 0
+    ) -> MobileSyncStatusSnapshot {
+        MobileSyncStatusBuilder.status(
+            tabManager: tabManager,
+            settings: MobileSyncSettings.snapshot(defaults: defaults),
+            tailscale: tailscale,
+            activeAttachmentCount: activeAttachmentCount
+        )
     }
 }
 
@@ -623,10 +673,11 @@ enum MobileSyncStatusBuilder {
     static func status(
         tabManager: TabManager?,
         settings: MobileSyncSettingsSnapshot? = nil,
+        defaults: UserDefaults = .standard,
         tailscale: MobileSyncTailscaleDetection? = nil,
         activeAttachmentCount: Int = 0
     ) -> MobileSyncStatusSnapshot {
-        let resolvedSettings = settings ?? MobileSyncSettings.snapshot()
+        let resolvedSettings = settings ?? MobileSyncSettings.snapshot(defaults: defaults)
         let resolvedTailscale = tailscale ?? MobileSyncTailscaleDetector.detectCurrentSystem()
         let workspaces = tabManager.map(MobileWorkspaceSnapshot.snapshots(from:)) ?? []
         let listenerState: MobileSyncListenerState = {

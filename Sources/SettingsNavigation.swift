@@ -94,7 +94,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .betaFeatures:
             return "\(title) beta experimental unstable feed dock right sidebar"
         case .automation:
-            return "\(title) socket integrations hooks ports claude cursor gemini"
+            return "\(title) socket integrations hooks ports claude cursor gemini ios ipad tailscale mobile sync"
         case .browser:
             return "\(title) search engine links history theme"
         case .browserImport:
@@ -330,6 +330,7 @@ enum SettingsSearchIndex {
         setting(.sidebarAppearance, "show-metadata", String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"), "report meta status block"),
         setting(.betaFeatures, "feed", String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"), "feed right sidebar agent decisions permissions questions"),
         setting(.betaFeatures, "dock", String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"), "dock right sidebar terminal controls tui"),
+        setting(.automation, "mobile-sync", String(localized: "settings.automation.mobileSync", defaultValue: "iOS and iPadOS Sync"), "ios ipad tailscale mobile sync remote control"),
         setting(.automation, "socket-mode", String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"), "unix socket api access password auth"),
         setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
         setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),

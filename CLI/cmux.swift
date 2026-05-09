@@ -4208,10 +4208,10 @@ struct CMUXCLI {
     }
 
     func runIOSCommand(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
-        let subcommand = commandArgs.first?.lowercased() ?? "status"
+        let subcommand = commandArgs.first?.lowercased() ?? "on"
         let remaining = Array(commandArgs.dropFirst())
         guard remaining.isEmpty else {
-            throw CLIError(message: "Usage: cmux ios status")
+            throw CLIError(message: "Usage: cmux ios [status|on|off]")
         }
 
         switch subcommand {
@@ -4222,8 +4222,22 @@ struct CMUXCLI {
                 return
             }
             printIOSStatus(payload)
+        case "on", "enable", "start":
+            let payload = try client.sendV2(method: "mobile_sync.enable")
+            if jsonOutput {
+                print(jsonString(payload))
+                return
+            }
+            printIOSStatus(payload)
+        case "off", "disable", "stop":
+            let payload = try client.sendV2(method: "mobile_sync.disable")
+            if jsonOutput {
+                print(jsonString(payload))
+                return
+            }
+            printIOSStatus(payload)
         default:
-            throw CLIError(message: "Usage: cmux ios status")
+            throw CLIError(message: "Usage: cmux ios [status|on|off]")
         }
     }
 
@@ -8687,9 +8701,9 @@ struct CMUXCLI {
             """
         case "ios":
             return """
-            Usage: cmux ios status
+            Usage: cmux ios [status|on|off]
 
-            Show iOS/iPadOS mobile sync status. Mobile sync is off by default and does not listen until enabled by a later command or Settings.
+            Enable, disable, or show iOS/iPadOS mobile sync status. Mobile sync is off by default and this build does not start a listener yet.
             """
         case "login":
             return """
@@ -20760,7 +20774,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           capabilities
           events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           auth <status|login|logout>
-          ios status
+          ios [status|on|off]
           login | logout                                      (aliases for auth login/logout)
           vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
           rpc <method> [json-params]
