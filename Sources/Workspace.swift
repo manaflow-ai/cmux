@@ -2185,45 +2185,6 @@ private final class WorkspaceRemoteDaemonRPCClient {
     }
 }
 
-enum RemoteLoopbackProxyAlias {
-    static let aliasHost = "cmux-loopback.localtest.me"
-
-    private static let canonicalLoopbackHost = "localhost"
-
-    static func browserAliasHost(forLoopbackHost host: String, aliasHost: String) -> String {
-        localhostFamilyAliasHost(forLoopbackHost: host, aliasHost: aliasHost) ?? aliasHost
-    }
-
-    static func localhostFamilyHost(forAliasHost host: String, aliasHost: String) -> String? {
-        guard let normalizedHost = BrowserInsecureHTTPSettings.normalizeHost(host),
-              let normalizedAlias = BrowserInsecureHTTPSettings.normalizeHost(aliasHost) else {
-            return nil
-        }
-        if normalizedHost == normalizedAlias {
-            return canonicalLoopbackHost
-        }
-
-        let suffix = ".\(normalizedAlias)"
-        guard normalizedHost.hasSuffix(suffix) else { return nil }
-        let prefix = String(normalizedHost.dropLast(suffix.count))
-        guard !prefix.isEmpty else { return nil }
-        return "\(prefix).\(canonicalLoopbackHost)"
-    }
-
-    static func localhostFamilyAliasHost(forLoopbackHost host: String, aliasHost: String) -> String? {
-        guard let normalizedHost = BrowserInsecureHTTPSettings.normalizeHost(host) else { return nil }
-        if normalizedHost == canonicalLoopbackHost {
-            return aliasHost
-        }
-
-        let suffix = ".\(canonicalLoopbackHost)"
-        guard normalizedHost.hasSuffix(suffix) else { return nil }
-        let prefix = String(normalizedHost.dropLast(suffix.count))
-        guard !prefix.isEmpty else { return nil }
-        return "\(prefix).\(aliasHost)"
-    }
-}
-
 enum RemoteLoopbackHTTPRequestRewriter {
     private static let headerDelimiter = Data([0x0d, 0x0a, 0x0d, 0x0a])
     private static let requestLineMethods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "PRI"]
@@ -2457,15 +2418,18 @@ enum RemoteLoopbackHTTPResponseRewriter {
             let trimmed = part.trimmingCharacters(in: .whitespacesAndNewlines)
             guard trimmed.lowercased().hasPrefix("domain=") else { return part }
             let domainValue = String(trimmed.dropFirst("domain=".count))
+            let hasLeadingDot = domainValue.hasPrefix(".")
+            let hostValue = hasLeadingDot ? String(domainValue.dropFirst()) : domainValue
             guard let rewrittenHost = RemoteLoopbackProxyAlias.localhostFamilyAliasHost(
-                forLoopbackHost: domainValue,
+                forLoopbackHost: hostValue,
                 aliasHost: aliasHost
             ) else {
                 return part
             }
             didRewrite = true
             let leadingWhitespace = part.prefix { $0.isWhitespace }
-            return "\(leadingWhitespace)Domain=\(rewrittenHost)"
+            let rewrittenDomain = hasLeadingDot ? ".\(rewrittenHost)" : rewrittenHost
+            return "\(leadingWhitespace)Domain=\(rewrittenDomain)"
         }
 
         return didRewrite ? rewrittenParts.joined(separator: ";") : nil
