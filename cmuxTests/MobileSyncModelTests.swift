@@ -157,6 +157,60 @@ final class MobileSyncModelTests: XCTestCase {
         XCTAssertEqual(status.socketPayload["enabled"] as? Bool, false)
     }
 
+    @MainActor
+    func testMobileSyncActionsPersistEnableDisableState() {
+        let suiteName = "MobileSyncActionsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let unavailableTailscale = MobileSyncTailscaleDetection(addresses: [])
+        let enabled = MobileSyncActions.enable(
+            tabManager: nil,
+            defaults: defaults,
+            tailscale: unavailableTailscale
+        )
+
+        XCTAssertTrue(enabled.settings.enabled)
+        XCTAssertTrue(MobileSyncSettings.snapshot(defaults: defaults).enabled)
+        XCTAssertEqual(enabled.listenerState, .waitingForTailscale)
+
+        let disabled = MobileSyncActions.disable(
+            tabManager: nil,
+            defaults: defaults,
+            tailscale: unavailableTailscale
+        )
+
+        XCTAssertFalse(disabled.settings.enabled)
+        XCTAssertFalse(MobileSyncSettings.snapshot(defaults: defaults).enabled)
+        XCTAssertEqual(disabled.listenerState, .stopped)
+    }
+
+    @MainActor
+    func testMobileSyncActionsPostChangeNotificationOnlyWhenValueChanges() {
+        let suiteName = "MobileSyncActionsNotificationTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        var notificationCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: MobileSyncSettings.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer {
+            NotificationCenter.default.removeObserver(observer)
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        _ = MobileSyncActions.enable(tabManager: nil, defaults: defaults)
+        _ = MobileSyncActions.enable(tabManager: nil, defaults: defaults)
+        _ = MobileSyncActions.disable(tabManager: nil, defaults: defaults)
+
+        XCTAssertEqual(notificationCount, 2)
+    }
+
     func testOverlayGeometryUsesTopAlignedEffectiveGrid() {
         let snapshot = TerminalSizeOverlaySnapshot(
             localSize: TerminalGridSize(columns: 100, rows: 40),

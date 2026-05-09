@@ -2,6 +2,132 @@ import Darwin
 import XCTest
 
 extension CLINotifyProcessIntegrationRegressionTests {
+    func testIOSDefaultCommandEnablesMobileSync() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("ios-enable")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            XCTAssertEqual(method, "mobile_sync.enable")
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: self.iosStatusPayload(
+                    enabled: true,
+                    listenerState: "stopped",
+                    tailscaleAvailable: true,
+                    selectedAddress: "100.64.1.2"
+                )
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["ios"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(
+            result.stdout,
+            """
+            Mobile Sync: enabled
+            Listener: stopped
+            Tailscale: available (100.64.1.2)
+            Workspaces: 2
+            Terminals: 3
+            Active attachments: 0
+
+            """
+        )
+        XCTAssertTrue(
+            state.commands.contains { $0.contains(#""method":"mobile_sync.enable""#) },
+            "Expected ios to call mobile_sync.enable, saw \(state.commands)"
+        )
+    }
+
+    func testIOSOffDisablesMobileSync() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("ios-disable")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            XCTAssertEqual(method, "mobile_sync.disable")
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: self.iosStatusPayload(
+                    enabled: false,
+                    listenerState: "stopped",
+                    tailscaleAvailable: false,
+                    selectedAddress: nil
+                )
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["ios", "off"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(
+            result.stdout,
+            """
+            Mobile Sync: disabled
+            Listener: stopped
+            Tailscale: unavailable
+            Workspaces: 2
+            Terminals: 3
+            Active attachments: 0
+
+            """
+        )
+        XCTAssertTrue(
+            state.commands.contains { $0.contains(#""method":"mobile_sync.disable""#) },
+            "Expected ios off to call mobile_sync.disable, saw \(state.commands)"
+        )
+    }
+
     func testIOSStatusRendersDisabledProductionSafeStatus() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("ios-status")

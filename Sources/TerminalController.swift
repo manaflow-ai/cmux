@@ -2393,6 +2393,10 @@ class TerminalController {
             return v2Result(id: id, self.v2SystemTree(params: params))
         case "mobile_sync.status":
             return v2Ok(id: id, result: self.v2MobileSyncStatus(params: params))
+        case "mobile_sync.enable":
+            return v2Ok(id: id, result: self.v2MobileSyncEnable(params: params))
+        case "mobile_sync.disable":
+            return v2Ok(id: id, result: self.v2MobileSyncDisable(params: params))
 #if DEBUG
         case "debug.mobile_sync.set_fake_remote_size":
             return v2Result(id: id, self.v2DebugMobileSyncSetFakeRemoteSize(params: params))
@@ -2832,6 +2836,8 @@ class TerminalController {
             "system.top",
             "events.stream",
             "mobile_sync.status",
+            "mobile_sync.enable",
+            "mobile_sync.disable",
             "auth.login",
             "auth.status",
             "auth.begin_sign_in",
@@ -3056,7 +3062,17 @@ class TerminalController {
 
     private func v2MobileSyncStatus(params: [String: Any]) -> [String: Any] {
         let manager = v2ResolveTabManager(params: params)
-        return MobileSyncStatusBuilder.status(tabManager: manager).socketPayload
+        return MobileSyncActions.status(tabManager: manager).socketPayload
+    }
+
+    private func v2MobileSyncEnable(params: [String: Any]) -> [String: Any] {
+        let manager = v2ResolveTabManager(params: params)
+        return MobileSyncActions.enable(tabManager: manager).socketPayload
+    }
+
+    private func v2MobileSyncDisable(params: [String: Any]) -> [String: Any] {
+        let manager = v2ResolveTabManager(params: params)
+        return MobileSyncActions.disable(tabManager: manager).socketPayload
     }
 
 #if DEBUG

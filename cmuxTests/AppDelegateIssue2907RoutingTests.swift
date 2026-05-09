@@ -94,6 +94,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         let capabilities = try v2Result(method: "system.capabilities")
         let methods = try XCTUnwrap(capabilities["methods"] as? [String])
         XCTAssertTrue(methods.contains("mobile_sync.status"))
+        XCTAssertTrue(methods.contains("mobile_sync.enable"))
+        XCTAssertTrue(methods.contains("mobile_sync.disable"))
 
         let status = try v2Result(method: "mobile_sync.status")
         XCTAssertEqual(status["enabled"] as? Bool, false)
@@ -101,6 +103,15 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(status["workspace_count"] as? Int ?? 0, 1)
         XCTAssertGreaterThanOrEqual(status["terminal_count"] as? Int ?? 0, 1)
         XCTAssertEqual(status["active_attachment_count"] as? Int, 0)
+
+        let enabled = try v2Result(method: "mobile_sync.enable")
+        XCTAssertEqual(enabled["enabled"] as? Bool, true)
+        XCTAssertTrue(MobileSyncSettings.snapshot().enabled)
+
+        let disabled = try v2Result(method: "mobile_sync.disable")
+        XCTAssertEqual(disabled["enabled"] as? Bool, false)
+        XCTAssertFalse(MobileSyncSettings.snapshot().enabled)
+        XCTAssertEqual((disabled["listener"] as? [String: Any])?["state"] as? String, "stopped")
     }
 
 #if DEBUG

@@ -13,6 +13,7 @@ final class AutomationSocketUITests: XCTestCase {
         continueAfterFailure = false
         socketPath = "/tmp/cmux-debug-\(UUID().uuidString).sock"
         resetSocketDefaults()
+        resetMobileSyncDefaults()
         removeSocketFile()
     }
 
@@ -45,6 +46,38 @@ final class AutomationSocketUITests: XCTestCase {
         app.terminate()
     }
 
+    func testMobileSyncSettingsTogglePersists() throws {
+        let app = configuredApp(mode: "cmuxOnly")
+        app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for mobile sync Settings test. state=\(app.state.rawValue)"
+        )
+
+        let toggle = try requireMobileSyncToggle(app: app)
+        XCTAssertFalse(toggleIsOn(toggle), "Mobile sync should default off")
+        toggle.click()
+        XCTAssertTrue(waitForMobileSyncToggle(app: app, isOn: true, timeout: 4.0))
+        app.terminate()
+
+        let relaunchedApp = configuredApp(mode: "cmuxOnly")
+        relaunchedApp.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
+        relaunchedApp.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        relaunchedApp.launch()
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(relaunchedApp, timeout: 12.0),
+            "Expected app to relaunch for mobile sync Settings test. state=\(relaunchedApp.state.rawValue)"
+        )
+        addTeardownBlock { relaunchedApp.terminate() }
+
+        let persistedToggle = try requireMobileSyncToggle(app: relaunchedApp)
+        XCTAssertTrue(toggleIsOn(persistedToggle), "Mobile sync setting should persist across launch")
+        persistedToggle.click()
+        XCTAssertTrue(waitForMobileSyncToggle(app: relaunchedApp, isOn: false, timeout: 4.0))
+    }
+
     private func configuredApp(mode: String) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += ["-\(modeKey)", mode]
@@ -66,6 +99,67 @@ final class AutomationSocketUITests: XCTestCase {
             return app.wait(for: .runningForeground, timeout: 6.0)
         }
         return false
+    }
+
+    private func requireMobileSyncToggle(app: XCUIApplication) throws -> XCUIElement {
+        let scrollView = app.scrollViews.firstMatch
+        let candidates = mobileSyncToggleCandidates(app: app)
+
+        for _ in 0..<10 {
+            if let element = firstExistingElement(candidates: candidates, timeout: 0.5), element.isHittable {
+                return element
+            }
+            if scrollView.exists {
+                scrollView.swipeUp()
+            } else {
+                app.typeKey(",", modifierFlags: [.command])
+            }
+        }
+
+        throw XCTSkip("Could not find the iOS and iPadOS Sync toggle")
+    }
+
+    private func waitForMobileSyncToggle(app: XCUIApplication, isOn: Bool, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let toggle = firstExistingElement(candidates: mobileSyncToggleCandidates(app: app), timeout: 0.2),
+               toggleIsOn(toggle) == isOn {
+                return true
+            }
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+        return false
+    }
+
+    private func mobileSyncToggleCandidates(app: XCUIApplication) -> [XCUIElement] {
+        [
+            app.switches["SettingsMobileSyncToggle"],
+            app.checkBoxes["SettingsMobileSyncToggle"],
+            app.buttons["SettingsMobileSyncToggle"],
+            app.otherElements["SettingsMobileSyncToggle"],
+            app.switches["iOS and iPadOS Sync"],
+            app.checkBoxes["iOS and iPadOS Sync"],
+            app.buttons["iOS and iPadOS Sync"],
+            app.otherElements["iOS and iPadOS Sync"],
+        ]
+    }
+
+    private func toggleIsOn(_ element: XCUIElement) -> Bool {
+        let value = String(describing: element.value ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return value == "1" || value == "true" || value == "on"
+    }
+
+    private func firstExistingElement(candidates: [XCUIElement], timeout: TimeInterval) -> XCUIElement? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let match = candidates.first(where: { $0.exists }) {
+                return match
+            }
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+        return candidates.first(where: { $0.exists })
     }
 
     private func waitForSocket(exists: Bool, timeout: TimeInterval) -> Bool {
@@ -136,7 +230,23 @@ final class AutomationSocketUITests: XCTestCase {
         }
     }
 
+    private func resetMobileSyncDefaults() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
+        process.arguments = ["delete", defaultsDomain, MobileSyncDefaultsKey.enabled]
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return
+        }
+    }
+
     private func removeSocketFile() {
         try? FileManager.default.removeItem(atPath: socketPath)
     }
+}
+
+private enum MobileSyncDefaultsKey {
+    static let enabled = "mobileSyncEnabled"
 }
