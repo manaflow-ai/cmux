@@ -196,6 +196,9 @@ struct cmuxApp: App {
                             AppDelegate.shared?.preferredMainWindowForSettingsPresentation()
                         }
                     )
+                    WorkspaceCommandsWindowPresenter.configure {
+                        openWindow(id: WorkspaceCommandsSettingsView.windowID)
+                    }
 #if DEBUG
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
                         UpdateLogStore.shared.append("ui test: cmuxApp onAppear")
@@ -625,6 +628,16 @@ struct cmuxApp: App {
             ConfigSettingsView()
                 .cmuxAppearanceColorScheme(appearanceMode)
         }
+
+        Window(
+            String(localized: "settings.workspaces.windowTitle", defaultValue: "Workspaces"),
+            id: WorkspaceCommandsSettingsView.windowID
+        ) {
+            WorkspaceCommandsSettingsView()
+                .cmuxAppearanceColorScheme(appearanceMode)
+        }
+        .defaultSize(width: 760, height: 500)
+        .windowResizability(.contentMinSize)
     }
 
     @CommandsBuilder
@@ -6116,6 +6129,11 @@ struct SettingsView: View {
 
                     }
 
+                    SettingsSectionHeader(title: String(localized: "settings.section.workspaces", defaultValue: "Workspaces"))
+                    SettingsCard {
+                        WorkspaceCommandsSettingsRow(openWindow: openWindow)
+                    }
+
                     SettingsSectionHeader(title: String(localized: "settings.section.terminal", defaultValue: "Terminal"))
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .terminal))
                     SettingsCard {
@@ -7350,6 +7368,63 @@ struct SettingsSectionHeader: View {
             .foregroundColor(.secondary)
             .padding(.leading, 2)
             .padding(.bottom, -2)
+    }
+}
+
+private struct WorkspaceCommandsSettingsRow: View {
+    let openWindow: OpenWindowAction
+    @ObservedObject private var store = WorkspaceCommandsStore.shared
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(String(
+                    localized: "settings.workspaces.row.title",
+                    defaultValue: "Workspace commands"
+                ))
+                .font(.system(size: 13, weight: .medium))
+                Text(summary)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+            Button(String(
+                localized: "settings.workspaces.row.manage",
+                defaultValue: "Manage Workspaces…"
+            )) {
+                openWindow(id: WorkspaceCommandsSettingsView.windowID)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+    }
+
+    private var summary: String {
+        if store.userCommands.isEmpty {
+            return String(
+                localized: "settings.workspaces.row.summary.empty",
+                defaultValue: "No commands yet. Add a Local or Remote (SSH) workspace to launch from Cmd-N or the titlebar +."
+            )
+        }
+        let count = store.commands.count
+        let defaultName = store.defaultCommand()?.name
+        let countLabel = String(
+            format: String(
+                localized: "settings.workspaces.row.summary.count",
+                defaultValue: "%d configured"
+            ),
+            count
+        )
+        if let defaultName, !defaultName.isEmpty {
+            return countLabel + " · " + String(
+                format: String(
+                    localized: "settings.workspaces.row.summary.default",
+                    defaultValue: "Default: %@"
+                ),
+                defaultName
+            )
+        }
+        return countLabel
     }
 }
 

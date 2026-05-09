@@ -1150,7 +1150,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     func testDecodeRestartBehaviors() throws {
-        for behavior in ["new", "recreate", "ignore", "confirm"] {
+        for behavior in ["new", "recreate", "ignore", "confirm", "always"] {
             let json = """
             {
               "commands": [{

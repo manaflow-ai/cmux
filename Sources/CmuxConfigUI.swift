@@ -229,6 +229,7 @@ enum CmuxRestartBehavior: String, Codable, Sendable {
     case recreate
     case ignore
     case confirm
+    case always
 }
 
 extension CmuxButtonIcon {
