@@ -111,6 +111,10 @@ final class DetachedFolderDragIconHostView: NSView {
         guard observedParentWindow !== parentWindow || observers.isEmpty else { return }
         removeParentWindowObservers()
 
+        // The child panel frame is derived from this host view in the parent
+        // window. AppKit does not call layout() when only the parent window
+        // moves, resizes, or changes miniaturized state, so observe those
+        // window events and recompute the panel's screen-space frame.
         let center = NotificationCenter.default
         let names: [Notification.Name] = [
             NSWindow.didMoveNotification,
@@ -150,6 +154,9 @@ final class DetachedFolderDragIconHostView: NSView {
     }
 
     private func tearDownDetachedIcon() {
+        // Observer lifetime is tied to the derived child panel: once this host
+        // leaves its parent window or deinitializes, remove both so no stale
+        // panel keeps tracking an old parent window.
         removeParentWindowObservers()
         if let childWindow {
             childWindow.parent?.removeChildWindow(childWindow)
@@ -157,19 +164,6 @@ final class DetachedFolderDragIconHostView: NSView {
         }
         childWindow = nil
         iconView = nil
-    }
-}
-
-struct DraggableFolderIconRepresentable: NSViewRepresentable {
-    let directory: String
-
-    func makeNSView(context: Context) -> DraggableFolderNSView {
-        DraggableFolderNSView(directory: directory)
-    }
-
-    func updateNSView(_ nsView: DraggableFolderNSView, context: Context) {
-        nsView.directory = directory
-        nsView.updateIcon()
     }
 }
 
@@ -239,7 +233,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         #if DEBUG
         let nowMovable = window.map { String($0.isMovable) } ?? "nil"
         let windowOrigin = window.map { formatPoint($0.frame.origin) } ?? "nil"
-        cmuxDebugLog("folder.dragEnd dir=\(directory) operation=\(operation.rawValue) screen=\(formatPoint(screenPoint)) nowMovable=\(nowMovable) windowOrigin=\(windowOrigin)")
+        cmuxDebugLog("folder.dragEnd dirBytes=\(directory.utf8.count) operation=\(operation.rawValue) screen=\(formatPoint(screenPoint)) nowMovable=\(nowMovable) windowOrigin=\(windowOrigin)")
         #endif
     }
 
@@ -256,6 +250,11 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.control) {
+            showPathMenu()
+            return
+        }
+
         if event.clickCount == 2 {
             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directory)
             return
@@ -266,7 +265,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         let responderDesc = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         let nowMovable = window.map { String($0.isMovable) } ?? "nil"
         let windowOrigin = window.map { formatPoint($0.frame.origin) } ?? "nil"
-        cmuxDebugLog("folder.mouseDown dir=\(directory) point=\(formatPoint(localPoint)) firstResponder=\(responderDesc) nowMovable=\(nowMovable) windowOrigin=\(windowOrigin)")
+        cmuxDebugLog("folder.mouseDown dirBytes=\(directory.utf8.count) point=\(formatPoint(localPoint)) firstResponder=\(responderDesc) nowMovable=\(nowMovable) windowOrigin=\(windowOrigin)")
         #endif
         let fileURL = URL(fileURLWithPath: directory)
         let draggingItem = NSDraggingItem(pasteboardWriter: fileURL as NSURL)
@@ -278,7 +277,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         let session = beginDraggingSession(with: [draggingItem], event: event, source: self)
         #if DEBUG
         let itemCount = session.draggingPasteboard.pasteboardItems?.count ?? 0
-        cmuxDebugLog("folder.dragStart dir=\(directory) pasteboardItems=\(itemCount)")
+        cmuxDebugLog("folder.dragStart dirBytes=\(directory.utf8.count) pasteboardItems=\(itemCount)")
         #endif
     }
 
@@ -287,6 +286,10 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
     }
 
     override func rightMouseDown(with event: NSEvent) {
+        showPathMenu()
+    }
+
+    private func showPathMenu() {
         let menu = buildPathMenu()
         // Pop up menu at bottom-left of icon (like native proxy icon)
         let menuLocation = NSPoint(x: 0, y: bounds.height)

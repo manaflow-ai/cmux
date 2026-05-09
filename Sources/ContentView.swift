@@ -14601,19 +14601,6 @@ private struct ScrollBackgroundClearer: NSViewRepresentable {
     }
 }
 
-private struct DraggableFolderIcon: View {
-    let directory: String
-
-    var body: some View {
-        DraggableFolderIconRepresentable(directory: directory)
-            .frame(width: 16, height: 16)
-            .safeHelp(String(localized: "sidebar.folderIcon.dragHint", defaultValue: "Drag to open in Finder or another app"))
-            .onTapGesture(count: 2) {
-                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directory)
-            }
-    }
-}
-
 /// Wrapper view that tries NSGlassEffectView (macOS 26+) when available or requested
 private struct SidebarVisualEffectBackground: NSViewRepresentable {
     let material: NSVisualEffectView.Material
