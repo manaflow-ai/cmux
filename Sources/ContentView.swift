@@ -2086,6 +2086,10 @@ struct ContentView: View {
             terminalContentWithSidebarDropOverlay(appearance: appearance)
             rightSidebarPanelWithBackdrop(appearance: appearance)
         }
+        .transaction {
+            $0.animation = nil
+            $0.disablesAnimations = true
+        }
     }
 
     private var rightSidebarVisible: Bool {
@@ -2320,9 +2324,13 @@ struct ContentView: View {
         syncTrafficLightInset()
     }
 
-    private func schedulePortalGeometrySynchronize() {
+    private func synchronizePortalGeometry(forceImmediateTerminalSync: Bool = false) {
         if let observedWindow {
-            TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
+            if forceImmediateTerminalSync {
+                TerminalWindowPortalRegistry.synchronizeExternalGeometryImmediately(for: observedWindow)
+            } else {
+                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
+            }
             BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
         } else {
             TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
@@ -2574,6 +2582,10 @@ struct ContentView: View {
                         sidebarPanelWithBackdrop(appearance: appearance)
                     }
                 }
+                .transaction {
+                    $0.animation = nil
+                    $0.disablesAnimations = true
+                }
             )
         } else {
             // Standard HStack mode for behindWindow blur
@@ -2583,6 +2595,10 @@ struct ContentView: View {
                         sidebarPanelWithBackdrop(appearance: appearance)
                     }
                     terminalContentWithRightSidebarPanel(appearance: appearance)
+                }
+                .transaction {
+                    $0.animation = nil
+                    $0.disablesAnimations = true
                 }
             )
         }
@@ -3116,36 +3132,30 @@ struct ContentView: View {
             }
             // Sidebar width changes are pure SwiftUI layout updates, so portal-hosted
             // terminals and browsers need an explicit post-layout geometry resync.
-            schedulePortalGeometrySynchronize()
+            synchronizePortalGeometry()
             updateSidebarResizerBandState()
         })
 
-        view = AnyView(view.onChange(of: sidebarState.isVisible) { isVisible in
+        view = AnyView(view.onChange(of: sidebarState.isVisible) { _, isVisible in
             setMinimalModeSidebarTitlebarControlsAvailable(isVisible, in: observedWindow)
             if let observedWindow {
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
             }
-            schedulePortalGeometrySynchronize()
+            synchronizePortalGeometry(forceImmediateTerminalSync: true)
             updateSidebarResizerBandState()
             syncTrafficLightInset()
         })
-
-        view = AnyView(view.onChange(of: fileExplorerState.isVisible) { isVisible in
+        view = AnyView(view.onChange(of: fileExplorerState.isVisible) { _, isVisible in
+            synchronizePortalGeometry(forceImmediateTerminalSync: true)
             if !isVisible {
                 _ = AppDelegate.shared?.restoreTerminalFocusAfterRightSidebarHidden(in: observedWindow)
             }
-            if let observedWindow {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
-            } else {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
-            }
         })
-
         view = AnyView(view.onChange(of: sidebarMatchTerminalBackground) { _ in
             tabManager.applyWindowBackdropModeForAllTabs(reason: "sidebarMatchTerminalBackgroundChanged")
             guard sidebarState.isVisible,
                   sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue else { return }
-            schedulePortalGeometrySynchronize()
+            synchronizePortalGeometry()
         })
 
         view = AnyView(view.onChange(of: isMinimalMode) { _, _ in
@@ -3157,7 +3167,7 @@ struct ContentView: View {
                 observedWindow.contentView?.superview?.needsLayout = true
                 observedWindow.invalidateShadow()
             }
-            schedulePortalGeometrySynchronize()
+            synchronizePortalGeometry()
             updateSidebarResizerBandState()
             syncTrafficLightInset()
         })
@@ -3296,10 +3306,19 @@ struct ContentView: View {
         let removedIds = previousMountedIds.filter { !mountedWorkspaceIds.contains($0) }
         let mountedIdSet = Set(mountedWorkspaceIds)
         for workspace in currentTabs {
-            workspace.setPortalRenderingEnabled(
-                mountedIdSet.contains(workspace.id),
-                reason: "workspaceMount"
-            )
+            let isMounted = mountedIdSet.contains(workspace.id)
+            workspace.setPortalRenderingEnabled(isMounted, reason: "workspaceMount")
+            if isMounted {
+                let presentation = MountedWorkspacePresentationPolicy.resolve(
+                    isSelectedWorkspace: effectiveSelectedId == workspace.id,
+                    isRetiringWorkspace: retiringWorkspaceId == workspace.id,
+                    shouldPrimeInBackground: tabManager.pendingBackgroundWorkspaceLoadIds.contains(workspace.id)
+                )
+                workspace.setPortalPresentationVisible(
+                    presentation.isPanelVisible,
+                    reason: "workspaceMount"
+                )
+            }
         }
 #if DEBUG
         if mountedWorkspaceIds != previousMountedIds {

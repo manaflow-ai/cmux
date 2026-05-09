@@ -2740,7 +2740,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         context.tabManager.restoreSessionSnapshot(snapshot.tabManager)
-        context.sidebarState.isVisible = snapshot.sidebar.isVisible
+        context.sidebarState.setVisible(snapshot.sidebar.isVisible)
         context.sidebarState.persistedWidth = CGFloat(
             SessionPersistencePolicy.sanitizedSidebarWidth(snapshot.sidebar.width)
         )
@@ -5301,6 +5301,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    private func preferredWindowForSidebarVisibilityShortcut(event: NSEvent) -> NSWindow? { mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow }
+
     private func resolvedShortcutEventWindow(_ event: NSEvent) -> NSWindow? {
         if let window = event.window {
             return window
@@ -5514,11 +5516,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let state = context.fileExplorerState ?? fileExplorerState else {
             return false
         }
-        let wasVisible = state.isVisible
         state.toggle()
-        if wasVisible && !state.isVisible {
-            _ = context.keyboardFocusCoordinator.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded()
-        }
         return true
     }
 
@@ -6866,7 +6864,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] == "1" {
             fileExplorerState.mode = .files
-            fileExplorerState.isVisible = true
+            fileExplorerState.setVisible(true)
         }
 #endif
 
@@ -8671,7 +8669,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             workspace.setPanelCustomTitle(panelId: betaPanelId, title: betaTitle)
             if startWithHiddenSidebar {
-                context.sidebarState.isVisible = false
+                context.sidebarState.setVisible(false)
             }
             if showRightSidebar {
                 guard let fileExplorerState = context.fileExplorerState else {
@@ -11094,7 +11092,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Primary UI shortcuts
         if matchConfiguredShortcut(event: event, action: .toggleSidebar) {
-            _ = toggleSidebarInActiveMainWindow()
+            enqueueLeftSidebarVisibilityShortcut(preferredWindow: preferredWindowForSidebarVisibilityShortcut(event: event))
             return true
         }
 
@@ -11130,13 +11128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .toggleFileExplorer) {
-            // Escape AppKit's performKeyEquivalent animation context. Without
-            // deferring the toggle, NSAnimationContext implicitly animates the
-            // layout change.
-            let preferredWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            Task { @MainActor [weak self, weak preferredWindow] in
-                _ = self?.toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindow)
-            }
+            enqueueRightSidebarVisibilityShortcut(preferredWindow: preferredWindowForSidebarVisibilityShortcut(event: event))
             return true
         }
 

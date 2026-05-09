@@ -1,8 +1,10 @@
-import Combine
+import AppKit
 import CoreGraphics
+import SwiftUI
 
+@MainActor
 final class SidebarState: ObservableObject {
-    @Published var isVisible: Bool
+    @Published private(set) var isVisible: Bool
     @Published var persistedWidth: CGFloat
 
     init(isVisible: Bool = true, persistedWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)) {
@@ -12,7 +14,32 @@ final class SidebarState: ObservableObject {
     }
 
     func toggle() {
-        isVisible.toggle()
+        setVisible(!isVisible)
+    }
+
+    func setVisible(_ nextValue: Bool) {
+        guard isVisible != nextValue else { return }
+
+        // Keep left and right sidebar visibility mutations under the same
+        // animation-suppression contract. Shortcut handlers also suppress
+        // animations, but non-shortcut callers should not be able to reintroduce
+        // animated Bonsplit frames that leave hosted terminals chasing layout.
+        NSAnimationContext.beginGrouping()
+        CATransaction.begin()
+        defer {
+            CATransaction.commit()
+            NSAnimationContext.endGrouping()
+        }
+
+        NSAnimationContext.current.duration = 0
+        NSAnimationContext.current.allowsImplicitAnimation = false
+        CATransaction.setDisableActions(true)
+
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            isVisible = nextValue
+        }
     }
 }
 

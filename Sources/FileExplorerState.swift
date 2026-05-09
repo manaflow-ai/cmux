@@ -3,10 +3,11 @@ import SwiftUI
 
 // MARK: - State (visibility toggle)
 
+@MainActor
 final class FileExplorerState: ObservableObject {
     private static let modeKey = "rightSidebar.mode"
 
-    @Published var isVisible: Bool {
+    @Published private(set) var isVisible: Bool {
         didSet { UserDefaults.standard.set(isVisible, forKey: "fileExplorer.isVisible") }
     }
     @Published var width: CGFloat {

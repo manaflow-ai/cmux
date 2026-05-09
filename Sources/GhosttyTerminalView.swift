@@ -5283,14 +5283,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
         desiredFocusState = focused
     }
 
-    func setFocus(_ focused: Bool) {
+    @discardableResult
+    func setFocus(_ focused: Bool) -> Bool {
         // Only send focus events when the state changes to avoid redundant
         // prompt redraws with zsh themes like Powerlevel10k.
-        guard focused != desiredFocusState else { return }
+        guard focused != desiredFocusState else { return false }
         desiredFocusState = focused
         // Track desired state even before the C surface exists (e.g. during
         // layout restoration). createSurface syncs the state once created.
-        guard let surface = surface else { return }
+        guard let surface = surface else { return true }
         ghostty_surface_set_focus(surface, focused)
 
         // If we focus a surface while it is being rapidly reparented (closing splits, etc),
@@ -5304,6 +5305,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 ghostty_surface_set_display_id(surface, displayID)
             }
         }
+        return true
     }
 
     func setOcclusion(_ visible: Bool) {
@@ -11684,16 +11686,20 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
         cmuxDebugLog("focus.surface.reassert surface=\(terminalSurface.id.uuidString.prefix(5)) reason=\(reason)")
 #endif
-        terminalSurface.setFocus(true)
-        refreshSurfaceAfterFocusIfNeeded(reason: reason)
+        let focusStateChanged = terminalSurface.setFocus(true)
+        refreshSurfaceAfterFocusIfNeeded(
+            reason: reason,
+            focusStateChanged: focusStateChanged
+        )
     }
 
-    private func refreshSurfaceAfterFocusIfNeeded(reason: String) {
+    private func refreshSurfaceAfterFocusIfNeeded(reason: String, focusStateChanged: Bool) {
         guard let terminalSurface = surfaceView.terminalSurface,
               isActive,
               let window,
               window.isKeyWindow,
               surfaceView.isVisibleInUI else { return }
+        guard focusStateChanged || !reason.hasSuffix(".alreadyFirstResponder") else { return }
 
         let now = CACurrentMediaTime()
         if now - lastFocusRefreshAt < 0.05 {
@@ -13092,7 +13098,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     var onFocus: ((UUID) -> Void)? = nil
     var onTriggerFlash: (() -> Void)? = nil
 
-    private final class HostContainerView: NSView {
+    final class HostContainerView: NSView {
         private static var nextInstanceSerial: UInt64 = 0
 
         var onDidMoveToWindow: (() -> Void)?
@@ -13185,37 +13191,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
         // already attached elsewhere, do not mutate visibility/active state here.
         if isBoundToCurrentHost { return true }
         return !hostedViewHasSuperview
-    }
-
-    static func shouldSynchronizePortalGeometryImmediately(
-        hostInLiveResize: Bool,
-        windowInLiveResize: Bool,
-        interactiveGeometryResizeActive: Bool
-    ) -> Bool {
-        hostInLiveResize || windowInLiveResize || interactiveGeometryResizeActive
-    }
-
-    private static func synchronizePortalGeometry(
-        for host: HostContainerView,
-        coordinator: Coordinator
-    ) {
-        let geometryRevision = host.geometryRevision
-        guard coordinator.lastSynchronizedHostGeometryRevision != geometryRevision else { return }
-        coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
-        let window = host.window
-        if shouldSynchronizePortalGeometryImmediately(
-            hostInLiveResize: host.inLiveResize,
-            windowInLiveResize: window?.inLiveResize == true,
-            interactiveGeometryResizeActive: TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
-        ) {
-            TerminalWindowPortalRegistry.synchronizeForAnchor(host)
-            return
-        }
-        // Avoid synchronizing the terminal portal while AppKit is still inside
-        // the current layout turn. Re-entrant syncs here can wedge window resize
-        // handling and leave the app spinning on the wait cursor.
-        guard let window else { return }
-        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
     }
 
     func makeNSView(context: Context) -> NSView {

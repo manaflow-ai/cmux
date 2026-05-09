@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import XCTest
 
@@ -61,6 +62,93 @@ final class SidebarWidthPolicyTests: XCTestCase {
         XCTAssertTrue(range.contains(684))
         XCTAssertFalse(range.contains(675.9))
         XCTAssertFalse(range.contains(686.1))
+    }
+
+    @MainActor
+    func testLeftSidebarVisibilityTogglePublishesSingleInvalidation() {
+        let state = SidebarState(isVisible: true)
+        var invalidationCount = 0
+        let cancellable = state.objectWillChange.sink {
+            invalidationCount += 1
+        }
+
+        state.toggle()
+
+        withExtendedLifetime(cancellable) {}
+        XCTAssertEqual(invalidationCount, 1)
+    }
+
+    @MainActor
+    func testRightSidebarVisibilityTogglePublishesSingleInvalidation() {
+        let defaults = UserDefaults.standard
+        let hadStoredVisibility = defaults.object(forKey: "fileExplorer.isVisible") != nil
+        let storedVisibility = defaults.bool(forKey: "fileExplorer.isVisible")
+        defaults.set(true, forKey: "fileExplorer.isVisible")
+        defer {
+            if hadStoredVisibility {
+                defaults.set(storedVisibility, forKey: "fileExplorer.isVisible")
+            } else {
+                defaults.removeObject(forKey: "fileExplorer.isVisible")
+            }
+        }
+
+        let state = FileExplorerState()
+        var invalidationCount = 0
+        let cancellable = state.objectWillChange.sink {
+            invalidationCount += 1
+        }
+
+        state.toggle()
+
+        withExtendedLifetime(cancellable) {}
+        XCTAssertEqual(invalidationCount, 1)
+    }
+}
+
+@MainActor
+final class SidebarVisibilityShortcutTests: XCTestCase {
+    func testEnqueuedLeftSidebarVisibilityShortcutRunsImmediatelyAndTargetsPreferredWindow() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let firstWindowId = appDelegate.createMainWindow()
+        let secondWindowId = appDelegate.createMainWindow()
+
+        defer {
+            closeWindow(withId: firstWindowId)
+            closeWindow(withId: secondWindowId)
+        }
+
+        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
+              let secondWindow = window(withId: secondWindowId),
+              let firstVisibleBefore = appDelegate.sidebarVisibility(windowId: firstWindowId),
+              let secondVisibleBefore = appDelegate.sidebarVisibility(windowId: secondWindowId) else {
+            XCTFail("Expected both window contexts to exist")
+            return
+        }
+
+        appDelegate.tabManager = firstManager
+        appDelegate.enqueueLeftSidebarVisibilityShortcut(preferredWindow: secondWindow)
+
+        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: firstWindowId), firstVisibleBefore)
+        XCTAssertEqual(
+            appDelegate.sidebarVisibility(windowId: secondWindowId),
+            !secondVisibleBefore,
+            "Left-sidebar shortcut should route through the preferred window without a main-actor turn delay"
+        )
+    }
+
+    private func window(withId windowId: UUID) -> NSWindow? {
+        let identifier = "cmux.main.\(windowId.uuidString)"
+        return NSApp.windows.first(where: { $0.identifier?.rawValue == identifier })
+    }
+
+    private func closeWindow(withId windowId: UUID) {
+        guard let window = window(withId: windowId) else { return }
+        window.performClose(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
     }
 }
 

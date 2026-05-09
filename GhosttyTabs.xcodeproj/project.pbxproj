@@ -417,6 +417,8 @@
 		FE003107 /* RovoDevTranscriptPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003007 /* RovoDevTranscriptPreview.swift */; };
 		F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */; };
 		F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */; };
+		C34750010000000000000002 /* AppDelegate+SidebarVisibilityShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34750010000000000000001 /* AppDelegate+SidebarVisibilityShortcuts.swift */; };
+		C34750020000000000000002 /* GhosttyTerminalView+PortalGeometrySync.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34750020000000000000001 /* GhosttyTerminalView+PortalGeometrySync.swift */; };
 		F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */; };
 		F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */; };
 		F5310000A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5310001A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift */; };
@@ -617,6 +619,7 @@
 		E30750000000000000000001 /* WorkspaceTabColorResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTabColorResolution.swift; sourceTree = "<group>"; };
 		A5001014 /* GhosttyConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfig.swift; sourceTree = "<group>"; };
 		A5001015 /* GhosttyTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalView.swift; sourceTree = "<group>"; };
+		C34750020000000000000001 /* GhosttyTerminalView+PortalGeometrySync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyTerminalView+PortalGeometrySync.swift"; sourceTree = "<group>"; };
 		C13519000000000000000002 /* TerminalStartupEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalStartupEnvironment.swift; sourceTree = "<group>"; };
 		C13519000000000000000006 /* RestorableAgentTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentTypes.swift; sourceTree = "<group>"; };
 		B3575000000000000000000B /* SessionIndexModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexModels.swift; sourceTree = "<group>"; };
@@ -664,6 +667,7 @@
 		C3677002000000000000002 /* CmuxSSHURLRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSSHURLRequest.swift; sourceTree = "<group>"; };
 		C3677004000000000000002 /* AppDelegate+CmuxSSHURL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CmuxSSHURL.swift"; sourceTree = "<group>"; };
 		E3309A02 /* AppDelegate+EqualizeSplitsShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+EqualizeSplitsShortcut.swift"; sourceTree = "<group>"; };
+		C34750010000000000000001 /* AppDelegate+SidebarVisibilityShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+SidebarVisibilityShortcuts.swift"; sourceTree = "<group>"; };
 		C10D00020000000000000002 /* CloudVMActionLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMActionLauncher.swift; sourceTree = "<group>"; };
 		D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		2907A0022907A0022907A002 /* AppDelegate+RecoverableMainWindowRoutes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+RecoverableMainWindowRoutes.swift"; sourceTree = "<group>"; };
@@ -1137,6 +1141,7 @@
 				E30760000000000000000001 /* TmuxWorkspacePaneOverlayView.swift */,
 				A5001014 /* GhosttyConfig.swift */,
 				A5001015 /* GhosttyTerminalView.swift */,
+				C34750020000000000000001 /* GhosttyTerminalView+PortalGeometrySync.swift */,
 				C13519000000000000000002 /* TerminalStartupEnvironment.swift */,
 				C13519000000000000000006 /* RestorableAgentTypes.swift */,
 				B3575000000000000000000B /* SessionIndexModels.swift */,
@@ -1186,6 +1191,7 @@
 				C3677002000000000000002 /* CmuxSSHURLRequest.swift */,
 				C3677004000000000000002 /* AppDelegate+CmuxSSHURL.swift */,
 				E3309A02 /* AppDelegate+EqualizeSplitsShortcut.swift */,
+				C34750010000000000000001 /* AppDelegate+SidebarVisibilityShortcuts.swift */,
 				D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */,
 				2907A0022907A0022907A002 /* AppDelegate+RecoverableMainWindowRoutes.swift */,
 				C10D00020000000000000002 /* CloudVMActionLauncher.swift */,
@@ -1755,6 +1761,7 @@
 				E30760000000000000000002 /* TmuxWorkspacePaneOverlayView.swift in Sources */,
 				A5001004 /* GhosttyConfig.swift in Sources */,
 				A5001005 /* GhosttyTerminalView.swift in Sources */,
+				C34750020000000000000002 /* GhosttyTerminalView+PortalGeometrySync.swift in Sources */,
 				C13519000000000000000001 /* TerminalStartupEnvironment.swift in Sources */,
 				C13519000000000000000005 /* RestorableAgentTypes.swift in Sources */,
 				B3575000000000000000000C /* SessionIndexModels.swift in Sources */,
@@ -1804,6 +1811,7 @@
 				A5001601 /* SentryHelper.swift in Sources */,
 				A5001621 /* AppleScriptSupport.swift in Sources */,
 				A5001093 /* AppDelegate.swift in Sources */,
+				C34750010000000000000002 /* AppDelegate+SidebarVisibilityShortcuts.swift in Sources */,
 				C3677002000000000000001 /* CmuxSSHURLRequest.swift in Sources */,
 				C3677004000000000000001 /* AppDelegate+CmuxSSHURL.swift in Sources */,
 				A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */,

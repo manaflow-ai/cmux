@@ -7977,6 +7977,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpAttemptVersion: Int = 0
     private var layoutFollowUpStalledAttemptCount = 0
     private var portalRenderingEnabled = true
+    private var portalPresentationVisible = true
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
     private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
@@ -11620,7 +11621,26 @@ final class Workspace: Identifiable, ObservableObject {
         let changed = portalRenderingEnabled != enabled
         portalRenderingEnabled = enabled
         if enabled {
-            if changed {
+            if changed, portalPresentationVisible {
+                beginEventDrivenLayoutFollowUp(
+                    reason: reason,
+                    includeGeometry: true
+                )
+            }
+        } else {
+            clearLayoutFollowUp()
+            hideAllTerminalPortalViews()
+            hideAllBrowserPortalViews()
+        }
+    }
+
+    func setPortalPresentationVisible(_ visible: Bool, reason: String) {
+        let changed = portalPresentationVisible != visible
+        portalPresentationVisible = visible
+        guard changed else { return }
+
+        if visible {
+            if portalRenderingEnabled {
                 beginEventDrivenLayoutFollowUp(
                     reason: reason,
                     includeGeometry: true
@@ -11749,6 +11769,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func reconcileFocusState() {
         guard portalRenderingEnabled else { return }
+        guard portalPresentationVisible else { return }
         guard !isReconcilingFocusState else { return }
         isReconcilingFocusState = true
         defer { isReconcilingFocusState = false }
@@ -11806,6 +11827,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Coalesce to the next main-queue turn so bonsplit selection/pane mutations settle first.
     private func scheduleFocusReconcile() {
         guard portalRenderingEnabled else { return }
+        guard portalPresentationVisible else { return }
 #if DEBUG
         if isDetachingCloseTransaction {
             debugFocusReconcileScheduledDuringDetachCount += 1
@@ -11816,6 +11838,10 @@ final class Workspace: Identifiable, ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             guard self.portalRenderingEnabled else {
+                self.focusReconcileScheduled = false
+                return
+            }
+            guard self.portalPresentationVisible else {
                 self.focusReconcileScheduled = false
                 return
             }
@@ -11832,6 +11858,7 @@ final class Workspace: Identifiable, ObservableObject {
         includeGeometry: Bool = false
     ) {
         guard portalRenderingEnabled else { return }
+        guard portalPresentationVisible else { return }
         layoutFollowUpReason = reason
         if let browserPanelId {
             layoutFollowUpBrowserPanelId = browserPanelId
@@ -11957,6 +11984,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func scheduleLayoutFollowUpAttempt() {
         guard portalRenderingEnabled else { return }
+        guard portalPresentationVisible else { return }
         guard layoutFollowUpTimeoutWorkItem != nil else { return }
         guard !layoutFollowUpAttemptScheduled else { return }
 
@@ -11967,6 +11995,11 @@ final class Workspace: Identifiable, ObservableObject {
             guard let self else { return }
             guard self.layoutFollowUpAttemptVersion == version else { return }
             guard self.portalRenderingEnabled else {
+                self.layoutFollowUpAttemptScheduled = false
+                self.clearLayoutFollowUp()
+                return
+            }
+            guard self.portalPresentationVisible else {
                 self.layoutFollowUpAttemptScheduled = false
                 self.clearLayoutFollowUp()
                 return
@@ -12035,7 +12068,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func attemptEventDrivenLayoutFollowUp() {
         guard layoutFollowUpTimeoutWorkItem != nil, !isAttemptingLayoutFollowUp else { return }
-        guard portalRenderingEnabled else {
+        guard portalRenderingEnabled, portalPresentationVisible else {
             clearLayoutFollowUp()
             hideAllTerminalPortalViews()
             hideAllBrowserPortalViews()
@@ -12170,11 +12203,11 @@ final class Workspace: Identifiable, ObservableObject {
                 needsFollowUpPass = true
             }
 
-            hostedView.reconcileGeometryNow()
+            let didChangeGeometry = hostedView.reconcileGeometryNow()
             // Re-check surface after reconcileGeometryNow() which can trigger AppKit
             // layout and view lifecycle changes that free surfaces (#432).
-            if terminalPanel.surface.surface != nil {
-                terminalPanel.surface.forceRefresh()
+            if didChangeGeometry, terminalPanel.surface.surface != nil {
+                terminalPanel.surface.forceRefresh(reason: "workspace.geometry")
             }
             if terminalPanel.surface.surface == nil, isAttached && hasUsableBounds {
                 terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
@@ -12192,8 +12225,15 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
+#if DEBUG
+    @discardableResult
+    func debugRunTerminalGeometryReconcileForTesting() -> Bool {
+        reconcileTerminalGeometryPass()
+    }
+#endif
+
     private func renderedVisiblePanelIdsForCurrentLayout() -> Set<UUID> {
-        guard portalRenderingEnabled else { return [] }
+        guard portalRenderingEnabled, portalPresentationVisible else { return [] }
         let renderedPaneIds = bonsplitController.zoomedPaneId.map { [$0] } ?? bonsplitController.allPaneIds
         var visiblePanelIds: Set<UUID> = []
 
