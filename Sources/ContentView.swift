@@ -2279,7 +2279,8 @@ struct ContentView: View {
 
                 // Draggable folder icon + focused command name
                 if let directory = focusedDirectory {
-                    DraggableFolderIcon(directory: directory)
+                    DetachedFolderDragIcon(directory: directory)
+                        .frame(width: 16, height: 16)
                         .padding(.leading, -6)
                 }
 
@@ -3201,12 +3202,11 @@ struct ContentView: View {
             window.isRestorable = false
             setMinimalModeSidebarTitlebarControlsAvailable(sidebarState.isVisible, in: window)
             window.titlebarAppearsTransparent = true
-            // Keep window immovable; the sidebar's WindowDragHandleView handles
-            // drag-to-move via performDrag with temporary movable override.
-            // isMovableByWindowBackground=true breaks tab reordering, and
-            // isMovable=true blocks clicks on sidebar buttons in minimal mode.
+            // Keep background dragging disabled so app content gestures remain
+            // independent, but keep the window itself movable for macOS tiling
+            // and third-party window managers.
             window.isMovableByWindowBackground = false
-            window.isMovable = false
+            window.isMovable = true
             window.styleMask.insert(.fullSizeContentView)
 
             // Track this window for fullscreen notifications
@@ -14610,6 +14610,150 @@ private struct DraggableFolderIcon: View {
             .onTapGesture(count: 2) {
                 NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directory)
             }
+    }
+}
+
+private struct DetachedFolderDragIcon: NSViewRepresentable {
+    let directory: String
+
+    func makeNSView(context: Context) -> DetachedFolderDragIconHostView {
+        DetachedFolderDragIconHostView(directory: directory)
+    }
+
+    func updateNSView(_ nsView: DetachedFolderDragIconHostView, context: Context) {
+        nsView.directory = directory
+        nsView.syncDetachedIcon()
+    }
+}
+
+private final class DetachedFolderDragIconHostView: NSView {
+    var directory: String
+    private var childWindow: NSPanel?
+    private var iconView: DraggableFolderNSView?
+    private var observers: [NSObjectProtocol] = []
+
+    init(directory: String) {
+        self.directory = directory
+        super.init(frame: NSRect(origin: .zero, size: NSSize(width: 16, height: 16)))
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        tearDownDetachedIcon()
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 16, height: 16)
+    }
+
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        syncDetachedIcon()
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        syncDetachedIcon()
+    }
+
+    override func layout() {
+        super.layout()
+        syncDetachedIconFrame()
+    }
+
+    func syncDetachedIcon() {
+        guard let parentWindow = window else {
+            tearDownDetachedIcon()
+            return
+        }
+
+        let child = childWindow ?? makeDetachedIconWindow(parentWindow: parentWindow)
+        if child.parent !== parentWindow {
+            child.parent?.removeChildWindow(child)
+            parentWindow.addChildWindow(child, ordered: .above)
+            installParentWindowObservers(parentWindow)
+        }
+
+        if iconView?.directory != directory {
+            iconView?.directory = directory
+            iconView?.updateIcon()
+        }
+
+        child.orderFront(nil)
+        syncDetachedIconFrame()
+    }
+
+    private func makeDetachedIconWindow(parentWindow: NSWindow) -> NSPanel {
+        let iconView = DraggableFolderNSView(directory: directory)
+        iconView.frame = NSRect(origin: .zero, size: NSSize(width: 16, height: 16))
+
+        let panel = NSPanel(
+            contentRect: iconView.frame,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.contentView = iconView
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = false
+        panel.hidesOnDeactivate = false
+        panel.ignoresMouseEvents = false
+        panel.isMovable = false
+        panel.isMovableByWindowBackground = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        parentWindow.addChildWindow(panel, ordered: .above)
+        self.childWindow = panel
+        self.iconView = iconView
+        installParentWindowObservers(parentWindow)
+        return panel
+    }
+
+    private func installParentWindowObservers(_ parentWindow: NSWindow) {
+        guard observers.isEmpty else { return }
+        let center = NotificationCenter.default
+        let names: [Notification.Name] = [
+            NSWindow.didMoveNotification,
+            NSWindow.didResizeNotification,
+            NSWindow.didMiniaturizeNotification,
+            NSWindow.didDeminiaturizeNotification,
+        ]
+        observers = names.map { name in
+            center.addObserver(forName: name, object: parentWindow, queue: .main) { [weak self] _ in
+                self?.syncDetachedIconFrame()
+            }
+        }
+    }
+
+    private func syncDetachedIconFrame() {
+        guard let parentWindow = window,
+              let childWindow else { return }
+        let localRect = bounds.isEmpty
+            ? NSRect(origin: .zero, size: NSSize(width: 16, height: 16))
+            : bounds
+        let rectInWindow = convert(localRect, to: nil)
+        let rectOnScreen = parentWindow.convertToScreen(rectInWindow)
+        if childWindow.frame.origin != rectOnScreen.origin || childWindow.frame.size != rectOnScreen.size {
+            childWindow.setFrame(rectOnScreen, display: true)
+        }
+    }
+
+    private func tearDownDetachedIcon() {
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        observers.removeAll()
+        if let childWindow {
+            childWindow.parent?.removeChildWindow(childWindow)
+            childWindow.orderOut(nil)
+        }
+        childWindow = nil
+        iconView = nil
     }
 }
 

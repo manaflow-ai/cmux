@@ -6932,7 +6932,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // restoration so the OS cannot resurrect stale duplicate main windows.
         window.isRestorable = false
         window.isMovableByWindowBackground = false
-        window.isMovable = false
+        // Keep the OS-level movable flag enabled so macOS window tiling and
+        // window-management tools such as Swish continue to treat cmux as a
+        // movable/resizable window. Empty titlebar drags are routed through
+        // WindowDragHandleView instead of background dragging.
+        window.isMovable = true
         let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame
         if let explicitInitialFrame {
             window.setFrame(explicitInitialFrame, display: false)
