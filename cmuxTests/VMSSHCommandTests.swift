@@ -105,7 +105,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             ["vm.attach_info", "workspace.create", "workspace.rename", "workspace.remote.configure", "workspace.select"]
         )
 
-        let configureParams = try XCTUnwrap(requests[3]["params"] as? [String: Any])
+        let configureRequest = try XCTUnwrap(
+            requests.first { $0["method"] as? String == "workspace.remote.configure" },
+            "Expected workspace.remote.configure RPC request"
+        )
+        let configureParams = try XCTUnwrap(configureRequest["params"] as? [String: Any])
         XCTAssertEqual(configureParams["workspace_id"] as? String, workspaceID)
         XCTAssertEqual(configureParams["destination"] as? String, "cmux@gateway.freestyle.sh")
         XCTAssertEqual(configureParams["port"] as? Int, 2222)

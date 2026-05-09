@@ -99,10 +99,10 @@ Freestyle:
 
 - Node.js from the configured major line, default `22`.
 - Bun.
-- Claude Code from `@anthropic-ai/claude-code`.
-- OpenCode from `opencode-ai`.
-- Codex CLI from `@openai/codex`.
-- Pi from `@earendil-works/pi-coding-agent`.
+- Claude Code from `@anthropic-ai/claude-code@2.1.137`.
+- OpenCode from `opencode-ai@1.14.41`.
+- Codex CLI from `@openai/codex@0.130.0`.
+- Pi from `@earendil-works/pi-coding-agent@0.74.0`.
 - `cmuxd-remote` as `/usr/local/bin/cmuxd-remote`.
 - `/usr/local/bin/cmux` symlinked to `cmuxd-remote` so the Linux relay CLI is on `PATH`.
 

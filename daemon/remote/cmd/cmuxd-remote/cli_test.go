@@ -867,6 +867,42 @@ func TestCLIBrowserAutomationPositionals(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserSelectDoesNotMirrorValueToText(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_SURFACE_ID", "env-sf")
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "select",
+		"select[name=plan]",
+		"free",
+	})
+	if code != 0 {
+		t.Fatalf("browser select should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.select" {
+			t.Fatalf("expected browser.select, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "env-sf" {
+			t.Fatalf("expected surface_id env-sf, got %v", got)
+		}
+		if got := params["selector"]; got != "select[name=plan]" {
+			t.Fatalf("expected selector, got %v", got)
+		}
+		if got := params["value"]; got != "free" {
+			t.Fatalf("expected value, got %v", got)
+		}
+		if _, ok := params["text"]; ok {
+			t.Fatalf("browser.select should not send text param: %#v", params)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser select request")
+	}
+}
+
 func TestCLIBrowserEvalUsesPositionalScript(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	t.Setenv("CMUX_SURFACE_ID", "env-sf")

@@ -36,35 +36,39 @@ const PRIMARY_LINUX_USER = "cmux";
 const NODE_MAJOR = (process.env.CMUX_CLOUD_IMAGE_NODE_MAJOR ?? "22").trim() || "22";
 const FREESTYLE_SNAPSHOT_CREATE_TIMEOUT_MS = positiveIntFromEnv(
   "CMUX_FREESTYLE_SNAPSHOT_CREATE_TIMEOUT_MS",
-  5 * 60 * 1000,
+  20 * 60 * 1000,
 );
 const FREESTYLE_SNAPSHOT_RECOVERY_TIMEOUT_MS = positiveIntFromEnv(
   "CMUX_FREESTYLE_SNAPSHOT_RECOVERY_TIMEOUT_MS",
   10 * 60 * 1000,
 );
+const FREESTYLE_SNAPSHOT_RECOVERY_POLL_INTERVAL_MS = positiveIntFromEnv(
+  "CMUX_FREESTYLE_SNAPSHOT_RECOVERY_POLL_INTERVAL_MS",
+  5_000,
+);
 const CLOUD_AGENT_TOOLS = [
   {
     name: "claude",
     envVar: "CMUX_CLOUD_IMAGE_CLAUDE_CODE_NPM_SPEC",
-    packageSpec: "@anthropic-ai/claude-code",
+    packageSpec: "@anthropic-ai/claude-code@2.1.137",
     binaries: ["claude"],
   },
   {
     name: "opencode",
     envVar: "CMUX_CLOUD_IMAGE_OPENCODE_NPM_SPEC",
-    packageSpec: "opencode-ai",
+    packageSpec: "opencode-ai@1.14.41",
     binaries: ["opencode"],
   },
   {
     name: "codex",
     envVar: "CMUX_CLOUD_IMAGE_CODEX_NPM_SPEC",
-    packageSpec: "@openai/codex",
+    packageSpec: "@openai/codex@0.130.0",
     binaries: ["codex"],
   },
   {
     name: "pi",
     envVar: "CMUX_CLOUD_IMAGE_PI_NPM_SPEC",
-    packageSpec: "@earendil-works/pi-coding-agent",
+    packageSpec: "@earendil-works/pi-coding-agent@0.74.0",
     binaries: ["pi"],
   },
 ] as const;
@@ -255,42 +259,48 @@ async function buildFreestyleSnapshot(
 
 type FreestyleSnapshotRecord = {
   readonly snapshotId: string;
+  readonly cancelled?: boolean | null;
   readonly createdAt?: string;
   readonly deleted?: boolean | null;
   readonly failed?: boolean | null;
   readonly failureReason?: string | null;
+  readonly lost?: boolean | null;
   readonly name?: string | null;
+  readonly state?: string | null;
 };
 
 type FreestyleSnapshotListResponse = {
   readonly snapshots?: readonly FreestyleSnapshotRecord[] | null;
 };
 
-type FreestyleWithInternalApi = Freestyle & {
-  readonly _apiClient: {
-    get(
-      path: "/v1/vms/snapshots",
-      options: { query: { includeDeleted: boolean; includeFailed: boolean } },
-    ): Promise<FreestyleSnapshotListResponse>;
-  };
-};
-
 async function findFreestyleSnapshotByName(
   fs: Freestyle,
   name: string,
+  signal: AbortSignal,
 ): Promise<FreestyleSnapshotRecord | null> {
-  const api = (fs as unknown as FreestyleWithInternalApi)._apiClient;
-  const response = await api.get("/v1/vms/snapshots", {
-    query: { includeDeleted: false, includeFailed: true },
+  const response = await fs.fetch(freestyleSnapshotListURL(), {
+    method: "GET",
+    signal,
   });
-  const matches = (response.snapshots ?? [])
+  if (!response.ok) {
+    throw new Error(`Freestyle snapshot list failed: HTTP ${response.status} ${await response.text()}`);
+  }
+  const json = await response.json() as FreestyleSnapshotListResponse;
+  const matches = (json.snapshots ?? [])
     .filter((snapshot) =>
       snapshot.name === name &&
-      snapshot.deleted !== true &&
-      snapshot.failed !== true
+      snapshot.deleted !== true
     )
     .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
-  return matches[0] ?? null;
+  const latest = matches[0];
+  if (!latest) return null;
+  if (latest.failed === true || latest.cancelled === true || latest.lost === true || latest.failureReason) {
+    throw new Error(
+      `Freestyle snapshot ${name} failed: ${latest.failureReason ?? latest.state ?? "unknown failure"}`,
+    );
+  }
+  if (latest.state !== "ready") return null;
+  return latest;
 }
 
 async function waitForFreestyleSnapshotByName(
@@ -298,13 +308,21 @@ async function waitForFreestyleSnapshotByName(
   name: string,
   timeoutMs: number,
 ): Promise<FreestyleSnapshotRecord | null> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const snapshot = await findFreestyleSnapshotByName(fs, name);
-    if (snapshot) return snapshot;
-    await delay(5_000);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    while (!controller.signal.aborted) {
+      const snapshot = await findFreestyleSnapshotByName(fs, name, controller.signal);
+      if (snapshot) return snapshot;
+      await waitForRetryInterval(FREESTYLE_SNAPSHOT_RECOVERY_POLL_INTERVAL_MS, controller.signal);
+    }
+    return null;
+  } catch (err) {
+    if (controller.signal.aborted) return null;
+    throw err;
+  } finally {
+    clearTimeout(timeout);
   }
-  return null;
 }
 
 function cloudRootSetupCommands(): string[] {
@@ -346,8 +364,8 @@ type CloudAgentToolPackage = {
 function cloudAgentToolPackageSpecs(): CloudAgentToolPackage[] {
   return CLOUD_AGENT_TOOLS.flatMap((tool) => {
     const raw = process.env[tool.envVar]?.trim();
-    const packageSpec = raw && !isDisabledValue(raw) ? raw : tool.packageSpec;
-    if (isDisabledValue(packageSpec)) return [];
+    if (raw && isDisabledValue(raw)) return [];
+    const packageSpec = raw || tool.packageSpec;
     return [{ ...tool, packageSpec }];
   });
 }
@@ -382,8 +400,8 @@ function freestylePythonOpenSSLCommands(): string[] {
     "mkdir -p /tmp/cmux-libssl /opt/cmux/openssl/lib",
     "cd /tmp/cmux-libssl && apt-get download libssl3t64",
     "dpkg-deb -x /tmp/cmux-libssl/libssl3t64_*.deb /tmp/cmux-libssl/root",
-    "cp /tmp/cmux-libssl/root/usr/lib/x86_64-linux-gnu/libssl.so.3 /opt/cmux/openssl/lib/",
-    "cp /tmp/cmux-libssl/root/usr/lib/x86_64-linux-gnu/libcrypto.so.3 /opt/cmux/openssl/lib/",
+    "cp /tmp/cmux-libssl/root/usr/lib/*-linux-gnu/libssl.so.3 /opt/cmux/openssl/lib/",
+    "cp /tmp/cmux-libssl/root/usr/lib/*-linux-gnu/libcrypto.so.3 /opt/cmux/openssl/lib/",
     "cat <<'EOF' >/usr/local/bin/python3\n#!/bin/sh\nexport LD_LIBRARY_PATH=\"/opt/cmux/openssl/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}\"\nexec /usr/bin/python3 \"$@\"\nEOF",
     "chmod 0755 /usr/local/bin/python3",
     "ln -sf /usr/local/bin/python3 /usr/local/bin/python",
@@ -479,11 +497,35 @@ function positiveIntFromEnv(key: string, fallback: number): number {
 }
 
 function fetchWithTimeout(timeoutMs: number): typeof fetch {
-  return (input, init) =>
-    fetch(input, {
-      ...(init ?? {}),
-      signal: init?.signal ?? AbortSignal.timeout(timeoutMs),
-    });
+  return async (input, init) => {
+    const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      if (init?.signal) {
+        if (init.signal.aborted) {
+          controller.abort();
+        } else {
+          init.signal.addEventListener("abort", onAbort, { once: true });
+        }
+      }
+      return await fetch(input, {
+        ...(init ?? {}),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+      init?.signal?.removeEventListener("abort", onAbort);
+    }
+  };
+}
+
+function freestyleSnapshotListURL(): string {
+  const base = (process.env.FREESTYLE_API_URL ?? "https://api.freestyle.sh").replace(/\/+$/, "");
+  const url = new URL("/v1/vms/snapshots", base);
+  url.searchParams.set("includeDeleted", "false");
+  url.searchParams.set("includeFailed", "true");
+  return url.toString();
 }
 
 function errorSummary(err: unknown): string {
@@ -491,8 +533,23 @@ function errorSummary(err: unknown): string {
   return String(err);
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function waitForRetryInterval(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(abortError());
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(abortError());
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function abortError(): Error {
+  return new Error("operation aborted");
 }
 
 function imageNotes(metadata: ImageBuildMetadata): string {
