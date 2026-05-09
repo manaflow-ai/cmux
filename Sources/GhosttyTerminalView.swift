@@ -708,13 +708,15 @@ enum GhosttyPasteboardHelper {
     private static func pasteboardFallbackImageRepresentations(
         for item: NSPasteboardItem
     ) -> [(data: Data, fileExtension: String)] {
+        guard let copiedItem = copiedPasteboardItem(from: item) else { return [] }
+
         let pasteboard = NSPasteboard(name: .init("cmux-single-image-item-\(UUID().uuidString)"))
         pasteboard.clearContents()
         defer {
             pasteboard.clearContents()
             pasteboard.releaseGlobally()
         }
-        guard pasteboard.writeObjects([item]) else { return [] }
+        guard pasteboard.writeObjects([copiedItem]) else { return [] }
 
         if let directImage = directImageRepresentation(in: pasteboard) {
             return [directImage]
@@ -727,6 +729,24 @@ enum GhosttyPasteboardHelper {
             return [fallbackImage]
         }
         return []
+    }
+
+    private static func copiedPasteboardItem(from item: NSPasteboardItem) -> NSPasteboardItem? {
+        let copiedItem = NSPasteboardItem()
+        var copiedAnyType = false
+
+        for type in item.types {
+            if let data = item.data(forType: type) {
+                copiedAnyType = copiedItem.setData(data, forType: type) || copiedAnyType
+                continue
+            }
+
+            if let string = item.string(forType: type) {
+                copiedAnyType = copiedItem.setString(string, forType: type) || copiedAnyType
+            }
+        }
+
+        return copiedAnyType ? copiedItem : nil
     }
 
     private static func imageRepresentations(
