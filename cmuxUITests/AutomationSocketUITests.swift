@@ -105,6 +105,7 @@ final class AutomationSocketUITests: XCTestCase {
         XCTAssertGreaterThan(columns, 0)
         XCTAssertEqual(snapshot["schemaVersion"] as? Int, result["schema_version"] as? Int)
         XCTAssertEqual(snapshot["activeScreen"] as? String, "primary")
+        XCTAssertEqual(result["active_screen_source"] as? String, "ghostty_surface_active_screen")
 
         let visibleRows = try XCTUnwrap(snapshot["visibleRows"] as? [[String: Any]])
         XCTAssertEqual(visibleRows.count, rows)
@@ -115,6 +116,57 @@ final class AutomationSocketUITests: XCTestCase {
         let snapshotData = try XCTUnwrap(Data(base64Encoded: snapshotBase64))
         let decodedSnapshot = try XCTUnwrap(JSONSerialization.jsonObject(with: snapshotData) as? [String: Any])
         XCTAssertEqual(decodedSnapshot["terminalID"] as? String, snapshot["terminalID"] as? String)
+    }
+
+    func testMobileTerminalSnapshotTracksAltScreenLifecycle() throws {
+        let app = configuredApp(mode: "allowAll")
+        addTeardownBlock { app.terminate() }
+        launchAndAllowBackground(app, failureMessage: "Expected app to launch for mobile terminal alt-screen test")
+
+        guard let resolvedPath = resolveResponsiveSocketPath(timeout: 8.0) else {
+            XCTFail("Expected control socket to respond to ping. \(lastSocketResolveDiagnostics)")
+            return
+        }
+        socketPath = resolvedPath
+
+        _ = try waitForSnapshot(
+            description: "initial primary screen",
+            timeout: 15.0
+        ) { snapshot in
+            snapshot["activeScreen"] as? String == "primary"
+        }
+
+        let command = """
+        printf 'CMUX_PRIMARY_BEFORE\\n'; trap "printf '\\033[?1049l'; exit 130" INT TERM; printf '\\033[?1049hCMUX_ALT_ACTIVE\\n'; sleep 30; printf '\\033[?1049lCMUX_PRIMARY_AFTER\\n'
+        """
+        _ = try waitForV2Result(
+            method: "surface.send_text",
+            params: ["text": command + "\n"],
+            timeout: 10.0
+        )
+
+        let alternateSnapshot = try waitForSnapshot(
+            description: "alternate screen with TUI sentinel",
+            timeout: 15.0
+        ) { snapshot in
+            snapshot["activeScreen"] as? String == "alternate" &&
+                visibleText(in: snapshot).contains("CMUX_ALT_ACTIVE")
+        }
+        XCTAssertEqual(alternateSnapshot["activeScreen"] as? String, "alternate")
+
+        _ = try waitForV2Result(
+            method: "surface.send_key",
+            params: ["key": "ctrl-c"],
+            timeout: 10.0
+        )
+
+        let restoredSnapshot = try waitForSnapshot(
+            description: "restored primary screen after Ctrl-C",
+            timeout: 15.0
+        ) { snapshot in
+            snapshot["activeScreen"] as? String == "primary"
+        }
+        XCTAssertEqual(restoredSnapshot["activeScreen"] as? String, "primary")
     }
 
     private func configuredApp(mode: String) -> XCUIApplication {
@@ -375,6 +427,46 @@ final class AutomationSocketUITests: XCTestCase {
         }
         XCTFail("Timed out waiting for \(method). lastRaw=\(lastRaw ?? "nil") lastEnvelope=\(lastEnvelope ?? [:])")
         return [:]
+    }
+
+    private func waitForSnapshot(
+        description: String,
+        timeout: TimeInterval,
+        matches: ([String: Any]) -> Bool
+    ) throws -> [String: Any] {
+        let deadline = Date().addingTimeInterval(timeout)
+        var lastSnapshot: [String: Any]?
+        var lastRaw: String?
+        var lastEnvelope: [String: Any]?
+        while Date() < deadline {
+            if let response = try sendV2Request(
+                method: "mobile_sync.terminal_snapshot",
+                params: ["max_scrollback_rows": 20]
+            ) {
+                let (raw, envelope) = response
+                lastRaw = raw
+                lastEnvelope = envelope
+                if envelope["ok"] as? Bool == true,
+                   let result = envelope["result"] as? [String: Any],
+                   let snapshot = result["snapshot"] as? [String: Any] {
+                    lastSnapshot = snapshot
+                    if matches(snapshot) {
+                        return snapshot
+                    }
+                }
+            }
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.25))
+        }
+        XCTFail("Timed out waiting for snapshot: \(description). lastRaw=\(lastRaw ?? "nil") lastEnvelope=\(lastEnvelope ?? [:]) lastSnapshot=\(lastSnapshot ?? [:])")
+        return [:]
+    }
+
+    private func visibleText(in snapshot: [String: Any]) -> String {
+        guard let rows = snapshot["visibleRows"] as? [[String: Any]] else { return "" }
+        return rows.map { row in
+            guard let cells = row["cells"] as? [[String: Any]] else { return "" }
+            return cells.compactMap { $0["text"] as? String }.joined()
+        }.joined(separator: "\n")
     }
 
     private func sendV2Request(

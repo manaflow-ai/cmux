@@ -7110,7 +7110,7 @@ class TerminalController {
                     "snapshot_base64": encoded.base64EncodedString(),
                     "schema_version": MobileTerminalGhosttySnapshot.currentSchemaVersion,
                     "max_scrollback_rows": requestedScrollbackRows,
-                    "active_screen_source": "primary_until_ghostty_exposes_active_screen",
+                    "active_screen_source": "ghostty_surface_active_screen",
                     "workspace_id": ws.id.uuidString,
                     "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
                     "surface_id": surfaceId.uuidString,
@@ -7146,6 +7146,14 @@ class TerminalController {
             throw MobileTerminalSnapshotExportError.viewportUnavailable
         }
         let scrollbackText = readGhosttySelectionText(surface: surface, pointTag: GHOSTTY_POINT_SURFACE) ?? ""
+        let activeScreen: MobileTerminalGhosttyScreen = {
+            switch ghostty_surface_active_screen(surface) {
+            case GHOSTTY_SURFACE_SCREEN_ALTERNATE:
+                return .alternate
+            default:
+                return .primary
+            }
+        }()
         return try MobileTerminalGhosttySnapshot.fromGhosttyText(
             terminalID: terminalPanel.id.uuidString,
             columns: columns,
@@ -7153,7 +7161,7 @@ class TerminalController {
             scrollbackText: scrollbackText,
             viewportText: viewportText,
             maxScrollbackRows: maxScrollbackRows,
-            activeScreen: .primary,
+            activeScreen: activeScreen,
             streamOffset: 0
         )
     }
