@@ -699,6 +699,68 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNil(index.snapshot(workspaceId: regeneratedWorkspaceId, panelId: UUID()))
     }
 
+    func testClaudeTranscriptHasConversationFiltersMetadataOnlyTranscripts() throws {
+        // Claude rejects `--resume <id>` for sessions whose .jsonl only
+        // contains metadata events (e.g. `custom-title`, `agent-name`,
+        // `permission-mode`) with "No conversation found with session ID".
+        // This happens when a user runs `/rename` immediately after Claude
+        // starts, before sending any user message — the SessionStart hook
+        // fires and cmux records the session, but the transcript never gets
+        // a real exchange. The index loader should drop those records so
+        // cmux doesn't auto-resume into that error.
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-conv-\(UUID().uuidString)", isDirectory: true)
+        let projects = tmp.appendingPathComponent("projects", isDirectory: true)
+        try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let cwd = "/private/tmp/aaa"
+        let encoded = "-private-tmp-aaa"
+        let projectDir = projects.appendingPathComponent(encoded, isDirectory: true)
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        let metadataOnlyId = "11111111-1111-1111-1111-111111111111"
+        let metadataOnly = projectDir.appendingPathComponent("\(metadataOnlyId).jsonl")
+        try """
+        {"type":"custom-title","customTitle":"renamed","sessionId":"\(metadataOnlyId)"}
+        {"type":"agent-name","agentName":"renamed","sessionId":"\(metadataOnlyId)"}
+        {"type":"permission-mode","permissionMode":"acceptEdits","sessionId":"\(metadataOnlyId)"}
+        """.write(to: metadataOnly, atomically: true, encoding: .utf8)
+
+        let realSessionId = "22222222-2222-2222-2222-222222222222"
+        let realSession = projectDir.appendingPathComponent("\(realSessionId).jsonl")
+        try """
+        {"type":"permission-mode","permissionMode":"acceptEdits","sessionId":"\(realSessionId)"}
+        {"type":"user","sessionId":"\(realSessionId)","message":{"role":"user","content":"hello"}}
+        {"type":"assistant","sessionId":"\(realSessionId)","message":{"role":"assistant","content":"hi"}}
+        """.write(to: realSession, atomically: true, encoding: .utf8)
+
+        XCTAssertFalse(
+            RestorableAgentSessionIndex.claudeTranscriptHasConversation(
+                cwd: cwd,
+                sessionId: metadataOnlyId,
+                claudeConfigDir: tmp.path
+            ),
+            "metadata-only transcripts should be treated as having no conversation"
+        )
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.claudeTranscriptHasConversation(
+                cwd: cwd,
+                sessionId: realSessionId,
+                claudeConfigDir: tmp.path
+            ),
+            "transcripts with at least one user/assistant event should pass"
+        )
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.claudeTranscriptHasConversation(
+                cwd: cwd,
+                sessionId: "33333333-3333-3333-3333-333333333333",
+                claudeConfigDir: tmp.path
+            ),
+            "a missing transcript should NOT be filtered out — let Claude error if it's truly broken at resume"
+        )
+    }
+
     @MainActor
     func testMarkRestorableAgentSessionEndedNoopsWithoutEntry() {
         // The CLI calls Workspace.markRestorableAgentSessionEnded for any panel

@@ -5,7 +5,7 @@
 17317	Sources/TerminalController.swift
 15956	Sources/ContentView.swift
 14636	Sources/AppDelegate.swift
-14000	Sources/Workspace.swift
+14020	Sources/Workspace.swift
 13458	Sources/GhosttyTerminalView.swift
 10607	Sources/Panels/BrowserPanel.swift
 8285	Sources/cmuxApp.swift
@@ -26,7 +26,7 @@
 2609	Sources/SessionIndexView.swift
 2472	Sources/Panels/CmuxWebView.swift
 2317	cmuxTests/TabManagerUnitTests.swift
-2220	cmuxTests/SessionPersistenceTests.swift
+2300	cmuxTests/SessionPersistenceTests.swift
 2179	Sources/KeyboardShortcutSettings.swift
 2172	Sources/TerminalWindowPortal.swift
 2153	Sources/Update/UpdateTitlebarAccessory.swift

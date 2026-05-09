@@ -561,6 +561,22 @@ struct RestorableAgentSessionIndex: Sendable {
                     continue
                 }
 
+                // Claude `--resume <id>` rejects sessions whose transcript only
+                // contains metadata events (e.g. `/rename` immediately after
+                // SessionStart, before the user typed anything) with
+                // "No conversation found with session ID …". Drop those hook
+                // records so cmux doesn't auto-resume them.
+                if kind == .claude,
+                   let cwd = record.cwd,
+                   !claudeTranscriptHasConversation(
+                       cwd: cwd,
+                       sessionId: normalizedSessionId,
+                       claudeConfigDir: claudeConfigDir(in: record.launchCommand?.environment),
+                       fileManager: fileManager
+                   ) {
+                    continue
+                }
+
                 let snapshot = SessionRestorableAgentSnapshot(
                     kind: kind,
                     sessionId: normalizedSessionId,
@@ -603,6 +619,99 @@ struct RestorableAgentSessionIndex: Sendable {
             return nil
         }
         return rawValue
+    }
+
+    /// Resolve the directory under which Claude stores its session
+    /// transcripts (defaults to `~/.claude`). If the launch environment
+    /// pinned a `CLAUDE_CONFIG_DIR`, use that — running it through the
+    /// subrouter→codex-accounts redirect that the Claude wrapper applies.
+    /// Exposed for callers that need to look up transcripts at restoration
+    /// time without re-importing `CMUXAgentLaunch`.
+    static func claudeConfigDir(in environment: [String: String]?) -> String {
+        if let raw = environment?["CLAUDE_CONFIG_DIR"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !raw.isEmpty {
+            return ClaudeConfigDirectoryPath.preferredPath(raw)
+        }
+        return (NSString(string: "~/.claude").expandingTildeInPath as String)
+    }
+
+    /// Returns true if Claude's session transcript at
+    /// `<claudeConfigDir>/projects/<encoded-cwd>/<sessionId>.jsonl` contains at
+    /// least one `user` or `assistant` event. Returns true (do not skip) when
+    /// the transcript is unreadable or absent — letting Claude itself produce
+    /// the canonical error if it's truly broken at resume time.
+    static func claudeTranscriptHasConversation(
+        cwd: String,
+        sessionId: String,
+        claudeConfigDir: String,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        let trimmedCwd = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedCwd.isEmpty else { return true }
+        // Claude encodes a project dir as `cwd.replacingOccurrences("/", with: "-")`
+        // on the raw cwd Claude saw at startup — no symlink resolution. The leading
+        // `/` in an absolute path becomes the leading `-`, so an absolute cwd
+        // `/private/tmp/aaa` maps to `-private-tmp-aaa`. Do NOT standardize the
+        // path: macOS's `NSString.standardizingPath` collapses `/private/tmp` →
+        // `/tmp`, which would point at the wrong project directory.
+        let encodedProject = trimmedCwd.replacingOccurrences(of: "/", with: "-")
+        let projectsRoot = (claudeConfigDir as NSString).appendingPathComponent("projects")
+        let projectDir = (projectsRoot as NSString).appendingPathComponent(encodedProject)
+        let transcript = (projectDir as NSString)
+            .appendingPathComponent("\(sessionId).jsonl")
+
+        guard fileManager.fileExists(atPath: transcript) else {
+            // Unknown — let Claude error if needed; do not pre-emptively drop.
+            return true
+        }
+        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: transcript)) else {
+            return true
+        }
+        defer { try? handle.close() }
+        // Scan the file in chunks; the "user" / "assistant" `type` field
+        // appears near the start of each line in Claude's JSONL.
+        var leftover = Data()
+        let chunkSize = 64 * 1024
+        var totalRead = 0
+        let maxScan = 1 * 1024 * 1024 // 1 MB cap; transcripts with content cross this trivially.
+        while totalRead < maxScan {
+            let chunk: Data
+            do {
+                chunk = try handle.read(upToCount: chunkSize) ?? Data()
+            } catch {
+                return true
+            }
+            if chunk.isEmpty { break }
+            totalRead += chunk.count
+            leftover.append(chunk)
+            while let newlineIndex = leftover.firstIndex(of: 0x0A) {
+                let line = leftover.subdata(in: leftover.startIndex..<newlineIndex)
+                leftover.removeSubrange(leftover.startIndex...newlineIndex)
+                if lineDeclaresConversationEvent(line) {
+                    return true
+                }
+            }
+        }
+        if !leftover.isEmpty, lineDeclaresConversationEvent(leftover) {
+            return true
+        }
+        return false
+    }
+
+    private static func lineDeclaresConversationEvent(_ line: Data) -> Bool {
+        // Cheap probe: a line that mentions `"type":"user"` or
+        // `"type":"assistant"` is a real conversation event. Metadata-only
+        // lines (`custom-title`, `agent-name`, `permission-mode`, etc.) don't
+        // match. We avoid full JSON parsing per line for hot-path performance.
+        guard !line.isEmpty,
+              let text = String(data: line, encoding: .utf8) else {
+            return false
+        }
+        return text.contains("\"type\":\"user\"")
+            || text.contains("\"type\":\"assistant\"")
+            || text.contains("\"type\": \"user\"")
+            || text.contains("\"type\": \"assistant\"")
     }
 
     private init(
