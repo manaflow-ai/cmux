@@ -46,6 +46,10 @@ const FREESTYLE_SNAPSHOT_RECOVERY_POLL_INTERVAL_MS = positiveIntFromEnv(
   "CMUX_FREESTYLE_SNAPSHOT_RECOVERY_POLL_INTERVAL_MS",
   5_000,
 );
+const FREESTYLE_SNAPSHOT_RECOVERY_CLOCK_SKEW_MS = positiveIntFromEnv(
+  "CMUX_FREESTYLE_SNAPSHOT_RECOVERY_CLOCK_SKEW_MS",
+  2 * 60 * 1000,
+);
 const CLOUD_AGENT_TOOLS = [
   {
     name: "claude",
@@ -217,7 +221,7 @@ async function buildFreestyleSnapshot(
   const daemonURL = await remoteDaemonBuildURL(tag, daemonPath);
   const fs = new Freestyle({ fetch: fetchWithTimeout(FREESTYLE_SNAPSHOT_CREATE_TIMEOUT_MS) });
   const name = `cmuxd-ws-${tag}`;
-  const createStartedAt = new Date().toISOString();
+  const createStartedAt = new Date();
   let result: unknown;
   try {
     result = await fs.vms.snapshots.create({
@@ -235,7 +239,7 @@ async function buildFreestyleSnapshot(
     const recovered = await waitForFreestyleSnapshotByName(
       fs,
       name,
-      createStartedAt,
+      freestyleRecoveryWindowStart(createStartedAt),
       FREESTYLE_SNAPSHOT_RECOVERY_TIMEOUT_MS,
     );
     if (!recovered) throw err;
@@ -393,15 +397,17 @@ export function cloudAgentToolPackageSpecs(): CloudAgentToolPackage[] {
   });
 }
 
-function pinnedNpmPackageVersion(packageSpec: string): string | null {
+const STRICT_SEMVER_RE =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
+
+export function pinnedNpmPackageVersion(packageSpec: string): string | null {
   const trimmed = packageSpec.trim();
   const versionSeparator = trimmed.startsWith("@")
     ? trimmed.indexOf("@", 1)
     : trimmed.lastIndexOf("@");
   if (versionSeparator <= 0) return null;
   const version = trimmed.slice(versionSeparator + 1).trim();
-  if (!version || version === "latest") return null;
-  if (version.startsWith("^") || version.startsWith("~") || version.includes("*")) return null;
+  if (!STRICT_SEMVER_RE.test(version)) return null;
   return version;
 }
 
@@ -523,12 +529,21 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-function positiveIntFromEnv(key: string, fallback: number): number {
+export function positiveIntFromEnv(key: string, fallback: number): number {
   const raw = process.env[key]?.trim();
   if (!raw) return fallback;
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  if (!/^[1-9]\d*$/.test(raw)) {
+    throw new Error(`${key} must be a positive integer; got ${raw}`);
+  }
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(`${key} must be a safe positive integer; got ${raw}`);
+  }
   return parsed;
+}
+
+export function freestyleRecoveryWindowStart(startedAt: Date): string {
+  return new Date(startedAt.getTime() - FREESTYLE_SNAPSHOT_RECOVERY_CLOCK_SKEW_MS).toISOString();
 }
 
 function fetchWithTimeout(timeoutMs: number): typeof fetch {

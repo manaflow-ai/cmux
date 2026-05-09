@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   cloudAgentToolPackageSpecs,
+  freestyleRecoveryWindowStart,
+  pinnedNpmPackageVersion,
+  positiveIntFromEnv,
   waitForFreestyleSnapshotByName,
   waitForRetryInterval,
 } from "../scripts/build-cloud-vm-images";
@@ -32,6 +35,46 @@ describe("Cloud VM image build helpers", () => {
         process.env.CMUX_CLOUD_IMAGE_CLAUDE_CODE_NPM_SPEC = previous;
       }
     }
+  });
+
+  test("pinned package specs reject npm tags and ranges", () => {
+    expect(pinnedNpmPackageVersion("@openai/codex@0.130.0")).toBe("0.130.0");
+    expect(pinnedNpmPackageVersion("@openai/codex@1.2.3-rc.1+build.123")).toBe(
+      "1.2.3-rc.1+build.123",
+    );
+    expect(pinnedNpmPackageVersion("@openai/codex@latest")).toBeNull();
+    expect(pinnedNpmPackageVersion("@openai/codex@^0.130.0")).toBeNull();
+    expect(pinnedNpmPackageVersion("@openai/codex@beta")).toBeNull();
+  });
+
+  test("positive integer env overrides fail closed when malformed", () => {
+    const key = "CMUX_TEST_POSITIVE_INT";
+    const previous = process.env[key];
+    try {
+      delete process.env[key];
+      expect(positiveIntFromEnv(key, 42)).toBe(42);
+
+      process.env[key] = "17";
+      expect(positiveIntFromEnv(key, 42)).toBe(17);
+
+      process.env[key] = "10ms";
+      expect(() => positiveIntFromEnv(key, 42)).toThrow("must be a positive integer");
+
+      process.env[key] = "0";
+      expect(() => positiveIntFromEnv(key, 42)).toThrow("must be a positive integer");
+    } finally {
+      if (previous === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = previous;
+      }
+    }
+  });
+
+  test("snapshot recovery window tolerates provider clock skew", () => {
+    expect(freestyleRecoveryWindowStart(new Date("2026-05-09T05:00:00.000Z"))).toBe(
+      "2026-05-09T04:58:00.000Z",
+    );
   });
 
   test("snapshot recovery ignores ready snapshots older than the failed create attempt", async () => {

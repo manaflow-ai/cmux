@@ -834,6 +834,43 @@ func TestCLIBrowserSnapshotUsesSurfaceEnvAndForwardsOptions(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserWaitUsesSurfaceEnvAndForwardsOptions(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_SURFACE_ID", "env-sf")
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "wait",
+		"--timeout-ms", "1500",
+		"--url-contains", "/cloud",
+		"--load-state", "networkidle",
+	})
+	if code != 0 {
+		t.Fatalf("browser wait should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.wait" {
+			t.Fatalf("expected browser.wait, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "env-sf" {
+			t.Fatalf("expected surface_id env-sf, got %v", got)
+		}
+		if got := params["timeout_ms"]; got != "1500" {
+			t.Fatalf("expected timeout_ms 1500, got %v", got)
+		}
+		if got := params["url_contains"]; got != "/cloud" {
+			t.Fatalf("expected url_contains /cloud, got %v", got)
+		}
+		if got := params["load_state"]; got != "networkidle" {
+			t.Fatalf("expected load_state networkidle, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser wait request")
+	}
+}
+
 func TestCLIBrowserAutomationPositionals(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	t.Setenv("CMUX_SURFACE_ID", "env-sf")
@@ -939,6 +976,19 @@ func TestCLINoArgs(t *testing.T) {
 	code := runCLI([]string{})
 	if code != 2 {
 		t.Fatalf("no args should return 2, got %d", code)
+	}
+}
+
+func TestParseFlagsRejectsMissingFlagValue(t *testing.T) {
+	_, err := parseFlags(
+		[]string{"--timeout-ms", "--url-contains", "/cloud"},
+		[]string{"timeout-ms", "url-contains"},
+	)
+	if err == nil {
+		t.Fatal("parseFlags should reject missing flag values")
+	}
+	if got, want := err.Error(), "flag --timeout-ms requires a value"; got != want {
+		t.Fatalf("unexpected parseFlags error %q, want %q", got, want)
 	}
 }
 

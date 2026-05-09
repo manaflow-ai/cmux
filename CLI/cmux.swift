@@ -5959,7 +5959,8 @@ struct CMUXCLI {
             print("  username:  \(username)")
             print("  password:  \(credValue)")
         } else {
-            print("authorizedKey credential not yet supported by `cmux \(command) ssh-info`; raw response:")
+            let kindDescription = credKind.isEmpty || credKind == "?" ? "unknown" : credKind
+            print("credential kind \"\(kindDescription)\" not yet supported by `cmux \(command) ssh-info`; raw response:")
             print(jsonString(response))
         }
     }

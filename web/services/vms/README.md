@@ -77,8 +77,9 @@ Default image policy:
 - Baked agent tools are installed at image-build time. They are not auto-updated on VM startup, so
   startup latency stays bounded and the active image manifest remains the source of truth.
 - To update tool versions, rebuild the provider images and record the new template/snapshot IDs in
-  the manifest. Pin an agent package with `CMUX_CLOUD_IMAGE_<TOOL>_NPM_SPEC` during the image build
-  when reproducibility is more important than latest-at-build-time.
+  the manifest. `CMUX_CLOUD_IMAGE_<TOOL>_NPM_SPEC` overrides must be exact npm package version
+  pins, for example `@openai/codex@0.130.0`, or `none` to disable a tool. The image builder
+  rejects ranges and tags such as `latest`.
 
 Vercel production, staging, and preview deployments fail closed for VM create if the selected image
 env var is missing or is not listed in the manifest. Local development can use the manifest default

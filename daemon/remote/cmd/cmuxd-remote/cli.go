@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -328,7 +329,7 @@ func runRPC(socketPath string, args []string, jsonOutput bool, refreshAddr func(
 // runBrowserRelay handles "cmux browser <subcommand>" by mapping to browser.* v2 methods.
 func runBrowserRelay(socketPath string, args []string, jsonOutput bool, refreshAddr func() string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "cmux browser: requires a subcommand (open, navigate, back, forward, reload, get-url, snapshot, eval, wait, click, fill, type, press, screenshot)")
+		fmt.Fprintf(os.Stderr, "cmux browser: requires a subcommand (%s)\n", browserSubcommandHint())
 		return 2
 	}
 
@@ -399,6 +400,15 @@ func runBrowserRelay(socketPath string, args []string, jsonOutput bool, refreshA
 		fmt.Println(defaultRelayOutput(resp))
 	}
 	return 0
+}
+
+func browserSubcommandHint() string {
+	names := make([]string, 0, len(browserCommands))
+	for name := range browserCommands {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
 }
 
 func browserSpecSupportsParam(spec browserCommandSpec, paramKey string) bool {
@@ -558,10 +568,11 @@ func parseFlags(args []string, keys []string) (parsedFlags, error) {
 		if !allowed[key] {
 			return parsedFlags{}, fmt.Errorf("unknown flag --%s", key)
 		}
-		if i+1 < len(args) {
-			result.flags[key] = args[i+1]
-			i++
+		if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+			return parsedFlags{}, fmt.Errorf("flag --%s requires a value", key)
 		}
+		result.flags[key] = args[i+1]
+		i++
 	}
 	return result, nil
 }
