@@ -2781,6 +2781,10 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugSidebarVisible(params: params))
         case "debug.terminal.is_focused":
             return v2Result(id: id, self.v2DebugIsTerminalFocused(params: params))
+#if DEBUG
+        case "debug.terminal.simulate_file_drop":
+            return v2Result(id: id, self.v2DebugSimulateTerminalFileDrop(params: params))
+#endif
         case "debug.terminal.read_text":
             return v2Result(id: id, self.v2DebugReadTerminalText(params: params))
         case "debug.terminal.render_stats":
@@ -3034,6 +3038,9 @@ class TerminalController {
             "debug.session_snapshot_seed_scrollback",
             "debug.window.screenshot",
         ])
+#endif
+#if DEBUG
+        methods.append("debug.terminal.simulate_file_drop")
 #endif
 
         return [
@@ -12400,6 +12407,81 @@ class TerminalController {
         }
         return .ok(["focused": resp.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "true"])
     }
+
+#if DEBUG
+    private func v2DebugSimulateTerminalFileDrop(params: [String: Any]) -> V2CallResult {
+        guard let tabManager else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let surfaceId = v2String(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "Missing surface_id", data: nil)
+        }
+        guard let rawPaths = params["paths"] as? [String] else {
+            return .err(code: "invalid_params", message: "Missing paths", data: nil)
+        }
+        let paths = rawPaths
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !paths.isEmpty else {
+            return .err(code: "invalid_params", message: "paths must not be empty", data: nil)
+        }
+
+        let route = (v2String(params, "route") ?? "text_destination")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        enum TerminalFileDropSimulationRoute {
+            case terminal
+            case textDestination
+        }
+        let simulationRoute: TerminalFileDropSimulationRoute
+        switch route {
+        case "terminal", "direct":
+            simulationRoute = .terminal
+        case "text", "text_destination", "pane_text":
+            simulationRoute = .textDestination
+        default:
+            return .err(code: "invalid_params", message: "Unknown route", data: [
+                "route": route
+            ])
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Terminal surface not found", data: [
+            "surface_id": surfaceId
+        ])
+        v2MainSync {
+            guard let panel = resolveTerminalPanel(from: surfaceId, tabManager: tabManager) else {
+                return
+            }
+
+            switch simulationRoute {
+            case .terminal:
+                let handled = panel.hostedView.debugSimulateFileDrop(paths: paths)
+                result = handled
+                    ? .ok(["handled": true, "route": "terminal"])
+                    : .err(code: "internal_error", message: "Terminal drop simulation failed", data: nil)
+            case .textDestination:
+                guard let workspace = tabManager.tabs.first(where: { $0.id == panel.workspaceId }) else {
+                    result = .err(code: "not_found", message: "Workspace not found", data: [
+                        "workspace_id": panel.workspaceId.uuidString
+                    ])
+                    return
+                }
+                let urls = paths.map { URL(fileURLWithPath: $0).standardizedFileURL }
+                let handled = FileDropTextDropController.performTerminalFileDrop(
+                    workspace: workspace,
+                    panelId: panel.id,
+                    hostedView: panel.hostedView,
+                    urls: urls,
+                    window: panel.hostedView.window
+                )
+                result = handled
+                    ? .ok(["handled": true, "route": "text_destination"])
+                    : .err(code: "internal_error", message: "Text destination drop simulation failed", data: nil)
+            }
+        }
+        return result
+    }
+#endif
 
     private func v2DebugReadTerminalText(params: [String: Any]) -> V2CallResult {
         let surfaceArg = v2String(params, "surface_id") ?? ""

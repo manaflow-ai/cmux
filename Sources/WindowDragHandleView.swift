@@ -1026,6 +1026,8 @@ func windowDragHandleShouldCaptureHit(
 /// This lets us keep `window.isMovableByWindowBackground = false` so drags in the app content
 /// (e.g. sidebar tab reordering) don't move the whole window.
 struct WindowDragHandleView: NSViewRepresentable {
+    static let viewIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarDragHandle")
+
     var doubleClickBehavior: TitlebarDoubleClickBehavior = .standardAction
 
     func makeNSView(context: Context) -> NSView {
@@ -1042,11 +1044,13 @@ struct WindowDragHandleView: NSViewRepresentable {
         init(doubleClickBehavior: TitlebarDoubleClickBehavior) {
             self.doubleClickBehavior = doubleClickBehavior
             super.init(frame: .zero)
+            identifier = WindowDragHandleView.viewIdentifier
         }
 
         required init?(coder: NSCoder) {
             self.doubleClickBehavior = .standardAction
             super.init(coder: coder)
+            identifier = WindowDragHandleView.viewIdentifier
         }
 
         override var mouseDownCanMoveWindow: Bool { false }
@@ -1118,6 +1122,56 @@ struct WindowDragHandleView: NSViewRepresentable {
     }
 }
 
+private func titlebarDoubleClickMonitorHasCapturingDragHandle(
+    in rootView: NSView,
+    window: NSWindow,
+    locationInWindow: NSPoint
+) -> Bool {
+    if rootView.identifier == WindowDragHandleView.viewIdentifier {
+        let localPoint = rootView.convert(locationInWindow, from: nil)
+        if rootView.bounds.contains(localPoint),
+           windowDragHandleShouldCaptureHit(
+               localPoint,
+               in: rootView,
+               eventType: .leftMouseDown,
+               eventWindow: window
+           ) {
+            return true
+        }
+    }
+
+    for subview in rootView.subviews {
+        if titlebarDoubleClickMonitorHasCapturingDragHandle(
+            in: subview,
+            window: window,
+            locationInWindow: locationInWindow
+        ) {
+            return true
+        }
+    }
+
+    return false
+}
+
+private func titlebarDoubleClickMonitorShouldDeferToRegisteredControl(
+    window: NSWindow,
+    locationInWindow: NSPoint
+) -> Bool {
+    guard isMinimalModeTitlebarControlHit(window: window, locationInWindow: locationInWindow) else {
+        return false
+    }
+
+    guard let contentView = window.contentView else {
+        return true
+    }
+
+    return !titlebarDoubleClickMonitorHasCapturingDragHandle(
+        in: contentView,
+        window: window,
+        locationInWindow: locationInWindow
+    )
+}
+
 /// Local monitor that guarantees double-clicks in custom titlebar surfaces trigger
 /// the standard macOS titlebar action even when the visible strip is hosted by
 /// higher-level SwiftUI/AppKit container views.
@@ -1157,7 +1211,10 @@ struct TitlebarDoubleClickMonitorView: NSViewRepresentable {
                 coordinator.lastClick = nil
                 return event
             }
-            guard !isMinimalModeTitlebarControlHit(window: window, locationInWindow: event.locationInWindow) else {
+            guard !titlebarDoubleClickMonitorShouldDeferToRegisteredControl(
+                window: window,
+                locationInWindow: event.locationInWindow
+            ) else {
                 coordinator.lastClick = nil
                 return event
             }
@@ -1184,6 +1241,9 @@ struct TitlebarDoubleClickMonitorView: NSViewRepresentable {
                 window: window,
                 behavior: coordinator.doubleClickBehavior
             )
+            #if DEBUG
+            cmuxDebugLog("titlebar.monitor.doubleClick result=\(String(describing: result))")
+            #endif
             return result.consumesEvent ? nil : event
         }
 

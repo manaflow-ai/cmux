@@ -644,7 +644,7 @@ struct cmuxApp: App {
                 }
             }
 
-            splitCommandButton(title: String(localized: "menu.view.focusRightSidebar", defaultValue: "Focus Right Sidebar"), shortcut: menuShortcut(for: .focusRightSidebar)) {
+            splitCommandButton(title: String(localized: "menu.view.focusRightSidebar", defaultValue: "Toggle Right Sidebar"), shortcut: menuShortcut(for: .focusRightSidebar)) {
                 if AppDelegate.shared?.toggleRightSidebarKeyboardFocusInActiveMainWindow() != true {
                     if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                         preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
@@ -953,14 +953,14 @@ struct cmuxApp: App {
         closeWorkspaceIds(workspaceIds, in: manager, allowPinned: true)
     }
 
-    private func selectedWorkspaceHasUnreadNotifications(in manager: TabManager) -> Bool {
+    private func selectedWorkspaceCanMarkRead(in manager: TabManager) -> Bool {
         guard let workspaceId = manager.selectedWorkspace?.id else { return false }
-        return notificationStore.notifications.contains { $0.tabId == workspaceId && !$0.isRead }
+        return notificationStore.canMarkWorkspaceRead(forTabIds: [workspaceId])
     }
 
-    private func selectedWorkspaceHasReadNotifications(in manager: TabManager) -> Bool {
+    private func selectedWorkspaceCanMarkUnread(in manager: TabManager) -> Bool {
         guard let workspaceId = manager.selectedWorkspace?.id else { return false }
-        return notificationStore.notifications.contains { $0.tabId == workspaceId && $0.isRead }
+        return notificationStore.canMarkWorkspaceUnread(forTabIds: [workspaceId])
     }
 
     private func markSelectedWorkspaceRead(in manager: TabManager) {
@@ -1064,12 +1064,12 @@ struct cmuxApp: App {
         Button(String(localized: "contextMenu.markWorkspaceRead", defaultValue: "Mark Workspace as Read")) {
             markSelectedWorkspaceRead(in: manager)
         }
-        .disabled(!selectedWorkspaceHasUnreadNotifications(in: manager))
+        .disabled(!selectedWorkspaceCanMarkRead(in: manager))
 
         Button(String(localized: "contextMenu.markWorkspaceUnread", defaultValue: "Mark Workspace as Unread")) {
             markSelectedWorkspaceUnread(in: manager)
         }
-        .disabled(!selectedWorkspaceHasReadNotifications(in: manager))
+        .disabled(!selectedWorkspaceCanMarkUnread(in: manager))
     }
 
     @ViewBuilder
@@ -7066,9 +7066,7 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        let actions = KeyboardShortcutSettings.Action.allCases.filter {
-                            $0 != SystemWideHotkeySettings.action
-                        }
+                        let actions = KeyboardShortcutSettings.settingsVisibleActions
                         ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
                             ShortcutSettingRow(action: action)
                                 .padding(.horizontal, 14)
