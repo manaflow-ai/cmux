@@ -40,13 +40,9 @@ enum SettingsWindowPresenter {
         window.contentMinSize = minimumSize
         clampToVisibleAreaIfNeeded(window)
         attachToPreferredParent(window)
-        let navigationTarget = pendingNavigationTarget ?? pendingContentNavigationTarget
         Task { @MainActor in
             guard settingsWindow === window else { return }
             focus(window)
-            if let navigationTarget {
-                SettingsNavigationRequest.post(navigationTarget)
-            }
         }
     }
 
