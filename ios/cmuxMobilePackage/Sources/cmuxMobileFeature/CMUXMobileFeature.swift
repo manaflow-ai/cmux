@@ -80,6 +80,7 @@ struct PairingView: View {
     let connect: () -> Void
     let signOut: () -> Void
     @State private var isShowingScanner = false
+    @FocusState private var isPairingCodeFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -116,6 +117,10 @@ struct PairingView: View {
                     )
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .focused($isPairingCodeFocused)
+                    .onTapGesture {
+                        isPairingCodeFocused = true
+                    }
                     .accessibilityIdentifier("MobilePairingCodeField")
 
                     Button(action: connect) {
@@ -533,6 +538,7 @@ struct WorkspaceToolbar: View {
 struct TerminalInputBar: View {
     @Binding var text: String
     let send: () -> Void
+    @FocusState private var isInputFocused: Bool
 
     var body: some View {
         HStack(spacing: 10) {
@@ -544,6 +550,11 @@ struct TerminalInputBar: View {
             .autocorrectionDisabled()
             .submitLabel(.send)
             .onSubmit(send)
+            .focused($isInputFocused)
+            .onTapGesture {
+                isInputFocused = true
+            }
+            .frame(minHeight: 44)
             .accessibilityIdentifier("MobileTerminalInputField")
 
             Button(action: send) {

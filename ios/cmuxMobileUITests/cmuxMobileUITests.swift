@@ -240,6 +240,11 @@ final class cmuxMobileUITests: XCTestCase {
             if waitForKeyboardFocus(field, timeout: 1) {
                 return true
             }
+
+            field.doubleTap()
+            if waitForKeyboardFocus(field, timeout: 1) {
+                return true
+            }
         }
 
         return waitForKeyboardFocus(field, timeout: 2)
