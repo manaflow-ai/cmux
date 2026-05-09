@@ -86,12 +86,16 @@ extension GhosttyNSView {
         return flags == [.numericPad]
     }
 
-    func shouldKeepNoMarkedIMECommandInsideTextInput(_ event: NSEvent?) -> Bool {
-        guard let event else { return false }
+    func hasOnlyTextInputCommandModifiers(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
-        guard flags.isEmpty || flags == [.shift] else { return false }
+        return flags.isEmpty || flags == [.shift]
+    }
+
+    func shouldKeepNoMarkedIMECommandInsideTextInput(_ event: NSEvent?) -> Bool {
+        guard let event else { return false }
+        guard hasOnlyTextInputCommandModifiers(event) else { return false }
 
         switch Int(event.keyCode) {
         case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow,
@@ -143,10 +147,7 @@ extension GhosttyNSView {
             return false
         }
 
-        let flags = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
-        guard flags.isEmpty || flags == [.shift] else { return false }
+        guard hasOnlyTextInputCommandModifiers(event) else { return false }
 
         switch Int(event.keyCode) {
         case kVK_DownArrow, kVK_UpArrow, kVK_PageUp, kVK_PageDown, kVK_Space:
@@ -173,10 +174,7 @@ extension GhosttyNSView {
     /// Returns true for active-composition command keys that belong to AppKit's
     /// text input manager even when marked text itself does not change.
     func shouldKeepIMECompositionCommandInsideTextInput(_ event: NSEvent) -> Bool {
-        let flags = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
-        guard flags.isEmpty || flags == [.shift] else { return false }
+        guard hasOnlyTextInputCommandModifiers(event) else { return false }
 
         switch Int(event.keyCode) {
         case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow,
