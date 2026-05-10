@@ -298,7 +298,7 @@
       "browserLinkBehavior": "ブラウザリンクの動作",
       "browserLinkDesc": "設定 > ブラウザで、cmuxは異なる目的の2つのホストリストを提供します：",
       "browserHostsEmbed": "組み込みブラウザで開くホスト：ターミナル出力からクリックしたリンクに適用されます。このリストのホストはcmuxで開き、それ以外はデフォルトブラウザで開きます。1行に1つのホストまたはワイルドカードを指定できます（例：example.com、*.internal.example）。",
-      "browserHostsHttp": "組み込みブラウザで許可するHTTPホスト：HTTP（非HTTPS）URLのみに適用されます。このリストのホストは警告プロンプトなしでcmuxで開けます。デフォルトはlocalhost、127.0.0.1、::1、0.0.0.0、*.localtest.meです。",
+      "browserHostsHttp": "組み込みブラウザで許可するHTTPホスト：HTTP（非HTTPS）URLのみに適用されます。このリストのホストは警告プロンプトなしでcmuxで開けます。デフォルトはlocalhost、*.localhost、127.0.0.1、::1、0.0.0.0、*.localtest.meです。",
       "settingsFile": "cmux.json",
       "settingsFileDesc": "cmux.json には cmux 管理のアプリ設定、ショートカット、アクション、コマンド、ワークスペースレイアウトを保存します。",
       "settingsFilePrecedence": "cmux.json で定義したショートカットはアプリ内設定より優先されます。管理対象のショートカットは設定画面に表示されたままですが、そこでの編集は無効になります。",

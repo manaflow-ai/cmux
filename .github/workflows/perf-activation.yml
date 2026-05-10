@@ -36,7 +36,7 @@ concurrency:
 jobs:
   activation-session:
     runs-on: ${{ inputs.runner || 'warp-macos-15-arm64-6x' }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       PERF_TAG: perfci
     steps:
@@ -71,21 +71,7 @@ jobs:
 
       - name: Install zig
         run: |
-          set -euo pipefail
-          ZIG_REQUIRED="0.15.2"
-          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
-            echo "zig ${ZIG_REQUIRED} already installed"
-          else
-            echo "Installing zig ${ZIG_REQUIRED} from Homebrew bottle"
-            brew install zig@0.15
-            ZIG_PREFIX="$(brew --prefix zig@0.15)"
-            sudo mkdir -p /usr/local/bin /usr/local/lib
-            sudo cp -f "${ZIG_PREFIX}/bin/zig" /usr/local/bin/zig
-            sudo rm -rf /usr/local/lib/zig
-            sudo mkdir -p /usr/local/lib/zig
-            sudo cp -R "${ZIG_PREFIX}/lib/zig/." /usr/local/lib/zig/
-            test "$(zig version)" = "$ZIG_REQUIRED"
-          fi
+          ./scripts/install-zig-ci.sh
 
       - name: Build tagged app
         run: ./scripts/reload.sh --tag "$PERF_TAG"

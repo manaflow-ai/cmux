@@ -1,6 +1,7 @@
+import Darwin
 import Foundation
 
-struct FileSearchResult: Equatable {
+struct FileSearchResult: Equatable, Sendable {
     let path: String
     let relativePath: String
     let lineNumber: Int
@@ -27,7 +28,7 @@ enum FileSearchRipgrepParser {
         let columnNumber = (firstStart ?? 0) + 1
         return FileSearchResult(
             path: path,
-            relativePath: relativePath(for: path, rootPath: rootPath),
+            relativePath: FileExplorerTerminalPathInsertion.relativePath(for: path, rootPath: rootPath),
             lineNumber: lineNumber,
             columnNumber: columnNumber,
             preview: lineText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -44,22 +45,10 @@ enum FileSearchRipgrepParser {
         }
         return String(decoding: data, as: UTF8.self)
     }
-
-    private static func relativePath(for path: String, rootPath: String) -> String {
-        guard !rootPath.isEmpty else { return path }
-        let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
-        let standardizedRoot = URL(fileURLWithPath: rootPath).standardizedFileURL.path
-        guard standardizedPath.hasPrefix(standardizedRoot) else { return path }
-        var relative = String(standardizedPath.dropFirst(standardizedRoot.count))
-        if relative.hasPrefix("/") {
-            relative.removeFirst()
-        }
-        return relative.isEmpty ? (path as NSString).lastPathComponent : relative
-    }
 }
 
-struct FileSearchSnapshot: Equatable {
-    enum Status: Equatable {
+struct FileSearchSnapshot: Equatable, Sendable {
+    enum Status: Equatable, Sendable {
         case idle
         case unsupported
         case searching
@@ -78,7 +67,153 @@ struct FileSearchSnapshot: Equatable {
 }
 
 @MainActor
-final class FileSearchController {
+protocol FileSearchControlling: AnyObject {
+    var onSnapshotChanged: ((FileSearchSnapshot) -> Void)? { get set }
+
+    func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int)
+    func cancel(clear: Bool)
+}
+
+private struct FileSearchPipelineUpdate: Sendable {
+    let results: [FileSearchResult]
+    let status: FileSearchSnapshot.Status
+    let isSearching: Bool
+    let shouldStopProcess: Bool
+}
+
+private actor FileSearchTerminationSignal {
+    private var status: Int32?
+    private var continuations: [UUID: CheckedContinuation<Int32?, Never>] = [:]
+    private var cancelledWaits = Set<UUID>()
+
+    func complete(status: Int32) {
+        guard self.status == nil else { return }
+        self.status = status
+        let pendingContinuations = Array(continuations.values)
+        continuations.removeAll()
+        cancelledWaits.removeAll()
+        for continuation in pendingContinuations {
+            continuation.resume(returning: status)
+        }
+    }
+
+    func wait() async -> Int32? {
+        if let status {
+            return status
+        }
+        let waitID = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if let status {
+                    continuation.resume(returning: status)
+                } else if cancelledWaits.remove(waitID) != nil {
+                    continuation.resume(returning: nil)
+                } else {
+                    continuations[waitID] = continuation
+                }
+            }
+        } onCancel: {
+            Task {
+                await self.cancelWait(id: waitID)
+            }
+        }
+    }
+
+    private func cancelWait(id: UUID) {
+        guard status == nil else { return }
+        if let continuation = continuations.removeValue(forKey: id) {
+            continuation.resume(returning: nil)
+        } else {
+            cancelledWaits.insert(id)
+        }
+    }
+}
+
+private actor FileSearchOutputPipeline {
+    private let rootPath: String
+    private let maxResults: Int
+    private let snapshotInterval: TimeInterval
+    private var stderrBuffer = Data()
+    private var results: [FileSearchResult] = []
+    private var lastSnapshotEmissionDate = Date.distantPast
+    private var isFinished = false
+
+    init(rootPath: String, maxResults: Int, snapshotInterval: TimeInterval) {
+        self.rootPath = rootPath
+        self.maxResults = maxResults
+        self.snapshotInterval = snapshotInterval
+    }
+
+    func consumeStdoutLine(_ line: String) -> FileSearchPipelineUpdate? {
+        guard !isFinished,
+              let result = FileSearchRipgrepParser.parseMatchLine(line, rootPath: rootPath) else {
+            return nil
+        }
+        results.append(result)
+        if results.count >= maxResults {
+            return FileSearchPipelineUpdate(
+                results: results,
+                status: .limited(maxResults),
+                isSearching: false,
+                shouldStopProcess: true
+            )
+        }
+
+        let now = Date()
+        guard now.timeIntervalSince(lastSnapshotEmissionDate) >= snapshotInterval else {
+            return nil
+        }
+        lastSnapshotEmissionDate = now
+        return FileSearchPipelineUpdate(
+            results: results,
+            status: .searching,
+            isSearching: true,
+            shouldStopProcess: false
+        )
+    }
+
+    func consumeStderr(_ data: Data) {
+        guard !isFinished else { return }
+        stderrBuffer.append(data)
+        if stderrBuffer.count > 8_192 {
+            stderrBuffer.removeSubrange(0..<(stderrBuffer.count - 8_192))
+        }
+    }
+
+    func consumeStderrLine(_ line: String) {
+        guard !isFinished else { return }
+        let lineData = Data((line + "\n").utf8)
+        consumeStderr(lineData)
+    }
+
+    func finish(status: Int32) -> FileSearchPipelineUpdate {
+        isFinished = true
+        if status == 0 || status == 1 {
+            return FileSearchPipelineUpdate(
+                results: results,
+                status: results.isEmpty ? .noMatches : .matches,
+                isSearching: false,
+                shouldStopProcess: false
+            )
+        }
+
+        let errorText = String(data: stderrBuffer, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = String(
+            format: String(localized: "fileExplorer.search.rgExited", defaultValue: "rg exited with status %d"),
+            Int(status)
+        )
+        return FileSearchPipelineUpdate(
+            results: results,
+            status: .failed(errorText?.isEmpty == false ? errorText! : fallback),
+            isSearching: false,
+            shouldStopProcess: false
+        )
+    }
+}
+
+@MainActor
+final class FileSearchController: FileSearchControlling {
     private struct Request: Equatable {
         let query: String
         let rootPath: String
@@ -94,6 +229,7 @@ final class FileSearchController {
     var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
 
     private let maxResults = 500
+    private let snapshotInterval: TimeInterval = 0.05
     private let excludedSearchGlobs = [
         "!.git/**",
         "!**/.git/**",
@@ -107,11 +243,11 @@ final class FileSearchController {
         "!**/DerivedData/**",
     ]
     private var process: Process?
-    private var stdoutBuffer = Data()
-    private var stderrBuffer = Data()
     private var generation = 0
     private var request: Request?
     private var results: [FileSearchResult] = []
+    private var pipeline: FileSearchOutputPipeline?
+    private var searchTask: Task<Void, Never>?
 
     func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int = 0) {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -128,8 +264,6 @@ final class FileSearchController {
 
         stopAndAdvanceGeneration()
         results.removeAll()
-        stdoutBuffer.removeAll(keepingCapacity: true)
-        stderrBuffer.removeAll(keepingCapacity: true)
 
         guard !query.isEmpty else {
             emit(status: .idle, isSearching: false)
@@ -177,34 +311,47 @@ final class FileSearchController {
         let stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
+        let pipeline = FileSearchOutputPipeline(
+            rootPath: rootPath,
+            maxResults: maxResults,
+            snapshotInterval: snapshotInterval
+        )
+        self.pipeline = pipeline
+        let terminationSignal = FileSearchTerminationSignal()
 
-        stdout.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            Task { @MainActor [weak self] in
-                self?.consumeStdout(data, generation: searchGeneration, rootPath: rootPath)
-            }
-        }
-        stderr.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            Task { @MainActor [weak self] in
-                self?.consumeStderr(data, generation: searchGeneration)
-            }
-        }
-
-        process.terminationHandler = { [weak self] process in
-            Task { @MainActor [weak self] in
-                self?.finish(generation: searchGeneration, status: process.terminationStatus)
+        process.terminationHandler = { process in
+            let status = process.terminationStatus
+            Task {
+                await terminationSignal.complete(status: status)
             }
         }
 
         do {
             try process.run()
             self.process = process
+            let stdoutHandle = stdout.fileHandleForReading
+            let stderrHandle = stderr.fileHandleForReading
+            searchTask = Task { [weak self, pipeline, terminationSignal] in
+                let applyUpdate: @Sendable (FileSearchPipelineUpdate, Int) async -> Void = { [weak self] update, generation in
+                    await self?.applyPipelineUpdate(update, generation: generation)
+                }
+                async let stdoutDone: Void = Self.streamStdout(
+                    from: stdoutHandle,
+                    pipeline: pipeline,
+                    generation: searchGeneration,
+                    applyUpdate: applyUpdate
+                )
+                async let stderrDone: Void = Self.streamStderr(from: stderrHandle, pipeline: pipeline)
+                guard let status = await terminationSignal.wait() else { return }
+                _ = await (stdoutDone, stderrDone)
+                guard !Task.isCancelled else { return }
+                let update = await pipeline.finish(status: status)
+                self?.finish(generation: searchGeneration, update: update)
+            }
         } catch {
             process.standardOutput = nil
             process.standardError = nil
+            self.pipeline = nil
             emit(status: .failed(error.localizedDescription), isSearching: false)
         }
     }
@@ -212,64 +359,28 @@ final class FileSearchController {
     func cancel(clear: Bool) {
         request = nil
         stopAndAdvanceGeneration()
-        stdoutBuffer.removeAll(keepingCapacity: true)
-        stderrBuffer.removeAll(keepingCapacity: true)
         if clear {
             results.removeAll()
             emit(status: .idle, isSearching: false)
         }
     }
 
-    private func consumeStdout(_ data: Data, generation searchGeneration: Int, rootPath: String) {
+    private func applyPipelineUpdate(_ update: FileSearchPipelineUpdate, generation searchGeneration: Int) {
         guard searchGeneration == generation else { return }
-        stdoutBuffer.append(data)
-        var didAppendResult = false
-
-        while let newlineIndex = stdoutBuffer.firstIndex(of: 10) {
-            let lineData = stdoutBuffer[..<newlineIndex]
-            stdoutBuffer.removeSubrange(...newlineIndex)
-            guard let line = String(data: lineData, encoding: .utf8),
-                  let result = FileSearchRipgrepParser.parseMatchLine(line, rootPath: rootPath) else {
-                continue
-            }
-            results.append(result)
-            didAppendResult = true
-            if results.count >= maxResults {
-                stopAndAdvanceGeneration()
-                emit(status: .limited(maxResults), isSearching: false)
-                return
-            }
+        results = update.results
+        if update.shouldStopProcess {
+            stopAndAdvanceGeneration()
         }
-        if didAppendResult {
-            emit(status: .searching, isSearching: true)
-        }
+        emit(status: update.status, isSearching: update.isSearching)
     }
 
-    private func consumeStderr(_ data: Data, generation searchGeneration: Int) {
+    private func finish(generation searchGeneration: Int, update: FileSearchPipelineUpdate) {
         guard searchGeneration == generation else { return }
-        stderrBuffer.append(data)
-        if stderrBuffer.count > 8_192 {
-            stderrBuffer.removeSubrange(0..<(stderrBuffer.count - 8_192))
-        }
-    }
-
-    private func finish(generation searchGeneration: Int, status: Int32) {
-        guard searchGeneration == generation else { return }
-        stopCurrentProcess()
-
-        if status == 0 || status == 1 {
-            let finalStatus: FileSearchSnapshot.Status = results.isEmpty ? .noMatches : .matches
-            emit(status: finalStatus, isSearching: false)
-            return
-        }
-
-        let errorText = String(data: stderrBuffer, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let fallback = String(
-            format: String(localized: "fileExplorer.search.rgExited", defaultValue: "rg exited with status %d"),
-            Int(status)
-        )
-        emit(status: .failed(errorText?.isEmpty == false ? errorText! : fallback), isSearching: false)
+        process = nil
+        pipeline = nil
+        searchTask = nil
+        results = update.results
+        emit(status: update.status, isSearching: update.isSearching)
     }
 
     private func emit(status: FileSearchSnapshot.Status, isSearching: Bool) {
@@ -289,11 +400,55 @@ final class FileSearchController {
     private func stopCurrentProcess() {
         guard let process else { return }
         self.process = nil
-        (process.standardOutput as? Pipe)?.fileHandleForReading.readabilityHandler = nil
-        (process.standardError as? Pipe)?.fileHandleForReading.readabilityHandler = nil
-        process.terminationHandler = nil
+        searchTask?.cancel()
+        searchTask = nil
+        pipeline = nil
         if process.isRunning {
-            process.terminate()
+            _ = Darwin.kill(process.processIdentifier, SIGTERM)
+        }
+    }
+
+#if compiler(>=6.2)
+    @concurrent
+#endif
+    private nonisolated static func streamStdout(
+        from handle: FileHandle,
+        pipeline: FileSearchOutputPipeline,
+        generation: Int,
+        applyUpdate: @Sendable (FileSearchPipelineUpdate, Int) async -> Void
+    ) async {
+        do {
+            for try await line in handle.bytes.lines {
+                try Task.checkCancellation()
+                guard let update = await pipeline.consumeStdoutLine(line) else { continue }
+                await applyUpdate(update, generation)
+                if update.shouldStopProcess {
+                    return
+                }
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            await pipeline.consumeStderrLine(error.localizedDescription)
+        }
+    }
+
+#if compiler(>=6.2)
+    @concurrent
+#endif
+    private nonisolated static func streamStderr(
+        from handle: FileHandle,
+        pipeline: FileSearchOutputPipeline
+    ) async {
+        do {
+            for try await line in handle.bytes.lines {
+                try Task.checkCancellation()
+                await pipeline.consumeStderrLine(line)
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            await pipeline.consumeStderrLine(error.localizedDescription)
         }
     }
 

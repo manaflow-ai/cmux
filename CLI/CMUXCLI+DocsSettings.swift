@@ -84,16 +84,19 @@ extension CMUXCLI {
         DocsReference(
             topic: "agents",
             aliases: ["integrations", "agent-integrations"],
-            summary: "Codex, Claude Code, OpenCode, and agent workflow integrations.",
+            summary: "Agent hook integrations, Feed approvals, notifications, and session restore.",
             webURL: "https://cmux.com/docs/agent-integrations/oh-my-codex",
             rawResources: [
+                DocsResource(label: "agent hook docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/agent-hooks.md"),
                 DocsResource(label: "feed docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/feed.md"),
                 DocsResource(label: "notifications docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/notifications.md"),
             ],
             commands: [
-                "cmux codex install-hooks",
-                "cmux hooks opencode install",
                 "cmux hooks setup",
+                "cmux hooks setup <agent>",
+                "cmux hooks hermes-agent install",
+                "cmux hooks hermes-agent uninstall",
+                "cmux hooks <agent> uninstall",
             ]
         ),
         DocsReference(
@@ -312,7 +315,7 @@ extension CMUXCLI {
                 throw CLIError(message: "Unknown settings subcommand '\(subcommand)'. Run 'cmux settings --help'.")
             }
             guard args.count == 1 else {
-                throw CLIError(message: "Usage: cmux settings [open|path|docs|target]")
+                throw CLIError(message: "Usage: cmux settings [open [target]|path|docs|<target>]")
             }
             try openSettingsTarget(
                 targetRaw,
@@ -332,7 +335,7 @@ extension CMUXCLI {
 
     func settingsUsage() -> String {
         return """
-        Usage: cmux settings [open|path|docs|target]
+        Usage: cmux settings [open [target]|path|docs|<target>]
 
         Open cmux Settings, print cmux.json paths, or show settings documentation.
 

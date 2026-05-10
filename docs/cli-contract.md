@@ -77,6 +77,7 @@ Environment:
 | `codex` | Compatibility alias for installing or uninstalling Codex hooks. |
 | `ping` | Check socket connectivity. |
 | `capabilities` | Print server capabilities as JSON. |
+| `events` | Stream reconnectable cmux events as newline-delimited JSON. |
 | `auth` | Manage auth status, login, and logout through the app. |
 | `vm`, `cloud` | Manage cloud VMs. `cloud` is an alias for `vm`. |
 | `rpc` | Call a raw v2 socket method with optional JSON params. |
@@ -242,6 +243,8 @@ Browser subcommands:
 | `browser frame` | Select frame context. |
 | `browser dialog` | Accept or dismiss dialogs. |
 | `browser download` | Wait for or save downloads. |
+| `browser profiles` | List, add, rename, clear, or delete cmux browser profiles. `clear` refuses to wipe active profiles unless `--force` is passed. |
+| `browser import` | Open the browser import wizard. In detected coding-agent environments, defaults to non-interactive cookie import; pass `--interactive` to force the wizard. Non-interactive import supports `--from`, `--profile`, `--all-profiles`, `--to-profile`, `--create-profile`, and `--domain`. |
 | `browser cookies` | Get, set, or clear cookies. |
 | `browser storage` | Get, set, or clear local/session storage. |
 | `browser tab` | Create, list, switch, or close browser tabs. |
@@ -262,14 +265,14 @@ Hook subcommands:
 
 | Command | Contract |
 | --- | --- |
-| `hooks setup` | Install hooks for all supported agents whose binaries are on `PATH`. Supports `--agent <name>` and `--yes`. |
-| `hooks uninstall` | Remove hooks for all supported agents. Supports `--agent <name>` and `--yes`. |
+| `hooks setup` | Install hooks for all supported agents whose binaries are on `PATH`. Supports `--agent <name>`, positional agent filters such as `cmux hooks setup rovo`, and `--yes`. |
+| `hooks uninstall` | Remove hooks for all supported agents. Supports `--agent <name>`, positional agent filters such as `cmux hooks uninstall rovo`, and `--yes`. |
 | `hooks <agent> install` | Install hooks for one supported agent. `opencode` also supports `--project` for the project-local Feed plugin. |
 | `hooks <agent> uninstall` | Remove hooks for one supported agent. |
 | `hooks claude <event>` | Handle Claude Code hook events. `claude-hook <event>` remains as the main-compatibility alias. |
 | `hooks codex <event>` | Handle Codex hook events. `codex install-hooks` remains as the main-compatibility installer alias. |
 | `hooks feed --source <agent>` | Convert agent hook events into Feed context. |
-| `hooks <agent> <event>` | Generic hook surface for `opencode`, `cursor`, `gemini`, `copilot`, `codebuddy`, `factory`, and `qoder`. |
+| `hooks <agent> <event>` | Generic hook surface for `opencode`, `pi`, `cursor`, `gemini`, `rovodev`, `copilot`, `codebuddy`, `factory`, and `qoder`. |
 
 Docs topics:
 
@@ -306,6 +309,32 @@ Config subcommands:
 `label`, `display_path`, `path`, `status`, `ok`, `keys`, and, when available,
 `message` and `bytes`.
 
+Events command:
+
+| Option | Contract |
+| --- | --- |
+| `--after <seq>`, `--after-seq <seq>` | Subscribe to retained events after a sequence number. |
+| `--cursor-file <path>` | Read the starting sequence from a file and update it after every event. |
+| `--name <event>` | Filter by event name. Repeatable. |
+| `--category <name>` | Filter by category. Repeatable. |
+| `--reconnect` | Reconnect and resume from the last received sequence until interrupted. |
+| `--limit <n>` | Exit after printing `n` event frames. |
+| `--no-ack` | Suppress the initial ack frame in stdout. |
+| `--no-heartbeat`, `--no-heartbeats` | Suppress heartbeat frames in stdout. |
+
+`events.stream` is a v2 socket method advertised by `capabilities`. The first
+response frame is an `ack`; sequence resume metadata lives under `ack.resume` as
+`after_seq`, `oldest_seq`, `latest_seq`, `next_seq`, and `gap`. Event frames
+carry a process-local monotonic `seq` and a stable `id` for dedupe. Clients
+should persist `seq` after processing each event and reconnect with that value.
+See [events.md](events.md) for the full protocol and event catalog. Every emitted event is also appended to
+`~/.cmuxterm/events.jsonl`, including model lifecycle events for window
+creation, close, focus, key-window state, workspace selection, pane focus, and
+surface selection, focus, creation, or closure. The stream is bounded: cmux keeps
+4,096 replay events in memory, caps each encoded event frame at 16 KiB, closes
+slow subscribers after 1,024 pending events, and rotates `events.jsonl` with one
+16 MiB archive at `events.jsonl.1`.
+
 ## No-Socket Help Probes
 
 The following probes are executable contract checks. They must exit 0 and print
@@ -316,6 +345,7 @@ the expected text without connecting to a cmux socket.
 - `cmux help` -> `cmux - control cmux via Unix socket`
 - `cmux ping --help` -> `Usage: cmux ping`
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
+- `cmux events --help` -> `Usage: cmux events [options]`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout>`
 - `cmux vm --help` -> `Usage: cmux vm <new|ls|rm|exec|shell|attach|ssh> [args...]`
 - `cmux cloud --help` -> `Usage: cmux cloud <new|ls|rm|exec|shell|attach|ssh> [args...]`
@@ -325,7 +355,7 @@ the expected text without connecting to a cmux socket.
 - `cmux docs` -> `Topics:`
 - `cmux docs settings` -> `Config files:`
 - `cmux docs dock` -> `dock: Custom right-sidebar terminal controls`
-- `cmux settings --help` -> `Usage: cmux settings [open|path|docs|target]`
+- `cmux settings --help` -> `Usage: cmux settings [open [target]|path|docs|<target>]`
 - `cmux settings path` -> `Config files:`
 - `cmux settings docs` -> `Config files:`
 - `cmux config --help` -> `Usage: cmux config <doctor|check|validate|path|paths|docs|documentation|reload>`
@@ -339,7 +369,7 @@ the expected text without connecting to a cmux socket.
 - `cmux restore-session --help` -> `Usage: cmux restore-session`
 - `cmux feedback --help` -> `Usage: cmux feedback`
 - `cmux feed --help` -> `Usage: cmux feed tui [--opentui|--legacy]`
-- `cmux hooks --help` -> `Usage: cmux hooks setup [--agent <name>] [--yes|-y]`
+- `cmux hooks --help` -> `Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]`
 - `cmux codex --help` -> `Usage: cmux codex <install-hooks|uninstall-hooks>`
 - `cmux themes --help` -> `Usage: cmux themes`
 - `cmux omo --help` -> `Usage: cmux omo [opencode-args...]`

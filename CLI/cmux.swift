@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CoreFoundation
 import CryptoKit
 import Darwin
 #if canImport(LocalAuthentication)
@@ -14,6 +15,12 @@ import Sentry
 
 struct CLIError: Error, CustomStringConvertible {
     let message: String
+    let exitCode: Int32
+
+    init(message: String, exitCode: Int32 = 1) {
+        self.message = message
+        self.exitCode = exitCode
+    }
 
     var description: String { message }
 }
@@ -929,6 +936,7 @@ final class SocketClient {
 
     private let path: String
     private var socketFD: Int32 = -1
+    private var lastConfiguredReceiveTimeout: TimeInterval?
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
     private static let multilineResponseIdleTimeoutSeconds: TimeInterval = 0.12
@@ -1022,6 +1030,7 @@ final class SocketClient {
             Darwin.close(socketFD)
             socketFD = -1
         }
+        lastConfiguredReceiveTimeout = nil
     }
 
     func send(command: String, responseTimeout: TimeInterval? = nil) throws -> String {
@@ -1037,6 +1046,9 @@ final class SocketClient {
         }
 
         let initialResponseTimeout = responseTimeout ?? Self.responseTimeoutSeconds
+        if lastConfiguredReceiveTimeout != initialResponseTimeout {
+            try configureReceiveTimeout(initialResponseTimeout)
+        }
         var operation = CLISocketOperationTelemetry.State(
             name: CLISocketOperationTelemetry.operationName(for: command),
             timeout: initialResponseTimeout,
@@ -1062,7 +1074,9 @@ final class SocketClient {
             operation.sawNewline = sawNewline
             operation.timeout = currentTimeout
             recordOperation(operation)
-            try configureReceiveTimeout(currentTimeout)
+            if lastConfiguredReceiveTimeout != currentTimeout {
+                try configureReceiveTimeout(currentTimeout)
+            }
 
             var buffer = [UInt8](repeating: 0, count: 8192)
             let count = Darwin.read(socketFD, &buffer, buffer.count)
@@ -1141,6 +1155,7 @@ final class SocketClient {
         }
         do {
             try configureSocketWriteSafety(Self.responseTimeoutSeconds)
+            try configureReceiveTimeout(Self.responseTimeoutSeconds)
         } catch {
             close()
             throw error
@@ -1435,8 +1450,11 @@ final class SocketClient {
             )
         }
         guard result == 0 else {
-            throw CLIError(message: "Failed to configure socket receive timeout")
+            let errorCode = errno
+            let reason = String(cString: strerror(errorCode))
+            throw CLIError(message: "Failed to configure socket receive timeout (\(reason), errno \(errorCode))")
         }
+        lastConfiguredReceiveTimeout = timeout
     }
 
     static func waitForConnectableSocket(path: String, timeout: TimeInterval) throws -> SocketClient {
@@ -1608,101 +1626,63 @@ final class SocketClient {
 
         throw CLIError(message: "v2 request failed")
     }
-}
 
-struct CLIProcessResult {
-    let status: Int32
-    let stdout: String
-    let stderr: String
-    let timedOut: Bool
-}
-
-enum CLIProcessRunner {
-    static func runProcess(
-        executablePath: String,
-        arguments: [String],
-        stdinText: String? = nil,
-        timeout: TimeInterval? = nil
-    ) -> CLIProcessResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        let stdinPipe: Pipe?
-        if stdinText != nil {
-            let pipe = Pipe()
-            process.standardInput = pipe
-            stdinPipe = pipe
-        } else {
-            stdinPipe = nil
+    func streamV2(
+        method: String,
+        params: [String: Any] = [:],
+        onLine: (String) throws -> Void
+    ) throws {
+        guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+        let request: [String: Any] = [
+            "id": UUID().uuidString,
+            "method": method,
+            "params": params
+        ]
+        guard JSONSerialization.isValidJSONObject(request),
+              let requestData = try? JSONSerialization.data(withJSONObject: request, options: []),
+              let requestLine = String(data: requestData, encoding: .utf8) else {
+            throw CLIError(message: "Failed to encode v2 stream request")
         }
 
-        let finished = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in
-            finished.signal()
-        }
-
-        do {
-            try process.run()
-        } catch {
-            return CLIProcessResult(status: 1, stdout: "", stderr: String(describing: error), timedOut: false)
-        }
-
-        if let stdinText, let stdinPipe {
-            if let data = stdinText.data(using: .utf8) {
-                stdinPipe.fileHandleForWriting.write(data)
-            }
-            stdinPipe.fileHandleForWriting.closeFile()
-        }
-
-        let timedOut: Bool
-        if let timeout {
-            switch finished.wait(timeout: .now() + timeout) {
-            case .success:
-                timedOut = false
-            case .timedOut:
-                timedOut = true
-                terminate(process: process, finished: finished)
-            }
-        } else {
-            finished.wait()
-            timedOut = false
-        }
-
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        var stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        if timedOut {
-            let timeoutMessage = "process timed out"
-            if stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                stderr = timeoutMessage
-            } else if !stderr.contains(timeoutMessage) {
-                stderr += "\n\(timeoutMessage)"
-            }
-        }
-
-        return CLIProcessResult(
-            status: timedOut ? 124 : process.terminationStatus,
-            stdout: stdout,
-            stderr: stderr,
-            timedOut: timedOut
+        try writeAll(
+            Data((requestLine + "\n").utf8),
+            timeoutMessage: "Stream request timed out",
+            failureMessage: "Failed to write stream request"
         )
+
+        while true {
+            let line = try readStreamLine()
+            try onLine(line)
+        }
     }
 
-    private static func terminate(process: Process, finished: DispatchSemaphore) {
-        guard process.isRunning else { return }
-        process.terminate()
-        if finished.wait(timeout: .now() + 0.5) == .success {
-            return
+    private func readStreamLine(maxBytes: Int = 4 * 1024 * 1024) throws -> String {
+        var data = Data()
+        try configureReceiveTimeout(45)
+        while data.count < maxBytes {
+            var byte: UInt8 = 0
+            let count = Darwin.read(socketFD, &byte, 1)
+            if count < 0 {
+                if errno == EINTR {
+                    continue
+                }
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    throw CLIError(message: "Timed out waiting for event stream frame")
+                }
+                throw CLIError(message: "Event stream socket read error")
+            }
+            if count == 0 {
+                throw CLIError(message: "Event stream closed")
+            }
+            if byte == 0x0A {
+                guard let line = String(data: data, encoding: .utf8) else {
+                    throw CLIError(message: "Invalid UTF-8 event stream frame")
+                }
+                return line.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            data.append(byte)
         }
-        if process.isRunning {
-            kill(process.processIdentifier, SIGKILL)
-        }
-        _ = finished.wait(timeout: .now() + 0.5)
+        throw CLIError(message: "Event stream frame exceeded \(maxBytes) bytes")
     }
 }
 
@@ -1740,6 +1720,38 @@ struct CMUXCLI {
             return nil
         }
         return trimmed
+    }
+
+    private static func isCodingAgentEnvironment(_ environment: [String: String]) -> Bool {
+        if let kind = normalizedEnvValue(environment["CMUX_AGENT_LAUNCH_KIND"])?.lowercased() {
+            let agentKinds: Set<String> = [
+                "claude",
+                "codex",
+                "opencode",
+                "omo",
+                "omx",
+                "omc",
+            ]
+            if agentKinds.contains(kind) {
+                return true
+            }
+        }
+
+        let directAgentKeys = [
+            "CODEX_CI",
+            "CODEX_THREAD_ID",
+            "CODEX_SESSION_ID",
+            "CODEX_SANDBOX",
+            "CODEX_MANAGED_BY_BUN",
+            "CLAUDECODE",
+            "CLAUDE_CODE",
+            "CLAUDE_CODE_ENTRYPOINT",
+            "CLAUDE_CODE_SESSION_ID",
+            "OPENCODE",
+            "OPENCODE_PORT",
+            "OPENCODE_SESSION_ID",
+        ]
+        return directAgentKeys.contains { normalizedEnvValue(environment[$0]) != nil }
     }
 
     private static func vmCreateIdempotencySignature(image: String?, provider: String?) -> String {
@@ -2022,8 +2034,10 @@ struct CMUXCLI {
         }
 
         guard index < args.count else {
-            print(usage())
-            throw CLIError(message: "Missing command")
+            throw CLIError(
+                message: "Missing command. Usage: cmux <path>|<command> [options]. Run 'cmux --help' for the full command list.",
+                exitCode: 2
+            )
         }
 
         let command = args[index]
@@ -2251,6 +2265,15 @@ struct CMUXCLI {
             }
         }
 
+        if command == "events" {
+            try runEventsCommand(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg
+            )
+            return
+        }
+
         let browserAvailabilityArgs = commandArgs.filter { $0 != "--json" }
         if command == "disable-browser" ||
             command == "enable-browser" ||
@@ -2322,8 +2345,9 @@ struct CMUXCLI {
             let response = try client.sendV2(method: "system.capabilities")
             print(jsonString(formatIDs(response, mode: idFormat)))
 
-        case "auth":
-            let sub = commandArgs.first?.lowercased() ?? "status"
+        case "auth", "login", "logout":
+            let authArgs = command == "auth" ? commandArgs : [command] + commandArgs
+            let sub = authArgs.first?.lowercased() ?? "status"
             switch sub {
             case "status":
                 let response = try client.sendV2(method: "auth.status")
@@ -3798,7 +3822,7 @@ struct CMUXCLI {
         return client
     }
 
-    private func authenticateClientIfNeeded(
+    func authenticateClientIfNeeded(
         _ client: SocketClient,
         explicitPassword: String?,
         socketPath: String
@@ -6882,7 +6906,7 @@ struct CMUXCLI {
         var surfaceRaw = surfaceOpt
         var args = argsWithoutSurfaceFlag
 
-        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify"]
+        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles"]
         if surfaceRaw == nil, let first = args.first {
             if !first.hasPrefix("-") && !verbsWithoutSurface.contains(first.lowercased()) {
                 surfaceRaw = first
@@ -6997,6 +7021,70 @@ struct CMUXCLI {
             values.filter { !$0.hasPrefix("-") }
         }
 
+        func optionValues(_ values: [String], names: Set<String>) throws -> [String] {
+            var result: [String] = []
+            var index = 0
+            while index < values.count {
+                let value = values[index]
+                if names.contains(value) {
+                    guard index + 1 < values.count,
+                          !values[index + 1].hasPrefix("-"),
+                          !names.contains(values[index + 1]) else {
+                        throw CLIError(message: "\(value) requires a value")
+                    }
+                    result.append(values[index + 1])
+                    index += 2
+                    continue
+                }
+                index += 1
+            }
+            return result
+        }
+
+        func firstOptionValue(_ values: [String], names: Set<String>) throws -> String? {
+            try optionValues(values, names: names).first
+        }
+
+        func intPayloadValue(_ value: Any?) -> Int {
+            if let intValue = value as? Int { return intValue }
+            if let number = value as? NSNumber { return number.intValue }
+            return 0
+        }
+
+        func stringPayloadValue(_ value: Any?) -> String? {
+            (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        func browserProfileLine(_ raw: Any) -> String? {
+            guard let profile = raw as? [String: Any],
+                  let name = stringPayloadValue(profile["name"]),
+                  let slug = stringPayloadValue(profile["slug"]),
+                  let id = stringPayloadValue(profile["id"]) else {
+                return nil
+            }
+            var markers: [String] = []
+            if (profile["current"] as? Bool) == true {
+                markers.append("current")
+            }
+            if (profile["built_in_default"] as? Bool) == true {
+                markers.append("default")
+            }
+            let suffix = markers.isEmpty ? "" : " (\(markers.joined(separator: ", ")))"
+            return "\(slug)\t\(name)\t\(id)\(suffix)"
+        }
+
+        func printBrowserProfiles(_ payload: [String: Any]) {
+            guard let profiles = payload["profiles"] as? [Any], !profiles.isEmpty else {
+                print("No browser profiles")
+                return
+            }
+            for profile in profiles {
+                if let line = browserProfileLine(profile) {
+                    print(line)
+                }
+            }
+        }
+
         if subcommand == "identify" {
             let surface = try normalizeSurfaceHandle(surfaceRaw, client: client, allowFocused: true)
             var payload = try client.sendV2(method: "system.identify")
@@ -7010,6 +7098,238 @@ struct CMUXCLI {
                 payload["browser"] = browser
             }
             output(payload, fallback: "OK")
+            return
+        }
+
+        if subcommand == "profile" || subcommand == "profiles" {
+            let profileVerb = subArgs.first?.lowercased() ?? "list"
+            let profileArgs = subArgs.first != nil ? Array(subArgs.dropFirst()) : []
+            let normalizedVerb: String
+            switch profileVerb {
+            case "ls":
+                normalizedVerb = "list"
+            case "add", "new":
+                normalizedVerb = "create"
+            case "remove", "rm":
+                normalizedVerb = "delete"
+            default:
+                normalizedVerb = profileVerb
+            }
+
+            switch normalizedVerb {
+            case "list":
+                let payload = try client.sendV2(method: "browser.profiles.list")
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else {
+                    printBrowserProfiles(payload)
+                }
+            case "create":
+                let (nameOpt, remaining) = parseOption(profileArgs, name: "--name")
+                let name = nameOpt ?? nonFlagArgs(remaining).joined(separator: " ")
+                guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw CLIError(message: "browser profiles \(profileVerb) requires a name")
+                }
+                let payload = try client.sendV2(method: "browser.profiles.create", params: ["name": name])
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else if let profileDict = payload["profile"] as? [String: Any],
+                          let profile = browserProfileLine(profileDict) {
+                    print("Created browser profile \(profile)")
+                } else {
+                    print("Created browser profile")
+                }
+            case "rename":
+                let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
+                let (nameOpt, rem2) = parseOption(rem1, name: "--name")
+                let positional = nonFlagArgs(rem2)
+                let profile = profileOpt ?? positional.first
+                let newName = nameOpt ?? (positional.count > 1 ? positional.dropFirst().joined(separator: " ") : nil)
+                guard let profile, !profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw CLIError(message: "browser profiles \(profileVerb) requires a profile")
+                }
+                guard let newName, !newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw CLIError(message: "browser profiles \(profileVerb) requires a new name")
+                }
+                let payload = try client.sendV2(
+                    method: "browser.profiles.rename",
+                    params: ["profile": profile, "new_name": newName]
+                )
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else if let renamed = stringPayloadValue((payload["profile"] as? [String: Any])?["name"]) {
+                    print("Renamed browser profile to \(renamed).")
+                } else {
+                    print("Renamed browser profile.")
+                }
+            case "clear":
+                let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
+                let positional = nonFlagArgs(rem1)
+                var params: [String: Any] = [:]
+                if hasFlag(profileArgs, name: "--all") {
+                    params["all"] = true
+                } else if let profile = profileOpt ?? positional.first {
+                    params["profile"] = profile
+                } else {
+                    throw CLIError(message: "browser profiles \(profileVerb) requires a profile or --all")
+                }
+                if hasFlag(profileArgs, name: "--force") {
+                    params["force"] = true
+                }
+                let payload = try client.sendV2(method: "browser.profiles.clear", params: params, responseTimeout: 120)
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else {
+                    let count = intPayloadValue(payload["count"])
+                    print("Cleared \(count) browser profile\(count == 1 ? "" : "s").")
+                }
+            case "delete":
+                let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
+                let profile = profileOpt ?? nonFlagArgs(rem1).first
+                guard let profile, !profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw CLIError(message: "browser profiles \(profileVerb) requires a profile")
+                }
+                let payload = try client.sendV2(
+                    method: "browser.profiles.delete",
+                    params: ["profile": profile],
+                    responseTimeout: 120
+                )
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else if let deleted = stringPayloadValue((payload["profile"] as? [String: Any])?["name"]) {
+                    print("Deleted browser profile \(deleted).")
+                } else {
+                    print("Deleted browser profile.")
+                }
+            default:
+                throw CLIError(message: "Unsupported browser profiles subcommand: \(profileVerb)")
+            }
+            return
+        }
+
+        if subcommand == "import" {
+            let importArgs = subArgs
+            let importValueOptions: Set<String> = [
+                "--from",
+                "--browser",
+                "--source",
+                "--profile",
+                "--source-profile",
+                "--to",
+                "--to-profile",
+                "--destination-profile",
+                "--domain",
+                "--domains",
+            ]
+            let importFlags: Set<String> = [
+                "--interactive",
+                "--non-interactive",
+                "--noninteractive",
+                "--yes",
+                "-y",
+                "--all-profiles",
+                "--create-profile",
+                "--create-destination-profile",
+            ]
+            func importPositionals(_ values: [String]) -> [String] {
+                var result: [String] = []
+                var index = 0
+                var pastTerminator = false
+                while index < values.count {
+                    let value = values[index]
+                    if pastTerminator {
+                        result.append(value)
+                        index += 1
+                        continue
+                    }
+                    if value == "--" {
+                        pastTerminator = true
+                        index += 1
+                        continue
+                    }
+                    if importValueOptions.contains(value) {
+                        index += index + 1 < values.count ? 2 : 1
+                        continue
+                    }
+                    if importFlags.contains(value) || value.hasPrefix("-") {
+                        index += 1
+                        continue
+                    }
+                    result.append(value)
+                    index += 1
+                }
+                return result
+            }
+            let unsupportedPositionals = importPositionals(importArgs)
+            if let first = unsupportedPositionals.first {
+                let normalized = first.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if normalized == "cookie" || normalized == "cookies" {
+                    throw CLIError(message: "browser import no longer takes a data type; use 'cmux browser import'")
+                }
+                throw CLIError(message: "browser import does not accept positional arguments")
+            }
+            let forceInteractive = hasFlag(importArgs, name: "--interactive")
+            let forceNonInteractive = hasFlag(importArgs, name: "--non-interactive") ||
+                hasFlag(importArgs, name: "--noninteractive") ||
+                hasFlag(importArgs, name: "--yes") ||
+                hasFlag(importArgs, name: "-y")
+            if forceInteractive && forceNonInteractive {
+                throw CLIError(message: "browser import cannot use both --interactive and --non-interactive")
+            }
+
+            let shouldRunNonInteractive = forceNonInteractive ||
+                (!forceInteractive && Self.isCodingAgentEnvironment(ProcessInfo.processInfo.environment))
+
+            var params: [String: Any] = shouldRunNonInteractive ? ["scope": "cookiesOnly"] : [:]
+            if let browser = try firstOptionValue(importArgs, names: ["--from", "--browser", "--source"]) {
+                params["browser"] = browser
+            }
+            let sourceProfiles = try optionValues(importArgs, names: ["--profile", "--source-profile"])
+            if !sourceProfiles.isEmpty {
+                params["source_profiles"] = sourceProfiles
+            }
+            if let destination = try firstOptionValue(importArgs, names: ["--to", "--to-profile", "--destination-profile"]) {
+                params["destination_profile"] = destination
+            }
+            let domainFilters = try optionValues(importArgs, names: ["--domain", "--domains"])
+            if !domainFilters.isEmpty {
+                params["domain_filters"] = domainFilters
+            }
+            if hasFlag(importArgs, name: "--all-profiles") {
+                params["all_profiles"] = true
+            }
+            if hasFlag(importArgs, name: "--create-profile") ||
+                hasFlag(importArgs, name: "--create-destination-profile") {
+                params["create_destination_profile"] = true
+            }
+
+            if shouldRunNonInteractive {
+                let payload = try client.sendV2(
+                    method: "browser.import.cookies",
+                    params: params,
+                    responseTimeout: 10 * 60
+                )
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                    return
+                }
+
+                let browserName = (payload["browser"] as? String) ?? "browser"
+                let importedCount = intPayloadValue(payload["imported_cookies"])
+                let skippedCount = intPayloadValue(payload["skipped_cookies"])
+                print("Imported \(importedCount) cookies from \(browserName).")
+                if skippedCount > 0 {
+                    print("Skipped \(skippedCount) cookies.")
+                }
+                if let warnings = payload["warnings"] as? [String], !warnings.isEmpty {
+                    for warning in warnings {
+                        print("Warning: \(warning)")
+                    }
+                }
+            } else {
+                let payload = try client.sendV2(method: "browser.import.dialog", params: params, responseTimeout: 10 * 60)
+                output(payload, fallback: "OK")
+            }
             return
         }
 
@@ -8286,6 +8606,27 @@ struct CMUXCLI {
 
             Print server capabilities as JSON.
             """
+        case "events":
+            return """
+            Usage: cmux events [options]
+
+            Stream cmux events as newline-delimited JSON.
+
+            Options:
+              --after <seq>          Replay retained events after this sequence
+              --cursor-file <path>   Read the starting sequence from a file and update it after each event
+              --name <event>         Filter by event name, repeatable
+              --category <name>      Filter by category, repeatable
+              --reconnect            Reconnect forever and resume from the last received sequence
+              --limit <n>            Exit after printing n event frames
+              --no-ack               Do not print the subscription ack frame
+              --no-heartbeat         Do not print heartbeat frames
+
+            Examples:
+              cmux events --category notification
+              cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
+              cmux events --after 42 --name feed.item.received
+            """
         case "auth":
             return """
             Usage: cmux auth <status|login|logout>
@@ -8293,6 +8634,18 @@ struct CMUXCLI {
             status   Print whether the user is signed in (add `cmux --json` for JSON).
             login    Open the sign-in popup on the cmux web app and wait for it to finish.
             logout   Clear the current session.
+            """
+        case "login":
+            return """
+            Usage: cmux login
+
+            Alias for `cmux auth login`.
+            """
+        case "logout":
+            return """
+            Usage: cmux logout
+
+            Alias for `cmux auth logout`.
             """
         case "vm", "cloud":
             return """
@@ -8416,8 +8769,8 @@ struct CMUXCLI {
             """
         case "hooks":
             return """
-            Usage: cmux hooks setup [--agent <name>] [--yes|-y]
-                   cmux hooks uninstall [--agent <name>] [--yes|-y]
+            Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]
+                   cmux hooks uninstall [agent] [--agent <name>] [--yes|-y]
                    cmux hooks <agent> install [--yes|-y] (opencode supports --project)
                    cmux hooks <agent> uninstall [--yes|-y] (opencode supports --project)
                    cmux hooks <agent> <event> [flags]
@@ -8427,7 +8780,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, opencode, cursor, gemini, rovodev, copilot, codebuddy, factory, qoder
+              codex, opencode, pi, cursor, gemini, rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -8437,13 +8790,17 @@ struct CMUXCLI {
               <agent> <event>    Internal hook entrypoint used by generated configs
               feed               Internal Feed decision bridge
 
-            OpenCode files:
+            Generated files:
               ~/.config/opencode/plugins/cmux-session.js
               ~/.config/opencode/plugins/cmux-feed.js
+              ~/.pi/agent/extensions/cmux-session.ts
+              See docs/agent-hooks.md for the full integration matrix.
 
             Examples:
               cmux hooks setup
               cmux hooks setup --agent codex
+              cmux hooks setup rovo
+              cmux hooks uninstall rovo
               cmux hooks codex install
               cmux hooks opencode install --project
               cmux hooks uninstall
@@ -9673,6 +10030,8 @@ struct CMUXCLI {
               frame <main|selector> [--selector <css>]
               dialog <accept|dismiss> [text]
               download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
+              profiles <list|add|rename|clear|delete> [...]
+              import [--interactive|--non-interactive|-y|--yes] [--from <browser>] [--profile <name>] [--all-profiles] [--to-profile <name|uuid>] [--create-profile] [--domain <domain>]
               cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [--all]
               storage <local|session> <get|set|clear> [...]
               tab <new|list|switch|close|<index>> [...]
@@ -10829,6 +11188,7 @@ struct CMUXCLI {
 
     func jsonString(_ object: Any) -> String {
         var options: JSONSerialization.WritingOptions = [.prettyPrinted]
+        options.insert(.sortedKeys)
         options.insert(.withoutEscapingSlashes)
         guard JSONSerialization.isValidJSONObject(object),
               let data = try? JSONSerialization.data(withJSONObject: object, options: options),
@@ -15611,7 +15971,7 @@ struct CMUXCLI {
     // MARK: - Generic agent hook system
 
     /// Configuration for a hook-based agent integration.
-    private struct AgentHookDef {
+    struct AgentHookDef {
         let name: String            // CLI name: "cursor", "gemini", etc.
         let displayName: String     // Human-readable: "Cursor", "Gemini"
         let statusKey: String       // Key for set_status: "cursor", "gemini"
@@ -15624,6 +15984,7 @@ struct CMUXCLI {
         let binaryName: String
         let format: HookFormat
         let events: [HookEvent]
+        let aliases: Set<String>
         /// Feed-hook events. Each entry installs a second hook for
         /// `agentEvent` that invokes `cmux hooks feed --source <name>`
         /// with a 120s timeout so the socket reply wait doesn't trip the
@@ -15636,6 +15997,7 @@ struct CMUXCLI {
             case flat       // Cursor: {"hooks": {"event": [{"command": "..."}]}, "version": 1}
             case nested(timeoutMs: Int)  // Codex/Gemini: nested with type/command/timeout
             case rovoDevYAML
+            case hermesAgentYAML
         }
 
         struct HookEvent {
@@ -15668,6 +16030,7 @@ struct CMUXCLI {
              binaryName: String? = nil,
              sessionStoreSuffix: String, disableEnvVar: String, hookMarker: String,
              format: HookFormat, events: [HookEvent],
+             aliases: Set<String> = [],
              feedHookEvents: [String] = [],
              postInstallAction: PostInstallAction? = nil) {
             self.name = name; self.displayName = displayName; self.statusKey = statusKey
@@ -15676,6 +16039,10 @@ struct CMUXCLI {
             self.binaryName = binaryName ?? name
             self.sessionStoreSuffix = sessionStoreSuffix; self.disableEnvVar = disableEnvVar
             self.hookMarker = hookMarker; self.format = format; self.events = events
+            self.aliases = Set(aliases.compactMap { alias in
+                let normalized = alias.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                return normalized.isEmpty ? nil : normalized
+            })
             self.feedHookEvents = feedHookEvents
             self.postInstallAction = postInstallAction
         }
@@ -15719,6 +16086,13 @@ struct CMUXCLI {
             events: []
         ),
         AgentHookDef(
+            name: "pi", displayName: "Pi", statusKey: "pi",
+            configDir: ".pi/agent", configFile: "extensions/cmux-session.ts", configDirEnvOverride: "PI_CODING_AGENT_DIR",
+            sessionStoreSuffix: "pi", disableEnvVar: "CMUX_PI_HOOKS_DISABLED",
+            hookMarker: "cmux hooks pi", format: .flat,
+            events: []
+        ),
+        AgentHookDef(
             name: "cursor", displayName: "Cursor", statusKey: "cursor",
             configDir: ".cursor", configFile: "hooks.json", binaryName: "cursor-agent",
             sessionStoreSuffix: "cursor", disableEnvVar: "CMUX_CURSOR_HOOKS_DISABLED",
@@ -15754,7 +16128,24 @@ struct CMUXCLI {
                 .init(agentEvent: "on_complete", cmuxSubcommand: "stop"),
                 .init(agentEvent: "on_error", cmuxSubcommand: "stop"),
                 .init(agentEvent: "on_tool_permission", cmuxSubcommand: "prompt-submit"),
-            ]
+            ],
+            aliases: ["rovo"]
+        ),
+        AgentHookDef(
+            name: "hermes-agent", displayName: "Hermes Agent", statusKey: "hermes-agent",
+            configDir: ".hermes", configFile: "config.yaml", configDirEnvOverride: "HERMES_HOME",
+            binaryName: "hermes",
+            sessionStoreSuffix: "hermes-agent", disableEnvVar: "CMUX_HERMES_AGENT_HOOKS_DISABLED",
+            hookMarker: "cmux hooks hermes-agent", format: .hermesAgentYAML,
+            events: [
+                .init(agentEvent: "on_session_start", cmuxSubcommand: "session-start"),
+                .init(agentEvent: "pre_llm_call", cmuxSubcommand: "prompt-submit"),
+                .init(agentEvent: "post_llm_call", cmuxSubcommand: "agent-response"),
+                .init(agentEvent: "on_session_end", cmuxSubcommand: "session-end"),
+                .init(agentEvent: "on_session_finalize", cmuxSubcommand: "session-end"),
+                .init(agentEvent: "on_session_reset", cmuxSubcommand: "session-start"),
+            ],
+            feedHookEvents: ["pre_tool_call", "post_tool_call", "pre_approval_request", "post_approval_response"]
         ),
         AgentHookDef(
             name: "copilot", displayName: "Copilot", statusKey: "copilot",
@@ -15810,7 +16201,8 @@ struct CMUXCLI {
     ]
 
     private static func agentDef(named name: String) -> AgentHookDef? {
-        agentDefs.first { $0.name == name }
+        let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return agentDefs.first { $0.name == normalized || $0.aliases.contains(normalized) }
     }
 
     private static func hookMarkers(for def: AgentHookDef) -> [String] {
@@ -15822,8 +16214,7 @@ struct CMUXCLI {
     }
 
     // MARK: Generic hook install/uninstall
-
-    private func hookCommand(for def: AgentHookDef, event: AgentHookDef.HookEvent) -> String {
+    func hookCommand(for def: AgentHookDef, event: AgentHookDef.HookEvent) -> String {
         "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks \(def.name) \(event.cmuxSubcommand) || echo '{}'"
     }
 
@@ -15831,7 +16222,7 @@ struct CMUXCLI {
     /// inside the shell is applied via the agent's `timeout` field in the
     /// nested hook config (see `buildHooksDict`); the shell command
     /// itself just dispatches.
-    private func feedHookCommand(for def: AgentHookDef, agentEvent: String) -> String {
+    func feedHookCommand(for def: AgentHookDef, agentEvent: String) -> String {
         "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks feed --source \(def.name) --event \(agentEvent) || echo '{}'"
     }
 
@@ -15860,7 +16251,7 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": cmd, "timeout": timeoutMs] as [String: Any]]
                 ] as [String: Any])
                 result[event.agentEvent] = groups
-            case .rovoDevYAML:
+            case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
         }
@@ -15881,7 +16272,7 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": feedCmd, "timeout": feedTimeoutMs] as [String: Any]]
                 ] as [String: Any])
                 result[agentEvent] = groups
-            case .rovoDevYAML:
+            case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
         }
@@ -16191,6 +16582,220 @@ export default CMUXSessionRestore;
         print("Removed OpenCode cmux plugin from \(pluginURL.path)")
     }
 
+    private static let piExtensionMarker = "cmux-pi-session-extension-marker"
+    private static let piExtensionFilename = "cmux-session.ts"
+    private static let piExtensionSource = #"""
+// cmux-pi-session-extension-marker v1
+// Bridges Pi session lifecycle events into cmux's restorable session store.
+// Installed by `cmux hooks pi install` or `cmux hooks setup`.
+// DO NOT EDIT MANUALLY. cmux upgrades this file in place.
+
+import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+
+function firstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+  }
+  return null;
+}
+
+function resolveExecutable(name: string): string {
+  const pathEnv = process.env.PATH || "";
+  for (const dir of pathEnv.split(path.delimiter)) {
+    if (!dir) continue;
+    const candidate = path.join(dir, name);
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch (_) {}
+  }
+  return name;
+}
+
+function looksLikePiExecutable(value: string): boolean {
+  const base = path.basename(value).toLowerCase();
+  return base === "pi" || base === "pi-coding-agent";
+}
+
+function looksLikePiScript(value: string): boolean {
+  const normalized = value.replaceAll("\\", "/");
+  const base = path.basename(normalized).toLowerCase();
+  return (
+    normalized.includes("/@mariozechner/pi-coding-agent/") ||
+    normalized.includes("/packages/coding-agent/") ||
+    (base === "cli.js" && normalized.includes("pi-coding-agent")) ||
+    (base === "cli.ts" && normalized.includes("coding-agent"))
+  );
+}
+
+function normalizedLaunchArgv(): string[] {
+  const raw = Array.isArray(process.argv) ? process.argv.map((value) => String(value)) : [];
+  if (raw.length === 0) return [resolveExecutable("pi")];
+  if (looksLikePiExecutable(raw[0])) return raw;
+  if (raw.length > 1 && looksLikePiScript(raw[1])) {
+    return [resolveExecutable("pi"), ...raw.slice(2)];
+  }
+  return [resolveExecutable("pi"), ...raw.slice(1)];
+}
+
+function base64NulSeparated(values: string[]): string {
+  const bytes: Buffer[] = [];
+  for (const value of values) {
+    bytes.push(Buffer.from(String(value), "utf8"));
+    bytes.push(Buffer.from([0]));
+  }
+  return Buffer.concat(bytes).toString("base64");
+}
+
+function hookEnvironment(cwd: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
+    const argv = normalizedLaunchArgv();
+    env.CMUX_AGENT_LAUNCH_KIND = "pi";
+    env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolveExecutable("pi");
+    env.CMUX_AGENT_LAUNCH_ARGV_B64 = base64NulSeparated(argv);
+    env.CMUX_AGENT_LAUNCH_CWD = cwd || process.cwd();
+  }
+  return env;
+}
+
+function eventName(subcommand: string): string {
+  switch (subcommand) {
+    case "session-start":
+      return "SessionStart";
+    case "prompt-submit":
+      return "UserPromptSubmit";
+    case "stop":
+      return "Stop";
+    default:
+      return subcommand;
+  }
+}
+
+function textFromContent(content: unknown): string | null {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return null;
+  const parts: string[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    const typed = block as { type?: unknown; text?: unknown };
+    if (typed.type === "text" && typeof typed.text === "string") parts.push(typed.text);
+  }
+  return parts.join("\n") || null;
+}
+
+function lastAssistantMessage(event: AgentEndEvent): string | undefined {
+  for (let index = event.messages.length - 1; index >= 0; index -= 1) {
+    const message = event.messages[index];
+    if (!message || typeof message !== "object") continue;
+    const typed = message as { role?: unknown; content?: unknown };
+    if (typed.role !== "assistant") continue;
+    const text = firstString(textFromContent(typed.content));
+    if (text) return text;
+  }
+  return undefined;
+}
+
+function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): void {
+  if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
+  if (!process.env.CMUX_SURFACE_ID) return;
+
+  const sessionId = firstString(ctx.sessionManager.getSessionId());
+  if (!sessionId) return;
+
+  const cwd = firstString(ctx.cwd, process.cwd()) || process.cwd();
+  const payload: Record<string, unknown> = {
+    session_id: sessionId,
+    cwd,
+    hook_event_name: eventName(subcommand),
+    event: eventName(subcommand),
+    ...extra,
+  };
+  const cmux = process.env.CMUX_PI_CMUX_BIN || "cmux";
+  try {
+    spawnSync(cmux, ["hooks", "pi", subcommand], {
+      input: JSON.stringify(payload),
+      encoding: "utf8",
+      env: hookEnvironment(cwd),
+      stdio: ["pipe", "ignore", "ignore"],
+      timeout: 5000,
+    });
+  } catch (_) {}
+}
+
+export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
+  pi.on("session_start", async (_event, ctx) => {
+    sendHook("session-start", ctx);
+  });
+
+  pi.on("before_agent_start", async (event, ctx) => {
+    sendHook("prompt-submit", ctx, { prompt: event.prompt });
+  });
+
+  pi.on("agent_end", async (event, ctx) => {
+    sendHook("stop", ctx, { last_assistant_message: lastAssistantMessage(event) });
+  });
+}
+"""#
+
+    private func piExtensionURL(for def: AgentHookDef) -> URL {
+        URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+            .appendingPathComponent("extensions", isDirectory: true)
+            .appendingPathComponent(Self.piExtensionFilename, isDirectory: false)
+    }
+
+    private func installPiExtensionHooks(_ def: AgentHookDef) throws {
+        let extensionURL = piExtensionURL(for: def)
+        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+            || ProcessInfo.processInfo.arguments.contains("-y")
+        let existing = (try? String(contentsOf: extensionURL, encoding: .utf8)) ?? ""
+        if existing == Self.piExtensionSource {
+            print("Pi hooks already up to date at \(extensionURL.path)")
+            return
+        }
+        if !existing.isEmpty, !existing.contains(Self.piExtensionMarker) {
+            throw CLIError(message: "\(extensionURL.path) exists and is not a cmux extension; leaving it alone")
+        }
+        if !skipConfirm {
+            Self.printInstallPreview(
+                path: extensionURL.path,
+                oldContent: existing,
+                newContent: Self.piExtensionSource,
+                fallbackContent: Self.piExtensionSource
+            )
+            print("\nProceed? [y/N] ", terminator: "")
+            guard readLine()?.lowercased().hasPrefix("y") == true else {
+                print("Aborted.")
+                return
+            }
+        }
+        try FileManager.default.createDirectory(
+            at: extensionURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Self.piExtensionSource.write(to: extensionURL, atomically: true, encoding: .utf8)
+        print("Pi hooks installed at \(extensionURL.path)")
+    }
+
+    private func uninstallPiExtensionHooks(_ def: AgentHookDef) throws {
+        let extensionURL = piExtensionURL(for: def)
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: extensionURL.path) else {
+            print("No Pi cmux extension found at \(extensionURL.path)")
+            return
+        }
+        let existing = (try? String(contentsOf: extensionURL, encoding: .utf8)) ?? ""
+        guard existing.contains(Self.piExtensionMarker) else {
+            print("Refusing to remove \(extensionURL.path): missing cmux marker")
+            return
+        }
+        try fm.removeItem(at: extensionURL)
+        print("Removed Pi cmux extension from \(extensionURL.path)")
+    }
+
     private func installRovoDevHooks(_ def: AgentHookDef) throws {
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
@@ -16198,12 +16803,14 @@ export default CMUXSessionRestore;
         let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
 
-        guard fm.fileExists(atPath: configDir) else {
-            print("~/\(def.configDir)/ does not exist. Install \(def.displayName) first.")
-            return
+        var isDirectory = ObjCBool(false)
+        if !fm.fileExists(atPath: configDir, isDirectory: &isDirectory) {
+            try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
+        } else if !isDirectory.boolValue {
+            throw CLIError(message: "\(configDir) exists but is not a directory. Move it aside before installing \(def.displayName) hooks.")
         }
 
-        let oldString = try readRovoDevConfig(filePath: filePath, displayName: def.displayName)
+        let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
         let newString = try rovoDevHooksContent(existing: oldString, def: def, shouldInstall: true)
         if oldString == newString {
             print("\(def.displayName) hooks already up to date at \(filePath)")
@@ -16235,7 +16842,7 @@ export default CMUXSessionRestore;
             print("No \(def.configFile) found at \(filePath)")
             return
         }
-        let oldString = try readRovoDevConfig(filePath: filePath, displayName: def.displayName)
+        let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
         let newString = try rovoDevHooksContent(existing: oldString, def: def, shouldInstall: false)
         guard oldString != newString else {
             print("Removed 0 cmux hook(s) from \(filePath)")
@@ -16245,7 +16852,7 @@ export default CMUXSessionRestore;
         print("Removed Rovo Dev cmux hooks from \(filePath)")
     }
 
-    private func readRovoDevConfig(filePath: String, displayName: String) throws -> String {
+    func readAgentHookConfig(filePath: String, displayName: String) throws -> String {
         let fm = FileManager.default
         guard fm.fileExists(atPath: filePath) else { return "" }
         do {
@@ -16277,8 +16884,16 @@ export default CMUXSessionRestore;
             try installOpenCodePluginHooks(def)
             return
         }
+        if def.name == "pi" {
+            try installPiExtensionHooks(def)
+            return
+        }
         if def.name == "rovodev" {
             try installRovoDevHooks(def)
+            return
+        }
+        if def.name == "hermes-agent" {
+            try installHermesAgentHooks(def)
             return
         }
 
@@ -16338,7 +16953,7 @@ export default CMUXSessionRestore;
                     rewrittenGroups.append(group)
                 }
                 hooks[event] = rewrittenGroups.isEmpty ? nil : rewrittenGroups
-            case .rovoDevYAML:
+            case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
         }
@@ -16354,7 +16969,7 @@ export default CMUXSessionRestore;
                 var groups = hooks[event] as? [[String: Any]] ?? []
                 if let newGroups = value as? [[String: Any]] { groups.append(contentsOf: newGroups) }
                 hooks[event] = groups
-            case .rovoDevYAML:
+            case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
         }
@@ -16448,8 +17063,16 @@ export default CMUXSessionRestore;
             try uninstallOpenCodePluginHooks(def)
             return
         }
+        if def.name == "pi" {
+            try uninstallPiExtensionHooks(def)
+            return
+        }
         if def.name == "rovodev" {
             try uninstallRovoDevHooks(def)
+            return
+        }
+        if def.name == "hermes-agent" {
+            try uninstallHermesAgentHooks(def)
             return
         }
 
@@ -16494,7 +17117,7 @@ export default CMUXSessionRestore;
                     rewrittenGroups.append(group)
                 }
                 hooks[event] = rewrittenGroups.isEmpty ? nil : rewrittenGroups
-            case .rovoDevYAML:
+            case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
         }
@@ -18864,6 +19487,7 @@ export default CMUXSessionRestore;
             case "cursor":   envKey = "CMUX_CURSOR_PID"
             case "gemini":   envKey = "CMUX_GEMINI_PID"
             case "rovodev":  envKey = "CMUX_ROVODEV_PID"
+            case "hermes-agent": envKey = "CMUX_HERMES_AGENT_PID"
             case "copilot":  envKey = "CMUX_COPILOT_PID"
             default:         envKey = ""
             }
@@ -19007,6 +19631,32 @@ export default CMUXSessionRestore;
             }
         }
 
+        if source == "hermes-agent" {
+            switch event {
+            case "pre_tool_call":
+                if Self.sideEffectingTools.contains(toolName) {
+                    return ("PermissionRequest", true)
+                }
+                return ("PreToolUse", false)
+            case "post_tool_call":
+                return ("PostToolUse", false)
+            case "pre_approval_request":
+                return ("Notification", false)
+            case "post_approval_response":
+                return ("Notification", false)
+            case "pre_llm_call":
+                return ("UserPromptSubmit", false)
+            case "post_llm_call":
+                return ("Stop", false)
+            case "on_session_start", "on_session_reset":
+                return ("SessionStart", false)
+            case "on_session_end", "on_session_finalize":
+                return ("SessionEnd", false)
+            default:
+                return ("PreToolUse", false)
+            }
+        }
+
         switch event {
         case "PreToolUse", "beforeShellExecution":
             if source == "codex" { return ("PreToolUse", false) }
@@ -19058,6 +19708,7 @@ export default CMUXSessionRestore;
         "NotebookEdit",
         "apply_patch",   // Codex
         "shell",         // Codex / other agents
+        "terminal",      // Hermes Agent
     ]
 
     private static let skipInterviewAndPlanAnswer = "Skip interview and plan immediately"
@@ -19146,6 +19797,10 @@ export default CMUXSessionRestore;
             return out
         }
 
+        func hermesAgentBlock(_ message: String) -> String {
+            encode(["action": "block", "message": message])
+        }
+
         switch kind {
         case "permission":
             let mode = decision["mode"] as? String ?? "deny"
@@ -19173,6 +19828,12 @@ export default CMUXSessionRestore;
                     ))
                 }
                 return encode(permissionRequestHookDecision(behavior: "allow"))
+            }
+            if source == "hermes-agent" {
+                if mode == "deny" {
+                    return hermesAgentBlock("User denied permission via cmux Feed.")
+                }
+                return "{}"
             }
             if mode == "deny" {
                 return encode(nonClaudePreToolDecision(
@@ -19225,6 +19886,15 @@ export default CMUXSessionRestore;
                     updatedInput: jsonDictionary(from: toolInput),
                     updatedPermissions: updatedPermissions
                 ))
+            }
+            if source == "hermes-agent" {
+                if let feedback, !feedback.isEmpty {
+                    return hermesAgentBlock("User rejected the plan via cmux Feed and wants this change: \(feedback)")
+                }
+                if mode == "deny" {
+                    return hermesAgentBlock("User rejected the plan via cmux Feed.")
+                }
+                return "{}"
             }
             if let feedback, !feedback.isEmpty {
                 let reason = "User rejected the plan via cmux Feed and wants this change: \(feedback)"
@@ -19279,6 +19949,17 @@ export default CMUXSessionRestore;
                     reason: message,
                     additionalContext: message
                 ))
+            }
+            if source == "hermes-agent" {
+                let body: String
+                if selections.isEmpty {
+                    body = "The user submitted an empty answer."
+                } else if selections.count == 1 {
+                    body = "The user answered: \(selections[0])"
+                } else {
+                    body = "The user answered: \(selections.joined(separator: ", "))"
+                }
+                return encode(["context": body])
             }
             if source == "claude" {
                 let updatedInput = claudeAskUserQuestionInput(
@@ -19376,11 +20057,17 @@ export default CMUXSessionRestore;
             return true
 
         case "setup":
-            try runSetupHooks(uninstall: false)
+            try runSetupHooks(
+                uninstall: false,
+                positionalAgentFilter: try Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
+            )
             return true
 
         case "uninstall":
-            try runSetupHooks(uninstall: true)
+            try runSetupHooks(
+                uninstall: true,
+                positionalAgentFilter: try Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
+            )
             return true
 
         default:
@@ -19501,9 +20188,55 @@ export default CMUXSessionRestore;
         }
     }
 
-    private func runSetupHooks(uninstall: Bool = false) throws {
+    private static func hooksSetupPositionalAgentFilter(from args: [String]) throws -> String? {
+        var skipNext = false
+        var positionalAgent: String?
+        for arg in args {
+            if skipNext {
+                skipNext = false
+                continue
+            }
+            switch arg {
+            case "--agent":
+                skipNext = true
+            case "--yes", "-y", "--uninstall":
+                continue
+            default:
+                if !arg.hasPrefix("-") {
+                    if positionalAgent != nil {
+                        throw CLIError(message: "Too many hooks targets: specify at most one positional agent")
+                    }
+                    positionalAgent = arg
+                }
+            }
+        }
+        return positionalAgent
+    }
+
+    private func runSetupHooks(uninstall: Bool = false, positionalAgentFilter: String? = nil) throws {
         let args = ProcessInfo.processInfo.arguments
-        let agentFilter = optionValue(args, name: "--agent")
+        let flagAgentFilter = optionValue(args, name: "--agent")
+        if let flagAgentFilter, let positionalAgentFilter {
+            guard let flagDef = Self.agentDef(named: flagAgentFilter) else {
+                throw CLIError(message: "Unknown hooks target: \(flagAgentFilter)")
+            }
+            guard let positionalDef = Self.agentDef(named: positionalAgentFilter) else {
+                throw CLIError(message: "Unknown hooks target: \(positionalAgentFilter)")
+            }
+            if flagDef.name != positionalDef.name {
+                throw CLIError(message: "Conflicting hooks target: use either --agent or a positional target, not both")
+            }
+        }
+        let agentFilter = flagAgentFilter ?? positionalAgentFilter
+        let agentFilterDef: AgentHookDef?
+        if let agentFilter {
+            guard let def = Self.agentDef(named: agentFilter) else {
+                throw CLIError(message: "Unknown hooks target: \(agentFilter)")
+            }
+            agentFilterDef = def
+        } else {
+            agentFilterDef = nil
+        }
         let isUninstall = uninstall || args.contains("--uninstall")
         let fm = FileManager.default
         let verb = isUninstall ? "uninstalling" : "installing"
@@ -19519,9 +20252,10 @@ export default CMUXSessionRestore;
         var skippedNoBinary: [String] = []
 
         for def in Self.agentDefs {
-            if let filter = agentFilter, filter.lowercased() != def.name { continue }
+            if let agentFilterDef, agentFilterDef.name != def.name { continue }
             let configDir = def.resolvedConfigDir()
-            if def.name != "opencode", !fm.fileExists(atPath: configDir) {
+            let canUseMissingConfigDir = def.name == "opencode" || def.name == "pi" || (!isUninstall && def.name == "rovodev")
+            if !canUseMissingConfigDir, !fm.fileExists(atPath: configDir) {
                 print("  \(def.name): skipped (config dir not found)")
                 skipped += 1
                 continue
@@ -19950,7 +20684,7 @@ export default CMUXSessionRestore;
         Commands:
           welcome
           docs [settings|shortcuts|api|browser|agents|dock]
-          settings [open|path|docs|target]
+          settings [open [target]|path|docs|<target>]
           config <doctor|check|validate|path|paths|docs|documentation|reload>
           shortcuts
           disable-browser | enable-browser | browser-status
@@ -19968,7 +20702,9 @@ export default CMUXSessionRestore;
           ping
           version
           capabilities
+          events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           auth <status|login|logout>
+          login | logout                                      (aliases for auth login/logout)
           vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
           rpc <method> [json-params]
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
@@ -20078,6 +20814,9 @@ export default CMUXSessionRestore;
           browser frame <selector|main>
           browser dialog <accept|dismiss> [text]
           browser download [wait] [--path <path>] [--timeout-ms <ms>]
+          browser profiles <list|add|rename|clear|delete> [...]
+          browser profiles clear <profile|--all> [--force]
+          browser import [...]
           browser cookies <get|set|clear> [...]
           browser storage <local|session> <get|set|clear> [...]
           browser tab <new|list|switch|close|<index>> [...]
@@ -20125,7 +20864,8 @@ struct CMUXTermMain {
             try cli.run()
         } catch {
             FileHandle.standardError.write(Data("Error: \(error)\n".utf8))
-            exit(1)
+            let exitCode = (error as? CLIError)?.exitCode ?? 1
+            exit(exitCode)
         }
     }
 }

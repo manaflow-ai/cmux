@@ -1483,6 +1483,12 @@ class TerminalController {
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
+        "browser.profiles.list",
+        "browser.profiles.create",
+        "browser.profiles.rename",
+        "browser.profiles.clear",
+        "browser.profiles.delete",
+        "browser.import.cookies",
         "system.top",
     ]
 
@@ -1564,6 +1570,31 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "browser.profiles.list":
+            return v2VmCall(id: request.id, timeoutSeconds: 30) {
+                try await BrowserProfileAutomation.list(params: request.params)
+            }
+        case "browser.profiles.create":
+            return v2VmCall(id: request.id, timeoutSeconds: 30) {
+                try await BrowserProfileAutomation.create(params: request.params)
+            }
+        case "browser.profiles.rename":
+            return v2VmCall(id: request.id, timeoutSeconds: 30) {
+                try await BrowserProfileAutomation.rename(params: request.params)
+            }
+        case "browser.profiles.clear":
+            return v2VmCall(id: request.id, timeoutSeconds: 120) {
+                try await BrowserProfileAutomation.clear(params: request.params)
+            }
+        case "browser.profiles.delete":
+            return v2VmCall(id: request.id, timeoutSeconds: 120) {
+                try await BrowserProfileAutomation.delete(params: request.params)
+            }
+        case "browser.import.cookies":
+            return v2VmCall(id: request.id, timeoutSeconds: 10 * 60) {
+                let outcome = try await BrowserImportAutomation.importCookies(params: request.params)
+                return outcome.socketPayload
+            }
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case let method where method.hasPrefix("vm."):
@@ -1908,9 +1939,22 @@ class TerminalController {
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { continue }
 
+                if isEventsStreamRequest(trimmed) {
+                    if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
+                        guard writeSocketResponse(response, to: socket) else {
+                            return
+                        }
+                        continue
+                    }
+                    handleEventsStreamRequest(trimmed, socket: socket)
+                    return
+                }
+
                 let result = processSocketLine(trimmed, authenticated: authenticated)
                 authenticated = result.authenticated
-                guard writeSocketResponse(result.response, to: socket) else {
+                let didWriteResponse = writeSocketResponse(result.response, to: socket)
+                publishSocketEvents(command: trimmed, response: result.response)
+                guard didWriteResponse else {
                     return
                 }
             }
@@ -2655,6 +2699,8 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserDialogRespond(params: params, accept: false))
         case "browser.download.wait":
             return v2Result(id: id, self.v2BrowserDownloadWait(params: params))
+        case "browser.import.dialog":
+            return v2Result(id: id, self.v2BrowserImportDialog(params: params))
         case "browser.cookies.get":
             return v2Result(id: id, self.v2BrowserCookiesGet(params: params))
         case "browser.cookies.set":
@@ -2768,6 +2814,10 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugSidebarVisible(params: params))
         case "debug.terminal.is_focused":
             return v2Result(id: id, self.v2DebugIsTerminalFocused(params: params))
+#if DEBUG
+        case "debug.terminal.simulate_file_drop":
+            return v2Result(id: id, self.v2DebugSimulateTerminalFileDrop(params: params))
+#endif
         case "debug.terminal.read_text":
             return v2Result(id: id, self.v2DebugReadTerminalText(params: params))
         case "debug.terminal.render_stats":
@@ -2811,6 +2861,7 @@ class TerminalController {
             "system.identify",
             "system.tree",
             "system.top",
+            "events.stream",
             "auth.login",
             "auth.status",
             "auth.begin_sign_in",
@@ -3020,6 +3071,9 @@ class TerminalController {
             "debug.session_snapshot_seed_scrollback",
             "debug.window.screenshot",
         ])
+#endif
+#if DEBUG
+        methods.append("debug.terminal.simulate_file_drop")
 #endif
 
         return [
@@ -3273,6 +3327,7 @@ class TerminalController {
                 )
             }
         }
+        v2AttachTopApplicationProcess(to: &windowNodes)
 
         let processSnapshot = await Task.detached(priority: .utility) {
             CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
@@ -3391,6 +3446,10 @@ class TerminalController {
                     )
                 )
             }
+        }
+
+        if workspaceFilter == nil {
+            v2AttachTopApplicationProcess(to: &windowNodes)
         }
 
         if let workspaceFilter, !workspaceFound {
@@ -8078,11 +8137,17 @@ class TerminalController {
             )
         }
 
+        CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
         v2ApplyPromptSubmitSideEffects(for: event)
 
         let result = FeedCoordinator.shared.ingestBlocking(
             event: event,
             waitTimeout: waitTimeout
+        )
+        CmuxEventBus.shared.publishWorkstreamEvent(
+            event,
+            phase: "completed",
+            result: FeedSocketEncoding.payload(for: result)
         )
         return .ok(FeedSocketEncoding.payload(for: result))
     }
@@ -11052,6 +11117,81 @@ class TerminalController {
         }
     }
 
+    private func v2BrowserImportDialog(params: [String: Any]) -> V2CallResult {
+        let scope: BrowserImportScope?
+        if params.keys.contains("scope") {
+            guard let raw = v2String(params, "scope")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                  !raw.isEmpty else {
+                return .err(code: "invalid_params", message: "scope must be a non-empty string", data: ["param": "scope"])
+            }
+            switch raw {
+            case "cookie", "cookies", "cookiesonly", "cookies_only", "cookies-only":
+                scope = .cookiesOnly
+            case "history", "historyonly", "history_only", "history-only":
+                scope = .historyOnly
+            case "cookiesandhistory", "cookies_and_history", "cookies-and-history", "all-basic":
+                scope = .cookiesAndHistory
+            case "everything", "all":
+                scope = .everything
+            default:
+                return .err(code: "invalid_params", message: "scope is invalid", data: ["param": "scope"])
+            }
+        } else {
+            scope = nil
+        }
+
+        let defaultDestinationProfileID: UUID?
+        if params.keys.contains("destination_profile") {
+            guard let query = v2String(params, "destination_profile")?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !query.isEmpty else {
+                return .err(
+                    code: "invalid_params",
+                    message: "destination_profile must be a non-empty string",
+                    data: ["param": "destination_profile"]
+                )
+            }
+            let profiles = BrowserProfileStore.shared.profiles
+            if let uuid = UUID(uuidString: query),
+               profiles.contains(where: { $0.id == uuid }) {
+                defaultDestinationProfileID = uuid
+            } else if let profile = profiles.first(where: {
+                $0.displayName.localizedCaseInsensitiveCompare(query) == .orderedSame ||
+                    $0.slug.localizedCaseInsensitiveCompare(query) == .orderedSame
+            }) {
+                defaultDestinationProfileID = profile.id
+            } else if v2Bool(params, "create_destination_profile") == true ||
+                v2Bool(params, "create_profile") == true {
+                guard let createdProfileID = BrowserProfileStore.shared.createProfile(named: query)?.id else {
+                    return .err(
+                        code: "invalid_params",
+                        message: "destination_profile could not be created",
+                        data: ["param": "destination_profile"]
+                    )
+                }
+                defaultDestinationProfileID = createdProfileID
+            } else {
+                return .err(
+                    code: "invalid_params",
+                    message: "destination_profile does not match a cmux browser profile",
+                    data: ["param": "destination_profile"]
+                )
+            }
+        } else {
+            defaultDestinationProfileID = nil
+        }
+        Task { @MainActor in
+            BrowserDataImportCoordinator.shared.presentImportDialog(
+                defaultDestinationProfileID: defaultDestinationProfileID,
+                defaultScope: scope
+            )
+        }
+        return .ok([
+            "opened": true,
+            "scope": scope.map { $0.rawValue as Any } ?? NSNull(),
+        ])
+    }
+
     private func v2BrowserCookieDict(_ cookie: HTTPCookie) -> [String: Any] {
         var out: [String: Any] = [
             "name": cookie.name,
@@ -12375,6 +12515,81 @@ class TerminalController {
         }
         return .ok(["focused": resp.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "true"])
     }
+
+#if DEBUG
+    private func v2DebugSimulateTerminalFileDrop(params: [String: Any]) -> V2CallResult {
+        guard let tabManager else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let surfaceId = v2String(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "Missing surface_id", data: nil)
+        }
+        guard let rawPaths = params["paths"] as? [String] else {
+            return .err(code: "invalid_params", message: "Missing paths", data: nil)
+        }
+        let paths = rawPaths
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !paths.isEmpty else {
+            return .err(code: "invalid_params", message: "paths must not be empty", data: nil)
+        }
+
+        let route = (v2String(params, "route") ?? "text_destination")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        enum TerminalFileDropSimulationRoute {
+            case terminal
+            case textDestination
+        }
+        let simulationRoute: TerminalFileDropSimulationRoute
+        switch route {
+        case "terminal", "direct":
+            simulationRoute = .terminal
+        case "text", "text_destination", "pane_text":
+            simulationRoute = .textDestination
+        default:
+            return .err(code: "invalid_params", message: "Unknown route", data: [
+                "route": route
+            ])
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Terminal surface not found", data: [
+            "surface_id": surfaceId
+        ])
+        v2MainSync {
+            guard let panel = resolveTerminalPanel(from: surfaceId, tabManager: tabManager) else {
+                return
+            }
+
+            switch simulationRoute {
+            case .terminal:
+                let handled = panel.hostedView.debugSimulateFileDrop(paths: paths)
+                result = handled
+                    ? .ok(["handled": true, "route": "terminal"])
+                    : .err(code: "internal_error", message: "Terminal drop simulation failed", data: nil)
+            case .textDestination:
+                guard let workspace = tabManager.tabs.first(where: { $0.id == panel.workspaceId }) else {
+                    result = .err(code: "not_found", message: "Workspace not found", data: [
+                        "workspace_id": panel.workspaceId.uuidString
+                    ])
+                    return
+                }
+                let urls = paths.map { URL(fileURLWithPath: $0).standardizedFileURL }
+                let handled = FileDropTextDropController.performTerminalFileDrop(
+                    workspace: workspace,
+                    panelId: panel.id,
+                    hostedView: panel.hostedView,
+                    urls: urls,
+                    window: panel.hostedView.window
+                )
+                result = handled
+                    ? .ok(["handled": true, "route": "text_destination"])
+                    : .err(code: "internal_error", message: "Text destination drop simulation failed", data: nil)
+            }
+        }
+        return result
+    }
+#endif
 
     private func v2DebugReadTerminalText(params: [String: Any]) -> V2CallResult {
         let surfaceArg = v2String(params, "surface_id") ?? ""
