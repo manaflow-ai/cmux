@@ -77,6 +77,43 @@ struct AccessibilityWindowController {
         return .succeeded
     }
 
+    func place(_ window: HostWindow, frame targetFrame: CGRect, raise: Bool) -> AccessibilityActionResult {
+        guard isTrusted else {
+            return .accessibilityPermissionMissing
+        }
+
+        let app = AXUIElementCreateApplication(window.ownerPID)
+        guard let axWindow = resolveAXWindow(for: window, app: app) else {
+            return .windowUnavailable
+        }
+
+        let sizeResult = setSize(targetFrame.integral.size, on: axWindow)
+        guard sizeResult == .success else {
+            return .failed(sizeResult)
+        }
+
+        let positionResult = setPosition(targetFrame.integral.origin, on: axWindow)
+        guard positionResult == .success else {
+            return .failed(positionResult)
+        }
+
+        if raise {
+            _ = AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+            _ = AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
+        }
+
+        return .succeeded
+    }
+
+    func resolvedWindow(for window: HostWindow) -> AXUIElement? {
+        let app = AXUIElementCreateApplication(window.ownerPID)
+        return resolveAXWindow(for: window, app: app)
+    }
+
+    func frame(of element: AXUIElement) -> CGRect? {
+        readFrame(from: element)
+    }
+
     private func resolveAXWindow(for window: HostWindow, app: AXUIElement) -> AXUIElement? {
         guard let axWindows = axWindows(for: app), !axWindows.isEmpty else {
             return nil

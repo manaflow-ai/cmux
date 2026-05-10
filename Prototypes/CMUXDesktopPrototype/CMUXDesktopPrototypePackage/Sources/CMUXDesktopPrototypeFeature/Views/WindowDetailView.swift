@@ -6,10 +6,13 @@ struct WindowDetailView: View {
     let window: HostWindow?
     let liveFrame: CGImage?
     let isLiveCaptureRunning: Bool
+    let renderMode: DesktopRenderMode
     let permissions: PermissionState
     let status: StatusBanner?
     let onRefreshWindows: () -> Void
     let onRestartLiveCapture: () -> Void
+    let onRenderModeChange: (DesktopRenderMode) -> Void
+    let onNativeSlotFrameChange: (NativeWindowSlotFrame) -> Void
     let onRequestAccessibility: () -> Void
     let onRequestScreenCapture: () -> Void
     let onRelaunchApp: () -> Void
@@ -33,6 +36,9 @@ struct WindowDetailView: View {
                         image: liveFrame,
                         window: window,
                         isRunning: isLiveCaptureRunning,
+                        renderMode: renderMode,
+                        onRenderModeChange: onRenderModeChange,
+                        onNativeSlotFrameChange: onNativeSlotFrameChange,
                         onMouseInput: onMouseInput,
                         onScrollInput: onScrollInput,
                         onKeyInput: onKeyInput
@@ -107,6 +113,9 @@ private struct LivePreviewView: View {
     let image: CGImage?
     let window: HostWindow
     let isRunning: Bool
+    let renderMode: DesktopRenderMode
+    let onRenderModeChange: (DesktopRenderMode) -> Void
+    let onNativeSlotFrameChange: (NativeWindowSlotFrame) -> Void
     let onMouseInput: (WindowMouseInput) -> Void
     let onScrollInput: (WindowScrollInput) -> Void
     let onKeyInput: (WindowKeyInput) -> Void
@@ -129,6 +138,22 @@ private struct LivePreviewView: View {
                 Text(sizeString)
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
+                Picker(
+                    String(localized: "preview.mode", defaultValue: "Mode", bundle: .module),
+                    selection: Binding(
+                        get: { renderMode },
+                        set: { newValue in
+                            onRenderModeChange(newValue)
+                        }
+                    )
+                ) {
+                    Text(String(localized: "preview.mode.video", defaultValue: "Video", bundle: .module))
+                        .tag(DesktopRenderMode.video)
+                    Text(String(localized: "preview.mode.native", defaultValue: "Native Window", bundle: .module))
+                        .tag(DesktopRenderMode.native)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 240)
             }
                 .font(.headline)
 
@@ -138,21 +163,31 @@ private struct LivePreviewView: View {
                         .fill(Color(nsColor: .controlBackgroundColor))
                         .frame(width: previewSize.width + 24, height: previewSize.height + 24)
 
-                    if let image {
-                        InteractiveWindowPreview(
-                            image: image,
-                            window: window,
-                            onMouse: onMouseInput,
-                            onScroll: onScrollInput,
-                            onKey: onKeyInput
-                        )
-                        .frame(width: previewSize.width, height: previewSize.height)
-                    } else {
-                        ContentUnavailableView(
-                            String(localized: "detail.livePreview.waiting", defaultValue: "Waiting for live video", bundle: .module),
-                            systemImage: "video.slash"
-                        )
-                        .frame(width: previewSize.width, height: previewSize.height)
+                    switch renderMode {
+                    case .video:
+                        if let image {
+                            InteractiveWindowPreview(
+                                image: image,
+                                window: window,
+                                onMouse: onMouseInput,
+                                onScroll: onScrollInput,
+                                onKey: onKeyInput
+                            )
+                            .frame(width: previewSize.width, height: previewSize.height)
+                        } else {
+                            ContentUnavailableView(
+                                String(localized: "detail.livePreview.waiting", defaultValue: "Waiting for live video", bundle: .module),
+                                systemImage: "video.slash"
+                            )
+                            .frame(width: previewSize.width, height: previewSize.height)
+                        }
+                    case .native:
+                        NativeWindowDockView(onFrameChange: onNativeSlotFrameChange)
+                            .frame(width: previewSize.width, height: previewSize.height)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .strokeBorder(Color.accentColor.opacity(0.45), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
+                            }
                     }
                 }
                 .padding(.trailing, 1)

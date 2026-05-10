@@ -21,6 +21,20 @@ struct HostWindow: Identifiable, Equatable, Hashable {
         frame.width * frame.height
     }
 
+    func with(frame: CGRect, isOnScreen: Bool? = nil) -> HostWindow {
+        HostWindow(
+            id: id,
+            ownerPID: ownerPID,
+            ownerName: ownerName,
+            title: title,
+            frame: frame,
+            layer: layer,
+            alpha: alpha,
+            memoryUsage: memoryUsage,
+            isOnScreen: isOnScreen ?? self.isOnScreen
+        )
+    }
+
     static func == (lhs: HostWindow, rhs: HostWindow) -> Bool {
         lhs.id == rhs.id
     }

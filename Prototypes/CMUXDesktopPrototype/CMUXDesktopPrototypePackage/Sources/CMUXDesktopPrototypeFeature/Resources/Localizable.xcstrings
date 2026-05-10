@@ -176,6 +176,24 @@
         "ja": { "stringUnit": { "state": "translated", "value": "プレビューサイズ" } }
       }
     },
+    "preview.mode": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mode" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "モード" } }
+      }
+    },
+    "preview.mode.native": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Native Window" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ネイティブウィンドウ" } }
+      }
+    },
+    "preview.mode.video": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Video" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ビデオ" } }
+      }
+    },
     "section.actions": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Actions" } },
