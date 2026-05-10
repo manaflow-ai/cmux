@@ -114,7 +114,9 @@ final class BackgroundWorkspacePrimeCoordinator {
 
                 switch reason {
                 case .timeout:
-                    tabManager.releaseBackgroundWorkspaceMount(for: workspaceId)
+                    // Keep the hidden mount retained; pending background initial commands
+                    // must stay eligible to start until the surface is actually ready.
+                    continue
                 case .cancelled:
                     continue
                 case .alreadyCleared, .surfaceReady, .workspaceRemoved:
