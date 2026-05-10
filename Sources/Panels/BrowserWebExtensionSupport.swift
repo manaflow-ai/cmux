@@ -17,6 +17,30 @@ struct BrowserWebExtensionActionSnapshot: Identifiable, Equatable {
     let isEnabled: Bool
 }
 
+func browserWebExtensionAuxiliaryWindowContentRect(
+    requestedFrame: CGRect,
+    visibleFrame: NSRect,
+    defaultSize: CGSize = CGSize(width: 420, height: 560),
+    minSize: CGSize = CGSize(width: 260, height: 180)
+) -> NSRect {
+    let requestedWidth = requestedFrame.width.isFinite && requestedFrame.width > 0
+        ? requestedFrame.width
+        : nil
+    let requestedHeight = requestedFrame.height.isFinite && requestedFrame.height > 0
+        ? requestedFrame.height
+        : nil
+    let requestedX = requestedFrame.origin.x.isFinite ? requestedFrame.origin.x : nil
+    let requestedY = requestedFrame.origin.y.isFinite ? requestedFrame.origin.y : nil
+
+    let width = min(max(requestedWidth ?? defaultSize.width, minSize.width), visibleFrame.width)
+    let height = min(max(requestedHeight ?? defaultSize.height, minSize.height), visibleFrame.height)
+    let centeredX = visibleFrame.midX - width / 2
+    let centeredY = visibleFrame.midY - height / 2
+    let x = max(visibleFrame.minX, min(requestedX ?? centeredX, visibleFrame.maxX - width))
+    let y = max(visibleFrame.minY, min(requestedY ?? centeredY, visibleFrame.maxY - height))
+    return NSRect(x: x, y: y, width: width, height: height)
+}
+
 struct BrowserWebExtensionInstallResult: Equatable {
     let summary: BrowserWebExtensionInstalledSummary
     let parseErrors: [String]
@@ -480,6 +504,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     private var controller: WKWebExtensionController?
     private var contextsByRecordID: [UUID: WKWebExtensionContext] = [:]
     private var tabAdaptersByPanelID: [UUID: BrowserWebExtensionTabAdapter] = [:]
+    private var auxiliaryWindowAdaptersByID: [UUID: BrowserWebExtensionAuxiliaryWindowAdapter] = [:]
     private let windowAdapter = BrowserWebExtensionWindowAdapter()
     private var hasLoadedRecords = false
 
@@ -594,6 +619,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
     func reloadInstalledExtensions() async {
         let controller = ensureController(defaultWebsiteDataStore: .default())
+        closeAllAuxiliaryWindows()
         for context in contextsByRecordID.values {
             try? controller.unload(context)
         }
@@ -628,6 +654,48 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         }
 
         return controller
+    }
+
+    private func auxiliaryWebViewConfiguration(
+        initialURL: URL?,
+        context: WKWebExtensionContext,
+        openerPanel: BrowserPanel?,
+        shouldBePrivate: Bool
+    ) -> WKWebViewConfiguration? {
+        let usesExtensionOrigin: Bool
+        if let initialURL,
+           let targetContext = controller?.extensionContext(for: initialURL),
+           targetContext === context {
+            usesExtensionOrigin = true
+        } else {
+            usesExtensionOrigin = false
+        }
+        let configuration: WKWebViewConfiguration
+        if usesExtensionOrigin {
+            guard let extensionConfiguration = context.webViewConfiguration else { return nil }
+            configuration = extensionConfiguration
+        } else {
+            configuration = WKWebViewConfiguration()
+            if let browserContext = openerPanel?.popupBrowserContext {
+                BrowserPanel.configureWebViewConfiguration(
+                    configuration,
+                    websiteDataStore: browserContext.websiteDataStore,
+                    processPool: browserContext.processPool
+                )
+            } else {
+                BrowserPanel.configureWebViewConfiguration(
+                    configuration,
+                    websiteDataStore: .default()
+                )
+            }
+        }
+
+        if shouldBePrivate {
+            configuration.websiteDataStore = .nonPersistent()
+        }
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        return configuration
     }
 
     private func loadInstalledRecordsIfNeeded() async {
@@ -754,14 +822,60 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         _ controller: WKWebExtensionController,
         openWindowsFor context: WKWebExtensionContext
     ) -> [any WKWebExtensionWindow] {
-        [windowAdapter]
+        let auxiliaryWindows = auxiliaryWindowAdaptersByID.values
+            .filter(\.isVisible)
+            .sorted { $0.createdAt < $1.createdAt }
+        if let focusedAuxiliaryWindow = auxiliaryWindows.first(where: \.isKeyWindow) {
+            return [focusedAuxiliaryWindow, windowAdapter] + auxiliaryWindows.filter { $0 !== focusedAuxiliaryWindow }
+        }
+        return [windowAdapter] + auxiliaryWindows
     }
 
     func webExtensionController(
         _ controller: WKWebExtensionController,
         focusedWindowFor context: WKWebExtensionContext
     ) -> (any WKWebExtensionWindow)? {
-        windowAdapter
+        if let focusedAuxiliaryWindow = auxiliaryWindowAdaptersByID.values.first(where: \.isKeyWindow) {
+            return focusedAuxiliaryWindow
+        }
+        return windowAdapter
+    }
+
+    func webExtensionController(
+        _ controller: WKWebExtensionController,
+        openNewWindowUsing configuration: WKWebExtension.WindowConfiguration,
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping ((any WKWebExtensionWindow)?, Error?) -> Void
+    ) {
+        let opener = configuration.tabs.compactMap { ($0 as? BrowserWebExtensionTabAdapter)?.panel }.first
+            ?? activeTabAdapter()?.panel
+            ?? tabAdaptersByPanelID.values.compactMap(\.panel).first
+        let initialURL = configuration.tabURLs.first
+        guard let webViewConfiguration = auxiliaryWebViewConfiguration(
+            initialURL: initialURL,
+            context: context,
+            openerPanel: opener,
+            shouldBePrivate: configuration.shouldBePrivate
+        ) else {
+            completionHandler(nil, nil)
+            return
+        }
+
+        let window = BrowserWebExtensionAuxiliaryWindowAdapter(
+            runtime: self,
+            configuration: configuration,
+            webViewConfiguration: webViewConfiguration,
+            initialURL: initialURL,
+            openerPanel: opener
+        )
+        auxiliaryWindowAdaptersByID[window.id] = window
+        controller.didOpenWindow(window)
+        controller.didOpenTab(window.tabAdapter)
+        if configuration.shouldBeFocused {
+            controller.didFocusWindow(window)
+        }
+        postDidChange()
+        completionHandler(window, nil)
     }
 
     func webExtensionController(
@@ -794,6 +908,31 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             register(panel: createdPanel)
         }
         completionHandler(createdPanel.flatMap { tabAdaptersByPanelID[$0.id] }, nil)
+    }
+
+    fileprivate func auxiliaryWindowDidFocus(_ window: BrowserWebExtensionAuxiliaryWindowAdapter) {
+        controller?.didFocusWindow(window)
+    }
+
+    fileprivate func auxiliaryWindowDidChangeTabProperties(
+        _ properties: WKWebExtension.TabChangedProperties,
+        tab: BrowserWebExtensionAuxiliaryTabAdapter
+    ) {
+        controller?.didChangeTabProperties(properties, for: tab)
+    }
+
+    fileprivate func auxiliaryWindowDidClose(_ window: BrowserWebExtensionAuxiliaryWindowAdapter) {
+        auxiliaryWindowAdaptersByID.removeValue(forKey: window.id)
+        controller?.didCloseTab(window.tabAdapter, windowIsClosing: true)
+        controller?.didCloseWindow(window)
+        postDidChange()
+    }
+
+    private func closeAllAuxiliaryWindows() {
+        let windows = Array(auxiliaryWindowAdaptersByID.values)
+        for window in windows {
+            window.closeWindow()
+        }
     }
 
     func webExtensionController(
@@ -891,6 +1030,371 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
     fileprivate var tabAdapters: [BrowserWebExtensionTabAdapter] {
         Array(tabAdaptersByPanelID.values)
+    }
+}
+
+@available(macOS 15.4, *)
+@MainActor
+private final class BrowserWebExtensionAuxiliaryWindowAdapter: NSObject, WKWebExtensionWindow, NSWindowDelegate {
+    let id = UUID()
+    let createdAt = Date()
+    let tabAdapter: BrowserWebExtensionAuxiliaryTabAdapter
+
+    private weak var runtime: BrowserWebExtensionRuntime?
+    private let panel: NSPanel
+    private let webView: WKWebView
+    private let windowType: WKWebExtension.WindowType
+    private let isPrivateWindow: Bool
+    private let uiDelegate = BrowserWebExtensionAuxiliaryUIDelegate()
+    private var titleObservation: NSKeyValueObservation?
+    private var urlObservation: NSKeyValueObservation?
+    private var loadingObservation: NSKeyValueObservation?
+    private var didNotifyClose = false
+
+    var isVisible: Bool {
+        panel.isVisible
+    }
+
+    var isKeyWindow: Bool {
+        panel.isKeyWindow
+    }
+
+    init(
+        runtime: BrowserWebExtensionRuntime,
+        configuration: WKWebExtension.WindowConfiguration,
+        webViewConfiguration: WKWebViewConfiguration,
+        initialURL: URL?,
+        openerPanel: BrowserPanel?
+    ) {
+        self.runtime = runtime
+        self.windowType = configuration.windowType
+        self.isPrivateWindow = configuration.shouldBePrivate
+
+        let screen = openerPanel?.webView.window?.screen ?? NSScreen.main ?? NSScreen.screens.first
+        let visibleFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let contentRect = browserWebExtensionAuxiliaryWindowContentRect(
+            requestedFrame: configuration.frame,
+            visibleFrame: visibleFrame,
+            defaultSize: configuration.windowType == .popup
+                ? CGSize(width: 420, height: 560)
+                : CGSize(width: 900, height: 680),
+            minSize: CGSize(width: 260, height: 180)
+        )
+        var styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable]
+        if configuration.windowType == .normal {
+            styleMask.insert(.resizable)
+        }
+
+        let panel = NSPanel(
+            contentRect: contentRect,
+            styleMask: styleMask,
+            backing: .buffered,
+            defer: false
+        )
+        panel.identifier = NSUserInterfaceItemIdentifier("cmux.browser-extension-window")
+        panel.level = .normal
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        panel.minSize = NSSize(width: 260, height: 180)
+        panel.title = String(localized: "browser.popup.loadingTitle", defaultValue: "Loading\u{2026}")
+        self.panel = panel
+
+        let webView = WKWebView(frame: .zero, configuration: webViewConfiguration)
+        webView.allowsBackForwardNavigationGestures = true
+        if #available(macOS 13.3, *) {
+            webView.isInspectable = true
+        }
+        webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
+        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        self.webView = webView
+        self.tabAdapter = BrowserWebExtensionAuxiliaryTabAdapter(webView: webView)
+
+        super.init()
+
+        tabAdapter.windowAdapter = self
+        uiDelegate.windowAdapter = self
+        webView.uiDelegate = uiDelegate
+        panel.delegate = self
+
+        let urlLabel = NSTextField(labelWithString: "")
+        urlLabel.translatesAutoresizingMaskIntoConstraints = false
+        urlLabel.font = .systemFont(ofSize: 11)
+        urlLabel.textColor = .secondaryLabelColor
+        urlLabel.lineBreakMode = .byTruncatingMiddle
+        urlLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let containerView = NSView()
+        containerView.translatesAutoresizingMaskIntoConstraints = false
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(urlLabel)
+        containerView.addSubview(webView)
+        panel.contentView = containerView
+        NSLayoutConstraint.activate([
+            urlLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 4),
+            urlLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 8),
+            urlLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8),
+            urlLabel.heightAnchor.constraint(equalToConstant: 16),
+
+            webView.topAnchor.constraint(equalTo: urlLabel.bottomAnchor, constant: 2),
+            webView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            webView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+        ])
+
+        titleObservation = webView.observe(\.title, options: [.new]) { [weak self] webView, _ in
+            Task { @MainActor [weak self, weak webView] in
+                guard let self else { return }
+                let title = webView?.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+                self.panel.title = title?.isEmpty == false
+                    ? title ?? ""
+                    : String(localized: "browser.popup.loadingTitle", defaultValue: "Loading\u{2026}")
+                self.runtime?.auxiliaryWindowDidChangeTabProperties(.title, tab: self.tabAdapter)
+            }
+        }
+        urlObservation = webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
+            Task { @MainActor [weak self, weak webView] in
+                guard let self else { return }
+                urlLabel.stringValue = webView?.url?.absoluteString ?? ""
+                self.runtime?.auxiliaryWindowDidChangeTabProperties(.URL, tab: self.tabAdapter)
+            }
+        }
+        loadingObservation = webView.observe(\.isLoading, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.runtime?.auxiliaryWindowDidChangeTabProperties(.loading, tab: self.tabAdapter)
+            }
+        }
+
+        if let initialURL {
+            webView.load(URLRequest(url: initialURL))
+        }
+        if configuration.shouldBeFocused {
+            panel.makeKeyAndOrderFront(nil)
+        } else {
+            panel.orderFront(nil)
+        }
+    }
+
+    func closeWindow() {
+        guard !didNotifyClose else { return }
+        panel.close()
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        runtime?.auxiliaryWindowDidFocus(self)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard !didNotifyClose else { return }
+        didNotifyClose = true
+        titleObservation?.invalidate()
+        urlObservation?.invalidate()
+        loadingObservation?.invalidate()
+        webView.stopLoading()
+        webView.uiDelegate = nil
+        runtime?.auxiliaryWindowDidClose(self)
+    }
+
+    func tabs(for context: WKWebExtensionContext) -> [any WKWebExtensionTab] {
+        [tabAdapter]
+    }
+
+    func activeTab(for context: WKWebExtensionContext) -> (any WKWebExtensionTab)? {
+        tabAdapter
+    }
+
+    func windowType(for context: WKWebExtensionContext) -> WKWebExtension.WindowType {
+        windowType
+    }
+
+    func windowState(for context: WKWebExtensionContext) -> WKWebExtension.WindowState {
+        if panel.styleMask.contains(.fullScreen) {
+            return .fullscreen
+        }
+        if panel.isMiniaturized {
+            return .minimized
+        }
+        return .normal
+    }
+
+    func setWindowState(
+        _ state: WKWebExtension.WindowState,
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping (Error?) -> Void
+    ) {
+        switch state {
+        case .minimized:
+            panel.miniaturize(nil)
+        case .fullscreen:
+            if !panel.styleMask.contains(.fullScreen) {
+                panel.toggleFullScreen(nil)
+            }
+        case .normal:
+            if panel.isMiniaturized {
+                panel.deminiaturize(nil)
+            } else if panel.styleMask.contains(.fullScreen) {
+                panel.toggleFullScreen(nil)
+            }
+        case .maximized:
+            panel.zoom(nil)
+        @unknown default:
+            break
+        }
+        completionHandler(nil)
+    }
+
+    func isPrivate(for context: WKWebExtensionContext) -> Bool {
+        isPrivateWindow
+    }
+
+    func frame(for context: WKWebExtensionContext) -> CGRect {
+        panel.frame
+    }
+
+    func screenFrame(for context: WKWebExtensionContext) -> CGRect {
+        panel.screen?.frame ?? .null
+    }
+
+    func setFrame(
+        _ frame: CGRect,
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping (Error?) -> Void
+    ) {
+        panel.setFrame(frame, display: true)
+        completionHandler(nil)
+    }
+
+    func focus(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
+        panel.makeKeyAndOrderFront(nil)
+        completionHandler(nil)
+    }
+
+    func close(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
+        closeWindow()
+        completionHandler(nil)
+    }
+}
+
+@available(macOS 15.4, *)
+@MainActor
+private final class BrowserWebExtensionAuxiliaryUIDelegate: NSObject, WKUIDelegate {
+    weak var windowAdapter: BrowserWebExtensionAuxiliaryWindowAdapter?
+
+    func webViewDidClose(_ webView: WKWebView) {
+        windowAdapter?.closeWindow()
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        if let url = navigationAction.request.url,
+           browserShouldOpenURLExternally(url) {
+            NSWorkspace.shared.open(url)
+        }
+        return nil
+    }
+}
+
+@available(macOS 15.4, *)
+@MainActor
+private final class BrowserWebExtensionAuxiliaryTabAdapter: NSObject, WKWebExtensionTab {
+    weak var windowAdapter: BrowserWebExtensionAuxiliaryWindowAdapter?
+    private weak var webView: WKWebView?
+
+    init(webView: WKWebView) {
+        self.webView = webView
+    }
+
+    func window(for context: WKWebExtensionContext) -> (any WKWebExtensionWindow)? {
+        windowAdapter
+    }
+
+    func indexInWindow(for context: WKWebExtensionContext) -> Int {
+        0
+    }
+
+    func webView(for context: WKWebExtensionContext) -> WKWebView? {
+        guard webView?.configuration.webExtensionController === context.webExtensionController else {
+            return nil
+        }
+        return webView
+    }
+
+    func title(for context: WKWebExtensionContext) -> String? {
+        webView?.title
+    }
+
+    func url(for context: WKWebExtensionContext) -> URL? {
+        webView?.url
+    }
+
+    func pendingURL(for context: WKWebExtensionContext) -> URL? {
+        webView?.url
+    }
+
+    func isLoadingComplete(for context: WKWebExtensionContext) -> Bool {
+        !(webView?.isLoading ?? false)
+    }
+
+    func size(for context: WKWebExtensionContext) -> CGSize {
+        webView?.bounds.size ?? .zero
+    }
+
+    func zoomFactor(for context: WKWebExtensionContext) -> Double {
+        Double(webView?.pageZoom ?? 1)
+    }
+
+    func setZoomFactor(
+        _ zoomFactor: Double,
+        for context: WKWebExtensionContext,
+        completionHandler: @escaping (Error?) -> Void
+    ) {
+        webView?.pageZoom = CGFloat(zoomFactor)
+        completionHandler(nil)
+    }
+
+    func loadURL(_ url: URL, for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
+        webView?.load(URLRequest(url: url))
+        completionHandler(nil)
+    }
+
+    func reload(fromOrigin: Bool, for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
+        if fromOrigin {
+            webView?.reloadFromOrigin()
+        } else {
+            webView?.reload()
+        }
+        completionHandler(nil)
+    }
+
+    func goBack(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
+        webView?.goBack()
+        completionHandler(nil)
+    }
+
+    func goForward(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
+        webView?.goForward()
+        completionHandler(nil)
+    }
+
+    func activate(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
+        windowAdapter?.focus(for: context, completionHandler: completionHandler)
+    }
+
+    func isSelected(for context: WKWebExtensionContext) -> Bool {
+        windowAdapter?.isKeyWindow ?? false
+    }
+
+    func close(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
+        windowAdapter?.closeWindow()
+        completionHandler(nil)
+    }
+
+    func shouldGrantPermissionsOnUserGesture(for context: WKWebExtensionContext) -> Bool {
+        true
     }
 }
 

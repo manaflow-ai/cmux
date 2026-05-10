@@ -64,6 +64,41 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
     }
 }
 
+final class BrowserWebExtensionAuxiliaryWindowFrameTests: XCTestCase {
+    func testCentersDefaultWindowWhenExtensionDoesNotSpecifyFrame() {
+        let rect = browserWebExtensionAuxiliaryWindowContentRect(
+            requestedFrame: CGRect(
+                x: CGFloat.nan,
+                y: CGFloat.nan,
+                width: CGFloat.nan,
+                height: CGFloat.nan
+            ),
+            visibleFrame: NSRect(x: 0, y: 0, width: 1000, height: 800),
+            defaultSize: CGSize(width: 420, height: 560),
+            minSize: CGSize(width: 260, height: 180)
+        )
+
+        XCTAssertEqual(rect.origin.x, 290)
+        XCTAssertEqual(rect.origin.y, 120)
+        XCTAssertEqual(rect.size.width, 420)
+        XCTAssertEqual(rect.size.height, 560)
+    }
+
+    func testClampsRequestedWindowFrameToVisibleScreen() {
+        let rect = browserWebExtensionAuxiliaryWindowContentRect(
+            requestedFrame: CGRect(x: 900, y: -50, width: 900, height: 700),
+            visibleFrame: NSRect(x: 20, y: 30, width: 800, height: 600),
+            defaultSize: CGSize(width: 420, height: 560),
+            minSize: CGSize(width: 260, height: 180)
+        )
+
+        XCTAssertEqual(rect.origin.x, 20)
+        XCTAssertEqual(rect.origin.y, 30)
+        XCTAssertEqual(rect.size.width, 800)
+        XCTAssertEqual(rect.size.height, 600)
+    }
+}
+
 
 final class BrowserWebExtensionInstallStoreTests: XCTestCase {
     func testInstallsUnpackedResourceExtensionIntoManagedStore() throws {
