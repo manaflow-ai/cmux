@@ -1981,7 +1981,7 @@ final class BrowserPanel: Panel, ObservableObject {
     })()
     """
 
-    static var remoteLoopbackRuntimeBridgeScriptSource: String {
+    static let remoteLoopbackRuntimeBridgeScriptSource: String = {
         """
         (() => {
           const aliasHost = "\(remoteLoopbackProxyAliasHost)";
@@ -2036,7 +2036,7 @@ final class BrowserPanel: Panel, ObservableObject {
             } catch {
               return input;
             }
-            if (parsed.protocol !== 'http:' && parsed.protocol !== 'ws:') {
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') {
               return input;
             }
             const rewrittenHost = loopbackAliasHost(parsed.hostname);
@@ -2104,7 +2104,7 @@ final class BrowserPanel: Panel, ObservableObject {
           return true;
         })();
         """
-    }
+    }()
 
     private static func clampedGhosttyBackgroundOpacity(_ opacity: Double) -> CGFloat {
         CGFloat(max(0.0, min(1.0, opacity)))
@@ -2824,7 +2824,7 @@ final class BrowserPanel: Panel, ObservableObject {
             WKUserScript(
                 source: Self.remoteLoopbackRuntimeBridgeScriptSource,
                 injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
+                forMainFrameOnly: false
             )
         )
         // Track the last editable focused element continuously so omnibar exit can

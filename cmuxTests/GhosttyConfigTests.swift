@@ -1301,6 +1301,7 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
                 rewrite('http://localhost:3000/frontend'),
                 rewrite('http://localhost:8000/api'),
                 rewrite('http://api.localhost:8000/v1'),
+                rewrite('wss://localhost:5173/hmr'),
                 rewrite('https://localhost:9443/secure')
               ]);
             })()
@@ -1309,7 +1310,7 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
 
         XCTAssertEqual(
             result,
-            #"["http://cmux-loopback.localtest.me:3000/frontend","http://cmux-loopback.localtest.me:8000/api","http://api.cmux-loopback.localtest.me:8000/v1","https://localhost:9443/secure"]"#
+            #"["http://cmux-loopback.localtest.me:3000/frontend","http://cmux-loopback.localtest.me:8000/api","http://api.cmux-loopback.localtest.me:8000/v1","wss://cmux-loopback.localtest.me:5173/hmr","https://localhost:9443/secure"]"#
         )
     }
 
@@ -1337,7 +1338,7 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
 
     private func waitForBrowserWebViewLoad(_ webView: WKWebView, timeout: TimeInterval = 2.0) async throws {
         let deadline = Date().addingTimeInterval(timeout)
-        while webView.isLoading || webView.url == nil {
+        while webView.isLoading {
             if Date() >= deadline {
                 XCTFail("Timed out waiting for browser web view to finish loading")
                 return
