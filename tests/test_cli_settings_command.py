@@ -236,6 +236,13 @@ openSettings = "cmd+option+,"
         if sectioned_config.get("shortcuts", {}).get("bindings", {}).get("openSettings") != "cmd+option+,":
             failures.append(f"sectioned TOML did not import shortcut binding: {sectioned_config}")
 
+        chord = run_cli(cli_path, ["settings", "shortcuts", "set", "openSettings", "cmd+k, cmd+c"], home)
+        assert_ok(failures, "shortcut two-stroke set", chord)
+        chord_get = run_cli(cli_path, ["settings", "shortcuts", "get", "openSettings"], home)
+        assert_ok(failures, "shortcut two-stroke get", chord_get)
+        if chord_get.stdout.strip() != "cmd+k, cmd+c":
+            failures.append(f"two-stroke shortcut did not roundtrip: {chord_get.stdout!r}")
+
         conflict = run_cli(cli_path, ["settings", "shortcuts", "set", "openSettings", "cmd+n"], home)
         assert_fails(failures, "shortcut conflict", conflict, "conflicts with")
 

@@ -897,7 +897,7 @@ extension CMUXCLI {
             if let value = CmuxSettingsRegistry.parseJSONLiteral(trimmed) {
                 return try parseJSONValue(value, action: action)
             }
-            return try parse(strokes: [trimmed], action: action)
+            return try parse(strokes: splitChordString(trimmed), action: action)
         }
 
         static func parse(strokes rawStrokes: [String], action: CmuxSettingsRegistry.ShortcutActionDefinition) throws -> CLIShortcut {
@@ -924,6 +924,35 @@ extension CMUXCLI {
                 )
             }
             return shortcut
+        }
+
+        private static func splitChordString(_ raw: String) -> [String] {
+            var strokes: [String] = []
+            var strokeStart = raw.startIndex
+            var index = raw.startIndex
+            while index < raw.endIndex {
+                guard raw[index] == "," else {
+                    index = raw.index(after: index)
+                    continue
+                }
+
+                let next = raw.index(after: index)
+                guard next < raw.endIndex, raw[next].isWhitespace else {
+                    index = next
+                    continue
+                }
+
+                strokes.append(String(raw[strokeStart..<index]).trimmingCharacters(in: .whitespacesAndNewlines))
+                var nextStrokeStart = next
+                while nextStrokeStart < raw.endIndex, raw[nextStrokeStart].isWhitespace {
+                    nextStrokeStart = raw.index(after: nextStrokeStart)
+                }
+                strokeStart = nextStrokeStart
+                index = nextStrokeStart
+            }
+
+            strokes.append(String(raw[strokeStart..<raw.endIndex]).trimmingCharacters(in: .whitespacesAndNewlines))
+            return strokes
         }
 
         func conflicts(
