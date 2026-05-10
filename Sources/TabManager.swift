@@ -5066,6 +5066,8 @@ class TabManager: ObservableObject {
         if let registration = SidebarAgentStatusService.titleRegistration(for: trimmed) {
             panelAgentTitleRegistrations[key] = registration
             panelAgentTitleRegistrationSeenAt[key] = Date()
+        } else {
+            clearPanelAgentTitleRegistration(for: key)
         }
         panelTitleUpdateCoalescer.signal { [weak self] in
             self?.flushPendingPanelTitleUpdates()
@@ -5105,8 +5107,8 @@ class TabManager: ObservableObject {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.agentPIDDiscoveryInFlight = false
-                let didRegister = self.registerAgentPIDsFromTerminalTitlesIfNeeded(processSnapshot: processSnapshot)
-                self.agentPIDDiscoveryLastStartedAt = didRegister ? Date() : nil
+                _ = self.registerAgentPIDsFromTerminalTitlesIfNeeded(processSnapshot: processSnapshot)
+                self.agentPIDDiscoveryLastStartedAt = Date()
             }
         }
     }

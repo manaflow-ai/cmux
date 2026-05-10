@@ -1122,6 +1122,57 @@ final class SidebarAgentPIDFallbackTests: XCTestCase {
     }
 
     @MainActor
+    func testPanelScopedAgentPIDClearIgnoresMismatchedPanel() {
+        let workspace = Workspace()
+        let ownerPanelId = UUID()
+        let otherPanelId = UUID()
+        let statusEntry = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            protocolValue: "running"
+        )
+        workspace.statusEntries["codex"] = statusEntry
+        workspace.setAgentPID(key: "codex", panelId: ownerPanelId, pid: 123, refreshPorts: false)
+
+        let didClear = workspace.clearAgentPID(
+            key: "codex",
+            panelId: otherPanelId,
+            clearStatus: true,
+            refreshPorts: false
+        )
+
+        XCTAssertFalse(didClear)
+        XCTAssertEqual(workspace.statusEntries["codex"], statusEntry)
+        XCTAssertEqual(workspace.agentPIDs["codex"], 123)
+        XCTAssertEqual(workspace.agentProcessStates["codex"]?.pid, 123)
+        XCTAssertEqual(workspace.agentPIDPanelIdsByKey["codex"], ownerPanelId)
+        XCTAssertEqual(workspace.agentPIDKeysByPanelId[ownerPanelId], Set(["codex"]))
+    }
+
+    @MainActor
+    func testSharedStatusEntryClearsOnlyAfterLastAgentRuntimeKey() {
+        let workspace = Workspace()
+        let statusEntry = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            protocolValue: "running"
+        )
+        workspace.statusEntries["codex"] = statusEntry
+        workspace.setAgentPID(key: "codex.alpha", pid: 123, refreshPorts: false)
+        workspace.setAgentPID(key: "codex.beta", pid: 456, refreshPorts: false)
+
+        XCTAssertTrue(workspace.clearAgentPID(key: "codex.alpha", clearStatus: true, refreshPorts: false))
+        XCTAssertEqual(workspace.statusEntries["codex"], statusEntry)
+        XCTAssertNil(workspace.agentPIDs["codex.alpha"])
+        XCTAssertNotNil(workspace.agentPIDs["codex.beta"])
+
+        XCTAssertTrue(workspace.clearAgentPID(key: "codex.beta", clearStatus: true, refreshPorts: false))
+        XCTAssertNil(workspace.statusEntries["codex"])
+        XCTAssertTrue(workspace.agentPIDs.isEmpty)
+        XCTAssertTrue(workspace.agentProcessStates.isEmpty)
+    }
+
+    @MainActor
     func testClearAllAgentRuntimeStatePreservesNonAgentStatusEntries() {
         let workspace = Workspace()
         let remoteEntry = SidebarStatusEntry(
