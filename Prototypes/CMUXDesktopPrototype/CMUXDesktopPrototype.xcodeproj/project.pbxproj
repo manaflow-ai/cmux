@@ -1,0 +1,231 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		8B90D1482DEDD44A00FBD189 /* CMUXDesktopPrototypeFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B90D1472DEDD44A00FBD189 /* CMUXDesktopPrototypeFeature */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		8BC2655C2DEDD3F400F279A4 /* CMUXDesktopPrototype.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CMUXDesktopPrototype.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		8BD71C1E2DEE424400CEDD92 /* Exceptions for "Config" folder in "CMUXDesktopPrototype" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Debug.xcconfig,
+				Release.xcconfig,
+				Shared.xcconfig,
+				Tests.xcconfig,
+			);
+			target = 8BC2655B2DEDD3F400F279A4 /* CMUXDesktopPrototype */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		8B90D1BC2DEE373300FBD189 /* Config */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				8BD71C1E2DEE424400CEDD92 /* Exceptions for "Config" folder in "CMUXDesktopPrototype" target */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		8BC2655E2DEDD3F400F279A4 /* CMUXDesktopPrototype */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CMUXDesktopPrototype;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8BC265592DEDD3F400F279A4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8B90D1482DEDD44A00FBD189 /* CMUXDesktopPrototypeFeature in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		8B90D1462DEDD44A00FBD189 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		8BC265532DEDD3F400F279A4 = {
+			isa = PBXGroup;
+			children = (
+				8B90D1BC2DEE373300FBD189 /* Config */,
+				8BC2655E2DEDD3F400F279A4 /* CMUXDesktopPrototype */,
+				8B90D1462DEDD44A00FBD189 /* Frameworks */,
+				8BC2655D2DEDD3F400F279A4 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		8BC2655D2DEDD3F400F279A4 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8BC2655C2DEDD3F400F279A4 /* CMUXDesktopPrototype.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		8BC2655B2DEDD3F400F279A4 /* CMUXDesktopPrototype */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8BC2657E2DEDD3F500F279A4 /* Build configuration list for PBXNativeTarget "CMUXDesktopPrototype" */;
+			buildPhases = (
+				8BC265582DEDD3F400F279A4 /* Sources */,
+				8BC265592DEDD3F400F279A4 /* Frameworks */,
+				8BC2655A2DEDD3F400F279A4 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				8B90D1BC2DEE373300FBD189 /* Config */,
+				8BC2655E2DEDD3F400F279A4 /* CMUXDesktopPrototype */,
+			);
+			name = CMUXDesktopPrototype;
+			packageProductDependencies = (
+				8B90D1472DEDD44A00FBD189 /* CMUXDesktopPrototypeFeature */,
+			);
+			productName = CMUXDesktopPrototype;
+			productReference = 8BC2655C2DEDD3F400F279A4 /* CMUXDesktopPrototype.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		8BC265542DEDD3F400F279A4 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1630;
+				LastUpgradeCheck = 1630;
+				ORGANIZATIONNAME = "$(ORGANIZATION_NAME)";
+				TargetAttributes = {
+					8BC2655B2DEDD3F400F279A4 = {
+						CreatedOnToolsVersion = 16.3;
+					};
+				};
+			};
+			buildConfigurationList = 8BC265572DEDD3F400F279A4 /* Build configuration list for PBXProject "CMUXDesktopPrototype" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 8BC265532DEDD3F400F279A4;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 8BC2655D2DEDD3F400F279A4 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				8BC2655B2DEDD3F400F279A4 /* CMUXDesktopPrototype */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		8BC2655A2DEDD3F400F279A4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		8BC265582DEDD3F400F279A4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		8BC2657C2DEDD3F500F279A4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		8BC2657D2DEDD3F500F279A4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		8BC2657F2DEDD3F500F279A4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = 8B90D1BC2DEE373300FBD189 /* Config */;
+			baseConfigurationReferenceRelativePath = Debug.xcconfig;
+			buildSettings = {
+				INFOPLIST_KEY_CFBundleDisplayName = "$(PRODUCT_DISPLAY_NAME)";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		8BC265802DEDD3F500F279A4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = 8B90D1BC2DEE373300FBD189 /* Config */;
+			baseConfigurationReferenceRelativePath = Release.xcconfig;
+			buildSettings = {
+				INFOPLIST_KEY_CFBundleDisplayName = "$(PRODUCT_DISPLAY_NAME)";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		8BC265572DEDD3F400F279A4 /* Build configuration list for PBXProject "CMUXDesktopPrototype" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8BC2657C2DEDD3F500F279A4 /* Debug */,
+				8BC2657D2DEDD3F500F279A4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8BC2657E2DEDD3F500F279A4 /* Build configuration list for PBXNativeTarget "CMUXDesktopPrototype" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8BC2657F2DEDD3F500F279A4 /* Debug */,
+				8BC265802DEDD3F500F279A4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		8B90D1472DEDD44A00FBD189 /* CMUXDesktopPrototypeFeature */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CMUXDesktopPrototypeFeature;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 8BC265542DEDD3F400F279A4 /* Project object */;
+}

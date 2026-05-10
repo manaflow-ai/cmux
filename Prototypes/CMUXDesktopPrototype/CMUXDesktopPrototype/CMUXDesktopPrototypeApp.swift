@@ -1,13 +1,14 @@
 import AppKit
 import SwiftUI
+import CMUXDesktopPrototypeFeature
 
 @main
 struct CMUXDesktopPrototypeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        WindowGroup(String(localized: "app.window.title", defaultValue: "cmux Desktop Prototype", bundle: .module)) {
-            DesktopPrototypeView()
+        WindowGroup {
+            ContentView()
         }
         .defaultSize(width: 1120, height: 760)
         .commands {

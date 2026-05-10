@@ -172,8 +172,8 @@
     },
     "status.accessibilityRequested": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Accessibility request sent" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "アクセシビリティ要求を送信しました" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Accessibility request sent. System Settings opened if approval is still needed." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アクセシビリティ要求を送信しました。承認が必要な場合はシステム設定を開きました。" } }
       }
     },
     "status.actionFailed": {
@@ -196,8 +196,8 @@
     },
     "status.screenRequested": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Screen Recording request sent" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "画面収録要求を送信しました" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Screen Recording request sent. System Settings opened if approval is still needed." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "画面収録要求を送信しました。承認が必要な場合はシステム設定を開きました。" } }
       }
     },
     "status.windowNotFound": {

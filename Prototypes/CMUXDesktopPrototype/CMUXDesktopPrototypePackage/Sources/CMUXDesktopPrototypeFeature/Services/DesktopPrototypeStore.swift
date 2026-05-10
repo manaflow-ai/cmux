@@ -72,20 +72,26 @@ final class DesktopPrototypeStore {
 
     func requestAccessibilityPermission() {
         accessibilityController.requestPermission()
+        if !accessibilityController.isTrusted {
+            accessibilityController.openAccessibilitySettings()
+        }
         updatePermissions()
         status = StatusBanner(
             kind: .info,
-            message: String(localized: "status.accessibilityRequested", defaultValue: "Accessibility request sent", bundle: .module)
+            message: String(localized: "status.accessibilityRequested", defaultValue: "Accessibility request sent. System Settings opened if approval is still needed.", bundle: .module)
         )
     }
 
     func requestScreenCapturePermission() {
         snapshotter.requestScreenCaptureAccess()
+        if !snapshotter.hasScreenCaptureAccess {
+            snapshotter.openScreenCaptureSettings()
+        }
         updatePermissions()
         refreshSnapshot()
         status = StatusBanner(
             kind: .info,
-            message: String(localized: "status.screenRequested", defaultValue: "Screen Recording request sent", bundle: .module)
+            message: String(localized: "status.screenRequested", defaultValue: "Screen Recording request sent. System Settings opened if approval is still needed.", bundle: .module)
         )
     }
 
