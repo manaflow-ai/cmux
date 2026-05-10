@@ -480,9 +480,25 @@ struct CmuxConfigExecutor {
         }
 
         let resolvedCwd = CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: baseCwd)
-        let remoteStartupCommand: String? = wsDef.remote.map { buildRemoteTerminalStartupCommand(remote: $0) }
+        let normalizedRemote: CmuxRemoteDefinition? = wsDef.remote.flatMap { remote in
+            let host = remote.host.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !host.isEmpty else { return nil }
+            let identityFile = remote.identityFile?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let startupCommand = remote.startupCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let sshOptions = remote.sshOptions?
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            return CmuxRemoteDefinition(
+                host: host,
+                port: remote.port,
+                identityFile: (identityFile?.isEmpty == false) ? identityFile : nil,
+                sshOptions: (sshOptions?.isEmpty == false) ? sshOptions : nil,
+                startupCommand: (startupCommand?.isEmpty == false) ? startupCommand : nil
+            )
+        }
+        let remoteStartupCommand: String? = normalizedRemote.map { buildRemoteTerminalStartupCommand(remote: $0) }
         let resolvedProgram: String? = {
-            guard wsDef.remote == nil else { return nil }
+            guard normalizedRemote == nil else { return nil }
             let trimmed = wsDef.program?.trimmingCharacters(in: .whitespacesAndNewlines)
             return (trimmed?.isEmpty == false) ? trimmed : nil
         }()
@@ -501,7 +517,7 @@ struct CmuxConfigExecutor {
             tabManager.closeWorkspace(existingWorkspaceToClose)
         }
 
-        if let remote = wsDef.remote, let remoteStartupCommand {
+        if let remote = normalizedRemote, let remoteStartupCommand {
             let config = WorkspaceRemoteConfiguration(
                 transport: .ssh,
                 destination: remote.host,
