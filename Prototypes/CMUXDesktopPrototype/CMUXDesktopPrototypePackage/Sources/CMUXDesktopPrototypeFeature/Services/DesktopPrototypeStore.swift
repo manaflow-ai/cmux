@@ -36,6 +36,7 @@ final class DesktopPrototypeStore {
     @ObservationIgnored private let captureController = LiveWindowCaptureController()
     @ObservationIgnored private let inputForwarder = WindowInputForwarder()
     @ObservationIgnored private var captureTask: Task<Void, Never>?
+    @ObservationIgnored private var reloadTask: Task<Void, Never>?
     @ObservationIgnored private var screenCaptureNeedsRestart = false
 
     var selectedWindow: HostWindow? {
@@ -47,7 +48,19 @@ final class DesktopPrototypeStore {
 
     func reloadWindows() {
         updatePermissions()
-        windows = enumerator.windows()
+        reloadTask?.cancel()
+        reloadTask = Task { [weak self] in
+            await self?.loadWindows()
+        }
+    }
+
+    private func loadWindows() async {
+        let loadedWindows = await enumerator.windows()
+        guard !Task.isCancelled else {
+            return
+        }
+
+        windows = loadedWindows
 
         if let selectedWindowID, windows.contains(where: { $0.id == selectedWindowID }) {
             restartLiveCapture()
@@ -200,8 +213,7 @@ final class DesktopPrototypeStore {
         switch result {
         case .succeeded:
             if refreshAfterSuccess {
-                windows = enumerator.windows()
-                restartLiveCapture()
+                reloadWindows()
             }
             status = StatusBanner(
                 kind: .success,

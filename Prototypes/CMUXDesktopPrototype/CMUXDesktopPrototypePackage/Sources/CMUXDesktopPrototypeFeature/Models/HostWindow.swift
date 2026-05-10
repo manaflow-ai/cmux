@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+@preconcurrency import ScreenCaptureKit
 
 struct HostWindow: Identifiable, Equatable, Hashable {
     let id: CGWindowID
@@ -10,6 +11,7 @@ struct HostWindow: Identifiable, Equatable, Hashable {
     let layer: Int
     let alpha: Double
     let memoryUsage: Int?
+    let isOnScreen: Bool
 
     var hasTitle: Bool {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -44,6 +46,7 @@ extension HostWindow {
         let layer = (windowInfo[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0
         let alpha = (windowInfo[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1
         let memoryUsage = (windowInfo[kCGWindowMemoryUsage as String] as? NSNumber)?.intValue
+        let isOnScreen = (windowInfo[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue ?? false
 
         guard frame.width >= 40, frame.height >= 40, alpha > 0 else {
             return nil
@@ -57,5 +60,23 @@ extension HostWindow {
         self.layer = layer
         self.alpha = alpha
         self.memoryUsage = memoryUsage
+        self.isOnScreen = isOnScreen
+    }
+
+    init?(scWindow: SCWindow) {
+        guard scWindow.frame.width >= 40, scWindow.frame.height >= 40 else {
+            return nil
+        }
+
+        let owner = scWindow.owningApplication
+        self.id = scWindow.windowID
+        self.ownerPID = owner?.processID ?? 0
+        self.ownerName = owner?.applicationName ?? String(localized: "window.owner.unknown", defaultValue: "Unknown App", bundle: .module)
+        self.title = scWindow.title ?? ""
+        self.frame = scWindow.frame
+        self.layer = scWindow.windowLayer
+        self.alpha = 1
+        self.memoryUsage = nil
+        self.isOnScreen = scWindow.isOnScreen
     }
 }

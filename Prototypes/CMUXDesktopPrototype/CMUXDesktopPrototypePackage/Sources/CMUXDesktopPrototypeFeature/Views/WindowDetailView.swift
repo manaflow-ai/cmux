@@ -312,6 +312,12 @@ private struct WindowMetadataView: View {
                     value: frameString(window.frame)
                 )
                 MetadataRow(
+                    title: String(localized: "detail.location", defaultValue: "Location", bundle: .module),
+                    value: window.isOnScreen
+                        ? String(localized: "window.location.currentDesktop", defaultValue: "Current Desktop", bundle: .module)
+                        : String(localized: "window.location.otherDesktop", defaultValue: "Other Desktop", bundle: .module)
+                )
+                MetadataRow(
                     title: String(localized: "detail.layer", defaultValue: "Layer", bundle: .module),
                     value: String(window.layer)
                 )

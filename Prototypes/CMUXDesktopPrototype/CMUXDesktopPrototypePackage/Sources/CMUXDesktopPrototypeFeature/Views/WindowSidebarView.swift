@@ -62,10 +62,19 @@ private struct WindowRowView: View {
                 Text(title)
                     .font(.callout)
                     .lineLimit(1)
-                Text(window.ownerName)
-                    .font(.caption)
-                    .foregroundStyle(isSelected ? .white.opacity(0.82) : .secondary)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(window.ownerName)
+                        .lineLimit(1)
+                    if !window.isOnScreen {
+                        Label(
+                            String(localized: "window.location.otherDesktop", defaultValue: "Other Desktop", bundle: .module),
+                            systemImage: "rectangle.on.rectangle"
+                        )
+                        .labelStyle(.titleAndIcon)
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(isSelected ? .white.opacity(0.82) : .secondary)
                 Text(frameSummary(for: window))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(isSelected ? Color.white.opacity(0.68) : Color.secondary)

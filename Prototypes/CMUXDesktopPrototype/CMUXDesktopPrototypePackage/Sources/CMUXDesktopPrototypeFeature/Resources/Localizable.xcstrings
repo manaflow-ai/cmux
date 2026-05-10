@@ -110,6 +110,12 @@
         "ja": { "stringUnit": { "state": "translated", "value": "レイヤー" } }
       }
     },
+    "detail.location": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Location" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "場所" } }
+      }
+    },
     "detail.owner": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Owner" } },
@@ -294,6 +300,24 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Untitled" } },
         "ja": { "stringUnit": { "state": "translated", "value": "無題" } }
+      }
+    },
+    "window.location.currentDesktop": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Current Desktop" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在のデスクトップ" } }
+      }
+    },
+    "window.location.otherDesktop": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Other Desktop" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "別のデスクトップ" } }
+      }
+    },
+    "window.owner.unknown": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown App" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明なアプリ" } }
       }
     }
   }
