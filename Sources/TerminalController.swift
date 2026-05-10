@@ -2251,6 +2251,14 @@ class TerminalController {
         case "reset_empty_panel_count":
             return resetEmptyPanelCount()
 
+#if DEBUG
+        case "file_explorer_debug_counts":
+            return fileExplorerDebugCounts()
+
+        case "reset_file_explorer_debug_counts":
+            return resetFileExplorerDebugCounts()
+#endif
+
         case "focus_notification":
             return focusFromNotification(args)
 
@@ -14571,6 +14579,23 @@ class TerminalController {
         }
         return "OK"
     }
+
+#if DEBUG
+    private func fileExplorerDebugCounts() -> String {
+        var result = "OK"
+        v2MainSync {
+            result = "OK \(FileExplorerDebugCounters.summary)"
+        }
+        return result
+    }
+
+    private func resetFileExplorerDebugCounts() -> String {
+        v2MainSync {
+            FileExplorerDebugCounters.reset()
+        }
+        return "OK"
+    }
+#endif
 
     private func bonsplitUnderflowCount() -> String {
         var result = "OK 0"

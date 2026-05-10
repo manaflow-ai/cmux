@@ -8,6 +8,31 @@ private func fileExplorerDebugResponder(_ responder: NSResponder?) -> String {
     guard let responder else { return "nil" }
     return String(describing: type(of: responder))
 }
+
+@MainActor
+enum FileExplorerDebugCounters {
+    static var updateNSViewCount = 0
+    static var visibilityUpdateCount = 0
+    static var searchLayoutInvalidationCount = 0
+    static var outlineReloadCount = 0
+    static var outlineRefreshCount = 0
+
+    static func reset() {
+        updateNSViewCount = 0
+        visibilityUpdateCount = 0
+        searchLayoutInvalidationCount = 0
+        outlineReloadCount = 0
+        outlineRefreshCount = 0
+    }
+
+    static var summary: String {
+        "updateNSView=\(updateNSViewCount) " +
+            "visibilityUpdates=\(visibilityUpdateCount) " +
+            "searchLayoutInvalidations=\(searchLayoutInvalidationCount) " +
+            "outlineReloads=\(outlineReloadCount) " +
+            "outlineRefreshes=\(outlineRefreshCount)"
+    }
+}
 #endif
 
 // MARK: - File Explorer Panel (single NSViewRepresentable)
@@ -43,6 +68,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
     }
 
     func updateNSView(_ container: FileExplorerContainerView, context: Context) {
+#if DEBUG
+        FileExplorerDebugCounters.updateNSViewCount += 1
+#endif
         context.coordinator.updateBindings(
             store: store,
             state: state,
@@ -136,9 +164,19 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 if newCount != lastRootNodeCount {
                     lastRootNodeCount = newCount
                     let expandedPaths = store.expandedPaths
+#if DEBUG
+                    MainActor.assumeIsolated {
+                        FileExplorerDebugCounters.outlineReloadCount += 1
+                    }
+#endif
                     outlineView.reloadData()
                     restoreExpansionState(expandedPaths, in: outlineView)
                 } else {
+#if DEBUG
+                    MainActor.assumeIsolated {
+                        FileExplorerDebugCounters.outlineRefreshCount += 1
+                    }
+#endif
                     refreshLoadedNodes(in: outlineView)
                 }
                 applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
@@ -902,6 +940,9 @@ final class FileExplorerContainerView: NSView {
     }
 
     func updateVisibility(hasContent: Bool, isLoading: Bool) {
+#if DEBUG
+        FileExplorerDebugCounters.visibilityUpdateCount += 1
+#endif
         headerView.isHidden = !hasContent
         updateSearchLayout(hasContent: hasContent, isLoading: isLoading)
         let searchCanShow = isSearchVisible && hasContent && !isLoading
@@ -1016,6 +1057,9 @@ final class FileExplorerContainerView: NSView {
         searchBarHeightConstraint.constant = showSearch ? RightSidebarChromeMetrics.secondaryBarHeight : 0
         searchScrollView.isHidden = !showSearch
         scrollView.isHidden = showSearch || !effectiveHasContent || effectiveIsLoading
+#if DEBUG
+        FileExplorerDebugCounters.searchLayoutInvalidationCount += 1
+#endif
         needsLayout = true
     }
 

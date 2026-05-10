@@ -1199,6 +1199,28 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
+    def file_explorer_debug_counts(self) -> dict:
+        """Return debug counters for Files sidebar AppKit updates."""
+        response = self._send_command("file_explorer_debug_counts")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+        counts = {}
+        for part in response[3:].strip().split():
+            if "=" not in part:
+                continue
+            key, value = part.split("=", 1)
+            try:
+                counts[key] = int(value)
+            except ValueError:
+                counts[key] = value
+        return counts
+
+    def reset_file_explorer_debug_counts(self) -> None:
+        """Reset debug counters for Files sidebar AppKit updates."""
+        response = self._send_command("reset_file_explorer_debug_counts")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
     def empty_panel_count(self) -> int:
         """Return the number of EmptyPanelView appearances."""
         response = self._send_command("empty_panel_count")
