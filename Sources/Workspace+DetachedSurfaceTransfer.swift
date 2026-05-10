@@ -3,9 +3,10 @@ import Darwin
 
 extension Workspace {
     struct DetachedAgentRuntimeState {
-        let statusKey: String
-        let statusEntry: SidebarStatusEntry?
+        let panelId: UUID
+        let statusEntries: [String: SidebarStatusEntry]
         let agentPIDs: [String: pid_t]
+        let agentPIDKeys: Set<String>
     }
 
     struct DetachedSurfaceTransfer {
