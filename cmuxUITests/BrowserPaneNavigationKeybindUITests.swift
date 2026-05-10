@@ -535,6 +535,45 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    func testCommandPaletteDismissesWhenWindowResignsKeyAfterCmdShiftP() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_TAG"] = "ui-pal-bg-\(UUID().uuidString.prefix(8))"
+        launchAndEnsureForeground(app)
+        if app.state != .runningForeground {
+            app.activate()
+        }
+        XCTAssertTrue(
+            app.wait(for: .runningForeground, timeout: 8.0),
+            "Expected cmux to be foreground before opening the command palette. state=\(app.state.rawValue)"
+        )
+
+        let window = app.windows.firstMatch
+        _ = window.waitForExistence(timeout: 2.0)
+
+        let paletteSearchField = app.textFields["CommandPaletteSearchField"].firstMatch
+        app.typeKey("p", modifierFlags: [.command, .shift])
+        XCTAssertTrue(
+            paletteSearchField.waitForExistence(timeout: 5.0),
+            "Expected Cmd+Shift+P to open the command palette"
+        )
+
+        XCUIApplication(bundleIdentifier: "com.apple.finder").activate()
+        XCTAssertTrue(
+            waitForAppToLeaveForeground(app, timeout: 8.0),
+            "Expected cmux to leave foreground after Finder activation. state=\(app.state.rawValue)"
+        )
+        app.activate()
+        XCTAssertTrue(
+            app.wait(for: .runningForeground, timeout: 8.0),
+            "Expected cmux to return foreground after Finder activation. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(
+            waitForNonExistence(paletteSearchField, timeout: 5.0),
+            "Expected command palette to dismiss across a window key-loss round trip"
+        )
+    }
+
     func testCmdDSplitsRightWhenWebViewFocused() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
@@ -1443,6 +1482,12 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     ) -> Bool {
         waitForCondition(timeout: timeout) {
             (self.commandPaletteSnapshot(windowId: windowId)?["visible"] as? Bool) == visible
+        }
+    }
+
+    private func waitForAppToLeaveForeground(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        waitForCondition(timeout: timeout) {
+            app.state != .runningForeground
         }
     }
 
