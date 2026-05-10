@@ -19,8 +19,6 @@ struct WindowDetailView: View {
     let onScrollInput: (WindowScrollInput) -> Void
     let onKeyInput: (WindowKeyInput) -> Void
 
-    @SceneStorage("desktopPrototype.previewHeight") private var previewHeight = 760.0
-
     var body: some View {
         if let window {
             ScrollView {
@@ -35,7 +33,6 @@ struct WindowDetailView: View {
                         image: liveFrame,
                         window: window,
                         isRunning: isLiveCaptureRunning,
-                        previewHeight: $previewHeight,
                         onMouseInput: onMouseInput,
                         onScrollInput: onScrollInput,
                         onKeyInput: onKeyInput
@@ -110,10 +107,16 @@ private struct LivePreviewView: View {
     let image: CGImage?
     let window: HostWindow
     let isRunning: Bool
-    @Binding var previewHeight: Double
     let onMouseInput: (WindowMouseInput) -> Void
     let onScrollInput: (WindowScrollInput) -> Void
     let onKeyInput: (WindowKeyInput) -> Void
+
+    private var previewSize: CGSize {
+        CGSize(
+            width: max(window.frame.width, 1),
+            height: max(window.frame.height, 1)
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -123,39 +126,45 @@ private struct LivePreviewView: View {
                 Image(systemName: isRunning ? "record.circle.fill" : "record.circle")
                     .foregroundStyle(isRunning ? .red : .secondary)
                 Spacer()
-                Label(
-                    String(localized: "preview.size", defaultValue: "Preview Size", bundle: .module),
-                    systemImage: "arrow.up.left.and.arrow.down.right"
-                )
-                .foregroundStyle(.secondary)
-                Slider(value: $previewHeight, in: 420...1400)
-                    .frame(width: 260)
+                Text(sizeString)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
             }
                 .font(.headline)
 
-            ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor))
+            ScrollView(.horizontal) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                        .frame(width: previewSize.width + 24, height: previewSize.height + 24)
 
-                if let image {
-                    InteractiveWindowPreview(
-                        image: image,
-                        window: window,
-                        onMouse: onMouseInput,
-                        onScroll: onScrollInput,
-                        onKey: onKeyInput
-                    )
-                    .padding(12)
-                } else {
-                    ContentUnavailableView(
-                        String(localized: "detail.livePreview.waiting", defaultValue: "Waiting for live video", bundle: .module),
-                        systemImage: "video.slash"
-                    )
+                    if let image {
+                        InteractiveWindowPreview(
+                            image: image,
+                            window: window,
+                            onMouse: onMouseInput,
+                            onScroll: onScrollInput,
+                            onKey: onKeyInput
+                        )
+                        .frame(width: previewSize.width, height: previewSize.height)
+                    } else {
+                        ContentUnavailableView(
+                            String(localized: "detail.livePreview.waiting", defaultValue: "Waiting for live video", bundle: .module),
+                            systemImage: "video.slash"
+                        )
+                        .frame(width: previewSize.width, height: previewSize.height)
+                    }
                 }
+                .padding(.trailing, 1)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: previewHeight)
+            .frame(height: previewSize.height + 24)
         }
+    }
+
+    private var sizeString: String {
+        let format = String(localized: "window.frame.compact", defaultValue: "%.0f x %.0f", bundle: .module)
+        return String(format: format, previewSize.width, previewSize.height)
     }
 }
 
