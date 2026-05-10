@@ -527,7 +527,10 @@ extension CMUXCLI {
             }
             var result: [String: String] = [:]
             for (rawAction, rawValue) in bindings {
-                let definition = try CmuxSettingsRegistry.shortcutAction(for: rawAction)
+                guard let definition = CmuxSettingsRegistry.shortcutActionsByName[rawAction]
+                    ?? CmuxSettingsRegistry.shortcutActionsByName[rawAction.lowercased()] else {
+                    continue
+                }
                 let shortcut = try CLIShortcut.parseJSONValue(rawValue, action: definition)
                 result[definition.action] = shortcut.configString
             }

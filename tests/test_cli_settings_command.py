@@ -257,6 +257,9 @@ openSettings = "cmd+option+,"
         if bindings.get("openSettings") != "cmd+n":
             failures.append(f"shortcut binding was not written to cmux.json: {config}")
 
+        config.setdefault("shortcuts", {}).setdefault("bindings", {})["legacyAction"] = "cmd+option+y"
+        config_path(home).write_text(json.dumps(config), encoding="utf-8")
+
         before_import = read_config(home)
         bad_import_path = home / "bad-import.json"
         bad_import_path.write_text(
@@ -277,6 +280,8 @@ openSettings = "cmd+option+,"
             failures.append("settings export --format toml did not write app.appearance")
         if 'shortcuts.bindings.openSettings = "cmd+n"' not in exported_text:
             failures.append("settings export --format toml did not write configured shortcut override")
+        if "shortcuts.bindings.legacyAction" in exported_text:
+            failures.append("settings export --format toml exported an unrecognized legacy shortcut action")
         if "browser.enabled = true" in exported_text:
             failures.append("settings export --format toml pinned an unmodified default setting")
         if 'shortcuts.bindings.newWindow = "cmd+shift+n"' in exported_text:

@@ -687,6 +687,8 @@ final class CmuxSettingsFileStore {
     ) {
         if let value = jsonBool(section["enabled"]) {
             snapshot.managedUserDefaults[BrowserAvailabilitySettings.disabledKey] = .bool(!value)
+        } else if section.keys.contains("enabled") {
+            logInvalid("browser.enabled", sourcePath: sourcePath)
         }
         if let raw = jsonString(section["defaultSearchEngine"]) {
             guard let engine = BrowserSearchEngine(rawValue: raw) else {
