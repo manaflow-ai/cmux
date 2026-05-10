@@ -55,42 +55,7 @@ commands:
           name: Install zig
           no_output_timeout: 35m
           command: |
-            ZIG_REQUIRED="0.15.2"
-            if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
-              echo "zig ${ZIG_REQUIRED} already installed"
-              exit 0
-            fi
-
-            case "$(uname -m)" in
-              arm64)
-                ZIG_ARCH="aarch64"
-                ZIG_SHA256="3cc2bab367e185cdfb27501c4b30b1b0653c28d9f73df8dc91488e66ece5fa6b"
-                ;;
-              x86_64)
-                ZIG_ARCH="x86_64"
-                ZIG_SHA256="375b6909fc1495d16fc2c7db9538f707456bfc3373b14ee83fdd3e22b3d43f7f"
-                ;;
-              *)
-                echo "Unsupported macOS architecture: $(uname -m)" >&2
-                exit 1
-                ;;
-            esac
-
-            ZIG_URL="https://ziglang.org/download/${ZIG_REQUIRED}/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}.tar.xz"
-            curl_retry() {
-              curl --fail --show-error --location --progress-bar --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 20 --speed-limit 1024 --speed-time 120 --max-time 1800 "$@"
-            }
-
-            echo "Installing verified zig ${ZIG_REQUIRED} from tarball"
-            curl_retry "$ZIG_URL" -o /tmp/zig.tar.xz
-            printf "%s  /tmp/zig.tar.xz\n" "$ZIG_SHA256" | shasum -a 256 -c -
-            tar xf /tmp/zig.tar.xz -C /tmp
-            sudo mkdir -p /usr/local/bin /usr/local/lib
-            sudo rm -rf /usr/local/lib/zig
-            sudo mkdir -p /usr/local/lib/zig
-            sudo cp -f "/tmp/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}/zig" /usr/local/bin/zig
-            sudo cp -Rf "/tmp/zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}/lib/." /usr/local/lib/zig/
-            zig version
+            ./scripts/install-zig-ci.sh
 
   print-xcode:
     steps:
@@ -181,19 +146,20 @@ jobs:
           name: Download pre-built GhosttyKit.xcframework
           no_output_timeout: 35m
           command: ./scripts/download-prebuilt-ghosttykit.sh
-      - install-zig
       - resolve-swift-packages:
           scheme: cmux-unit
       - run:
           name: Run unit tests
           no_output_timeout: 35m
           command: |
+            export CMUX_SKIP_ZIG_BUILD=1
             SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
             run_unit_tests() {
               xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
                 -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
                 -disableAutomaticPackageResolution \
                 -destination "platform=macOS" \
+                CMUX_SKIP_ZIG_BUILD=1 \
                 -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace \
                 test 2>&1
             }
@@ -213,7 +179,8 @@ jobs:
               mkdir -p "$SOURCE_PACKAGES_DIR"
               xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
                 -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-                -resolvePackageDependencies
+                -resolvePackageDependencies \
+                CMUX_SKIP_ZIG_BUILD=1
               set +e
               run_unit_tests | tee /tmp/test-output.txt
               EXIT_CODE=${PIPESTATUS[0]}
@@ -234,7 +201,8 @@ jobs:
           name: Run bundled Ghostty theme picker helper regression
           no_output_timeout: 35m
           command: |
-            CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+              CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
               ./tests/test_bundled_ghostty_theme_picker_helper.sh
       - run:
           name: Run CLI no-socket regressions
@@ -272,18 +240,20 @@ jobs:
           name: Download pre-built GhosttyKit.xcframework
           no_output_timeout: 35m
           command: ./scripts/download-prebuilt-ghosttykit.sh
-      - install-zig
       - resolve-swift-packages:
           scheme: cmux
       - run:
           name: Build app and capture warnings
           no_output_timeout: 35m
           command: |
+            export CMUX_SKIP_ZIG_BUILD=1
             SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
             xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
-              -destination "platform=macOS" build 2>&1 | tee /tmp/cmux-build-output.txt
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              build 2>&1 | tee /tmp/cmux-build-output.txt
       - run:
           name: Validate Swift warning budget
           command: python3 scripts/swift_warning_budget.py --log /tmp/cmux-build-output.txt
@@ -304,7 +274,6 @@ jobs:
           name: Download pre-built GhosttyKit.xcframework
           no_output_timeout: 35m
           command: ./scripts/download-prebuilt-ghosttykit.sh
-      - install-zig
       - resolve-swift-packages:
           scheme: cmux
           source-packages-dir: .spm-cache
@@ -312,12 +281,14 @@ jobs:
           name: Build universal app (Release)
           no_output_timeout: 35m
           command: |
+            export CMUX_SKIP_ZIG_BUILD=1
             xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
               -destination "generic/platform=macOS" \
               -clonedSourcePackagesDirPath .spm-cache \
               -disableAutomaticPackageResolution \
               ARCHS="arm64 x86_64" \
               ONLY_ACTIVE_ARCH=NO \
+              CMUX_SKIP_ZIG_BUILD=1 \
               CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
       - save-swift-package-cache:
           prefix: release
