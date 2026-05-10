@@ -2,6 +2,11 @@
   "sourceLanguage": "en",
   "version": "1.0",
   "strings": {
+    "command.toggleLeftSidebar.title": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"تبديل الشريط الجانبي الأيسر"}},"bs":{"stringUnit":{"state":"translated","value":"Prebaci lijevu bočnu traku"}},"da":{"stringUnit":{"state":"translated","value":"Slå venstre sidebjælke til/fra"}},"de":{"stringUnit":{"state":"translated","value":"Linke Seitenleiste ein-/ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Toggle Left Sidebar"}},"es":{"stringUnit":{"state":"translated","value":"Alternar barra lateral izquierda"}},"fr":{"stringUnit":{"state":"translated","value":"Afficher/masquer la barre latérale gauche"}},"it":{"stringUnit":{"state":"translated","value":"Attiva/Disattiva barra laterale sinistra"}},"ja":{"stringUnit":{"state":"translated","value":"左サイドバーを切り替え"}},"ko":{"stringUnit":{"state":"translated","value":"왼쪽 사이드바 전환"}},"nb":{"stringUnit":{"state":"translated","value":"Slå venstre sidepanel av/på"}},"pl":{"stringUnit":{"state":"translated","value":"Przełącz lewy pasek boczny"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Alternar barra lateral esquerda"}},"ru":{"stringUnit":{"state":"translated","value":"Переключить левую боковую панель"}},"th":{"stringUnit":{"state":"translated","value":"สลับแถบด้านข้างซ้าย"}},"tr":{"stringUnit":{"state":"translated","value":"Sol Kenar Çubuğunu Aç/Kapat"}},"uk":{"stringUnit":{"state":"translated","value":"Перемкнути ліву бічну панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"切换左侧边栏"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"切換左側邊欄"}}} },
+    "menu.view.toggleLeftSidebar": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"تبديل الشريط الجانبي الأيسر"}},"bs":{"stringUnit":{"state":"translated","value":"Prebaci lijevu bočnu traku"}},"da":{"stringUnit":{"state":"translated","value":"Slå venstre sidebjælke til/fra"}},"de":{"stringUnit":{"state":"translated","value":"Linke Seitenleiste ein-/ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Toggle Left Sidebar"}},"es":{"stringUnit":{"state":"translated","value":"Alternar barra lateral izquierda"}},"fr":{"stringUnit":{"state":"translated","value":"Afficher/masquer la barre latérale gauche"}},"it":{"stringUnit":{"state":"translated","value":"Attiva/Disattiva barra laterale sinistra"}},"ja":{"stringUnit":{"state":"translated","value":"左サイドバーを切り替え"}},"ko":{"stringUnit":{"state":"translated","value":"왼쪽 사이드바 전환"}},"nb":{"stringUnit":{"state":"translated","value":"Slå venstre sidepanel av/på"}},"pl":{"stringUnit":{"state":"translated","value":"Przełącz lewy pasek boczny"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Alternar barra lateral esquerda"}},"ru":{"stringUnit":{"state":"translated","value":"Переключить левую боковую панель"}},"th":{"stringUnit":{"state":"translated","value":"สลับแถบด้านข้างซ้าย"}},"tr":{"stringUnit":{"state":"translated","value":"Sol Kenar Çubuğunu Aç/Kapat"}},"uk":{"stringUnit":{"state":"translated","value":"Перемкнути ліву бічну панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"切换左侧边栏"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"切換左側邊欄"}}} },
+    "menu.view.toggleRightSidebar": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"تبديل الشريط الجانبي الأيمن"}},"bs":{"stringUnit":{"state":"translated","value":"Prebaci desnu bočnu traku"}},"da":{"stringUnit":{"state":"translated","value":"Slå højre sidebjælke til/fra"}},"de":{"stringUnit":{"state":"translated","value":"Rechte Seitenleiste ein-/ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Toggle Right Sidebar"}},"es":{"stringUnit":{"state":"translated","value":"Alternar barra lateral derecha"}},"fr":{"stringUnit":{"state":"translated","value":"Afficher/masquer la barre latérale droite"}},"it":{"stringUnit":{"state":"translated","value":"Attiva/Disattiva barra laterale destra"}},"ja":{"stringUnit":{"state":"translated","value":"右サイドバーを切り替え"}},"ko":{"stringUnit":{"state":"translated","value":"오른쪽 사이드바 전환"}},"nb":{"stringUnit":{"state":"translated","value":"Slå høyre sidepanel av/på"}},"pl":{"stringUnit":{"state":"translated","value":"Przełącz prawy pasek boczny"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Alternar barra lateral direita"}},"ru":{"stringUnit":{"state":"translated","value":"Переключить правую боковую панель"}},"th":{"stringUnit":{"state":"translated","value":"สลับแถบด้านข้างขวา"}},"tr":{"stringUnit":{"state":"translated","value":"Sağ Kenar Çubuğunu Aç/Kapat"}},"uk":{"stringUnit":{"state":"translated","value":"Перемкнути праву бічну панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"切换右侧边栏"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"切換右側邊欄"}}} },
+    "shortcut.toggleLeftSidebar.label": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"تبديل الشريط الجانبي الأيسر"}},"bs":{"stringUnit":{"state":"translated","value":"Prebaci lijevu bočnu traku"}},"da":{"stringUnit":{"state":"translated","value":"Slå venstre sidebjælke til/fra"}},"de":{"stringUnit":{"state":"translated","value":"Linke Seitenleiste ein-/ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Toggle Left Sidebar"}},"es":{"stringUnit":{"state":"translated","value":"Alternar barra lateral izquierda"}},"fr":{"stringUnit":{"state":"translated","value":"Afficher/masquer la barre latérale gauche"}},"it":{"stringUnit":{"state":"translated","value":"Attiva/Disattiva barra laterale sinistra"}},"ja":{"stringUnit":{"state":"translated","value":"左サイドバーを切り替え"}},"ko":{"stringUnit":{"state":"translated","value":"왼쪽 사이드바 전환"}},"nb":{"stringUnit":{"state":"translated","value":"Slå venstre sidepanel av/på"}},"pl":{"stringUnit":{"state":"translated","value":"Przełącz lewy pasek boczny"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Alternar barra lateral esquerda"}},"ru":{"stringUnit":{"state":"translated","value":"Переключить левую боковую панель"}},"th":{"stringUnit":{"state":"translated","value":"สลับแถบด้านข้างซ้าย"}},"tr":{"stringUnit":{"state":"translated","value":"Sol Kenar Çubuğunu Aç/Kapat"}},"uk":{"stringUnit":{"state":"translated","value":"Перемкнути ліву бічну панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"切换左侧边栏"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"切換左側邊欄"}}} },
+    "shortcut.toggleRightSidebar.label": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"تبديل الشريط الجانبي الأيمن"}},"bs":{"stringUnit":{"state":"translated","value":"Prebaci desnu bočnu traku"}},"da":{"stringUnit":{"state":"translated","value":"Slå højre sidebjælke til/fra"}},"de":{"stringUnit":{"state":"translated","value":"Rechte Seitenleiste ein-/ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Toggle Right Sidebar"}},"es":{"stringUnit":{"state":"translated","value":"Alternar barra lateral derecha"}},"fr":{"stringUnit":{"state":"translated","value":"Afficher/masquer la barre latérale droite"}},"it":{"stringUnit":{"state":"translated","value":"Attiva/Disattiva barra laterale destra"}},"ja":{"stringUnit":{"state":"translated","value":"右サイドバーを切り替え"}},"ko":{"stringUnit":{"state":"translated","value":"오른쪽 사이드바 전환"}},"nb":{"stringUnit":{"state":"translated","value":"Slå høyre sidepanel av/på"}},"pl":{"stringUnit":{"state":"translated","value":"Przełącz prawy pasek boczny"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Alternar barra lateral direita"}},"ru":{"stringUnit":{"state":"translated","value":"Переключить правую боковую панель"}},"th":{"stringUnit":{"state":"translated","value":"สลับแถบด้านข้างขวา"}},"tr":{"stringUnit":{"state":"translated","value":"Sağ Kenar Çubuğunu Aç/Kapat"}},"uk":{"stringUnit":{"state":"translated","value":"Перемкнути праву бічну панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"切换右侧边栏"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"切換右側邊欄"}}} },
     "shortcut.commandPaletteNext.label": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "ja": { "stringUnit": { "state": "translated", "value": "コマンドパレット: 次へ" } }, "zh-Hans": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "zh-Hant": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "ko": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "de": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "es": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "fr": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "it": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "da": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "pl": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "ru": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "bs": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "ar": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "nb": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "th": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "tr": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "uk": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } } } },
     "shortcut.commandPalettePrevious.label": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "ja": { "stringUnit": { "state": "translated", "value": "コマンドパレット: 前へ" } }, "zh-Hans": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "zh-Hant": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "ko": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "de": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "es": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "fr": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "it": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "da": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "pl": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "ru": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "bs": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "ar": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "nb": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "th": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "tr": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "uk": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } } } },
     "settings.shortcuts.managedByFile": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "ja": { "stringUnit": { "state": "translated", "value": "cmux.json で管理" } }, "zh-Hans": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "zh-Hant": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "ko": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "de": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "es": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "fr": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "it": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "da": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "pl": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "ru": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "bs": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "ar": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "nb": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "th": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "tr": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "uk": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } } } },
@@ -27519,125 +27524,6 @@
         }
       }
     },
-    "command.toggleSidebar.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle Sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーの切り替え"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切换侧边栏"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切換側邊欄"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바 전환"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seitenleiste ein-/ausblenden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar barra lateral"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher/masquer la barre latérale"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attiva/Disattiva barra laterale"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå sidebjælke til/fra"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przełącz pasek boczny"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Боковая панель"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prebaci bočnu traku"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تبديل الشريط الجانبي"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå sidepanelet av/på"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar Barra Lateral"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สลับแถบด้านข้าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kenar Çubuğunu Aç/Kapat"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перемкнути бічну панель"
-          }
-        }
-      }
-    },
     "command.toggleSplitZoom.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -49044,125 +48930,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Перемкнути інструменти розробника"
-          }
-        }
-      }
-    },
-    "menu.view.toggleSidebar": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle Sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーの切り替え"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切换侧边栏"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切換側邊欄"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바 전환"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seitenleiste ein-/ausblenden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar barra lateral"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher/masquer la barre latérale"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attiva/Disattiva barra laterale"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå sidebjælke til/fra"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przełącz pasek boczny"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Боковая панель"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prebaci bočnu traku"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تبديل الشريط الجانبي"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå sidepanelet av/på"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar Barra Lateral"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สลับแถบด้านข้าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kenar Çubuğunu Aç/Kapat"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перемкнути бічну панель"
           }
         }
       }
@@ -86037,148 +85804,6 @@
         }
       }
     },
-    "shortcut.toggleSidebar.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle Sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーを切替"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切换侧边栏"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切換側邊欄"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바 전환"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seitenleiste ein-/ausblenden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar barra lateral"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher/masquer la barre latérale"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attiva/Disattiva barra laterale"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå sidebjælke til/fra"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przełącz pasek boczny"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Боковая панель"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prebaci bočnu traku"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تبديل الشريط الجانبي"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå sidepanelet av/på"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar Barra Lateral"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สลับแถบด้านข้าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kenar Çubuğunu Aç/Kapat"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перемкнути бічну панель"
-          }
-        }
-      }
-    },
-    "shortcut.toggleFileExplorer.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle Right Sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右サイドバーを切替"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오른쪽 사이드바 토글"
-          }
-        }
-      }
-    },
     "fileExplorer.empty": {
       "extractionState": "manual",
       "localizations": {
@@ -86340,6 +85965,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "파일 탐색기를 사용할 수 없습니다"
+          }
+        }
+      }
+    },
+    "fileExplorer.status.sshHomeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to resolve SSH home: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH のホームを解決できません: %@"
+          }
+        }
+      }
+    },
+    "fileExplorer.status.sshResolvingHome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolving remote home..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートのホームを解決中..."
+          }
+        }
+      }
+    },
+    "fileExplorer.status.sshUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH files unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ファイルを利用できません"
+          }
+        }
+      }
+    },
+    "fileExplorer.status.sshUnavailableWithDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH files unavailable: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ファイルを利用できません: %@"
           }
         }
       }
@@ -105490,6 +105183,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "워크스페이스 설명 지우기"
+          }
+        }
+      }
+    },
+    "contextMenu.showWorkspaceInFinder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show in Finder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderで表示"
           }
         }
       }
