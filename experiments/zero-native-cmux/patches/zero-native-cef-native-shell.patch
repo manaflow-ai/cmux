@@ -1,5 +1,5 @@
 diff --git a/src/platform/macos/cef_host.mm b/src/platform/macos/cef_host.mm
-index ce9c747..240ed51 100644
+index ce9c747..ea78ee1 100644
 --- a/src/platform/macos/cef_host.mm
 +++ b/src/platform/macos/cef_host.mm
 @@ -2,12 +2,21 @@
@@ -1062,7 +1062,7 @@ index ce9c747..240ed51 100644
 +        if (tab.browserContainer) {
 +            NSRect frame = browserFrame;
 +            NSView *browserView = tab.browserContainer.subviews.firstObject;
-+            if (browserView && browserView.frame.size.height > browserFrame.size.height) {
++            if (!self.internalDevToolsVisible && browserView && browserView.frame.size.height > browserFrame.size.height) {
 +                frame.size.height = browserView.frame.size.height;
 +                frame.origin.y = NSMaxY(browserFrame) - frame.size.height;
 +            }
@@ -1127,7 +1127,7 @@ index ce9c747..240ed51 100644
 +    if (!tab.browserContainer) return;
 +    NSRect browserFrame = [self browserContentFrame];
 +    NSView *browserView = tab.browserContainer.subviews.firstObject;
-+    if (browserView && browserView.frame.size.height > browserFrame.size.height) {
++    if (!self.internalDevToolsVisible && browserView && browserView.frame.size.height > browserFrame.size.height) {
 +        browserFrame.size.height = browserView.frame.size.height;
 +        browserFrame.origin.y = NSMaxY([self browserContentFrame]) - browserFrame.size.height;
 +        tab.browserContainer.frame = browserFrame;
@@ -1667,7 +1667,7 @@ index ce9c747..240ed51 100644
      return ZeroNativePolicyListMatches(self.allowedNavigationOrigins, url);
  }
  
-@@ -781,7 +2143,302 @@ - (BOOL)openExternalURLIfAllowed:(NSURL *)url {
+@@ -781,7 +2143,312 @@ - (BOOL)openExternalURLIfAllowed:(NSURL *)url {
  
  - (void)setBrowser:(CefRefPtr<CefBrowser>)browser windowId:(uint64_t)windowId {
      if (self.browsers) (*self.browsers)[windowId] = browser;
@@ -1815,13 +1815,23 @@ index ce9c747..240ed51 100644
 +        auto existing = self.devToolsBrowsers->find(devToolsKey);
 +        if (existing != self.devToolsBrowsers->end() && existing->second) {
 +            if (mode == 2) {
-+                [self.devToolsWindows[windowKey] makeKeyAndOrderFront:nil];
-+                [NSApp activateIgnoringOtherApps:YES];
++                existing->second->GetHost()->SetFocus(true);
 +            } else {
 +                [self resizeNativeBrowserDevToolsForWindowId:windowId mode:mode];
 +            }
 +            return;
 +        }
++    }
++
++    if (mode == 2) {
++        CefRefPtr<ZeroNativeCefDevToolsClient> client = new ZeroNativeCefDevToolsClient(self, windowId, mode);
++        if (self.devToolsClients) (*self.devToolsClients)[devToolsKey] = client;
++
++        CefWindowInfo windowInfo;
++        windowInfo.runtime_style = CEF_RUNTIME_STYLE_CHROME;
++        CefBrowserSettings settings;
++        it->second->GetHost()->ShowDevTools(windowInfo, client.get(), settings, CefPoint());
++        return;
 +    }
 +
 +    NSString *sourceURLString = @"";
@@ -1971,7 +1981,7 @@ index ce9c747..240ed51 100644
  }
  
  - (NSString *)fallbackURLForWindowId:(uint64_t)windowId {
-@@ -881,7 +2538,26 @@ static BOOL ZeroNativePolicyListMatches(NSArray<NSString *> *values, NSURL *url)
+@@ -881,7 +2548,26 @@ static BOOL ZeroNativePolicyListMatches(NSArray<NSString *> *values, NSURL *url)
  }
  
  void ZeroNativeCefClient::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
@@ -1999,7 +2009,7 @@ index ce9c747..240ed51 100644
  }
  
  void ZeroNativeCefClient::OnLoadError(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, ErrorCode errorCode, const CefString& errorText, const CefString& failedUrl) {
-@@ -904,7 +2580,10 @@ static BOOL ZeroNativePolicyListMatches(NSArray<NSString *> *values, NSURL *url)
+@@ -904,7 +2590,10 @@ static BOOL ZeroNativePolicyListMatches(NSArray<NSString *> *values, NSURL *url)
      std::string url = request ? request->GetURL().ToString() : std::string();
      NSString *urlString = [[NSString alloc] initWithBytes:url.data() length:url.size() encoding:NSUTF8StringEncoding] ?: @"";
      NSURL *nsURL = [NSURL URLWithString:urlString];
@@ -2011,7 +2021,7 @@ index ce9c747..240ed51 100644
      if ([host_ openExternalURLIfAllowed:nsURL]) return true;
      return true;
  }
-@@ -923,19 +2602,41 @@ static BOOL ZeroNativePolicyListMatches(NSArray<NSString *> *values, NSURL *url)
+@@ -923,19 +2612,41 @@ static BOOL ZeroNativePolicyListMatches(NSArray<NSString *> *values, NSURL *url)
      return true;
  }
  
