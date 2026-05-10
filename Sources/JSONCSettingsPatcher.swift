@@ -44,7 +44,8 @@ nonisolated enum JSONCSettingsPatcher {
         if object.hasProperties {
             let closeIndent = lineIndent(in: source, at: object.close)
             let closeChildIndent = closeIndent + "  "
-            let insertion = ",\n\(closeChildIndent)\(try renderString(key)): \(valueJSON)\n\(closeIndent)"
+            let separator = object.hasTrailingComma ? "" : ","
+            let insertion = "\(separator)\n\(closeChildIndent)\(try renderString(key)): \(valueJSON)\n\(closeIndent)"
             return replacing(object.close..<object.close, with: insertion, in: source)
         }
 
@@ -122,6 +123,7 @@ private struct ObjectInfo {
     let open: String.Index
     let close: String.Index
     let hasProperties: Bool
+    let hasTrailingComma: Bool
 }
 
 private struct PropertyInfo {
@@ -146,7 +148,13 @@ private struct Scanner {
         let open = skipTrivia(from: index, limit: source.endIndex)
         guard open < source.endIndex, source[open] == "{" else { return nil }
         let close = try matchingClose(for: open, open: "{", close: "}")
-        return ObjectInfo(open: open, close: close, hasProperties: try hasProperty(in: open, close: close))
+        let summary = try propertySummary(in: open, close: close)
+        return ObjectInfo(
+            open: open,
+            close: close,
+            hasProperties: summary.hasProperties,
+            hasTrailingComma: summary.hasTrailingComma
+        )
     }
 
     func property(_ key: String, in object: ObjectInfo) throws -> PropertyInfo? {
@@ -179,9 +187,38 @@ private struct Scanner {
         }
     }
 
-    private func hasProperty(in open: String.Index, close: String.Index) throws -> Bool {
-        let first = skipTrivia(from: source.index(after: open), limit: close)
-        return first < close && source[first] == "\""
+    private func propertySummary(in open: String.Index, close: String.Index) throws -> (hasProperties: Bool, hasTrailingComma: Bool) {
+        var cursor = source.index(after: open)
+        var hasProperties = false
+        var lastPropertyHadComma = false
+        while true {
+            cursor = skipTrivia(from: cursor, limit: close)
+            guard cursor < close else {
+                return (hasProperties, hasProperties && lastPropertyHadComma)
+            }
+            guard source[cursor] == "\"" else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+
+            let nameEnd = try stringEnd(from: cursor)
+            var colon = skipTrivia(from: nameEnd, limit: close)
+            guard colon < close, source[colon] == ":" else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            colon = source.index(after: colon)
+
+            let valueStart = skipTrivia(from: colon, limit: close)
+            let valueEnd = try valueEnd(from: valueStart, limit: close)
+            hasProperties = true
+
+            cursor = skipTrivia(from: valueEnd, limit: close)
+            if cursor < close, source[cursor] == "," {
+                lastPropertyHadComma = true
+                cursor = source.index(after: cursor)
+            } else {
+                lastPropertyHadComma = false
+            }
+        }
     }
 
     private func skipTrivia(from index: String.Index, limit: String.Index) -> String.Index {

@@ -313,6 +313,89 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         withExtendedLifetime(store) {}
     }
 
+    func testSettingsUIChangeInsertsIntoSectionWithTrailingComma() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "sidebarAppearance": {
+                "tintColor": "#000000",
+              }
+            }
+            """,
+            to: primaryURL
+        )
+
+        let defaultsKey = "sidebarMatchTerminalBackground"
+        let defaultsSuiteName = "cmux.settings-file-store.trailing-comma.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuiteName))
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+        defer {
+            defaults.removePersistentDomain(forName: defaultsSuiteName)
+        }
+
+        let notificationCenter = NotificationCenter()
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: nil,
+            userDefaults: defaults,
+            notificationCenter: notificationCenter,
+            startWatching: true
+        )
+
+        defaults.set(true, forKey: defaultsKey)
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        try waitForSidebarAppearanceMatchTerminalBackground(true, in: primaryURL)
+
+        withExtendedLifetime(store) {}
+    }
+
+    func testUnsupportedManagedCollectionReappliesInsteadOfDrifting() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "browser": {
+                "hostsToOpenInEmbeddedBrowser": [
+                  "managed.example"
+                ]
+              }
+            }
+            """,
+            to: primaryURL
+        )
+
+        let defaultsKey = BrowserLinkOpenSettings.browserHostWhitelistKey
+        let defaultsSuiteName = "cmux.settings-file-store.unsupported-reapply.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuiteName))
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+        defer {
+            defaults.removePersistentDomain(forName: defaultsSuiteName)
+        }
+
+        let notificationCenter = NotificationCenter()
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: nil,
+            userDefaults: defaults,
+            notificationCenter: notificationCenter,
+            startWatching: true
+        )
+        XCTAssertEqual(defaults.string(forKey: defaultsKey), "managed.example")
+
+        defaults.set("local.example", forKey: defaultsKey)
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        try waitForDefaultString("managed.example", key: defaultsKey, defaults: defaults)
+
+        withExtendedLifetime(store) {}
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-settings-migration-\(UUID().uuidString)",
@@ -361,5 +444,16 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.02))
         }
         XCTFail("Timed out waiting for automation.socketPassword to persist")
+    }
+
+    private func waitForDefaultString(_ expectedValue: String, key: String, defaults: UserDefaults) throws {
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            if defaults.string(forKey: key) == expectedValue {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTFail("Timed out waiting for \(key) to reapply")
     }
 }

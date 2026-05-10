@@ -238,7 +238,10 @@ final class CmuxSettingsFileStore {
                 lastPersistedSettingsValues[path] != value
             }
         }
-        guard !changedValues.isEmpty else { return }
+        guard !changedValues.isEmpty else {
+            reapplyManagedSettingsIfNeeded()
+            return
+        }
 
         do {
             try persistSettingsJSONValues(changedValues)
