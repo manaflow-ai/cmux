@@ -172,6 +172,13 @@ Staging may run a real create/destroy smoke with tiny quotas:
 bun run cloud-vm:smoke -- staging --create --provider e2b
 ```
 
+Run default-provider stress before changing provider defaults or after provider incidents:
+
+```bash
+bun run cloud-vm:stress -- staging --count 8 --concurrency 4 --provider default
+bun run cloud-vm:stress -- production --count 12 --concurrency 4 --provider default
+```
+
 ## GitHub operations
 
 Cloud VM migrations and smoke checks are exposed as manual GitHub Actions:
@@ -220,7 +227,7 @@ The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `loca
 
 E2B interactive paths require a cmuxd WebSocket PTY image. The backend writes only a hash of attach tokens to Postgres; raw tokens are returned once to the Mac client.
 
-Operational note: Freestyle creates are currently disabled in staging and production while the active Freestyle snapshot lacks the cmuxd RPC lease path required for browser proxy. Keep `CMUX_VM_DEFAULT_PROVIDER=e2b` and `CMUX_VM_FREESTYLE_ENABLED=0` until a new Freestyle snapshot passes WebSocket PTY and browser proxy smoke.
+Operational note: Freestyle is the intended default when `CMUX_VM_DEFAULT_PROVIDER=freestyle`. Before rollout or rollback, verify the deployed `CMUX_VM_DEFAULT_PROVIDER`, `CMUX_VM_FREESTYLE_ENABLED`, and `FREESTYLE_SANDBOX_SNAPSHOT` env values with `bun run cloud-vm:env:audit -- <target> --strict`, then confirm WebSocket PTY, reusable daemon RPC lease, and browser proxy health with `bun run cloud-vm:stress -- <target> --provider default`. Keep E2B enabled as the rollback provider.
 
 ## Usage, limits, and pricing
 
