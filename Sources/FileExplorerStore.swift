@@ -419,6 +419,17 @@ enum FileExplorerError: LocalizedError {
     }
 }
 
+// MARK: - Selection Restoration
+
+enum FileExplorerSelectionRestoration {
+    static func scrollRow(anchorRow: Int?, exactRows: IndexSet) -> Int? {
+        if let anchorRow, exactRows.contains(anchorRow) {
+            return anchorRow
+        }
+        return exactRows.first
+    }
+}
+
 // MARK: - Store
 
 /// All access must happen on the main thread. Properties are not marked @MainActor
@@ -444,6 +455,9 @@ final class FileExplorerStore: ObservableObject {
 
     /// Stable navigation selection. The outline view mirrors this path after reloads.
     private(set) var selectedPath: String?
+
+    /// Stable multi-selection. `selectedPath` remains the keyboard/navigation anchor.
+    private(set) var selectedPaths: Set<String> = []
 
     /// Folder path whose first child should be selected once its async load completes.
     private var pendingDescendIntoFirstChildPath: String?
@@ -478,6 +492,7 @@ final class FileExplorerStore: ObservableObject {
         #endif
         if let selectedPath, !Self.path(selectedPath, isContainedIn: path) {
             self.selectedPath = nil
+            selectedPaths = []
             pendingDescendIntoFirstChildPath = nil
         }
         rootPath = path
@@ -589,8 +604,21 @@ final class FileExplorerStore: ObservableObject {
 
     func select(node: FileExplorerNode?) {
         let path = node?.path
-        guard selectedPath != path else { return }
+        let paths = path.map { Set([$0]) } ?? []
+        guard selectedPath != path || selectedPaths != paths else { return }
         selectedPath = path
+        selectedPaths = paths
+        if path != pendingDescendIntoFirstChildPath {
+            pendingDescendIntoFirstChildPath = nil
+        }
+    }
+
+    func select(nodes: [FileExplorerNode], anchor: FileExplorerNode?) {
+        let paths = Set(nodes.map(\.path))
+        let path = anchor?.path ?? nodes.first?.path
+        guard selectedPath != path || selectedPaths != paths else { return }
+        selectedPath = path
+        selectedPaths = paths
         if path != pendingDescendIntoFirstChildPath {
             pendingDescendIntoFirstChildPath = nil
         }
@@ -599,6 +627,7 @@ final class FileExplorerStore: ObservableObject {
     func requestDescendIntoFirstChild(of node: FileExplorerNode) {
         guard node.isDirectory else { return }
         selectedPath = node.path
+        selectedPaths = [node.path]
         pendingDescendIntoFirstChildPath = node.path
         expand(node: node)
     }
@@ -662,7 +691,9 @@ final class FileExplorerStore: ObservableObject {
                 parentNode.isLoading = false
                 parentNode.error = nil
                 if pendingDescendIntoFirstChildPath == parentNode.path {
-                    selectedPath = children.first?.path ?? parentNode.path
+                    let path = children.first?.path ?? parentNode.path
+                    selectedPath = path
+                    selectedPaths = [path]
                     pendingDescendIntoFirstChildPath = nil
                 }
             } else {
@@ -670,6 +701,7 @@ final class FileExplorerStore: ObservableObject {
                 isRootLoading = false
                 if selectedPath == nil {
                     selectedPath = children.first?.path
+                    selectedPaths = selectedPath.map { Set([$0]) } ?? []
                 }
             }
             loadingPaths.remove(path)

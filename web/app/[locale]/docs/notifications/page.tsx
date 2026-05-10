@@ -82,7 +82,7 @@ echo "$CMUX_NOTIFICATION_TITLE: $CMUX_NOTIFICATION_BODY" >> ~/notifications.log`
 
       <h2>{t("sending")}</h2>
 
-      <h3>{t("cli")}</h3>
+      <h3 id="cli-usage">{t("cli")}</h3>
       <CodeBlock lang="bash">{`cmux notify --title "Task Complete" --body "Your build finished"
 cmux notify --title "Claude Code" --subtitle "Waiting" --body "Agent needs input"`}</CodeBlock>
 
@@ -251,7 +251,7 @@ esac`}</CodeBlock>
   }
 }`}</CodeBlock>
 
-      <h2>{t("integrationExamples")}</h2>
+      <h2 id="integration-examples">{t("integrationExamples")}</h2>
 
       <h3>{t("notifyAfterLong")}</h3>
       <CodeBlock title="~/.zshrc" lang="bash">{`# Add to your shell config

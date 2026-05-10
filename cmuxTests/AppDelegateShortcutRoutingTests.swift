@@ -91,6 +91,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     override func tearDown() {
+        #if DEBUG
+        KeyboardShortcutSettings.shortcutLookupObserver = nil
+        #endif
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         AppDelegate.shared?.debugCloseMainWindowConfirmationHandler = nil
@@ -851,6 +854,96 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             !secondVisibleBefore,
             "Sidebar toggle should target the key/main window context"
         )
+    }
+
+    func testWelcomeWindowSidebarShortcutsUseSharedToggleCommands() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.toggleSidebar.label,
+            String(localized: "shortcut.toggleLeftSidebar.label", defaultValue: "Toggle Left Sidebar"),
+            "Welcome should expose the shared left-sidebar toggle command"
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.toggleSidebar.defaultShortcut,
+            StoredShortcut(key: "b", command: true, shift: false, option: false, control: false)
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.toggleRightSidebar.label,
+            String(localized: "shortcut.toggleRightSidebar.label", defaultValue: "Toggle Right Sidebar"),
+            "Welcome should expose the shared right-sidebar toggle command, not a File Explorer-only action"
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.toggleRightSidebar.defaultShortcut,
+            StoredShortcut(key: "b", command: true, shift: false, option: true, control: false)
+        )
+
+        let defaults = UserDefaults.standard
+        let previousRightSidebarVisibility = defaults.object(forKey: "fileExplorer.isVisible")
+        defer {
+            restoreDefaultsValue(previousRightSidebarVisibility, forKey: "fileExplorer.isVisible", defaults: defaults)
+        }
+
+        let windowId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+
+        let tabManager = TabManager()
+        let sidebarState = SidebarState(isVisible: true)
+        let sidebarSelectionState = SidebarSelectionState()
+        let fileExplorerState = FileExplorerState()
+        fileExplorerState.setVisible(false)
+
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: tabManager,
+            sidebarState: sidebarState,
+            sidebarSelectionState: sidebarSelectionState,
+            fileExplorerState: fileExplorerState
+        )
+
+        defer {
+            window.performClose(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        guard let leftSidebarEvent = makeKeyDownEvent(
+            key: "b",
+            modifiers: [.command],
+            keyCode: 11,
+            windowNumber: window.windowNumber
+        ), let rightSidebarEvent = makeKeyDownEvent(
+            key: "b",
+            modifiers: [.command, .option],
+            keyCode: 11,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct sidebar shortcut events")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: leftSidebarEvent))
+        XCTAssertFalse(sidebarState.isVisible, "Cmd+B should toggle the Welcome window left sidebar")
+
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: rightSidebarEvent))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertTrue(fileExplorerState.isVisible, "Cmd+Option+B should toggle the Welcome window right sidebar")
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
     }
 
     func testCmdNResolvesEventWindowWhenObjectKeyLookupIsMismatched() {
@@ -4411,12 +4504,118 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(activateApplicationCallCount, 1)
     }
 
-    // MARK: - Non-Latin keyboard layout shortcut tests
+    // MARK: - Shortcut settings consultation regression tests
+
+    func testExampleShortcutRoutingConsultsConfiguredShortcutSettings() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let cases: [(action: KeyboardShortcutSettings.Action, modifiers: NSEvent.ModifierFlags, key: String, keyCode: UInt16)] = [
+            (
+                .toggleRightSidebar,
+                [.command, .option],
+                "b",
+                11
+            ),
+            (
+                .focusRightSidebar,
+                [.command, .shift],
+                "e",
+                14
+            ),
+            (
+                .findInDirectory,
+                [.command, .shift],
+                "f",
+                3
+            ),
+        ]
+
+        for testCase in cases {
+            var observedActions: [KeyboardShortcutSettings.Action] = []
+            #if DEBUG
+            KeyboardShortcutSettings.shortcutLookupObserver = { action in
+                observedActions.append(action)
+            }
+            #else
+            XCTFail("shortcutLookupObserver is only available in DEBUG")
+            #endif
+
+            guard let event = makeKeyDownEvent(
+                key: testCase.key,
+                modifiers: testCase.modifiers,
+                keyCode: testCase.keyCode,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct \(testCase.action.rawValue) shortcut event")
+                return
+            }
+
+            #if DEBUG
+            _ = appDelegate.debugHandleCustomShortcut(event: event)
+            #else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            #endif
+
+            XCTAssertTrue(
+                observedActions.contains(testCase.action),
+                "\(testCase.action.rawValue) routing must read KeyboardShortcutSettings.shortcut(for:) instead of matching a literal combo"
+            )
+        }
+    }
+
+    func testBrowserFindCommandPreflightConsultsConfiguredFindFamilyShortcuts() {
+        #if DEBUG
+        let cases: [(action: KeyboardShortcutSettings.Action, modifiers: NSEvent.ModifierFlags, key: String, keyCode: UInt16)] = [
+            (.find, [.command], "f", 3),
+            (.findInDirectory, [.command, .shift], "f", 3),
+            (.findNext, [.command], "g", 5),
+            (.findPrevious, [.command, .option], "g", 5),
+            (.hideFind, [.command, .option, .shift], "f", 3),
+            (.useSelectionForFind, [.command], "e", 14),
+        ]
+
+        for testCase in cases {
+            var observedActions: [KeyboardShortcutSettings.Action] = []
+            KeyboardShortcutSettings.shortcutLookupObserver = { action in
+                observedActions.append(action)
+            }
+
+            let event = makeKeyEvent(
+                modifierFlags: testCase.modifiers,
+                characters: testCase.key,
+                charactersIgnoringModifiers: testCase.key,
+                keyCode: testCase.keyCode
+            )
+
+            _ = shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event)
+
+            XCTAssertTrue(
+                observedActions.contains(testCase.action),
+                "Browser find command preflight must read the configured \(testCase.action.rawValue) shortcut instead of matching a literal combo"
+            )
+        }
+        #else
+        XCTFail("shortcutLookupObserver is only available in DEBUG")
+        #endif
+    }
+
+    // MARK: - Browser find shortcut routing tests
 
     func testBrowserFirstFindShortcutRoutingRecognizesBrowserLocalFindCommandFamily() {
         let cases: [(name: String, modifiers: NSEvent.ModifierFlags, chars: String, keyCode: UInt16)] = [
             ("cmd-g", [.command], "g", 5),
-            ("cmd-shift-g", [.command, .shift], "g", 5),
+            ("cmd-option-g", [.command, .option], "g", 5),
             ("cmd-option-shift-f", [.command, .option, .shift], "f", 3),
             ("cmd-e", [.command], "e", 14),
         ]
@@ -4521,6 +4720,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             ("cmd-w", [.command], "w", 13),
             ("cmd-l", [.command], "l", 37),
             ("cmd-option-f", [.command, .option], "f", 3),
+            ("cmd-shift-g-toggle-react-grab", [.command, .shift], "g", 5),
         ]
 
         for testCase in cases {
@@ -4536,6 +4736,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             )
         }
     }
+
+    // MARK: - Non-Latin keyboard layout shortcut tests
 
     func testCmdTWorksWithRussianKeyboardLayout() {
         guard let appDelegate = AppDelegate.shared else {

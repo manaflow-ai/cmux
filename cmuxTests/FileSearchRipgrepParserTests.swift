@@ -57,6 +57,37 @@ final class FileSearchRipgrepParserTests: XCTestCase {
         XCTAssertEqual(result?.preview.unicodeScalars.map(\.value), [102, 111, 65_533, 111])
     }
 
+    func testParseMatchLineUsesSharedRelativePathBoundaryRules() throws {
+        let line = try makeMatchLine(
+            pathPayload: [
+                "text": "/tmp/project-backup/Sources/App.swift",
+            ],
+            linesPayload: [
+                "text": "let title = \"Search files\"\n",
+            ]
+        )
+
+        let result = FileSearchRipgrepParser.parseMatchLine(line, rootPath: "/tmp/project")
+
+        XCTAssertEqual(result?.relativePath, "/tmp/project-backup/Sources/App.swift")
+    }
+
+    func testParseMatchLineUsesSharedRelativePathSymlinkStandardization() throws {
+        let line = try makeMatchLine(
+            pathPayload: [
+                "text": "/private/tmp/project/Sources/App.swift",
+            ],
+            linesPayload: [
+                "text": "let title = \"Search files\"\n",
+            ]
+        )
+
+        let result = FileSearchRipgrepParser.parseMatchLine(line, rootPath: "/tmp/project")
+
+        XCTAssertEqual(result?.path, "/private/tmp/project/Sources/App.swift")
+        XCTAssertEqual(result?.relativePath, "Sources/App.swift")
+    }
+
     func testParseMatchLineIgnoresNonMatchEvents() {
         let line = #"{"type":"summary","data":{"elapsed_total":{"secs":0,"nanos":1}}}"#
 

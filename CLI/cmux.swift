@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CoreFoundation
 import CryptoKit
 import Darwin
 #if canImport(LocalAuthentication)
@@ -1625,101 +1626,63 @@ final class SocketClient {
 
         throw CLIError(message: "v2 request failed")
     }
-}
 
-struct CLIProcessResult {
-    let status: Int32
-    let stdout: String
-    let stderr: String
-    let timedOut: Bool
-}
-
-enum CLIProcessRunner {
-    static func runProcess(
-        executablePath: String,
-        arguments: [String],
-        stdinText: String? = nil,
-        timeout: TimeInterval? = nil
-    ) -> CLIProcessResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        let stdinPipe: Pipe?
-        if stdinText != nil {
-            let pipe = Pipe()
-            process.standardInput = pipe
-            stdinPipe = pipe
-        } else {
-            stdinPipe = nil
+    func streamV2(
+        method: String,
+        params: [String: Any] = [:],
+        onLine: (String) throws -> Void
+    ) throws {
+        guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+        let request: [String: Any] = [
+            "id": UUID().uuidString,
+            "method": method,
+            "params": params
+        ]
+        guard JSONSerialization.isValidJSONObject(request),
+              let requestData = try? JSONSerialization.data(withJSONObject: request, options: []),
+              let requestLine = String(data: requestData, encoding: .utf8) else {
+            throw CLIError(message: "Failed to encode v2 stream request")
         }
 
-        let finished = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in
-            finished.signal()
-        }
-
-        do {
-            try process.run()
-        } catch {
-            return CLIProcessResult(status: 1, stdout: "", stderr: String(describing: error), timedOut: false)
-        }
-
-        if let stdinText, let stdinPipe {
-            if let data = stdinText.data(using: .utf8) {
-                stdinPipe.fileHandleForWriting.write(data)
-            }
-            stdinPipe.fileHandleForWriting.closeFile()
-        }
-
-        let timedOut: Bool
-        if let timeout {
-            switch finished.wait(timeout: .now() + timeout) {
-            case .success:
-                timedOut = false
-            case .timedOut:
-                timedOut = true
-                terminate(process: process, finished: finished)
-            }
-        } else {
-            finished.wait()
-            timedOut = false
-        }
-
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        var stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        if timedOut {
-            let timeoutMessage = "process timed out"
-            if stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                stderr = timeoutMessage
-            } else if !stderr.contains(timeoutMessage) {
-                stderr += "\n\(timeoutMessage)"
-            }
-        }
-
-        return CLIProcessResult(
-            status: timedOut ? 124 : process.terminationStatus,
-            stdout: stdout,
-            stderr: stderr,
-            timedOut: timedOut
+        try writeAll(
+            Data((requestLine + "\n").utf8),
+            timeoutMessage: "Stream request timed out",
+            failureMessage: "Failed to write stream request"
         )
+
+        while true {
+            let line = try readStreamLine()
+            try onLine(line)
+        }
     }
 
-    private static func terminate(process: Process, finished: DispatchSemaphore) {
-        guard process.isRunning else { return }
-        process.terminate()
-        if finished.wait(timeout: .now() + 0.5) == .success {
-            return
+    private func readStreamLine(maxBytes: Int = 4 * 1024 * 1024) throws -> String {
+        var data = Data()
+        try configureReceiveTimeout(45)
+        while data.count < maxBytes {
+            var byte: UInt8 = 0
+            let count = Darwin.read(socketFD, &byte, 1)
+            if count < 0 {
+                if errno == EINTR {
+                    continue
+                }
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    throw CLIError(message: "Timed out waiting for event stream frame")
+                }
+                throw CLIError(message: "Event stream socket read error")
+            }
+            if count == 0 {
+                throw CLIError(message: "Event stream closed")
+            }
+            if byte == 0x0A {
+                guard let line = String(data: data, encoding: .utf8) else {
+                    throw CLIError(message: "Invalid UTF-8 event stream frame")
+                }
+                return line.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            data.append(byte)
         }
-        if process.isRunning {
-            kill(process.processIdentifier, SIGKILL)
-        }
-        _ = finished.wait(timeout: .now() + 0.5)
+        throw CLIError(message: "Event stream frame exceeded \(maxBytes) bytes")
     }
 }
 
@@ -1757,6 +1720,38 @@ struct CMUXCLI {
             return nil
         }
         return trimmed
+    }
+
+    private static func isCodingAgentEnvironment(_ environment: [String: String]) -> Bool {
+        if let kind = normalizedEnvValue(environment["CMUX_AGENT_LAUNCH_KIND"])?.lowercased() {
+            let agentKinds: Set<String> = [
+                "claude",
+                "codex",
+                "opencode",
+                "omo",
+                "omx",
+                "omc",
+            ]
+            if agentKinds.contains(kind) {
+                return true
+            }
+        }
+
+        let directAgentKeys = [
+            "CODEX_CI",
+            "CODEX_THREAD_ID",
+            "CODEX_SESSION_ID",
+            "CODEX_SANDBOX",
+            "CODEX_MANAGED_BY_BUN",
+            "CLAUDECODE",
+            "CLAUDE_CODE",
+            "CLAUDE_CODE_ENTRYPOINT",
+            "CLAUDE_CODE_SESSION_ID",
+            "OPENCODE",
+            "OPENCODE_PORT",
+            "OPENCODE_SESSION_ID",
+        ]
+        return directAgentKeys.contains { normalizedEnvValue(environment[$0]) != nil }
     }
 
     private static func vmCreateIdempotencySignature(image: String?, provider: String?) -> String {
@@ -2270,6 +2265,15 @@ struct CMUXCLI {
             }
         }
 
+        if command == "events" {
+            try runEventsCommand(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg
+            )
+            return
+        }
+
         let browserAvailabilityArgs = commandArgs.filter { $0 != "--json" }
         if command == "disable-browser" ||
             command == "enable-browser" ||
@@ -2341,8 +2345,9 @@ struct CMUXCLI {
             let response = try client.sendV2(method: "system.capabilities")
             print(jsonString(formatIDs(response, mode: idFormat)))
 
-        case "auth":
-            let sub = commandArgs.first?.lowercased() ?? "status"
+        case "auth", "login", "logout":
+            let authArgs = command == "auth" ? commandArgs : [command] + commandArgs
+            let sub = authArgs.first?.lowercased() ?? "status"
             switch sub {
             case "status":
                 let response = try client.sendV2(method: "auth.status")
@@ -3824,7 +3829,7 @@ struct CMUXCLI {
         return client
     }
 
-    private func authenticateClientIfNeeded(
+    func authenticateClientIfNeeded(
         _ client: SocketClient,
         explicitPassword: String?,
         socketPath: String
@@ -6908,7 +6913,7 @@ struct CMUXCLI {
         var surfaceRaw = surfaceOpt
         var args = argsWithoutSurfaceFlag
 
-        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify"]
+        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles"]
         if surfaceRaw == nil, let first = args.first {
             if !first.hasPrefix("-") && !verbsWithoutSurface.contains(first.lowercased()) {
                 surfaceRaw = first
@@ -7023,6 +7028,70 @@ struct CMUXCLI {
             values.filter { !$0.hasPrefix("-") }
         }
 
+        func optionValues(_ values: [String], names: Set<String>) throws -> [String] {
+            var result: [String] = []
+            var index = 0
+            while index < values.count {
+                let value = values[index]
+                if names.contains(value) {
+                    guard index + 1 < values.count,
+                          !values[index + 1].hasPrefix("-"),
+                          !names.contains(values[index + 1]) else {
+                        throw CLIError(message: "\(value) requires a value")
+                    }
+                    result.append(values[index + 1])
+                    index += 2
+                    continue
+                }
+                index += 1
+            }
+            return result
+        }
+
+        func firstOptionValue(_ values: [String], names: Set<String>) throws -> String? {
+            try optionValues(values, names: names).first
+        }
+
+        func intPayloadValue(_ value: Any?) -> Int {
+            if let intValue = value as? Int { return intValue }
+            if let number = value as? NSNumber { return number.intValue }
+            return 0
+        }
+
+        func stringPayloadValue(_ value: Any?) -> String? {
+            (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        func browserProfileLine(_ raw: Any) -> String? {
+            guard let profile = raw as? [String: Any],
+                  let name = stringPayloadValue(profile["name"]),
+                  let slug = stringPayloadValue(profile["slug"]),
+                  let id = stringPayloadValue(profile["id"]) else {
+                return nil
+            }
+            var markers: [String] = []
+            if (profile["current"] as? Bool) == true {
+                markers.append("current")
+            }
+            if (profile["built_in_default"] as? Bool) == true {
+                markers.append("default")
+            }
+            let suffix = markers.isEmpty ? "" : " (\(markers.joined(separator: ", ")))"
+            return "\(slug)\t\(name)\t\(id)\(suffix)"
+        }
+
+        func printBrowserProfiles(_ payload: [String: Any]) {
+            guard let profiles = payload["profiles"] as? [Any], !profiles.isEmpty else {
+                print("No browser profiles")
+                return
+            }
+            for profile in profiles {
+                if let line = browserProfileLine(profile) {
+                    print(line)
+                }
+            }
+        }
+
         if subcommand == "identify" {
             let surface = try normalizeSurfaceHandle(surfaceRaw, client: client, allowFocused: true)
             var payload = try client.sendV2(method: "system.identify")
@@ -7036,6 +7105,238 @@ struct CMUXCLI {
                 payload["browser"] = browser
             }
             output(payload, fallback: "OK")
+            return
+        }
+
+        if subcommand == "profile" || subcommand == "profiles" {
+            let profileVerb = subArgs.first?.lowercased() ?? "list"
+            let profileArgs = subArgs.first != nil ? Array(subArgs.dropFirst()) : []
+            let normalizedVerb: String
+            switch profileVerb {
+            case "ls":
+                normalizedVerb = "list"
+            case "add", "new":
+                normalizedVerb = "create"
+            case "remove", "rm":
+                normalizedVerb = "delete"
+            default:
+                normalizedVerb = profileVerb
+            }
+
+            switch normalizedVerb {
+            case "list":
+                let payload = try client.sendV2(method: "browser.profiles.list")
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else {
+                    printBrowserProfiles(payload)
+                }
+            case "create":
+                let (nameOpt, remaining) = parseOption(profileArgs, name: "--name")
+                let name = nameOpt ?? nonFlagArgs(remaining).joined(separator: " ")
+                guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw CLIError(message: "browser profiles \(profileVerb) requires a name")
+                }
+                let payload = try client.sendV2(method: "browser.profiles.create", params: ["name": name])
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else if let profileDict = payload["profile"] as? [String: Any],
+                          let profile = browserProfileLine(profileDict) {
+                    print("Created browser profile \(profile)")
+                } else {
+                    print("Created browser profile")
+                }
+            case "rename":
+                let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
+                let (nameOpt, rem2) = parseOption(rem1, name: "--name")
+                let positional = nonFlagArgs(rem2)
+                let profile = profileOpt ?? positional.first
+                let newName = nameOpt ?? (positional.count > 1 ? positional.dropFirst().joined(separator: " ") : nil)
+                guard let profile, !profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw CLIError(message: "browser profiles \(profileVerb) requires a profile")
+                }
+                guard let newName, !newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw CLIError(message: "browser profiles \(profileVerb) requires a new name")
+                }
+                let payload = try client.sendV2(
+                    method: "browser.profiles.rename",
+                    params: ["profile": profile, "new_name": newName]
+                )
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else if let renamed = stringPayloadValue((payload["profile"] as? [String: Any])?["name"]) {
+                    print("Renamed browser profile to \(renamed).")
+                } else {
+                    print("Renamed browser profile.")
+                }
+            case "clear":
+                let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
+                let positional = nonFlagArgs(rem1)
+                var params: [String: Any] = [:]
+                if hasFlag(profileArgs, name: "--all") {
+                    params["all"] = true
+                } else if let profile = profileOpt ?? positional.first {
+                    params["profile"] = profile
+                } else {
+                    throw CLIError(message: "browser profiles \(profileVerb) requires a profile or --all")
+                }
+                if hasFlag(profileArgs, name: "--force") {
+                    params["force"] = true
+                }
+                let payload = try client.sendV2(method: "browser.profiles.clear", params: params, responseTimeout: 120)
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else {
+                    let count = intPayloadValue(payload["count"])
+                    print("Cleared \(count) browser profile\(count == 1 ? "" : "s").")
+                }
+            case "delete":
+                let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
+                let profile = profileOpt ?? nonFlagArgs(rem1).first
+                guard let profile, !profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw CLIError(message: "browser profiles \(profileVerb) requires a profile")
+                }
+                let payload = try client.sendV2(
+                    method: "browser.profiles.delete",
+                    params: ["profile": profile],
+                    responseTimeout: 120
+                )
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else if let deleted = stringPayloadValue((payload["profile"] as? [String: Any])?["name"]) {
+                    print("Deleted browser profile \(deleted).")
+                } else {
+                    print("Deleted browser profile.")
+                }
+            default:
+                throw CLIError(message: "Unsupported browser profiles subcommand: \(profileVerb)")
+            }
+            return
+        }
+
+        if subcommand == "import" {
+            let importArgs = subArgs
+            let importValueOptions: Set<String> = [
+                "--from",
+                "--browser",
+                "--source",
+                "--profile",
+                "--source-profile",
+                "--to",
+                "--to-profile",
+                "--destination-profile",
+                "--domain",
+                "--domains",
+            ]
+            let importFlags: Set<String> = [
+                "--interactive",
+                "--non-interactive",
+                "--noninteractive",
+                "--yes",
+                "-y",
+                "--all-profiles",
+                "--create-profile",
+                "--create-destination-profile",
+            ]
+            func importPositionals(_ values: [String]) -> [String] {
+                var result: [String] = []
+                var index = 0
+                var pastTerminator = false
+                while index < values.count {
+                    let value = values[index]
+                    if pastTerminator {
+                        result.append(value)
+                        index += 1
+                        continue
+                    }
+                    if value == "--" {
+                        pastTerminator = true
+                        index += 1
+                        continue
+                    }
+                    if importValueOptions.contains(value) {
+                        index += index + 1 < values.count ? 2 : 1
+                        continue
+                    }
+                    if importFlags.contains(value) || value.hasPrefix("-") {
+                        index += 1
+                        continue
+                    }
+                    result.append(value)
+                    index += 1
+                }
+                return result
+            }
+            let unsupportedPositionals = importPositionals(importArgs)
+            if let first = unsupportedPositionals.first {
+                let normalized = first.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if normalized == "cookie" || normalized == "cookies" {
+                    throw CLIError(message: "browser import no longer takes a data type; use 'cmux browser import'")
+                }
+                throw CLIError(message: "browser import does not accept positional arguments")
+            }
+            let forceInteractive = hasFlag(importArgs, name: "--interactive")
+            let forceNonInteractive = hasFlag(importArgs, name: "--non-interactive") ||
+                hasFlag(importArgs, name: "--noninteractive") ||
+                hasFlag(importArgs, name: "--yes") ||
+                hasFlag(importArgs, name: "-y")
+            if forceInteractive && forceNonInteractive {
+                throw CLIError(message: "browser import cannot use both --interactive and --non-interactive")
+            }
+
+            let shouldRunNonInteractive = forceNonInteractive ||
+                (!forceInteractive && Self.isCodingAgentEnvironment(ProcessInfo.processInfo.environment))
+
+            var params: [String: Any] = shouldRunNonInteractive ? ["scope": "cookiesOnly"] : [:]
+            if let browser = try firstOptionValue(importArgs, names: ["--from", "--browser", "--source"]) {
+                params["browser"] = browser
+            }
+            let sourceProfiles = try optionValues(importArgs, names: ["--profile", "--source-profile"])
+            if !sourceProfiles.isEmpty {
+                params["source_profiles"] = sourceProfiles
+            }
+            if let destination = try firstOptionValue(importArgs, names: ["--to", "--to-profile", "--destination-profile"]) {
+                params["destination_profile"] = destination
+            }
+            let domainFilters = try optionValues(importArgs, names: ["--domain", "--domains"])
+            if !domainFilters.isEmpty {
+                params["domain_filters"] = domainFilters
+            }
+            if hasFlag(importArgs, name: "--all-profiles") {
+                params["all_profiles"] = true
+            }
+            if hasFlag(importArgs, name: "--create-profile") ||
+                hasFlag(importArgs, name: "--create-destination-profile") {
+                params["create_destination_profile"] = true
+            }
+
+            if shouldRunNonInteractive {
+                let payload = try client.sendV2(
+                    method: "browser.import.cookies",
+                    params: params,
+                    responseTimeout: 10 * 60
+                )
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                    return
+                }
+
+                let browserName = (payload["browser"] as? String) ?? "browser"
+                let importedCount = intPayloadValue(payload["imported_cookies"])
+                let skippedCount = intPayloadValue(payload["skipped_cookies"])
+                print("Imported \(importedCount) cookies from \(browserName).")
+                if skippedCount > 0 {
+                    print("Skipped \(skippedCount) cookies.")
+                }
+                if let warnings = payload["warnings"] as? [String], !warnings.isEmpty {
+                    for warning in warnings {
+                        print("Warning: \(warning)")
+                    }
+                }
+            } else {
+                let payload = try client.sendV2(method: "browser.import.dialog", params: params, responseTimeout: 10 * 60)
+                output(payload, fallback: "OK")
+            }
             return
         }
 
@@ -8312,6 +8613,27 @@ struct CMUXCLI {
 
             Print server capabilities as JSON.
             """
+        case "events":
+            return """
+            Usage: cmux events [options]
+
+            Stream cmux events as newline-delimited JSON.
+
+            Options:
+              --after <seq>          Replay retained events after this sequence
+              --cursor-file <path>   Read the starting sequence from a file and update it after each event
+              --name <event>         Filter by event name, repeatable
+              --category <name>      Filter by category, repeatable
+              --reconnect            Reconnect forever and resume from the last received sequence
+              --limit <n>            Exit after printing n event frames
+              --no-ack               Do not print the subscription ack frame
+              --no-heartbeat         Do not print heartbeat frames
+
+            Examples:
+              cmux events --category notification
+              cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
+              cmux events --after 42 --name feed.item.received
+            """
         case "auth":
             return """
             Usage: cmux auth <status|login|logout>
@@ -8319,6 +8641,18 @@ struct CMUXCLI {
             status   Print whether the user is signed in (add `cmux --json` for JSON).
             login    Open the sign-in popup on the cmux web app and wait for it to finish.
             logout   Clear the current session.
+            """
+        case "login":
+            return """
+            Usage: cmux login
+
+            Alias for `cmux auth login`.
+            """
+        case "logout":
+            return """
+            Usage: cmux logout
+
+            Alias for `cmux auth logout`.
             """
         case "vm", "cloud":
             return """
@@ -9731,6 +10065,8 @@ struct CMUXCLI {
               frame <main|selector> [--selector <css>]
               dialog <accept|dismiss> [text]
               download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
+              profiles <list|add|rename|clear|delete> [...]
+              import [--interactive|--non-interactive|-y|--yes] [--from <browser>] [--profile <name>] [--all-profiles] [--to-profile <name|uuid>] [--create-profile] [--domain <domain>]
               cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [--all]
               storage <local|session> <get|set|clear> [...]
               tab <new|list|switch|close|<index>> [...]
@@ -20257,6 +20593,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           \(bold)\u{2318}N\(reset)\(subdued)                  New workspace\(reset)
           \(bold)\u{2318}T\(reset)\(subdued)                  New tab\(reset)
           \(bold)\u{2318}P\(reset)\(subdued)                  Go to workspace\(reset)
+          \(bold)\u{2318}B\(reset)\(subdued)                  Toggle Left Sidebar\(reset)
+          \(bold)\u{2318}\u{2325}B\(reset)\(subdued)                 Toggle Right Sidebar\(reset)
           \(bold)\u{2318}D\(reset)\(subdued)                  Split right\(reset)
           \(bold)\u{2318}\u{21E7}D\(reset)\(subdued)                 Split down\(reset)
           \(bold)\u{2318}\u{21E7}P\(reset)\(subdued)                 Command palette\(reset)
@@ -20598,7 +20936,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           ping
           version
           capabilities
+          events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           auth <status|login|logout>
+          login | logout                                      (aliases for auth login/logout)
           vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
           rpc <method> [json-params]
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
@@ -20709,6 +21049,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           browser frame <selector|main>
           browser dialog <accept|dismiss> [text]
           browser download [wait] [--path <path>] [--timeout-ms <ms>]
+          browser profiles <list|add|rename|clear|delete> [...]
+          browser profiles clear <profile|--all> [--force]
+          browser import [...]
           browser cookies <get|set|clear> [...]
           browser storage <local|session> <get|set|clear> [...]
           browser tab <new|list|switch|close|<index>> [...]

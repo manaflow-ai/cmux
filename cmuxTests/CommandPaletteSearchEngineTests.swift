@@ -485,16 +485,14 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testPendingEmptyStateIsNotPreservedWhileSearchIsStillPending() {
+    func testPendingEmptyStateIsNotPreservedWhenSearchIsNotPending() {
         XCTAssertFalse(
             ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
-                isSearchPending: true,
+                isSearchPending: false,
                 visibleResultsScopeMatches: true,
                 resolvedSearchScopeMatches: true,
                 resolvedSearchFingerprintMatches: true,
-                resolvedResultsAreEmpty: true,
-                currentMatchingQuery: "zzzzzzzzz",
-                resolvedMatchingQuery: "zzzzzzzz"
+                resolvedResultsAreEmpty: true
             )
         )
     }
@@ -506,23 +504,19 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 visibleResultsScopeMatches: true,
                 resolvedSearchScopeMatches: true,
                 resolvedSearchFingerprintMatches: true,
-                resolvedResultsAreEmpty: true,
-                currentMatchingQuery: "zzzzzzzz",
-                resolvedMatchingQuery: "zzzzzzzz"
+                resolvedResultsAreEmpty: true
             )
         )
     }
 
-    func testPendingEmptyStateIsNotPreservedWhenQueryDoesNotRefineResolvedNoMatch() {
-        XCTAssertFalse(
+    func testPendingEmptyStateIsPreservedForSameScopeNoMatchInPlaceEdit() {
+        XCTAssertTrue(
             ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
                 isSearchPending: true,
                 visibleResultsScopeMatches: true,
                 resolvedSearchScopeMatches: true,
                 resolvedSearchFingerprintMatches: true,
-                resolvedResultsAreEmpty: true,
-                currentMatchingQuery: "zzzza",
-                resolvedMatchingQuery: "zzzzb"
+                resolvedResultsAreEmpty: true
             )
         )
     }
@@ -531,12 +525,28 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertFalse(
             ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
                 isSearchPending: true,
+                visibleResultsScopeMatches: false,
+                resolvedSearchScopeMatches: true,
+                resolvedSearchFingerprintMatches: true,
+                resolvedResultsAreEmpty: true
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+                isSearchPending: true,
+                visibleResultsScopeMatches: true,
+                resolvedSearchScopeMatches: false,
+                resolvedSearchFingerprintMatches: true,
+                resolvedResultsAreEmpty: true
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+                isSearchPending: true,
                 visibleResultsScopeMatches: true,
                 resolvedSearchScopeMatches: true,
                 resolvedSearchFingerprintMatches: false,
-                resolvedResultsAreEmpty: true,
-                currentMatchingQuery: "zzzzzzzzz",
-                resolvedMatchingQuery: "zzzzzzzz"
+                resolvedResultsAreEmpty: true
             )
         )
         XCTAssertFalse(
@@ -545,9 +555,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 visibleResultsScopeMatches: true,
                 resolvedSearchScopeMatches: true,
                 resolvedSearchFingerprintMatches: true,
-                resolvedResultsAreEmpty: false,
-                currentMatchingQuery: "zzzzzzzzz",
-                resolvedMatchingQuery: "zzzzzzzz"
+                resolvedResultsAreEmpty: false
             )
         )
     }

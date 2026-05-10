@@ -92,6 +92,27 @@ func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
     return normalizedFlags.isEmpty
 }
 
+func shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
+    keyCode: UInt16,
+    firstResponderIsCommandPaletteFieldEditor: Bool,
+    firstResponderHasMarkedText: Bool = false,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard firstResponderIsCommandPaletteFieldEditor else { return false }
+    guard !firstResponderHasMarkedText else { return false }
+    guard keyCode == 123 || keyCode == 124 else { return false }
+
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    switch normalizedFlags {
+    case [], [.shift], [.option], [.option, .shift], [.command], [.command, .shift]:
+        return true
+    default:
+        return false
+    }
+}
+
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
     flags: NSEvent.ModifierFlags,
     chars: String,
@@ -384,13 +405,24 @@ func shouldRouteCommandEquivalentDirectlyToMainMenu(_ event: NSEvent) -> Bool {
     return true
 }
 
-private enum BrowserFindCommandEquivalent {
+private enum BrowserFindCommandEquivalent: CaseIterable {
     case find
     case findInDirectory
     case findNext
     case findPrevious
     case hideFind
     case useSelection
+
+    var action: KeyboardShortcutSettings.Action {
+        switch self {
+        case .find: return .find
+        case .findInDirectory: return .findInDirectory
+        case .findNext: return .findNext
+        case .findPrevious: return .findPrevious
+        case .hideFind: return .hideFind
+        case .useSelection: return .useSelectionForFind
+        }
+    }
 
     var keepsCmuxBrowserFindBarOwnershipWhenVisible: Bool {
         switch self {
@@ -421,52 +453,12 @@ func cmuxIsLikelyWebInspectorResponder(_ responder: NSResponder?) -> Bool {
     return false
 }
 
-private func browserFindCommandEquivalent(for event: NSEvent) -> BrowserFindCommandEquivalent? {
-    let flags = event.modifierFlags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
-
-    let normalizedChars = KeyboardLayout.normalizedCharacters(for: event).lowercased()
-    let hasSingleASCIIShortcutChar =
-        normalizedChars.count == 1 && normalizedChars.allSatisfy(\.isASCII)
-    let producedAnyASCIIShortcutChar = normalizedChars.contains(where: \.isASCII)
-    func matches(_ chars: String, keyCode: UInt16) -> Bool {
-        if hasSingleASCIIShortcutChar {
-            return normalizedChars == chars
-        }
-        if !producedAnyASCIIShortcutChar {
-            return event.keyCode == keyCode
-        }
-        return false
-    }
-
-    switch flags {
-    case [.command]:
-        if matches("e", keyCode: 14) { // kVK_ANSI_E
-            return .useSelection
-        }
-        if matches("f", keyCode: 3) { // kVK_ANSI_F
-            return .find
-        }
-        if matches("g", keyCode: 5) { // kVK_ANSI_G
-            return .findNext
-        }
-        return nil
-    case [.command, .shift]:
-        if matches("f", keyCode: 3) { // kVK_ANSI_F
-            return .findInDirectory
-        }
-        if matches("g", keyCode: 5) { // kVK_ANSI_G
-            return .findPrevious
-        }
-        return nil
-    case [.command, .option, .shift]:
-        if matches("f", keyCode: 3) { // kVK_ANSI_F
-            return .hideFind
-        }
-        return nil
-    default:
-        return nil
+private func browserFindCommandEquivalent(
+    for event: NSEvent,
+    shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut = KeyboardShortcutSettings.shortcut(for:)
+) -> BrowserFindCommandEquivalent? {
+    BrowserFindCommandEquivalent.allCases.first { command in
+        shortcutForAction(command.action).matches(event: event)
     }
 }
 
