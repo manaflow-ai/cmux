@@ -15639,7 +15639,7 @@ struct CMUXCLI {
             let body = message.isEmpty ? "Task completed" : message
             return ("Completed", body)
         }
-        if lower.contains("idle") || lower.contains("wait") || lower.contains("idle_prompt") {
+        if lower.contains("idle") || lower.contains("wait") {
             let body = message.isEmpty ? "Waiting for input" : message
             return ("Waiting", body)
         }
