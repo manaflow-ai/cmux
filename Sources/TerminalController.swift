@@ -3828,6 +3828,14 @@ class TerminalController {
         return formatter.string(from: date)
     }
 
+    private static func notificationListTrailingField(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "%", with: "%25")
+            .replacingOccurrences(of: "|", with: "%7C")
+            .replacingOccurrences(of: "\n", with: "%0A")
+            .replacingOccurrences(of: "\r", with: "%0D")
+    }
+
     nonisolated func v2NonEmptyString(_ raw: String?) -> String? {
         guard let raw else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -8017,7 +8025,7 @@ class TerminalController {
                 data: ["id": id.uuidString]
             )
         }
-        payload["dismissed"] = true
+        payload["dismissed"] = 1
         return .ok(payload)
     }
 
@@ -14443,7 +14451,7 @@ class TerminalController {
                 let surfaceText = notification.surfaceId?.uuidString ?? "none"
                 let readText = notification.isRead ? "read" : "unread"
                 let createdAt = Self.notificationCreatedAtString(notification.createdAt)
-                let tabTitle = AppDelegate.shared?.tabTitle(for: notification.tabId) ?? ""
+                let tabTitle = Self.notificationListTrailingField(AppDelegate.shared?.tabTitle(for: notification.tabId) ?? "")
                 return "\(index):\(notification.id.uuidString)|\(notification.tabId.uuidString)|\(surfaceText)|\(readText)|\(notification.title)|\(notification.subtitle)|\(notification.body)|\(createdAt)|\(tabTitle)"
             }
             result = lines.joined(separator: "\n")

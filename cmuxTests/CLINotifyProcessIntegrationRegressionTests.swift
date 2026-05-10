@@ -92,7 +92,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
 
-        let workspace = manager.addWorkspace(title: "CLI Notification Workspace", select: true)
+        let workspace = manager.addWorkspace(title: "CLI|Notification Workspace", select: true)
         let surfaceId = try XCTUnwrap(workspace.focusedPanelId)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         let window = NSWindow(
@@ -163,7 +163,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(row["workspace_id"] as? String, workspace.id.uuidString)
         XCTAssertEqual(row["surface_id"] as? String, surfaceId.uuidString)
         XCTAssertEqual(row["created_at"] as? String, "2026-01-01T00:00:00Z")
-        XCTAssertEqual(row["tab_title"] as? String, "CLI Notification Workspace")
+        XCTAssertEqual(row["tab_title"] as? String, "CLI|Notification Workspace")
 
         result = run(["mark-notification-read", "--id", listedNotification.id.uuidString, "--json", "--id-format", "uuids"])
         XCTAssertFalse(result.timedOut, result.stderr)

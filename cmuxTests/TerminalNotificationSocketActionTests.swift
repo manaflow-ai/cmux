@@ -35,7 +35,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
 
         XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
         let result = try XCTUnwrap(response["result"] as? [String: Any])
-        XCTAssertEqual(result["dismissed"] as? Bool, true)
+        XCTAssertEqual(result["dismissed"] as? Int, 1)
         XCTAssertFalse(fixture.store.notifications.contains(where: { $0.id == target.id }))
         XCTAssertTrue(fixture.store.notifications.contains(where: { $0.id == sibling.id }))
     }

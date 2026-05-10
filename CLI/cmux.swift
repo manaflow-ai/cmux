@@ -8580,7 +8580,7 @@ struct CMUXCLI {
                 if payload.count >= 9 {
                     body = payload[6..<(payload.count - 2)].joined(separator: "|")
                     createdAt = payload[payload.count - 2].isEmpty ? nil : payload[payload.count - 2]
-                    tabTitle = payload[payload.count - 1].isEmpty ? nil : payload[payload.count - 1]
+                    tabTitle = payload[payload.count - 1].isEmpty ? nil : decodeNotificationListTrailingField(payload[payload.count - 1])
                 } else {
                     body = payload[6...].joined(separator: "|")
                     createdAt = nil
@@ -8598,6 +8598,14 @@ struct CMUXCLI {
                     tabTitle: tabTitle
                 )
             }
+    }
+
+    private func decodeNotificationListTrailingField(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "%0D", with: "\r")
+            .replacingOccurrences(of: "%0A", with: "\n")
+            .replacingOccurrences(of: "%7C", with: "|")
+            .replacingOccurrences(of: "%25", with: "%")
     }
 
     private func resolveWorkspaceId(_ raw: String?, client: SocketClient) throws -> String {
