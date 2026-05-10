@@ -133,6 +133,7 @@ private actor FileSearchOutputPipeline {
     private let rootPath: String
     private let maxResults: Int
     private let snapshotInterval: TimeInterval
+    private var stdoutBuffer = Data()
     private var stderrBuffer = Data()
     private var results: [FileSearchResult] = []
     private var lastSnapshotEmissionDate = Date.distantPast
@@ -144,13 +145,43 @@ private actor FileSearchOutputPipeline {
         self.snapshotInterval = snapshotInterval
     }
 
-    func consumeStdoutLine(_ line: String) -> FileSearchPipelineUpdate? {
-        guard !isFinished,
+    func consumeStdout(_ data: Data) -> FileSearchPipelineUpdate? {
+        guard !isFinished else { return nil }
+        stdoutBuffer.append(data)
+        return consumeBufferedStdout(includeTrailingLine: false)
+    }
+
+    private func consumeBufferedStdout(includeTrailingLine: Bool) -> FileSearchPipelineUpdate? {
+        var latestUpdate: FileSearchPipelineUpdate?
+        while let newlineIndex = stdoutBuffer.firstIndex(of: 10) {
+            let lineData = stdoutBuffer[..<newlineIndex]
+            stdoutBuffer.removeSubrange(...newlineIndex)
+            guard let update = consumeStdoutLine(lineData) else { continue }
+            latestUpdate = update
+            if update.shouldStopProcess {
+                return update
+            }
+        }
+
+        if includeTrailingLine, !stdoutBuffer.isEmpty {
+            let lineData = stdoutBuffer
+            stdoutBuffer.removeAll(keepingCapacity: true)
+            if let update = consumeStdoutLine(lineData) {
+                latestUpdate = update
+            }
+        }
+
+        return latestUpdate
+    }
+
+    private func consumeStdoutLine(_ lineData: Data) -> FileSearchPipelineUpdate? {
+        guard let line = String(data: lineData, encoding: .utf8),
               let result = FileSearchRipgrepParser.parseMatchLine(line, rootPath: rootPath) else {
             return nil
         }
         results.append(result)
         if results.count >= maxResults {
+            isFinished = true
             return FileSearchPipelineUpdate(
                 results: results,
                 status: .limited(maxResults),
@@ -187,6 +218,9 @@ private actor FileSearchOutputPipeline {
     }
 
     func finish(status: Int32) -> FileSearchPipelineUpdate {
+        if !isFinished {
+            _ = consumeBufferedStdout(includeTrailingLine: true)
+        }
         isFinished = true
         if status == 0 || status == 1 {
             return FileSearchPipelineUpdate(
@@ -329,34 +363,37 @@ final class FileSearchController: FileSearchControlling {
         do {
             try process.run()
             self.process = process
-            let stdoutHandle = stdout.fileHandleForReading
-            let stderrHandle = stderr.fileHandleForReading
-            searchTask = Task { [weak self, pipeline, terminationSignal] in
+            let stdoutFileDescriptor = stdout.fileHandleForReading.fileDescriptor
+            let stderrFileDescriptor = stderr.fileHandleForReading.fileDescriptor
+            searchTask = Task.detached(priority: .userInitiated) { [weak self, pipeline, terminationSignal] in
                 // Result completeness is defined by stdout. Stderr stays diagnostic-only:
                 // successful searches do not wait on it, failed searches do before formatting the error.
-                let stderrTask = Task {
-                    await Self.streamStderr(from: stderrHandle, pipeline: pipeline)
-                }
-                defer {
-                    stderrTask.cancel()
+                let stderrTask = Task.detached(priority: .utility) {
+                    await Self.streamStderr(from: stderrFileDescriptor, pipeline: pipeline)
                 }
                 let applyUpdate: @Sendable (FileSearchPipelineUpdate, Int) async -> Void = { [weak self] update, generation in
                     await self?.applyPipelineUpdate(update, generation: generation)
                 }
-                async let stdoutDone: Void = Self.streamStdout(
-                    from: stdoutHandle,
-                    pipeline: pipeline,
-                    generation: searchGeneration,
-                    applyUpdate: applyUpdate
-                )
+                let stdoutTask = Task.detached(priority: .userInitiated) {
+                    await Self.streamStdout(
+                        from: stdoutFileDescriptor,
+                        pipeline: pipeline,
+                        generation: searchGeneration,
+                        applyUpdate: applyUpdate
+                    )
+                }
+                defer {
+                    stderrTask.cancel()
+                    stdoutTask.cancel()
+                }
                 guard let status = await terminationSignal.wait() else { return }
-                await stdoutDone
+                await stdoutTask.value
                 guard !Task.isCancelled else { return }
                 if status != 0 && status != 1 {
                     await stderrTask.value
                 }
                 let update = await pipeline.finish(status: status)
-                self?.finish(generation: searchGeneration, update: update)
+                await self?.finish(generation: searchGeneration, update: update)
             }
         } catch {
             process.standardOutput = nil
@@ -418,47 +455,52 @@ final class FileSearchController: FileSearchControlling {
         }
     }
 
-#if compiler(>=6.2)
-    @concurrent
-#endif
     private nonisolated static func streamStdout(
-        from handle: FileHandle,
+        from fileDescriptor: Int32,
         pipeline: FileSearchOutputPipeline,
         generation: Int,
         applyUpdate: @Sendable (FileSearchPipelineUpdate, Int) async -> Void
     ) async {
-        do {
-            for try await line in handle.bytes.lines {
-                try Task.checkCancellation()
-                guard let update = await pipeline.consumeStdoutLine(line) else { continue }
-                await applyUpdate(update, generation)
-                if update.shouldStopProcess {
-                    return
-                }
+        var buffer = [UInt8](repeating: 0, count: 32 * 1024)
+        while !Task.isCancelled {
+            let bytesRead = buffer.withUnsafeMutableBytes { rawBuffer in
+                Darwin.read(fileDescriptor, rawBuffer.baseAddress, rawBuffer.count)
             }
-        } catch is CancellationError {
-            return
-        } catch {
-            await pipeline.consumeStderrLine(error.localizedDescription)
+            if bytesRead > 0 {
+                let data = Data(buffer.prefix(bytesRead))
+                guard let update = await pipeline.consumeStdout(data) else { continue }
+                await applyUpdate(update, generation)
+                if update.shouldStopProcess { return }
+            } else if bytesRead == 0 {
+                return
+            } else if errno == EINTR {
+                continue
+            } else {
+                await pipeline.consumeStderrLine(String(cString: strerror(errno)))
+                return
+            }
         }
     }
 
-#if compiler(>=6.2)
-    @concurrent
-#endif
     private nonisolated static func streamStderr(
-        from handle: FileHandle,
+        from fileDescriptor: Int32,
         pipeline: FileSearchOutputPipeline
     ) async {
-        do {
-            for try await line in handle.bytes.lines {
-                try Task.checkCancellation()
-                await pipeline.consumeStderrLine(line)
+        var buffer = [UInt8](repeating: 0, count: 8 * 1024)
+        while !Task.isCancelled {
+            let bytesRead = buffer.withUnsafeMutableBytes { rawBuffer in
+                Darwin.read(fileDescriptor, rawBuffer.baseAddress, rawBuffer.count)
             }
-        } catch is CancellationError {
-            return
-        } catch {
-            await pipeline.consumeStderrLine(error.localizedDescription)
+            if bytesRead > 0 {
+                await pipeline.consumeStderr(Data(buffer.prefix(bytesRead)))
+            } else if bytesRead == 0 {
+                return
+            } else if errno == EINTR {
+                continue
+            } else {
+                await pipeline.consumeStderrLine(String(cString: strerror(errno)))
+                return
+            }
         }
     }
 
