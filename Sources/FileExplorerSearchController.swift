@@ -332,6 +332,14 @@ final class FileSearchController: FileSearchControlling {
             let stdoutHandle = stdout.fileHandleForReading
             let stderrHandle = stderr.fileHandleForReading
             searchTask = Task { [weak self, pipeline, terminationSignal] in
+                // Result completeness is defined by stdout. Stderr is diagnostic-only, so
+                // drain it without letting an empty/error stream block final result publication.
+                let stderrTask = Task {
+                    await Self.streamStderr(from: stderrHandle, pipeline: pipeline)
+                }
+                defer {
+                    stderrTask.cancel()
+                }
                 let applyUpdate: @Sendable (FileSearchPipelineUpdate, Int) async -> Void = { [weak self] update, generation in
                     await self?.applyPipelineUpdate(update, generation: generation)
                 }
@@ -341,9 +349,8 @@ final class FileSearchController: FileSearchControlling {
                     generation: searchGeneration,
                     applyUpdate: applyUpdate
                 )
-                async let stderrDone: Void = Self.streamStderr(from: stderrHandle, pipeline: pipeline)
                 guard let status = await terminationSignal.wait() else { return }
-                _ = await (stdoutDone, stderrDone)
+                await stdoutDone
                 guard !Task.isCancelled else { return }
                 let update = await pipeline.finish(status: status)
                 self?.finish(generation: searchGeneration, update: update)
