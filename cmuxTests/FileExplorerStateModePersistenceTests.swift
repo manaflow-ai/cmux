@@ -61,6 +61,17 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         }
     }
 
+    func testCLIArgumentNormalizerMapsVaultAndSessionsToSessions() {
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "files"), .files)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "find"), .find)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "vault"), .sessions)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "sessions"), .sessions)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "feed"), .feed)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "dock"), .dock)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: " Vault "), .sessions)
+        XCTAssertNil(RightSidebarMode.from(cliArgument: "unknown"))
+    }
+
     private func withSavedRightSidebarModeDefaults(_ body: () -> Void) {
         let defaults = UserDefaults.standard
         let previousMode = defaults.object(forKey: modeKey)

@@ -169,6 +169,127 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(payload["has_ssh_options"] as? Bool, true)
     }
 
+    func testRightSidebarV1CommandsDriveExistingState() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let windowId = UUID()
+        let tabManager = TabManager()
+        let sidebarState = SidebarState()
+        let sidebarSelectionState = SidebarSelectionState()
+        let fileExplorerState = FileExplorerState()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+
+        appDelegate.fileExplorerState = fileExplorerState
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: tabManager,
+            sidebarState: sidebarState,
+            sidebarSelectionState: sidebarSelectionState,
+            fileExplorerState: fileExplorerState
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.close()
+        }
+
+        fileExplorerState.setVisible(false)
+        fileExplorerState.mode = .files
+
+        XCTAssertEqual(TerminalController.shared.handleSocketLine("right_sidebar show"), "OK")
+        XCTAssertTrue(fileExplorerState.isVisible)
+
+        XCTAssertEqual(TerminalController.shared.handleSocketLine("right_sidebar set find"), "OK")
+        XCTAssertEqual(fileExplorerState.mode, .find)
+        XCTAssertTrue(fileExplorerState.isVisible)
+
+        XCTAssertEqual(TerminalController.shared.handleSocketLine("right_sidebar set vault --no-focus"), "OK")
+        XCTAssertEqual(fileExplorerState.mode, .sessions)
+
+        XCTAssertEqual(TerminalController.shared.handleSocketLine("right_sidebar set sessions --no-focus"), "OK")
+        XCTAssertEqual(fileExplorerState.mode, .sessions)
+
+        XCTAssertEqual(TerminalController.shared.handleSocketLine("right_sidebar hide"), "OK")
+        XCTAssertFalse(fileExplorerState.isVisible)
+
+        XCTAssertEqual(TerminalController.shared.handleSocketLine("right_sidebar toggle"), "OK")
+        XCTAssertTrue(fileExplorerState.isVisible)
+
+        XCTAssertEqual(TerminalController.shared.handleSocketLine("right_sidebar focus"), "OK")
+        XCTAssertTrue(fileExplorerState.isVisible)
+
+        let modeResponse = TerminalController.shared.handleSocketLine("right_sidebar mode")
+        let modeData = try XCTUnwrap(modeResponse.data(using: .utf8))
+        let modePayload = try XCTUnwrap(JSONSerialization.jsonObject(with: modeData) as? [String: Any])
+        XCTAssertEqual(modePayload["visible"] as? Bool, true)
+        XCTAssertEqual(modePayload["mode"] as? String, "sessions")
+
+        XCTAssertTrue(TerminalController.shared.handleSocketLine("right_sidebar set unknown").hasPrefix("ERROR:"))
+    }
+
+    func testRightSidebarV1ParserProducesRemoteCommands() throws {
+#if DEBUG
+        let workspaceId = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let windowId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        let cases: [(String, RightSidebarRemoteRequest)] = [
+            (
+                "right_sidebar toggle",
+                RightSidebarRemoteRequest(command: .toggle, target: RightSidebarRemoteTarget())
+            ),
+            (
+                "right_sidebar show --window=\(windowId.uuidString)",
+                RightSidebarRemoteRequest(command: .show, target: RightSidebarRemoteTarget(windowId: windowId, workspaceId: nil))
+            ),
+            (
+                "right_sidebar hide --tab=\(workspaceId.uuidString)",
+                RightSidebarRemoteRequest(command: .hide, target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceId))
+            ),
+            (
+                "right_sidebar focus",
+                RightSidebarRemoteRequest(command: .focus, target: RightSidebarRemoteTarget())
+            ),
+            (
+                "right_sidebar set find",
+                RightSidebarRemoteRequest(command: .setMode(.find, focus: true), target: RightSidebarRemoteTarget())
+            ),
+            (
+                "right_sidebar set vault --no-focus",
+                RightSidebarRemoteRequest(command: .setMode(.sessions, focus: false), target: RightSidebarRemoteTarget())
+            ),
+            (
+                "right_sidebar sessions",
+                RightSidebarRemoteRequest(command: .setMode(.sessions, focus: true), target: RightSidebarRemoteTarget())
+            ),
+            (
+                "right_sidebar mode",
+                RightSidebarRemoteRequest(command: .getState, target: RightSidebarRemoteTarget())
+            ),
+        ]
+
+        for (line, expected) in cases {
+            let result = TerminalController.shared.parseRightSidebarRemoteRequestForTesting(line)
+            XCTAssertEqual(try result.get(), expected, line)
+        }
+
+        switch TerminalController.shared.parseRightSidebarRemoteRequestForTesting("right_sidebar set unknown") {
+        case .success(let request):
+            XCTFail("Expected parser failure, got \(request)")
+        case .failure(let error):
+            XCTAssertTrue(error.message.contains("Unknown right sidebar mode"))
+        }
+#else
+        throw XCTSkip("Right sidebar parser helper is debug-only.")
+#endif
+    }
+
     func testNotificationCreateUsesExplicitSurfaceIDWhenProvided() async throws {
         let socketPath = makeSocketPath("notify-surface")
         let store = TerminalNotificationStore.shared

@@ -2,6 +2,59 @@ import XCTest
 import Darwin
 
 final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
+    func testRightSidebarCLIForwardsV1SocketCommandsQuietly() throws {
+        let cliPath = try bundledCLIPath()
+        let cases: [(name: String, arguments: [String], expectedCommand: String, response: String, stdout: String)] = [
+            ("toggle", ["right-sidebar", "toggle"], "right_sidebar toggle", "OK", ""),
+            ("show", ["right-sidebar", "show"], "right_sidebar show", "OK", ""),
+            ("hide", ["right-sidebar", "hide"], "right_sidebar hide", "OK", ""),
+            ("focus", ["right-sidebar", "focus"], "right_sidebar focus", "OK", ""),
+            ("set-find", ["right-sidebar", "set", "find"], "right_sidebar set find", "OK", ""),
+            ("set-no-focus", ["right-sidebar", "set", "vault", "--no-focus"], "right_sidebar set vault --no-focus", "OK", ""),
+            ("set-sessions", ["right-sidebar", "set", "sessions"], "right_sidebar set sessions", "OK", ""),
+            ("files-alias", ["right-sidebar", "files"], "right_sidebar set files", "OK", ""),
+            ("find-alias", ["right-sidebar", "find"], "right_sidebar set find", "OK", ""),
+            ("vault-alias", ["right-sidebar", "vault"], "right_sidebar set vault", "OK", ""),
+            ("sessions-alias", ["right-sidebar", "sessions"], "right_sidebar set sessions", "OK", ""),
+            ("feed-alias", ["right-sidebar", "feed"], "right_sidebar set feed", "OK", ""),
+            ("dock-alias", ["right-sidebar", "dock"], "right_sidebar set dock", "OK", ""),
+            ("mode", ["right-sidebar", "mode"], "right_sidebar mode", #"{"visible":true,"mode":"find"}"#, #"{"visible":true,"mode":"find"}"# + "\n"),
+        ]
+
+        for item in cases {
+            let socketPath = makeSocketPath("rs-\(item.name)")
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+            }
+
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                XCTAssertEqual(line, item.expectedCommand)
+                return item.response
+            }
+
+            var environment = ProcessInfo.processInfo.environment
+            environment["CMUX_SOCKET_PATH"] = socketPath
+            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: item.arguments,
+                environment: environment,
+                timeout: 5
+            )
+
+            wait(for: [serverHandled], timeout: 5)
+            XCTAssertFalse(result.timedOut, "\(item.name): \(result.stderr)")
+            XCTAssertEqual(result.status, 0, "\(item.name): \(result.stderr)")
+            XCTAssertEqual(result.stdout, item.stdout, item.name)
+            XCTAssertTrue(result.stderr.isEmpty, "\(item.name): \(result.stderr)")
+            XCTAssertEqual(state.commands, [item.expectedCommand], item.name)
+        }
+    }
+
     @MainActor
     func testNotifyWithUUIDSurfaceKeepsCallerWorkspaceFallback() throws {
         let cliPath = try bundledCLIPath()
