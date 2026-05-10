@@ -57,7 +57,7 @@ enum RemoteLoopbackProxyAlias {
             .sorted()
             .map(javaScriptStringLiteral)
             .joined(separator: ", ")
-        """
+        return """
         (() => {
           const aliasHost = \(javaScriptStringLiteral(aliasHost));
           const canonicalLoopbackHost = \(javaScriptStringLiteral(canonicalLoopbackHost));
