@@ -1024,10 +1024,10 @@ final class SidebarAgentPIDFallbackTests: XCTestCase {
 
         workspace.setAgentPID(key: "codex", panelId: panelId, pid: 123, refreshPorts: false)
         workspace.setAgentPID(key: "codex", pid: 123, refreshPorts: false)
-        XCTAssertEqual(workspace.agentPanelIds["codex"], panelId)
+        XCTAssertEqual(workspace.agentPIDPanelIdsByKey["codex"], panelId)
 
         workspace.setAgentPID(key: "codex", pid: 456, refreshPorts: false)
-        XCTAssertNil(workspace.agentPanelIds["codex"])
+        XCTAssertNil(workspace.agentPIDPanelIdsByKey["codex"])
     }
 
     @MainActor
@@ -1118,7 +1118,7 @@ final class SidebarAgentPIDFallbackTests: XCTestCase {
         XCTAssertNil(workspace.statusEntries["codex"])
         XCTAssertNil(workspace.agentPIDs["codex"])
         XCTAssertNil(workspace.agentProcessStates["codex"])
-        XCTAssertNil(workspace.agentPanelIds["codex"])
+        XCTAssertNil(workspace.agentPIDPanelIdsByKey["codex"])
     }
 
     @MainActor
@@ -1143,7 +1143,8 @@ final class SidebarAgentPIDFallbackTests: XCTestCase {
         XCTAssertNil(workspace.statusEntries["codex"])
         XCTAssertTrue(workspace.agentPIDs.isEmpty)
         XCTAssertTrue(workspace.agentProcessStates.isEmpty)
-        XCTAssertTrue(workspace.agentPanelIds.isEmpty)
+        XCTAssertTrue(workspace.agentPIDPanelIdsByKey.isEmpty)
+        XCTAssertTrue(workspace.agentPIDKeysByPanelId.isEmpty)
     }
 
     @MainActor
