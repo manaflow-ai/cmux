@@ -157,7 +157,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
         func reloadIfNeeded() {
             guard let outlineView else { return }
 
-            containerView?.updateVisibility(hasContent: !store.rootPath.isEmpty, isLoading: store.isRootLoading)
+            containerView?.updateVisibility(
+                hasContent: !store.rootPath.isEmpty,
+                isLoading: store.isRootLoading,
+                statusMessage: store.rootStatusMessage
+            )
             guard lastAppliedOutlineRevision != store.outlineRevision else { return }
             lastAppliedOutlineRevision = store.outlineRevision
 
@@ -652,7 +656,7 @@ final class FileExplorerContainerView: NSView {
     private var searchBarHeightConstraint: NSLayoutConstraint!
     private(set) var searchSnapshot = FileSearchSnapshot.empty
     private var currentRootPath = ""
-    private var currentProviderIsLocal = false
+    private var currentSearchScope: FileSearchScope = .unsupported
     private var currentContentRevision = 0
     private let searchDebounceSubject = PassthroughSubject<Int, Never>()
     private var searchDebounceCancellable: AnyCancellable?
@@ -929,6 +933,7 @@ final class FileExplorerContainerView: NSView {
     private struct VisibilityState: Equatable {
         let hasContent: Bool
         let isLoading: Bool
+        let statusMessage: String?
     }
 
     private var lastAppliedVisibility: VisibilityState?
@@ -946,14 +951,14 @@ final class FileExplorerContainerView: NSView {
 
     func updateHeader(store: FileExplorerStore) {
         let nextRootPath = store.rootPath
-        let nextProviderIsLocal = store.provider is LocalFileExplorerProvider
+        let nextSearchScope = FileSearchScope(provider: store.provider)
         let nextContentRevision = store.contentRevision
         let shouldRefreshSearch = nextRootPath != currentRootPath ||
-            nextProviderIsLocal != currentProviderIsLocal ||
+            nextSearchScope != currentSearchScope ||
             nextContentRevision != currentContentRevision
 
         currentRootPath = nextRootPath
-        currentProviderIsLocal = nextProviderIsLocal
+        currentSearchScope = nextSearchScope
         currentContentRevision = nextContentRevision
         headerView.update(displayPath: store.displayRootPath)
         if shouldRefreshSearch {
@@ -988,21 +993,34 @@ final class FileExplorerContainerView: NSView {
         registerWithKeyboardFocusCoordinatorIfNeeded()
     }
 
-    func updateVisibility(hasContent: Bool, isLoading: Bool) {
-        let nextVisibility = VisibilityState(hasContent: hasContent, isLoading: isLoading)
+    func updateVisibility(hasContent: Bool, isLoading: Bool, statusMessage: String?) {
+        let normalizedStatus = statusMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasStatus = normalizedStatus?.isEmpty == false
+        let canShowTree = hasContent && !hasStatus
+        let nextVisibility = VisibilityState(
+            hasContent: hasContent,
+            isLoading: isLoading,
+            statusMessage: normalizedStatus
+        )
         guard nextVisibility != lastAppliedVisibility else { return }
         lastAppliedVisibility = nextVisibility
 #if DEBUG
         FileExplorerDebugCounters.visibilityUpdateCount += 1
 #endif
 
-        let shouldHideHeader = !hasContent
+        let shouldHideHeader = !hasContent && !hasStatus
         if headerView.isHidden != shouldHideHeader {
             headerView.isHidden = shouldHideHeader
         }
-        updateSearchLayout(hasContent: hasContent, isLoading: isLoading)
-        let searchCanShow = isSearchVisible && hasContent && !isLoading
-        let shouldHideEmpty = hasContent || searchCanShow
+        updateSearchLayout(hasContent: canShowTree, isLoading: isLoading)
+        let searchCanShow = isSearchVisible && canShowTree && !isLoading
+        let nextEmptyText = hasStatus
+            ? normalizedStatus!
+            : String(localized: "fileExplorer.empty", defaultValue: "No folder open")
+        if emptyLabel.stringValue != nextEmptyText {
+            emptyLabel.stringValue = nextEmptyText
+        }
+        let shouldHideEmpty = canShowTree || searchCanShow || isLoading
         if emptyLabel.isHidden != shouldHideEmpty {
             emptyLabel.isHidden = shouldHideEmpty
         }
@@ -1107,7 +1125,7 @@ final class FileExplorerContainerView: NSView {
 #if DEBUG
         dlog(
             "file.search.request queryLen=\(searchField.stringValue.count) " +
-            "rootReady=\(currentRootPath.isEmpty ? 0 : 1) local=\(currentProviderIsLocal ? 1 : 0) " +
+            "rootReady=\(currentRootPath.isEmpty ? 0 : 1) scope=\(currentSearchScope.debugName) " +
             "revision=\(currentContentRevision) results=\(searchSnapshot.results.count) " +
             "fieldW=\(debugSearchNumber(searchField.frame.width)) statusW=\(debugSearchNumber(searchStatusLabel.frame.width))"
         )
@@ -1115,7 +1133,7 @@ final class FileExplorerContainerView: NSView {
         searchController.search(
             query: searchField.stringValue,
             rootPath: currentRootPath,
-            isLocal: currentProviderIsLocal,
+            scope: currentSearchScope,
             contentRevision: currentContentRevision
         )
     }
@@ -1195,8 +1213,10 @@ final class FileExplorerContainerView: NSView {
     }
 
     private func updateSearchLayoutForCurrentVisibility() {
+        let hasStatus = lastAppliedVisibility?.statusMessage?.isEmpty == false
+        let canShowTree = (lastAppliedVisibility?.hasContent ?? true) && !hasStatus
         updateSearchLayout(
-            hasContent: lastAppliedVisibility?.hasContent,
+            hasContent: canShowTree,
             isLoading: lastAppliedVisibility?.isLoading
         )
     }
@@ -1258,7 +1278,7 @@ final class FileExplorerContainerView: NSView {
         case .idle:
             return String(localized: "fileExplorer.search.empty", defaultValue: "Type to search")
         case .unsupported:
-            return String(localized: "fileExplorer.search.unsupported", defaultValue: "Local folders only")
+            return String(localized: "fileExplorer.search.unsupported", defaultValue: "Search unavailable")
         case .searching:
             return String(
                 format: String(localized: "fileExplorer.search.searching", defaultValue: "%d matches, searching"),
@@ -1854,10 +1874,12 @@ final class FileExplorerHeaderView: NSView {
             iconView.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
                 .withSymbolConfiguration(config)
             pathLabel.stringValue = "/" + quickSearchQuery
+            pathLabel.toolTip = pathLabel.stringValue
         } else {
             iconView.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)?
                 .withSymbolConfiguration(config)
             pathLabel.stringValue = displayPath
+            pathLabel.toolTip = displayPath
         }
     }
 }

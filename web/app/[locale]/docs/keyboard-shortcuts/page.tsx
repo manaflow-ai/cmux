@@ -12,6 +12,7 @@ const shortcutChordExample = `{
       "newSurface": ["ctrl+b", "c"],
       "showNotifications": ["ctrl+b", "i"],
       "toggleSidebar": "cmd+b",
+      "toggleFileExplorer": "cmd+opt+b",
       "splitRight": "",
       "commandPalettePrevious": null
     }
