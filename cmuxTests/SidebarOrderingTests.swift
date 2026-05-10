@@ -577,6 +577,42 @@ final class SidebarBranchOrderingTests: XCTestCase {
     }
 }
 
+final class TerminalOSC7LocationTests: XCTestCase {
+    func testRemoteOSC7SequenceCapturesHostPathAndBranch() throws {
+        let sequence = "\u{1B}]7;file://remotehost/Users/foo/work?cmux_git_branch=feature%2Fmosh&cmux_git_dirty=1\u{1B}\\"
+
+        let location = try XCTUnwrap(TerminalLocation.parseOSC7Sequence(sequence))
+
+        XCTAssertTrue(location.isRemote)
+        XCTAssertEqual(location.remoteHost, "remotehost")
+        XCTAssertEqual(location.path, "/Users/foo/work")
+        XCTAssertEqual(location.gitBranch, SidebarGitBranchState(branch: "feature/mosh", isDirty: true))
+    }
+
+    @MainActor
+    func testRemoteOSC7LocationUpdatesWorkspaceSidebarState() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.tabs.first)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let sequence = "\u{1B}]7;file://devbox.example/home/george/cmux?cmux_git_branch=remote-main&cmux_git_dirty=0\u{1B}\\"
+        let location = try XCTUnwrap(TerminalLocation.parseOSC7Sequence(sequence))
+
+        manager.updateSurfaceLocation(tabId: workspace.id, surfaceId: panelId, location: location)
+
+        XCTAssertEqual(workspace.terminalLocation(for: panelId)?.remoteHost, "devbox.example")
+        XCTAssertEqual(
+            workspace.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: [panelId]),
+            [
+                SidebarBranchOrdering.BranchDirectoryEntry(
+                    branch: "remote-main",
+                    isDirty: false,
+                    directory: "devbox.example:/home/george/cmux"
+                )
+            ]
+        )
+    }
+}
+
 
 final class SidebarDropPlannerTests: XCTestCase {
     func testNoIndicatorForNoOpEdges() {

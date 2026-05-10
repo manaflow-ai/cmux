@@ -67,6 +67,63 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             .write(to: url, atomically: true, encoding: .utf8)
     }
 
+    private func runRemoteShellSnippetSmoke(shellPath: String) throws -> String {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-remote-shell-init-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let script = """
+        set -e
+        cd "\(root.path)"
+        git init -q
+        git checkout -q -b feature/mosh
+        printf 'changed\\n' > tracked.txt
+        git add tracked.txt
+        git commit -q -m init
+        printf 'dirty\\n' >> tracked.txt
+        \(RemoteShellIntegrationSnippet.script())
+        __cmux_remote_report_prompt
+        """
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "CMUX_REMOTE_HOST=remotehost",
+                "GIT_AUTHOR_NAME=cmux",
+                "GIT_AUTHOR_EMAIL=cmux@example.invalid",
+                "GIT_COMMITTER_NAME=cmux",
+                "GIT_COMMITTER_EMAIL=cmux@example.invalid",
+                shellPath,
+                "-c",
+                script,
+            ],
+            timeout: 10
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        return result.stdout
+    }
+
+    func testRemoteShellSnippetEmitsOSC7UnderBash() throws {
+        let stdout = try runRemoteShellSnippetSmoke(shellPath: "/bin/bash")
+
+        XCTAssertTrue(stdout.contains("\u{1B}]7;file://remotehost/"), stdout.debugDescription)
+        XCTAssertTrue(stdout.contains("cmux_git_branch=feature%2Fmosh"), stdout.debugDescription)
+        XCTAssertTrue(stdout.contains("cmux_git_dirty=1"), stdout.debugDescription)
+        XCTAssertTrue(stdout.contains("\u{1B}\\"), stdout.debugDescription)
+    }
+
+    func testRemoteShellSnippetEmitsOSC7UnderZsh() throws {
+        let stdout = try runRemoteShellSnippetSmoke(shellPath: "/bin/zsh")
+
+        XCTAssertTrue(stdout.contains("\u{1B}]7;file://remotehost/"), stdout.debugDescription)
+        XCTAssertTrue(stdout.contains("cmux_git_branch=feature%2Fmosh"), stdout.debugDescription)
+        XCTAssertTrue(stdout.contains("cmux_git_dirty=1"), stdout.debugDescription)
+        XCTAssertTrue(stdout.contains("\u{1B}\\"), stdout.debugDescription)
+    }
+
     private func runRelayZshHistfile(
         configureUserHome: (URL) throws -> URL
     ) throws -> String {
