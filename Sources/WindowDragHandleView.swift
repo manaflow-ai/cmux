@@ -455,17 +455,8 @@ func isMinimalModeTitlebarControlHit(window: NSWindow, locationInWindow: NSPoint
 }
 
 enum MinimalModeTitlebarDebugSettings {
-    static let leftControlsLeadingInsetKey = "debug.titlebar.leftControlsLeadingInset"
-    static let leftControlsTopInsetKey = "debug.titlebar.leftControlsTopInset"
-    static let rightToggleTrailingInsetKey = "debug.titlebar.rightToggleTrailingInset"
-    static let rightToggleTopInsetKey = "debug.titlebar.rightToggleTopInset"
-    static let trafficLightsXOffsetKey = "debug.titlebar.trafficLightsXOffset"
-    static let trafficLightsYOffsetKey = "debug.titlebar.trafficLightsYOffset"
-
     static let defaultLeftControlsLeadingInset = 72.0
-    static let defaultLeftControlsTopInset = -0.3
-    static let defaultRightToggleTrailingInset = 8.0
-    static let defaultRightToggleTopInset = -0.0
+    static let defaultLeftControlsTopInset = -2.0
     static let defaultTrafficLightsXOffset = 0.0
     static let defaultTrafficLightsYOffset = 1.7
     static let defaultTrafficLightTabBarInset = 80.0
@@ -485,59 +476,20 @@ enum MinimalModeTitlebarDebugSettings {
         min(max(value, range.lowerBound), range.upperBound)
     }
 
-    static func doubleValue(defaults: UserDefaults = .standard, key: String, fallback: Double, range: ClosedRange<Double>) -> Double {
-        let rawValue: Double
-        if let value = defaults.object(forKey: key) as? NSNumber {
-            rawValue = value.doubleValue
-        } else if let text = defaults.string(forKey: key), let parsed = Double(text) {
-            rawValue = parsed
-        } else {
-            rawValue = fallback
-        }
-        let finiteValue = rawValue.isFinite ? rawValue : fallback
-        return clamped(finiteValue, range: range)
-    }
-
     static func trafficLightTabBarLeadingInset(defaults: UserDefaults = .standard) -> CGFloat {
-        let offset = doubleValue(
-            defaults: defaults,
-            key: trafficLightsXOffsetKey,
-            fallback: defaultTrafficLightsXOffset,
-            range: trafficLightOffsetRange
-        )
-        return CGFloat(max(0, defaultTrafficLightTabBarInset + offset))
+        CGFloat(defaultTrafficLightTabBarInset)
     }
 
     static func trafficLightTitlebarLeadingInset(defaults: UserDefaults = .standard) -> CGFloat {
-        let offset = doubleValue(
-            defaults: defaults,
-            key: trafficLightsXOffsetKey,
-            fallback: defaultTrafficLightsXOffset,
-            range: trafficLightOffsetRange
-        )
-        return CGFloat(max(0, defaultTrafficLightTitlebarLeadingInset + offset))
+        CGFloat(defaultTrafficLightTitlebarLeadingInset)
     }
 
     static func leftControlsLeadingInset(defaults: UserDefaults = .standard) -> CGFloat {
-        CGFloat(
-            doubleValue(
-                defaults: defaults,
-                key: leftControlsLeadingInsetKey,
-                fallback: defaultLeftControlsLeadingInset,
-                range: horizontalInsetRange
-            )
-        )
+        CGFloat(defaultLeftControlsLeadingInset)
     }
 
     static func leftControlsTopInset(defaults: UserDefaults = .standard) -> CGFloat {
-        CGFloat(
-            doubleValue(
-                defaults: defaults,
-                key: leftControlsTopInsetKey,
-                fallback: defaultLeftControlsTopInset,
-                range: topInsetRange
-            )
-        )
+        CGFloat(defaultLeftControlsTopInset)
     }
 
     static func leftControlsXOffset(leadingInset: Double) -> CGFloat {
@@ -551,42 +503,10 @@ enum MinimalModeTitlebarDebugSettings {
 
     static func snapshot(defaults: UserDefaults = .standard) -> MinimalModeTitlebarDebugSnapshot {
         MinimalModeTitlebarDebugSnapshot(
-            leftControlsLeadingInset: doubleValue(
-                defaults: defaults,
-                key: leftControlsLeadingInsetKey,
-                fallback: defaultLeftControlsLeadingInset,
-                range: horizontalInsetRange
-            ),
-            leftControlsTopInset: doubleValue(
-                defaults: defaults,
-                key: leftControlsTopInsetKey,
-                fallback: defaultLeftControlsTopInset,
-                range: topInsetRange
-            ),
-            rightToggleTrailingInset: doubleValue(
-                defaults: defaults,
-                key: rightToggleTrailingInsetKey,
-                fallback: defaultRightToggleTrailingInset,
-                range: horizontalInsetRange
-            ),
-            rightToggleTopInset: doubleValue(
-                defaults: defaults,
-                key: rightToggleTopInsetKey,
-                fallback: defaultRightToggleTopInset,
-                range: topInsetRange
-            ),
-            trafficLightsXOffset: doubleValue(
-                defaults: defaults,
-                key: trafficLightsXOffsetKey,
-                fallback: defaultTrafficLightsXOffset,
-                range: trafficLightOffsetRange
-            ),
-            trafficLightsYOffset: doubleValue(
-                defaults: defaults,
-                key: trafficLightsYOffsetKey,
-                fallback: defaultTrafficLightsYOffset,
-                range: trafficLightYOffsetRange
-            )
+            leftControlsLeadingInset: defaultLeftControlsLeadingInset,
+            leftControlsTopInset: defaultLeftControlsTopInset,
+            trafficLightsXOffset: defaultTrafficLightsXOffset,
+            trafficLightsYOffset: defaultTrafficLightsYOffset
         )
     }
 }
@@ -594,8 +514,6 @@ enum MinimalModeTitlebarDebugSettings {
 struct MinimalModeTitlebarDebugSnapshot: Equatable {
     let leftControlsLeadingInset: Double
     let leftControlsTopInset: Double
-    let rightToggleTrailingInset: Double
-    let rightToggleTopInset: Double
     let trafficLightsXOffset: Double
     let trafficLightsYOffset: Double
 }
@@ -1026,6 +944,8 @@ func windowDragHandleShouldCaptureHit(
 /// This lets us keep `window.isMovableByWindowBackground = false` so drags in the app content
 /// (e.g. sidebar tab reordering) don't move the whole window.
 struct WindowDragHandleView: NSViewRepresentable {
+    static let viewIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarDragHandle")
+
     var doubleClickBehavior: TitlebarDoubleClickBehavior = .standardAction
 
     func makeNSView(context: Context) -> NSView {
@@ -1042,11 +962,13 @@ struct WindowDragHandleView: NSViewRepresentable {
         init(doubleClickBehavior: TitlebarDoubleClickBehavior) {
             self.doubleClickBehavior = doubleClickBehavior
             super.init(frame: .zero)
+            identifier = WindowDragHandleView.viewIdentifier
         }
 
         required init?(coder: NSCoder) {
             self.doubleClickBehavior = .standardAction
             super.init(coder: coder)
+            identifier = WindowDragHandleView.viewIdentifier
         }
 
         override var mouseDownCanMoveWindow: Bool { false }
@@ -1118,6 +1040,56 @@ struct WindowDragHandleView: NSViewRepresentable {
     }
 }
 
+private func titlebarDoubleClickMonitorHasCapturingDragHandle(
+    in rootView: NSView,
+    window: NSWindow,
+    locationInWindow: NSPoint
+) -> Bool {
+    if rootView.identifier == WindowDragHandleView.viewIdentifier {
+        let localPoint = rootView.convert(locationInWindow, from: nil)
+        if rootView.bounds.contains(localPoint),
+           windowDragHandleShouldCaptureHit(
+               localPoint,
+               in: rootView,
+               eventType: .leftMouseDown,
+               eventWindow: window
+           ) {
+            return true
+        }
+    }
+
+    for subview in rootView.subviews {
+        if titlebarDoubleClickMonitorHasCapturingDragHandle(
+            in: subview,
+            window: window,
+            locationInWindow: locationInWindow
+        ) {
+            return true
+        }
+    }
+
+    return false
+}
+
+private func titlebarDoubleClickMonitorShouldDeferToRegisteredControl(
+    window: NSWindow,
+    locationInWindow: NSPoint
+) -> Bool {
+    guard isMinimalModeTitlebarControlHit(window: window, locationInWindow: locationInWindow) else {
+        return false
+    }
+
+    guard let contentView = window.contentView else {
+        return true
+    }
+
+    return !titlebarDoubleClickMonitorHasCapturingDragHandle(
+        in: contentView,
+        window: window,
+        locationInWindow: locationInWindow
+    )
+}
+
 /// Local monitor that guarantees double-clicks in custom titlebar surfaces trigger
 /// the standard macOS titlebar action even when the visible strip is hosted by
 /// higher-level SwiftUI/AppKit container views.
@@ -1157,7 +1129,10 @@ struct TitlebarDoubleClickMonitorView: NSViewRepresentable {
                 coordinator.lastClick = nil
                 return event
             }
-            guard !isMinimalModeTitlebarControlHit(window: window, locationInWindow: event.locationInWindow) else {
+            guard !titlebarDoubleClickMonitorShouldDeferToRegisteredControl(
+                window: window,
+                locationInWindow: event.locationInWindow
+            ) else {
                 coordinator.lastClick = nil
                 return event
             }
@@ -1184,6 +1159,9 @@ struct TitlebarDoubleClickMonitorView: NSViewRepresentable {
                 window: window,
                 behavior: coordinator.doubleClickBehavior
             )
+            #if DEBUG
+            cmuxDebugLog("titlebar.monitor.doubleClick result=\(String(describing: result))")
+            #endif
             return result.consumesEvent ? nil : event
         }
 
