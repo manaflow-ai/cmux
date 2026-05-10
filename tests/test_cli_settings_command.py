@@ -111,6 +111,13 @@ def main() -> int:
         if "openSettings" not in shortcut_key_lines or "showHideAllWindows" not in shortcut_key_lines:
             failures.append(f"settings shortcuts list --keys omitted expected actions: {shortcut_keys.stdout!r}")
 
+        set_auto_alias = run_cli(cli_path, ["settings", "set", "app.appearance", "auto"], home)
+        assert_ok(failures, "settings set app.appearance legacy auto alias", set_auto_alias)
+        get_auto_alias = run_cli(cli_path, ["settings", "get", "app.appearance"], home)
+        assert_ok(failures, "settings get app.appearance legacy auto alias", get_auto_alias)
+        if get_auto_alias.stdout.strip() != "system":
+            failures.append(f"app.appearance auto alias was not canonicalized to system: {get_auto_alias.stdout!r}")
+
         set_appearance = run_cli(cli_path, ["settings", "set", "app.appearance", "dark"], home)
         assert_ok(failures, "settings set app.appearance", set_appearance)
         get_appearance = run_cli(cli_path, ["settings", "get", "app.appearance"], home)

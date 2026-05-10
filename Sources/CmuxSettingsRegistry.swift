@@ -83,7 +83,7 @@ enum CmuxSettingsRegistry {
 
     static let settings: [SettingDefinition] = [
         SettingDefinition(key: "app.language", kind: .enumValue(languageValues), defaultValue: "system"),
-        SettingDefinition(key: "app.appearance", kind: .enumValue(["system", "light", "dark", "auto"], aliases: ["auto": "system"]), defaultValue: "system"),
+        SettingDefinition(key: "app.appearance", kind: .enumValue(["system", "light", "dark"], aliases: ["auto": "system"]), defaultValue: "system"),
         SettingDefinition(key: "app.appIcon", kind: .enumValue(["automatic", "light", "dark"]), defaultValue: "automatic"),
         SettingDefinition(key: "app.menuBarOnly", kind: .bool, defaultValue: false),
         SettingDefinition(key: "app.newWorkspacePlacement", kind: .enumValue(["top", "afterCurrent", "end"]), defaultValue: "afterCurrent"),
