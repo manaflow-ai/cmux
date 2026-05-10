@@ -1005,6 +1005,19 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
 
 final class SidebarAgentPIDFallbackTests: XCTestCase {
     @MainActor
+    func testUnscopedPIDRefreshPreservesPanelOwnershipForSamePID() {
+        let workspace = Workspace()
+        let panelId = UUID()
+
+        workspace.setAgentPID(key: "codex", panelId: panelId, pid: 123, refreshPorts: false)
+        workspace.setAgentPID(key: "codex", pid: 123, refreshPorts: false)
+        XCTAssertEqual(workspace.agentPanelIds["codex"], panelId)
+
+        workspace.setAgentPID(key: "codex", pid: 456, refreshPorts: false)
+        XCTAssertNil(workspace.agentPanelIds["codex"])
+    }
+
+    @MainActor
     func testRegisteredLiveAgentPIDPublishesRunningFallbackAndClearsAfterExit() throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sleep")

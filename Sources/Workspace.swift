@@ -7308,10 +7308,11 @@ final class Workspace: Identifiable, ObservableObject {
             return
         }
 
+        let existingPID = agentPIDs[key]
         agentPIDs[key] = pid
         if let panelId {
             agentPanelIds[key] = panelId
-        } else {
+        } else if existingPID != pid {
             agentPanelIds.removeValue(forKey: key)
         }
         if agentProcessStates[key]?.pid != pid || agentProcessStates[key]?.isAlive != true {
@@ -7369,7 +7370,6 @@ final class Workspace: Identifiable, ObservableObject {
         for key in keys {
             clearAgentPID(key: key, refreshPorts: false)
         }
-        agentPanelIds.removeAll()
         agentListeningPorts.removeAll()
         if refreshPorts {
             refreshTrackedAgentPorts()
