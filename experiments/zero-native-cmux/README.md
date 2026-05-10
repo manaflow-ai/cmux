@@ -25,9 +25,14 @@ zig build run
 
 Use `-Dweb-engine=system` to compare against WKWebView. Chromium is the default.
 `setup.sh` applies the local CEF startup and native shell patches before
-installing the CEF runtime. The verified path is `zig build run`; packaging the
-Chromium build as a cmd-clickable `.app` still needs Zero Native helper bundle
-work.
+installing the CEF runtime.
+
+To build a cmd-clickable Chromium `.app` with the required CEF helper apps:
+
+```bash
+zig build app
+open zig-out/package/zero-cmux.app
+```
 
 ## Test
 

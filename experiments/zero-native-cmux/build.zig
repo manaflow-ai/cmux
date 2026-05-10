@@ -61,6 +61,7 @@ pub fn build(b: *std.Build) void {
     });
     linkPlatform(b, target, app_mod, exe, selected_platform, web_engine, zero_native_path, cef_dir, cef_auto_install);
     b.installArtifact(exe);
+    addMacosAppBundleStep(b, target, exe, selected_platform, web_engine, cef_dir);
 
     const run = b.addRunArtifact(exe);
     addCefRuntimeRunFiles(b, target, run, exe, web_engine, cef_dir);
@@ -165,6 +166,36 @@ fn linkPlatform(
     app_mod.linkFramework("UniformTypeIdentifiers", .{});
     app_mod.linkFramework("Carbon", .{});
     app_mod.linkSystemLibrary("c", .{});
+}
+
+fn addMacosAppBundleStep(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    exe: *std.Build.Step.Compile,
+    platform: PlatformOption,
+    web_engine: WebEngineOption,
+    cef_dir: []const u8,
+) void {
+    if (platform != .macos) return;
+    if (target.result.os.tag != .macos) return;
+    if (web_engine != .chromium) return;
+
+    const package_app = b.addSystemCommand(&.{
+        "sh",
+        "scripts/package-app.sh",
+        "--output",
+        "zig-out/package/zero-cmux.app",
+        "--name",
+        app_exe_name,
+        "--bundle-id",
+        "com.cmux.zero-native",
+        "--cef-dir",
+        cef_dir,
+        "--binary",
+    });
+    package_app.addFileArg(exe.getEmittedBin());
+    const app_step = b.step("app", "Build cmd-clickable macOS app bundle");
+    app_step.dependOn(&package_app.step);
 }
 
 fn addCefRuntimeRunFiles(

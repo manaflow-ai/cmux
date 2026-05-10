@@ -1,5 +1,5 @@
 diff --git a/src/platform/macos/cef_host.mm b/src/platform/macos/cef_host.mm
-index ce9c747..608a48f 100644
+index ce9c747..8c43c67 100644
 --- a/src/platform/macos/cef_host.mm
 +++ b/src/platform/macos/cef_host.mm
 @@ -2,12 +2,21 @@
@@ -75,7 +75,15 @@ index ce9c747..608a48f 100644
  
      CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override {
          return this;
-@@ -86,9 +119,34 @@ explicit ZeroNativeCefClient(ZeroNativeChromiumHost *host, uint64_t window_id) :
+@@ -79,6 +112,7 @@ explicit ZeroNativeCefClient(ZeroNativeChromiumHost *host, uint64_t window_id) :
+     }
+ 
+     void OnAfterCreated(CefRefPtr<CefBrowser> browser) override;
++    void OnLoadEnd(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, int httpStatusCode) override;
+     void OnLoadError(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, ErrorCode errorCode, const CefString& errorText, const CefString& failedUrl) override;
+     bool OnBeforeBrowse(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request, bool user_gesture, bool is_redirect) override;
+     bool OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefProcessId source_process, CefRefPtr<CefProcessMessage> message) override;
+@@ -86,9 +120,34 @@ explicit ZeroNativeCefClient(ZeroNativeChromiumHost *host, uint64_t window_id) :
  private:
      ZeroNativeChromiumHost *host_;
      uint64_t window_id_;
@@ -110,7 +118,7 @@ index ce9c747..608a48f 100644
  class ZeroNativeCefApp final : public CefApp, public CefRenderProcessHandler {
  public:
      ZeroNativeCefApp() = default;
-@@ -97,6 +155,7 @@ void OnBeforeCommandLineProcessing(const CefString& process_type, CefRefPtr<CefC
+@@ -97,6 +156,7 @@ void OnBeforeCommandLineProcessing(const CefString& process_type, CefRefPtr<CefC
          (void)process_type;
          command_line->AppendSwitchWithValue("password-store", "basic");
          command_line->AppendSwitch("use-mock-keychain");
@@ -118,13 +126,14 @@ index ce9c747..608a48f 100644
      }
  
      CefRefPtr<CefRenderProcessHandler> GetRenderProcessHandler() override {
-@@ -121,6 +180,18 @@ void OnContextCreated(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
+@@ -121,6 +181,19 @@ void OnContextCreated(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
  static CefScopedLibraryLoader g_cef_library_loader;
  static bool g_cef_library_loaded = false;
  
 +static void ZeroNativeRunCefSubprocessIfNeeded() {
-+    if (!ZeroNativeShouldUseHelperLoader()) return;
-+    if (!g_cef_library_loader.LoadInHelper()) {
++    if (!ZeroNativeIsCefHelperProcess()) return;
++    const bool helperBundle = ZeroNativeShouldUseHelperLoader();
++    if (!(helperBundle ? g_cef_library_loader.LoadInHelper() : g_cef_library_loader.LoadInMain())) {
 +        fprintf(stderr, "failed to load Chromium Embedded Framework in helper\n");
 +        exit(1);
 +    }
@@ -137,7 +146,7 @@ index ce9c747..608a48f 100644
  static void shutdownCefIfNeeded() {
      if (!g_cef_initialized || g_cef_shutdown) return;
      CefShutdown();
-@@ -133,7 +204,8 @@ static void ensureCefInitialized() {
+@@ -133,7 +206,8 @@ static void ensureCefInitialized() {
      g_cef_shutdown = false;
  
      if (!g_cef_library_loaded) {
@@ -147,7 +156,7 @@ index ce9c747..608a48f 100644
              fprintf(stderr, "failed to load Chromium Embedded Framework\n");
              return;
          }
-@@ -148,13 +220,14 @@ static void ensureCefInitialized() {
+@@ -148,13 +222,14 @@ static void ensureCefInitialized() {
      CefSettings settings;
      settings.no_sandbox = true;
      settings.multi_threaded_message_loop = false;
@@ -163,7 +172,7 @@ index ce9c747..608a48f 100644
      CefString(&settings.framework_dir_path).FromString(frameworkPath.UTF8String);
      CefString(&settings.resources_dir_path).FromString(resourcesPath.UTF8String);
      CefString(&settings.root_cache_path).FromString(cefDataRoot.UTF8String);
-@@ -223,6 +296,33 @@ static void ensureCefInitialized() {
+@@ -223,6 +298,56 @@ static void ensureCefInitialized() {
      return [devRoot stringByAppendingPathComponent:@"Release/Chromium Embedded Framework.framework"];
  }
  
@@ -172,6 +181,29 @@ index ce9c747..608a48f 100644
 +    NSString *executablePath = bundle.executablePath ?: [[[NSProcessInfo processInfo] arguments] firstObject];
 +    NSString *executableName = executablePath.lastPathComponent;
 +    if (executableName.length == 0) return executablePath;
++
++    NSString *privateFrameworksPath = bundle.privateFrameworksPath;
++    if (privateFrameworksPath.length > 0) {
++        NSArray<NSString *> *helperNames = @[
++            [executableName stringByAppendingString:@" Helper"],
++            [executableName stringByAppendingString:@" Helper (GPU)"],
++            [executableName stringByAppendingString:@" Helper (Plugin)"],
++            [executableName stringByAppendingString:@" Helper (Renderer)"],
++        ];
++
++        BOOL hasCompleteHelperBundleSet = YES;
++        for (NSString *helperName in helperNames) {
++            NSString *helperBundlePath = [privateFrameworksPath stringByAppendingPathComponent:[helperName stringByAppendingString:@".app"]];
++            NSString *helperMacOSPath = [[helperBundlePath stringByAppendingPathComponent:@"Contents"] stringByAppendingPathComponent:@"MacOS"];
++            NSString *helperExecutable = [helperMacOSPath stringByAppendingPathComponent:helperName];
++            if (!ZeroNativeExistingPath(helperExecutable)) {
++                hasCompleteHelperBundleSet = NO;
++                break;
++            }
++        }
++        if (hasCompleteHelperBundleSet) return @"";
++    }
++
 +    NSString *helperName = [executableName stringByAppendingString:@" Helper"];
 +    NSString *helperPath = [[[[bundle privateFrameworksPath] stringByAppendingPathComponent:[helperName stringByAppendingString:@".app"]] stringByAppendingPathComponent:@"Contents/MacOS"] stringByAppendingPathComponent:helperName];
 +    if (ZeroNativeExistingPath(helperPath)) return helperPath;
@@ -191,13 +223,13 @@ index ce9c747..608a48f 100644
 +static bool ZeroNativeShouldUseHelperLoader(void) {
 +    if (!ZeroNativeIsCefHelperProcess()) return false;
 +    NSString *executableName = [NSBundle mainBundle].executablePath.lastPathComponent ?: @"";
-+    return [executableName hasSuffix:@" Helper"];
++    return [executableName containsString:@" Helper"];
 +}
 +
  static NSRect ZeroNativeConstrainFrame(NSRect frame) {
      NSScreen *screen = [NSScreen mainScreen];
      if (!screen) return frame;
-@@ -286,6 +386,141 @@ static NSRect ZeroNativeConstrainFrame(NSRect frame) {
+@@ -286,6 +411,141 @@ static NSRect ZeroNativeConstrainFrame(NSRect frame) {
          "})();";
  }
  
@@ -339,7 +371,7 @@ index ce9c747..608a48f 100644
  } // namespace
  
  @implementation ZeroNativeChromiumApplication
-@@ -305,20 +540,992 @@ - (void)sendEvent:(NSEvent *)event {
+@@ -305,20 +565,1003 @@ - (void)sendEvent:(NSEvent *)event {
  
  @end
  
@@ -854,6 +886,7 @@ index ce9c747..608a48f 100644
 +@property(nonatomic, strong) NSButton *addTabButton;
 +- (void)configureForWindowId:(uint64_t)windowId;
 +- (uint64_t)activeBrowserKey;
++- (void)ensureActiveBrowserLoaded;
 +- (void)setBrowserURLString:(NSString *)urlString;
 +- (void)setBrowserURLString:(NSString *)urlString browserKey:(uint64_t)browserKey;
 +@end
@@ -964,7 +997,6 @@ index ce9c747..608a48f 100644
 +    ZeroNativeCmuxBrowserTab *tab = [self activeBrowserTab];
 +    if (tab && tab.browserKey == 0) {
 +        tab.browserKey = windowId;
-+        tab.browserCreated = YES;
 +    }
 +    [self activateActiveTabCreatingBrowser:NO];
 +}
@@ -1057,13 +1089,22 @@ index ce9c747..608a48f 100644
 +    if (!active.browserCreated) {
 +        if ([self.host hasNativeBrowserForKey:active.browserKey]) {
 +            active.browserCreated = YES;
-+        } else if (createBrowser) {
++        } else if (createBrowser && active.browserContainer.bounds.size.width > 0 && active.browserContainer.bounds.size.height > 0) {
 +            [self.host createNativeBrowserForKey:active.browserKey container:active.browserContainer url:active.url ownerWindowId:self.windowId];
 +            active.browserCreated = YES;
 +        }
 +    } else {
 +        [self.host resizeNativeBrowserForKey:active.browserKey];
 +    }
++}
++
++- (void)ensureActiveBrowserLoaded {
++    [self activateActiveTabCreatingBrowser:YES];
++}
++
++- (void)viewDidMoveToWindow {
++    [super viewDidMoveToWindow];
++    if (self.window) [self ensureActiveBrowserLoaded];
 +}
 +
 +- (void)layout {
@@ -1130,6 +1171,7 @@ index ce9c747..608a48f 100644
 +        self.devToolsContainer.frame = NSZeroRect;
 +    }
 +    [self layoutTabSurfaces];
++    if (self.window) [self ensureActiveBrowserLoaded];
 +    uint64_t activeKey = [self activeBrowserKey];
 +    if (activeKey != 0) [self.host resizeNativeBrowserForKey:activeKey];
 +}
@@ -1330,10 +1372,11 @@ index ce9c747..608a48f 100644
  @property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSString *> *bridgeOrigins;
  @property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSString *> *internalURLPrefixes;
 +@property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSString *> *inlineHTMLSources;
++@property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSString *> *pendingBrowserURLs;
  @property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSString *> *windowLabels;
  @property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSString *> *fallbackURLs;
  @property(nonatomic, strong) NSTimer *timer;
-@@ -335,10 +1542,13 @@ @interface ZeroNativeChromiumHost : NSObject
+@@ -335,10 +1578,13 @@ @interface ZeroNativeChromiumHost : NSObject
  @property(nonatomic) CefRefPtr<CefBrowser> browser;
  @property(nonatomic, assign) std::map<uint64_t, CefRefPtr<ZeroNativeCefClient>> *cefClients;
  @property(nonatomic, assign) std::map<uint64_t, CefRefPtr<CefBrowser>> *browsers;
@@ -1348,7 +1391,7 @@ index ce9c747..608a48f 100644
  - (void)configureApplication;
  - (void)buildMenuBar;
  - (NSMenuItem *)menuItem:(NSString *)title action:(SEL)action key:(NSString *)key modifiers:(NSEventModifierFlags)modifiers;
-@@ -360,6 +1570,24 @@ - (BOOL)isInternalURL:(NSURL *)url;
+@@ -360,6 +1606,25 @@ - (BOOL)isInternalURL:(NSURL *)url;
  - (BOOL)allowsNavigationURL:(NSURL *)url;
  - (BOOL)openExternalURLIfAllowed:(NSURL *)url;
  - (void)setBrowser:(CefRefPtr<CefBrowser>)browser windowId:(uint64_t)windowId;
@@ -1361,6 +1404,7 @@ index ce9c747..608a48f 100644
 +- (void)setDevToolsBrowser:(CefRefPtr<CefBrowser>)browser windowId:(uint64_t)windowId mode:(NSInteger)mode;
 +- (void)clearDevToolsBrowser:(CefRefPtr<CefBrowser>)browser windowId:(uint64_t)windowId mode:(NSInteger)mode;
 +- (void)loadInlineHTMLIfNeededForWindowId:(uint64_t)windowId browser:(CefRefPtr<CefBrowser>)browser;
++- (void)loadPendingInitialURLForBrowserKey:(uint64_t)browserKey browser:(CefRefPtr<CefBrowser>)browser;
 +- (void)updateNativeBrowserURLString:(NSString *)urlString windowId:(uint64_t)windowId;
 +- (void)updateNativeBrowserURLString:(NSString *)urlString browserKey:(uint64_t)browserKey windowId:(uint64_t)windowId;
 +- (void)navigateNativeBrowserToString:(NSString *)value windowId:(uint64_t)windowId;
@@ -1373,7 +1417,7 @@ index ce9c747..608a48f 100644
  - (NSString *)fallbackURLForWindowId:(uint64_t)windowId;
  - (NSString *)bridgeOriginForWindowId:(uint64_t)windowId sourceURL:(NSString *)sourceURL;
  - (void)receiveBridgePayload:(NSString *)payload origin:(NSString *)origin windowId:(uint64_t)windowId;
-@@ -391,11 +1619,17 @@ - (void)windowWillClose:(NSNotification *)notification {
+@@ -391,11 +1656,18 @@ - (void)windowWillClose:(NSNotification *)notification {
      (void)notification;
      [self.host emitWindowFrameForWindowId:self.windowId open:NO];
      NSNumber *key = @(self.windowId);
@@ -1388,10 +1432,11 @@ index ce9c747..608a48f 100644
      [self.host.bridgeOrigins removeObjectForKey:key];
      [self.host.internalURLPrefixes removeObjectForKey:key];
 +    [self.host.inlineHTMLSources removeObjectForKey:key];
++    [self.host.pendingBrowserURLs removeObjectForKey:key];
      [self.host.windowLabels removeObjectForKey:key];
      [self.host.fallbackURLs removeObjectForKey:key];
      if (self.host.browsers) self.host.browsers->erase(self.windowId);
-@@ -410,7 +1644,7 @@ - (void)windowWillClose:(NSNotification *)notification {
+@@ -410,7 +1682,7 @@ - (void)windowWillClose:(NSNotification *)notification {
  
  @implementation ZeroNativeChromiumHost
  
@@ -1400,7 +1445,7 @@ index ce9c747..608a48f 100644
      self = [super init];
      if (!self) return nil;
  
-@@ -418,16 +1652,23 @@ - (instancetype)initWithAppName:(NSString *)appName title:(NSString *)title widt
+@@ -418,16 +1690,24 @@ - (instancetype)initWithAppName:(NSString *)appName title:(NSString *)title widt
      ensureCefInitialized();
      [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
      self.appName = appName.length > 0 ? appName : @"zero-native";
@@ -1415,6 +1460,7 @@ index ce9c747..608a48f 100644
      self.bridgeOrigins = [[NSMutableDictionary alloc] init];
      self.internalURLPrefixes = [[NSMutableDictionary alloc] init];
 +    self.inlineHTMLSources = [[NSMutableDictionary alloc] init];
++    self.pendingBrowserURLs = [[NSMutableDictionary alloc] init];
      self.windowLabels = [[NSMutableDictionary alloc] init];
      self.fallbackURLs = [[NSMutableDictionary alloc] init];
      self.cefClients = new std::map<uint64_t, CefRefPtr<ZeroNativeCefClient>>();
@@ -1424,7 +1470,7 @@ index ce9c747..608a48f 100644
      self.allowedNavigationOrigins = @[ @"zero://app", @"zero://inline" ];
      self.allowedExternalURLs = @[];
      self.externalLinkAction = 0;
-@@ -509,7 +1750,8 @@ - (void)reload:(id)sender {
+@@ -509,7 +1789,8 @@ - (void)reload:(id)sender {
          }
      }
      if (self.browsers) {
@@ -1434,7 +1480,7 @@ index ce9c747..608a48f 100644
          if (it != self.browsers->end() && it->second) {
              it->second->ReloadIgnoreCache();
          }
-@@ -519,6 +1761,8 @@ - (void)reload:(id)sender {
+@@ -519,6 +1800,8 @@ - (void)reload:(id)sender {
  - (void)dealloc {
      delete self.cefClients;
      delete self.browsers;
@@ -1443,7 +1489,7 @@ index ce9c747..608a48f 100644
  }
  
  - (BOOL)createWindowWithId:(uint64_t)windowId title:(NSString *)title label:(NSString *)label x:(double)x y:(double)y width:(double)width height:(double)height restoreFrame:(BOOL)restoreFrame makeMain:(BOOL)makeMain {
-@@ -536,9 +1780,21 @@ - (BOOL)createWindowWithId:(uint64_t)windowId title:(NSString *)title label:(NSS
+@@ -536,9 +1819,22 @@ - (BOOL)createWindowWithId:(uint64_t)windowId title:(NSString *)title label:(NSS
      [window setTitle:title.length > 0 ? title : @"zero-native"];
      if (!restoreFrame) [window center];
  
@@ -1460,6 +1506,7 @@ index ce9c747..608a48f 100644
 +        browserContainer = workbenchView.browserContainer;
 +        window.contentView = workbenchView;
 +        [workbenchView layoutSubtreeIfNeeded];
++        [workbenchView ensureActiveBrowserLoaded];
 +    } else {
 +        browserContainer = [[NSView alloc] initWithFrame:rect];
 +        browserContainer.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
@@ -1468,7 +1515,7 @@ index ce9c747..608a48f 100644
  
      ZeroNativeChromiumWindowDelegate *delegate = [[ZeroNativeChromiumWindowDelegate alloc] init];
      delegate.host = self;
-@@ -548,6 +1804,7 @@ - (BOOL)createWindowWithId:(uint64_t)windowId title:(NSString *)title label:(NSS
+@@ -548,6 +1844,7 @@ - (BOOL)createWindowWithId:(uint64_t)windowId title:(NSString *)title label:(NSS
  
      self.windows[key] = window;
      self.browserContainers[key] = browserContainer;
@@ -1476,7 +1523,7 @@ index ce9c747..608a48f 100644
      self.delegates[key] = delegate;
      self.windowLabels[key] = label.length > 0 ? label : (makeMain ? @"main" : @"");
      (*self.cefClients)[windowId] = client;
-@@ -601,14 +1858,16 @@ - (void)runWithCallback:(zero_native_appkit_event_callback_t)callback context:(v
+@@ -601,14 +1898,16 @@ - (void)runWithCallback:(zero_native_appkit_event_callback_t)callback context:(v
      [self.window makeKeyAndOrderFront:nil];
      [NSApp activateIgnoringOtherApps:YES];
  
@@ -1496,7 +1543,7 @@ index ce9c747..608a48f 100644
      [NSApp run];
      shutdownCefIfNeeded();
  }
-@@ -649,7 +1908,8 @@ - (void)emitResizeForWindowId:(uint64_t)windowId {
+@@ -649,7 +1948,8 @@ - (void)emitResizeForWindowId:(uint64_t)windowId {
      NSWindow *window = self.windows[@(windowId)] ?: self.window;
      CefRefPtr<CefBrowser> browser;
      if (self.browsers) {
@@ -1506,7 +1553,22 @@ index ce9c747..608a48f 100644
          if (it != self.browsers->end()) browser = it->second;
      }
      NSRect bounds = container.bounds;
-@@ -702,9 +1962,9 @@ - (void)loadSource:(NSString *)source kind:(NSInteger)kind assetRoot:(NSString *
+@@ -698,13 +1998,24 @@ - (void)loadSource:(NSString *)source kind:(NSInteger)kind assetRoot:(NSString *
+ }
+ 
+ - (void)loadSource:(NSString *)source kind:(NSInteger)kind assetRoot:(NSString *)assetRoot entry:(NSString *)entry origin:(NSString *)origin spaFallback:(BOOL)spaFallback windowId:(uint64_t)windowId {
++    if (self.cmuxNativeShellEnabled) {
++        (void)source;
++        (void)kind;
++        (void)assetRoot;
++        (void)entry;
++        (void)origin;
++        (void)spaFallback;
++        (void)windowId;
++        return;
++    }
++
+     NSString *urlString = source;
      NSString *bridgeOrigin = nil;
      NSString *internalURLPrefix = nil;
      if (kind == 0) {
@@ -1518,7 +1580,7 @@ index ce9c747..608a48f 100644
      } else if (kind == 2) {
          NSString *resolvedRoot = ZeroNativeResolvedAssetRoot(assetRoot ?: @"");
          NSString *assetEntry = entry.length > 0 ? entry : @"index.html";
-@@ -726,11 +1986,17 @@ - (void)loadSource:(NSString *)source kind:(NSInteger)kind assetRoot:(NSString *
+@@ -726,11 +2037,17 @@ - (void)loadSource:(NSString *)source kind:(NSInteger)kind assetRoot:(NSString *
      } else {
          [self.internalURLPrefixes removeObjectForKey:key];
      }
@@ -1536,7 +1598,7 @@ index ce9c747..608a48f 100644
      NSView *container = self.browserContainers[@(windowId)] ?: self.browserContainer;
      CefRefPtr<CefBrowser> browser;
      if (self.browsers) {
-@@ -738,7 +2004,11 @@ - (void)loadSource:(NSString *)source kind:(NSInteger)kind assetRoot:(NSString *
+@@ -738,7 +2055,11 @@ - (void)loadSource:(NSString *)source kind:(NSInteger)kind assetRoot:(NSString *
          if (browser_it != self.browsers->end()) browser = browser_it->second;
      }
      if (browser) {
@@ -1549,7 +1611,7 @@ index ce9c747..608a48f 100644
          return;
      }
  
-@@ -769,6 +2039,7 @@ - (BOOL)allowsNavigationURL:(NSURL *)url {
+@@ -769,6 +2090,7 @@ - (BOOL)allowsNavigationURL:(NSURL *)url {
      NSString *scheme = url.scheme.lowercaseString ?: @"";
      if (scheme.length == 0 || [scheme isEqualToString:@"about"]) return YES;
      if ([self isInternalURL:url]) return YES;
@@ -1557,7 +1619,7 @@ index ce9c747..608a48f 100644
      return ZeroNativePolicyListMatches(self.allowedNavigationOrigins, url);
  }
  
-@@ -781,7 +2052,284 @@ - (BOOL)openExternalURLIfAllowed:(NSURL *)url {
+@@ -781,7 +2103,294 @@ - (BOOL)openExternalURLIfAllowed:(NSURL *)url {
  
  - (void)setBrowser:(CefRefPtr<CefBrowser>)browser windowId:(uint64_t)windowId {
      if (self.browsers) (*self.browsers)[windowId] = browser;
@@ -1599,6 +1661,7 @@ index ce9c747..608a48f 100644
 +
 +    [self setActiveNativeBrowserKey:browserKey container:container windowId:windowId];
 +    NSString *urlString = [self normalizedBrowserURLString:url ?: @"about:blank"];
++    self.pendingBrowserURLs[@(browserKey)] = urlString;
 +    CefRefPtr<ZeroNativeCefClient> client = new ZeroNativeCefClient(self, windowId, browserKey);
 +    (*self.cefClients)[browserKey] = client;
 +
@@ -1606,7 +1669,7 @@ index ce9c747..608a48f 100644
 +    CefRect rect(0, 0, MAX(1, (int)container.bounds.size.width), MAX(1, (int)container.bounds.size.height));
 +    windowInfo.SetAsChild((__bridge void *)container, rect);
 +    CefBrowserSettings browserSettings;
-+    CefBrowserHost::CreateBrowser(windowInfo, client.get(), std::string(urlString.UTF8String), browserSettings, nullptr, nullptr);
++    CefBrowserHost::CreateBrowser(windowInfo, client.get(), "about:blank", browserSettings, nullptr, nullptr);
 +}
 +
 +- (void)navigateNativeBrowserForKey:(uint64_t)browserKey toString:(NSString *)value ownerWindowId:(uint64_t)windowId {
@@ -1641,6 +1704,16 @@ index ce9c747..608a48f 100644
 +        }
 +    }
 +    if (self.devToolsClients) self.devToolsClients->erase(devToolsKey);
++}
++
++- (void)loadPendingInitialURLForBrowserKey:(uint64_t)browserKey browser:(CefRefPtr<CefBrowser>)browser {
++    if (!browser) return;
++    NSNumber *key = @(browserKey);
++    NSString *urlString = self.pendingBrowserURLs[key];
++    if (urlString.length == 0) return;
++    [self.pendingBrowserURLs removeObjectForKey:key];
++    if ([urlString isEqualToString:@"about:blank"]) return;
++    browser->GetMainFrame()->LoadURL(std::string(urlString.UTF8String));
 +}
 +
 +- (void)updateNativeBrowserURLString:(NSString *)urlString windowId:(uint64_t)windowId {
@@ -1774,7 +1847,6 @@ index ce9c747..608a48f 100644
 +    windowInfo.SetAsChild((__bridge void *)container, rect);
 +    CefBrowserSettings settings;
 +    const bool created = CefBrowserHost::CreateBrowser(windowInfo, client.get(), std::string(frontendURL.UTF8String), settings, nullptr, nullptr);
-+    fprintf(stderr, "zero-native: create DevTools browser mode=%ld url=%s created=%d\n", (long)mode, frontendURL.UTF8String, created ? 1 : 0);
 +    if (!created) {
 +        if (self.devToolsClients) self.devToolsClients->erase(devToolsKey);
 +        if (mode == 1) [self closeNativeBrowserDevToolsForWindowId:windowId mode:1 closeWindow:NO];
@@ -1843,33 +1915,43 @@ index ce9c747..608a48f 100644
  }
  
  - (NSString *)fallbackURLForWindowId:(uint64_t)windowId {
-@@ -881,7 +2429,12 @@ static BOOL ZeroNativePolicyListMatches(NSArray<NSString *> *values, NSURL *url)
+@@ -881,7 +2490,22 @@ static BOOL ZeroNativePolicyListMatches(NSArray<NSString *> *values, NSURL *url)
  }
  
  void ZeroNativeCefClient::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
 -    [host_ setBrowser:browser windowId:window_id_];
 +    [host_ setBrowser:browser windowId:browser_key_];
 +    [host_ loadInlineHTMLIfNeededForWindowId:window_id_ browser:browser];
++    [host_ loadPendingInitialURLForBrowserKey:browser_key_ browser:browser];
 +    ZeroNativeCmuxWorkbenchView *workbench = host_.nativeWorkbenchViews[@(window_id_)];
 +    if (workbench.internalDevToolsVisible) {
 +        [host_ openNativeBrowserInternalDevToolsForWindowId:window_id_];
 +    }
++}
++
++void ZeroNativeCefClient::OnLoadEnd(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, int httpStatusCode) {
++    (void)browser;
++    (void)httpStatusCode;
++    if (!frame || !frame->IsMain()) return;
++    std::string url = frame->GetURL().ToString();
++    NSString *urlString = [[NSString alloc] initWithBytes:url.data() length:url.size() encoding:NSUTF8StringEncoding] ?: @"";
++    [host_ updateNativeBrowserURLString:urlString browserKey:browser_key_ windowId:window_id_];
  }
  
  void ZeroNativeCefClient::OnLoadError(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, ErrorCode errorCode, const CefString& errorText, const CefString& failedUrl) {
-@@ -904,7 +2457,10 @@ static BOOL ZeroNativePolicyListMatches(NSArray<NSString *> *values, NSURL *url)
+@@ -904,7 +2528,10 @@ static BOOL ZeroNativePolicyListMatches(NSArray<NSString *> *values, NSURL *url)
      std::string url = request ? request->GetURL().ToString() : std::string();
      NSString *urlString = [[NSString alloc] initWithBytes:url.data() length:url.size() encoding:NSUTF8StringEncoding] ?: @"";
      NSURL *nsURL = [NSURL URLWithString:urlString];
 -    if ([host_ allowsNavigationURL:nsURL]) return false;
-+    if ([host_ allowsNavigationURL:nsURL]) {
-+        [host_ updateNativeBrowserURLString:urlString browserKey:browser_key_ windowId:window_id_];
++    BOOL allowed = [host_ allowsNavigationURL:nsURL];
++    if (allowed) {
 +        return false;
 +    }
      if ([host_ openExternalURLIfAllowed:nsURL]) return true;
      return true;
  }
-@@ -923,19 +2479,41 @@ static BOOL ZeroNativePolicyListMatches(NSArray<NSString *> *values, NSURL *url)
+@@ -923,19 +2550,41 @@ static BOOL ZeroNativePolicyListMatches(NSArray<NSString *> *values, NSURL *url)
      return true;
  }
  
@@ -1882,17 +1964,17 @@ index ce9c747..608a48f 100644
 +}
 +
 +void ZeroNativeCefDevToolsClient::OnLoadEnd(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, int httpStatusCode) {
++    (void)browser;
++    (void)httpStatusCode;
 +    if (!frame || !frame->IsMain()) return;
-+    std::string url = frame->GetURL().ToString();
-+    fprintf(stderr, "zero-native: DevTools load end mode=%ld status=%d url=%s\n", (long)mode_, httpStatusCode, url.c_str());
 +}
 +
 +void ZeroNativeCefDevToolsClient::OnLoadError(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, ErrorCode errorCode, const CefString& errorText, const CefString& failedUrl) {
 +    (void)browser;
-+    if (!frame || !frame->IsMain()) return;
-+    std::string error = errorText.ToString();
-+    std::string url = failedUrl.ToString();
-+    fprintf(stderr, "zero-native: DevTools load error mode=%ld code=%d error=%s url=%s\n", (long)mode_, (int)errorCode, error.c_str(), url.c_str());
++    (void)frame;
++    (void)errorCode;
++    (void)errorText;
++    (void)failedUrl;
 +}
 +
  } // namespace
