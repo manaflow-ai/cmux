@@ -762,6 +762,59 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testRestorableAgentIndexFallbackTieBreakIsDeterministic() throws {
+        // When two hook records share a panelId AND `updatedAt`, the panelId
+        // fallback must resolve identically across cmux launches. The fold
+        // sorts by `(updatedAt desc, sessionId desc)` so the lexicographically
+        // greater sessionId wins on tie, regardless of dictionary iteration
+        // order.
+        let panelId = UUID()
+        let timestamp = Date().timeIntervalSince1970
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-tiebreak-\(UUID().uuidString)", isDirectory: true)
+        let storeURL = RestorableAgentKind.claude.hookStoreFileURL(homeDirectory: home.path)
+        try FileManager.default.createDirectory(
+            at: storeURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        func record(sessionId: String) -> [String: Any] {
+            return [
+                "sessionId": sessionId,
+                "workspaceId": UUID().uuidString,
+                "surfaceId": panelId.uuidString,
+                "cwd": "/tmp/repo",
+                "updatedAt": timestamp,
+                "launchCommand": [
+                    "launcher": "claude",
+                    "executablePath": "/usr/local/bin/claude",
+                    "arguments": ["/usr/local/bin/claude"],
+                    "workingDirectory": "/tmp/repo",
+                    "environment": ["CLAUDE_CONFIG_DIR": "/tmp/claude"],
+                    "capturedAt": timestamp,
+                    "source": "process",
+                ],
+            ]
+        }
+        let payload: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                "aaa-session": record(sessionId: "aaa-session"),
+                "zzz-session": record(sessionId: "zzz-session"),
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [])
+        try data.write(to: storeURL, options: .atomic)
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: home.path)
+        XCTAssertEqual(
+            index.snapshot(workspaceId: UUID(), panelId: panelId)?.sessionId,
+            "zzz-session",
+            "tie-break must be deterministic; lexicographically greater sessionId wins"
+        )
+    }
+
     func testClaudeTranscriptHasConversationFiltersMetadataOnlyTranscripts() throws {
         // Claude rejects `--resume <id>` for sessions whose .jsonl only
         // contains metadata events (e.g. `custom-title`, `agent-name`,

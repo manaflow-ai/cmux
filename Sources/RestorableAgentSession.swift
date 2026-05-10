@@ -50,13 +50,18 @@ enum AgentResumeCommandBuilder {
             ? nil
             : normalized(workingDirectory ?? launchCommand?.workingDirectory)
         if let cwd {
-            // Don't resume into a dead working directory. The captured `cd`
-            // would fail at restore time, `&&` would short-circuit before the
-            // agent runs, and the user would see a dead "no such file or
-            // directory" prompt with no way back. Returning nil tells the
-            // caller (`resumeStartupInput`) to skip auto-resume entirely so
-            // the panel opens as a fresh shell instead.
-            guard FileManager.default.fileExists(atPath: cwd) else { return nil }
+            // Don't resume into a dead working directory or one that's not a
+            // directory at all. `fileExists(atPath:)` alone returns true for
+            // regular files too, so a path that points at a leftover file
+            // would let `cd <file>` fail at runtime — the exact failure mode
+            // the guard exists to prevent. Returning nil tells the caller
+            // (`resumeStartupInput`) to skip auto-resume entirely so the
+            // panel opens as a fresh shell instead.
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: cwd, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                return nil
+            }
             shellCommand = "cd \(shellSingleQuoted(cwd)) && \(shellCommand)"
         }
         return shellCommand
@@ -607,11 +612,21 @@ struct RestorableAgentSessionIndex: Sendable {
             resolved[key] = detected
         }
 
-        var byPanelId: [UUID: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
-        for (key, value) in resolved {
-            if let existing = byPanelId[key.panelId], existing.updatedAt > value.updatedAt {
-                continue
+        // Sort the resolved entries before folding by panelId so equal
+        // `updatedAt` ties resolve identically across launches. Without the
+        // sort, `Dictionary` iteration order is unspecified and a panel with
+        // two stale records sharing a timestamp would flap between the two
+        // sessions on different cmux launches. Primary key: newer
+        // `updatedAt` wins; secondary tie-break: lexicographically larger
+        // `sessionId` wins (arbitrary but stable).
+        let rankedResolved = resolved.sorted { lhs, rhs in
+            if lhs.value.updatedAt != rhs.value.updatedAt {
+                return lhs.value.updatedAt > rhs.value.updatedAt
             }
+            return lhs.value.snapshot.sessionId > rhs.value.snapshot.sessionId
+        }
+        var byPanelId: [UUID: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
+        for (key, value) in rankedResolved where byPanelId[key.panelId] == nil {
             byPanelId[key.panelId] = value
         }
 
