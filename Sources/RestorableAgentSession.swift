@@ -50,6 +50,13 @@ enum AgentResumeCommandBuilder {
             ? nil
             : normalized(workingDirectory ?? launchCommand?.workingDirectory)
         if let cwd {
+            // Don't resume into a dead working directory. The captured `cd`
+            // would fail at restore time, `&&` would short-circuit before the
+            // agent runs, and the user would see a dead "no such file or
+            // directory" prompt with no way back. Returning nil tells the
+            // caller (`resumeStartupInput`) to skip auto-resume entirely so
+            // the panel opens as a fresh shell instead.
+            guard FileManager.default.fileExists(atPath: cwd) else { return nil }
             shellCommand = "cd \(shellSingleQuoted(cwd)) && \(shellCommand)"
         }
         return shellCommand

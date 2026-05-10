@@ -25,7 +25,7 @@
 2863	cmuxTests/WindowAndDragTests.swift
 2609	Sources/SessionIndexView.swift
 2472	Sources/Panels/CmuxWebView.swift
-2400	cmuxTests/SessionPersistenceTests.swift
+2410	cmuxTests/SessionPersistenceTests.swift
 2317	cmuxTests/TabManagerUnitTests.swift
 2179	Sources/KeyboardShortcutSettings.swift
 2172	Sources/TerminalWindowPortal.swift

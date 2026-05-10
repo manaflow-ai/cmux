@@ -861,6 +861,35 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testResumeCommandIsNilWhenWorkingDirectoryDoesNotExist() {
+        // If the user deletes the project dir between sessions, the captured
+        // `cd '<cwd>' && '<agent>' --resume <id>` would fail at `cd`, the `&&`
+        // would short-circuit, and the panel would sit at a dead "no such file
+        // or directory" prompt. Returning nil from `resumeCommand` skips
+        // auto-resume entirely so the panel opens to a fresh shell instead.
+        let missingCwd = "/this/path/definitely/does/not/exist/\(UUID().uuidString)"
+        XCTAssertFalse(FileManager.default.fileExists(atPath: missingCwd))
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "abandoned-session",
+            workingDirectory: missingCwd,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/usr/local/bin/claude",
+                arguments: ["/usr/local/bin/claude"],
+                workingDirectory: missingCwd,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+        XCTAssertNil(
+            snapshot.resumeCommand,
+            "resumeCommand must be nil when the captured cwd no longer exists, " +
+            "so the caller skips auto-resume rather than typing a `cd` that fails"
+        )
+    }
+
     @MainActor
     func testMarkRestorableAgentSessionEndedNoopsWithoutEntry() {
         // The CLI calls Workspace.markRestorableAgentSessionEnded for any panel
