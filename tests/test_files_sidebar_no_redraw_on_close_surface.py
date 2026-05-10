@@ -95,4 +95,4 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except cmuxError as exc:
         print(f"FAIL: {exc}")
-        raise SystemExit(1)
+        raise SystemExit(1) from exc

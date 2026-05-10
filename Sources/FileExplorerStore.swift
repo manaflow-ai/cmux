@@ -455,6 +455,18 @@ final class FileExplorerStore: ObservableObject {
 
     /// Watches the root directory for filesystem changes (local only).
     private var directoryWatcher: FileExplorerDirectoryWatcher?
+    private var localGitStatusFetcher: (String) -> [String: GitFileStatus] = {
+        GitStatusProvider.fetchStatus(directory: $0)
+    }
+    private var sshGitStatusFetcher: (String, String, Int?, String?, [String]) -> [String: GitFileStatus] = {
+        GitStatusProvider.fetchStatusSSH(
+            directory: $0,
+            destination: $1,
+            port: $2,
+            identityFile: $3,
+            sshOptions: $4
+        )
+    }
 
     /// Paths that are logically expanded (persisted across provider changes)
     private(set) var expandedPaths: Set<String> = []
@@ -518,20 +530,21 @@ final class FileExplorerStore: ObservableObject {
             let port = sshProvider.port
             let identity = sshProvider.identityFile
             let opts = sshProvider.sshOptions
+            let fetchStatus = sshGitStatusFetcher
             DispatchQueue.global(qos: .utility).async {
-                let status = GitStatusProvider.fetchStatusSSH(
-                    directory: path, destination: dest, port: port,
-                    identityFile: identity, sshOptions: opts
-                )
+                let status = fetchStatus(path, dest, port, identity, opts)
                 DispatchQueue.main.async { [weak self] in
-                    self?.applyGitStatus(status)
+                    guard let self, self.rootPath == path else { return }
+                    self.applyGitStatus(status)
                 }
             }
         } else {
+            let fetchStatus = localGitStatusFetcher
             DispatchQueue.global(qos: .utility).async {
-                let status = GitStatusProvider.fetchStatus(directory: path)
+                let status = fetchStatus(path)
                 DispatchQueue.main.async { [weak self] in
-                    self?.applyGitStatus(status)
+                    guard let self, self.rootPath == path else { return }
+                    self.applyGitStatus(status)
                 }
             }
         }
@@ -550,6 +563,14 @@ final class FileExplorerStore: ObservableObject {
             directoryWatcher?.stop()
         }
     }
+
+    #if DEBUG
+    func setLocalGitStatusFetcherForTesting(
+        _ fetcher: @escaping (String) -> [String: GitFileStatus]
+    ) {
+        localGitStatusFetcher = fetcher
+    }
+    #endif
 
     func setProvider(_ newProvider: FileExplorerProvider?) {
         #if DEBUG
@@ -690,6 +711,7 @@ final class FileExplorerStore: ObservableObject {
     }
 
     private func applyGitStatus(_ status: [String: GitFileStatus]) {
+        guard gitStatusByPath != status else { return }
         mutateOutline {
             gitStatusByPath = status
         }

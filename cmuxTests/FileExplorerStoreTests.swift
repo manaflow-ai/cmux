@@ -383,6 +383,70 @@ final class FileExplorerStoreTests: XCTestCase {
         XCTAssertTrue(outlineView.isItemExpanded(srcNode))
     }
 
+    func testRefreshGitStatusIgnoresStaleRootsAndDuplicateStatus() async throws {
+        let store = FileExplorerStore()
+        let activeRoot = "/project"
+        let staleRoot = "/other"
+        let activeStatus: [String: GitFileStatus] = [
+            "\(activeRoot)/changed.swift": .modified,
+        ]
+        let staleStatus: [String: GitFileStatus] = [
+            "\(staleRoot)/deleted.swift": .deleted,
+        ]
+        let duplicateFetchCompleted = expectation(description: "duplicate git status fetched")
+        let staleFetchCompleted = expectation(description: "stale git status fetched")
+        let fetchCountsLock = NSLock()
+        var fetchCounts: [String: Int] = [:]
+
+        store.setLocalGitStatusFetcherForTesting { path in
+            fetchCountsLock.lock()
+            fetchCounts[path, default: 0] += 1
+            let fetchCount = fetchCounts[path] ?? 0
+            fetchCountsLock.unlock()
+
+            if path == activeRoot, fetchCount == 2 {
+                duplicateFetchCompleted.fulfill()
+            }
+            if path == staleRoot {
+                staleFetchCompleted.fulfill()
+                Thread.sleep(forTimeInterval: 0.05)
+                return staleStatus
+            }
+            return activeStatus
+        }
+
+        store.rootPath = activeRoot
+        store.refreshGitStatus()
+        try await waitFor("initial git status applied") {
+            store.gitStatusByPath == activeStatus
+        }
+        let revisionAfterInitialStatus = store.outlineRevision
+
+        store.refreshGitStatus()
+        await fulfillment(of: [duplicateFetchCompleted], timeout: 1.0)
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        XCTAssertEqual(store.gitStatusByPath, activeStatus)
+        XCTAssertEqual(
+            store.outlineRevision,
+            revisionAfterInitialStatus,
+            "Identical git status should not dirty the file outline."
+        )
+
+        store.rootPath = staleRoot
+        store.refreshGitStatus()
+        store.rootPath = activeRoot
+        await fulfillment(of: [staleFetchCompleted], timeout: 1.0)
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        XCTAssertEqual(store.gitStatusByPath, activeStatus)
+        XCTAssertEqual(
+            store.outlineRevision,
+            revisionAfterInitialStatus,
+            "A git status result for a previous root must not dirty the current file outline."
+        )
+    }
+
     // MARK: - Collapse/Expand
 
     func testCollapseRemovesFromExpandedPaths() {
