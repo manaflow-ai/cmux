@@ -95,7 +95,7 @@ final class DesktopPrototypeStore {
             nativeProjectionController.stop()
             restartLiveCapture()
         case .native:
-            stopLiveCapture()
+            restartLiveCapture()
             if let selectedWindow {
                 nativeProjectionController.start(window: selectedWindow)
                 placeNativeWindowIfPossible()
@@ -114,10 +114,6 @@ final class DesktopPrototypeStore {
 
     func restartLiveCapture() {
         updatePermissions()
-        guard renderMode == .video else {
-            stopLiveCapture()
-            return
-        }
         guard let selectedWindow else {
             stopLiveCapture()
             return
@@ -259,7 +255,7 @@ final class DesktopPrototypeStore {
             nativeProjectionController.stop()
             restartLiveCapture()
         case .native:
-            stopLiveCapture()
+            restartLiveCapture()
             if let selectedWindow {
                 nativeProjectionController.start(window: selectedWindow)
                 placeNativeWindowIfPossible()

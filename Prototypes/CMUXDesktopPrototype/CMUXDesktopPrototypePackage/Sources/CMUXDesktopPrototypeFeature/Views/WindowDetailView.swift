@@ -182,12 +182,21 @@ private struct LivePreviewView: View {
                             .frame(width: previewSize.width, height: previewSize.height)
                         }
                     case .native:
+                        if let image {
+                            StaticWindowPreview(image: image)
+                                .frame(width: previewSize.width, height: previewSize.height)
+                        } else {
+                            ContentUnavailableView(
+                                String(localized: "detail.livePreview.waiting", defaultValue: "Waiting for live video", bundle: .module),
+                                systemImage: "video.slash"
+                            )
+                            .frame(width: previewSize.width, height: previewSize.height)
+                        }
                         NativeWindowDockView(onFrameChange: onNativeSlotFrameChange)
                             .frame(width: previewSize.width, height: previewSize.height)
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                    .strokeBorder(Color.accentColor.opacity(0.45), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
-                            }
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .strokeBorder(Color.accentColor.opacity(0.45), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
+                            .frame(width: previewSize.width, height: previewSize.height)
                     }
                 }
                 .padding(.trailing, 1)

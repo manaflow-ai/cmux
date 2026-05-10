@@ -30,6 +30,7 @@ final class NativeWindowProjectionController {
         targetWindow = window
         targetSlot = slot
         installMouseMonitors()
+        isPointerInTarget = slot.cocoaFrame.contains(NSEvent.mouseLocation)
         return accessibilityController.place(window, frame: slot.quartzFrame, raise: isPointerInTarget)
     }
 
