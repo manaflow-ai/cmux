@@ -293,6 +293,56 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertTrue(store.notifications.contains { $0.tabId == destinationWorkspace.id && $0.surfaceId == movingPanelId })
     }
 
+    func testDetachingSurfaceDoesNotOverwriteDestinationFocusedReadIndicator() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let sourceWorkspace = manager.addWorkspace(select: true)
+        let destinationWorkspace = manager.addWorkspace(select: false)
+        defer {
+            if manager.tabs.contains(where: { $0.id == destinationWorkspace.id }) {
+                manager.closeWorkspace(destinationWorkspace)
+            }
+            if manager.tabs.contains(where: { $0.id == sourceWorkspace.id }) {
+                manager.closeWorkspace(sourceWorkspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let movingPanelId = try XCTUnwrap(sourceWorkspace.focusedPanelId)
+        let destinationIndicatorPanelId = try XCTUnwrap(destinationWorkspace.focusedPanelId)
+        store.setFocusedReadIndicator(forTabId: sourceWorkspace.id, surfaceId: movingPanelId)
+        store.setFocusedReadIndicator(forTabId: destinationWorkspace.id, surfaceId: destinationIndicatorPanelId)
+
+        let transfer = try XCTUnwrap(sourceWorkspace.detachSurface(panelId: movingPanelId))
+        let destinationPaneId = try XCTUnwrap(destinationWorkspace.bonsplitController.allPaneIds.first)
+
+        XCTAssertNotNil(
+            destinationWorkspace.attachDetachedSurface(transfer, inPane: destinationPaneId, focus: false)
+        )
+
+        XCTAssertNil(store.focusedReadIndicatorSurfaceId(forTabId: sourceWorkspace.id))
+        XCTAssertEqual(
+            store.focusedReadIndicatorSurfaceId(forTabId: destinationWorkspace.id),
+            destinationIndicatorPanelId
+        )
+    }
+
     func testDetachingSurfaceTransfersPanelOwnedAgentRuntimeStateToDestinationWorkspace() throws {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()

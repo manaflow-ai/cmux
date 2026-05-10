@@ -1193,7 +1193,9 @@ final class TerminalNotificationStore: ObservableObject {
 
         if focusedReadIndicatorByTabId[sourceTabId] == surfaceId {
             focusedReadIndicatorByTabId.removeValue(forKey: sourceTabId)
-            focusedReadIndicatorByTabId[destinationTabId] = surfaceId
+            if focusedReadIndicatorByTabId[destinationTabId] == nil {
+                focusedReadIndicatorByTabId[destinationTabId] = surfaceId
+            }
         }
     }
 
