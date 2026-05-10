@@ -980,6 +980,15 @@ private func installFileDropOverlayWhenReady(
 
 @MainActor
 private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
+    private struct Snapshot: Equatable {
+        let workspaceId: UUID?
+        let currentDirectory: String?
+        let remoteConfiguration: WorkspaceRemoteConfiguration?
+        let remoteConnectionState: WorkspaceRemoteConnectionState?
+        let remoteConnectionDetail: String?
+        let remoteDaemonStatus: WorkspaceRemoteDaemonStatus?
+    }
+
     @Published private(set) var directoryChangeGeneration: UInt64 = 0
     private weak var tabManager: TabManager?
     private var cancellable: AnyCancellable?
@@ -993,18 +1002,47 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                 return tabManager.tabs.first(where: { $0.id == tabId })
             }
             .removeDuplicates(by: { $0?.id == $1?.id })
-            .map { workspace -> AnyPublisher<(UUID?, String?), Never> in
+            .map { workspace -> AnyPublisher<Snapshot, Never> in
                 guard let workspace else {
-                    return Just<(UUID?, String?)>((nil, nil)).eraseToAnyPublisher()
+                    return Just(
+                        Snapshot(
+                            workspaceId: nil,
+                            currentDirectory: nil,
+                            remoteConfiguration: nil,
+                            remoteConnectionState: nil,
+                            remoteConnectionDetail: nil,
+                            remoteDaemonStatus: nil
+                        )
+                    )
+                    .eraseToAnyPublisher()
                 }
                 return workspace.$currentDirectory
-                    .map { (Optional(workspace.id), Optional($0)) }
+                    .combineLatest(
+                        workspace.$remoteConfiguration,
+                        workspace.$remoteConnectionState,
+                        workspace.$remoteConnectionDetail
+                    )
+                    .combineLatest(workspace.$remoteDaemonStatus)
+                    .map { values, remoteDaemonStatus in
+                        let (
+                            currentDirectory,
+                            remoteConfiguration,
+                            remoteConnectionState,
+                            remoteConnectionDetail
+                        ) = values
+                        return Snapshot(
+                            workspaceId: workspace.id,
+                            currentDirectory: currentDirectory,
+                            remoteConfiguration: remoteConfiguration,
+                            remoteConnectionState: remoteConnectionState,
+                            remoteConnectionDetail: remoteConnectionDetail,
+                            remoteDaemonStatus: remoteDaemonStatus
+                        )
+                    }
                     .eraseToAnyPublisher()
             }
             .switchToLatest()
-            .removeDuplicates { previous, next in
-                previous.0 == next.0 && previous.1 == next.1
-            }
+            .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.directoryChangeGeneration &+= 1
@@ -2279,7 +2317,8 @@ struct ContentView: View {
 
                 // Draggable folder icon + focused command name
                 if let directory = focusedDirectory {
-                    DraggableFolderIcon(directory: directory)
+                    DetachedFolderDragIcon(directory: directory)
+                        .frame(width: 16, height: 16)
                         .padding(.leading, -6)
                 }
 
@@ -2468,70 +2507,57 @@ struct ContentView: View {
             // No selection means we have no local cwd to scope by; clear so the
             // sessions panel doesn't keep filtering by a stale previous tab.
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
+            fileExplorerStore.applyWorkspaceRoot(.none)
+            return
+        }
+
+        fileExplorerStore.showHiddenFiles = true
+
+        if tab.isRemoteWorkspace {
+            sessionIndexStore.setCurrentDirectoryIfChanged(nil)
+            guard let config = tab.remoteConfiguration, config.transport == .ssh else {
+                fileExplorerStore.applyWorkspaceRoot(.none)
+                return
+            }
+            let unavailableDetail = tab.remoteConnectionDetail ?? tab.remoteDaemonStatus.detail
+
+            #if DEBUG
+            let hasUnavailableDetail = unavailableDetail?.isEmpty == false
+            cmuxDebugLog(
+                "fileExplorer.sync remote state=\(tab.remoteConnectionState.rawValue) " +
+                "hasDestination=\(config.destination.isEmpty ? 0 : 1) " +
+                "hasDisplayTarget=\(config.displayTarget.isEmpty ? 0 : 1) " +
+                "hasIdentityFile=\(config.identityFile == nil ? 0 : 1) " +
+                "hasDetail=\(hasUnavailableDetail ? 1 : 0)"
+            )
+            #endif
+
+            fileExplorerStore.applyWorkspaceRoot(
+                .remoteSSH(
+                    workspaceId: tab.id,
+                    connection: SSHFileExplorerConnection(
+                        destination: config.destination,
+                        port: config.port,
+                        identityFile: config.identityFile,
+                        sshOptions: config.sshOptions
+                    ),
+                    displayTarget: config.displayTarget,
+                    isAvailable: tab.remoteConnectionState == .connected,
+                    unavailableDetail: unavailableDetail
+                )
+            )
             return
         }
 
         let dir = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !dir.isEmpty else {
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
+            fileExplorerStore.applyWorkspaceRoot(.none)
             return
         }
 
-        fileExplorerStore.showHiddenFiles = true
-        if !tab.isRemoteWorkspace {
-            sessionIndexStore.setCurrentDirectoryIfChanged(dir)
-        } else {
-            sessionIndexStore.setCurrentDirectoryIfChanged(nil)
-        }
-
-        if tab.isRemoteWorkspace {
-            let config = tab.remoteConfiguration
-            let remotePath = tab.remoteDaemonStatus.remotePath
-            let isReady = tab.remoteDaemonStatus.state == .ready
-            let homePath = remotePath.flatMap { path -> String? in
-                let components = dir.split(separator: "/")
-                if components.count >= 2, components[0] == "home" {
-                    return "/home/\(components[1])"
-                }
-                if dir.hasPrefix("/root") {
-                    return "/root"
-                }
-                return nil
-            } ?? ""
-
-            #if DEBUG
-            cmuxDebugLog("fileExplorer.sync remote dir=\(dir) ready=\(isReady) dest=\(config?.destination ?? "nil")")
-            #endif
-
-            if let existingProvider = fileExplorerStore.provider as? SSHFileExplorerProvider,
-               existingProvider.destination == config?.destination {
-                existingProvider.updateAvailability(isReady, homePath: isReady ? homePath : nil)
-                if isReady {
-                    // Only reload if the path actually changed
-                    let pathChanged = fileExplorerStore.rootPath != dir
-                    fileExplorerStore.setRootPath(dir)
-                    if pathChanged {
-                        fileExplorerStore.hydrateExpandedNodes()
-                    }
-                }
-            } else if let config {
-                let provider = SSHFileExplorerProvider(
-                    destination: config.destination,
-                    port: config.port,
-                    identityFile: config.identityFile,
-                    sshOptions: config.sshOptions,
-                    homePath: homePath,
-                    isAvailable: isReady
-                )
-                fileExplorerStore.setProvider(provider)
-                fileExplorerStore.setRootPath(dir)
-            }
-        } else {
-            if !(fileExplorerStore.provider is LocalFileExplorerProvider) {
-                fileExplorerStore.setProvider(LocalFileExplorerProvider())
-            }
-            fileExplorerStore.setRootPath(dir)
-        }
+        sessionIndexStore.setCurrentDirectoryIfChanged(dir)
+        fileExplorerStore.applyWorkspaceRoot(.local(path: dir))
     }
 
     private var focusedDirectory: String? {
@@ -3201,12 +3227,12 @@ struct ContentView: View {
             window.isRestorable = false
             setMinimalModeSidebarTitlebarControlsAvailable(sidebarState.isVisible, in: window)
             window.titlebarAppearsTransparent = true
-            // Keep window immovable; the sidebar's WindowDragHandleView handles
-            // drag-to-move via performDrag with temporary movable override.
-            // isMovableByWindowBackground=true breaks tab reordering, and
-            // isMovable=true blocks clicks on sidebar buttons in minimal mode.
+            // Keep background dragging disabled so app content gestures and
+            // minimal-mode titlebar controls still receive clicks, while the
+            // window itself stays movable for macOS tiling and third-party
+            // window managers.
             window.isMovableByWindowBackground = false
-            window.isMovable = false
+            window.isMovable = true
             window.styleMask.insert(.fullSizeContentView)
 
             // Track this window for fullscreen notifications
@@ -6433,9 +6459,9 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.toggleSidebar",
-                title: constant(String(localized: "command.toggleSidebar.title", defaultValue: "Toggle Sidebar")),
+                title: constant(String(localized: "command.toggleLeftSidebar.title", defaultValue: "Toggle Left Sidebar")),
                 subtitle: constant(String(localized: "command.toggleSidebar.subtitle", defaultValue: "Layout")),
-                keywords: ["toggle", "sidebar", "layout"]
+                keywords: ["toggle", "sidebar", "left", "layout"]
             )
         )
         contributions.append(contentsOf: Self.commandPaletteRightSidebarModeCommandContributions())
@@ -14598,271 +14624,6 @@ private struct ScrollBackgroundClearer: NSViewRepresentable {
         }
         return nil
     }
-}
-
-private struct DraggableFolderIcon: View {
-    let directory: String
-
-    var body: some View {
-        DraggableFolderIconRepresentable(directory: directory)
-            .frame(width: 16, height: 16)
-            .safeHelp(String(localized: "sidebar.folderIcon.dragHint", defaultValue: "Drag to open in Finder or another app"))
-            .onTapGesture(count: 2) {
-                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directory)
-            }
-    }
-}
-
-private struct DraggableFolderIconRepresentable: NSViewRepresentable {
-    let directory: String
-
-    func makeNSView(context: Context) -> DraggableFolderNSView {
-        DraggableFolderNSView(directory: directory)
-    }
-
-    func updateNSView(_ nsView: DraggableFolderNSView, context: Context) {
-        nsView.directory = directory
-        nsView.updateIcon()
-    }
-}
-
-final class DraggableFolderNSView: NSView, NSDraggingSource {
-    private final class FolderIconImageView: NSImageView {
-        override var mouseDownCanMoveWindow: Bool { false }
-    }
-
-    var directory: String
-    private var imageView: FolderIconImageView!
-    private var previousWindowMovableState: Bool?
-    private weak var suppressedWindow: NSWindow?
-    private var hasActiveDragSession = false
-    private var didArmWindowDragSuppression = false
-
-    private func formatPoint(_ point: NSPoint) -> String {
-        String(format: "(%.1f,%.1f)", point.x, point.y)
-    }
-
-    init(directory: String) {
-        self.directory = directory
-        super.init(frame: .zero)
-        setupImageView()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override var intrinsicContentSize: NSSize {
-        NSSize(width: 16, height: 16)
-    }
-
-    override var mouseDownCanMoveWindow: Bool { false }
-
-    private func setupImageView() {
-        imageView = FolderIconImageView()
-        imageView.imageScaling = .scaleProportionallyDown
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(imageView)
-        NSLayoutConstraint.activate([
-            imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            imageView.topAnchor.constraint(equalTo: topAnchor),
-            imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            imageView.widthAnchor.constraint(equalToConstant: 16),
-            imageView.heightAnchor.constraint(equalToConstant: 16),
-        ])
-        updateIcon()
-    }
-
-    func updateIcon() {
-        #if DEBUG
-        dispatchPrecondition(condition: .onQueue(.main))
-        #endif
-
-        let icon = NSWorkspace.shared.icon(forFile: directory)
-        icon.size = NSSize(width: 16, height: 16)
-        imageView.image = icon
-    }
-
-    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
-        return context == .outsideApplication ? [.copy, .link] : .copy
-    }
-
-    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        hasActiveDragSession = false
-        restoreWindowMovableStateIfNeeded()
-        #if DEBUG
-        let nowMovable = window.map { String($0.isMovable) } ?? "nil"
-        let windowOrigin = window.map { formatPoint($0.frame.origin) } ?? "nil"
-        cmuxDebugLog("folder.dragEnd dir=\(directory) operation=\(operation.rawValue) screen=\(formatPoint(screenPoint)) nowMovable=\(nowMovable) windowOrigin=\(windowOrigin)")
-        #endif
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard bounds.contains(point) else { return nil }
-        let hit = super.hitTest(point)
-        #if DEBUG
-        let hitDesc = hit.map { String(describing: type(of: $0)) } ?? "nil"
-        let imageHit = (hit === imageView)
-        let wasMovable = previousWindowMovableState.map(String.init) ?? "nil"
-        let nowMovable = window.map { String($0.isMovable) } ?? "nil"
-        cmuxDebugLog("folder.hitTest point=\(formatPoint(point)) hit=\(hitDesc) imageViewHit=\(imageHit) returning=DraggableFolderNSView wasMovable=\(wasMovable) nowMovable=\(nowMovable)")
-        #endif
-        return self
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        maybeDisableWindowDraggingEarly(trigger: "mouseDown")
-        hasActiveDragSession = false
-        #if DEBUG
-        let localPoint = convert(event.locationInWindow, from: nil)
-        let responderDesc = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        let wasMovable = previousWindowMovableState.map(String.init) ?? "nil"
-        let nowMovable = window.map { String($0.isMovable) } ?? "nil"
-        let windowOrigin = window.map { formatPoint($0.frame.origin) } ?? "nil"
-        cmuxDebugLog("folder.mouseDown dir=\(directory) point=\(formatPoint(localPoint)) firstResponder=\(responderDesc) wasMovable=\(wasMovable) nowMovable=\(nowMovable) windowOrigin=\(windowOrigin)")
-        #endif
-        let fileURL = URL(fileURLWithPath: directory)
-        let draggingItem = NSDraggingItem(pasteboardWriter: fileURL as NSURL)
-
-        let iconImage = NSWorkspace.shared.icon(forFile: directory)
-        iconImage.size = NSSize(width: 32, height: 32)
-        draggingItem.setDraggingFrame(bounds, contents: iconImage)
-
-        let session = beginDraggingSession(with: [draggingItem], event: event, source: self)
-        hasActiveDragSession = true
-        #if DEBUG
-        let itemCount = session.draggingPasteboard.pasteboardItems?.count ?? 0
-        cmuxDebugLog("folder.dragStart dir=\(directory) pasteboardItems=\(itemCount)")
-        #endif
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        super.mouseUp(with: event)
-        // Always restore suppression on mouse-up; drag-session callbacks can be
-        // skipped for non-started drags, which would otherwise leave suppression stuck.
-        restoreWindowMovableStateIfNeeded()
-    }
-
-    override func rightMouseDown(with event: NSEvent) {
-        let menu = buildPathMenu()
-        // Pop up menu at bottom-left of icon (like native proxy icon)
-        let menuLocation = NSPoint(x: 0, y: bounds.height)
-        menu.popUp(positioning: nil, at: menuLocation, in: self)
-    }
-
-    private func buildPathMenu() -> NSMenu {
-        let menu = NSMenu()
-        let url = URL(fileURLWithPath: directory).standardized
-        var pathComponents: [URL] = []
-
-        // Build path from current directory up to root
-        var current = url
-        while current.path != "/" {
-            pathComponents.append(current)
-            current = current.deletingLastPathComponent()
-        }
-        pathComponents.append(URL(fileURLWithPath: "/"))
-
-        // Add path components (current dir at top, root at bottom - matches native macOS)
-        for pathURL in pathComponents {
-            let icon = NSWorkspace.shared.icon(forFile: pathURL.path)
-            icon.size = NSSize(width: 16, height: 16)
-
-            let displayName: String
-            if pathURL.path == "/" {
-                // Use the volume name for root
-                if let volumeName = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeNameKey]).volumeName {
-                    displayName = volumeName
-                } else {
-                    displayName = String(localized: "sidebar.pathMenu.macintoshHD", defaultValue: "Macintosh HD")
-                }
-            } else {
-                displayName = FileManager.default.displayName(atPath: pathURL.path)
-            }
-
-            let item = NSMenuItem(title: displayName, action: #selector(openPathComponent(_:)), keyEquivalent: "")
-            item.target = self
-            item.image = icon
-            item.representedObject = pathURL
-            menu.addItem(item)
-        }
-
-        // Add computer name at the bottom (like native proxy icon)
-        let computerName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
-        let computerIcon = NSImage(named: NSImage.computerName) ?? NSImage()
-        computerIcon.size = NSSize(width: 16, height: 16)
-
-        let computerItem = NSMenuItem(title: computerName, action: #selector(openComputer(_:)), keyEquivalent: "")
-        computerItem.target = self
-        computerItem.image = computerIcon
-        menu.addItem(computerItem)
-
-        return menu
-    }
-
-    @objc private func openPathComponent(_ sender: NSMenuItem) {
-        guard let url = sender.representedObject as? URL else { return }
-        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: url.path)
-    }
-
-    @objc private func openComputer(_ sender: NSMenuItem) {
-        // Open "Computer" view in Finder (shows all volumes)
-        NSWorkspace.shared.open(URL(fileURLWithPath: "/", isDirectory: true))
-    }
-
-    private func restoreWindowMovableStateIfNeeded() {
-        guard didArmWindowDragSuppression || previousWindowMovableState != nil else { return }
-        let targetWindow = suppressedWindow ?? window
-        let depthAfter = endWindowDragSuppression(window: targetWindow)
-        restoreWindowDragging(window: targetWindow, previousMovableState: previousWindowMovableState)
-        self.previousWindowMovableState = nil
-        self.suppressedWindow = nil
-        self.didArmWindowDragSuppression = false
-        #if DEBUG
-        let nowMovable = targetWindow.map { String($0.isMovable) } ?? "nil"
-        cmuxDebugLog("folder.dragSuppression restore depth=\(depthAfter) nowMovable=\(nowMovable)")
-        #endif
-    }
-
-    private func maybeDisableWindowDraggingEarly(trigger: String) {
-        guard !didArmWindowDragSuppression else { return }
-        guard let eventType = NSApp.currentEvent?.type,
-              eventType == .leftMouseDown || eventType == .leftMouseDragged else {
-            return
-        }
-        guard let currentWindow = window else { return }
-
-        didArmWindowDragSuppression = true
-        suppressedWindow = currentWindow
-        let suppressionDepth = beginWindowDragSuppression(window: currentWindow) ?? 0
-        if currentWindow.isMovable {
-            previousWindowMovableState = temporarilyDisableWindowDragging(window: currentWindow)
-        } else {
-            previousWindowMovableState = nil
-        }
-        #if DEBUG
-        let wasMovable = previousWindowMovableState.map(String.init) ?? "nil"
-        let nowMovable = String(currentWindow.isMovable)
-        cmuxDebugLog(
-            "folder.dragSuppression trigger=\(trigger) event=\(eventType) depth=\(suppressionDepth) wasMovable=\(wasMovable) nowMovable=\(nowMovable)"
-        )
-        #endif
-    }
-}
-
-func temporarilyDisableWindowDragging(window: NSWindow?) -> Bool? {
-    guard let window else { return nil }
-    let wasMovable = window.isMovable
-    if wasMovable {
-        window.isMovable = false
-    }
-    return wasMovable
-}
-
-func restoreWindowDragging(window: NSWindow?, previousMovableState: Bool?) {
-    guard let window, let previousMovableState else { return }
-    window.isMovable = previousMovableState
 }
 
 /// Wrapper view that tries NSGlassEffectView (macOS 26+) when available or requested

@@ -231,7 +231,8 @@ extension Workspace {
             statusEntries: statusSnapshots,
             logEntries: logSnapshots,
             progress: progressSnapshot,
-            gitBranch: gitBranchSnapshot
+            gitBranch: gitBranchSnapshot,
+            remote: remoteConfiguration?.sessionSnapshot()
         )
     }
 
@@ -244,6 +245,16 @@ extension Workspace {
         restoredAgentSnapshotsByPanelId.removeAll(keepingCapacity: false)
         restoredAgentAutoResumePendingPanelIds.removeAll(keepingCapacity: false)
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
+
+        let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration()
+        if let restoredRemoteConfiguration {
+            configureRemoteConnection(
+                restoredRemoteConfiguration,
+                autoConnect: !SessionRestorePolicy.isRunningUnderAutomatedTests()
+            )
+        } else {
+            disconnectRemoteConnection(clearConfiguration: true)
+        }
 
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedCurrentDirectory.isEmpty {
@@ -723,6 +734,7 @@ extension Workspace {
                 ?? snapshot.terminal?.agent?.workingDirectory
                 ?? snapshot.directory
                 ?? currentDirectory
+            let localWorkingDirectory = remoteTerminalStartupCommand() == nil ? workingDirectory : nil
             let restorableAgent = snapshot.terminal?.agent
             let restorableTmuxStartCommand = restorableAgent == nil
                 ? Self.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
@@ -762,7 +774,7 @@ extension Workspace {
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
-                workingDirectory: workingDirectory,
+                workingDirectory: localWorkingDirectory,
                 initialCommand: restoredTmuxStartupScript?.path,
                 tmuxStartCommand: restoredTmuxStartCommand,
                 initialInput: restoredAgentResumeInput,
@@ -6542,128 +6554,6 @@ struct WorkspaceRemoteDaemonStatus: Equatable {
     }
 }
 
-enum WorkspaceRemoteTransport: String, Equatable {
-    case ssh
-    case websocket
-}
-
-struct WorkspaceRemoteWebSocketDaemonEndpoint: Equatable {
-    let url: String
-    let headers: [String: String]
-    let token: String
-    let sessionId: String
-    let expiresAtUnix: Int64
-
-    var proxyBrokerKeyComponent: String {
-        [
-            url.trimmingCharacters(in: .whitespacesAndNewlines),
-            sessionId.trimmingCharacters(in: .whitespacesAndNewlines),
-            String(expiresAtUnix),
-        ]
-            .joined(separator: "\u{1f}")
-    }
-}
-
-struct WorkspaceRemoteConfiguration: Equatable {
-    let transport: WorkspaceRemoteTransport
-    let destination: String
-    let port: Int?
-    let identityFile: String?
-    let sshOptions: [String]
-    let localProxyPort: Int?
-    let relayPort: Int?
-    let relayID: String?
-    let relayToken: String?
-    let localSocketPath: String?
-    let terminalStartupCommand: String?
-    let foregroundAuthToken: String?
-    let daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint?
-    /// True for cloud-VM remotes (Freestyle snapshots) where cmuxd-remote is pre-baked in
-    /// the image and started via systemd. Skip the upload+exec bootstrap entirely and synthesize
-    /// a `DaemonHello`. Reverse-relay still stays off, but SSH-backed VM workspaces can talk to
-    /// the baked daemon through an SSH local forward to `/run/cmuxd-remote.sock`.
-    let skipDaemonBootstrap: Bool
-
-    init(
-        transport: WorkspaceRemoteTransport = .ssh,
-        destination: String,
-        port: Int?,
-        identityFile: String?,
-        sshOptions: [String],
-        localProxyPort: Int?,
-        relayPort: Int?,
-        relayID: String?,
-        relayToken: String?,
-        localSocketPath: String?,
-        terminalStartupCommand: String?,
-        foregroundAuthToken: String? = nil,
-        daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint? = nil,
-        skipDaemonBootstrap: Bool = false
-    ) {
-        self.transport = transport
-        self.destination = destination
-        self.port = port
-        self.identityFile = identityFile
-        self.sshOptions = sshOptions
-        self.localProxyPort = localProxyPort
-        self.relayPort = relayPort
-        self.relayID = relayID
-        self.relayToken = relayToken
-        self.localSocketPath = localSocketPath
-        self.terminalStartupCommand = terminalStartupCommand
-        self.foregroundAuthToken = foregroundAuthToken
-        self.daemonWebSocketEndpoint = daemonWebSocketEndpoint
-        self.skipDaemonBootstrap = skipDaemonBootstrap
-    }
-
-    var displayTarget: String {
-        guard let port else { return destination }
-        return "\(destination):\(port)"
-    }
-
-    var proxyBrokerTransportKey: String {
-        let normalizedTransport = transport.rawValue
-        let normalizedBootstrapMode = skipDaemonBootstrap ? "vm-baked" : "bootstrap"
-        let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedPort = port.map(String.init) ?? ""
-        let normalizedIdentity = identityFile?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let normalizedLocalProxyPort = localProxyPort.map(String.init) ?? ""
-        let normalizedOptions = Self.proxyBrokerSSHOptions(sshOptions).joined(separator: "\u{1f}")
-        let normalizedWebSocketDaemon = daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
-        return [
-            normalizedTransport,
-            normalizedBootstrapMode,
-            normalizedDestination,
-            normalizedPort,
-            normalizedIdentity,
-            normalizedOptions,
-            normalizedLocalProxyPort,
-            normalizedWebSocketDaemon,
-        ]
-            .joined(separator: "\u{1e}")
-    }
-
-    private static func proxyBrokerSSHOptions(_ options: [String]) -> [String] {
-        options.compactMap { option in
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            return trimmed
-        }.filter { option in
-            proxyBrokerSSHOptionKey(option) != "controlpath"
-        }
-    }
-
-    private static func proxyBrokerSSHOptionKey(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-            .first
-            .map(String.init)?
-            .lowercased()
-    }
-}
-
 enum SidebarPullRequestStatus: String {
     case open
     case merged
@@ -9094,6 +8984,11 @@ final class Workspace: Identifiable, ObservableObject {
 
     var isRemoteWorkspace: Bool {
         remoteConfiguration != nil
+    }
+
+    var isRestorableInSessionSnapshot: Bool {
+        guard let remoteConfiguration else { return true }
+        return remoteConfiguration.sessionSnapshot() != nil
     }
 
     @MainActor
