@@ -134,6 +134,12 @@
         "ja": { "stringUnit": { "state": "translated", "value": "画面収録" } }
       }
     },
+    "preview.size": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Preview Size" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プレビューサイズ" } }
+      }
+    },
     "section.actions": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Actions" } },

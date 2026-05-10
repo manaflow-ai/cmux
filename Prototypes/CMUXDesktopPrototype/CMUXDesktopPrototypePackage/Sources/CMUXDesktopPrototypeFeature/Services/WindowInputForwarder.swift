@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import Darwin
 
 @MainActor
 struct WindowInputForwarder {
@@ -10,20 +11,20 @@ struct WindowInputForwarder {
             return .accessibilityPermissionMissing
         }
 
-        _ = accessibilityController.raise(window)
-
         let point = screenPoint(for: input.normalizedPoint, in: window)
-        guard let event = CGEvent(
-            mouseEventSource: eventSource,
-            mouseType: mouseType(for: input.phase, button: input.button),
-            mouseCursorPosition: point,
-            mouseButton: cgMouseButton(for: input.button)
+        let clickCount = max(input.clickCount, 1)
+        guard let event = mouseEvent(
+            type: nsMouseType(for: input.phase, button: input.button),
+            location: point,
+            button: input.button,
+            clickCount: clickCount,
+            window: window
         ) else {
             return .eventCreationFailed
         }
 
-        event.setIntegerValueField(.mouseEventClickState, value: Int64(max(input.clickCount, 1)))
-        event.postToPid(window.ownerPID)
+        stamp(event, screenPoint: point, window: window, button: input.button, clickCount: clickCount)
+        postCursorNeutralMouseEvent(event, to: window.ownerPID)
         return .succeeded
     }
 
@@ -31,8 +32,6 @@ struct WindowInputForwarder {
         guard accessibilityController.isTrusted else {
             return .accessibilityPermissionMissing
         }
-
-        _ = accessibilityController.raise(window)
 
         guard let event = CGEvent(
             scrollWheelEvent2Source: eventSource,
@@ -45,8 +44,10 @@ struct WindowInputForwarder {
             return .eventCreationFailed
         }
 
-        event.location = screenPoint(for: input.normalizedPoint, in: window)
-        event.postToPid(window.ownerPID)
+        let point = screenPoint(for: input.normalizedPoint, in: window)
+        event.location = point
+        SkyLightEventPost.setWindowLocation(event, windowLocalPoint(for: point, in: window))
+        postCursorNeutralMouseEvent(event, to: window.ownerPID)
         return .succeeded
     }
 
@@ -54,8 +55,6 @@ struct WindowInputForwarder {
         guard accessibilityController.isTrusted else {
             return .accessibilityPermissionMissing
         }
-
-        _ = accessibilityController.raise(window)
 
         guard let event = CGEvent(
             keyboardEventSource: eventSource,
@@ -73,7 +72,9 @@ struct WindowInputForwarder {
             }
         }
 
-        event.postToPid(window.ownerPID)
+        if !SkyLightEventPost.postToPid(window.ownerPID, event: event, attachAuthMessage: true) {
+            event.postToPid(window.ownerPID)
+        }
         return .succeeded
     }
 
@@ -88,18 +89,81 @@ struct WindowInputForwarder {
         )
     }
 
-    private func cgMouseButton(for button: WindowMouseButton) -> CGMouseButton {
+    private func mouseEvent(
+        type: NSEvent.EventType,
+        location point: CGPoint,
+        button: WindowMouseButton,
+        clickCount: Int,
+        window: HostWindow
+    ) -> CGEvent? {
+        let pressure: Float = switch type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            1
+        default:
+            0
+        }
+
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: cocoaLocation(fromScreenPoint: point),
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: Int(window.id),
+            context: nil,
+            eventNumber: 0,
+            clickCount: clickCount,
+            pressure: pressure
+        )?.cgEvent else {
+            return nil
+        }
+
+        return event
+    }
+
+    private func stamp(
+        _ event: CGEvent,
+        screenPoint: CGPoint,
+        window: HostWindow,
+        button: WindowMouseButton,
+        clickCount: Int
+    ) {
+        event.location = screenPoint
+        event.timestamp = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        event.setIntegerValueField(.mouseEventButtonNumber, value: Int64(mouseButtonNumber(for: button)))
+        event.setIntegerValueField(.mouseEventClickState, value: Int64(clickCount))
+        event.setIntegerValueField(.mouseEventSubtype, value: 3)
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.id))
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.id))
+        SkyLightEventPost.setWindowLocation(event, windowLocalPoint(for: screenPoint, in: window))
+        SkyLightEventPost.setIntegerField(event, field: 40, value: Int64(window.ownerPID))
+    }
+
+    private func postCursorNeutralMouseEvent(_ event: CGEvent, to pid: pid_t) {
+        _ = SkyLightEventPost.postToPid(pid, event: event, attachAuthMessage: false)
+        event.postToPid(pid)
+    }
+
+    private func windowLocalPoint(for point: CGPoint, in window: HostWindow) -> CGPoint {
+        CGPoint(x: point.x - window.frame.minX, y: point.y - window.frame.minY)
+    }
+
+    private func cocoaLocation(fromScreenPoint point: CGPoint) -> CGPoint {
+        let screenHeight = NSScreen.main?.frame.height ?? point.y
+        return CGPoint(x: point.x, y: screenHeight - point.y)
+    }
+
+    private func mouseButtonNumber(for button: WindowMouseButton) -> Int {
         switch button {
         case .left:
-            return .left
+            return 0
         case .right:
-            return .right
-        case .other:
-            return .center
+            return 1
+        case .other(let buttonNumber):
+            return buttonNumber
         }
     }
 
-    private func mouseType(for phase: WindowMousePhase, button: WindowMouseButton) -> CGEventType {
+    private func nsMouseType(for phase: WindowMousePhase, button: WindowMouseButton) -> NSEvent.EventType {
         switch (phase, button) {
         case (.down, .left):
             return .leftMouseDown

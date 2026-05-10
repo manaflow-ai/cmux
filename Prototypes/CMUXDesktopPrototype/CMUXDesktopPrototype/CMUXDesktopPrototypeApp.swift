@@ -10,7 +10,7 @@ struct CMUXDesktopPrototypeApp: App {
         WindowGroup {
             ContentView()
         }
-        .defaultSize(width: 1120, height: 760)
+        .defaultSize(width: 1480, height: 1000)
         .commands {
             SidebarCommands()
         }

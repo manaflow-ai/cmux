@@ -18,6 +18,8 @@ struct WindowDetailView: View {
     let onScrollInput: (WindowScrollInput) -> Void
     let onKeyInput: (WindowKeyInput) -> Void
 
+    @SceneStorage("desktopPrototype.previewHeight") private var previewHeight = 760.0
+
     var body: some View {
         if let window {
             ScrollView {
@@ -32,6 +34,7 @@ struct WindowDetailView: View {
                         image: liveFrame,
                         window: window,
                         isRunning: isLiveCaptureRunning,
+                        previewHeight: $previewHeight,
                         onMouseInput: onMouseInput,
                         onScrollInput: onScrollInput,
                         onKeyInput: onKeyInput
@@ -48,7 +51,7 @@ struct WindowDetailView: View {
                     WindowMetadataView(window: window)
                 }
                 .padding(24)
-                .frame(maxWidth: 900, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .background(Color(nsColor: .windowBackgroundColor))
         } else {
@@ -105,6 +108,7 @@ private struct LivePreviewView: View {
     let image: CGImage?
     let window: HostWindow
     let isRunning: Bool
+    @Binding var previewHeight: Double
     let onMouseInput: (WindowMouseInput) -> Void
     let onScrollInput: (WindowScrollInput) -> Void
     let onKeyInput: (WindowKeyInput) -> Void
@@ -116,6 +120,14 @@ private struct LivePreviewView: View {
                     .font(.headline)
                 Image(systemName: isRunning ? "record.circle.fill" : "record.circle")
                     .foregroundStyle(isRunning ? .red : .secondary)
+                Spacer()
+                Label(
+                    String(localized: "preview.size", defaultValue: "Preview Size", bundle: .module),
+                    systemImage: "arrow.up.left.and.arrow.down.right"
+                )
+                .foregroundStyle(.secondary)
+                Slider(value: $previewHeight, in: 420...1400)
+                    .frame(width: 260)
             }
                 .font(.headline)
 
@@ -140,7 +152,7 @@ private struct LivePreviewView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .aspectRatio(16 / 9, contentMode: .fit)
+            .frame(height: previewHeight)
         }
     }
 }
