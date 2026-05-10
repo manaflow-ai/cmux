@@ -969,7 +969,7 @@ final class FileExplorerContainerView: NSView {
         guard presentation != nextPresentation else {
             if presentation == .find {
                 isSearchVisible = true
-                updateSearchLayout()
+                updateSearchLayoutForCurrentVisibility()
                 refreshSearchIfNeeded()
             }
             return
@@ -984,7 +984,7 @@ final class FileExplorerContainerView: NSView {
             isSearchVisible = true
             refreshSearchIfNeeded()
         }
-        updateSearchLayout()
+        updateSearchLayoutForCurrentVisibility()
         registerWithKeyboardFocusCoordinatorIfNeeded()
     }
 
@@ -1192,6 +1192,13 @@ final class FileExplorerContainerView: NSView {
 #endif
             needsLayout = true
         }
+    }
+
+    private func updateSearchLayoutForCurrentVisibility() {
+        updateSearchLayout(
+            hasContent: lastAppliedVisibility?.hasContent,
+            isLoading: lastAppliedVisibility?.isLoading
+        )
     }
 
     private func applySearchSnapshot(_ snapshot: FileSearchSnapshot) {

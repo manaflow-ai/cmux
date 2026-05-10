@@ -634,6 +634,41 @@ final class FileSearchControllerTests: XCTestCase {
         XCTAssertEqual(refreshedSnapshot.results.map(\.relativePath), ["editable.txt"])
     }
 
+    func testFindPresentationKeepsSearchHiddenWhileRootIsLoading() throws {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .files,
+            searchController: SpyFileSearchController()
+        )
+        store.rootPath = "/tmp/cmux-loading"
+        container.updateHeader(store: store)
+        container.updateVisibility(hasContent: true, isLoading: true)
+
+        container.updatePresentation(.find)
+        let searchField = try XCTUnwrap(Self.findSearchField(in: container))
+
+        XCTAssertTrue(
+            searchField.superview?.isHidden ?? false,
+            "Switching to find while the Files root is loading must not reveal search controls."
+        )
+
+        container.updatePresentation(.find)
+        XCTAssertTrue(
+            searchField.superview?.isHidden ?? false,
+            "Repeated find presentation updates must preserve the loading-aware layout."
+        )
+
+        container.updateVisibility(hasContent: true, isLoading: false)
+        XCTAssertFalse(searchField.superview?.isHidden ?? true)
+    }
+
     func testTypingBurstDebouncesFindSearches() async throws {
         let store = FileExplorerStore()
         let state = FileExplorerState()
