@@ -87,14 +87,21 @@ struct AccessibilityWindowController {
             return .windowUnavailable
         }
 
-        let sizeResult = setSize(targetFrame.integral.size, on: axWindow)
-        guard sizeResult == .success else {
-            return .failed(sizeResult)
+        let integralFrame = targetFrame.integral
+        let currentFrame = readFrame(from: axWindow)
+
+        if currentFrame?.size.isApproximatelyEqual(to: integralFrame.size) != true {
+            let sizeResult = setSize(integralFrame.size, on: axWindow)
+            guard sizeResult == .success else {
+                return .failed(sizeResult)
+            }
         }
 
-        let positionResult = setPosition(targetFrame.integral.origin, on: axWindow)
-        guard positionResult == .success else {
-            return .failed(positionResult)
+        if currentFrame?.origin.isApproximatelyEqual(to: integralFrame.origin) != true {
+            let positionResult = setPosition(integralFrame.origin, on: axWindow)
+            guard positionResult == .success else {
+                return .failed(positionResult)
+            }
         }
 
         if raise {
@@ -277,6 +284,18 @@ struct AccessibilityWindowController {
             return screen.frame
         }
         return CGDisplayBounds(CGDirectDisplayID(displayID.uint32Value))
+    }
+}
+
+private extension CGPoint {
+    func isApproximatelyEqual(to other: CGPoint) -> Bool {
+        abs(x - other.x) < 1 && abs(y - other.y) < 1
+    }
+}
+
+private extension CGSize {
+    func isApproximatelyEqual(to other: CGSize) -> Bool {
+        abs(width - other.width) < 1 && abs(height - other.height) < 1
     }
 }
 

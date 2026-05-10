@@ -12,4 +12,5 @@ enum DesktopRenderMode: String, CaseIterable, Identifiable {
 struct NativeWindowSlotFrame: Equatable {
     var quartzFrame: CGRect
     var cocoaFrame: CGRect
+    var isLiveResize = false
 }

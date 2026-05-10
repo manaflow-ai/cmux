@@ -19,6 +19,10 @@ final class NativeWindowProjectionController {
         targetWindow = window
     }
 
+    func updateSlot(_ slot: NativeWindowSlotFrame) {
+        targetSlot = slot
+    }
+
     func stop() {
         removeMouseMonitors()
         targetWindow = nil

@@ -98,7 +98,7 @@ final class DesktopPrototypeStore {
             restartLiveCapture()
             if let selectedWindow {
                 nativeProjectionController.start(window: selectedWindow)
-                placeNativeWindowIfPossible()
+                placeNativeWindowIfPossible(reportFailures: true)
             }
         }
     }
@@ -109,7 +109,12 @@ final class DesktopPrototypeStore {
         }
 
         nativeSlotFrame = slotFrame
-        placeNativeWindowIfPossible()
+        guard !slotFrame.isLiveResize else {
+            nativeProjectionController.updateSlot(slotFrame)
+            return
+        }
+
+        placeNativeWindowIfPossible(reportFailures: false)
     }
 
     func restartLiveCapture() {
@@ -258,7 +263,7 @@ final class DesktopPrototypeStore {
             restartLiveCapture()
             if let selectedWindow {
                 nativeProjectionController.start(window: selectedWindow)
-                placeNativeWindowIfPossible()
+                placeNativeWindowIfPossible(reportFailures: true)
             } else {
                 nativeProjectionController.stop()
             }
@@ -303,12 +308,12 @@ final class DesktopPrototypeStore {
             }
         case .native:
             if previousWindow.frame.size.isApproximatelyEqual(to: frame.size) {
-                placeNativeWindowIfPossible()
+                placeNativeWindowIfPossible(reportFailures: false)
             }
         }
     }
 
-    private func placeNativeWindowIfPossible() {
+    private func placeNativeWindowIfPossible(reportFailures: Bool) {
         guard renderMode == .native,
               let selectedWindow,
               let nativeSlotFrame
@@ -317,10 +322,10 @@ final class DesktopPrototypeStore {
         }
 
         let result = nativeProjectionController.place(window: selectedWindow, in: nativeSlotFrame)
-        handleNativePlacementResult(result)
+        handleNativePlacementResult(result, reportFailures: reportFailures)
     }
 
-    private func handleNativePlacementResult(_ result: AccessibilityActionResult) {
+    private func handleNativePlacementResult(_ result: AccessibilityActionResult, reportFailures: Bool) {
         updatePermissions()
         switch result {
         case .succeeded:
@@ -331,11 +336,17 @@ final class DesktopPrototypeStore {
                 message: String(localized: "status.accessibilityMissing", defaultValue: "Accessibility permission missing", bundle: .module)
             )
         case .windowUnavailable:
+            guard reportFailures else {
+                return
+            }
             status = StatusBanner(
                 kind: .warning,
                 message: String(localized: "status.windowNotFound", defaultValue: "Window unavailable", bundle: .module)
             )
         case .failed(let error):
+            guard reportFailures || !error.isTransientNativePlacementError else {
+                return
+            }
             let format = String(localized: "status.actionFailed", defaultValue: "Window action failed: %@", bundle: .module)
             status = StatusBanner(kind: .error, message: String(format: format, String(describing: error)))
         }
@@ -407,5 +418,11 @@ private extension CGRect {
         abs(minX - other.minX) < 1
             && abs(minY - other.minY) < 1
             && size.isApproximatelyEqual(to: other.size)
+    }
+}
+
+private extension AXError {
+    var isTransientNativePlacementError: Bool {
+        self == .failure || self == .cannotComplete
     }
 }

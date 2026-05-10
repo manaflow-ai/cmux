@@ -56,6 +56,16 @@ final class NativeWindowDockNSView: NSView {
         reportFrame()
     }
 
+    override func viewWillStartLiveResize() {
+        super.viewWillStartLiveResize()
+        reportFrame()
+    }
+
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        reportFrame()
+    }
+
     func reportFrame() {
         guard let window, bounds.width > 0, bounds.height > 0 else {
             return
@@ -65,7 +75,8 @@ final class NativeWindowDockNSView: NSView {
         let cocoaFrame = window.convertToScreen(windowRect)
         let slotFrame = NativeWindowSlotFrame(
             quartzFrame: quartzFrame(fromCocoaFrame: cocoaFrame),
-            cocoaFrame: cocoaFrame
+            cocoaFrame: cocoaFrame,
+            isLiveResize: inLiveResize
         )
 
         guard lastFrame != slotFrame else {
