@@ -5015,6 +5015,9 @@ struct SettingsView: View {
     @State private var pendingOpenAccessMode: SocketControlMode?
     @State private var browserHistoryEntryCount: Int = 0
     @State private var detectedImportBrowsers: [InstalledBrowserCandidate] = []
+    @State private var browserExtensionSummaries: [BrowserWebExtensionInstalledSummary] = []
+    @State private var browserExtensionErrorAlertMessage = ""
+    @State private var showBrowserExtensionErrorAlert = false
     @State private var browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
     @State private var socketPasswordDraft = ""
     @State private var socketPasswordStatusMessage: String?
@@ -5330,6 +5333,23 @@ struct SettingsView: View {
         InstalledBrowserDetector.summaryText(for: detectedImportBrowsers)
     }
 
+    private var browserExtensionsSubtitle: String {
+        guard BrowserWebExtensionSupport.isAvailable else {
+            return String(localized: "settings.browser.extensions.subtitleUnsupported", defaultValue: "Browser extensions require macOS 15.4 or later.")
+        }
+        switch browserExtensionSummaries.count {
+        case 0:
+            return String(localized: "settings.browser.extensions.subtitleEmpty", defaultValue: "Install Chrome-compatible WebExtensions from CRX or ZIP files, unpacked folders, or Safari web extension app bundles.")
+        case 1:
+            return String(localized: "settings.browser.extensions.subtitleOne", defaultValue: "1 extension is installed. WebKit enforces extension isolation, host access, and permission prompts.")
+        default:
+            return String(
+                format: String(localized: "settings.browser.extensions.subtitleMany", defaultValue: "%d extensions are installed. WebKit enforces extension isolation, host access, and permission prompts."),
+                browserExtensionSummaries.count
+            )
+        }
+    }
+
     private var browserImportHintSettingsNote: String {
         switch browserImportHintPresentation.settingsStatus {
         case .visible:
@@ -5516,6 +5536,56 @@ struct SettingsView: View {
             if destination.shouldHighlight {
                 proxy.scrollTo(destination.anchorID, anchor: .center)
             }
+        }
+    }
+
+    private func refreshBrowserExtensionSummaries() {
+        browserExtensionSummaries = BrowserWebExtensionSupport.installedExtensionSummaries()
+    }
+
+    private func chooseBrowserExtensionFiles() {
+        guard BrowserWebExtensionSupport.isAvailable else {
+            browserExtensionErrorAlertMessage = String(localized: "browser.extensions.error.unsupportedOS", defaultValue: "Browser extensions require macOS 15.4 or later.")
+            showBrowserExtensionErrorAlert = true
+            return
+        }
+
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.title = String(localized: "settings.browser.extensions.install.title", defaultValue: "Choose Browser Extensions")
+        panel.prompt = String(localized: "settings.browser.extensions.install.prompt", defaultValue: "Install")
+        guard panel.runModal() == .OK else { return }
+
+        let urls = panel.urls
+        Task { @MainActor in
+            do {
+                var warnings: [String] = []
+                for url in urls {
+                    let result = try await BrowserWebExtensionSupport.installExtension(from: url)
+                    warnings.append(contentsOf: result.parseErrors)
+                }
+                refreshBrowserExtensionSummaries()
+                if let firstWarning = warnings.first {
+                    browserExtensionErrorAlertMessage = String(
+                        format: String(localized: "settings.browser.extensions.install.warning", defaultValue: "The extension was installed, but WebKit reported:\n\n%@"),
+                        firstWarning
+                    )
+                    showBrowserExtensionErrorAlert = true
+                }
+            } catch {
+                browserExtensionErrorAlertMessage = error.localizedDescription
+                showBrowserExtensionErrorAlert = true
+                refreshBrowserExtensionSummaries()
+            }
+        }
+    }
+
+    private func reloadBrowserExtensions() {
+        Task { @MainActor in
+            await BrowserWebExtensionSupport.reloadInstalledExtensions()
+            refreshBrowserExtensionSummaries()
         }
     }
 
@@ -6618,6 +6688,32 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsCardRow(
+                            configurationReview: .settingsOnly,
+                            String(localized: "settings.browser.extensions", defaultValue: "Browser Extensions"),
+                            subtitle: browserExtensionsSubtitle,
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .browser, idSuffix: "extensions")
+                        ) {
+                            HStack(spacing: 8) {
+                                Button(String(localized: "settings.browser.extensions.install", defaultValue: "Install…")) {
+                                    chooseBrowserExtensionFiles()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .disabled(!BrowserWebExtensionSupport.isAvailable)
+
+                                Button(String(localized: "settings.browser.extensions.reload", defaultValue: "Reload")) {
+                                    reloadBrowserExtensions()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .disabled(!BrowserWebExtensionSupport.isAvailable)
+                            }
+                            .accessibilityIdentifier("SettingsBrowserExtensionsActions")
+                        }
+
+                        SettingsCardDivider()
+
                         VStack(alignment: .leading, spacing: 12) {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(String(localized: "settings.browser.import", defaultValue: "Import Browser Data"))
@@ -7018,6 +7114,7 @@ struct SettingsView: View {
             browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
             browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
             refreshDetectedImportBrowsers()
+            refreshBrowserExtensionSummaries()
             reloadWorkspaceTabColorSettings()
             refreshNotificationCustomSoundStatus()
             let target = SettingsWindowPresenter.consumePendingContentNavigationTarget()
@@ -7049,6 +7146,9 @@ struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             reloadWorkspaceTabColorSettings()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: BrowserWebExtensionSupport.didChangeNotification)) { _ in
+            refreshBrowserExtensionSummaries()
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let destination = SettingsNavigationRequest.destination(from: notification) else { return }
@@ -7101,6 +7201,14 @@ struct SettingsView: View {
             Button(String(localized: "common.ok", defaultValue: "OK"), role: .cancel) {}
         } message: {
             Text(notificationCustomSoundErrorAlertMessage)
+        }
+        .alert(
+            String(localized: "settings.browser.extensions.error.title", defaultValue: "Browser Extension Error"),
+            isPresented: $showBrowserExtensionErrorAlert
+        ) {
+            Button(String(localized: "common.ok", defaultValue: "OK"), role: .cancel) {}
+        } message: {
+            Text(browserExtensionErrorAlertMessage)
         }
         }
     }

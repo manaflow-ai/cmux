@@ -70704,13 +70704,13 @@
             "en": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "web webview address bar omnibar links urls embedded default browser"
+                    "value": "web webview address bar omnibar links urls embedded default browser extensions password manager ad blocker"
                 }
             },
             "ja": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "web webview address bar omnibar links urls embedded default browser ウェブ webview アドレスバー オムニバー リンク url 内蔵ブラウザ デフォルトブラウザ"
+                    "value": "web webview address bar omnibar links urls embedded default browser extensions password manager ad blocker ウェブ webview アドレスバー オムニバー リンク url 内蔵ブラウザ デフォルトブラウザ 拡張機能 パスワード 広告ブロック"
                 }
             },
             "ar": {
@@ -111048,6 +111048,251 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Process" } },
         "ja": { "stringUnit": { "state": "translated", "value": "プロセス" } }
+      }
+    },
+    "browser.extensions.buttonHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser Extensions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ拡張機能" } }
+      }
+    },
+    "browser.extensions.error.cancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Extension installation was cancelled." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "拡張機能のインストールはキャンセルされました。" } }
+      }
+    },
+    "browser.extensions.error.noManifest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No manifest.json was found in %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ に manifest.json が見つかりませんでした。" } }
+      }
+    },
+    "browser.extensions.error.noWebExtensionInApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No Safari Web Extension was found in %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ に Safari Web Extension が見つかりませんでした。" } }
+      }
+    },
+    "browser.extensions.error.invalidChromeExtensionArchive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ is not a valid Chrome extension package." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ は有効な Chrome 拡張機能パッケージではありません。" } }
+      }
+    },
+    "browser.extensions.error.unsupportedOS": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser extensions require macOS 15.4 or later." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ拡張機能には macOS 15.4 以降が必要です。" } }
+      }
+    },
+    "browser.extensions.error.unsupportedSource": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ is not an extension folder, ZIP, CRX, .appex, or app containing a Safari Web Extension." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ は拡張機能フォルダ、ZIP、CRX、.appex、または Safari Web Extension を含むアプリではありません。" } }
+      }
+    },
+    "browser.extensions.install.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cancel" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キャンセル" } }
+      }
+    },
+    "browser.extensions.install.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Install" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "インストール" } }
+      }
+    },
+    "browser.extensions.install.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@\n\nAPI permissions: %@\nWebsite access: %@\n\ncmux grants only these permissions and lets WebKit enforce extension isolation, host access, and runtime permission prompts." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@\n\nAPI 権限: %@\nWeb サイトアクセス: %@\n\ncmux はこれらの権限だけを許可し、拡張機能の分離、ホストアクセス、実行時の権限プロンプトは WebKit が適用します。" } }
+      }
+    },
+    "browser.extensions.install.noAPIPermissions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No API permissions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "API 権限なし" } }
+      }
+    },
+    "browser.extensions.install.noWebsiteAccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No website access" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Web サイトアクセスなし" } }
+      }
+    },
+    "browser.extensions.install.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Install Browser Extension?" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ拡張機能をインストールしますか？" } }
+      }
+    },
+    "browser.extensions.menu.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No loaded extensions." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "読み込まれた拡張機能はありません。" } }
+      }
+    },
+    "browser.extensions.menu.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Extensions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "拡張機能" } }
+      }
+    },
+    "browser.extensions.permission.allow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Allow" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "許可" } }
+      }
+    },
+    "browser.extensions.permission.deny": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Deny" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "拒否" } }
+      }
+    },
+    "browser.extensions.permission.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "An extension is asking for access to:\n\n%@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "拡張機能が次へのアクセスを要求しています:\n\n%@" } }
+      }
+    },
+    "browser.extensions.permission.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Allow Extension Permission?" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "拡張機能の権限を許可しますか？" } }
+      }
+    },
+    "browser.extensions.summary.appExtension": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "App extension" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アプリ拡張機能" } }
+      }
+    },
+    "browser.extensions.summary.localExtension": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Local extension" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ローカル拡張機能" } }
+      }
+    },
+    "browser.extensions.summary.version": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Version %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "バージョン %@" } }
+      }
+    },
+    "browser.extensions.unknownExtension": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown extension" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明な拡張機能" } }
+      }
+    },
+    "settings.browser.extensions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser Extensions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ拡張機能" } }
+      }
+    },
+    "settings.browser.extensions.error.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser Extension Error" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ拡張機能エラー" } }
+      }
+    },
+    "settings.browser.extensions.install": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Install…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "インストール…" } }
+      }
+    },
+    "settings.browser.extensions.install.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Install" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "インストール" } }
+      }
+    },
+    "settings.browser.extensions.install.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose Browser Extensions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ拡張機能を選択" } }
+      }
+    },
+    "settings.browser.extensions.install.warning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The extension was installed, but WebKit reported:\n\n%@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "拡張機能はインストールされましたが、WebKit が次を報告しました:\n\n%@" } }
+      }
+    },
+    "settings.browser.extensions.reload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reload" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再読み込み" } }
+      }
+    },
+    "settings.browser.extensions.subtitleEmpty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Install Chrome-compatible WebExtensions from CRX or ZIP files, unpacked folders, or Safari web extension app bundles." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CRX または ZIP ファイル、展開済みフォルダ、または Safari Web Extension アプリバンドルから Chrome 互換 WebExtension をインストールします。" } }
+      }
+    },
+    "settings.browser.extensions.subtitleMany": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%d extensions are installed. WebKit enforces extension isolation, host access, and permission prompts." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%d 個の拡張機能がインストールされています。拡張機能の分離、ホストアクセス、権限プロンプトは WebKit が適用します。" } }
+      }
+    },
+    "settings.browser.extensions.subtitleOne": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1 extension is installed. WebKit enforces extension isolation, host access, and permission prompts." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1 個の拡張機能がインストールされています。拡張機能の分離、ホストアクセス、権限プロンプトは WebKit が適用します。" } }
+      }
+    },
+    "settings.browser.extensions.subtitleUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser extensions require macOS 15.4 or later." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ拡張機能には macOS 15.4 以降が必要です。" } }
+      }
+    },
+    "settings.search.alias.setting.browser.extensions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "browser extensions chrome webextensions ublock origin 1password bitwarden icloud passwords password manager passkeys video speed controller ad blocker" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "browser extensions chrome webextensions ublock origin 1password bitwarden icloud passwords password manager passkeys video speed controller ad blocker ブラウザ 拡張機能 パスワード マネージャー 広告ブロック" } }
       }
     }
   }

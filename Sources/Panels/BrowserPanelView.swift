@@ -428,6 +428,8 @@ struct BrowserPanelView: View {
     @State private var omnibarSelectAllRequestId: UInt64 = 0
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
+    @State private var isBrowserExtensionsPopoverPresented = false
+    @State private var browserExtensionActions: [BrowserWebExtensionActionSnapshot] = []
     @State private var browserChromeStyle = BrowserChromeStyle.resolve(
         for: .light,
         themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
@@ -635,6 +637,9 @@ struct BrowserPanelView: View {
                 onRequestPanelFocus()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: BrowserWebExtensionSupport.didChangeNotification)) { _ in
+            refreshBrowserExtensionActions()
+        }
         .onAppear {
             UserDefaults.standard.register(defaults: [
                 BrowserSearchSettings.searchEngineKey: BrowserSearchSettings.defaultSearchEngine.rawValue,
@@ -674,6 +679,7 @@ struct BrowserPanelView: View {
             syncWebViewResponderPolicyWithViewState(reason: "onAppear")
             refreshEmptyStateImportBrowsers()
             panel.historyStore.loadIfNeeded()
+            refreshBrowserExtensionActions()
 #if DEBUG
             logBrowserFocusState(event: "view.onAppear")
 #endif
@@ -699,6 +705,7 @@ struct BrowserPanelView: View {
                 preserveRoundTrip: true,
                 reason: "panel.currentURL.changed"
             )
+            refreshBrowserExtensionActions()
         }
         .onChange(of: browserThemeModeRaw) { _ in
             let normalizedMode = BrowserThemeSettings.mode(for: browserThemeModeRaw)
@@ -855,6 +862,7 @@ struct BrowserPanelView: View {
                 reactGrabButton
                 browserProfileButton
                 browserThemeModeButton
+                browserExtensionsButton
                 developerToolsButton
             }
         }
@@ -1033,6 +1041,80 @@ struct BrowserPanelView: View {
             )
         )
         .accessibilityIdentifier("BrowserThemeModeButton")
+    }
+
+    private var browserExtensionsButton: some View {
+        Button(action: {
+            refreshBrowserExtensionActions()
+            isBrowserExtensionsPopoverPresented.toggle()
+        }) {
+            Image(systemName: "puzzlepiece.extension")
+                .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
+                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .foregroundStyle(browserExtensionActions.isEmpty ? Color.secondary : devToolsColorOption.color)
+                .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        }
+        .buttonStyle(OmnibarAddressButtonStyle())
+        .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        .popover(isPresented: $isBrowserExtensionsPopoverPresented, arrowEdge: .bottom) {
+            browserExtensionsPopover
+        }
+        .safeHelp(String(localized: "browser.extensions.buttonHelp", defaultValue: "Browser Extensions"))
+        .accessibilityIdentifier("BrowserExtensionsButton")
+    }
+
+    private var browserExtensionsPopover: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(String(localized: "browser.extensions.menu.title", defaultValue: "Extensions"))
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            if browserExtensionActions.isEmpty {
+                Text(String(localized: "browser.extensions.menu.empty", defaultValue: "No loaded extensions."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(browserExtensionActions) { action in
+                        Button {
+                            BrowserWebExtensionSupport.performAction(action.id, for: panel)
+                            isBrowserExtensionsPopoverPresented = false
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "puzzlepiece.extension")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 14, alignment: .center)
+                                Text(action.label)
+                                    .font(.system(size: 12))
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                                if !action.badgeText.isEmpty {
+                                    Text(action.badgeText)
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 5)
+                                        .frame(minHeight: 14)
+                                        .background(
+                                            Capsule()
+                                                .fill(Color.accentColor)
+                                        )
+                                }
+                            }
+                            .padding(.horizontal, 8)
+                            .frame(height: 26)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!action.isEnabled)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .frame(width: 240, alignment: .leading)
     }
 
     private var browserImportHintToolbarChip: some View {
@@ -1358,6 +1440,10 @@ struct BrowserPanelView: View {
             for: colorScheme,
             themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
         )
+    }
+
+    private func refreshBrowserExtensionActions() {
+        browserExtensionActions = BrowserWebExtensionSupport.actionSnapshots(for: panel)
     }
 
     private func syncWebViewResponderPolicyWithViewState(

@@ -65,6 +65,180 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
 }
 
 
+final class BrowserWebExtensionInstallStoreTests: XCTestCase {
+    func testInstallsUnpackedResourceExtensionIntoManagedStore() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let source = root.appendingPathComponent("SampleExtension", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try """
+        {
+          "manifest_version": 3,
+          "name": "Sample Extension",
+          "version": "1.2.3",
+          "action": { "default_title": "Sample" }
+        }
+        """.data(using: .utf8)?.write(to: source.appendingPathComponent("manifest.json"))
+
+        let store = BrowserWebExtensionInstallStore(
+            registryURL: root.appendingPathComponent("registry.json"),
+            installedResourceDirectoryURL: root.appendingPathComponent("resources", isDirectory: true)
+        )
+        let discovered = try store.discoverSource(from: source)
+        let record = try store.installRecord(
+            from: discovered,
+            displayName: "Sample Extension",
+            displayVersion: "1.2.3",
+            grantedPermissions: ["storage"],
+            grantedPermissionMatchPatterns: ["https://example.com/*"]
+        )
+
+        XCTAssertEqual(record.sourceKind, .resourceBaseURL)
+        XCTAssertEqual(record.displayName, "Sample Extension")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: URL(fileURLWithPath: record.sourcePath).appendingPathComponent("manifest.json").path))
+
+        let reloadedStore = BrowserWebExtensionInstallStore(
+            registryURL: root.appendingPathComponent("registry.json"),
+            installedResourceDirectoryURL: root.appendingPathComponent("resources", isDirectory: true)
+        )
+        XCTAssertEqual(reloadedStore.records, [record])
+    }
+
+    func testDiscoversSafariWebExtensionInsideApplicationBundle() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let appURL = root.appendingPathComponent("Passwords.app", isDirectory: true)
+        let extensionResources = appURL
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("PlugIns", isDirectory: true)
+            .appendingPathComponent("Passwords.appex", isDirectory: true)
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+        try FileManager.default.createDirectory(at: extensionResources, withIntermediateDirectories: true)
+        try """
+        {
+          "manifest_version": 3,
+          "name": "Passwords",
+          "version": "1.0"
+        }
+        """.data(using: .utf8)?.write(to: extensionResources.appendingPathComponent("manifest.json"))
+
+        let store = BrowserWebExtensionInstallStore(
+            registryURL: root.appendingPathComponent("registry.json"),
+            installedResourceDirectoryURL: root.appendingPathComponent("resources", isDirectory: true)
+        )
+        let source = try store.discoverSource(from: appURL)
+
+        XCTAssertEqual(source.kind, .appExtensionBundle)
+        XCTAssertEqual(source.url.lastPathComponent, "Passwords.appex")
+    }
+
+    func testInstallsChromeCRXPackageAsManagedZipArchive() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let crxURL = root.appendingPathComponent("uBlock-Origin.crx")
+        let zipPayload = Data([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00])
+        var crxPayload = Data("Cr24".utf8)
+        appendLittleEndianUInt32(3, to: &crxPayload)
+        appendLittleEndianUInt32(0, to: &crxPayload)
+        crxPayload.append(zipPayload)
+        try crxPayload.write(to: crxURL)
+
+        let store = BrowserWebExtensionInstallStore(
+            registryURL: root.appendingPathComponent("registry.json"),
+            installedResourceDirectoryURL: root.appendingPathComponent("resources", isDirectory: true)
+        )
+        let source = try store.discoverSource(from: crxURL)
+        let record = try store.installRecord(
+            from: source,
+            displayName: "uBlock Origin",
+            displayVersion: "1.0",
+            grantedPermissions: ["storage"],
+            grantedPermissionMatchPatterns: ["https://example.com/*"]
+        )
+
+        let storedURL = URL(fileURLWithPath: record.sourcePath)
+        XCTAssertEqual(source.kind, .resourceBaseURL)
+        XCTAssertEqual(storedURL.pathExtension, "zip")
+        XCTAssertEqual(Array(try Data(contentsOf: storedURL).prefix(zipPayload.count)), Array(zipPayload))
+    }
+
+    private func temporaryDirectory() throws -> URL {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("cmux-browser-extension-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func appendLittleEndianUInt32(_ value: UInt32, to data: inout Data) {
+        var littleEndianValue = value.littleEndian
+        withUnsafeBytes(of: &littleEndianValue) { bytes in
+            data.append(contentsOf: bytes)
+        }
+    }
+}
+
+
+@available(macOS 15.4, *)
+@MainActor
+final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
+    func testWebKitLoadsMinimalUnpackedExtension() async throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("cmux-webkit-extension-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let scriptURL = root.appendingPathComponent("content.js")
+        try "document.documentElement.dataset.cmuxExtensionLoaded = '1';"
+            .data(using: .utf8)?
+            .write(to: scriptURL)
+        try """
+        {
+          "manifest_version": 3,
+          "name": "cmux Test Extension",
+          "version": "1.0.0",
+          "permissions": ["storage"],
+          "host_permissions": ["https://example.com/*"],
+          "content_scripts": [
+            {
+              "matches": ["https://example.com/*"],
+              "js": ["content.js"]
+            }
+          ],
+          "action": { "default_title": "cmux Test" }
+        }
+        """.data(using: .utf8)?.write(to: root.appendingPathComponent("manifest.json"))
+
+        let webExtension = try await WKWebExtension(resourceBaseURL: root)
+        XCTAssertEqual(webExtension.displayName, "cmux Test Extension")
+        let fatalErrors = webExtension.errors.filter { error in
+            let nsError = error as NSError
+            let code = WKWebExtension.Error.Code(rawValue: nsError.code)
+            return nsError.domain == WKWebExtension.errorDomain &&
+                code != .invalidManifestEntry &&
+                code != .invalidDeclarativeNetRequestEntry &&
+                code != .invalidBackgroundPersistence
+        }
+        XCTAssertTrue(fatalErrors.isEmpty, "\(webExtension.errors)")
+        XCTAssertTrue(webExtension.requestedPermissions.contains(.storage))
+        XCTAssertTrue(webExtension.requestedPermissionMatchPatterns.contains {
+            $0.string == "https://example.com/*"
+        })
+
+        let controller = WKWebExtensionController(configuration: .default())
+        let context = WKWebExtensionContext(for: webExtension)
+        context.uniqueIdentifier = "cmux-test-\(UUID().uuidString)"
+        context.setPermissionStatus(.grantedExplicitly, for: .storage)
+        context.setPermissionStatus(.grantedExplicitly, for: try WKWebExtension.MatchPattern(string: "https://example.com/*"))
+        try controller.load(context)
+        XCTAssertTrue(context.isLoaded)
+        try controller.unload(context)
+    }
+}
+
+
 @MainActor
 final class BrowserPanelInitialNavigationTests: XCTestCase {
     func testInitialURLCanBePreservedWithoutRenderingWebView() throws {

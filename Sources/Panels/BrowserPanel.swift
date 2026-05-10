@@ -2714,6 +2714,10 @@ final class BrowserPanel: Panel, ObservableObject {
                 forMainFrameOnly: true
             )
         )
+        BrowserWebExtensionSupport.configureWebViewConfiguration(
+            configuration,
+            websiteDataStore: websiteDataStore
+        )
     }
 
     private func bindWebView(_ webView: CmuxWebView) {
@@ -2745,6 +2749,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
                 boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
                 self.refreshFavicon(from: webView)
+                BrowserWebExtensionSupport.notePanelPropertiesChanged(panel: self)
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
             }
@@ -2892,6 +2897,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.uiDelegate = browserUIDelegate
 
         bindWebView(webView)
+        BrowserWebExtensionSupport.register(panel: self)
         installDetachedDeveloperToolsWindowCloseObserver()
         applyBrowserThemeModeIfNeeded()
         ReactGrabScriptLoader.prefetch()
@@ -3075,6 +3081,7 @@ final class BrowserPanel: Panel, ObservableObject {
         shouldRenderWebView = wasRenderable
 
         bindWebView(replacement)
+        BrowserWebExtensionSupport.register(panel: self)
         applyBrowserThemeModeIfNeeded()
 
         if !history.backHistoryURLStrings.isEmpty || !history.forwardHistoryURLStrings.isEmpty {
@@ -3274,6 +3281,7 @@ final class BrowserPanel: Panel, ObservableObject {
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
                 self.currentURL = Self.remoteProxyDisplayURL(for: webView.url)
+                BrowserWebExtensionSupport.notePanelPropertiesChanged(panel: self)
             }
         }
         webViewObservers.append(urlObserver)
@@ -3288,6 +3296,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 let trimmed = (webView.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return }
                 self.pageTitle = trimmed
+                BrowserWebExtensionSupport.notePanelPropertiesChanged(panel: self)
             }
         }
         webViewObservers.append(titleObserver)
@@ -3303,6 +3312,7 @@ final class BrowserPanel: Panel, ObservableObject {
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
                 self.handleWebViewLoadingChanged(newValue)
+                BrowserWebExtensionSupport.notePanelPropertiesChanged(panel: self)
             }
         }
         webViewObservers.append(loadingObserver)
@@ -3535,6 +3545,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // Ensure we don't keep a hidden WKWebView (or its content view) as first responder while
         // bonsplit/SwiftUI reshuffles views during close.
         unfocus()
+        BrowserWebExtensionSupport.unregister(panel: self)
 
         // Snapshot first: popup close unregisters itself from popupControllers.
         let popupsToClose = popupControllers
@@ -4030,7 +4041,7 @@ final class BrowserPanel: Panel, ObservableObject {
         return URLSession(configuration: configuration)
     }
 
-    private static func remoteProxyDisplayURL(for url: URL?) -> URL? {
+    static func remoteProxyDisplayURL(for url: URL?) -> URL? {
         guard let url else { return nil }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return url }
         guard let displayHost = RemoteLoopbackProxyAlias.localhostFamilyHost(
@@ -4173,6 +4184,10 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     deinit {
+        let panelID = id
+        Task { @MainActor in
+            BrowserWebExtensionSupport.unregister(panelID: panelID)
+        }
         developerToolsRestoreRetryWorkItem?.cancel()
         developerToolsRestoreRetryWorkItem = nil
         developerToolsTransitionSettleWorkItem?.cancel()
