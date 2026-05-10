@@ -14179,14 +14179,18 @@ private extension NSWindow {
 
         let contentPoint = contentView.convert(event.locationInWindow, from: nil)
         let hitView = contentView.hitTest(contentPoint)
-        let previousMovableState = isMovable
-        if previousMovableState {
-            isMovable = false
+        let previousMovableState = temporarilyDisableWindowDragging(window: self)
+        defer {
+            restoreWindowDragging(window: self, previousMovableState: previousMovableState)
+            #if DEBUG
+            cmuxDebugLog("window.sendEvent.folderDown restore nowMovable=\(isMovable)")
+            #endif
         }
 
         #if DEBUG
         let hitDesc = hitView.map { String(describing: type(of: $0)) } ?? "nil"
-        cmuxDebugLog("window.sendEvent.folderDown suppress=1 hit=\(hitDesc) wasMovable=\(previousMovableState)")
+        let previousMovableDescription = previousMovableState.map { String($0) } ?? "nil"
+        cmuxDebugLog("window.sendEvent.folderDown suppress=1 hit=\(hitDesc) wasMovable=\(previousMovableDescription)")
         #endif
 
         cmux_sendEvent(event)
@@ -14195,14 +14199,6 @@ private extension NSWindow {
             originalDispatchMs = (ProcessInfo.processInfo.systemUptime - originalDispatchStart) * 1000.0
         }
 #endif
-
-        if previousMovableState {
-            isMovable = previousMovableState
-        }
-
-        #if DEBUG
-        cmuxDebugLog("window.sendEvent.folderDown restore nowMovable=\(isMovable)")
-        #endif
     }
 
     @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {
