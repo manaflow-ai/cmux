@@ -7,6 +7,7 @@ import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
 import Darwin
+import Combine
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1228,6 +1229,42 @@ final class SidebarAgentPIDFallbackTests: XCTestCase {
             state: SidebarAgentProcessProbe.processState(for: process.processIdentifier)
         )
 
+        XCTAssertTrue(workspace.sidebarStatusEntriesInDisplayOrder().isEmpty)
+    }
+
+    @MainActor
+    func testRegisteredAgentPIDExitSourceClearsWithoutProbeTick() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["60"]
+        try process.run()
+        defer {
+            if process.isRunning {
+                terminateAndWait(process)
+            }
+        }
+
+        let workspace = Workspace()
+        var cancellables: Set<AnyCancellable> = []
+        let cleared = XCTestExpectation(description: "agent PID clears on process exit")
+        workspace.$agentPIDs
+            .dropFirst()
+            .sink { pids in
+                if pids["codex"] == nil {
+                    cleared.fulfill()
+                }
+            }
+            .store(in: &cancellables)
+
+        workspace.setAgentPID(key: "codex", pid: process.processIdentifier)
+        XCTAssertEqual(workspace.sidebarStatusEntriesInDisplayOrder().first?.value, "Running")
+
+        process.terminate()
+
+        if XCTWaiter.wait(for: [cleared], timeout: 5) != .completed {
+            _ = Darwin.kill(process.processIdentifier, SIGKILL)
+            XCTFail("Timed out waiting for agent PID exit watcher to clear runtime state")
+        }
         XCTAssertTrue(workspace.sidebarStatusEntriesInDisplayOrder().isEmpty)
     }
 

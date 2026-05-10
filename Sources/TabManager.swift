@@ -5079,9 +5079,7 @@ class TabManager: ObservableObject {
         return tabs.flatMap { tab in
             tab.panels.keys.compactMap { panelId -> (Workspace, UUID, SidebarAgentTitleRegistration)? in
                 let key = PanelTitleUpdateKey(tabId: tab.id, panelId: panelId)
-                let registration = tab.panelTitles[panelId].flatMap(SidebarAgentStatusService.titleRegistration)
-                    ?? panelAgentTitleRegistrations[key]
-                guard let registration,
+                guard let registration = panelAgentTitleRegistrations[key],
                       tab.agentPIDs[registration.statusKey] == nil else {
                     return nil
                 }

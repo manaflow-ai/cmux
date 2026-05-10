@@ -3,6 +3,11 @@ import Darwin
 import Foundation
 
 extension Workspace {
+    private static let agentPIDExitWatcherQueue = DispatchQueue(
+        label: "com.cmux.sidebar-agent-pid-exit",
+        qos: .utility
+    )
+
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
 
@@ -67,6 +72,26 @@ extension Workspace {
         agentPIDKeysByPanelId[panelId, default: []].insert(key)
     }
 
+    private func armAgentPIDExitWatcher(key: String, pid: pid_t) {
+        if agentPIDExitWatchers[key] != nil, agentPIDs[key] == pid {
+            return
+        }
+        agentPIDExitWatchers.removeValue(forKey: key)?.cancel()
+        let source = DispatchSource.makeProcessSource(
+            identifier: pid,
+            eventMask: .exit,
+            queue: Self.agentPIDExitWatcherQueue
+        )
+        source.setEventHandler { [weak self] in
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.agentPIDs[key] == pid else { return }
+                _ = self.clearAgentPID(key: key, clearStatus: true)
+            }
+        }
+        agentPIDExitWatchers[key] = source
+        source.resume()
+    }
+
     func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) {
         guard pid > 0 else {
             _ = clearAgentPID(key: key, panelId: panelId, clearStatus: true, refreshPorts: refreshPorts)
@@ -75,6 +100,7 @@ extension Workspace {
 
         let existingPID = agentPIDs[key]
         agentPIDs[key] = pid
+        armAgentPIDExitWatcher(key: key, pid: pid)
         if let panelId {
             recordAgentPIDOwnership(key: key, panelId: panelId)
         } else if existingPID != pid {
@@ -130,6 +156,9 @@ extension Workspace {
         if agentProcessStates.removeValue(forKey: key) != nil {
             didChange = true
         }
+        if agentPIDExitWatchers.removeValue(forKey: key) != nil {
+            didChange = true
+        }
         if ownedPanelId != nil {
             removeAgentPIDOwnership(key: key)
             didChange = true
@@ -163,6 +192,10 @@ extension Workspace {
             _ = clearAgentPID(key: key, clearStatus: true, refreshPorts: false)
         }
         agentPIDKeysByPanelId.removeAll()
+        for watcher in agentPIDExitWatchers.values {
+            watcher.cancel()
+        }
+        agentPIDExitWatchers.removeAll()
         agentListeningPorts.removeAll()
         if refreshPorts {
             refreshTrackedAgentPorts()
