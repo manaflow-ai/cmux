@@ -7381,6 +7381,193 @@
         }
       }
     },
+    "browser.profile.automation.error.ambiguousProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multiple cmux browser profiles match '%@'. Use the profile ID instead."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' に一致する cmux ブラウザープロファイルが複数あります。代わりにプロファイル ID を使用してください。"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.cannotDeleteDefaultProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The default browser profile cannot be deleted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトのブラウザープロファイルは削除できません"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.fallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser profile command failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルコマンドに失敗しました"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.missingName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing browser profile name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイル名がありません"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.missingProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing browser profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルがありません"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileClearFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to clear cmux browser profile '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイル '%@' を消去できませんでした"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileCreationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to create cmux browser profile '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイル '%@' を作成できませんでした"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileDeleteFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to delete cmux browser profile '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイル '%@' を削除できませんでした"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileInUse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot delete cmux browser profile '%@' while %d browser panel(s) are using it"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイル '%@' は %d 個のブラウザーパネルが使用中のため削除できません"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No cmux browser profile matches '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' に一致する cmux ブラウザープロファイルが見つかりません"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileRenameFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to rename cmux browser profile to '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイルの名前を '%@' に変更できませんでした"
+          }
+        }
+      }
+    },
     "browser.profile.menu.title": {
       "extractionState": "manual",
       "localizations": {
@@ -8595,6 +8782,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "가져오기를 시작할 수 없습니다"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.browserNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No importable browser matches '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' に一致するインポート可能なブラウザーが見つかりません"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.destinationProfileCreationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to create cmux browser profile '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイル '%@' を作成できませんでした"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.destinationProfileNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No cmux browser profile matches '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' に一致する cmux ブラウザープロファイルが見つかりません"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.fallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser import failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザーのインポートに失敗しました"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.noBrowsers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No importable browsers found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポート可能なブラウザーが見つかりません"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.noProfiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No source profiles found for %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のソースプロファイルが見つかりません"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.sourceProfileNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No source profile matches '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' に一致するソースプロファイルが見つかりません"
           }
         }
       }
@@ -64460,115 +64766,115 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me."
+            "value": "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "警告プロンプトなしでcmuxで開けるHTTP（非HTTPS）ホストを制御します。デフォルトにはlocalhost、127.0.0.1、::1、0.0.0.0、*.localtest.meが含まれます。"
+            "value": "警告プロンプトなしでcmuxで開けるHTTP（非HTTPS）ホストを制御します。デフォルトにはlocalhost、*.localhost、127.0.0.1、::1、0.0.0.0、*.localtest.meが含まれます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "控制哪些 HTTP（非 HTTPS）主机可以在 cmux 中打开而不显示警告提示。默认包括 localhost、127.0.0.1、::1、0.0.0.0 和 *.localtest.me。"
+            "value": "控制哪些 HTTP（非 HTTPS）主机可以在 cmux 中打开而不显示警告提示。默认包括 localhost、*.localhost、127.0.0.1、::1、0.0.0.0 和 *.localtest.me。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "控制哪些 HTTP（非 HTTPS）主機可以在 cmux 中開啟而不顯示警告提示。預設包含 localhost、127.0.0.1、::1、0.0.0.0 和 *.localtest.me。"
+            "value": "控制哪些 HTTP（非 HTTPS）主機可以在 cmux 中開啟而不顯示警告提示。預設包含 localhost、*.localhost、127.0.0.1、::1、0.0.0.0 和 *.localtest.me。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux에서 경고 없이 열 수 있는 HTTP(비HTTPS) 호스트를 제어합니다. 기본값에는 localhost, 127.0.0.1, ::1, 0.0.0.0 및 *.localtest.me가 포함됩니다."
+            "value": "cmux에서 경고 없이 열 수 있는 HTTP(비HTTPS) 호스트를 제어합니다. 기본값에는 localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 및 *.localtest.me가 포함됩니다."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Steuert, welche HTTP-Hosts (nicht HTTPS) ohne Warnhinweis in cmux geöffnet werden können. Standardmäßig enthalten: localhost, 127.0.0.1, ::1, 0.0.0.0 und *.localtest.me."
+            "value": "Steuert, welche HTTP-Hosts (nicht HTTPS) ohne Warnhinweis in cmux geöffnet werden können. Standardmäßig enthalten: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 und *.localtest.me."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controla qué hosts HTTP (no HTTPS) pueden abrirse en cmux sin un mensaje de advertencia. Los valores predeterminados incluyen localhost, 127.0.0.1, ::1, 0.0.0.0 y *.localtest.me."
+            "value": "Controla qué hosts HTTP (no HTTPS) pueden abrirse en cmux sin un mensaje de advertencia. Los valores predeterminados incluyen localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 y *.localtest.me."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Contrôle quels hôtes HTTP (non HTTPS) peuvent s'ouvrir dans cmux sans avertissement. Les valeurs par défaut incluent localhost, 127.0.0.1, ::1, 0.0.0.0 et *.localtest.me."
+            "value": "Contrôle quels hôtes HTTP (non HTTPS) peuvent s'ouvrir dans cmux sans avertissement. Les valeurs par défaut incluent localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 et *.localtest.me."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controlla quali host HTTP (non HTTPS) possono aprirsi in cmux senza un avviso. I valori predefiniti includono localhost, 127.0.0.1, ::1, 0.0.0.0 e *.localtest.me."
+            "value": "Controlla quali host HTTP (non HTTPS) possono aprirsi in cmux senza un avviso. I valori predefiniti includono localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 e *.localtest.me."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Styrer hvilke HTTP-værter (ikke-HTTPS) der kan åbnes i cmux uden advarselsmeddelelse. Standardindstillinger inkluderer localhost, 127.0.0.1, ::1, 0.0.0.0 og *.localtest.me."
+            "value": "Styrer hvilke HTTP-værter (ikke-HTTPS) der kan åbnes i cmux uden advarselsmeddelelse. Standardindstillinger inkluderer localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 og *.localtest.me."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Określa, które hosty HTTP (inne niż HTTPS) mogą być otwierane w cmux bez ostrzeżenia. Domyślnie uwzględniono localhost, 127.0.0.1, ::1, 0.0.0.0 i *.localtest.me."
+            "value": "Określa, które hosty HTTP (inne niż HTTPS) mogą być otwierane w cmux bez ostrzeżenia. Domyślnie uwzględniono localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 i *.localtest.me."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Определяет, какие HTTP (не HTTPS) хосты могут открываться в cmux без предупреждения. По умолчанию включены localhost, 127.0.0.1, ::1, 0.0.0.0 и *.localtest.me."
+            "value": "Определяет, какие HTTP (не HTTPS) хосты могут открываться в cmux без предупреждения. По умолчанию включены localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 и *.localtest.me."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kontroliše koji HTTP (ne-HTTPS) hostovi mogu biti otvoreni u cmux bez upozorenja. Podrazumijevani uključuju localhost, 127.0.0.1, ::1, 0.0.0.0 i *.localtest.me."
+            "value": "Kontroliše koji HTTP (ne-HTTPS) hostovi mogu biti otvoreni u cmux bez upozorenja. Podrazumijevani uključuju localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 i *.localtest.me."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتحكم في مضيفي HTTP (غير HTTPS) الذين يمكنهم الفتح في cmux بدون رسالة تحذير. الافتراضيات تشمل localhost و 127.0.0.1 و ::1 و 0.0.0.0 و *.localtest.me."
+            "value": "يتحكم في مضيفي HTTP (غير HTTPS) الذين يمكنهم الفتح في cmux بدون رسالة تحذير. الافتراضيات تشمل localhost و *.localhost و 127.0.0.1 و ::1 و 0.0.0.0 و *.localtest.me."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Styrer hvilke HTTP-verter (ikke HTTPS) som kan åpnes i cmux uten advarselsmelding. Standardverdier inkluderer localhost, 127.0.0.1, ::1, 0.0.0.0 og *.localtest.me."
+            "value": "Styrer hvilke HTTP-verter (ikke HTTPS) som kan åpnes i cmux uten advarselsmelding. Standardverdier inkluderer localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 og *.localtest.me."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controla quais hosts HTTP (não HTTPS) podem abrir no cmux sem um aviso. Os padrões incluem localhost, 127.0.0.1, ::1, 0.0.0.0 e *.localtest.me."
+            "value": "Controla quais hosts HTTP (não HTTPS) podem abrir no cmux sem um aviso. Os padrões incluem localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 e *.localtest.me."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ควบคุมว่าโฮสต์ HTTP (ไม่ใช่ HTTPS) ใดที่สามารถเปิดใน cmux โดยไม่ต้องแสดงคำเตือน ค่าเริ่มต้นรวมถึง localhost, 127.0.0.1, ::1, 0.0.0.0 และ *.localtest.me"
+            "value": "ควบคุมว่าโฮสต์ HTTP (ไม่ใช่ HTTPS) ใดที่สามารถเปิดใน cmux โดยไม่ต้องแสดงคำเตือน ค่าเริ่มต้นรวมถึง localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 และ *.localtest.me"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hangi HTTP (HTTPS olmayan) ana bilgisayarlarının cmux'ta uyarı istemi olmadan açılabileceğini kontrol eder. Varsayılanlar localhost, 127.0.0.1, ::1, 0.0.0.0 ve *.localtest.me içerir."
+            "value": "Hangi HTTP (HTTPS olmayan) ana bilgisayarlarının cmux'ta uyarı istemi olmadan açılabileceğini kontrol eder. Varsayılanlar localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 ve *.localtest.me içerir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Визначає, які HTTP (не HTTPS) хости можуть відкриватися в cmux без попередження. Типово включає localhost, 127.0.0.1, ::1, 0.0.0.0 та *.localtest.me."
+            "value": "Визначає, які HTTP (не HTTPS) хости можуть відкриватися в cmux без попередження. Типово включає localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 та *.localtest.me."
           }
         }
       }
@@ -64579,115 +64885,115 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "One host or wildcard per line (for example: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "One host or wildcard per line (for example: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1行に1つのホストまたはワイルドカード（例: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me）。"
+            "value": "1行に1つのホストまたはワイルドカード（例: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me）。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "每行一个主机或通配符（例如：localhost、127.0.0.1、::1、0.0.0.0、*.localtest.me）。"
+            "value": "每行一个主机或通配符（例如：localhost、*.localhost、127.0.0.1、::1、0.0.0.0、*.localtest.me）。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "每行一個主機或萬用字元（例如：localhost、127.0.0.1、::1、0.0.0.0、*.localtest.me）。"
+            "value": "每行一個主機或萬用字元（例如：localhost、*.localhost、127.0.0.1、::1、0.0.0.0、*.localtest.me）。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "한 줄에 하나의 호스트 또는 와일드카드 (예: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "한 줄에 하나의 호스트 또는 와일드카드 (예: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Host oder Platzhalter pro Zeile (zum Beispiel: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Ein Host oder Platzhalter pro Zeile (zum Beispiel: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un host o comodín por línea (por ejemplo: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Un host o comodín por línea (por ejemplo: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un hôte ou caractère générique par ligne (par exemple : localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Un hôte ou caractère générique par ligne (par exemple : localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un host o wildcard per riga (ad esempio: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Un host o wildcard per riga (ad esempio: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Én vært eller wildcard pr. linje (f.eks.: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Én vært eller wildcard pr. linje (f.eks.: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jeden host lub wzorzec na wiersz (na przykład: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Jeden host lub wzorzec na wiersz (na przykład: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Один хост или шаблон на строку (например: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Один хост или шаблон на строку (например: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jedan host ili zamjenski znak po redu (na primjer: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Jedan host ili zamjenski znak po redu (na primjer: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مضيف واحد أو حرف بدل لكل سطر (مثال: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "مضيف واحد أو حرف بدل لكل سطر (مثال: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Én vert eller jokertegn per linje (for eksempel: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Én vert eller jokertegn per linje (for eksempel: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Um host ou curinga por linha (por exemplo: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Um host ou curinga por linha (por exemplo: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "โฮสต์หรือ wildcard หนึ่งรายการต่อบรรทัด (ตัวอย่าง: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)"
+            "value": "โฮสต์หรือ wildcard หนึ่งรายการต่อบรรทัด (ตัวอย่าง: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Satır başına bir ana bilgisayar veya joker karakter (örneğin: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Satır başına bir ana bilgisayar veya joker karakter (örneğin: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Один хост або шаблон на рядок (наприклад: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Один хост або шаблон на рядок (наприклад: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         }
       }
@@ -69550,363 +69856,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux.json에서 tmux 스타일의 다단계 단축키를 추가할 수 있습니다. 예: [\"ctrl+b\", \"c\"]."
-          }
-        }
-      }
-    },
-    "settings.shortcuts.showHints": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Shortcut Hints While Holding Modifiers"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "修飾キー長押しでショートカットヒントを表示"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示 Cmd/Ctrl 长按快捷键提示"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示 Cmd/Ctrl 按住時的快速鍵提示"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd/Ctrl 누르고 있을 때 단축키 힌트 표시"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd/Ctrl-Gedrückthalten-Kurzbefehlhinweise anzeigen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar indicaciones de atajo al mantener Cmd/Ctrl"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher les indications de raccourcis avec Cmd/Ctrl enfoncé"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra suggerimenti scorciatoie Cmd/Ctrl"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis Cmd/Ctrl-hold genvejstip"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokaż podpowiedzi skrótów przy przytrzymaniu Cmd/Ctrl"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывать подсказки сочетаний при удержании Cmd/Ctrl"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži savjete za prečice pri držanju Cmd/Ctrl"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عرض تلميحات اختصارات Cmd/Ctrl عند الضغط المطول"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis Cmd/Ctrl-hold snarveihint"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar Dicas de Atalho ao Segurar Cmd/Ctrl"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงคำแนะนำทางลัด Cmd/Ctrl ค้าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd/Ctrl Basılı Tutma Kısayol İpuçlarını Göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показувати підказки комбінацій при утриманні модифікаторів"
-          }
-        }
-      }
-    },
-    "settings.shortcuts.showHints.subtitleOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Holding shortcut modifiers keeps shortcut hint pills hidden."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ショートカットの修飾キーを長押ししてもショートカットヒントピルは非表示のままです。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "长按 Cmd 或 Ctrl 时隐藏快捷键提示标签。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按住 Cmd 或 Ctrl 時不顯示快速鍵提示標籤。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd 또는 Ctrl을 누르고 있어도 단축키 힌트 표시가 숨겨집니다."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Das Gedrückthalten von Cmd oder Ctrl hält die Kurzbefehlhinweise ausgeblendet."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mantener Cmd o Ctrl mantiene ocultas las indicaciones de atajos."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maintenir Cmd ou Ctrl garde les pastilles d'indication de raccourcis masquées."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tenere premuto Cmd o Ctrl mantiene nascosti i suggerimenti delle scorciatoie."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "At holde Cmd eller Ctrl holder genvejstip skjulte."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przytrzymanie Cmd lub Ctrl nie pokazuje podpowiedzi skrótów."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удержание Cmd или Ctrl не показывает подсказки сочетаний."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Držanje Cmd ili Ctrl drži savjete za prečice skrivenim."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الضغط المطول على Cmd أو Ctrl يبقي كبسولات التلميح مخفية."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Å holde Cmd eller Ctrl holder snarveihintpillene skjult."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Segurar Cmd ou Ctrl mantém as pílulas de dica de atalho ocultas."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การกด Cmd หรือ Ctrl ค้างจะซ่อนป้ายคำแนะนำทางลัด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd veya Ctrl basılı tutulduğunda kısayol ipucu rozetleri gizli kalır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Утримання модифікаторів комбінацій не показує підказки."
-          }
-        }
-      }
-    },
-    "settings.shortcuts.showHints.subtitleOn": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Holding the configured shortcut modifiers shows shortcut hint pills."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "設定されたショートカットの修飾キーを長押しするとショートカットヒントピルが表示されます。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "长按 Cmd（侧边栏/标题栏）或 Ctrl/Cmd（面板标签页）时显示快捷键提示标签。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按住 Cmd（側邊欄/標題列）或 Ctrl/Cmd（面板標籤頁）時顯示快速鍵提示標籤。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd(사이드바/제목 표시줄) 또는 Ctrl/Cmd(패널 탭)를 누르고 있으면 단축키 힌트가 표시됩니다."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Das Gedrückthalten von Cmd (Seitenleiste/Titelleiste) oder Ctrl/Cmd (Bereichs-Tabs) zeigt Kurzbefehlhinweise an."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mantener Cmd (barra lateral/barra de título) o Ctrl/Cmd (pestañas del panel) muestra las indicaciones de atajos."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maintenir Cmd (barre latérale/barre de titre) ou Ctrl/Cmd (onglets de panneau) affiche les pastilles d'indication de raccourcis."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tenere premuto Cmd (barra laterale/barra del titolo) o Ctrl/Cmd (schede pannello) mostra i suggerimenti delle scorciatoie."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "At holde Cmd (sidebjælke/titellinje) eller Ctrl/Cmd (panelfaner) viser genvejstip."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przytrzymanie Cmd (pasek boczny/pasek tytułu) lub Ctrl/Cmd (karty panelu) pokazuje podpowiedzi skrótów."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удержание Cmd (боковая панель/заголовок) или Ctrl/Cmd (вкладки панели) показывает подсказки сочетаний."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Držanje Cmd (bočna traka/naslovna traka) ili Ctrl/Cmd (tabovi panela) prikazuje savjete za prečice."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الضغط المطول على Cmd (الشريط الجانبي/شريط العنوان) أو Ctrl/Cmd (ألسنة اللوحات) يعرض كبسولات التلميح."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Å holde Cmd (sidepanel/tittellinje) eller Ctrl/Cmd (panelfaner) viser snarveihintpiller."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Segurar Cmd (barra lateral/barra de título) ou Ctrl/Cmd (abas do painel) mostra pílulas de dica de atalho."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การกด Cmd ค้าง (แถบด้านข้าง/แถบชื่อ) หรือ Ctrl/Cmd (แท็บบานหน้าต่าง) จะแสดงป้ายคำแนะนำทางลัด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd (kenar çubuğu/başlık çubuğu) veya Ctrl/Cmd (bölme sekmeleri) basılı tutulduğunda kısayol ipucu rozetleri gösterilir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Утримання налаштованих модифікаторів показує підказки комбінацій."
           }
         }
       }
@@ -79669,125 +79618,6 @@
             }
         }
     },
-    "settings.search.alias.setting.keyboardShortcuts.show-hints": {
-        "extractionState": "manual",
-        "localizations": {
-            "en": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills"
-                }
-            },
-            "ja": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills コマンド長押し ctrl 長押し キーヒント 修飾キー オーバーレイ ピル"
-                }
-            },
-            "ar": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills لوحة مفاتيح اختصار اختصارات مفتاح سريع أوامر تسجيل"
-                }
-            },
-            "bs": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills tastatura prečica prečice hotkey komande tipke snimač"
-                }
-            },
-            "da": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills tastatur genvej genveje hotkey kommandoer taster optager"
-                }
-            },
-            "de": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills tastatur kurzbefehl tastenkürzel hotkey befehle tasten rekorder"
-                }
-            },
-            "es": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills teclado atajo atajos tecla rápida comandos teclas grabador"
-                }
-            },
-            "fr": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills clavier raccourci raccourcis touche globale commandes touches enregistreur"
-                }
-            },
-            "it": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills tastiera scorciatoia scorciatoie tasto rapido comandi tasti registratore"
-                }
-            },
-            "ko": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills 키보드 단축키 핫키 명령 키 기록기"
-                }
-            },
-            "nb": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills tastatur snarvei snarveier hurtigtast kommandoer taster opptaker"
-                }
-            },
-            "pl": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills klawiatura skrót skróty klawisz polecenia klawisze rejestrator"
-                }
-            },
-            "pt-BR": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills teclado atalho atalhos tecla rápida comandos teclas gravador"
-                }
-            },
-            "ru": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills клавиатура сочетание клавиш горячая клавиша команды клавиши запись"
-                }
-            },
-            "th": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills แป้นพิมพ์ ทางลัด ปุ่มลัด คำสั่ง คีย์ ตัวบันทึก"
-                }
-            },
-            "tr": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills klavye kısayol kısayollar tuşu komutlar tuşlar kaydedici"
-                }
-            },
-            "zh-Hans": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills 键盘 快捷键 热键 命令 按键 录制器"
-                }
-            },
-            "zh-Hant": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills 鍵盤 快捷鍵 熱鍵 命令 按鍵 錄製器"
-                }
-            },
-            "uk": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills клавіатура скорочення гарячі клавіші команди записувач"
-                }
-            }
-        }
-    },
     "settings.search.alias.setting.keyboardShortcuts.shortcuts": {
         "extractionState": "manual",
         "localizations": {
@@ -86332,19 +86162,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle File Explorer"
+            "value": "Toggle Right Sidebar"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ファイルエクスプローラーを切替"
+            "value": "右サイドバーを切替"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "파일 탐색기 토글"
+            "value": "오른쪽 사이드바 토글"
           }
         }
       }
@@ -92926,40 +92756,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Показати сповіщення"
-          }
-        }
-      }
-    },
-    "titlebar.rightSidebar.accessibilityLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle Right Sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右サイドバーの切り替え"
-          }
-        }
-      }
-    },
-    "titlebar.rightSidebar.tooltip": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show or hide the right sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右サイドバーの表示/非表示"
           }
         }
       }
@@ -105388,19 +105184,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Focus Right Sidebar"
+            "value": "Toggle Right Sidebar Focus"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右サイドバーにフォーカス"
+            "value": "右サイドバーのフォーカスを切替"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오른쪽 사이드바에 포커스"
+            "value": "오른쪽 사이드바 포커스 전환"
           }
         }
       }
@@ -105520,19 +105316,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Focus Right Sidebar"
+            "value": "Toggle Right Sidebar Focus"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右サイドバーにフォーカス"
+            "value": "右サイドバーのフォーカスを切替"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오른쪽 사이드바에 포커스"
+            "value": "오른쪽 사이드바 포커스 전환"
           }
         }
       }
@@ -105965,6 +105761,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cmd+clic sui file .md/.markdown/.mkd/.mdx apre il pannello del visualizzatore markdown cmux invece dell'editor preferito."
+          }
+        }
+      }
+    },
+    "rightSidebar.close.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Right Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーを閉じる"
+          }
+        }
+      }
+    },
+    "rightSidebar.toggle.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle right sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーを切り替え"
           }
         }
       }

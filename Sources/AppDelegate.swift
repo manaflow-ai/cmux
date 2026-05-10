@@ -5523,6 +5523,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    func closeRightSidebarInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
+        guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else {
+            guard let fileExplorerState else {
+                return false
+            }
+            fileExplorerState.setVisible(false)
+            return true
+        }
+
+        let window = context.window ?? windowForMainWindowId(context.windowId)
+        if let window {
+            setActiveMainWindow(window)
+        }
+
+        guard let state = context.fileExplorerState ?? fileExplorerState else {
+            return false
+        }
+        let wasVisible = state.isVisible
+        state.setVisible(false)
+        if wasVisible && !state.isVisible {
+            _ = context.keyboardFocusCoordinator.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded()
+        }
+        return true
+    }
+
+    @discardableResult
     func restoreTerminalFocusAfterRightSidebarHidden(in window: NSWindow?) -> Bool {
         let context = preferredRegisteredMainWindowContext(preferredWindow: window)
         return context?.keyboardFocusCoordinator.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded() ?? false
@@ -6906,7 +6932,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // restoration so the OS cannot resurrect stale duplicate main windows.
         window.isRestorable = false
         window.isMovableByWindowBackground = false
-        window.isMovable = false
+        // Keep background dragging disabled so app content gestures and titlebar
+        // controls still receive clicks, while the OS-level movable flag lets
+        // macOS tiling and window-management tools such as Swish treat cmux as
+        // a movable/resizable window. Empty titlebar drags are routed through
+        // WindowDragHandleView instead of background dragging.
+        window.isMovable = true
         let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame
         if let explicitInitialFrame {
             window.setFrame(explicitInitialFrame, display: false)

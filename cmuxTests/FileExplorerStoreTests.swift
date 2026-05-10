@@ -570,6 +570,43 @@ final class FileSearchControllerTests: XCTestCase {
         XCTAssertEqual(refreshedSnapshot.results.map(\.relativePath), ["editable.txt"])
     }
 
+    func testTypingBurstDebouncesFindSearches() async throws {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let searchController = SpyFileSearchController()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .find,
+            searchController: searchController
+        )
+        store.provider = MockFileExplorerProvider(homePath: "/tmp")
+        store.setRootPath("/tmp/cmux-find-debounce-test")
+        container.updateHeader(store: store)
+        container.updatePresentation(.find)
+
+        let searchField = try XCTUnwrap(Self.findSearchField(in: container))
+        searchController.searchRequests.removeAll()
+
+        for query in ["p", "pr", "pri", "priv", "priva", "privat", "private"] {
+            searchField.stringValue = query
+            container.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: searchField))
+        }
+
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertLessThanOrEqual(
+            searchController.searchRequests.count,
+            1,
+            "A burst of typing should coalesce into one ripgrep search per debounce window."
+        )
+        XCTAssertEqual(searchController.searchRequests.last?.query, "private")
+    }
+
     private func waitForSettledSearchSnapshot(
         timeout: TimeInterval = 5,
         _ snapshot: @MainActor @escaping () -> FileSearchSnapshot?
@@ -598,5 +635,44 @@ final class FileSearchControllerTests: XCTestCase {
             }
         }
         return false
+    }
+
+    private static func findSearchField(in root: NSView) -> NSSearchField? {
+        if let field = root as? NSSearchField,
+           field.accessibilityIdentifier() == "FileExplorerSearchField" {
+            return field
+        }
+        for subview in root.subviews {
+            if let field = findSearchField(in: subview) {
+                return field
+            }
+        }
+        return nil
+    }
+
+    private final class SpyFileSearchController: FileSearchControlling {
+        struct SearchRequest: Equatable {
+            let query: String
+            let rootPath: String
+            let isLocal: Bool
+            let contentRevision: Int
+        }
+
+        var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
+        var searchRequests: [SearchRequest] = []
+        var cancelCount = 0
+
+        func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int) {
+            searchRequests.append(SearchRequest(
+                query: rawQuery,
+                rootPath: rootPath,
+                isLocal: isLocal,
+                contentRevision: contentRevision
+            ))
+        }
+
+        func cancel(clear: Bool) {
+            cancelCount += 1
+        }
     }
 }

@@ -1031,15 +1031,6 @@ struct ContentView: View {
     @EnvironmentObject var fileExplorerState: FileExplorerState
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
-    @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
-    @AppStorage(ShortcutHintDebugSettings.titlebarHintYKey) private var titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
-    @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var leftTitlebarControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var leftTitlebarControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.rightToggleTrailingInsetKey) private var rightTitlebarToggleTrailingInset = MinimalModeTitlebarDebugSettings.defaultRightToggleTrailingInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.rightToggleTopInsetKey) private var rightTitlebarToggleTopInset = MinimalModeTitlebarDebugSettings.defaultRightToggleTopInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightsXOffsetKey) private var trafficLightsXOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsXOffset
-    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightsYOffsetKey) private var trafficLightsYOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsYOffset
     @State private var sidebarWidth: CGFloat = 200
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
@@ -1051,7 +1042,6 @@ struct ContentView: View {
     @State private var isFullScreen: Bool = false
     @State private var observedWindow: NSWindow?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
-    @State private var rightSidebarToggleShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
@@ -1063,7 +1053,6 @@ struct ContentView: View {
     @State private var workspaceHandoffFallbackTask: Task<Void, Never>?
     @State private var didApplyUITestSidebarSelection = false
     @State private var titlebarThemeGeneration: UInt64 = 0
-    @State private var rightSidebarShortcutRefreshTick = 0
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     @State private var sidebarResizerCursorReleaseWorkItem: DispatchWorkItem?
@@ -2165,6 +2154,12 @@ struct ContentView: View {
             },
             onOpenFilePreview: { filePath in
                 openFilePreviewFromSidebar(filePath: filePath)
+            },
+            onClose: {
+                #if DEBUG
+                cmuxDebugLog("rightSidebar.closeButton")
+                #endif
+                _ = AppDelegate.shared?.closeRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
             }
         )
         .frame(width: rightSidebarWidth)
@@ -2210,8 +2205,6 @@ struct ContentView: View {
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
     @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.03
     @AppStorage("bgGlassEnabled") private var bgGlassEnabled = false
-    @AppStorage("debugTitlebarLeadingExtra") private var debugTitlebarLeadingExtra: Double = 0
-
     @State private var titlebarLeadingInset: CGFloat = 12
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
     private var windowAppearanceSnapshot: WindowAppearanceSnapshot {
@@ -2266,99 +2259,7 @@ struct ContentView: View {
     }
 
     private var titlebarDebugChromeSnapshot: MinimalModeTitlebarDebugSnapshot {
-        MinimalModeTitlebarDebugSnapshot(
-            leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
-                leftTitlebarControlsLeadingInset,
-                range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
-            ),
-            leftControlsTopInset: MinimalModeTitlebarDebugSettings.clamped(
-                leftTitlebarControlsTopInset,
-                range: MinimalModeTitlebarDebugSettings.topInsetRange
-            ),
-            rightToggleTrailingInset: MinimalModeTitlebarDebugSettings.clamped(
-                rightTitlebarToggleTrailingInset,
-                range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
-            ),
-            rightToggleTopInset: MinimalModeTitlebarDebugSettings.clamped(
-                rightTitlebarToggleTopInset,
-                range: MinimalModeTitlebarDebugSettings.topInsetRange
-            ),
-            trafficLightsXOffset: MinimalModeTitlebarDebugSettings.clamped(
-                trafficLightsXOffset,
-                range: MinimalModeTitlebarDebugSettings.trafficLightOffsetRange
-            ),
-            trafficLightsYOffset: MinimalModeTitlebarDebugSettings.clamped(
-                trafficLightsYOffset,
-                range: MinimalModeTitlebarDebugSettings.trafficLightYOffsetRange
-            )
-        )
-    }
-
-    private var rightSidebarTitlebarToggle: some View {
-        let config = titlebarControlsConfig
-        let _ = rightSidebarShortcutRefreshTick
-        let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleFileExplorer)
-        let showsShortcutHint = titlebarShortcutHintShouldShow(
-            shortcut: shortcut,
-            alwaysShowShortcutHints: alwaysShowShortcutHints,
-            modifierPressed: rightSidebarToggleShortcutHintMonitor.isModifierPressed
-        )
-        return TitlebarControlButton(
-            config: config,
-            accessibilityIdentifier: "titlebarControl.toggleRightSidebar",
-            accessibilityLabel: String(localized: "titlebar.rightSidebar.accessibilityLabel", defaultValue: "Toggle Right Sidebar"),
-            action: {
-                #if DEBUG
-                cmuxDebugLog("titlebar.toggleRightSidebar")
-                #endif
-                _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
-            }
-        ) {
-            titlebarControlIcon(systemName: "sidebar.right", config: config)
-        }
-        .safeHelp(
-            KeyboardShortcutSettings.Action.toggleFileExplorer.tooltip(
-                String(localized: "titlebar.rightSidebar.tooltip", defaultValue: "Show or hide the right sidebar")
-            )
-        )
-        .frame(
-            width: MinimalModeSidebarTitlebarControlsMetrics.singleButtonHostWidth,
-            height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
-        )
-        .overlay(alignment: .topTrailing) {
-            ZStack(alignment: .topTrailing) {
-                if showsShortcutHint {
-                    ShortcutHintPill(shortcut: shortcut, fontSize: max(8, config.iconSize - 5))
-                        .frame(minHeight: titlebarShortcutHintHeight(for: config))
-                        .offset(
-                            x: CGFloat(ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset)),
-                            y: titlebarShortcutHintVerticalOffset(for: config)
-                                + CGFloat(ShortcutHintDebugSettings.clamped(titlebarShortcutHintYOffset))
-                        )
-                        .shortcutHintTransition()
-                        .accessibilityIdentifier("titlebarShortcutHint.toggleFileExplorer")
-                }
-            }
-            .allowsHitTesting(false)
-        }
-        .shortcutHintVisibilityAnimation(value: showsShortcutHint)
-    }
-
-    @ViewBuilder
-    private func titlebarControlIcon(systemName: String, config: TitlebarControlsStyleConfig) -> some View {
-        let icon = Image(systemName: systemName)
-            .font(.system(size: config.iconSize, weight: .semibold))
-            .frame(width: config.buttonSize, height: config.buttonSize)
-
-        if config.buttonBackground {
-            icon
-                .background(
-                    RoundedRectangle(cornerRadius: config.buttonCornerRadius)
-                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.7))
-                )
-        } else {
-            icon
-        }
+        MinimalModeTitlebarDebugSettings.snapshot()
     }
 
     private func customTitlebar(appearance: WindowAppearanceSnapshot) -> some View {
@@ -2378,7 +2279,8 @@ struct ContentView: View {
 
                 // Draggable folder icon + focused command name
                 if let directory = focusedDirectory {
-                    DraggableFolderIcon(directory: directory)
+                    DetachedFolderDragIcon(directory: directory)
+                        .frame(width: 16, height: 16)
                         .padding(.leading, -6)
                 }
 
@@ -2393,7 +2295,7 @@ struct ContentView: View {
             }
             .frame(height: titlebarContentHeight)
             .padding(.top, 2)
-            .padding(.leading, (isFullScreen && !sidebarState.isVisible) ? 8 : (sidebarState.isVisible ? 12 : titlebarLeadingInset + CGFloat(debugTitlebarLeadingExtra)))
+            .padding(.leading, (isFullScreen && !sidebarState.isVisible) ? 8 : (sidebarState.isVisible ? 12 : titlebarLeadingInset))
             .padding(.trailing, 8)
         }
         .frame(height: WindowChromeMetrics.appTitlebarHeight)
@@ -2721,27 +2623,6 @@ struct ContentView: View {
                             .padding(.top, 4)
                     }
                 }
-                .overlay(alignment: .topTrailing) {
-                    rightSidebarTitlebarToggle
-                        .padding(
-                            .top,
-                            CGFloat(
-                                MinimalModeTitlebarDebugSettings.clamped(
-                                    rightTitlebarToggleTopInset,
-                                    range: MinimalModeTitlebarDebugSettings.topInsetRange
-                                )
-                            )
-                        )
-                        .padding(
-                            .trailing,
-                            CGFloat(
-                                MinimalModeTitlebarDebugSettings.clamped(
-                                    rightTitlebarToggleTrailingInset,
-                                    range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
-                                )
-                            )
-                        )
-                }
                 .frame(minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth), minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight))
                 .background(Color.clear)
                 .background(
@@ -2750,7 +2631,6 @@ struct ContentView: View {
         )
 
         view = AnyView(view.onAppear {
-            rightSidebarToggleShortcutHintMonitor.start()
             selectedWorkspaceDirectoryObserver.wire(tabManager: tabManager)
             tabManager.applyWindowBackgroundForSelectedTab()
             reconcileMountedWorkspaceIds()
@@ -3287,10 +3167,6 @@ struct ContentView: View {
             applyTitlebarDebugChromeChange()
         })
 
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
-            rightSidebarShortcutRefreshTick &+= 1
-        })
-
         view = AnyView(view.onChange(of: tabManager.tabs.map(\.id)) { _ in
             syncTrafficLightInset()
         })
@@ -3319,21 +3195,19 @@ struct ContentView: View {
                 sidebarDragStartWidth = nil
             }
             removeSidebarResizerPointerMonitor()
-            rightSidebarToggleShortcutHintMonitor.stop()
         })
 
         view = AnyView(view.background(WindowAccessor(refreshID: appearance.appKitWindowMutationID) { [appearance] window in
-            rightSidebarToggleShortcutHintMonitor.setHostWindow(window)
             window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
             window.isRestorable = false
             setMinimalModeSidebarTitlebarControlsAvailable(sidebarState.isVisible, in: window)
             window.titlebarAppearsTransparent = true
-            // Keep window immovable; the sidebar's WindowDragHandleView handles
-            // drag-to-move via performDrag with temporary movable override.
-            // isMovableByWindowBackground=true breaks tab reordering, and
-            // isMovable=true blocks clicks on sidebar buttons in minimal mode.
+            // Keep background dragging disabled so app content gestures and
+            // minimal-mode titlebar controls still receive clicks, while the
+            // window itself stays movable for macOS tiling and third-party
+            // window managers.
             window.isMovableByWindowBackground = false
-            window.isMovable = false
+            window.isMovable = true
             window.styleMask.insert(.fullSizeContentView)
 
             // Track this window for fullscreen notifications
@@ -9192,21 +9066,9 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
     let iMessageModeEnabled: Bool
 
     init(defaults: UserDefaults = .standard) {
-        sidebarShortcutHintXOffset = Self.double(
-            defaults: defaults,
-            key: ShortcutHintDebugSettings.sidebarHintXKey,
-            defaultValue: ShortcutHintDebugSettings.defaultSidebarHintX
-        )
-        sidebarShortcutHintYOffset = Self.double(
-            defaults: defaults,
-            key: ShortcutHintDebugSettings.sidebarHintYKey,
-            defaultValue: ShortcutHintDebugSettings.defaultSidebarHintY
-        )
-        alwaysShowShortcutHints = Self.bool(
-            defaults: defaults,
-            key: ShortcutHintDebugSettings.alwaysShowHintsKey,
-            defaultValue: ShortcutHintDebugSettings.defaultAlwaysShowHints
-        )
+        sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
+        sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
+        alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
         showsGitBranch = Self.bool(defaults: defaults, key: "sidebarShowGitBranch", defaultValue: true)
         usesVerticalBranchLayout = SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults)
         showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
@@ -9342,10 +9204,6 @@ struct VerticalTabsSidebar: View {
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = false
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
-    private var leftTitlebarControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
-    private var leftTitlebarControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
 
     private let tabRowSpacing: CGFloat = 2
     private var sidebarTitlebarInteractionHeight: CGFloat {
@@ -9617,21 +9475,11 @@ struct VerticalTabsSidebar: View {
                         )
                             .padding(
                                 .leading,
-                                CGFloat(
-                                    MinimalModeTitlebarDebugSettings.clamped(
-                                        leftTitlebarControlsLeadingInset,
-                                        range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
-                                    )
-                                )
+                                MinimalModeTitlebarDebugSettings.leftControlsLeadingInset()
                             )
                             .padding(
                                 .top,
-                                CGFloat(
-                                    MinimalModeTitlebarDebugSettings.clamped(
-                                        leftTitlebarControlsTopInset,
-                                        range: MinimalModeTitlebarDebugSettings.topInsetRange
-                                    )
-                                )
+                                MinimalModeTitlebarDebugSettings.leftControlsTopInset()
                             )
                     }
                 }
@@ -9933,22 +9781,16 @@ enum ShortcutHintModifierPolicy {
 }
 
 enum ShortcutHintDebugSettings {
-    static let sidebarHintXKey = "shortcutHintSidebarXOffset"
-    static let sidebarHintYKey = "shortcutHintSidebarYOffset"
-    static let titlebarHintXKey = "shortcutHintTitlebarXOffset"
-    static let titlebarHintYKey = "shortcutHintTitlebarYOffset"
-    static let paneHintXKey = "shortcutHintPaneTabXOffset"
-    static let paneHintYKey = "shortcutHintPaneTabYOffset"
-    static let alwaysShowHintsKey = "shortcutHintAlwaysShow"
-    static let showHintsOnCommandHoldKey = "shortcutHintShowOnCommandHold"
-    static let showHintsOnControlHoldKey = "shortcutHintShowOnControlHold"
-
     static let defaultSidebarHintX = 0.0
     static let defaultSidebarHintY = 0.0
     static let defaultTitlebarHintX = 4.0
     static let defaultTitlebarHintY = 0.0
     static let defaultPaneHintX = 0.0
     static let defaultPaneHintY = 0.0
+    static let defaultRightSidebarCloseHintX = -10.0
+    static let defaultRightSidebarCloseHintY = 3.3
+    static let defaultRightSidebarFocusHintX = -1.6
+    static let defaultRightSidebarFocusHintY = 1.7
     static let defaultAlwaysShowHints = false
     static let defaultShowHintsOnCommandHold = true
     static let defaultShowHintsOnControlHold = true
@@ -9959,25 +9801,20 @@ enum ShortcutHintDebugSettings {
         min(max(value, offsetRange.lowerBound), offsetRange.upperBound)
     }
 
+    static func alwaysShowHints(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        defaultAlwaysShowHints || environment["CMUX_UI_TEST_SHORTCUT_HINTS_ALWAYS_SHOW"] == "1"
+    }
+
     static func showHintsOnCommandHoldEnabled(defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.object(forKey: showHintsOnCommandHoldKey) != nil else {
-            return defaultShowHintsOnCommandHold
-        }
-        return defaults.bool(forKey: showHintsOnCommandHoldKey)
+        defaultShowHintsOnCommandHold
     }
 
     static func showHintsOnControlHoldEnabled(defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.object(forKey: showHintsOnControlHoldKey) != nil else {
-            return defaultShowHintsOnControlHold
-        }
-        return defaults.bool(forKey: showHintsOnControlHoldKey)
+        defaultShowHintsOnControlHold
     }
 
-    static func resetVisibilityDefaults(defaults: UserDefaults = .standard) {
-        defaults.set(defaultAlwaysShowHints, forKey: alwaysShowHintsKey)
-        defaults.set(defaultShowHintsOnCommandHold, forKey: showHintsOnCommandHoldKey)
-        defaults.set(defaultShowHintsOnControlHold, forKey: showHintsOnControlHoldKey)
-    }
 }
 
 enum DevBuildBannerDebugSettings {
@@ -14762,271 +14599,6 @@ private struct ScrollBackgroundClearer: NSViewRepresentable {
         }
         return nil
     }
-}
-
-private struct DraggableFolderIcon: View {
-    let directory: String
-
-    var body: some View {
-        DraggableFolderIconRepresentable(directory: directory)
-            .frame(width: 16, height: 16)
-            .safeHelp(String(localized: "sidebar.folderIcon.dragHint", defaultValue: "Drag to open in Finder or another app"))
-            .onTapGesture(count: 2) {
-                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directory)
-            }
-    }
-}
-
-private struct DraggableFolderIconRepresentable: NSViewRepresentable {
-    let directory: String
-
-    func makeNSView(context: Context) -> DraggableFolderNSView {
-        DraggableFolderNSView(directory: directory)
-    }
-
-    func updateNSView(_ nsView: DraggableFolderNSView, context: Context) {
-        nsView.directory = directory
-        nsView.updateIcon()
-    }
-}
-
-final class DraggableFolderNSView: NSView, NSDraggingSource {
-    private final class FolderIconImageView: NSImageView {
-        override var mouseDownCanMoveWindow: Bool { false }
-    }
-
-    var directory: String
-    private var imageView: FolderIconImageView!
-    private var previousWindowMovableState: Bool?
-    private weak var suppressedWindow: NSWindow?
-    private var hasActiveDragSession = false
-    private var didArmWindowDragSuppression = false
-
-    private func formatPoint(_ point: NSPoint) -> String {
-        String(format: "(%.1f,%.1f)", point.x, point.y)
-    }
-
-    init(directory: String) {
-        self.directory = directory
-        super.init(frame: .zero)
-        setupImageView()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override var intrinsicContentSize: NSSize {
-        NSSize(width: 16, height: 16)
-    }
-
-    override var mouseDownCanMoveWindow: Bool { false }
-
-    private func setupImageView() {
-        imageView = FolderIconImageView()
-        imageView.imageScaling = .scaleProportionallyDown
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(imageView)
-        NSLayoutConstraint.activate([
-            imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            imageView.topAnchor.constraint(equalTo: topAnchor),
-            imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            imageView.widthAnchor.constraint(equalToConstant: 16),
-            imageView.heightAnchor.constraint(equalToConstant: 16),
-        ])
-        updateIcon()
-    }
-
-    func updateIcon() {
-        #if DEBUG
-        dispatchPrecondition(condition: .onQueue(.main))
-        #endif
-
-        let icon = NSWorkspace.shared.icon(forFile: directory)
-        icon.size = NSSize(width: 16, height: 16)
-        imageView.image = icon
-    }
-
-    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
-        return context == .outsideApplication ? [.copy, .link] : .copy
-    }
-
-    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        hasActiveDragSession = false
-        restoreWindowMovableStateIfNeeded()
-        #if DEBUG
-        let nowMovable = window.map { String($0.isMovable) } ?? "nil"
-        let windowOrigin = window.map { formatPoint($0.frame.origin) } ?? "nil"
-        cmuxDebugLog("folder.dragEnd dir=\(directory) operation=\(operation.rawValue) screen=\(formatPoint(screenPoint)) nowMovable=\(nowMovable) windowOrigin=\(windowOrigin)")
-        #endif
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard bounds.contains(point) else { return nil }
-        let hit = super.hitTest(point)
-        #if DEBUG
-        let hitDesc = hit.map { String(describing: type(of: $0)) } ?? "nil"
-        let imageHit = (hit === imageView)
-        let wasMovable = previousWindowMovableState.map(String.init) ?? "nil"
-        let nowMovable = window.map { String($0.isMovable) } ?? "nil"
-        cmuxDebugLog("folder.hitTest point=\(formatPoint(point)) hit=\(hitDesc) imageViewHit=\(imageHit) returning=DraggableFolderNSView wasMovable=\(wasMovable) nowMovable=\(nowMovable)")
-        #endif
-        return self
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        maybeDisableWindowDraggingEarly(trigger: "mouseDown")
-        hasActiveDragSession = false
-        #if DEBUG
-        let localPoint = convert(event.locationInWindow, from: nil)
-        let responderDesc = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        let wasMovable = previousWindowMovableState.map(String.init) ?? "nil"
-        let nowMovable = window.map { String($0.isMovable) } ?? "nil"
-        let windowOrigin = window.map { formatPoint($0.frame.origin) } ?? "nil"
-        cmuxDebugLog("folder.mouseDown dir=\(directory) point=\(formatPoint(localPoint)) firstResponder=\(responderDesc) wasMovable=\(wasMovable) nowMovable=\(nowMovable) windowOrigin=\(windowOrigin)")
-        #endif
-        let fileURL = URL(fileURLWithPath: directory)
-        let draggingItem = NSDraggingItem(pasteboardWriter: fileURL as NSURL)
-
-        let iconImage = NSWorkspace.shared.icon(forFile: directory)
-        iconImage.size = NSSize(width: 32, height: 32)
-        draggingItem.setDraggingFrame(bounds, contents: iconImage)
-
-        let session = beginDraggingSession(with: [draggingItem], event: event, source: self)
-        hasActiveDragSession = true
-        #if DEBUG
-        let itemCount = session.draggingPasteboard.pasteboardItems?.count ?? 0
-        cmuxDebugLog("folder.dragStart dir=\(directory) pasteboardItems=\(itemCount)")
-        #endif
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        super.mouseUp(with: event)
-        // Always restore suppression on mouse-up; drag-session callbacks can be
-        // skipped for non-started drags, which would otherwise leave suppression stuck.
-        restoreWindowMovableStateIfNeeded()
-    }
-
-    override func rightMouseDown(with event: NSEvent) {
-        let menu = buildPathMenu()
-        // Pop up menu at bottom-left of icon (like native proxy icon)
-        let menuLocation = NSPoint(x: 0, y: bounds.height)
-        menu.popUp(positioning: nil, at: menuLocation, in: self)
-    }
-
-    private func buildPathMenu() -> NSMenu {
-        let menu = NSMenu()
-        let url = URL(fileURLWithPath: directory).standardized
-        var pathComponents: [URL] = []
-
-        // Build path from current directory up to root
-        var current = url
-        while current.path != "/" {
-            pathComponents.append(current)
-            current = current.deletingLastPathComponent()
-        }
-        pathComponents.append(URL(fileURLWithPath: "/"))
-
-        // Add path components (current dir at top, root at bottom - matches native macOS)
-        for pathURL in pathComponents {
-            let icon = NSWorkspace.shared.icon(forFile: pathURL.path)
-            icon.size = NSSize(width: 16, height: 16)
-
-            let displayName: String
-            if pathURL.path == "/" {
-                // Use the volume name for root
-                if let volumeName = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeNameKey]).volumeName {
-                    displayName = volumeName
-                } else {
-                    displayName = String(localized: "sidebar.pathMenu.macintoshHD", defaultValue: "Macintosh HD")
-                }
-            } else {
-                displayName = FileManager.default.displayName(atPath: pathURL.path)
-            }
-
-            let item = NSMenuItem(title: displayName, action: #selector(openPathComponent(_:)), keyEquivalent: "")
-            item.target = self
-            item.image = icon
-            item.representedObject = pathURL
-            menu.addItem(item)
-        }
-
-        // Add computer name at the bottom (like native proxy icon)
-        let computerName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
-        let computerIcon = NSImage(named: NSImage.computerName) ?? NSImage()
-        computerIcon.size = NSSize(width: 16, height: 16)
-
-        let computerItem = NSMenuItem(title: computerName, action: #selector(openComputer(_:)), keyEquivalent: "")
-        computerItem.target = self
-        computerItem.image = computerIcon
-        menu.addItem(computerItem)
-
-        return menu
-    }
-
-    @objc private func openPathComponent(_ sender: NSMenuItem) {
-        guard let url = sender.representedObject as? URL else { return }
-        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: url.path)
-    }
-
-    @objc private func openComputer(_ sender: NSMenuItem) {
-        // Open "Computer" view in Finder (shows all volumes)
-        NSWorkspace.shared.open(URL(fileURLWithPath: "/", isDirectory: true))
-    }
-
-    private func restoreWindowMovableStateIfNeeded() {
-        guard didArmWindowDragSuppression || previousWindowMovableState != nil else { return }
-        let targetWindow = suppressedWindow ?? window
-        let depthAfter = endWindowDragSuppression(window: targetWindow)
-        restoreWindowDragging(window: targetWindow, previousMovableState: previousWindowMovableState)
-        self.previousWindowMovableState = nil
-        self.suppressedWindow = nil
-        self.didArmWindowDragSuppression = false
-        #if DEBUG
-        let nowMovable = targetWindow.map { String($0.isMovable) } ?? "nil"
-        cmuxDebugLog("folder.dragSuppression restore depth=\(depthAfter) nowMovable=\(nowMovable)")
-        #endif
-    }
-
-    private func maybeDisableWindowDraggingEarly(trigger: String) {
-        guard !didArmWindowDragSuppression else { return }
-        guard let eventType = NSApp.currentEvent?.type,
-              eventType == .leftMouseDown || eventType == .leftMouseDragged else {
-            return
-        }
-        guard let currentWindow = window else { return }
-
-        didArmWindowDragSuppression = true
-        suppressedWindow = currentWindow
-        let suppressionDepth = beginWindowDragSuppression(window: currentWindow) ?? 0
-        if currentWindow.isMovable {
-            previousWindowMovableState = temporarilyDisableWindowDragging(window: currentWindow)
-        } else {
-            previousWindowMovableState = nil
-        }
-        #if DEBUG
-        let wasMovable = previousWindowMovableState.map(String.init) ?? "nil"
-        let nowMovable = String(currentWindow.isMovable)
-        cmuxDebugLog(
-            "folder.dragSuppression trigger=\(trigger) event=\(eventType) depth=\(suppressionDepth) wasMovable=\(wasMovable) nowMovable=\(nowMovable)"
-        )
-        #endif
-    }
-}
-
-func temporarilyDisableWindowDragging(window: NSWindow?) -> Bool? {
-    guard let window else { return nil }
-    let wasMovable = window.isMovable
-    if wasMovable {
-        window.isMovable = false
-    }
-    return wasMovable
-}
-
-func restoreWindowDragging(window: NSWindow?, previousMovableState: Bool?) {
-    guard let window, let previousMovableState else { return }
-    window.isMovable = previousMovableState
 }
 
 /// Wrapper view that tries NSGlassEffectView (macOS 26+) when available or requested
