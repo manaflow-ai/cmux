@@ -226,12 +226,53 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
         XCTAssertTrue(webExtension.requestedPermissionMatchPatterns.contains {
             $0.string == "https://example.com/*"
         })
+        XCTAssertTrue(webExtension.allRequestedMatchPatterns.contains {
+            $0.string == "https://example.com/*"
+        })
 
         let controller = WKWebExtensionController(configuration: .default())
         let context = WKWebExtensionContext(for: webExtension)
         context.uniqueIdentifier = "cmux-test-\(UUID().uuidString)"
         context.setPermissionStatus(.grantedExplicitly, for: .storage)
         context.setPermissionStatus(.grantedExplicitly, for: try WKWebExtension.MatchPattern(string: "https://example.com/*"))
+        try controller.load(context)
+        XCTAssertTrue(context.isLoaded)
+        try controller.unload(context)
+    }
+
+    func testWebKitReportsContentScriptMatchPatternsForSiteAccess() async throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("cmux-webkit-extension-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try "document.documentElement.dataset.cmuxVideoSpeedLoaded = '1';"
+            .data(using: .utf8)?
+            .write(to: root.appendingPathComponent("content.js"))
+        try """
+        {
+          "manifest_version": 3,
+          "name": "cmux Content Script Extension",
+          "version": "1.0.0",
+          "content_scripts": [
+            {
+              "matches": ["<all_urls>"],
+              "js": ["content.js"]
+            }
+          ],
+          "action": { "default_title": "cmux Content Script" }
+        }
+        """.data(using: .utf8)?.write(to: root.appendingPathComponent("manifest.json"))
+
+        let webExtension = try await WKWebExtension(resourceBaseURL: root)
+        XCTAssertTrue(webExtension.requestedPermissionMatchPatterns.isEmpty)
+        XCTAssertTrue(webExtension.allRequestedMatchPatterns.contains { $0.string == "<all_urls>" })
+
+        let controller = WKWebExtensionController(configuration: .default())
+        let context = WKWebExtensionContext(for: webExtension)
+        context.uniqueIdentifier = "cmux-content-script-\(UUID().uuidString)"
+        for pattern in webExtension.allRequestedMatchPatterns {
+            context.setPermissionStatus(.grantedExplicitly, for: pattern)
+        }
         try controller.load(context)
         XCTAssertTrue(context.isLoaded)
         try controller.unload(context)

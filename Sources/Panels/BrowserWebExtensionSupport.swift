@@ -577,7 +577,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             displayName: webExtension.displayName ?? url.deletingPathExtension().lastPathComponent,
             displayVersion: webExtension.displayVersion ?? webExtension.version,
             grantedPermissions: webExtension.requestedPermissions.map { String($0.rawValue) },
-            grantedPermissionMatchPatterns: webExtension.requestedPermissionMatchPatterns.map(\.string)
+            grantedPermissionMatchPatterns: requiredMatchPatternStrings(for: webExtension)
         )
         try await load(record: record)
         postDidChange()
@@ -710,9 +710,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             .map { String($0.rawValue) }
             .sorted()
             .joined(separator: ", ")
-        let hosts = webExtension.requestedPermissionMatchPatterns
-            .map(\.string)
-            .sorted()
+        let hosts = requiredMatchPatternStrings(for: webExtension)
             .joined(separator: ", ")
         let permissionsLine = permissions.isEmpty
             ? String(localized: "browser.extensions.install.noAPIPermissions", defaultValue: "No API permissions")
@@ -740,6 +738,12 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             }
         }
         return alert.runModal()
+    }
+
+    private func requiredMatchPatternStrings(for webExtension: WKWebExtension) -> [String] {
+        let requestedPatterns = webExtension.requestedPermissionMatchPatterns.map(\.string)
+        let injectedContentPatterns = webExtension.allRequestedMatchPatterns.map(\.string)
+        return Array(Set(requestedPatterns + injectedContentPatterns)).sorted()
     }
 
     private func postDidChange() {
