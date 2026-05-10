@@ -100,6 +100,73 @@ final class CmxHiveDiscoveryClientTests: XCTestCase {
         }
     }
 
+    func testFetchHiveSynthesizesTicketFromAttachObject() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CmxHiveDiscoveryURLProtocol.self]
+        let client = CmxHiveDiscoveryClient(urlSession: URLSession(configuration: configuration))
+
+        CmxHiveDiscoveryURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data(
+                    """
+                    {
+                      "nodes": [
+                        {
+                          "id": "macbook-lawrence",
+                          "name": "Lawrence MacBook Pro",
+                          "subtitle": "macOS arm64",
+                          "kind": "macos",
+                          "is_online": true,
+                          "attach": {
+                            "endpoint": {
+                              "id": "endpoint-public-key",
+                              "addrs": [
+                                { "Relay": "https://relay.example" }
+                              ]
+                            },
+                            "pairing_id": "pairing-1",
+                            "stack_project_id": "stack-project",
+                            "expires_at_unix": 4000000000
+                          },
+                          "workspaces": []
+                        }
+                      ]
+                    }
+                    """.utf8
+                )
+            )
+        }
+
+        let snapshot = try await client.fetchHive(
+            endpoint: URL(string: "https://rivet.example/api/hive")!,
+            stackSession: CmxStackAuthSession(refreshToken: "refresh", accessToken: "access"),
+            teamID: nil
+        )
+
+        let rawTicket = try XCTUnwrap(snapshot.nodes.first?.attachTicket)
+        let ticket = try CmxBridgeTicketParser.parse(rawTicket)
+        XCTAssertEqual(ticket.alpn, "/cmux/cmx/3")
+        XCTAssertEqual(ticket.endpoint.id, "endpoint-public-key")
+        XCTAssertEqual(ticket.node?.id, "macbook-lawrence")
+        XCTAssertEqual(ticket.node?.name, "Lawrence MacBook Pro")
+        XCTAssertEqual(snapshot.nodes.first?.attachTicketExpiresAtUnix, 4000000000)
+        XCTAssertEqual(
+            ticket.auth,
+            .rivetStack(
+                pairingID: "pairing-1",
+                rivetEndpoint: "https://rivet.example/api/hive",
+                stackProjectID: "stack-project",
+                expiresAtUnix: 4000000000
+            )
+        )
+    }
+
     func testFetchHiveKeepsSameLocalWorkspaceIDsFromDifferentNodesDistinct() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CmxHiveDiscoveryURLProtocol.self]
