@@ -1,0 +1,228 @@
+{
+  "sourceLanguage": "en",
+  "version": "1.0",
+  "strings": {
+    "app.window.title": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux Desktop Prototype" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmuxデスクトップ試作" } }
+      }
+    },
+    "button.center": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Center" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "中央" } }
+      }
+    },
+    "button.fill": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Fill" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "全体" } }
+      }
+    },
+    "button.leftHalf": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Left" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "左" } }
+      }
+    },
+    "button.raise": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Raise" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "前面" } }
+      }
+    },
+    "button.refresh": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refresh" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "更新" } }
+      }
+    },
+    "button.request": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Request" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "要求" } }
+      }
+    },
+    "button.rightHalf": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Right" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "右" } }
+      }
+    },
+    "button.snapshot": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Snapshot" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "スナップショット" } }
+      }
+    },
+    "detail.alpha": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Alpha" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "透明度" } }
+      }
+    },
+    "detail.empty.title": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Select a window" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウィンドウを選択" } }
+      }
+    },
+    "detail.frame": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Frame" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フレーム" } }
+      }
+    },
+    "detail.layer": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Layer" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "レイヤー" } }
+      }
+    },
+    "detail.owner": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Owner" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "所有者" } }
+      }
+    },
+    "detail.pid": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "PID" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "PID" } }
+      }
+    },
+    "detail.preview.unavailable": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Preview unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プレビュー不可" } }
+      }
+    },
+    "detail.windowID": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Window ID" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウィンドウID" } }
+      }
+    },
+    "permission.granted": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Granted" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "許可済み" } }
+      }
+    },
+    "permission.missing": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Missing" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未許可" } }
+      }
+    },
+    "permissions.accessibility": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Accessibility" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アクセシビリティ" } }
+      }
+    },
+    "permissions.screenCapture": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Screen Recording" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "画面収録" } }
+      }
+    },
+    "section.actions": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Actions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "操作" } }
+      }
+    },
+    "section.details": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Details" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "詳細" } }
+      }
+    },
+    "section.permissions": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Permissions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "権限" } }
+      }
+    },
+    "section.preview": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Preview" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プレビュー" } }
+      }
+    },
+    "sidebar.search": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Search windows" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウィンドウを検索" } }
+      }
+    },
+    "sidebar.title": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Windows" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウィンドウ" } }
+      }
+    },
+    "status.accessibilityMissing": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Accessibility permission missing" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アクセシビリティ権限がありません" } }
+      }
+    },
+    "status.accessibilityRequested": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Accessibility request sent" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アクセシビリティ要求を送信しました" } }
+      }
+    },
+    "status.actionFailed": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Window action failed: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウィンドウ操作に失敗しました: %@" } }
+      }
+    },
+    "status.actionSucceeded": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Window updated" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウィンドウを更新しました" } }
+      }
+    },
+    "status.refreshed": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Window list refreshed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウィンドウ一覧を更新しました" } }
+      }
+    },
+    "status.screenRequested": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Screen Recording request sent" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "画面収録要求を送信しました" } }
+      }
+    },
+    "status.windowNotFound": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Window unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウィンドウを利用できません" } }
+      }
+    },
+    "window.frame.compact": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%.0f x %.0f" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%.0f x %.0f" } }
+      }
+    },
+    "window.frame.full": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "x %.0f, y %.0f, %.0f x %.0f" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "x %.0f, y %.0f, %.0f x %.0f" } }
+      }
+    },
+    "window.untitled": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Untitled" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無題" } }
+      }
+    }
+  }
+}

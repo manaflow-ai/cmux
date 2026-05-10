@@ -1,0 +1,346 @@
+import AppKit
+import CoreGraphics
+import SwiftUI
+
+struct WindowDetailView: View {
+    let window: HostWindow?
+    let snapshot: NSImage?
+    let permissions: PermissionState
+    let status: StatusBanner?
+    let onRefreshWindows: () -> Void
+    let onRefreshSnapshot: () -> Void
+    let onRequestAccessibility: () -> Void
+    let onRequestScreenCapture: () -> Void
+    let onRaise: () -> Void
+    let onPlace: (WindowPlacement) -> Void
+
+    var body: some View {
+        if let window {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    HeaderView(window: window, onRefreshWindows: onRefreshWindows, onRefreshSnapshot: onRefreshSnapshot)
+
+                    if let status {
+                        StatusBannerView(status: status)
+                    }
+
+                    SnapshotView(snapshot: snapshot)
+
+                    PermissionsView(
+                        permissions: permissions,
+                        onRequestAccessibility: onRequestAccessibility,
+                        onRequestScreenCapture: onRequestScreenCapture
+                    )
+
+                    ActionsView(onRaise: onRaise, onPlace: onPlace)
+
+                    WindowMetadataView(window: window)
+                }
+                .padding(24)
+                .frame(maxWidth: 900, alignment: .leading)
+            }
+            .background(Color(nsColor: .windowBackgroundColor))
+        } else {
+            ContentUnavailableView(
+                String(localized: "detail.empty.title", defaultValue: "Select a window", bundle: .module),
+                systemImage: "macwindow"
+            )
+        }
+    }
+}
+
+private struct HeaderView: View {
+    let window: HostWindow
+    let onRefreshWindows: () -> Void
+    let onRefreshSnapshot: () -> Void
+
+    private var title: String {
+        window.hasTitle
+            ? window.title
+            : String(localized: "window.untitled", defaultValue: "Untitled", bundle: .module)
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.title2.weight(.semibold))
+                    .lineLimit(2)
+                Text(window.ownerName)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button(action: onRefreshSnapshot) {
+                Label(
+                    String(localized: "button.snapshot", defaultValue: "Snapshot", bundle: .module),
+                    systemImage: "camera.viewfinder"
+                )
+            }
+
+            Button(action: onRefreshWindows) {
+                Label(
+                    String(localized: "button.refresh", defaultValue: "Refresh", bundle: .module),
+                    systemImage: "arrow.clockwise"
+                )
+            }
+        }
+    }
+}
+
+private struct SnapshotView: View {
+    let snapshot: NSImage?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(String(localized: "section.preview", defaultValue: "Preview", bundle: .module))
+                .font(.headline)
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+
+                if let snapshot {
+                    Image(nsImage: snapshot)
+                        .resizable()
+                        .scaledToFit()
+                        .padding(12)
+                } else {
+                    ContentUnavailableView(
+                        String(localized: "detail.preview.unavailable", defaultValue: "Preview unavailable", bundle: .module),
+                        systemImage: "eye.slash"
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .aspectRatio(16 / 9, contentMode: .fit)
+        }
+    }
+}
+
+private struct PermissionsView: View {
+    let permissions: PermissionState
+    let onRequestAccessibility: () -> Void
+    let onRequestScreenCapture: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(String(localized: "section.permissions", defaultValue: "Permissions", bundle: .module))
+                .font(.headline)
+
+            HStack(spacing: 12) {
+                PermissionStatusView(
+                    title: String(localized: "permissions.accessibility", defaultValue: "Accessibility", bundle: .module),
+                    isGranted: permissions.accessibilityTrusted,
+                    actionTitle: String(localized: "button.request", defaultValue: "Request", bundle: .module),
+                    action: onRequestAccessibility
+                )
+
+                PermissionStatusView(
+                    title: String(localized: "permissions.screenCapture", defaultValue: "Screen Recording", bundle: .module),
+                    isGranted: permissions.screenCaptureAllowed,
+                    actionTitle: String(localized: "button.request", defaultValue: "Request", bundle: .module),
+                    action: onRequestScreenCapture
+                )
+            }
+        }
+    }
+}
+
+private struct PermissionStatusView: View {
+    let title: String
+    let isGranted: Bool
+    let actionTitle: String
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: isGranted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(isGranted ? .green : .orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.callout.weight(.medium))
+                Text(statusText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if !isGranted {
+                Button(actionTitle, action: action)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private var statusText: String {
+        isGranted
+            ? String(localized: "permission.granted", defaultValue: "Granted", bundle: .module)
+            : String(localized: "permission.missing", defaultValue: "Missing", bundle: .module)
+    }
+}
+
+private struct ActionsView: View {
+    let onRaise: () -> Void
+    let onPlace: (WindowPlacement) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(String(localized: "section.actions", defaultValue: "Actions", bundle: .module))
+                .font(.headline)
+
+            HStack(spacing: 8) {
+                Button(action: onRaise) {
+                    Label(
+                        String(localized: "button.raise", defaultValue: "Raise", bundle: .module),
+                        systemImage: "arrow.up.forward.app"
+                    )
+                }
+
+                Button {
+                    onPlace(.center)
+                } label: {
+                    Label(
+                        String(localized: "button.center", defaultValue: "Center", bundle: .module),
+                        systemImage: "dot.scope"
+                    )
+                }
+
+                Button {
+                    onPlace(.leftHalf)
+                } label: {
+                    Label(
+                        String(localized: "button.leftHalf", defaultValue: "Left", bundle: .module),
+                        systemImage: "rectangle.lefthalf.filled"
+                    )
+                }
+
+                Button {
+                    onPlace(.rightHalf)
+                } label: {
+                    Label(
+                        String(localized: "button.rightHalf", defaultValue: "Right", bundle: .module),
+                        systemImage: "rectangle.righthalf.filled"
+                    )
+                }
+
+                Button {
+                    onPlace(.fill)
+                } label: {
+                    Label(
+                        String(localized: "button.fill", defaultValue: "Fill", bundle: .module),
+                        systemImage: "arrow.up.left.and.arrow.down.right"
+                    )
+                }
+            }
+        }
+    }
+}
+
+private struct WindowMetadataView: View {
+    let window: HostWindow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(String(localized: "section.details", defaultValue: "Details", bundle: .module))
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 8) {
+                MetadataRow(
+                    title: String(localized: "detail.owner", defaultValue: "Owner", bundle: .module),
+                    value: window.ownerName
+                )
+                MetadataRow(
+                    title: String(localized: "detail.pid", defaultValue: "PID", bundle: .module),
+                    value: String(window.ownerPID)
+                )
+                MetadataRow(
+                    title: String(localized: "detail.windowID", defaultValue: "Window ID", bundle: .module),
+                    value: String(window.id)
+                )
+                MetadataRow(
+                    title: String(localized: "detail.frame", defaultValue: "Frame", bundle: .module),
+                    value: frameString(window.frame)
+                )
+                MetadataRow(
+                    title: String(localized: "detail.layer", defaultValue: "Layer", bundle: .module),
+                    value: String(window.layer)
+                )
+                MetadataRow(
+                    title: String(localized: "detail.alpha", defaultValue: "Alpha", bundle: .module),
+                    value: String(format: "%.2f", window.alpha)
+                )
+            }
+            .font(.callout)
+            .textSelection(.enabled)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+    }
+
+    private func frameString(_ frame: CGRect) -> String {
+        let format = String(localized: "window.frame.full", defaultValue: "x %.0f, y %.0f, %.0f x %.0f", bundle: .module)
+        return String(format: format, frame.minX, frame.minY, frame.width, frame.height)
+    }
+}
+
+private struct MetadataRow: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 18) {
+            Text(title)
+                .foregroundStyle(.secondary)
+                .frame(width: 88, alignment: .leading)
+            Text(value)
+                .fontDesign(.monospaced)
+        }
+    }
+}
+
+private struct StatusBannerView: View {
+    let status: StatusBanner
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbolName)
+                .foregroundStyle(color)
+            Text(status.message)
+                .font(.callout)
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private var color: Color {
+        switch status.kind {
+        case .info:
+            return .blue
+        case .success:
+            return .green
+        case .warning:
+            return .orange
+        case .error:
+            return .red
+        }
+    }
+
+    private var symbolName: String {
+        switch status.kind {
+        case .info:
+            return "info.circle.fill"
+        case .success:
+            return "checkmark.circle.fill"
+        case .warning:
+            return "exclamationmark.triangle.fill"
+        case .error:
+            return "xmark.octagon.fill"
+        }
+    }
+}
