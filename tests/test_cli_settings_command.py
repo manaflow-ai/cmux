@@ -262,6 +262,32 @@ def main() -> int:
         bad_escape = run_cli(cli_path, ["settings", "import", str(bad_escape_path)], home)
         assert_fails(failures, "settings import unsupported TOML escape", bad_escape, r"Unsupported TOML string escape: \t")
 
+        before_bad_intermediate_import = read_config(home)
+        bad_intermediate_toml_path = home / "bad-intermediate.toml"
+        bad_intermediate_toml_path.write_text('app = "foo"\n', encoding="utf-8")
+        bad_intermediate_toml = run_cli(cli_path, ["settings", "import", str(bad_intermediate_toml_path)], home)
+        assert_fails(
+            failures,
+            "settings import rejects scalar intermediate TOML key",
+            bad_intermediate_toml,
+            "Invalid value for intermediate key 'app': expected an object",
+        )
+        bad_intermediate_json_path = home / "bad-intermediate.json"
+        bad_intermediate_json_path.write_text(json.dumps({"shortcuts": "none"}), encoding="utf-8")
+        bad_intermediate_json = run_cli(cli_path, ["settings", "import", str(bad_intermediate_json_path)], home)
+        assert_fails(
+            failures,
+            "settings import rejects scalar intermediate JSON key",
+            bad_intermediate_json,
+            "Invalid value for intermediate key 'shortcuts': expected an object",
+        )
+        after_bad_intermediate_import = read_config(home)
+        if after_bad_intermediate_import != before_bad_intermediate_import:
+            failures.append(
+                "failed intermediate-key import changed cmux.json: "
+                f"before={before_bad_intermediate_import} after={after_bad_intermediate_import}"
+            )
+
         sectioned_toml_path = home / "sectioned-settings.toml"
         sectioned_toml_path.write_text(
             """

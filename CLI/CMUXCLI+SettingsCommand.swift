@@ -567,8 +567,15 @@ extension CMUXCLI {
         func validatedImportOperations(from root: [String: Any]) throws -> [ImportOperation] {
             let flat = flatten(root)
             var operations: [ImportOperation] = []
-            var knownPrefixes = Set(CmuxSettingsRegistry.sortedKeys)
-            knownPrefixes.insert("shortcuts.bindings")
+            var knownIntermediateKeys = Set<String>()
+            for key in CmuxSettingsRegistry.sortedKeys + ["shortcuts.bindings"] {
+                let components = key.split(separator: ".").map(String.init)
+                guard components.count > 1 else { continue }
+                for depth in 1..<components.count {
+                    knownIntermediateKeys.insert(components.prefix(depth).joined(separator: "."))
+                }
+            }
+            knownIntermediateKeys.insert("shortcuts.bindings")
 
             for (key, value) in flat.sorted(by: { $0.key < $1.key }) {
                 if key == "schemaVersion" || key == "$schema" { continue }
@@ -587,9 +594,13 @@ extension CMUXCLI {
                     operations.append(.shortcut(definition.action, shortcut.configString))
                     continue
                 }
-                if !knownPrefixes.contains(where: { $0.hasPrefix("\(key).") }) {
-                    throw CLIError(message: "Unknown setting key '\(key)'")
+                if knownIntermediateKeys.contains(key) {
+                    if let dictionary = value as? [String: Any], dictionary.isEmpty {
+                        continue
+                    }
+                    throw CLIError(message: "Invalid value for intermediate key '\(key)': expected an object")
                 }
+                throw CLIError(message: "Unknown setting key '\(key)'")
             }
             return operations
         }
