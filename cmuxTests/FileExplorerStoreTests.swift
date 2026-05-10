@@ -563,6 +563,46 @@ final class FileSearchControllerTests: XCTestCase {
         XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix("DerivedData/") })
     }
 
+    func testSearchPublishesAllMatchingFilesInFolder() async throws {
+        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
+
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let nestedURL = rootURL.appendingPathComponent("Nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: nestedURL, withIntermediateDirectories: true)
+
+        let matchingFiles = [
+            "Alpha.swift",
+            "Beta.swift",
+            "Nested/Gamma.swift",
+        ]
+        for relativePath in matchingFiles {
+            try "issue3817Token \(relativePath)\n".write(
+                to: rootURL.appendingPathComponent(relativePath),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        try "no matching content\n".write(
+            to: rootURL.appendingPathComponent("Other.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let controller = FileSearchController()
+        var snapshots: [FileSearchSnapshot] = []
+        controller.onSnapshotChanged = { snapshots.append($0) }
+
+        controller.search(query: "issue3817Token", rootPath: rootURL.path, isLocal: true)
+        let finalSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
+
+        XCTAssertEqual(finalSnapshot.status, .matches)
+        XCTAssertEqual(Set(finalSnapshot.results.map(\.relativePath)), Set(matchingFiles))
+        XCTAssertEqual(finalSnapshot.results.count, matchingFiles.count)
+    }
+
     func testSearchRefreshesWhenContentRevisionChanges() async throws {
         try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
 
