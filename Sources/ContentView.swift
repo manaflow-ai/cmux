@@ -2880,6 +2880,21 @@ struct ContentView: View {
             attemptCommandPaletteTextSelectionIfNeeded()
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(
+            for: NSWindow.didResignKeyNotification,
+            object: observedWindow
+        )) { notification in
+            guard isCommandPalettePresented else { return }
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            dismissCommandPalette(restoreFocus: false)
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSText.didBeginEditingNotification)) { notification in
             guard commandPalettePendingTextSelectionBehavior != nil else { return }
             guard let editor = notification.object as? NSTextView,
