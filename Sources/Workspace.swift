@@ -7105,6 +7105,27 @@ struct ClosedBrowserPanelRestoreSnapshot {
     let fallbackAnchorPaneId: UUID?
 }
 
+private extension RestorableAgentKind {
+    var sidebarStatusKey: String {
+        switch self {
+        case .claude:
+            return "claude_code"
+        default:
+            return rawValue
+        }
+    }
+
+    func sidebarAgentPIDKey(sessionId: String) -> String {
+        switch self {
+        case .claude:
+            return sidebarStatusKey
+        default:
+            let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+            return "\(sidebarStatusKey).\(normalizedSessionId.isEmpty ? "default" : normalizedSessionId)"
+        }
+    }
+}
+
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
@@ -10550,6 +10571,59 @@ final class Workspace: Identifiable, ObservableObject {
         return filePreviewPanel
     }
 
+    private func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
+        guard let restorableAgent = restoredAgentSnapshotsByPanelId[panelId] else { return nil }
+        let statusKey = restorableAgent.kind.sidebarStatusKey
+        let pidKey = restorableAgent.kind.sidebarAgentPIDKey(sessionId: restorableAgent.sessionId)
+        var agentPIDsForPanel: [String: pid_t] = [:]
+        if let pid = agentPIDs[pidKey] {
+            agentPIDsForPanel[pidKey] = pid
+        }
+        let statusEntry = statusEntries[statusKey]
+        guard statusEntry != nil || !agentPIDsForPanel.isEmpty else { return nil }
+        return DetachedAgentRuntimeState(
+            statusKey: statusKey,
+            statusEntry: statusEntry,
+            agentPIDs: agentPIDsForPanel
+        )
+    }
+
+    @discardableResult
+    private func discardAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) -> Bool {
+        guard let runtimeState else { return false }
+        var didChange = false
+        if statusEntries.removeValue(forKey: runtimeState.statusKey) != nil {
+            didChange = true
+        }
+        for key in runtimeState.agentPIDs.keys {
+            if agentPIDs.removeValue(forKey: key) != nil {
+                didChange = true
+            }
+        }
+        if didChange {
+            agentListeningPorts.removeAll(keepingCapacity: false)
+            let remainingAgentPIDs = Set(agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
+            PortScanner.shared.refreshAgentPorts(workspaceId: id, agentPIDs: remainingAgentPIDs)
+            recomputeListeningPorts()
+        }
+        return didChange
+    }
+
+    private func adoptDetachedAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) {
+        guard let runtimeState else { return }
+        if let statusEntry = runtimeState.statusEntry {
+            statusEntries[runtimeState.statusKey] = statusEntry
+        }
+        for (key, pid) in runtimeState.agentPIDs {
+            agentPIDs[key] = pid
+        }
+        guard !runtimeState.agentPIDs.isEmpty else { return }
+        agentListeningPorts.removeAll(keepingCapacity: false)
+        let remainingAgentPIDs = Set(agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
+        PortScanner.shared.refreshAgentPorts(workspaceId: id, agentPIDs: remainingAgentPIDs)
+        recomputeListeningPorts()
+    }
+
     /// Discard every Workspace-owned contribution for a surface whose tab,
     /// pane, or workspace has already been accepted for closure.
     @discardableResult
@@ -10568,6 +10642,7 @@ final class Workspace: Identifiable, ObservableObject {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
         }
 
+        let closedAgentRuntimeState = agentRuntimeState(forPanelId: panelId)
         removePendingTerminalInputObservers(forPanelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)?.cancel()
@@ -10601,6 +10676,7 @@ final class Workspace: Identifiable, ObservableObject {
         debugSessionSnapshotScrollbackFallbackPanelIds.remove(panelId)
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeValue(forKey: panelId)
 #endif
+        discardAgentRuntimeState(closedAgentRuntimeState)
         restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentAutoResumePendingPanelIds.remove(panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
@@ -11244,6 +11320,11 @@ final class Workspace: Identifiable, ObservableObject {
             toTabId: id,
             surfaceId: detached.panelId
         )
+        if let restorableAgent = detached.restorableAgent {
+            restoredAgentSnapshotsByPanelId[detached.panelId] = restorableAgent
+            invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
+        }
+        adoptDetachedAgentRuntimeState(detached.agentRuntime)
         if let filePreviewPanel = detached.panel as? FilePreviewPanel,
            panelSubscriptions[filePreviewPanel.id] == nil {
             installFilePreviewPanelSubscription(filePreviewPanel)
@@ -12262,6 +12343,17 @@ final class Workspace: Identifiable, ObservableObject {
 
         return needsFollowUpPass
     }
+
+#if DEBUG
+    func setRestoredAgentSnapshotForTesting(_ snapshot: SessionRestorableAgentSnapshot, panelId: UUID) {
+        restoredAgentSnapshotsByPanelId[panelId] = snapshot
+        invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+    }
+
+    func restoredAgentSnapshotForTesting(panelId: UUID) -> SessionRestorableAgentSnapshot? {
+        restoredAgentSnapshotsByPanelId[panelId]
+    }
+#endif
 
     func scheduleTerminalGeometryReconcile() {
         beginEventDrivenLayoutFollowUp(
@@ -13407,6 +13499,8 @@ extension Workspace: BonsplitDelegate {
             let browserPanel = panel as? BrowserPanel
             let cachedTitle = panelTitles[panelId]
             let transferFallbackTitle = cachedTitle ?? panel.displayTitle
+            let restorableAgent = restoredAgentSnapshotsByPanelId[panelId]
+            let agentRuntime = agentRuntimeState(forPanelId: panelId)
             pendingDetachedSurfaces[tabId] = DetachedSurfaceTransfer(
                 sourceWorkspaceId: id,
                 panelId: panelId,
@@ -13422,6 +13516,8 @@ extension Workspace: BonsplitDelegate {
                 cachedTitle: cachedTitle,
                 customTitle: panelCustomTitles[panelId],
                 manuallyUnread: manualUnreadPanelIds.contains(panelId),
+                restorableAgent: restorableAgent,
+                agentRuntime: agentRuntime,
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)
                     ? remoteConfiguration?.relayPort

@@ -1,6 +1,13 @@
 import Foundation
+import Darwin
 
 extension Workspace {
+    struct DetachedAgentRuntimeState {
+        let statusKey: String
+        let statusEntry: SidebarStatusEntry?
+        let agentPIDs: [String: pid_t]
+    }
+
     struct DetachedSurfaceTransfer {
         let sourceWorkspaceId: UUID
         let panelId: UUID
@@ -16,6 +23,8 @@ extension Workspace {
         let cachedTitle: String?
         let customTitle: String?
         let manuallyUnread: Bool
+        let restorableAgent: SessionRestorableAgentSnapshot?
+        let agentRuntime: DetachedAgentRuntimeState?
         let isRemoteTerminal: Bool
         let remoteRelayPort: Int?
         let remoteCleanupConfiguration: WorkspaceRemoteConfiguration?
@@ -36,6 +45,8 @@ extension Workspace {
                 cachedTitle: cachedTitle,
                 customTitle: customTitle,
                 manuallyUnread: manuallyUnread,
+                restorableAgent: restorableAgent,
+                agentRuntime: agentRuntime,
                 isRemoteTerminal: isRemoteTerminal,
                 remoteRelayPort: remoteRelayPort,
                 remoteCleanupConfiguration: configuration

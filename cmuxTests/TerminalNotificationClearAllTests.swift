@@ -1,5 +1,6 @@
 import XCTest
 import Bonsplit
+import Darwin
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -157,6 +158,56 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertTrue(store.notifications.isEmpty)
     }
 
+    func testClosingPaneClearsRestoredAgentRuntimeState() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let originalTabManager = appDelegate.tabManager
+        appDelegate.tabManager = manager
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = originalTabManager
+        }
+
+        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let agentPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: focusedPanelId, orientation: .horizontal)
+        )
+        let agentPaneId = try XCTUnwrap(workspace.paneId(forPanelId: agentPanel.id))
+        let pidKey = "codex.agent-session-close"
+        let port = 54321
+
+        workspace.setRestoredAgentSnapshotForTesting(
+            SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "agent-session-close",
+                workingDirectory: nil,
+                launchCommand: nil
+            ),
+            panelId: agentPanel.id
+        )
+        workspace.statusEntries["codex"] = SidebarStatusEntry(key: "codex", value: "Running")
+        workspace.agentPIDs[pidKey] = pid_t(12345)
+        workspace.agentListeningPorts = [port]
+        workspace.recomputeListeningPorts()
+
+        XCTAssertNotNil(workspace.restoredAgentSnapshotForTesting(panelId: agentPanel.id))
+        XCTAssertEqual(workspace.agentPIDs[pidKey].map(Int.init), 12345)
+        XCTAssertTrue(workspace.listeningPorts.contains(port))
+
+        XCTAssertTrue(workspace.bonsplitController.closePane(agentPaneId))
+
+        XCTAssertNil(workspace.panels[agentPanel.id])
+        XCTAssertNil(workspace.restoredAgentSnapshotForTesting(panelId: agentPanel.id))
+        XCTAssertNil(workspace.statusEntries["codex"])
+        XCTAssertNil(workspace.agentPIDs[pidKey])
+        XCTAssertTrue(workspace.agentListeningPorts.isEmpty)
+        XCTAssertFalse(workspace.listeningPorts.contains(port))
+    }
+
     func testDetachingSurfaceRebindsNotificationContributionToDestinationWorkspace() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
@@ -217,5 +268,60 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertTrue(store.hasUnreadNotification(forTabId: destinationWorkspace.id, surfaceId: movingPanelId))
         XCTAssertEqual(store.focusedReadIndicatorSurfaceId(forTabId: destinationWorkspace.id), movingPanelId)
         XCTAssertTrue(store.notifications.contains { $0.tabId == destinationWorkspace.id && $0.surfaceId == movingPanelId })
+    }
+
+    func testDetachingSurfaceTransfersRestoredAgentRuntimeStateToDestinationWorkspace() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let originalTabManager = appDelegate.tabManager
+        appDelegate.tabManager = manager
+
+        let sourceWorkspace = manager.addWorkspace(select: true)
+        let destinationWorkspace = manager.addWorkspace(select: false)
+        defer {
+            if manager.tabs.contains(where: { $0.id == destinationWorkspace.id }) {
+                manager.closeWorkspace(destinationWorkspace)
+            }
+            if manager.tabs.contains(where: { $0.id == sourceWorkspace.id }) {
+                manager.closeWorkspace(sourceWorkspace)
+            }
+            appDelegate.tabManager = originalTabManager
+        }
+
+        let movingPanelId = try XCTUnwrap(sourceWorkspace.focusedPanelId)
+        let pidKey = "codex.agent-session-detach"
+        let port = 54322
+        let status = SidebarStatusEntry(key: "codex", value: "Running")
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "agent-session-detach",
+            workingDirectory: nil,
+            launchCommand: nil
+        )
+
+        sourceWorkspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: movingPanelId)
+        sourceWorkspace.statusEntries["codex"] = status
+        sourceWorkspace.agentPIDs[pidKey] = pid_t(12346)
+        sourceWorkspace.agentListeningPorts = [port]
+        sourceWorkspace.recomputeListeningPorts()
+
+        let transfer = try XCTUnwrap(sourceWorkspace.detachSurface(panelId: movingPanelId))
+        let destinationPaneId = try XCTUnwrap(destinationWorkspace.bonsplitController.allPaneIds.first)
+
+        XCTAssertNil(sourceWorkspace.statusEntries["codex"])
+        XCTAssertNil(sourceWorkspace.agentPIDs[pidKey])
+        XCTAssertNil(sourceWorkspace.restoredAgentSnapshotForTesting(panelId: movingPanelId))
+        XCTAssertFalse(sourceWorkspace.listeningPorts.contains(port))
+
+        XCTAssertNotNil(
+            destinationWorkspace.attachDetachedSurface(transfer, inPane: destinationPaneId, focus: false)
+        )
+
+        XCTAssertEqual(destinationWorkspace.statusEntries["codex"]?.value, status.value)
+        XCTAssertEqual(destinationWorkspace.agentPIDs[pidKey].map(Int.init), 12346)
+        XCTAssertEqual(
+            destinationWorkspace.restoredAgentSnapshotForTesting(panelId: movingPanelId)?.sessionId,
+            "agent-session-detach"
+        )
     }
 }

@@ -1143,7 +1143,7 @@ final class TerminalNotificationStore: ObservableObject {
         discardQueuedNotifications: Bool = true
     ) {
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId, surfaceId: surfaceId) }
-        let hadFocusedReadIndicator = focusedReadIndicatorByTabId[tabId] == surfaceId
+        let hadFocusedReadIndicator = focusedReadIndicatorByTabId[tabId].map { $0 == surfaceId } ?? false
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
         var idsToClear: [String] = []
