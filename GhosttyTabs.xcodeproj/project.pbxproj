@@ -108,6 +108,7 @@
 		A72C9F4179B54DF38E99A021 /* CmuxCLIPathInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A4FE96C3F394FC6A6D4B018 /* CmuxCLIPathInstaller.swift */; };
 		C0DEF1B00000000000000001 /* CmxEmbeddedIrohBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF1B00000000000000002 /* CmxEmbeddedIrohBridge.swift */; };
 		C0DEF1A00000000000000001 /* CmxHiveWorkspacePublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF1A00000000000000002 /* CmxHiveWorkspacePublisher.swift */; };
+		C0DEF1C00000000000000001 /* CmxHiveAttachPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF1C00000000000000002 /* CmxHiveAttachPayload.swift */; };
 		E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */; };
 		5C3E0454B6C24B02A2F091A8 /* ShortcutRoutingSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42A82C6AA614E74873D9A5F /* ShortcutRoutingSupport.swift */; };
 		E5C0F1A0E5C0F1A0E5C0F1A0 /* TerminalFindEscapeRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */; };
@@ -472,6 +473,7 @@
 		8A4FE96C3F394FC6A6D4B018 /* CmuxCLIPathInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxCLIPathInstaller.swift; sourceTree = "<group>"; };
 		C0DEF1A00000000000000002 /* CmxHiveWorkspacePublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmxHiveWorkspacePublisher.swift; sourceTree = "<group>"; };
 		C0DEF1B00000000000000002 /* CmxEmbeddedIrohBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmxEmbeddedIrohBridge.swift; sourceTree = "<group>"; };
+		C0DEF1C00000000000000002 /* CmxHiveAttachPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmxHiveAttachPayload.swift; sourceTree = "<group>"; };
 		47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ScreenIdentity.swift; sourceTree = "<group>"; };
 		B42A82C6AA614E74873D9A5F /* ShortcutRoutingSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ShortcutRoutingSupport.swift; sourceTree = "<group>"; };
 		E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalFindEscapeRouting.swift; sourceTree = "<group>"; };
@@ -869,6 +871,7 @@
 				8A4FE96C3F394FC6A6D4B018 /* CmuxCLIPathInstaller.swift */,
 				C0DEF1A00000000000000002 /* CmxHiveWorkspacePublisher.swift */,
 				C0DEF1B00000000000000002 /* CmxEmbeddedIrohBridge.swift */,
+				C0DEF1C00000000000000002 /* CmxHiveAttachPayload.swift */,
 				47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */,
 				B42A82C6AA614E74873D9A5F /* ShortcutRoutingSupport.swift */,
 				E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */,
@@ -1401,6 +1404,7 @@
 				A72C9F4179B54DF38E99A021 /* CmuxCLIPathInstaller.swift in Sources */,
 				C0DEF1A00000000000000001 /* CmxHiveWorkspacePublisher.swift in Sources */,
 				C0DEF1B00000000000000001 /* CmxEmbeddedIrohBridge.swift in Sources */,
+				C0DEF1C00000000000000001 /* CmxHiveAttachPayload.swift in Sources */,
 				E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */,
 				5C3E0454B6C24B02A2F091A8 /* ShortcutRoutingSupport.swift in Sources */,
 				E5C0F1A0E5C0F1A0E5C0F1A0 /* TerminalFindEscapeRouting.swift in Sources */,
