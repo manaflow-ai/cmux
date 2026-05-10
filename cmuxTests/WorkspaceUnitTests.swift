@@ -331,15 +331,21 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     }
 
     func testRightSidebarAndFindShortcutDefaultsMatchSettingsSurface() {
-        XCTAssertEqual(KeyboardShortcutSettings.Action.focusRightSidebar.label, "Toggle Right Sidebar Focus")
-        XCTAssertEqual(KeyboardShortcutSettings.Action.toggleFileExplorer.label, "Toggle Right Sidebar")
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.focusRightSidebar.label,
+            String(localized: "shortcut.focusRightSidebar.label", defaultValue: "Toggle Right Sidebar Focus")
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.toggleRightSidebar.label,
+            String(localized: "shortcut.toggleRightSidebar.label", defaultValue: "Toggle Right Sidebar")
+        )
 
-        let toggleFileExplorer = KeyboardShortcutSettings.Action.toggleFileExplorer.defaultShortcut
-        XCTAssertEqual(toggleFileExplorer.key, "b")
-        XCTAssertTrue(toggleFileExplorer.command)
-        XCTAssertFalse(toggleFileExplorer.shift)
-        XCTAssertTrue(toggleFileExplorer.option)
-        XCTAssertFalse(toggleFileExplorer.control)
+        let toggleRightSidebar = KeyboardShortcutSettings.Action.toggleRightSidebar.defaultShortcut
+        XCTAssertEqual(toggleRightSidebar.key, "b")
+        XCTAssertTrue(toggleRightSidebar.command)
+        XCTAssertFalse(toggleRightSidebar.shift)
+        XCTAssertTrue(toggleRightSidebar.option)
+        XCTAssertFalse(toggleRightSidebar.control)
 
         let focusRightSidebar = KeyboardShortcutSettings.Action.focusRightSidebar.defaultShortcut
         XCTAssertEqual(focusRightSidebar.key, "e")
@@ -380,7 +386,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testSettingsVisibleShortcutActionsIncludeRemappableExampleShortcuts() {
         let visibleActions = Set(KeyboardShortcutSettings.settingsVisibleActions)
 
-        XCTAssertTrue(visibleActions.contains(.toggleFileExplorer))
+        XCTAssertTrue(visibleActions.contains(.toggleRightSidebar))
         XCTAssertTrue(visibleActions.contains(.focusRightSidebar))
         XCTAssertTrue(visibleActions.contains(.findInDirectory))
         XCTAssertFalse(visibleActions.contains(.showHideAllWindows))
@@ -390,7 +396,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         let visibleActions = KeyboardShortcutSettings.settingsVisibleActions
         let expectedActions: [KeyboardShortcutSettings.Action] = [
             .focusRightSidebar,
-            .toggleFileExplorer,
+            .toggleRightSidebar,
             .findInDirectory,
         ]
 

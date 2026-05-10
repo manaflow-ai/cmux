@@ -6932,7 +6932,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // restoration so the OS cannot resurrect stale duplicate main windows.
         window.isRestorable = false
         window.isMovableByWindowBackground = false
-        window.isMovable = false
+        // Keep background dragging disabled so app content gestures and titlebar
+        // controls still receive clicks, while the OS-level movable flag lets
+        // macOS tiling and window-management tools such as Swish treat cmux as
+        // a movable/resizable window. Empty titlebar drags are routed through
+        // WindowDragHandleView instead of background dragging.
+        window.isMovable = true
         let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame
         if let explicitInitialFrame {
             window.setFrame(explicitInitialFrame, display: false)
@@ -11129,7 +11134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .toggleFileExplorer) {
+        if matchConfiguredShortcut(event: event, action: .toggleRightSidebar) {
             // Escape AppKit's performKeyEquivalent animation context. Without
             // deferring the toggle, NSAnimationContext implicitly animates the
             // layout change.
