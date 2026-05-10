@@ -23,14 +23,18 @@ final class LiveWindowCaptureController {
             throw LiveWindowCaptureError.windowUnavailable
         }
 
-        let configuration = SCStreamConfiguration()
-        configuration.width = max(Int(window.frame.width), 1)
-        configuration.height = max(Int(window.frame.height), 1)
-        configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
-        configuration.queueDepth = 5
-        configuration.showsCursor = true
-
         let filter = SCContentFilter(desktopIndependentWindow: captureWindow)
+        let outputSize = outputPixelSize(for: filter, fallbackFrame: captureWindow.frame)
+
+        let configuration = SCStreamConfiguration()
+        configuration.width = outputSize.width
+        configuration.height = outputSize.height
+        configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
+        configuration.queueDepth = 8
+        configuration.showsCursor = true
+        configuration.scalesToFit = false
+        configuration.captureResolution = .best
+
         let output = WindowStreamOutput(onFrame: onFrame)
         let stream = SCStream(filter: filter, configuration: configuration, delegate: nil)
         try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: outputQueue)
@@ -73,6 +77,41 @@ final class LiveWindowCaptureController {
         default:
             return error
         }
+    }
+
+    private func outputPixelSize(for filter: SCContentFilter, fallbackFrame: CGRect) -> (width: Int, height: Int) {
+        let contentRect = filter.contentRect.isEmpty ? fallbackFrame : filter.contentRect
+        let fallbackScale = displayScale(for: contentRect)
+        let scale = max(CGFloat(filter.pointPixelScale), fallbackScale, 1)
+
+        return (
+            width: max(Int((contentRect.width * scale).rounded(.up)), 1),
+            height: max(Int((contentRect.height * scale).rounded(.up)), 1)
+        )
+    }
+
+    private func displayScale(for frame: CGRect) -> CGFloat {
+        NSScreen.screens
+            .max { lhs, rhs in
+                displayBounds(for: lhs).intersection(frame).area < displayBounds(for: rhs).intersection(frame).area
+            }?
+            .backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+    }
+
+    private func displayBounds(for screen: NSScreen) -> CGRect {
+        guard let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            return screen.frame
+        }
+        return CGDisplayBounds(CGDirectDisplayID(displayID.uint32Value))
+    }
+}
+
+private extension CGRect {
+    var area: CGFloat {
+        guard !isNull, !isEmpty else {
+            return 0
+        }
+        return width * height
     }
 }
 
