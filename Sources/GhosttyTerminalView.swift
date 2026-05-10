@@ -2055,17 +2055,21 @@ class GhosttyApp {
     }
 
     private func loadCmuxOwnedGhosttyKeybindOverrides(_ config: ghostty_config_t) {
-        // cmux owns these split shortcuts through KeyboardShortcutSettings.
+        // cmux owns these split and close shortcuts through KeyboardShortcutSettings.
         // Remove Ghostty's default fallbacks so remapped or cleared shortcuts
-        // can reach the focused terminal instead of creating a split.
+        // can reach the focused terminal instead of splitting or closing outside
+        // the remappable shortcut layer.
         loadInlineGhosttyConfig(
             """
             keybind = super+d=unbind
             keybind = super+shift+d=unbind
+            keybind = super+w=unbind
+            keybind = super+alt+w=unbind
+            keybind = super+shift+w=unbind
             """,
             into: config,
-            prefix: "cmux-owned-split-keybind-overrides",
-            logLabel: "cmux-owned split keybind overrides"
+            prefix: "cmux-owned-keybind-overrides",
+            logLabel: "cmux-owned keybind overrides"
         )
     }
 
