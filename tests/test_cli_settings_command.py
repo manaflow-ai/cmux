@@ -155,6 +155,9 @@ def main() -> int:
         out_of_range = run_cli(cli_path, ["settings", "set", "automation.portRange", "0"], home)
         assert_fails(failures, "out-of-range setting set", out_of_range, "automation.portRange")
 
+        alpha_color = run_cli(cli_path, ["settings", "set", "sidebarAppearance.tintColor", "#11223344"], home)
+        assert_fails(failures, "settings reject 8-digit hex color", alpha_color, "sidebarAppearance.tintColor")
+
         set_null_color = run_cli(cli_path, ["settings", "set", "workspaceColors.selectionColor", "null"], home)
         assert_ok(failures, "settings set nullable color null", set_null_color)
         null_toml_export = run_cli(cli_path, ["settings", "export", "--format", "toml"], home)
@@ -272,6 +275,20 @@ openSettings = "cmd+option+,"
         conflict = run_cli(cli_path, ["settings", "shortcuts", "set", "openSettings", "cmd+n"], home)
         assert_fails(failures, "shortcut conflict", conflict, "conflicts with")
 
+        before_shortcut_import = read_config(home)
+        shortcut_conflict_import_path = home / "bad-shortcut-import.json"
+        shortcut_conflict_import_path.write_text(
+            json.dumps({"shortcuts": {"bindings": {"openSettings": "cmd+n"}}}),
+            encoding="utf-8",
+        )
+        shortcut_conflict_import = run_cli(cli_path, ["settings", "import", str(shortcut_conflict_import_path)], home)
+        assert_fails(failures, "atomic shortcut import conflict", shortcut_conflict_import, "conflicts with newTab")
+        after_shortcut_import = read_config(home)
+        if after_shortcut_import != before_shortcut_import:
+            failures.append(
+                f"failed shortcut import changed cmux.json: before={before_shortcut_import} after={after_shortcut_import}"
+            )
+
         forced = run_cli(cli_path, ["settings", "shortcuts", "set", "openSettings", "cmd+n", "--force"], home)
         assert_ok(failures, "shortcut forced set", forced)
         shortcut = run_cli(cli_path, ["settings", "shortcuts", "get", "openSettings"], home)
@@ -282,6 +299,8 @@ openSettings = "cmd+option+,"
         bindings = config.get("shortcuts", {}).get("bindings", {})
         if bindings.get("openSettings") != "cmd+n":
             failures.append(f"shortcut binding was not written to cmux.json: {config}")
+        if bindings.get("newTab") != "none":
+            failures.append(f"shortcut --force did not clear the previous conflicting binding: {config}")
 
         config.setdefault("shortcuts", {}).setdefault("bindings", {})["legacyAction"] = "cmd+option+y"
         config_path(home).write_text(json.dumps(config), encoding="utf-8")

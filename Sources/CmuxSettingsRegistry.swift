@@ -195,7 +195,7 @@ enum CmuxSettingsRegistry {
         ShortcutActionDefinition(action: "showNotifications", label: "Show Notifications", defaultValue: "cmd+i", usesNumberedDigitMatching: false, aliases: []),
         ShortcutActionDefinition(action: "jumpToUnread", label: "Jump to Latest Unread", defaultValue: "cmd+shift+u", usesNumberedDigitMatching: false, aliases: []),
         ShortcutActionDefinition(action: "focusRightSidebar", label: "Toggle Right Sidebar Focus", defaultValue: "cmd+shift+e", usesNumberedDigitMatching: false, aliases: []),
-        ShortcutActionDefinition(action: "toggleFileExplorer", label: "Toggle Right Sidebar", defaultValue: "cmd+option+b", usesNumberedDigitMatching: false, aliases: ["toggleRightSidebar"]),
+        ShortcutActionDefinition(action: "toggleFileExplorer", label: "Open file explorer", defaultValue: "cmd+option+b", usesNumberedDigitMatching: false, aliases: ["toggleRightSidebar"]),
         ShortcutActionDefinition(action: "findInDirectory", label: "Find in Directory", defaultValue: "cmd+shift+f", usesNumberedDigitMatching: false, aliases: []),
         ShortcutActionDefinition(action: "triggerFlash", label: "Flash Focused Panel", defaultValue: "cmd+shift+h", usesNumberedDigitMatching: false, aliases: []),
         ShortcutActionDefinition(action: "nextSurface", label: "Next Surface", defaultValue: "cmd+shift+]", usesNumberedDigitMatching: false, aliases: []),
@@ -444,7 +444,7 @@ enum CmuxSettingsRegistry {
     static func normalizeHexColor(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let hex = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
-        guard hex.count == 6 || hex.count == 8,
+        guard hex.count == 6,
               hex.unicodeScalars.allSatisfy({ CharacterSet(charactersIn: "0123456789abcdefABCDEF").contains($0) }) else {
             return nil
         }

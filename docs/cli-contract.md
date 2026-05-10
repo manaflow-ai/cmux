@@ -295,9 +295,9 @@ Settings subcommands:
 | `settings set <key> <value>` | Persist one setting through `~/.config/cmux/cmux.json` and reload the running app when a socket is present. |
 | `settings unset <key>` | Remove one setting override from `cmux.json` and reload when possible. |
 | `settings reset [--yes]` | Remove all managed setting and shortcut overrides from `cmux.json`. |
-| `settings export [--format json|toml] [--out <file>] [--reveal]` | Export configured setting and shortcut overrides; sensitive settings are omitted unless `--reveal` is passed. |
+| `settings export [--format json\|toml] [--out <file>] [--reveal]` | Export configured setting and shortcut overrides; sensitive settings are omitted unless `--reveal` is passed. |
 | `settings import <file>` | Atomically import settings from JSON/JSONC or generated TOML. |
-| `settings shortcuts <list|get|set|unset|reset>` | Manage every Settings-window keyboard shortcut through `shortcuts.bindings`. |
+| `settings shortcuts <list\|get\|set\|unset\|reset>` | Manage every Settings-window keyboard shortcut through `shortcuts.bindings`. |
 | `settings open [target]` | Open Settings to an optional target section. |
 | `settings path` | Print cmux.json paths, docs URL, schema URL, backup reminder, and reload command without a socket. |
 | `settings docs` | Print the same output as `docs settings` without a socket. |

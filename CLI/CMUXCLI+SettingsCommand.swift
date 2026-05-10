@@ -257,7 +257,12 @@ extension CMUXCLI {
             case let .setting(key, value):
                 store.setValue(value, forPath: key, in: &root)
             case let .shortcut(action, shortcut):
-                store.setValue(shortcut, forPath: "shortcuts.bindings.\(action)", in: &root)
+                let definition = try CmuxSettingsRegistry.shortcutAction(for: action)
+                let parsedShortcut = try CLIShortcut.parse(shortcut, action: definition)
+                if let conflict = try store.conflictingShortcutAction(for: parsedShortcut, action: definition, root: root) {
+                    throw CLIError(message: "Shortcut '\(parsedShortcut.configString)' for \(definition.action) conflicts with \(conflict)")
+                }
+                store.setValue(parsedShortcut.configString, forPath: "shortcuts.bindings.\(action)", in: &root)
             }
         }
         try store.save(root)
@@ -358,8 +363,11 @@ extension CMUXCLI {
         let definition = try CmuxSettingsRegistry.shortcutAction(for: remaining[0])
         let shortcut = try CLIShortcut.parse(remaining[1], action: definition)
         var root = try store.loadRoot()
-        if !force, let conflict = try store.conflictingShortcutAction(for: shortcut, action: definition, root: root) {
-            throw CLIError(message: "Shortcut '\(shortcut.configString)' for \(definition.action) conflicts with \(conflict)")
+        if let conflict = try store.conflictingShortcutAction(for: shortcut, action: definition, root: root) {
+            if !force {
+                throw CLIError(message: "Shortcut '\(shortcut.configString)' for \(definition.action) conflicts with \(conflict)")
+            }
+            store.setValue(CLIShortcut.unbound.configString, forPath: "shortcuts.bindings.\(conflict)", in: &root)
         }
         store.setValue(shortcut.configString, forPath: "shortcuts.bindings.\(definition.action)", in: &root)
         try store.save(root)
