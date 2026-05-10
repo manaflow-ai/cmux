@@ -275,6 +275,50 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(row["is_read"] as? Bool, true)
     }
 
+    func testListNotificationsKeepsOldServerPipeBodiesAsBody() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("notif-old-pipe")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let notificationId = UUID().uuidString
+        let workspaceId = UUID().uuidString
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard line == "list_notifications" else {
+                return "ERROR: Unexpected command \(line)"
+            }
+            return "0:\(notificationId)|\(workspaceId)|none|unread|Legacy|Pipe|alpha|beta|gamma"
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--socket", socketPath, "list-notifications", "--json", "--id-format", "uuids"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let rows = try notificationRows(from: result.stdout)
+        let row = try XCTUnwrap(rows.first)
+        XCTAssertEqual(row["id"] as? String, notificationId)
+        XCTAssertEqual(row["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(row["body"] as? String, "alpha|beta|gamma")
+        XCTAssertTrue(row["created_at"] is NSNull)
+        XCTAssertTrue(row["tab_title"] is NSNull)
+    }
+
     func testCodexPromptSubmitRebindsRestoredSessionToCurrentCallerSurface() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-rebind")

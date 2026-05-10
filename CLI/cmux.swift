@@ -8577,10 +8577,13 @@ struct CMUXCLI {
                 let body: String
                 let createdAt: String?
                 let tabTitle: String?
-                if payload.count >= 9 {
+                let trailingTabTitle = payload.count >= 9 ? decodeNotificationListTrailingField(payload[payload.count - 1]) : nil
+                if payload.count >= 9,
+                   isNotificationListCreatedAtField(payload[payload.count - 2]),
+                   let trailingTabTitle {
                     body = payload[6..<(payload.count - 2)].joined(separator: "|")
                     createdAt = payload[payload.count - 2].isEmpty ? nil : payload[payload.count - 2]
-                    tabTitle = payload[payload.count - 1].isEmpty ? nil : decodeNotificationListTrailingField(payload[payload.count - 1])
+                    tabTitle = trailingTabTitle.isEmpty ? nil : trailingTabTitle
                 } else {
                     body = payload[6...].joined(separator: "|")
                     createdAt = nil
@@ -8600,8 +8603,16 @@ struct CMUXCLI {
             }
     }
 
-    private func decodeNotificationListTrailingField(_ value: String) -> String {
-        value
+    private func isNotificationListCreatedAtField(_ value: String) -> Bool {
+        guard !value.isEmpty else { return false }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: value) != nil
+    }
+
+    private func decodeNotificationListTrailingField(_ value: String) -> String? {
+        guard value.hasPrefix("pct:") else { return nil }
+        return String(value.dropFirst(4))
             .replacingOccurrences(of: "%0D", with: "\r")
             .replacingOccurrences(of: "%0A", with: "\n")
             .replacingOccurrences(of: "%7C", with: "|")

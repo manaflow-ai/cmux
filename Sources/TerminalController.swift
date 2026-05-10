@@ -3829,7 +3829,7 @@ class TerminalController {
     }
 
     private static func notificationListTrailingField(_ value: String) -> String {
-        value
+        "pct:" + value
             .replacingOccurrences(of: "%", with: "%25")
             .replacingOccurrences(of: "|", with: "%7C")
             .replacingOccurrences(of: "\n", with: "%0A")
@@ -8051,6 +8051,13 @@ class TerminalController {
                 data: nil
             )
         }
+        if hasSurfaceSelector, tabId == nil {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.notification.surfaceIdInvalid", defaultValue: "Missing or invalid surface_id"),
+                data: nil
+            )
+        }
 
         var markedCount = 0
         v2MainSync {
@@ -8098,14 +8105,19 @@ class TerminalController {
         var opened = false
         var payload: [String: Any] = [:]
         v2MainSync {
-            notification = TerminalNotificationStore.shared.notifications.first(where: { $0.id == id })
+            let store = TerminalNotificationStore.shared
+            notification = store.notifications.first(where: { $0.id == id })
             if let notification {
                 opened = AppDelegate.shared?.openNotification(
                     tabId: notification.tabId,
                     surfaceId: notification.surfaceId,
                     notificationId: notification.id
                 ) ?? false
-                payload = notificationPayload(notification, opened: opened, includeReadState: true)
+                if opened {
+                    store.markRead(id: notification.id)
+                }
+                let current = store.notifications.first(where: { $0.id == notification.id }) ?? notification
+                payload = notificationPayload(current, opened: opened, includeReadState: true)
             }
         }
 
@@ -8132,7 +8144,10 @@ class TerminalController {
         v2MainSync {
             openedNotification = AppDelegate.shared?.jumpToLatestUnread()
             if let openedNotification {
-                payload = notificationPayload(openedNotification, opened: true, includeReadState: true)
+                let store = TerminalNotificationStore.shared
+                store.markRead(id: openedNotification.id)
+                let current = store.notifications.first(where: { $0.id == openedNotification.id }) ?? openedNotification
+                payload = notificationPayload(current, opened: true, includeReadState: true)
             }
         }
         guard openedNotification != nil else {

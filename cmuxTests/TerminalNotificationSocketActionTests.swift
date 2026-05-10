@@ -103,6 +103,18 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         )
         XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
         XCTAssertTrue(fixture.store.notifications.allSatisfy(\.isRead))
+
+        response = try await sendV2RequestAsync(
+            method: "notification.mark_read",
+            params: [
+                "id": idTarget.id.uuidString,
+                "surface_id": fixture.surfaceId.uuidString,
+            ],
+            to: fixture.socketPath
+        )
+        XCTAssertEqual(response["ok"] as? Bool, false, "\(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "invalid_params")
     }
 
     func testNotificationOpenFocusesDestinationAndMarksRead() async throws {
@@ -126,6 +138,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         XCTAssertEqual(result["opened"] as? Bool, true)
         XCTAssertEqual(result["workspace_id"] as? String, targetWorkspace.id.uuidString)
         XCTAssertEqual(result["surface_id"] as? String, targetSurfaceId.uuidString)
+        XCTAssertEqual(result["is_read"] as? Bool, true)
         XCTAssertEqual(fixture.manager.selectedTabId, targetWorkspace.id)
         XCTAssertEqual(fixture.manager.focusedSurfaceId(for: targetWorkspace.id), targetSurfaceId)
         XCTAssertTrue(waitForCondition(timeout: 1.0) {
@@ -155,6 +168,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         XCTAssertEqual(result["opened"] as? Bool, true)
         XCTAssertEqual(result["workspace_id"] as? String, targetWorkspace.id.uuidString)
         XCTAssertEqual(result["surface_id"] as? String, targetSurfaceId.uuidString)
+        XCTAssertEqual(result["is_read"] as? Bool, true)
         XCTAssertEqual(fixture.manager.selectedTabId, targetWorkspace.id)
         XCTAssertEqual(fixture.manager.focusedSurfaceId(for: targetWorkspace.id), targetSurfaceId)
         XCTAssertTrue(waitForCondition(timeout: 1.0) {
