@@ -734,6 +734,7 @@ final class FileSearchControllerTests: XCTestCase {
 
         store.reload()
         container.updateHeader(store: store)
+        container.updatePresentation(.find)
 
         XCTAssertEqual(
             searchController.searchRequests.count,
