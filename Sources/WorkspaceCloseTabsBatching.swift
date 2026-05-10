@@ -76,11 +76,7 @@ extension Workspace {
         }
 
         for candidate in candidates {
-            if let panelId = candidate.panelId {
-                _ = closePanel(panelId, force: needsConfirmation)
-            } else {
-                _ = requestCloseTab(candidate.tabId, force: needsConfirmation)
-            }
+            _ = requestCloseTab(candidate.tabId, force: needsConfirmation)
         }
     }
 }
