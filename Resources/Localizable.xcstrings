@@ -72251,115 +72251,115 @@
             "en": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace"
                 }
             },
             "ja": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace 閉じる 最後のペイン サーフェス ワークスペースを残す コマンドw"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace 閉じる 最後のペイン サーフェス ワークスペースを残す"
                 }
             },
             "ar": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace تطبيق عام تفضيلات سلوك شريط القائمة حالة الشريط الجانبي مساحة عمل تبويب ألوان لوحة شارة محدد تمييز مؤشر نشط نقطة محرر ملف كود فتح مسار لسان إغلاق اللسان العمل • %@ اللسان؟ العمل؟ التطبيق مفتوح"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace تطبيق عام تفضيلات سلوك شريط القائمة حالة الشريط الجانبي مساحة عمل تبويب ألوان لوحة شارة محدد تمييز مؤشر نشط نقطة محرر ملف كود فتح مسار لسان إغلاق اللسان العمل • %@ اللسان؟ العمل؟ التطبيق مفتوح"
                 }
             },
             "bs": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace aplikacija opće postavke ponašanje dock traka menija status bočna radni prostor kartica boje paleta značka odabrano isticanje indikator aktivno tačka editor datoteka kod otvori putanja Zatvori • %@ Zatvoriti tab? prostor? otvoren"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace aplikacija opće postavke ponašanje dock traka menija status bočna radni prostor kartica boje paleta značka odabrano isticanje indikator aktivno tačka editor datoteka kod otvori putanja Zatvori • %@ Zatvoriti tab? prostor? otvoren"
                 }
             },
             "da": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace app generelt indstillinger adfærd dock menulinje status sidepanel arbejdsområde fane farver palette badge valgt fremhævning indikator aktiv prik editor fil kode åbn sti Luk • %@ fane? arbejdsområde? åben"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace app generelt indstillinger adfærd dock menulinje status sidepanel arbejdsområde fane farver palette badge valgt fremhævning indikator aktiv prik editor fil kode åbn sti Luk • %@ fane? arbejdsområde? åben"
                 }
             },
             "de": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace app allgemein einstellungen verhalten dock menüleiste status seitenleiste arbeitsbereich farben palette badge ausgewählt hervorhebung indikator aktiv punkt editor datei code öffnen pfad schließen • %@ schließen? offen"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace app allgemein einstellungen verhalten dock menüleiste status seitenleiste arbeitsbereich farben palette badge ausgewählt hervorhebung indikator aktiv punkt editor datei code öffnen pfad schließen • %@ schließen? offen"
                 }
             },
             "es": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace aplicación general preferencias comportamiento dock barra de menú estado lateral espacio trabajo pestaña colores paleta insignia seleccionado resaltado indicador activo punto editor archivo código abrir ruta Cerrar • %@ ¿Cerrar pestaña? trabajo? App abierto"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace aplicación general preferencias comportamiento dock barra de menú estado lateral espacio trabajo pestaña colores paleta insignia seleccionado resaltado indicador activo punto editor archivo código abrir ruta Cerrar • %@ ¿Cerrar pestaña? trabajo? App abierto"
                 }
             },
             "fr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace application général préférences comportement dock barre de menus état latérale espace travail onglet couleurs palette badge sélectionné surbrillance indicateur actif point éditeur fichier code ouvrir chemin Fermer l'onglet l'espace • %@ ? App ouverte"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace application général préférences comportement dock barre de menus état latérale espace travail onglet couleurs palette badge sélectionné surbrillance indicateur actif point éditeur fichier code ouvrir chemin Fermer l'onglet l'espace • %@ ? App ouverte"
                 }
             },
             "it": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace app generale preferenze comportamento dock barra menu stato laterale area di lavoro scheda colori tavolozza badge selezionato evidenziazione indicatore attivo punto editor file codice apri percorso Chiudi • %@ Chiudere la scheda? l'area lavoro? aperta"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace app generale preferenze comportamento dock barra menu stato laterale area di lavoro scheda colori tavolozza badge selezionato evidenziazione indicatore attivo punto editor file codice apri percorso Chiudi • %@ Chiudere la scheda? l'area lavoro? aperta"
                 }
             },
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 편집기 파일 코드 열기 경로 닫기 작업 공간 • %@ 탭을 닫으시겠습니까? 공간을 열림"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 편집기 파일 코드 열기 경로 닫기 작업 공간 • %@ 탭을 닫으시겠습니까? 공간을 열림"
                 }
             },
             "nb": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace app generelt innstillinger oppførsel dock menylinje status sidepanel arbeidsområde fane farger palett merke valgt utheving indikator aktiv prikk redigerer fil kode åpne bane Lukk • %@ Lukke fane? arbeidsområde? åpen"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace app generelt innstillinger oppførsel dock menylinje status sidepanel arbeidsområde fane farger palett merke valgt utheving indikator aktiv prikk redigerer fil kode åpne bane Lukk • %@ Lukke fane? arbeidsområde? åpen"
                 }
             },
             "pl": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace aplikacja ogólne preferencje zachowanie dock pasek menu status boczny obszar roboczy karta kolory paleta odznaka zaznaczone podświetlenie wskaźnik aktywny kropka edytor plik kod otwórz ścieżka Zamknij kartę Przestrzeń robocza roboczą • %@ Zamknąć kartę? roboczą? otwarty"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace aplikacja ogólne preferencje zachowanie dock pasek menu status boczny obszar roboczy karta kolory paleta odznaka zaznaczone podświetlenie wskaźnik aktywny kropka edytor plik kod otwórz ścieżka Zamknij kartę Przestrzeń robocza roboczą • %@ Zamknąć kartę? roboczą? otwarty"
                 }
             },
             "pt-BR": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace app geral preferências comportamento dock barra de menu status lateral aba cores paleta selo selecionado destaque indicador ativo ponto editor arquivo código abrir caminho Fechar Área Trabalho • %@ aba? trabalho? aberto"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace app geral preferências comportamento dock barra de menu status lateral aba cores paleta selo selecionado destaque indicador ativo ponto editor arquivo código abrir caminho Fechar Área Trabalho • %@ aba? trabalho? aberto"
                 }
             },
             "ru": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace приложение общие настройки поведение док строка меню статус боковая панель рабочая область вкладка цвета палитра значок выбранный подсветка индикатор активный точка редактор файл код открыть путь Закрыть вкладку Рабочее пространство • %@ вкладку? пространство? открыт"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace приложение общие настройки поведение док строка меню статус боковая панель рабочая область вкладка цвета палитра значок выбранный подсветка индикатор активный точка редактор файл код открыть путь Закрыть вкладку Рабочее пространство • %@ вкладку? пространство? открыт"
                 }
             },
             "th": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace แอป ทั่วไป ค่ากำหนด พฤติกรรม ด็อก แถบเมนู สถานะ แถบด้านข้าง พื้นที่ทำงาน แท็บ สี จานสี ป้าย เลือก ไฮไลต์ ตัวบ่งชี้ ใช้งาน จุด ตัวแก้ไข ไฟล์ โค้ด เปิด เส้นทาง ปิดแท็บ เวิร์กสเปซ ปิดเวิร์กสเปซ • %@ ปิด ปิดแท็บหรือไม่? ปิดเวิร์กสเปซหรือไม่?"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace แอป ทั่วไป ค่ากำหนด พฤติกรรม ด็อก แถบเมนู สถานะ แถบด้านข้าง พื้นที่ทำงาน แท็บ สี จานสี ป้าย เลือก ไฮไลต์ ตัวบ่งชี้ ใช้งาน จุด ตัวแก้ไข ไฟล์ โค้ด เปิด เส้นทาง ปิดแท็บ เวิร์กสเปซ ปิดเวิร์กสเปซ • %@ ปิด ปิดแท็บหรือไม่? ปิดเวิร์กสเปซหรือไม่?"
                 }
             },
             "tr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace uygulama genel tercihler davranış dock menü çubuğu durum kenar çalışma alanı sekme renkler palet rozet seçili vurgulama gösterge aktif nokta düzenleyici dosya kod aç yol Sekmeyi Kapat Alanını • %@ kapatılsın mı? açık"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace uygulama genel tercihler davranış dock menü çubuğu durum kenar çalışma alanı sekme renkler palet rozet seçili vurgulama gösterge aktif nokta düzenleyici dosya kod aç yol Sekmeyi Kapat Alanını • %@ kapatılsın mı? açık"
                 }
             },
             "zh-Hans": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace 应用 通用 偏好设置 行为 程序坞 菜单栏 状态 侧边栏 工作区 标签页 颜色 调色板 徽章 已选中 高亮 指示器 活动 点 编辑器 文件 代码 打开 路径 关闭标签页 关闭工作区 • %@ 关闭 关闭标签页？ 关闭工作区？"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace 应用 通用 偏好设置 行为 程序坞 菜单栏 状态 侧边栏 工作区 标签页 颜色 调色板 徽章 已选中 高亮 指示器 活动 点 编辑器 文件 代码 打开 路径 关闭标签页 关闭工作区 • %@ 关闭 关闭标签页？ 关闭工作区？"
                 }
             },
             "zh-Hant": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace 應用程式 一般 偏好設定 行為 Dock 選單列 狀態 側邊欄 工作區 分頁 顏色 調色盤 徽章 已選取 反白 指示器 作用中 點 編輯器 檔案 程式碼 開啟 路徑 標籤頁 關閉標籤頁 關閉工作區 • %@ 關閉 要關閉標籤頁嗎？ 要關閉工作區嗎？ App"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace 應用程式 一般 偏好設定 行為 Dock 選單列 狀態 側邊欄 工作區 分頁 顏色 調色盤 徽章 已選取 反白 指示器 作用中 點 編輯器 檔案 程式碼 開啟 路徑 標籤頁 關閉標籤頁 關閉工作區 • %@ 關閉 要關閉標籤頁嗎？ 要關閉工作區嗎？ App"
                 }
             },
             "uk": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace програма загальні параметри поведінка док рядок меню статус бічна панель робочий простір вкладка кольори палітра значок вибрано підсвічування індикатор активний крапка редактор файл код відкрити шлях Закрити вкладку Робоча область робочу • %@ вкладку? область? відкритий"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace програма загальні параметри поведінка док рядок меню статус бічна панель робочий простір вкладка кольори палітра значок вибрано підсвічування індикатор активний крапка редактор файл код відкрити шлях Закрити вкладку Робоча область робочу • %@ вкладку? область? відкритий"
                 }
             }
         }

@@ -1923,6 +1923,104 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testBrowserPopupPanelCloseShortcutFollowsCloseTabRemap() throws {
+        let defaultCloseTab = KeyboardShortcutSettings.Action.closeTab.defaultShortcut
+        let previousMainMenu = NSApp.mainMenu
+        let menuProbe = MenuActionProbe()
+        let staleMenu = NSMenu(title: "Stale Close Tab")
+        let staleCloseItem = NSMenuItem(
+            title: "Close Tab",
+            action: #selector(MenuActionProbe.perform(_:)),
+            keyEquivalent: defaultCloseTab.menuItemKeyEquivalent ?? ""
+        )
+        staleCloseItem.keyEquivalentModifierMask = defaultCloseTab.modifierFlags
+        staleCloseItem.target = menuProbe
+        staleMenu.addItem(staleCloseItem)
+        NSApp.mainMenu = staleMenu
+        defer { NSApp.mainMenu = previousMainMenu }
+
+        let remappedCloseTab = StoredShortcut(
+            key: defaultCloseTab.key,
+            command: defaultCloseTab.command,
+            shift: defaultCloseTab.shift,
+            option: !defaultCloseTab.option,
+            control: defaultCloseTab.control,
+            keyCode: defaultCloseTab.keyCode
+        )
+
+        withTemporaryShortcut(action: .closeTab, shortcut: remappedCloseTab) {
+            let panel = BrowserPopupPanel(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            panel.isReleasedWhenClosed = false
+            panel.identifier = NSUserInterfaceItemIdentifier("cmux.browser-popup")
+            panel.orderFront(nil)
+            defer { panel.orderOut(nil) }
+
+            guard let staleDefaultCloseTab = makeKeyDownEvent(
+                shortcut: defaultCloseTab,
+                windowNumber: panel.windowNumber
+            ) else {
+                XCTFail("Failed to construct default Close Tab event")
+                return
+            }
+
+            XCTAssertTrue(
+                panel.performKeyEquivalent(with: staleDefaultCloseTab),
+                "After Close Tab is remapped, the default Close Tab shortcut should be consumed without closing a browser popup"
+            )
+            XCTAssertTrue(panel.isVisible, "Remapped-away default Close Tab shortcut should leave the browser popup open")
+            XCTAssertEqual(menuProbe.callCount, 0, "Stale Close Tab menu items must not close the parent browser tab")
+
+            guard let remappedCloseTabEvent = makeKeyDownEvent(
+                shortcut: remappedCloseTab,
+                windowNumber: panel.windowNumber
+            ) else {
+                XCTFail("Failed to construct remapped Close Tab event")
+                return
+            }
+
+            XCTAssertTrue(
+                panel.performKeyEquivalent(with: remappedCloseTabEvent),
+                "The configured Close Tab shortcut should close the browser popup"
+            )
+            XCTAssertFalse(panel.isVisible, "Remapped Close Tab shortcut should close the browser popup")
+        }
+    }
+
+    func testBrowserPopupPanelLeavesDefaultCloseTabShortcutAloneWhenCloseTabIsUnbound() throws {
+        let defaultCloseTab = KeyboardShortcutSettings.Action.closeTab.defaultShortcut
+        withTemporaryShortcut(action: .closeTab, shortcut: .unbound) {
+            let panel = BrowserPopupPanel(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            panel.isReleasedWhenClosed = false
+            panel.identifier = NSUserInterfaceItemIdentifier("cmux.browser-popup")
+            panel.orderFront(nil)
+            defer { panel.orderOut(nil) }
+
+            guard let defaultCloseTabEvent = makeKeyDownEvent(
+                shortcut: defaultCloseTab,
+                windowNumber: panel.windowNumber
+            ) else {
+                XCTFail("Failed to construct default Close Tab event")
+                return
+            }
+
+            XCTAssertTrue(
+                panel.performKeyEquivalent(with: defaultCloseTabEvent),
+                "Unbinding Close Tab should consume the default Close Tab shortcut without closing a browser popup"
+            )
+            XCTAssertTrue(panel.isVisible, "Unbound Close Tab should leave the browser popup open")
+        }
+    }
+
     func testCmdWClosesAuxiliaryWindowInsteadOfMainTerminalPanel() throws {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -5726,6 +5824,23 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             keyCode: keyCode,
             windowNumber: windowNumber,
             isARepeat: isARepeat
+        )
+    }
+
+    private func makeKeyDownEvent(
+        shortcut: StoredShortcut,
+        windowNumber: Int
+    ) -> NSEvent? {
+        guard !shortcut.isUnbound,
+              !shortcut.hasChord,
+              let keyCode = shortcut.firstStroke.resolvedKeyCode() else {
+            return nil
+        }
+        return makeKeyDownEvent(
+            key: shortcut.menuItemKeyEquivalent ?? shortcut.key,
+            modifiers: shortcut.modifierFlags,
+            keyCode: keyCode,
+            windowNumber: windowNumber
         )
     }
 

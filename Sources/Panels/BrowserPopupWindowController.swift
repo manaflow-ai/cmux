@@ -34,6 +34,37 @@ func browserPopupContentRect(
     return NSRect(x: x, y: y, width: clampedWidth, height: clampedHeight)
 }
 
+func browserPopupPanelShouldCloseForCloseTabShortcut(_ event: NSEvent) -> Bool {
+    KeyboardShortcutSettings.shortcut(for: .closeTab).matches(event: event)
+}
+
+func browserPopupPanelShouldSuppressStaleCloseTabShortcut(_ event: NSEvent) -> Bool {
+    guard !browserPopupPanelShouldCloseForCloseTabShortcut(event) else { return false }
+    return KeyboardShortcutSettings.Action.closeTab.defaultShortcut.matches(event: event)
+}
+
+/// NSPanel subclass that intercepts the configured Close Tab shortcut before the swizzled
+/// `cmux_performKeyEquivalent` can dispatch it to the main menu's
+/// "Close Tab" action (which would close the parent browser tab).
+final class BrowserPopupPanel: NSPanel {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if browserPopupPanelShouldCloseForCloseTabShortcut(event) {
+            #if DEBUG
+            cmuxDebugLog("popup.panel.closeShortcut close")
+            #endif
+            performClose(nil)
+            return true
+        }
+        if browserPopupPanelShouldSuppressStaleCloseTabShortcut(event) {
+            #if DEBUG
+            cmuxDebugLog("popup.panel.closeShortcut suppressStaleDefault")
+            #endif
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+
 /// Hosts a popup `CmuxWebView` in a standalone `NSPanel`, created when a page
 /// calls `window.open()` (scripted new-window requests).
 ///
@@ -42,25 +73,6 @@ func browserPopupContentRect(
 /// - Released in `windowWillClose(_:)` when the panel closes.
 /// - The opener `BrowserPanel` also keeps a strong reference for deterministic
 ///   cleanup when the opener tab or workspace is closed.
-/// NSPanel subclass that intercepts Cmd+W before the swizzled
-/// `cmux_performKeyEquivalent` can dispatch it to the main menu's
-/// "Close Tab" action (which would close the parent browser tab).
-private class BrowserPopupPanel: NSPanel {
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        // Cmd+W: close this popup panel only
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags == .command,
-           KeyboardLayout.normalizedCharacters(for: event) == "w" {
-            #if DEBUG
-            cmuxDebugLog("popup.panel.cmdW close")
-            #endif
-            performClose(nil)
-            return true
-        }
-        return super.performKeyEquivalent(with: event)
-    }
-}
-
 @MainActor
 final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
