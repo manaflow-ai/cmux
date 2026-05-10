@@ -12926,10 +12926,6 @@ private struct TabItemView: View, Equatable {
                 }
             }
 
-            Button(String(localized: "contextMenu.showWorkspaceInFinder", defaultValue: "Show in Finder")) {
-                workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: finderDirectoryURL)
-            }
-            .disabled(finderDirectoryURL == nil)
         }
 
         if !remoteContextMenuWorkspaceIds.isEmpty {
@@ -13097,6 +13093,13 @@ private struct TabItemView: View, Equatable {
             copyWorkspaceIdsToPasteboard(targetIds)
         }
         .disabled(targetIds.isEmpty)
+
+        if !isMulti {
+            Button(String(localized: "contextMenu.showWorkspaceInFinder", defaultValue: "Show in Finder")) {
+                workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: finderDirectoryURL)
+            }
+            .disabled(finderDirectoryURL == nil)
+        }
     }
 
     private var backgroundColor: Color {
