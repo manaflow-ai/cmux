@@ -1004,6 +1004,19 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
 }
 
 final class SidebarAgentPIDFallbackTests: XCTestCase {
+    func testCodexTitleRegistrationRecognizesTrimmedSessionSlug() {
+        let registration = SidebarAgentStatusService.titleRegistration(for: "  CoDeX-019dfc02-c  ")
+
+        XCTAssertEqual(registration?.statusKey, "codex")
+        XCTAssertEqual(registration?.processNameNeedles, ["codex", "node"])
+    }
+
+    func testTitleRegistrationIgnoresNonCodexTitles() {
+        XCTAssertNil(SidebarAgentStatusService.titleRegistration(for: ""))
+        XCTAssertNil(SidebarAgentStatusService.titleRegistration(for: "codex"))
+        XCTAssertNil(SidebarAgentStatusService.titleRegistration(for: "claude-019dfc02-c"))
+    }
+
     @MainActor
     func testUnscopedPIDRefreshPreservesPanelOwnershipForSamePID() {
         let workspace = Workspace()
@@ -1015,6 +1028,122 @@ final class SidebarAgentPIDFallbackTests: XCTestCase {
 
         workspace.setAgentPID(key: "codex", pid: 456, refreshPorts: false)
         XCTAssertNil(workspace.agentPanelIds["codex"])
+    }
+
+    @MainActor
+    func testHookStatusWinsOverRunningPIDFallback() {
+        let workspace = Workspace()
+        let timestamp = Date(timeIntervalSince1970: 10)
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Idle",
+            icon: "pause.circle.fill",
+            color: "#8E8E93",
+            priority: 42,
+            timestamp: timestamp,
+            protocolValue: "idle"
+        )
+        workspace.setAgentPID(key: "codex", pid: 123, refreshPorts: false)
+        workspace.updateAgentProcessState(
+            key: "codex",
+            state: SidebarAgentProcessState(pid: 123, isAlive: true, activity: .running)
+        )
+
+        let entry = workspace.sidebarStatusEntriesByKey()["codex"]
+        XCTAssertEqual(entry?.value, "Idle")
+        XCTAssertEqual(entry?.protocolValue, "idle")
+        XCTAssertEqual(entry?.priority, 42)
+        XCTAssertEqual(entry?.timestamp, timestamp)
+    }
+
+    @MainActor
+    func testNeedsInputProcessStatePromotesRunningHookStatus() {
+        let workspace = Workspace()
+        let timestamp = Date(timeIntervalSince1970: 20)
+        let url = URL(string: "https://example.com/status")
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF",
+            url: url,
+            priority: 12,
+            timestamp: timestamp,
+            protocolValue: "running"
+        )
+        workspace.setAgentPID(key: "codex", pid: 123, refreshPorts: false)
+        workspace.updateAgentProcessState(
+            key: "codex",
+            state: SidebarAgentProcessState(pid: 123, isAlive: true, activity: .needsInput)
+        )
+
+        let entry = workspace.sidebarStatusEntriesByKey()["codex"]
+        XCTAssertEqual(entry?.value, "Needs input")
+        XCTAssertEqual(entry?.protocolValue, "needs_input")
+        XCTAssertEqual(entry?.priority, 12)
+        XCTAssertEqual(entry?.timestamp, timestamp)
+        XCTAssertEqual(entry?.url, url)
+    }
+
+    @MainActor
+    func testDeadPIDClearsFallbackAndExplicitHookStatus() {
+        let workspace = Workspace()
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            protocolValue: "running"
+        )
+        workspace.setAgentPID(key: "codex", pid: 123, refreshPorts: false)
+        workspace.updateAgentProcessState(
+            key: "codex",
+            state: SidebarAgentProcessState(pid: 123, isAlive: false, activity: .running)
+        )
+
+        XCTAssertNil(workspace.sidebarStatusEntriesByKey()["codex"])
+    }
+
+    @MainActor
+    func testZeroPIDClearsRegisteredAgentRuntimeState() {
+        let workspace = Workspace()
+        let panelId = UUID()
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            protocolValue: "running"
+        )
+        workspace.setAgentPID(key: "codex", panelId: panelId, pid: 123, refreshPorts: false)
+
+        workspace.setAgentPID(key: "codex", panelId: panelId, pid: 0, refreshPorts: false)
+
+        XCTAssertNil(workspace.statusEntries["codex"])
+        XCTAssertNil(workspace.agentPIDs["codex"])
+        XCTAssertNil(workspace.agentProcessStates["codex"])
+        XCTAssertNil(workspace.agentPanelIds["codex"])
+    }
+
+    @MainActor
+    func testClearAllAgentRuntimeStatePreservesNonAgentStatusEntries() {
+        let workspace = Workspace()
+        let remoteEntry = SidebarStatusEntry(
+            key: "remote.error",
+            value: "Remote disconnected",
+            protocolValue: "remote_error"
+        )
+        workspace.statusEntries["remote.error"] = remoteEntry
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            protocolValue: "running"
+        )
+        workspace.setAgentPID(key: "codex", panelId: UUID(), pid: 123, refreshPorts: false)
+
+        workspace.clearAllAgentRuntimeState(refreshPorts: false)
+
+        XCTAssertEqual(workspace.statusEntries["remote.error"], remoteEntry)
+        XCTAssertNil(workspace.statusEntries["codex"])
+        XCTAssertTrue(workspace.agentPIDs.isEmpty)
+        XCTAssertTrue(workspace.agentProcessStates.isEmpty)
+        XCTAssertTrue(workspace.agentPanelIds.isEmpty)
     }
 
     @MainActor
@@ -1043,6 +1172,33 @@ final class SidebarAgentPIDFallbackTests: XCTestCase {
         )
 
         XCTAssertTrue(workspace.sidebarStatusEntriesInDisplayOrder().isEmpty)
+    }
+
+    func testProbeResultsReportLiveSleepProcess() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["60"]
+        try process.run()
+        defer {
+            if process.isRunning {
+                terminateAndWait(process)
+            }
+        }
+
+        let workspaceId = UUID()
+        let results = SidebarAgentStatusService.probeResults(for: [
+            SidebarAgentPIDProbeRequest(
+                workspaceId: workspaceId,
+                key: "codex",
+                pid: process.processIdentifier
+            )
+        ])
+
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results.first?.workspaceId, workspaceId)
+        XCTAssertEqual(results.first?.key, "codex")
+        XCTAssertEqual(results.first?.state.pid, process.processIdentifier)
+        XCTAssertEqual(results.first?.state.isAlive, true)
     }
 
     func testNeedsInputHeuristicUsesProtocolValueInsteadOfDisplayText() {
@@ -1083,6 +1239,17 @@ final class SidebarAgentPIDFallbackTests: XCTestCase {
             processState: processState
         )
         XCTAssertEqual(overriddenEntry?.protocolValue, "needs_input")
+    }
+
+    func testStaleDeadProcessStateDoesNotClearNewPIDFallback() {
+        let entry = SidebarAgentProcessProbe.effectiveStatusEntry(
+            key: "codex",
+            pid: 456,
+            explicitEntry: nil,
+            processState: SidebarAgentProcessState(pid: 123, isAlive: false, activity: .running)
+        )
+
+        XCTAssertEqual(entry?.protocolValue, "running")
     }
 
     private func terminateAndWait(_ process: Process, file: StaticString = #filePath, line: UInt = #line) {
