@@ -3821,11 +3821,11 @@ class TerminalController {
         return NSNull()
     }
 
-    private nonisolated static let notificationISO8601Formatter: ISO8601DateFormatter = {
+    private static func notificationCreatedAtString(_ date: Date) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
+        return formatter.string(from: date)
+    }
 
     nonisolated func v2NonEmptyString(_ raw: String?) -> String? {
         guard let raw else { return nil }
@@ -8122,7 +8122,7 @@ class TerminalController {
             "title": notification.title,
             "subtitle": notification.subtitle,
             "body": notification.body,
-            "created_at": Self.notificationISO8601Formatter.string(from: notification.createdAt),
+            "created_at": Self.notificationCreatedAtString(notification.createdAt),
             "tab_title": v2OrNull(AppDelegate.shared?.tabTitle(for: notification.tabId)),
         ]
         if includeReadState {
@@ -14417,7 +14417,7 @@ class TerminalController {
             let lines = TerminalNotificationStore.shared.notifications.enumerated().map { index, notification in
                 let surfaceText = notification.surfaceId?.uuidString ?? "none"
                 let readText = notification.isRead ? "read" : "unread"
-                let createdAt = Self.notificationISO8601Formatter.string(from: notification.createdAt)
+                let createdAt = Self.notificationCreatedAtString(notification.createdAt)
                 let tabTitle = AppDelegate.shared?.tabTitle(for: notification.tabId) ?? ""
                 return "\(index):\(notification.id.uuidString)|\(notification.tabId.uuidString)|\(surfaceText)|\(readText)|\(notification.title)|\(notification.subtitle)|\(notification.body)|\(createdAt)|\(tabTitle)"
             }

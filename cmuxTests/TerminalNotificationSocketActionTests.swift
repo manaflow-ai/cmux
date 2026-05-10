@@ -293,12 +293,15 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         XCTFail("Socket did not appear at \(path)")
     }
 
-    private func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in predicate() },
-            object: nil
-        )
-        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    private func waitForCondition(timeout: TimeInterval, predicate: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if predicate() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        return predicate()
     }
 
     private func sendV2RequestAsync(
@@ -306,10 +309,11 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         params: [String: Any] = [:],
         to socketPath: String
     ) async throws -> [String: Any] {
+        let requestData = try Self.makeV2RequestData(method: method, params: params)
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    continuation.resume(returning: try self.sendV2Request(method: method, params: params, to: socketPath))
+                    continuation.resume(returning: try Self.sendV2Request(data: requestData, to: socketPath))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -317,17 +321,22 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         }
     }
 
-    private nonisolated func sendV2Request(
+    private nonisolated static func makeV2RequestData(
         method: String,
-        params: [String: Any],
-        to socketPath: String
-    ) throws -> [String: Any] {
+        params: [String: Any]
+    ) throws -> Data {
         let payload: [String: Any] = [
             "id": UUID().uuidString,
             "method": method,
             "params": params,
         ]
-        let data = try JSONSerialization.data(withJSONObject: payload, options: [])
+        return try JSONSerialization.data(withJSONObject: payload, options: [])
+    }
+
+    private nonisolated static func sendV2Request(
+        data: Data,
+        to socketPath: String
+    ) throws -> [String: Any] {
         let line = String(data: data, encoding: .utf8) ?? "{}"
         return try sendCommands([line], to: socketPath).compactMap { response in
             guard let data = response.data(using: .utf8) else { return nil }
@@ -335,7 +344,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         }.first ?? [:]
     }
 
-    private nonisolated func sendCommands(_ commands: [String], to socketPath: String) throws -> [String] {
+    private nonisolated static func sendCommands(_ commands: [String], to socketPath: String) throws -> [String] {
         let fd = try connect(to: socketPath)
         defer { Darwin.close(fd) }
 
@@ -347,7 +356,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         return responses
     }
 
-    private nonisolated func connect(to socketPath: String) throws -> Int32 {
+    private nonisolated static func connect(to socketPath: String) throws -> Int32 {
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw posixError(errno) }
 
@@ -381,7 +390,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         return fd
     }
 
-    private nonisolated func writeLine(_ line: String, fd: Int32) throws {
+    private nonisolated static func writeLine(_ line: String, fd: Int32) throws {
         var data = Data(line.utf8)
         data.append(0x0A)
         try data.withUnsafeBytes { rawBuffer in
@@ -398,7 +407,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         }
     }
 
-    private nonisolated func readLine(fd: Int32) throws -> String {
+    private nonisolated static func readLine(fd: Int32) throws -> String {
         var data = Data()
         var byte: UInt8 = 0
         while true {
@@ -414,7 +423,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         return String(data: data, encoding: .utf8) ?? ""
     }
 
-    private nonisolated func posixError(_ code: Int32) -> NSError {
+    private nonisolated static func posixError(_ code: Int32) -> NSError {
         NSError(domain: NSPOSIXErrorDomain, code: Int(code))
     }
 }
