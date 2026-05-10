@@ -290,8 +290,8 @@ Settings subcommands:
 | Command | Contract |
 | --- | --- |
 | `settings` | Open the Settings window, launching cmux if needed. |
-| `settings list [--keys] [--json]` | List every GUI-backed setting key with current value, default, and source; `--keys` prints a sorted key list for completion. |
-| `settings get <key>` | Print one setting value. |
+| `settings list [--keys] [--json]` | List every GUI-backed setting key with current value, default, and source; sensitive values are redacted, and `--keys` prints a sorted key list for completion. |
+| `settings get <key> [--reveal]` | Print one setting value; sensitive values are redacted unless `--reveal` is passed. |
 | `settings set <key> <value>` | Persist one setting through `~/.config/cmux/cmux.json` and reload the running app when a socket is present. |
 | `settings unset <key>` | Remove one setting override from `cmux.json` and reload when possible. |
 | `settings reset [--yes]` | Remove all managed setting and shortcut overrides from `cmux.json`. |

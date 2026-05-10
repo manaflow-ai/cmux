@@ -84,11 +84,14 @@ extension CMUXCLI {
         let rows = try CmuxSettingsRegistry.sortedKeys.map { key -> SettingsListRow in
             let definition = try CmuxSettingsRegistry.definition(for: key)
             let resolved = store.resolvedValue(for: definition, root: root)
+            let presentedValue = store.presentedValue(resolved.value, for: definition, revealSensitive: false)
+            let presentedDefault = store.presentedValue(definition.defaultValue, for: definition, revealSensitive: false)
             return SettingsListRow(
                 key: definition.key,
-                value: resolved.value,
-                defaultValue: definition.defaultValue,
-                source: resolved.source
+                value: presentedValue.value,
+                defaultValue: presentedDefault.value,
+                source: resolved.source,
+                redacted: presentedValue.redacted || presentedDefault.redacted
             )
         }
 
@@ -106,22 +109,26 @@ extension CMUXCLI {
     }
 
     private func runSettingsGet(args: [String], store: SettingsFileStore, jsonOutput: Bool) throws {
-        guard args.count == 1, let key = args.first else {
-            throw CLIError(message: "Usage: cmux settings get <key>")
+        let reveal = args.contains("--reveal")
+        let remaining = args.filter { $0 != "--reveal" }
+        guard remaining.count == 1, let key = remaining.first else {
+            throw CLIError(message: "Usage: cmux settings get <key> [--json] [--reveal]")
         }
         let definition = try CmuxSettingsRegistry.definition(for: key)
         let root = try store.loadRoot()
         let resolved = store.resolvedValue(for: definition, root: root)
+        let presented = store.presentedValue(resolved.value, for: definition, revealSensitive: reveal)
 
         if jsonOutput {
             print(jsonString([
                 "key": definition.key,
-                "value": resolved.value,
+                "value": presented.value,
                 "default": definition.defaultValue,
                 "source": resolved.source,
+                "redacted": presented.redacted,
             ]))
         } else {
-            print(store.displayString(resolved.value))
+            print(store.displayString(presented.value))
         }
     }
 
@@ -399,6 +406,7 @@ extension CMUXCLI {
         let value: Any
         let defaultValue: Any
         let source: String
+        let redacted: Bool
 
         var payload: [String: Any] {
             [
@@ -406,6 +414,7 @@ extension CMUXCLI {
                 "value": value,
                 "default": defaultValue,
                 "source": source,
+                "redacted": redacted,
             ]
         }
     }
@@ -434,6 +443,8 @@ extension CMUXCLI {
     }
 
     private struct SettingsFileStore {
+        private static let sensitivePlaceholder = "<redacted>"
+
         let fileManager = FileManager.default
 
         var configURL: URL {
@@ -634,6 +645,29 @@ extension CMUXCLI {
             return String(describing: value)
         }
 
+        func presentedValue(
+            _ value: Any,
+            for definition: CmuxSettingsRegistry.SettingDefinition,
+            revealSensitive: Bool
+        ) -> (value: Any, redacted: Bool) {
+            guard definition.isSensitive,
+                  !revealSensitive,
+                  hasSensitivePayload(value) else {
+                return (value, false)
+            }
+            return (Self.sensitivePlaceholder, true)
+        }
+
+        private func hasSensitivePayload(_ value: Any) -> Bool {
+            if value is NSNull {
+                return false
+            }
+            if let string = value as? String {
+                return !string.isEmpty
+            }
+            return true
+        }
+
         func tomlString(from root: [String: Any]) -> String {
             flatten(root)
                 .sorted { $0.key < $1.key }
@@ -714,21 +748,63 @@ extension CMUXCLI {
                 throw CLIError(message: "TOML import must be UTF-8")
             }
             var root: [String: Any] = [:]
+            var tablePath: [String] = []
             for rawLine in source.components(separatedBy: .newlines) {
-                let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                let line = stripTomlComment(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !line.isEmpty, !line.hasPrefix("#") else { continue }
+                if line.hasPrefix("[") {
+                    guard line.hasSuffix("]"), !line.hasPrefix("[[") else {
+                        throw CLIError(message: "Unsupported TOML section line: \(rawLine)")
+                    }
+                    let header = String(line.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
+                    tablePath = try parseTomlKeyPath(header, rawLine: rawLine)
+                    continue
+                }
                 guard let equals = line.firstIndex(of: "=") else {
                     throw CLIError(message: "Invalid TOML line: \(rawLine)")
                 }
                 let key = String(line[..<equals]).trimmingCharacters(in: .whitespacesAndNewlines)
                 let literal = String(line[line.index(after: equals)...]).trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !key.isEmpty else {
-                    throw CLIError(message: "Invalid TOML line: \(rawLine)")
-                }
+                let keyPath = tablePath + (try parseTomlKeyPath(key, rawLine: rawLine))
                 let value = try parseTomlLiteral(String(literal))
-                setValue(value, forPath: String(key), in: &root)
+                setValue(value, forPath: keyPath.joined(separator: "."), in: &root)
             }
             return root
+        }
+
+        private func parseTomlKeyPath(_ raw: String, rawLine: String) throws -> [String] {
+            let components = raw
+                .split(separator: ".", omittingEmptySubsequences: false)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            guard !components.isEmpty,
+                  components.allSatisfy({ !$0.isEmpty }) else {
+                throw CLIError(message: "Invalid TOML key path: \(rawLine)")
+            }
+            return components.map(String.init)
+        }
+
+        private func stripTomlComment(_ rawLine: String) -> String {
+            var inString = false
+            var escaped = false
+            for index in rawLine.indices {
+                let character = rawLine[index]
+                if escaped {
+                    escaped = false
+                    continue
+                }
+                if character == "\\" && inString {
+                    escaped = true
+                    continue
+                }
+                if character == "\"" {
+                    inString.toggle()
+                    continue
+                }
+                if character == "#", !inString {
+                    return String(rawLine[..<index])
+                }
+            }
+            return rawLine
         }
 
         private func parseTomlLiteral(_ raw: String) throws -> Any {

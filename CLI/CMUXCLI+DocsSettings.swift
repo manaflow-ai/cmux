@@ -351,7 +351,7 @@ extension CMUXCLI {
 
         Subcommands:
           list [--keys] [--json]                    List settings, values, defaults, and sources.
-          get <key> [--json]                        Print one setting value.
+          get <key> [--json] [--reveal]             Print one setting value; sensitive values redact unless revealed.
           set <key> <value>                         Set one setting in cmux.json.
           unset <key>                               Remove one setting from cmux.json.
           reset [--yes]                             Remove all managed settings and shortcut bindings.

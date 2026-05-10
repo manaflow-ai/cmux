@@ -5,6 +5,14 @@ enum CmuxSettingsRegistry {
         let key: String
         let kind: ValueKind
         let defaultValue: Any
+        let isSensitive: Bool
+
+        init(key: String, kind: ValueKind, defaultValue: Any, isSensitive: Bool = false) {
+            self.key = key
+            self.kind = kind
+            self.defaultValue = defaultValue
+            self.isSensitive = isSensitive
+        }
     }
 
     enum ValueKind {
@@ -140,7 +148,7 @@ enum CmuxSettingsRegistry {
             "notifications": "automation",
             "full": "allowAll",
         ]), defaultValue: "cmuxOnly"),
-        SettingDefinition(key: "automation.socketPassword", kind: .string(allowEmpty: true), defaultValue: ""),
+        SettingDefinition(key: "automation.socketPassword", kind: .string(allowEmpty: true), defaultValue: "", isSensitive: true),
         SettingDefinition(key: "automation.claudeCodeIntegration", kind: .bool, defaultValue: true),
         SettingDefinition(key: "automation.claudeBinaryPath", kind: .string(allowEmpty: true), defaultValue: ""),
         SettingDefinition(key: "automation.cursorIntegration", kind: .bool, defaultValue: true),

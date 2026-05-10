@@ -151,6 +151,33 @@ def main() -> int:
         if get_primitive_string.stdout.strip() != "true":
             failures.append(f"string setting that looks like a bool was not preserved: {get_primitive_string.stdout!r}")
 
+        set_password = run_cli(cli_path, ["settings", "set", "automation.socketPassword", "secret-token"], home)
+        assert_ok(failures, "settings set socket password", set_password)
+        redacted_password = run_cli(cli_path, ["settings", "get", "automation.socketPassword"], home)
+        assert_ok(failures, "settings get socket password redacted", redacted_password)
+        if redacted_password.stdout.strip() != "<redacted>":
+            failures.append(f"socket password was not redacted by default: {redacted_password.stdout!r}")
+        revealed_password = run_cli(cli_path, ["settings", "get", "automation.socketPassword", "--reveal"], home)
+        assert_ok(failures, "settings get socket password reveal", revealed_password)
+        if revealed_password.stdout.strip() != "secret-token":
+            failures.append(f"socket password reveal returned {revealed_password.stdout!r}")
+        redacted_list = run_cli(cli_path, ["settings", "list", "--json"], home)
+        assert_ok(failures, "settings list redacts socket password", redacted_list)
+        redacted_payload = parse_json(failures, "settings list redacts socket password", redacted_list)
+        if isinstance(redacted_payload, dict):
+            password_item = next(
+                (
+                    item
+                    for item in redacted_payload.get("settings", [])
+                    if isinstance(item, dict) and item.get("key") == "automation.socketPassword"
+                ),
+                None,
+            )
+            if password_item is None:
+                failures.append("settings list --json omitted automation.socketPassword")
+            elif password_item.get("value") != "<redacted>" or password_item.get("redacted") is not True:
+                failures.append(f"settings list --json did not redact automation.socketPassword: {password_item}")
+
         backslash_n_command = r"\nfoo"
         set_backslash_n = run_cli(cli_path, ["settings", "set", "notifications.command", backslash_n_command], home)
         assert_ok(failures, "settings set literal backslash-n command", set_backslash_n)
@@ -165,6 +192,33 @@ def main() -> int:
         assert_ok(failures, "settings get literal backslash-n command", get_backslash_n)
         if get_backslash_n.stdout.strip() != backslash_n_command:
             failures.append(f"TOML roundtrip corrupted literal backslash-n: {get_backslash_n.stdout!r}")
+
+        sectioned_toml_path = home / "sectioned-settings.toml"
+        sectioned_toml_path.write_text(
+            """
+[app]
+appearance = "dark"
+
+[notifications]
+command = "section import"
+
+[rightSidebar.beta.feed]
+enabled = true
+
+[shortcuts.bindings]
+openSettings = "cmd+option+,"
+""".lstrip(),
+            encoding="utf-8",
+        )
+        sectioned_import = run_cli(cli_path, ["settings", "import", str(sectioned_toml_path)], home)
+        assert_ok(failures, "settings import sectioned TOML", sectioned_import)
+        sectioned_config = read_config(home)
+        if sectioned_config.get("app", {}).get("appearance") != "dark":
+            failures.append(f"sectioned TOML did not import app.appearance: {sectioned_config}")
+        if sectioned_config.get("rightSidebar", {}).get("beta", {}).get("feed", {}).get("enabled") is not True:
+            failures.append(f"sectioned TOML did not import rightSidebar.beta.feed.enabled: {sectioned_config}")
+        if sectioned_config.get("shortcuts", {}).get("bindings", {}).get("openSettings") != "cmd+option+,":
+            failures.append(f"sectioned TOML did not import shortcut binding: {sectioned_config}")
 
         conflict = run_cli(cli_path, ["settings", "shortcuts", "set", "openSettings", "cmd+n"], home)
         assert_fails(failures, "shortcut conflict", conflict, "conflicts with")
