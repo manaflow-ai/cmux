@@ -1546,35 +1546,18 @@ final class FolderWindowMoveSuppressionTests: XCTestCase {
         )
     }
 
-    func testSuppressionDisablesMovableWindow() {
+    func testSuppressionDepthDoesNotMutateMovableState() {
         let window = makeWindow()
+        window.isMovable = false
+
+        XCTAssertEqual(beginWindowDragSuppression(window: window), 1)
+
+        XCTAssertFalse(window.isMovable)
+
         window.isMovable = true
-
-        let previous = temporarilyDisableWindowDragging(window: window)
-
-        XCTAssertEqual(previous, true)
-        XCTAssertFalse(window.isMovable)
-    }
-
-    func testSuppressionPreservesAlreadyImmovableWindow() {
-        let window = makeWindow()
-        window.isMovable = false
-
-        let previous = temporarilyDisableWindowDragging(window: window)
-
-        XCTAssertEqual(previous, false)
-        XCTAssertFalse(window.isMovable)
-    }
-
-    func testRestoreAppliesPreviousMovableState() {
-        let window = makeWindow()
-        window.isMovable = false
-
-        restoreWindowDragging(window: window, previousMovableState: true)
         XCTAssertTrue(window.isMovable)
-
-        restoreWindowDragging(window: window, previousMovableState: false)
-        XCTAssertFalse(window.isMovable)
+        XCTAssertEqual(endWindowDragSuppression(window: window), 0)
+        XCTAssertTrue(window.isMovable)
     }
 
     func testWindowDragSuppressionDepthLifecycle() {
