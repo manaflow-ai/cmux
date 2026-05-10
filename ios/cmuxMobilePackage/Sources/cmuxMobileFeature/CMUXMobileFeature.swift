@@ -42,36 +42,472 @@ struct CMUXMobileRootView: View {
 
 struct SignInView: View {
     let signIn: () -> Void
+    @State private var email = ""
+    @State private var code = ""
+    @State private var isShowingCodeEntry = false
+    @State private var error: String?
+    @FocusState private var emailFocused: Bool
+    @FocusState private var codeFocused: Bool
 
     var body: some View {
-        VStack(spacing: 28) {
-            VStack(spacing: 10) {
-                Image(systemName: "terminal.fill")
-                    .font(.system(size: 50, weight: .semibold))
-                    .foregroundStyle(.tint)
-                    .accessibilityHidden(true)
+        NavigationStack {
+            ZStack {
+                GameOfLifeHeader()
+                    .ignoresSafeArea()
 
-                Text(L10n.string("mobile.signIn.title", defaultValue: "cmux"))
-                    .font(.largeTitle.bold())
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        dismissKeyboard()
+                    }
+                    .ignoresSafeArea()
 
-                Text(L10n.string("mobile.signIn.subtitle", defaultValue: "Sign in to connect to your Mac workspaces."))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 300)
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    authCard {
+                        if isShowingCodeEntry {
+                            codeEntryView
+                        } else {
+                            emailEntryView
+                        }
+                    }
+                }
             }
+            .background(Color(.systemBackground))
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
 
-            Button(action: signIn) {
-                Label(L10n.string("mobile.signIn.button", defaultValue: "Sign In"), systemImage: "person.crop.circle.badge.checkmark")
-                    .frame(maxWidth: 280)
+    private var emailEntryView: some View {
+        VStack(spacing: 20) {
+            brandHeader
+
+            Button(action: providerSignIn) {
+                Label(L10n.string("mobile.signIn.apple", defaultValue: "Sign in with Apple"), systemImage: "apple.logo")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Capsule())
             }
             .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
             .controlSize(.large)
             .accessibilityIdentifier("MobileSignInButton")
+
+            Button(action: providerSignIn) {
+                HStack(spacing: 8) {
+                    Image("GoogleLogo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 16, height: 16)
+                        .accessibilityHidden(true)
+                    Text(L10n.string("mobile.signIn.google", defaultValue: "Sign in with Google"))
+                        .fontWeight(.semibold)
+                }
+                .frame(maxWidth: .infinity)
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .controlSize(.large)
+            .accessibilityIdentifier("signin.google")
+
+            DividerLabel(text: L10n.string("mobile.signIn.emailDivider", defaultValue: "or continue with email"))
+
+            VStack(spacing: 12) {
+                MobileAuthInputPill(height: 50, alignment: .leading) {
+                    TextField(
+                        L10n.string("mobile.signIn.emailPlaceholder", defaultValue: "Email address"),
+                        text: $email
+                    )
+                    .textFieldStyle(.plain)
+                    .keyboardType(.emailAddress)
+                    .textContentType(.emailAddress)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($emailFocused)
+                    .accessibilityIdentifier("Email")
+                } onTap: {
+                    emailFocused = true
+                }
+
+                Button(action: continueWithEmail) {
+                    Text(L10n.string("mobile.signIn.emailCode", defaultValue: "Email me a code"))
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Capsule())
+                }
+                .disabled(email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .controlSize(.large)
+                .accessibilityIdentifier("signin.emailCode")
+            }
+
+            if let error {
+                errorText(error)
+            }
         }
-        .padding(32)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemGroupedBackground))
+    }
+
+    private var codeEntryView: some View {
+        VStack(spacing: 18) {
+            brandHeader
+
+            VStack(spacing: 6) {
+                Text(L10n.string("mobile.signIn.checkEmail", defaultValue: "Check your email"))
+                    .font(.headline)
+
+                Text(String(format: L10n.string("mobile.signIn.sentCodeFormat", defaultValue: "We sent a code to %@"), email))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            MobileAuthInputPill(height: 60, alignment: .center) {
+                TextField(L10n.string("mobile.signIn.codePlaceholder", defaultValue: "000000"), text: $code)
+                    .textFieldStyle(.plain)
+                    .keyboardType(.numberPad)
+                    .textContentType(.oneTimeCode)
+                    .multilineTextAlignment(.center)
+                    .font(.system(size: 32, weight: .semibold, design: .monospaced))
+                    .focused($codeFocused)
+                    .onChange(of: code) { _, newValue in
+                        if newValue.count > 6 {
+                            code = String(newValue.prefix(6))
+                        }
+                        if newValue.count == 6 {
+                            verifyCode()
+                        }
+                    }
+                    .accessibilityIdentifier("signin.code")
+            } onTap: {
+                codeFocused = true
+            }
+            .onAppear {
+                codeFocused = true
+            }
+
+            if let error {
+                errorText(error)
+            }
+
+            Button(action: verifyCode) {
+                Text(L10n.string("mobile.signIn.verifyCode", defaultValue: "Verify code"))
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Capsule())
+            }
+            .disabled(code.count != 6)
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .controlSize(.large)
+            .accessibilityIdentifier("signin.verifyCode")
+
+            Button {
+                withAnimation(.snappy(duration: 0.18)) {
+                    isShowingCodeEntry = false
+                    code = ""
+                    error = nil
+                }
+            } label: {
+                Text(L10n.string("mobile.signIn.useDifferentEmail", defaultValue: "Use a different email"))
+            }
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private func providerSignIn() {
+        error = nil
+        signIn()
+    }
+
+    private func continueWithEmail() {
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedEmail.contains("@") else {
+            error = L10n.string("mobile.signIn.emailError", defaultValue: "Please enter a valid email address.")
+            return
+        }
+
+        email = trimmedEmail
+        error = nil
+        withAnimation(.snappy(duration: 0.18)) {
+            isShowingCodeEntry = true
+        }
+    }
+
+    private func verifyCode() {
+        guard code.count == 6 else {
+            error = L10n.string("mobile.signIn.codeError", defaultValue: "Enter the 6-digit code from your email.")
+            return
+        }
+
+        error = nil
+        signIn()
+    }
+
+    private func authCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+            .padding(.top, 24)
+            .frame(maxWidth: 430)
+            .frame(maxWidth: .infinity)
+            .background(
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        dismissKeyboard()
+                    }
+            )
+    }
+
+    private func errorText(_ message: String) -> some View {
+        Text(message)
+            .font(.caption)
+            .foregroundStyle(.red)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .textSelection(.enabled)
+    }
+
+    private var brandHeader: some View {
+        HStack(spacing: 10) {
+            Image("CmuxLogo")
+                .resizable()
+                .renderingMode(.original)
+                .scaledToFit()
+                .frame(width: 28, height: 28)
+                .accessibilityHidden(true)
+
+            Text(L10n.string("mobile.signIn.title", defaultValue: "cmux"))
+                .font(.title2)
+                .fontWeight(.semibold)
+                .foregroundStyle(.primary)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.bottom, 2)
+    }
+
+    private func dismissKeyboard() {
+        #if os(iOS)
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        #endif
+    }
+}
+
+private struct DividerLabel: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            dividerLine
+            Text(text)
+                .font(.caption2)
+                .foregroundStyle(Color.primary.opacity(0.45))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .allowsTightening(true)
+                .layoutPriority(1)
+            dividerLine
+        }
+    }
+
+    private var dividerLine: some View {
+        Rectangle()
+            .fill(Color(.separator).opacity(0.4))
+            .frame(height: 1)
+    }
+}
+
+private struct GameOfLifeHeader: View {
+    private let columns = 36
+    private let rows = 52
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                GameOfLifeGrid(columns: columns, rows: rows)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 6)
+
+                LinearGradient(
+                    colors: [
+                        Color(.systemBackground).opacity(0),
+                        Color(.systemBackground).opacity(colorScheme == .dark ? 0.82 : 0.70),
+                    ],
+                    startPoint: .center,
+                    endPoint: .bottom
+                )
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        .clipped()
+    }
+}
+
+private struct GameOfLifeGrid: View {
+    let columns: Int
+    let rows: Int
+
+    @State private var cells: [Bool] = []
+    @State private var stepCount = 0
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.displayScale) private var displayScale
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.08)) { timeline in
+            let time = timeline.date.timeIntervalSinceReferenceDate
+            let tick = Int(time / 0.08)
+
+            GeometryReader { _ in
+                Canvas { context, size in
+                    let cellWidth = size.width / CGFloat(columns)
+                    let cellHeight = size.height / CGFloat(rows)
+                    let cellSize = min(cellWidth, cellHeight) * 0.52
+                    let yOffset = (cellHeight - cellSize) * 0.5
+                    let xOffset = (cellWidth - cellSize) * 0.5
+                    let scale = max(1, displayScale)
+
+                    func snapToPixel(_ value: CGFloat) -> CGFloat {
+                        (value * scale).rounded(.toNearestOrAwayFromZero) / scale
+                    }
+
+                    for row in 0..<rows {
+                        for col in 0..<columns where isAlive(row: row, col: col) {
+                            let baseOpacity = colorScheme == .dark ? 0.10 : 0.16
+                            let flicker = baseOpacity + 0.10 * sin(time * 2.0 + Double(row * 3 + col) * 0.22)
+                            let rect = CGRect(
+                                x: snapToPixel(CGFloat(col) * cellWidth + xOffset),
+                                y: snapToPixel(CGFloat(row) * cellHeight + yOffset),
+                                width: snapToPixel(cellSize),
+                                height: snapToPixel(cellSize)
+                            )
+                            let base = Color(colorScheme == .dark ? UIColor.systemGray4 : UIColor.systemGray2)
+                            context.fill(
+                                Path(roundedRect: rect, cornerRadius: rect.width * 0.5),
+                                with: .color(base.opacity(max(0, flicker)))
+                            )
+                        }
+                    }
+                }
+            }
+            .onChange(of: tick) { _, _ in
+                step()
+            }
+            .onAppear {
+                if cells.isEmpty {
+                    seed()
+                }
+            }
+        }
+    }
+
+    private func index(row: Int, col: Int) -> Int {
+        row * columns + col
+    }
+
+    private func isAlive(row: Int, col: Int) -> Bool {
+        let wrappedRow = (row + rows) % rows
+        let wrappedCol = (col + columns) % columns
+        let idx = index(row: wrappedRow, col: wrappedCol)
+        if idx < cells.count {
+            return cells[idx]
+        }
+        return false
+    }
+
+    private func seed() {
+        var rng = SystemRandomNumberGenerator()
+        cells = (0..<(rows * columns)).map { _ in
+            Double.random(in: 0...1, using: &rng) < 0.22
+        }
+        stepCount = 0
+    }
+
+    private func step() {
+        guard !cells.isEmpty else {
+            seed()
+            return
+        }
+
+        var next = cells
+        var aliveCount = 0
+
+        for row in 0..<rows {
+            for col in 0..<columns {
+                let idx = index(row: row, col: col)
+                let neighbors = neighborCount(row: row, col: col)
+                let alive = cells[idx]
+                let nextAlive = (alive && (neighbors == 2 || neighbors == 3)) || (!alive && neighbors == 3)
+                next[idx] = nextAlive
+                if nextAlive {
+                    aliveCount += 1
+                }
+            }
+        }
+
+        stepCount += 1
+
+        if aliveCount < max(6, (rows * columns) / 22) || stepCount > 120 {
+            seed()
+            return
+        }
+
+        cells = next
+    }
+
+    private func neighborCount(row: Int, col: Int) -> Int {
+        var count = 0
+        for dr in -1...1 {
+            for dc in -1...1 {
+                if dr == 0 && dc == 0 {
+                    continue
+                }
+                if isAlive(row: row + dr, col: col + dc) {
+                    count += 1
+                }
+            }
+        }
+        return count
+    }
+}
+
+private struct MobileAuthInputPill<Content: View>: View {
+    let height: CGFloat
+    let alignment: Alignment
+    let content: Content
+    let onTap: () -> Void
+
+    init(
+        height: CGFloat,
+        alignment: Alignment,
+        @ViewBuilder content: () -> Content,
+        onTap: @escaping () -> Void
+    ) {
+        self.height = height
+        self.alignment = alignment
+        self.content = content()
+        self.onTap = onTap
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            content
+        }
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, alignment: alignment)
+        .frame(height: height)
+        .background(.thinMaterial, in: Capsule())
+        .overlay(
+            Capsule()
+                .stroke(Color(.separator).opacity(0.35), lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onTap()
+        }
     }
 }
 

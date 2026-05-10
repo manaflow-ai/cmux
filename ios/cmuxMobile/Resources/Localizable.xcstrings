@@ -92,6 +92,76 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "サインイン" } }
       }
     },
+    "mobile.signIn.apple" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sign in with Apple" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Apple でサインイン" } }
+      }
+    },
+    "mobile.signIn.checkEmail" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Check your email" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "メールを確認してください" } }
+      }
+    },
+    "mobile.signIn.codeError" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enter the 6-digit code from your email." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "メールに届いた 6 桁のコードを入力してください。" } }
+      }
+    },
+    "mobile.signIn.codePlaceholder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "000000" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "000000" } }
+      }
+    },
+    "mobile.signIn.emailCode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Email me a code" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コードをメールで受け取る" } }
+      }
+    },
+    "mobile.signIn.emailDivider" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "or continue with email" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "またはメールで続行" } }
+      }
+    },
+    "mobile.signIn.emailError" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Please enter a valid email address." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "有効なメールアドレスを入力してください。" } }
+      }
+    },
+    "mobile.signIn.emailPlaceholder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Email address" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "メールアドレス" } }
+      }
+    },
+    "mobile.signIn.google" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sign in with Google" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Google でサインイン" } }
+      }
+    },
+    "mobile.signIn.sentCodeFormat" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "We sent a code to %@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@ にコードを送信しました" } }
+      }
+    },
     "mobile.signIn.subtitle" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -104,6 +174,20 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "cmux" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux" } }
+      }
+    },
+    "mobile.signIn.useDifferentEmail" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Use a different email" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "別のメールを使用" } }
+      }
+    },
+    "mobile.signIn.verifyCode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Verify code" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コードを確認" } }
       }
     },
     "mobile.signOut" : {
