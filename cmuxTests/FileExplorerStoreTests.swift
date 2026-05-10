@@ -720,9 +720,8 @@ final class FileSearchControllerTests: XCTestCase {
         searchField.stringValue = "needle"
         container.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: searchField))
 
-        try await waitFor("initial find search request") {
-            searchController.searchRequests.count == 1
-        }
+        try await waitForSearchRequestCount(1, in: searchController)
+        XCTAssertEqual(searchController.searchRequests.count, 1)
 
         searchController.publish(FileSearchSnapshot(
             query: "needle",
@@ -761,6 +760,28 @@ final class FileSearchControllerTests: XCTestCase {
             columnNumber: 1,
             preview: "needle"
         )
+    }
+
+    private func waitForSearchRequestCount(
+        _ expectedCount: Int,
+        in searchController: SpyFileSearchController,
+        timeout: TimeInterval = 1,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if searchController.searchRequests.count >= expectedCount {
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTFail(
+            "Timed out waiting for \(expectedCount) file search requests",
+            file: file,
+            line: line
+        )
+        throw WaitTimeout()
     }
 
     private func waitForSettledSearchSnapshot(
