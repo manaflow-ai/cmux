@@ -58,6 +58,10 @@ final class CmuxSettingsFileStore {
     private let saveSocketPassword: (String) throws -> Void
     private let clearSocketPassword: () throws -> Void
     private let stateLock = NSLock()
+    private let settingsPersistenceQueue = DispatchQueue(
+        label: "com.cmux.settings-file-store.persistence",
+        qos: .utility
+    )
 
     private var primaryWatcher: ShortcutSettingsFileWatcher?
     private var fallbackWatchers: [ShortcutSettingsFileWatcher] = []
@@ -243,16 +247,16 @@ final class CmuxSettingsFileStore {
             return
         }
 
-        do {
-            try persistSettingsJSONValues(changedValues)
-            synchronized {
+        enqueueSettingsJSONPersistence(
+            changedValues,
+            failureLogMessage: "[CmuxSettingsFileStore] failed to persist Settings UI change: %@"
+        ) { [weak self] in
+            guard let self else { return }
+            self.synchronized {
                 for (path, value) in currentValues {
-                    lastPersistedSettingsValues[path] = value
+                    self.lastPersistedSettingsValues[path] = value
                 }
             }
-        } catch {
-            NSLog("[CmuxSettingsFileStore] failed to persist Settings UI change: %@", String(describing: error))
-            reapplyManagedSettingsIfNeeded()
         }
     }
 
@@ -272,14 +276,14 @@ final class CmuxSettingsFileStore {
         }
         guard !changedValues.isEmpty else { return }
 
-        do {
-            try persistSettingsJSONValues(changedValues)
-            synchronized {
-                lastPersistedSettingsValues["automation.socketPassword"] = currentValue
+        enqueueSettingsJSONPersistence(
+            changedValues,
+            failureLogMessage: "[CmuxSettingsFileStore] failed to persist socket password Settings UI change: %@"
+        ) { [weak self] in
+            guard let self else { return }
+            self.synchronized {
+                self.lastPersistedSettingsValues["automation.socketPassword"] = currentValue
             }
-        } catch {
-            NSLog("[CmuxSettingsFileStore] failed to persist socket password Settings UI change: %@", String(describing: error))
-            reapplyManagedSettingsIfNeeded()
         }
     }
 
@@ -1199,6 +1203,29 @@ final class CmuxSettingsFileStore {
             fileManager: fileManager,
             bootstrapPrimaryTemplate: bootstrapPrimaryTemplateIfNeeded
         )
+    }
+
+    private func enqueueSettingsJSONPersistence(
+        _ values: [String: ManagedSettingsValue],
+        failureLogMessage: String,
+        onSuccess: @escaping () -> Void
+    ) {
+        settingsPersistenceQueue.async { [weak self] in
+            guard let self else { return }
+            do {
+                try persistSettingsJSONValues(values)
+            } catch {
+                DispatchQueue.main.async { [weak self] in
+                    NSLog(failureLogMessage, String(describing: error))
+                    self?.reapplyManagedSettingsIfNeeded()
+                }
+                return
+            }
+
+            DispatchQueue.main.async {
+                onSuccess()
+            }
+        }
     }
 
     private func currentSettingsJSONValues(

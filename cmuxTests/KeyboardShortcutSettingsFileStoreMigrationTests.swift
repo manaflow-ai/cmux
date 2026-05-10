@@ -353,6 +353,50 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         withExtendedLifetime(store) {}
     }
 
+    func testSettingsUIChangeAppendsCommaToExistingPropertyLine() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "sidebarAppearance": {
+                "matchTerminalBackground": false // keep this comment with the original value
+              }
+            }
+            """,
+            to: primaryURL
+        )
+
+        let defaultsKey = "sidebarTintHex"
+        let defaultsSuiteName = "cmux.settings-file-store.append-comma.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuiteName))
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+        defer {
+            defaults.removePersistentDomain(forName: defaultsSuiteName)
+        }
+
+        let notificationCenter = NotificationCenter()
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: nil,
+            userDefaults: defaults,
+            notificationCenter: notificationCenter,
+            startWatching: true
+        )
+
+        defaults.set("#111111", forKey: defaultsKey)
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        try waitForSidebarAppearanceString("#111111", key: "tintColor", in: primaryURL)
+
+        let updatedContents = try String(contentsOf: primaryURL, encoding: .utf8)
+        XCTAssertFalse(updatedContents.contains("\n  ,"))
+        XCTAssertTrue(updatedContents.contains("false, // keep this comment with the original value"))
+
+        withExtendedLifetime(store) {}
+    }
+
     func testUnsupportedManagedCollectionReappliesInsteadOfDrifting() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -425,6 +469,20 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.02))
         }
         XCTFail("Timed out waiting for sidebarAppearance.matchTerminalBackground to persist")
+    }
+
+    private func waitForSidebarAppearanceString(_ expectedValue: String, key: String, in url: URL) throws {
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            let sanitized = try JSONCParser.preprocess(data: Data(contentsOf: url))
+            if let root = try JSONSerialization.jsonObject(with: sanitized) as? [String: Any],
+               let sidebarAppearance = root["sidebarAppearance"] as? [String: Any],
+               sidebarAppearance[key] as? String == expectedValue {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTFail("Timed out waiting for sidebarAppearance.\(key) to persist")
     }
 
     private func waitForAutomationSocketPassword(_ expectedValue: String?, in url: URL) throws {

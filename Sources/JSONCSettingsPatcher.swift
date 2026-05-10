@@ -44,9 +44,21 @@ nonisolated enum JSONCSettingsPatcher {
         if object.hasProperties {
             let closeIndent = lineIndent(in: source, at: object.close)
             let closeChildIndent = closeIndent + "  "
-            let separator = object.hasTrailingComma ? "" : ","
-            let insertion = "\(separator)\n\(closeChildIndent)\(try renderString(key)): \(valueJSON)\n\(closeIndent)"
-            return replacing(object.close..<object.close, with: insertion, in: source)
+            let closeIndentStart = lineIndentStart(in: source, at: object.close)
+            let leadingNewline = closeIndentStart == object.close ? "\n" : ""
+            let trailingComma = object.hasTrailingComma ? "," : ""
+            let insertion = "\(leadingNewline)\(closeChildIndent)\(try renderString(key)): \(valueJSON)\(trailingComma)\n\(closeIndent)"
+            guard object.hasTrailingComma else {
+                guard let lastValueEnd = object.lastValueEnd else {
+                    throw CocoaError(.fileReadCorruptFile)
+                }
+                return String(source[..<lastValueEnd])
+                    + ","
+                    + String(source[lastValueEnd..<closeIndentStart])
+                    + insertion
+                    + String(source[object.close...])
+            }
+            return replacing(closeIndentStart..<object.close, with: insertion, in: source)
         }
 
         let insertion = "\n\(childIndent)\(try renderString(key)): \(valueJSON)\n\(indent)"
@@ -65,6 +77,11 @@ nonisolated enum JSONCSettingsPatcher {
     }
 
     private static func lineIndent(in source: String, at index: String.Index) -> String {
+        let lineStart = lineIndentStart(in: source, at: index)
+        return String(source[lineStart..<index])
+    }
+
+    private static func lineIndentStart(in source: String, at index: String.Index) -> String.Index {
         var lineStart = index
         while lineStart > source.startIndex {
             let previous = source.index(before: lineStart)
@@ -73,14 +90,12 @@ nonisolated enum JSONCSettingsPatcher {
         }
 
         var cursor = lineStart
-        var indent = ""
         while cursor < index {
             let character = source[cursor]
-            guard character == " " || character == "\t" else { break }
-            indent.append(character)
+            guard character == " " || character == "\t" else { return index }
             cursor = source.index(after: cursor)
         }
-        return indent
+        return lineStart
     }
 
     private static func renderJSON(_ value: Any) throws -> String {
@@ -124,6 +139,7 @@ private struct ObjectInfo {
     let close: String.Index
     let hasProperties: Bool
     let hasTrailingComma: Bool
+    let lastValueEnd: String.Index?
 }
 
 private struct PropertyInfo {
@@ -153,7 +169,8 @@ private struct Scanner {
             open: open,
             close: close,
             hasProperties: summary.hasProperties,
-            hasTrailingComma: summary.hasTrailingComma
+            hasTrailingComma: summary.hasTrailingComma,
+            lastValueEnd: summary.lastValueEnd
         )
     }
 
@@ -187,14 +204,15 @@ private struct Scanner {
         }
     }
 
-    private func propertySummary(in open: String.Index, close: String.Index) throws -> (hasProperties: Bool, hasTrailingComma: Bool) {
+    private func propertySummary(in open: String.Index, close: String.Index) throws -> (hasProperties: Bool, hasTrailingComma: Bool, lastValueEnd: String.Index?) {
         var cursor = source.index(after: open)
         var hasProperties = false
         var lastPropertyHadComma = false
+        var lastValueEnd: String.Index?
         while true {
             cursor = skipTrivia(from: cursor, limit: close)
             guard cursor < close else {
-                return (hasProperties, hasProperties && lastPropertyHadComma)
+                return (hasProperties, hasProperties && lastPropertyHadComma, lastValueEnd)
             }
             guard source[cursor] == "\"" else {
                 throw CocoaError(.fileReadCorruptFile)
@@ -210,6 +228,7 @@ private struct Scanner {
             let valueStart = skipTrivia(from: colon, limit: close)
             let valueEnd = try valueEnd(from: valueStart, limit: close)
             hasProperties = true
+            lastValueEnd = valueEnd
 
             cursor = skipTrivia(from: valueEnd, limit: close)
             if cursor < close, source[cursor] == "," {
