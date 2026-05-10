@@ -980,6 +980,15 @@ private func installFileDropOverlayWhenReady(
 
 @MainActor
 private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
+    private struct Snapshot: Equatable {
+        let workspaceId: UUID?
+        let currentDirectory: String?
+        let remoteConfiguration: WorkspaceRemoteConfiguration?
+        let remoteConnectionState: WorkspaceRemoteConnectionState?
+        let remoteConnectionDetail: String?
+        let remoteDaemonStatus: WorkspaceRemoteDaemonStatus?
+    }
+
     @Published private(set) var directoryChangeGeneration: UInt64 = 0
     private weak var tabManager: TabManager?
     private var cancellable: AnyCancellable?
@@ -993,18 +1002,47 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                 return tabManager.tabs.first(where: { $0.id == tabId })
             }
             .removeDuplicates(by: { $0?.id == $1?.id })
-            .map { workspace -> AnyPublisher<(UUID?, String?), Never> in
+            .map { workspace -> AnyPublisher<Snapshot, Never> in
                 guard let workspace else {
-                    return Just<(UUID?, String?)>((nil, nil)).eraseToAnyPublisher()
+                    return Just(
+                        Snapshot(
+                            workspaceId: nil,
+                            currentDirectory: nil,
+                            remoteConfiguration: nil,
+                            remoteConnectionState: nil,
+                            remoteConnectionDetail: nil,
+                            remoteDaemonStatus: nil
+                        )
+                    )
+                    .eraseToAnyPublisher()
                 }
                 return workspace.$currentDirectory
-                    .map { (Optional(workspace.id), Optional($0)) }
+                    .combineLatest(
+                        workspace.$remoteConfiguration,
+                        workspace.$remoteConnectionState,
+                        workspace.$remoteConnectionDetail
+                    )
+                    .combineLatest(workspace.$remoteDaemonStatus)
+                    .map { values, remoteDaemonStatus in
+                        let (
+                            currentDirectory,
+                            remoteConfiguration,
+                            remoteConnectionState,
+                            remoteConnectionDetail
+                        ) = values
+                        return Snapshot(
+                            workspaceId: workspace.id,
+                            currentDirectory: currentDirectory,
+                            remoteConfiguration: remoteConfiguration,
+                            remoteConnectionState: remoteConnectionState,
+                            remoteConnectionDetail: remoteConnectionDetail,
+                            remoteDaemonStatus: remoteDaemonStatus
+                        )
+                    }
                     .eraseToAnyPublisher()
             }
             .switchToLatest()
-            .removeDuplicates { previous, next in
-                previous.0 == next.0 && previous.1 == next.1
-            }
+            .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.directoryChangeGeneration &+= 1
@@ -2469,70 +2507,57 @@ struct ContentView: View {
             // No selection means we have no local cwd to scope by; clear so the
             // sessions panel doesn't keep filtering by a stale previous tab.
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
+            fileExplorerStore.applyWorkspaceRoot(.none)
+            return
+        }
+
+        fileExplorerStore.showHiddenFiles = true
+
+        if tab.isRemoteWorkspace {
+            sessionIndexStore.setCurrentDirectoryIfChanged(nil)
+            guard let config = tab.remoteConfiguration, config.transport == .ssh else {
+                fileExplorerStore.applyWorkspaceRoot(.none)
+                return
+            }
+            let unavailableDetail = tab.remoteConnectionDetail ?? tab.remoteDaemonStatus.detail
+
+            #if DEBUG
+            let hasUnavailableDetail = unavailableDetail?.isEmpty == false
+            cmuxDebugLog(
+                "fileExplorer.sync remote state=\(tab.remoteConnectionState.rawValue) " +
+                "hasDestination=\(config.destination.isEmpty ? 0 : 1) " +
+                "hasDisplayTarget=\(config.displayTarget.isEmpty ? 0 : 1) " +
+                "hasIdentityFile=\(config.identityFile == nil ? 0 : 1) " +
+                "hasDetail=\(hasUnavailableDetail ? 1 : 0)"
+            )
+            #endif
+
+            fileExplorerStore.applyWorkspaceRoot(
+                .remoteSSH(
+                    workspaceId: tab.id,
+                    connection: SSHFileExplorerConnection(
+                        destination: config.destination,
+                        port: config.port,
+                        identityFile: config.identityFile,
+                        sshOptions: config.sshOptions
+                    ),
+                    displayTarget: config.displayTarget,
+                    isAvailable: tab.remoteConnectionState == .connected,
+                    unavailableDetail: unavailableDetail
+                )
+            )
             return
         }
 
         let dir = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !dir.isEmpty else {
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
+            fileExplorerStore.applyWorkspaceRoot(.none)
             return
         }
 
-        fileExplorerStore.showHiddenFiles = true
-        if !tab.isRemoteWorkspace {
-            sessionIndexStore.setCurrentDirectoryIfChanged(dir)
-        } else {
-            sessionIndexStore.setCurrentDirectoryIfChanged(nil)
-        }
-
-        if tab.isRemoteWorkspace {
-            let config = tab.remoteConfiguration
-            let remotePath = tab.remoteDaemonStatus.remotePath
-            let isReady = tab.remoteDaemonStatus.state == .ready
-            let homePath = remotePath.flatMap { path -> String? in
-                let components = dir.split(separator: "/")
-                if components.count >= 2, components[0] == "home" {
-                    return "/home/\(components[1])"
-                }
-                if dir.hasPrefix("/root") {
-                    return "/root"
-                }
-                return nil
-            } ?? ""
-
-            #if DEBUG
-            cmuxDebugLog("fileExplorer.sync remote dir=\(dir) ready=\(isReady) dest=\(config?.destination ?? "nil")")
-            #endif
-
-            if let existingProvider = fileExplorerStore.provider as? SSHFileExplorerProvider,
-               existingProvider.destination == config?.destination {
-                existingProvider.updateAvailability(isReady, homePath: isReady ? homePath : nil)
-                if isReady {
-                    // Only reload if the path actually changed
-                    let pathChanged = fileExplorerStore.rootPath != dir
-                    fileExplorerStore.setRootPath(dir)
-                    if pathChanged {
-                        fileExplorerStore.hydrateExpandedNodes()
-                    }
-                }
-            } else if let config {
-                let provider = SSHFileExplorerProvider(
-                    destination: config.destination,
-                    port: config.port,
-                    identityFile: config.identityFile,
-                    sshOptions: config.sshOptions,
-                    homePath: homePath,
-                    isAvailable: isReady
-                )
-                fileExplorerStore.setProvider(provider)
-                fileExplorerStore.setRootPath(dir)
-            }
-        } else {
-            if !(fileExplorerStore.provider is LocalFileExplorerProvider) {
-                fileExplorerStore.setProvider(LocalFileExplorerProvider())
-            }
-            fileExplorerStore.setRootPath(dir)
-        }
+        sessionIndexStore.setCurrentDirectoryIfChanged(dir)
+        fileExplorerStore.applyWorkspaceRoot(.local(path: dir))
     }
 
     private var focusedDirectory: String? {
@@ -6434,9 +6459,9 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.toggleSidebar",
-                title: constant(String(localized: "command.toggleSidebar.title", defaultValue: "Toggle Sidebar")),
+                title: constant(String(localized: "command.toggleLeftSidebar.title", defaultValue: "Toggle Left Sidebar")),
                 subtitle: constant(String(localized: "command.toggleSidebar.subtitle", defaultValue: "Layout")),
-                keywords: ["toggle", "sidebar", "layout"]
+                keywords: ["toggle", "sidebar", "left", "layout"]
             )
         )
         contributions.append(contentsOf: Self.commandPaletteRightSidebarModeCommandContributions())

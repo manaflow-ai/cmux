@@ -11134,7 +11134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .toggleFileExplorer) {
+        if matchConfiguredShortcut(event: event, action: .toggleRightSidebar) {
             // Escape AppKit's performKeyEquivalent animation context. Without
             // deferring the toggle, NSAnimationContext implicitly animates the
             // layout change.
