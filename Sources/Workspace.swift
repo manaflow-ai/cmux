@@ -8796,7 +8796,7 @@ final class Workspace: Identifiable, ObservableObject {
         return resolved
     }
 
-    func sidebarDirectoriesInDisplayOrder(orderedPanelIds: [UUID]) -> [String] {
+    func sidebarDirectoriesInDisplayOrder(orderedPanelIds: [UUID], includeFallback: Bool = true) -> [String] {
         let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
         let homeDirectoryForCanonicalization = sidebarHomeDirectoryForCanonicalization(
             resolvedPanelDirectories: resolvedDirectories
@@ -8815,7 +8815,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        if ordered.isEmpty, let fallbackDirectory = normalizedSidebarDirectory(currentDirectory) {
+        if includeFallback, ordered.isEmpty, let fallbackDirectory = normalizedSidebarDirectory(currentDirectory) {
             return [fallbackDirectory]
         }
 
@@ -8824,6 +8824,16 @@ final class Workspace: Identifiable, ObservableObject {
 
     func sidebarDirectoriesInDisplayOrder() -> [String] {
         sidebarDirectoriesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
+    }
+    func sidebarFinderDirectory() -> String? {
+        guard !isRemoteWorkspace else { return nil }
+        let panelIds = sidebarOrderedPanelIds()
+        let localPanelIds = panelIds.filter {
+            !remoteDetectedSurfaceIds.contains($0)
+                && !isRemoteTerminalSurface($0)
+                && !pendingRemoteTerminalChildExitSurfaceIds.contains($0)
+        }
+        return sidebarDirectoriesInDisplayOrder(orderedPanelIds: localPanelIds, includeFallback: panelIds.isEmpty || localPanelIds.count == panelIds.count).first
     }
 
     func sidebarGitBranchesInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarGitBranchState] {
