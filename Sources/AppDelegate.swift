@@ -10782,7 +10782,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 clearCommandPalettePendingOpen(for: paletteWindow)
                 beginCommandPaletteEscapeSuppression(for: paletteWindow)
-                NotificationCenter.default.post(name: .commandPaletteToggleRequested, object: paletteWindow)
+                NotificationCenter.default.post(name: .commandPaletteDismissRequested, object: paletteWindow)
 #if DEBUG
                 cmuxDebugLog("shortcut.escape paletteDismiss consumed=1 target={\(debugWindowToken(paletteWindow))}")
 #endif
