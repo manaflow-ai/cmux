@@ -27,6 +27,7 @@ struct InteractiveWindowPreview: NSViewRepresentable {
 
 final class InteractiveWindowPreviewView: NSView {
     private var mouseTrackingArea: NSTrackingArea?
+    private var localMouseMoveMonitor: Any?
 
     var image: CGImage? {
         didSet {
@@ -64,7 +65,15 @@ final class InteractiveWindowPreviewView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         window?.acceptsMouseMovedEvents = true
+        installLocalMouseMoveMonitor()
         updateTrackingAreas()
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil {
+            removeLocalMouseMoveMonitor()
+        }
+        super.viewWillMove(toWindow: newWindow)
     }
 
     override func updateTrackingAreas() {
@@ -151,6 +160,32 @@ final class InteractiveWindowPreviewView: NSView {
 
     override func keyUp(with event: NSEvent) {
         emitKey(event, isDown: false)
+    }
+
+    private func installLocalMouseMoveMonitor() {
+        guard localMouseMoveMonitor == nil else {
+            return
+        }
+
+        localMouseMoveMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { [weak self] event in
+            guard let self, event.window === window, containsEventLocation(event) else {
+                return event
+            }
+            emitMouse(event, phase: .moved, button: .left)
+            return event
+        }
+    }
+
+    private func removeLocalMouseMoveMonitor() {
+        if let localMouseMoveMonitor {
+            NSEvent.removeMonitor(localMouseMoveMonitor)
+        }
+        localMouseMoveMonitor = nil
+    }
+
+    private func containsEventLocation(_ event: NSEvent) -> Bool {
+        let localPoint = convert(event.locationInWindow, from: nil)
+        return bounds.contains(localPoint)
     }
 
     private func emitMouse(_ event: NSEvent, phase: WindowMousePhase, button: WindowMouseButton) {

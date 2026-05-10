@@ -12,7 +12,7 @@ struct WindowInputForwarder {
         }
 
         let point = screenPoint(for: input.normalizedPoint, in: window)
-        let clickCount = max(input.clickCount, 1)
+        let clickCount = clickCount(for: input)
         guard let event = mouseEvent(
             type: nsMouseType(for: input.phase, button: input.button),
             location: point,
@@ -155,6 +155,15 @@ struct WindowInputForwarder {
 
     private func windowLocalPoint(for point: CGPoint, in window: HostWindow) -> CGPoint {
         CGPoint(x: point.x - window.frame.minX, y: point.y - window.frame.minY)
+    }
+
+    private func clickCount(for input: WindowMouseInput) -> Int {
+        switch input.phase {
+        case .moved:
+            return 0
+        case .down, .dragged, .up:
+            return max(input.clickCount, 1)
+        }
     }
 
     private func scrollDelta(from value: Double) -> Int32 {
