@@ -493,6 +493,48 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    func testEscapeDismissesCommandPaletteOpenedByCmdShiftP() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_TAG"] = "ui-esc-\(UUID().uuidString.prefix(8))"
+        launchAndEnsureForeground(app)
+
+        let window = app.windows.firstMatch
+        _ = window.waitForExistence(timeout: 2.0)
+        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control socket at \(socketPath)")
+
+        guard let workspace = currentWorkspaceContext() else {
+            XCTFail("Expected current workspace context before opening the command palette")
+            return
+        }
+
+        let paletteSearchField = app.textFields["CommandPaletteSearchField"].firstMatch
+        app.typeKey("p", modifierFlags: [.command, .shift])
+        XCTAssertTrue(
+            paletteSearchField.waitForExistence(timeout: 5.0),
+            "Expected Cmd+Shift+P to open the command palette"
+        )
+        XCTAssertNotNil(
+            waitForCommandPaletteSnapshot(
+                windowId: workspace.windowId,
+                mode: "commands",
+                query: ">",
+                timeout: 5.0
+            ),
+            "Expected command palette debug state to report visible commands mode"
+        )
+
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(
+            waitForNonExistence(paletteSearchField, timeout: 5.0),
+            "Expected Escape to dismiss the command palette opened by Cmd+Shift+P"
+        )
+        XCTAssertTrue(
+            waitForCommandPaletteVisibility(windowId: workspace.windowId, visible: false, timeout: 5.0),
+            "Expected command palette debug state to report hidden after Escape"
+        )
+    }
+
     func testCmdDSplitsRightWhenWebViewFocused() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
@@ -1392,6 +1434,16 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
         guard let ok = envelope?["ok"] as? Bool, ok else { return nil }
         return envelope?["result"] as? [String: Any]
+    }
+
+    private func waitForCommandPaletteVisibility(
+        windowId: String,
+        visible: Bool,
+        timeout: TimeInterval
+    ) -> Bool {
+        waitForCondition(timeout: timeout) {
+            (self.commandPaletteSnapshot(windowId: windowId)?["visible"] as? Bool) == visible
+        }
     }
 
     private var autofocusRacePageURL: String {
