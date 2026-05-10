@@ -240,48 +240,52 @@ def main() -> int:
                 f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
             )
 
-    try:
-        result = run_cli_args(cli_path, ["settings", "--help"])
-    except subprocess.TimeoutExpired:
-        failures.append("cmux settings --help stale-target check: timed out")
-    except (RuntimeError, OSError, ValueError) as exc:
-        failures.append(f"cmux settings --help stale-target check: {exc}")
-    else:
-        stale_usage = "Usage: cmux settings [open|path|docs|target]"
-        management_usage = "Usage: cmux settings <subcommand>"
-        required_subcommands = [
-            "list [--keys] [--json]",
-            "get <key> [--json] [--reveal]",
-            "set <key> <value>",
-            "unset <key>",
-            "reset [--yes]",
-            "export [--format json|toml] [--out file] [--reveal]",
-            "import <file>",
-            "shortcuts list [--keys] [--json]",
-            "shortcuts get <action> [--json]",
-            "shortcuts set <action> <key-combo> [--force]",
-            "shortcuts unset <action>",
-            "shortcuts reset",
-            "open [target]",
-            "path",
-            "docs",
-        ]
-        if stale_usage in result.stdout:
-            failures.append(
-                f"cmux settings --help: stale literal target usage still present\n"
-                f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
-            )
-        if management_usage not in result.stdout:
-            failures.append(
-                f"cmux settings --help: expected management usage {management_usage!r}\n"
-                f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
-            )
-        for subcommand in required_subcommands:
-            if subcommand not in result.stdout:
+    stale_usage = "Usage: cmux settings [open|path|docs|target]"
+    management_usage = "Usage: cmux settings <subcommand>"
+    required_subcommands = [
+        "list [--keys] [--json]",
+        "get <key> [--json] [--reveal]",
+        "set <key> <value>",
+        "unset <key>",
+        "reset [--yes]",
+        "export [--format json|toml] [--out file] [--reveal]",
+        "import <file>",
+        "shortcuts list [--keys] [--json]",
+        "shortcuts get <action> [--json]",
+        "shortcuts set <action> <key-combo> [--force]",
+        "shortcuts unset <action>",
+        "shortcuts reset",
+        "open [target]",
+        "path",
+        "docs",
+    ]
+    for settings_help_args, label in [
+        (["settings", "--help"], "cmux settings --help"),
+        (["settings", "help"], "cmux settings help"),
+    ]:
+        try:
+            result = run_cli_args(cli_path, settings_help_args)
+        except subprocess.TimeoutExpired:
+            failures.append(f"{label} stale-target check: timed out")
+        except (RuntimeError, OSError, ValueError) as exc:
+            failures.append(f"{label} stale-target check: {exc}")
+        else:
+            if stale_usage in result.stdout:
                 failures.append(
-                    f"cmux settings --help: missing settings subcommand help {subcommand!r}\n"
+                    f"{label}: stale literal target usage still present\n"
                     f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
                 )
+            if management_usage not in result.stdout:
+                failures.append(
+                    f"{label}: expected management usage {management_usage!r}\n"
+                    f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+                )
+            for subcommand in required_subcommands:
+                if subcommand not in result.stdout:
+                    failures.append(
+                        f"{label}: missing settings subcommand help {subcommand!r}\n"
+                        f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+                    )
 
     if failures:
         print("FAIL: CLI help contract probes failed")

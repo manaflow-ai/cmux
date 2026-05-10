@@ -5,7 +5,7 @@ import CMUXSettingsCore
 extension CMUXCLI {
     enum SettingsCommand {
         static let subcommands: Set<String> = [
-            "list", "get", "set", "unset", "reset", "export", "import", "shortcuts",
+            "help", "list", "get", "set", "unset", "reset", "export", "import", "shortcuts",
         ]
 
         static let noSocketSubcommands: Set<String> = [
@@ -44,6 +44,8 @@ extension CMUXCLI {
         let store = SettingsFileStore()
 
         switch subcommand {
+        case "help":
+            print(settingsUsage())
         case "list":
             try runSettingsList(args: args, store: store, jsonOutput: wantsJSON)
         case "get":
