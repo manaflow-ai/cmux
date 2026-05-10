@@ -354,7 +354,6 @@ enum SettingsSearchIndex {
         setting(.globalHotkey, "enable-hotkey", String(localized: "settings.globalHotkey.enable", defaultValue: "Enable System-Wide Hotkey"), "global shortcut show hide windows"),
         setting(.globalHotkey, "shortcut", String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey"), "keyboard recorder command option control"),
         setting(.keyboardShortcuts, "shortcut-chords", String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"), "tmux multi step keybindings"),
-        setting(.keyboardShortcuts, "show-hints", String(localized: "settings.shortcuts.showHints", defaultValue: "Show Cmd/Ctrl-Hold Shortcut Hints"), "modifier hold hints keyboard"),
         setting(.keyboardShortcuts, "shortcuts", String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"), "keybindings commands"),
         setting(.workspaceColors, "indicator", String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"), "tab color indicator"),
         setting(.workspaceColors, "selection", String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"), "selected workspace background"),
@@ -434,8 +433,7 @@ enum SettingsSearchIndex {
         "browser.urlsToAlwaysOpenExternally": settingID(for: .browser, idSuffix: "external-patterns"),
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser": settingID(for: .browser, idSuffix: "http-allowlist"),
         "browser.showImportHintOnBlankTabs": settingID(for: .browserImport, idSuffix: "import-hint"),
-        "browser.reactGrabVersion": settingID(for: .browser, idSuffix: "react-grab"),
-        "shortcuts.showModifierHoldHints": settingID(for: .keyboardShortcuts, idSuffix: "show-hints")
+        "browser.reactGrabVersion": settingID(for: .browser, idSuffix: "react-grab")
     ]
 
     static func entries(matching query: String) -> [SettingsSearchEntry] {

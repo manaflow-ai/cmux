@@ -148,16 +148,21 @@ struct RightSidebarPanelView: View {
     let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
     let onOpenFilePreview: (String) -> Void
+    let onClose: () -> Void
 
     @State private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
         guard let responder = window.firstResponder else { return false }
         return AppDelegate.shared?.isRightSidebarFocusResponder(responder, in: window) == true
     }
     @State private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
+    @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject private var dockStore = DockControlsStore()
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
-    @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
-    private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
+    private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
+    private let closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
+    private let closeShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintY
+    private let focusShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintX
+    private let focusShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintY
     @AppStorage(RightSidebarBetaFeatureSettings.feedEnabledKey)
     private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
@@ -175,15 +180,11 @@ struct RightSidebarPanelView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            VStack(spacing: 0) {
-                modeBar
-                    .rightSidebarChromeBottomBorder()
-                contentForMode
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-
-            focusShortcutHintOverlay
+        VStack(spacing: 0) {
+            modeBar
+                .rightSidebarChromeBottomBorder()
+            contentForMode
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .shortcutHintVisibilityAnimation(value: focusShortcutHintMonitor.isModifierPressed)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -195,6 +196,7 @@ struct RightSidebarPanelView: View {
             WindowAccessor { window in
                 modeShortcutHintMonitor.setHostWindow(window)
                 focusShortcutHintMonitor.setHostWindow(window)
+                closeShortcutHintMonitor.setHostWindow(window)
             }
             .frame(width: 0, height: 0)
         )
@@ -202,11 +204,13 @@ struct RightSidebarPanelView: View {
         .onAppear {
             modeShortcutHintMonitor.start()
             focusShortcutHintMonitor.start()
+            closeShortcutHintMonitor.start()
             fileExplorerState.refreshModeAvailability()
         }
         .onDisappear {
             modeShortcutHintMonitor.stop()
             focusShortcutHintMonitor.stop()
+            closeShortcutHintMonitor.stop()
         }
         .onChange(of: fileExplorerState.mode) { _, mode in
             if mode != .dock { dockStore.deactivate() }
@@ -241,9 +245,13 @@ struct RightSidebarPanelView: View {
                     }
                 }
                 Spacer(minLength: 0)
+                closeButton
             }
         }
         .rightSidebarChromeBar(leadingPadding: 4, trailingPadding: 6, height: titlebarHeight)
+        .overlay(alignment: .topLeading) {
+            focusShortcutHintOverlay
+        }
         .background(TitlebarDoubleClickMonitorView())
         .background(MinimalModeTitlebarControlHitRegionView())
         .accessibilityElement(children: .contain)
@@ -254,26 +262,75 @@ struct RightSidebarPanelView: View {
         )
     }
 
-    @ViewBuilder
-    private var focusShortcutHintOverlay: some View {
+    private var closeButton: some View {
         let _ = keyboardShortcutSettingsObserver.revision
-        let showsFocusShortcutHint = focusShortcutHintMonitor.isModifierPressed
-        ZStack(alignment: .topLeading) {
-            if showsFocusShortcutHint {
-                ShortcutHintPill(
-                    shortcut: KeyboardShortcutSettings.shortcut(for: .focusRightSidebar),
-                    fontSize: 9,
-                    emphasis: 1.05
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleRightSidebar)
+        let showsShortcutHint = titlebarShortcutHintShouldShow(
+            shortcut: shortcut,
+            alwaysShowShortcutHints: alwaysShowShortcutHints,
+            modifierPressed: closeShortcutHintMonitor.isModifierPressed
+        )
+        return ZStack {
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.secondary)
+            .safeHelp(
+                KeyboardShortcutSettings.Action.toggleRightSidebar.tooltip(
+                    String(localized: "rightSidebar.toggle.tooltip", defaultValue: "Toggle right sidebar")
                 )
-                    .padding(.leading, 6)
-                    .padding(.top, 5)
+            )
+            .accessibilityLabel(String(localized: "rightSidebar.close.accessibilityLabel", defaultValue: "Close Right Sidebar"))
+            .accessibilityIdentifier("RightSidebar.closeButton")
+        }
+        .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
+        .overlay(alignment: .top) {
+            if showsShortcutHint {
+                ShortcutHintPill(shortcut: shortcut, fontSize: 9, emphasis: 1.05)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .offset(
+                        x: CGFloat(ShortcutHintDebugSettings.clamped(closeShortcutHintXOffset)),
+                        y: CGFloat(ShortcutHintDebugSettings.clamped(closeShortcutHintYOffset))
+                    )
                     .shortcutHintTransition()
-                    .accessibilityIdentifier("rightSidebarFocusShortcutHint")
+                    .accessibilityIdentifier("rightSidebarCloseShortcutHint")
+                    .allowsHitTesting(false)
                     .zIndex(10)
             }
         }
-        .allowsHitTesting(false)
-        .shortcutHintVisibilityAnimation(value: showsFocusShortcutHint)
+        .shortcutHintVisibilityAnimation(value: showsShortcutHint)
+    }
+
+    @ViewBuilder
+    private var focusShortcutHintOverlay: some View {
+        let _ = keyboardShortcutSettingsObserver.revision
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .focusRightSidebar)
+        let showsFocusShortcutHint = titlebarShortcutHintShouldShow(
+            shortcut: shortcut,
+            alwaysShowShortcutHints: alwaysShowShortcutHints,
+            modifierPressed: focusShortcutHintMonitor.isModifierPressed
+        )
+        if showsFocusShortcutHint {
+            ShortcutHintPill(
+                shortcut: shortcut,
+                fontSize: 9,
+                emphasis: 1.05
+            )
+                .padding(.leading, 6)
+                .padding(.top, 5)
+                .offset(
+                    x: CGFloat(ShortcutHintDebugSettings.clamped(focusShortcutHintXOffset)),
+                    y: CGFloat(ShortcutHintDebugSettings.clamped(focusShortcutHintYOffset))
+                )
+                .shortcutHintTransition()
+                .accessibilityIdentifier("rightSidebarFocusShortcutHint")
+                .allowsHitTesting(false)
+                .zIndex(10)
+        }
     }
 
     @ViewBuilder

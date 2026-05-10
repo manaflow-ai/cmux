@@ -5523,6 +5523,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    func closeRightSidebarInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
+        guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else {
+            guard let fileExplorerState else {
+                return false
+            }
+            fileExplorerState.setVisible(false)
+            return true
+        }
+
+        let window = context.window ?? windowForMainWindowId(context.windowId)
+        if let window {
+            setActiveMainWindow(window)
+        }
+
+        guard let state = context.fileExplorerState ?? fileExplorerState else {
+            return false
+        }
+        let wasVisible = state.isVisible
+        state.setVisible(false)
+        if wasVisible && !state.isVisible {
+            _ = context.keyboardFocusCoordinator.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded()
+        }
+        return true
+    }
+
+    @discardableResult
     func restoreTerminalFocusAfterRightSidebarHidden(in window: NSWindow?) -> Bool {
         let context = preferredRegisteredMainWindowContext(preferredWindow: window)
         return context?.keyboardFocusCoordinator.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded() ?? false
