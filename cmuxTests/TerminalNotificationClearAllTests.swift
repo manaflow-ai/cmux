@@ -110,6 +110,48 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertFalse(store.notifications.contains { $0.surfaceId == notifiedPanel.id })
     }
 
+    func testClearingUnpanelledAgentPIDRemovesTabNotifications() {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = Workspace()
+        let surfaceId = UUID()
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        TerminalMutationBus.shared.enqueueNotification(
+            tabId: workspace.id,
+            surfaceId: surfaceId,
+            title: "Agent",
+            subtitle: "Status",
+            body: "Doing well, thanks!"
+        )
+        TerminalMutationBus.shared.drainForTesting()
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: surfaceId))
+
+        workspace.setAgentPID(
+            key: "codex",
+            pid: pid_t(ProcessInfo.processInfo.processIdentifier),
+            refreshPorts: false
+        )
+        XCTAssertTrue(workspace.clearAgentPID(key: "codex", clearStatus: true, refreshPorts: false))
+
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: surfaceId))
+        XCTAssertTrue(store.notifications.isEmpty)
+    }
+
     func testClosingPaneRemovesFocusedReadIndicatorWithoutNotificationRows() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
