@@ -99,6 +99,46 @@ final class BrowserWebExtensionAuxiliaryWindowFrameTests: XCTestCase {
     }
 }
 
+final class BrowserWebExtensionActionPopupContentSizeTests: XCTestCase {
+    func testUsesDefaultSizeWhenWebKitReportsTinyPopup() {
+        let size = browserWebExtensionActionPopupContentSize(
+            requestedSize: CGSize(width: 16, height: 16),
+            visibleFrame: NSRect(x: 0, y: 0, width: 1200, height: 900),
+            defaultSize: CGSize(width: 380, height: 560),
+            minSize: CGSize(width: 260, height: 180),
+            maxSize: CGSize(width: 800, height: 600)
+        )
+
+        XCTAssertEqual(size.width, 380)
+        XCTAssertEqual(size.height, 560)
+    }
+
+    func testPreservesUsablePopupSizeWithinChromeBounds() {
+        let size = browserWebExtensionActionPopupContentSize(
+            requestedSize: CGSize(width: 320, height: 240),
+            visibleFrame: NSRect(x: 0, y: 0, width: 1200, height: 900),
+            defaultSize: CGSize(width: 380, height: 560),
+            minSize: CGSize(width: 260, height: 180),
+            maxSize: CGSize(width: 800, height: 600)
+        )
+
+        XCTAssertEqual(size.width, 320)
+        XCTAssertEqual(size.height, 240)
+    }
+
+    func testClampsOversizedPopupToScreenAndChromeBounds() {
+        let size = browserWebExtensionActionPopupContentSize(
+            requestedSize: CGSize(width: 900, height: 900),
+            visibleFrame: NSRect(x: 0, y: 0, width: 700, height: 500),
+            defaultSize: CGSize(width: 380, height: 560),
+            minSize: CGSize(width: 260, height: 180),
+            maxSize: CGSize(width: 800, height: 600)
+        )
+
+        XCTAssertEqual(size.width, 700)
+        XCTAssertEqual(size.height, 500)
+    }
+}
 
 final class BrowserWebExtensionInstallStoreTests: XCTestCase {
     func testInstallsUnpackedResourceExtensionIntoManagedStore() throws {
