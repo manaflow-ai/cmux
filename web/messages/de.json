@@ -298,7 +298,7 @@
       "browserLinkBehavior": "Browser-Link-Verhalten",
       "browserLinkDesc": "Unter Einstellungen > Browser stellt cmux zwei Host-Listen mit unterschiedlichen Zwecken bereit:",
       "browserHostsEmbed": "Hosts im eingebetteten Browser öffnen: Gilt für Links, die aus der Terminal-Ausgabe geklickt werden. Hosts in dieser Liste öffnen sich in cmux; andere Hosts öffnen sich in Ihrem Standardbrowser. Unterstützt einen Host oder Wildcard pro Zeile (zum Beispiel: example.com, *.internal.example).",
-      "browserHostsHttp": "Im eingebetteten Browser erlaubte HTTP-Hosts: Gilt nur für HTTP-URLs (nicht HTTPS). Hosts in dieser Liste können in cmux ohne Warnhinweis geöffnet werden. Standardmäßig enthalten sind localhost, 127.0.0.1, ::1, 0.0.0.0 und *.localtest.me.",
+      "browserHostsHttp": "Im eingebetteten Browser erlaubte HTTP-Hosts: Gilt nur für HTTP-URLs (nicht HTTPS). Hosts in dieser Liste können in cmux ohne Warnhinweis geöffnet werden. Standardmäßig enthalten sind localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 und *.localtest.me.",
       "exampleConfig": "Beispielkonfiguration",
       "metaTitle": "Konfiguration"
     },

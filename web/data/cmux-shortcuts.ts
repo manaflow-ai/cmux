@@ -61,7 +61,8 @@ export const shortcutCategories: ShortcutCategory[] = [
     titleKey: "workspaces",
     blurbKey: "workspacesBlurb",
     shortcuts: [
-      { id: "toggleSidebar", combos: [["⌘", "B"]], description: { en: "Toggle sidebar", ja: "サイドバーを切り替え" } },
+      { id: "toggleSidebar", combos: [["⌘", "B"]], description: { en: "Toggle left sidebar", ja: "左サイドバーを切り替え" } },
+      { id: "toggleFileExplorer", combos: [["⌘", "⌥", "B"]], description: { en: "Toggle right sidebar", ja: "右サイドバーを切り替え" } },
       { id: "newTab", combos: [["⌘", "N"]], description: { en: "New workspace", ja: "新規ワークスペース" } },
       { id: "openFolder", combos: [["⌘", "O"]], description: { en: "Open folder", ja: "フォルダを開く" } },
       {
@@ -75,13 +76,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "selectWorkspaceByNumber", combos: [["⌘", "1…9"]], description: { en: "Select workspace 1…9", ja: "ワークスペース1…9を選択" } },
       { id: "renameWorkspace", combos: [["⌘", "⇧", "R"]], description: { en: "Rename workspace", ja: "ワークスペース名を変更" } },
       { id: "editWorkspaceDescription", combos: [["⌥", "⌘", "E"]], description: { en: "Edit workspace description", ja: "ワークスペースの説明を編集" } },
-      { id: "focusRightSidebar", combos: [["⌘", "⇧", "E"]], description: { en: "Focus right sidebar", ja: "右サイドバーにフォーカス" } },
-      {
-        id: "switchRightSidebarMode",
-        combos: [["⌃", "1 / 2 / 3 / 4 / 5"]],
-        description: { en: "Switch Files / Find / Sessions / Feed / Dock", ja: "ファイル / 検索 / セッション / フィード / Dockを切り替え" },
-        note: { en: "when the right sidebar is focused", ja: "右サイドバーにフォーカス中" },
-      },
+      { id: "focusRightSidebar", combos: [["⌘", "⇧", "E"]], description: { en: "Toggle right-sidebar focus", ja: "右サイドバーのフォーカスを切り替え" } },
       {
         id: "navigateRightSidebarRows",
         combos: [["J / K"], ["⌃", "N / P"], ["H / L"]],
