@@ -57,9 +57,10 @@ enum RemoteLoopbackRuntimeBridge {
             } catch {
               return input;
             }
-            // Keep HMR/streaming WebSocket upgrades (`ws:`/`wss:`) on the SSH proxy alias,
-            // while leaving `https:` alone to avoid changing certificate expectations.
-            if (parsed.protocol !== 'http:' && parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') {
+            // Only rewrite cleartext HTTP/WebSocket requests. TLS-bearing `https:` and
+            // `wss:` validate certificates against the URL hostname, so aliasing them
+            // would change SNI/certificate expectations for localhost dev servers.
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'ws:') {
               return input;
             }
             const rewrittenHost = loopbackAliasHost(parsed.hostname);

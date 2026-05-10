@@ -1301,6 +1301,7 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
                 rewrite('http://localhost:3000/frontend'),
                 rewrite('http://localhost:8000/api'),
                 rewrite('http://api.localhost:8000/v1'),
+                rewrite('ws://localhost:5173/hmr'),
                 rewrite('wss://localhost:5173/hmr'),
                 rewrite('https://localhost:9443/secure')
               ]);
@@ -1310,7 +1311,7 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
 
         XCTAssertEqual(
             result,
-            #"["http://cmux-loopback.localtest.me:3000/frontend","http://cmux-loopback.localtest.me:8000/api","http://api.cmux-loopback.localtest.me:8000/v1","wss://cmux-loopback.localtest.me:5173/hmr","https://localhost:9443/secure"]"#
+            #"["http://cmux-loopback.localtest.me:3000/frontend","http://cmux-loopback.localtest.me:8000/api","http://api.cmux-loopback.localtest.me:8000/v1","ws://cmux-loopback.localtest.me:5173/hmr","wss://localhost:5173/hmr","https://localhost:9443/secure"]"#
         )
     }
 
