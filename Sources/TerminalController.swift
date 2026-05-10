@@ -133,6 +133,7 @@ class TerminalController {
         "focus_notification",
         "activate_app",
         "debug_right_sidebar_focus",
+        "right_sidebar",
     ]
 
     private nonisolated static let focusIntentV2Methods: Set<String> = [
@@ -2154,6 +2155,9 @@ class TerminalController {
 
         case "reset_sidebar":
             return resetSidebar(args)
+
+        case "right_sidebar":
+            return rightSidebar(args)
 
         case "read_screen":
             return readScreenText(args)
@@ -12709,6 +12713,7 @@ class TerminalController {
           report_pr_action <merge|close|reopen|create|checkout|ready|edit|view> [--target=X] [--tab=X] [--panel=Y] - Hint that a PR-affecting command completed in the panel
           report_pwd <path> [--tab=X] [--panel=Y] - Report current working directory
           clear_ports [--tab=X] [--panel=Y] - Clear listening ports
+          right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--tab=X] [--window=Y] [--no-focus] - Control right sidebar visibility, mode, and focus
           sidebar_state [--tab=X] - Dump sidebar metadata
           reset_sidebar [--tab=X] - Clear sidebar metadata
 
@@ -16995,6 +17000,45 @@ class TerminalController {
         }
         return result
     }
+
+    private func rightSidebar(_ args: String) -> String {
+        let parsed = RightSidebarRemoteRequest.parse(tokens: tokenizeArgs(args))
+        let request: RightSidebarRemoteRequest
+        switch parsed {
+        case .success(let value):
+            request = value
+        case .failure(let error):
+            return error.message
+        }
+
+        return v2MainSync {
+            guard let app = AppDelegate.shared else {
+                return String(localized: "rightSidebar.remote.error.appDelegateUnavailable", defaultValue: "ERROR: App delegate not available")
+            }
+            switch app.applyRightSidebarRemoteCommand(request.command, target: request.target) {
+            case .ok:
+                return "OK"
+            case .state(let state):
+                return v2Encode([
+                    "visible": state.visible,
+                    "mode": state.mode.rawValue
+                ])
+            case .failure(let message):
+                return message
+            }
+        }
+    }
+
+#if DEBUG
+    func parseRightSidebarRemoteRequestForTesting(_ commandLine: String) -> Result<RightSidebarRemoteRequest, RightSidebarRemoteParseError> {
+        let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
+        guard parts.first?.lowercased() == "right_sidebar" else {
+            return .failure(.init(message: "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|mode>"))
+        }
+        return RightSidebarRemoteRequest.parse(tokens: tokenizeArgs(parts.count > 1 ? parts[1] : ""))
+    }
+#endif
 
     private func resetSidebar(_ args: String) -> String {
         var result = "OK"
