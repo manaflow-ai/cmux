@@ -1492,6 +1492,13 @@ class TabManager: ObservableObject {
                 continue
             }
 
+            guard !workspace.isRemoteWorkspace,
+                  workspace.terminalLocation(for: result.panelId)?.isRemote != true else {
+                workspace.clearPanelPullRequest(panelId: result.panelId)
+                clearWorkspacePullRequestTracking(for: key)
+                continue
+            }
+
             let priorPullRequest = workspace.panelPullRequests[result.panelId]
             let countsAsTerminalSweep = priorPullRequest.map { $0.status != .open } ?? false
 
@@ -1827,6 +1834,10 @@ class TabManager: ObservableObject {
     }
 
     private func gitProbeDirectory(for workspace: Workspace, panelId: UUID) -> String? {
+        guard !workspace.isRemoteWorkspace,
+              workspace.terminalLocation(for: panelId)?.isRemote != true else {
+            return nil
+        }
         // Match the sidebar directory fallback chain so hidden/background panels can
         // still probe git metadata before OSC 7 has reported a live cwd.
         let rawDirectory = workspace.panelDirectories[panelId]
@@ -3923,12 +3934,49 @@ class TabManager: ObservableObject {
     // MARK: - Surface Directory Updates (Backwards Compatibility)
 
     func updateSurfaceDirectory(tabId: UUID, surfaceId: UUID, directory: String) {
+        let normalizedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedDirectory.isEmpty else { return }
+        let location = TerminalLocation.parseReportedDirectory(normalizedDirectory) ?? .local(path: normalizedDirectory)
+        updateSurfaceLocation(tabId: tabId, surfaceId: surfaceId, location: location)
+    }
+
+    func updateSurfaceLocation(tabId: UUID, surfaceId: UUID, location: TerminalLocation) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        let previousDirectory = gitProbeDirectory(for: tab, panelId: surfaceId)
-        let normalized = normalizeDirectory(directory)
-        tab.updatePanelDirectory(panelId: surfaceId, directory: normalized)
-        let nextDirectory = normalizedWorkingDirectory(normalized)
-        if previousDirectory != nextDirectory {
+        let shouldProbeLocalGit = !location.isRemote && !tab.isRemoteWorkspace
+        let shouldClearLocalPullRequestState = !shouldProbeLocalGit
+        let previousDirectory = shouldProbeLocalGit ? gitProbeDirectory(for: tab, panelId: surfaceId) : nil
+        let probeKey = WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId)
+        tab.updatePanelLocation(panelId: surfaceId, location: location)
+        var shouldScheduleLocalBranchRefresh = false
+
+        if shouldClearLocalPullRequestState {
+            tab.clearPanelPullRequest(panelId: surfaceId)
+            clearWorkspacePullRequestTracking(for: probeKey)
+        }
+
+        switch location.gitBranchSignal {
+        case .branch(let branch):
+            let currentBranch = tab.panelGitBranches[surfaceId]
+            let normalizedBranch = Self.normalizedBranchName(branch.branch) ?? branch.branch
+            let branchMetadataChanged = currentBranch?.branch != normalizedBranch ||
+                currentBranch?.isDirty != branch.isDirty
+            if branchMetadataChanged {
+                tab.updatePanelGitBranch(panelId: surfaceId, branch: normalizedBranch, isDirty: branch.isDirty)
+            }
+            if !shouldClearLocalPullRequestState, branchMetadataChanged {
+                clearWorkspacePullRequestTracking(for: probeKey)
+                shouldScheduleLocalBranchRefresh = true
+            }
+        case .clear where location.isRemote:
+            tab.clearPanelGitBranch(panelId: surfaceId)
+        case .unspecified where location.isRemote:
+            tab.clearPanelGitBranch(panelId: surfaceId)
+        case .clear, .unspecified:
+            break
+        }
+
+        let nextDirectory = shouldProbeLocalGit ? normalizedWorkingDirectory(location.path) : nil
+        if shouldProbeLocalGit, previousDirectory != nextDirectory {
             scheduleWorkspacePullRequestRefresh(
                 workspaceId: tabId,
                 panelId: surfaceId,
@@ -3938,6 +3986,17 @@ class TabManager: ObservableObject {
                 workspaceId: tabId,
                 panelId: surfaceId,
                 reason: "directoryChange"
+            )
+        } else if shouldProbeLocalGit, shouldScheduleLocalBranchRefresh {
+            scheduleWorkspacePullRequestRefresh(
+                workspaceId: tabId,
+                panelId: surfaceId,
+                reason: "branchChange"
+            )
+            scheduleWorkspaceGitMetadataRefreshIfPossible(
+                workspaceId: tabId,
+                panelId: surfaceId,
+                reason: "branchChange"
             )
         }
     }
@@ -3949,6 +4008,13 @@ class TabManager: ObservableObject {
         isDirty: Bool
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        if tab.terminalLocation(for: surfaceId)?.isRemote == true || tab.isRemoteWorkspace {
+            tab.clearPanelPullRequest(panelId: surfaceId)
+            clearWorkspacePullRequestTracking(
+                for: WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId)
+            )
+            return
+        }
         let current = tab.panelGitBranches[surfaceId]
         let normalizedBranch = Self.normalizedBranchName(branch) ?? branch
         guard current?.branch != normalizedBranch || current?.isDirty != isDirty else { return }

@@ -232,6 +232,40 @@
         }
       }
     },
+    "cli.remote-shell-init.error.unknownArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux remote-shell-init"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux remote-shell-init"
+          }
+        }
+      }
+    },
+    "cli.remote-shell-init.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux remote-shell-init\n\nPrint a bash/zsh snippet for remote shells opened inside a regular cmux terminal pane.\nSource it on the remote host to emit OSC 7 cwd and git branch hints over ssh or mosh.\n\nExample:\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux remote-shell-init\n\n通常の cmux ターミナルペイン内で開いたリモートシェル用の bash/zsh スニペットを出力します。\nリモートホストで source すると、ssh または mosh 越しに OSC 7 の cwd と git ブランチヒントを送信します。\n\n例:\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
+          }
+        }
+      }
+    },
     "applescript.error.disabled": {
       "extractionState": "manual",
       "localizations": {

@@ -221,6 +221,12 @@ struct SessionGitBranchSnapshot: Codable, Sendable {
     var isDirty: Bool
 }
 
+struct SessionTerminalLocationSnapshot: Codable, Sendable {
+    var host: String?
+    var path: String
+    var source: String?
+}
+
 struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var workingDirectory: String?
     var scrollback: String?
@@ -260,6 +266,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var browser: SessionBrowserPanelSnapshot?
     var markdown: SessionMarkdownPanelSnapshot?
     var filePreview: SessionFilePreviewPanelSnapshot?
+    var terminalLocation: SessionTerminalLocationSnapshot? = nil
 }
 
 enum SessionSplitOrientation: String, Codable, Sendable {

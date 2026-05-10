@@ -694,6 +694,58 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertEqual(workspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["main"])
     }
 
+    func testOSC7BranchSignalSchedulesLocalGitRefreshWhenDirectoryIsUnchanged() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-git-osc7-branch-refresh-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.updatePanelDirectory(panelId: panelId, directory: directoryURL.path)
+        XCTAssertTrue(manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id).isEmpty)
+        let releaseProbe = DispatchSemaphore(value: 0)
+        TabManager.commandRunnerForTesting = { _, executable, _, _ in
+            if executable == "git" || executable.hasSuffix("/git") {
+                _ = releaseProbe.wait(timeout: .now() + 2)
+            }
+            return TabManager.CommandResult(
+                stdout: "",
+                stderr: "",
+                exitStatus: 1,
+                timedOut: false,
+                executionError: nil
+            )
+        }
+        defer {
+            releaseProbe.signal()
+            TabManager.commandRunnerForTesting = nil
+        }
+
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            directory: "\u{1B}]7;file://localhost\(directoryURL.path)?cmux_git_branch=feature%2Fosc7&cmux_git_dirty=0\u{1B}\\"
+        )
+
+        XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "feature/osc7")
+        XCTAssertTrue(manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id).contains(panelId))
+        releaseProbe.signal()
+        XCTAssertTrue(
+            waitForCondition {
+                manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id).isEmpty
+            }
+        )
+    }
+
     func testRemoteSplitSkipsInitialGitMetadataProbe() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,

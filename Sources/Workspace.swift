@@ -400,7 +400,9 @@ extension Workspace {
             SessionGitBranchSnapshot(branch: $0.branch, isDirty: $0.isDirty)
         }
         let listeningPorts: [Int]
-        if remoteDetectedSurfaceIds.contains(panelId) || isRemoteTerminalSurface(panelId) {
+        if remoteDetectedSurfaceIds.contains(panelId) ||
+            isRemoteTerminalSurface(panelId) ||
+            panelTerminalLocations[panelId]?.isRemote == true {
             listeningPorts = []
         } else {
             listeningPorts = (surfaceListeningPorts[panelId] ?? []).sorted()
@@ -494,7 +496,8 @@ extension Workspace {
             terminal: terminalSnapshot,
             browser: browserSnapshot,
             markdown: markdownSnapshot,
-            filePreview: filePreviewSnapshot
+            filePreview: filePreviewSnapshot,
+            terminalLocation: panelTerminalLocations[panelId]?.sessionSnapshot
         )
     }
 
@@ -838,7 +841,10 @@ extension Workspace {
             clearManualUnread(panelId: panelId)
         }
 
-        if let directory = snapshot.directory?.trimmingCharacters(in: .whitespacesAndNewlines), !directory.isEmpty {
+        let restoredTerminalLocation = snapshot.terminalLocation.flatMap(TerminalLocation.init(sessionSnapshot:))
+        if let terminalLocation = restoredTerminalLocation {
+            updatePanelLocation(panelId: panelId, location: terminalLocation)
+        } else if let directory = snapshot.directory?.trimmingCharacters(in: .whitespacesAndNewlines), !directory.isEmpty {
             updatePanelDirectory(panelId: panelId, directory: directory)
         }
 
@@ -848,7 +854,11 @@ extension Workspace {
             panelGitBranches.removeValue(forKey: panelId)
         }
 
-        surfaceListeningPorts[panelId] = Array(Set(snapshot.listeningPorts)).sorted()
+        if restoredTerminalLocation?.isRemote == true || panelTerminalLocations[panelId]?.isRemote == true {
+            surfaceListeningPorts.removeValue(forKey: panelId)
+        } else {
+            surfaceListeningPorts[panelId] = Array(Set(snapshot.listeningPorts)).sorted()
+        }
 
         if let ttyName = snapshot.ttyName?.trimmingCharacters(in: .whitespacesAndNewlines), !ttyName.isEmpty {
             surfaceTTYNames[panelId] = ttyName
@@ -7191,6 +7201,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Published directory for each panel
     @Published var panelDirectories: [UUID: String] = [:]
+    @Published private(set) var panelTerminalLocations: [UUID: TerminalLocation] = [:]
     @Published var panelTitles: [UUID: String] = [:]
     @Published private(set) var panelCustomTitles: [UUID: String] = [:]
     @Published private(set) var pinnedPanelIds: Set<UUID> = []
@@ -7301,6 +7312,7 @@ final class Workspace: Identifiable, ObservableObject {
                 .map { _ in () }
                 .eraseToAnyPublisher(),
             sidebarObservationSignal($panelDirectories),
+            sidebarObservationSignal($panelTerminalLocations),
             sidebarObservationSignal($statusEntries),
             sidebarObservationSignal($metadataBlocks),
             sidebarObservationSignal($logEntries),
@@ -8517,6 +8529,7 @@ final class Workspace: Identifiable, ObservableObject {
     private func configTrackingDirectory(for panelId: UUID?) -> String? {
         if let panelId {
             for candidate in [
+                panelTerminalLocations[panelId]?.displayDirectory,
                 panelDirectories[panelId],
                 terminalPanel(for: panelId)?.requestedWorkingDirectory
             ] {
@@ -8532,18 +8545,32 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func updatePanelDirectory(panelId: UUID, directory: String) {
-        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        if panelDirectories[panelId] != trimmed {
-            panelDirectories[panelId] = trimmed
+        let normalizedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedDirectory.isEmpty else { return }
+        let location = TerminalLocation.parseReportedDirectory(normalizedDirectory) ?? .local(path: normalizedDirectory)
+        updatePanelLocation(panelId: panelId, location: location)
+    }
+
+    func updatePanelLocation(panelId: UUID, location: TerminalLocation) {
+        let path = location.path
+        guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if panelTerminalLocations[panelId] != location {
+            panelTerminalLocations[panelId] = location
+        }
+        if panelId == focusedPanelId {
+            let displayDirectory = location.displayDirectory
+            if surfaceTabBarDirectory != displayDirectory {
+                surfaceTabBarDirectory = displayDirectory
+            }
+        }
+        guard !location.isRemote else { return }
+        if panelDirectories[panelId] != path {
+            panelDirectories[panelId] = path
         }
         // Update current directory if this is the focused panel
         if panelId == focusedPanelId {
-            if surfaceTabBarDirectory != trimmed {
-                surfaceTabBarDirectory = trimmed
-            }
-            if currentDirectory != trimmed {
-                currentDirectory = trimmed
+            if currentDirectory != path {
+                currentDirectory = path
             }
         }
     }
@@ -8627,6 +8654,10 @@ final class Workspace: Identifiable, ObservableObject {
                 pullRequest = nil
             }
         }
+    }
+
+    func terminalLocation(for panelId: UUID) -> TerminalLocation? {
+        panelTerminalLocations[panelId]
     }
 
     func updatePanelPullRequest(
@@ -8779,6 +8810,7 @@ final class Workspace: Identifiable, ObservableObject {
             removePendingTerminalInputObservers(forPanelId: panelId)
         }
         panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
+        panelTerminalLocations = panelTerminalLocations.filter { validSurfaceIds.contains($0.key) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
@@ -8852,6 +8884,10 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func sidebarResolvedDirectory(for panelId: UUID) -> String? {
+        if let location = panelTerminalLocations[panelId],
+           let directory = normalizedSidebarDirectory(location.displayDirectory) {
+            return directory
+        }
         if let directory = normalizedSidebarDirectory(panelDirectories[panelId]) {
             return directory
         }
@@ -8893,6 +8929,13 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
+        if ordered.isEmpty,
+           let focusedPanelId,
+           let location = panelTerminalLocations[focusedPanelId],
+           let fallbackDirectory = normalizedSidebarDirectory(location.displayDirectory) {
+            return [fallbackDirectory]
+        }
+
         if ordered.isEmpty, let fallbackDirectory = normalizedSidebarDirectory(currentDirectory) {
             return [fallbackDirectory]
         }
@@ -8922,11 +8965,18 @@ final class Workspace: Identifiable, ObservableObject {
         orderedPanelIds: [UUID]
     ) -> [SidebarBranchOrdering.BranchDirectoryEntry] {
         let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
+        let defaultDirectory: String? = {
+            if let focusedPanelId,
+               let location = panelTerminalLocations[focusedPanelId] {
+                return normalizedSidebarDirectory(location.displayDirectory)
+            }
+            return normalizedSidebarDirectory(currentDirectory)
+        }()
         return SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
             orderedPanelIds: orderedPanelIds,
             panelBranches: panelGitBranches,
             panelDirectories: resolvedDirectories,
-            defaultDirectory: normalizedSidebarDirectory(currentDirectory),
+            defaultDirectory: defaultDirectory,
             homeDirectoryForTildeExpansion: sidebarHomeDirectoryForCanonicalization(
                 resolvedPanelDirectories: resolvedDirectories
             ),
@@ -11097,7 +11147,9 @@ final class Workspace: Identifiable, ObservableObject {
             installBrowserPanelSubscription(browserPanel)
         }
 
-        if let directory = detached.directory {
+        if let terminalLocation = detached.terminalLocation {
+            updatePanelLocation(panelId: detached.panelId, location: terminalLocation)
+        } else if let directory = detached.directory {
             panelDirectories[detached.panelId] = directory
         }
         if let ttyName = detached.ttyName?.trimmingCharacters(in: .whitespacesAndNewlines), !ttyName.isEmpty {
@@ -11139,6 +11191,7 @@ final class Workspace: Identifiable, ObservableObject {
             removeBrowserOpenTabSuggestionIfNeeded(panel: detached.panel, panelId: detached.panelId)
             panels.removeValue(forKey: detached.panelId)
             panelDirectories.removeValue(forKey: detached.panelId)
+            panelTerminalLocations.removeValue(forKey: detached.panelId)
             surfaceTTYNames.removeValue(forKey: detached.panelId)
             syncRemotePortScanTTYs()
             panelTitles.removeValue(forKey: detached.panelId)
@@ -13331,6 +13384,7 @@ extension Workspace: BonsplitDelegate {
                 isLoading: browserPanel?.isLoading ?? false,
                 isPinned: pinnedPanelIds.contains(panelId),
                 directory: panelDirectories[panelId],
+                terminalLocation: panelTerminalLocations[panelId],
                 ttyName: surfaceTTYNames[panelId],
                 cachedTitle: cachedTitle,
                 customTitle: panelCustomTitles[panelId],
@@ -13354,6 +13408,7 @@ extension Workspace: BonsplitDelegate {
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
         surfaceIdToPanelId.removeValue(forKey: tabId)
         panelDirectories.removeValue(forKey: panelId)
+        panelTerminalLocations.removeValue(forKey: panelId)
         panelGitBranches.removeValue(forKey: panelId)
         panelPullRequests.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
@@ -13530,6 +13585,7 @@ extension Workspace: BonsplitDelegate {
                 untrackRemoteTerminalSurface(panelId)
                 pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
                 panelDirectories.removeValue(forKey: panelId)
+                panelTerminalLocations.removeValue(forKey: panelId)
                 panelGitBranches.removeValue(forKey: panelId)
                 panelPullRequests.removeValue(forKey: panelId)
                 panelTitles.removeValue(forKey: panelId)

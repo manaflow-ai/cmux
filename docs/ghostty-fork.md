@@ -176,6 +176,17 @@ its archive checksum in `scripts/ghosttykit-checksums.txt`. The release and
 checksum pin must be regenerated whenever this commit changes, even for
 comment-only amends, because the release tag is keyed by the Ghostty commit SHA.
 
+Issue 3791 adds fork commit `6b8d558ce` on top of `manaflow-ai/ghostty`
+`41ab6c5ab` so embedded apps receive full non-local OSC 7 URIs while Ghostty
+continues storing the decoded path internally. GitHub branch protection rejected
+a direct `main` push, so the commit is reachable on
+`manaflow-ai/ghostty` branch `issue-3791-mosh-remote-cwd-detection` until the
+fork main PR is merged. Milestone: merge that branch into fork `main` before
+the cmux issue 3791 parent PR lands, or during the next fork-main sync if the
+parent PR needs to merge first. After the fork-main merge, regenerate the
+`xcframework-6b8d558ce...` release from the final fork-main commit and checksum
+pin before moving this parent pointer onto Ghostty `main`.
+
 ## Upstreamed fork changes
 
 ### cursor-click-to-move respects OSC 133 click-to-move

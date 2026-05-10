@@ -511,8 +511,9 @@ class TerminalController {
     nonisolated static func normalizeReportedDirectory(_ directory: String) -> String {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return directory }
-        if trimmed.hasPrefix("file://"), let url = URL(string: trimmed), !url.path.isEmpty {
-            return url.path
+        if let location = TerminalLocation.parseReportedDirectory(trimmed),
+           location.source == .osc7 || trimmed.hasPrefix("file://") || trimmed.hasPrefix("kitty-shell-cwd://") {
+            return location.path
         }
         return trimmed
     }

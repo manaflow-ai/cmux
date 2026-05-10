@@ -72,6 +72,43 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(panelSnapshot.listeningPorts.isEmpty)
     }
 
+    @MainActor
+    func testSessionSnapshotSkipsOSCRemoteListeningPorts() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("file://devbox.example/home/george/cmux")
+        )
+
+        workspace.surfaceListeningPorts[panelId] = [3000, 4000]
+        workspace.updatePanelLocation(panelId: panelId, location: location)
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panelId })
+
+        XCTAssertTrue(panelSnapshot.listeningPorts.isEmpty)
+    }
+
+    @MainActor
+    func testSessionRestoreSkipsOSCRemoteListeningPorts() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try XCTUnwrap(snapshot.panels.firstIndex { $0.id == sourcePanelId })
+        snapshot.panels[panelIndex].terminalLocation = SessionTerminalLocationSnapshot(
+            host: "devbox.example",
+            path: "/home/george/cmux",
+            source: TerminalLocation.Source.osc7.rawValue
+        )
+        snapshot.panels[panelIndex].listeningPorts = [3000, 4000]
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+
+        XCTAssertNil(restored.surfaceListeningPorts[restoredPanelId])
+    }
+
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
@@ -1061,6 +1098,30 @@ final class SessionPersistenceTests: XCTestCase {
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
         let userCommandSnapshot = restored.sessionSnapshot(includeScrollback: false)
         XCTAssertNil(userCommandSnapshot.panels.first?.terminal?.agent)
+    }
+
+    @MainActor
+    func testSessionSnapshotRestoresRemoteTerminalLocation() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let sourceLocation = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("file://devbox.example/home/george/cmux")
+        )
+        source.updatePanelLocation(panelId: sourcePanelId, location: sourceLocation)
+
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(snapshot.panels.first?.terminalLocation?.host, "devbox.example")
+        XCTAssertEqual(snapshot.panels.first?.terminalLocation?.path, "/home/george/cmux")
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+
+        XCTAssertEqual(restored.terminalLocation(for: restoredPanelId)?.remoteHost, "devbox.example")
+        XCTAssertEqual(
+            restored.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [restoredPanelId]),
+            ["devbox.example:/home/george/cmux"]
+        )
     }
 
     @MainActor

@@ -24,6 +24,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let stderrPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
+        process.environment = [
+            "HOME": NSTemporaryDirectory(),
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "TMPDIR": NSTemporaryDirectory(),
+        ]
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
@@ -89,6 +94,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let result = runProcess(
             executablePath: "/usr/bin/env",
             arguments: [
+                "-i",
+                "HOME=\(root.path)",
+                "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMPDIR=\(fileManager.temporaryDirectory.path)",
                 "CMUX_REMOTE_HOST=remotehost",
                 "GIT_AUTHOR_NAME=cmux",
                 "GIT_AUTHOR_EMAIL=cmux@example.invalid",
@@ -122,6 +131,128 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(stdout.contains("cmux_git_branch=feature%2Fmosh"), stdout.debugDescription)
         XCTAssertTrue(stdout.contains("cmux_git_dirty=1"), stdout.debugDescription)
         XCTAssertTrue(stdout.contains("\u{1B}\\"), stdout.debugDescription)
+    }
+
+    func testRemoteShellSnippetEscapesBracketPathBytes() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-remote-shell-brackets-\(UUID().uuidString)")
+        let project = root.appendingPathComponent("[WIP]-project", isDirectory: true)
+        try fileManager.createDirectory(at: project, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let script = """
+        set -e
+        cd "\(project.path)"
+        \(RemoteShellIntegrationSnippet.script())
+        __cmux_remote_report_prompt
+        """
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "-i",
+                "HOME=\(root.path)",
+                "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMPDIR=\(fileManager.temporaryDirectory.path)",
+                "CMUX_REMOTE_HOST=remotehost",
+                "CMUX_REMOTE_DISABLE_GIT=1",
+                "/bin/bash",
+                "-c",
+                script,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("%5BWIP%5D-project"), result.stdout.debugDescription)
+    }
+
+    func testRemoteShellSnippetEscapesHostAuthorityBytes() throws {
+        let script = """
+        set -e
+        \(RemoteShellIntegrationSnippet.script())
+        __cmux_remote_report_prompt
+        """
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "-i",
+                "HOME=\(NSTemporaryDirectory())",
+                "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMPDIR=\(NSTemporaryDirectory())",
+                "CMUX_REMOTE_HOST=remote host/frag?x#y@deploy",
+                "CMUX_REMOTE_DISABLE_GIT=1",
+                "/bin/bash",
+                "-c",
+                script,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(
+            result.stdout.contains("\u{1B}]7;file://remote%20host%2Ffrag%3Fx%23y%40deploy/"),
+            result.stdout.debugDescription
+        )
+    }
+
+    func testRemoteShellSnippetPreservesBashPromptCommandArray() throws {
+        let script = """
+        set -e
+        existing_hook() { printf 'existing-hook-ran\\n'; }
+        PROMPT_COMMAND=(existing_hook)
+        \(RemoteShellIntegrationSnippet.script())
+        printf 'count=%s\\n' "${#PROMPT_COMMAND[@]}"
+        printf 'first=%s\\n' "${PROMPT_COMMAND[0]}"
+        printf 'second=%s\\n' "${PROMPT_COMMAND[1]}"
+        """
+
+        let result = runProcess(
+            executablePath: "/bin/bash",
+            arguments: ["-c", script],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("count=2"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("first=__cmux_remote_report_prompt"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("second=existing_hook"), result.stdout)
+    }
+
+    func testRemoteShellSnippetStripsControlCharactersFromOSC7Host() throws {
+        let script = """
+        set -e
+        \(RemoteShellIntegrationSnippet.script())
+        __cmux_remote_report_prompt
+        """
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "CMUX_REMOTE_HOST=remote\u{1B}]0;bad\u{7}host",
+                "/bin/bash",
+                "-c",
+                script,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let prefix = "\u{1B}]7;file://"
+        let suffix = "\u{1B}\\"
+        guard let prefixRange = result.stdout.range(of: prefix),
+              let suffixRange = result.stdout.range(of: suffix, range: prefixRange.upperBound..<result.stdout.endIndex) else {
+            XCTFail(result.stdout.debugDescription)
+            return
+        }
+        let payload = result.stdout[prefixRange.upperBound..<suffixRange.lowerBound]
+        XCTAssertFalse(payload.contains("\u{1B}"), result.stdout.debugDescription)
+        XCTAssertFalse(payload.contains("\u{7}"), result.stdout.debugDescription)
     }
 
     private func runRelayZshHistfile(

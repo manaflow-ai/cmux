@@ -2067,6 +2067,7 @@ struct CMUXCLI {
         }
 
         if command == "help" { print(usage()); return }
+        if command == "remote-shell-init" { try runRemoteShellInit(commandArgs: commandArgs); return }
         if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
@@ -4607,6 +4608,19 @@ struct CMUXCLI {
             windowOverride: windowOverride
         )
     }
+
+    private func runRemoteShellInit(commandArgs: [String]) throws {
+        guard commandArgs.isEmpty else {
+            throw CLIError(
+                message: String(
+                    localized: "cli.remote-shell-init.error.unknownArguments",
+                    defaultValue: "Usage: cmux remote-shell-init"
+                )
+            )
+        }
+        print(RemoteShellIntegrationSnippet.script())
+    }
+
     struct SSHCommandOptions {
         let destination: String
         let displayDestination: String
@@ -8872,6 +8886,17 @@ struct CMUXCLI {
               cmux ssh dev@my-host --name "gpu-box" --port 2222 --identity ~/.ssh/id_ed25519
               cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no
             """
+        case "remote-shell-init":
+            return String(localized: "cli.remote-shell-init.usage", defaultValue: """
+            Usage: cmux remote-shell-init
+
+            Print a bash/zsh snippet for remote shells opened inside a regular cmux terminal pane.
+            Source it on the remote host to emit OSC 7 cwd and git branch hints over ssh or mosh.
+
+            Example:
+              cmux remote-shell-init >> ~/.zshrc
+              cmux remote-shell-init >> ~/.bashrc
+            """)
         case "remote-daemon-status":
             return """
             Usage: cmux remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
@@ -20382,6 +20407,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           list-workspaces
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--focus <true|false>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus] [-- <remote-command-args>]
+          remote-shell-init
           remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>] [--focus <true|false>]
           list-panes [--workspace <id|ref>]

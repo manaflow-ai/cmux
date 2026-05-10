@@ -67,7 +67,7 @@ Sidebar shows git branch, linked PR status/number, working directory, listening 
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> creates a workspace for a remote machine. Browser panes route through the remote network so localhost just works. Drag an image into a remote session to upload via scp.
+<code>cmux ssh user@remote</code> creates a workspace for a remote machine. Browser panes route through the remote network so localhost just works. Drag an image into a remote session to upload via scp. For plain <code>ssh</code> or <code>mosh</code> launched inside a normal terminal pane, run <code>cmux remote-shell-init</code> on the remote host and source the printed snippet so the sidebar can follow the remote cwd and git branch. Set <code>CMUX_REMOTE_DISABLE_GIT=1</code> before sourcing it on slow remote filesystems to report cwd without per-prompt git metadata.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />

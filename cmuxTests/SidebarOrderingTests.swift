@@ -589,15 +589,63 @@ final class TerminalOSC7LocationTests: XCTestCase {
         XCTAssertEqual(location.gitBranch, SidebarGitBranchState(branch: "feature/mosh", isDirty: true))
     }
 
+    func testOSC7LoopbackIPv4RangeStaysLocal() throws {
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("file://127.0.1.1/Users/foo/work")
+        )
+
+        XCTAssertFalse(location.isRemote)
+        XCTAssertNil(location.remoteHost)
+        XCTAssertEqual(location.displayDirectory, "/Users/foo/work")
+    }
+
+    func testOSC7PreservesDecodedPathWhitespace() throws {
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("file://remotehost/tmp/repo%20")
+        )
+
+        XCTAssertEqual(location.path, "/tmp/repo ")
+        XCTAssertEqual(location.displayDirectory, "remotehost:/tmp/repo ")
+    }
+
+    func testOSC7DecodesEscapedRemoteHostAuthorityBytes() throws {
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("file://deploy%40server/home/george/cmux")
+        )
+
+        XCTAssertEqual(location.remoteHost, "deploy@server")
+        XCTAssertEqual(location.displayDirectory, "deploy@server:/home/george/cmux")
+    }
+
+    func testPersistedLocalOSC7HostNormalizesToNil() throws {
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("file://localhost/Users/foo/work")
+        )
+
+        XCTAssertNil(location.sessionSnapshot.host)
+    }
+
+    func testKittyShellCwdSequenceCapturesRemoteHostAndPath() throws {
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory(
+                "kitty-shell-cwd://devbox.example/home/george/cmux?cmux_git_branch=feature%2Fkitty&cmux_git_dirty=true"
+            )
+        )
+
+        XCTAssertTrue(location.isRemote)
+        XCTAssertEqual(location.remoteHost, "devbox.example")
+        XCTAssertEqual(location.displayDirectory, "devbox.example:/home/george/cmux")
+        XCTAssertEqual(location.gitBranch, SidebarGitBranchState(branch: "feature/kitty", isDirty: true))
+    }
+
     @MainActor
     func testRemoteOSC7LocationUpdatesWorkspaceSidebarState() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.tabs.first)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
         let sequence = "\u{1B}]7;file://devbox.example/home/george/cmux?cmux_git_branch=remote-main&cmux_git_dirty=0\u{1B}\\"
-        let location = try XCTUnwrap(TerminalLocation.parseOSC7Sequence(sequence))
 
-        manager.updateSurfaceLocation(tabId: workspace.id, surfaceId: panelId, location: location)
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: sequence)
 
         XCTAssertEqual(workspace.terminalLocation(for: panelId)?.remoteHost, "devbox.example")
         XCTAssertEqual(
@@ -610,6 +658,96 @@ final class TerminalOSC7LocationTests: XCTestCase {
                 )
             ]
         )
+        XCTAssertEqual(workspace.surfaceTabBarDirectory, "devbox.example:/home/george/cmux")
+    }
+
+    @MainActor
+    func testRefocusingRemoteOSC7PanelKeepsTabBarDirectoryRemoteAware() throws {
+        let workspace = Workspace()
+        let remotePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: remotePanelId))
+        let localPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false))
+
+        workspace.updatePanelLocation(
+            panelId: remotePanelId,
+            location: try XCTUnwrap(
+                TerminalLocation.parseReportedDirectory("file://devbox.example/home/george/cmux")
+            )
+        )
+        workspace.updatePanelDirectory(panelId: localPanel.id, directory: "/tmp/local-cmux")
+
+        workspace.focusPanel(localPanel.id)
+        XCTAssertEqual(workspace.surfaceTabBarDirectory, "/tmp/local-cmux")
+
+        workspace.focusPanel(remotePanelId)
+        XCTAssertEqual(workspace.surfaceTabBarDirectory, "devbox.example:/home/george/cmux")
+    }
+
+    @MainActor
+    func testWhitespaceOnlyDirectoryUpdateIsIgnored() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        workspace.panelDirectories.removeValue(forKey: panelId)
+        workspace.updatePanelDirectory(panelId: panelId, directory: "   \n\t")
+
+        XCTAssertNil(workspace.panelDirectories[panelId])
+        XCTAssertNil(workspace.terminalLocation(for: panelId))
+    }
+
+    @MainActor
+    func testRemoteOSC7LocationDoesNotDisableLocalTildeCanonicalization() throws {
+        let homeDirectory = FileManager.default.homeDirectoryForCurrentUser.path
+        let workspace = Workspace(title: "Tests", workingDirectory: homeDirectory, portOrdinal: 0)
+        let localAbsolutePanelId = UUID()
+        let localTildePanelId = UUID()
+        let remotePanelId = UUID()
+
+        workspace.updatePanelDirectory(panelId: localAbsolutePanelId, directory: "\(homeDirectory)/project")
+        workspace.updatePanelDirectory(panelId: localTildePanelId, directory: "~/project")
+        workspace.updatePanelLocation(
+            panelId: remotePanelId,
+            location: try XCTUnwrap(
+                TerminalLocation.parseReportedDirectory("file://devbox.example/home/george/project")
+            )
+        )
+
+        XCTAssertEqual(
+            workspace.sidebarDirectoriesInDisplayOrder(
+                orderedPanelIds: [localAbsolutePanelId, localTildePanelId, remotePanelId]
+            ),
+            [
+                "\(homeDirectory)/project",
+                "devbox.example:/home/george/project"
+            ]
+        )
+    }
+
+    @MainActor
+    func testRemoteOSC7BranchClearsStaleLocalPullRequestState() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.tabs.first)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "shared", isDirty: false)
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 3791,
+            label: "PR",
+            url: URL(string: "https://github.com/manaflow-ai/cmux/pull/3791")!,
+            status: .open,
+            branch: "shared"
+        )
+
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            directory: "\u{1B}]7;file://devbox.example/home/george/cmux?cmux_git_branch=shared&cmux_git_dirty=0\u{1B}\\"
+        )
+
+        XCTAssertNil(workspace.pullRequest)
+        XCTAssertNil(workspace.panelPullRequests[panelId])
+        XCTAssertTrue(workspace.sidebarPullRequestsInDisplayOrder().isEmpty)
     }
 }
 
