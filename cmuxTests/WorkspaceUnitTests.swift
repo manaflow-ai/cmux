@@ -331,21 +331,21 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     }
 
     func testRightSidebarAndFindShortcutDefaultsMatchSettingsSurface() {
-        XCTAssertEqual(KeyboardShortcutSettings.Action.focusRightSidebar.label, "Toggle Right Sidebar")
-        XCTAssertEqual(KeyboardShortcutSettings.Action.toggleFileExplorer.label, "Open File Explorer")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusRightSidebar.label, "Toggle Right Sidebar Focus")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.toggleFileExplorer.label, "Toggle Right Sidebar")
 
         let toggleFileExplorer = KeyboardShortcutSettings.Action.toggleFileExplorer.defaultShortcut
-        XCTAssertEqual(toggleFileExplorer.key, "e")
+        XCTAssertEqual(toggleFileExplorer.key, "b")
         XCTAssertTrue(toggleFileExplorer.command)
-        XCTAssertTrue(toggleFileExplorer.shift)
-        XCTAssertFalse(toggleFileExplorer.option)
+        XCTAssertFalse(toggleFileExplorer.shift)
+        XCTAssertTrue(toggleFileExplorer.option)
         XCTAssertFalse(toggleFileExplorer.control)
 
         let focusRightSidebar = KeyboardShortcutSettings.Action.focusRightSidebar.defaultShortcut
-        XCTAssertEqual(focusRightSidebar.key, "b")
+        XCTAssertEqual(focusRightSidebar.key, "e")
         XCTAssertTrue(focusRightSidebar.command)
-        XCTAssertFalse(focusRightSidebar.shift)
-        XCTAssertTrue(focusRightSidebar.option)
+        XCTAssertTrue(focusRightSidebar.shift)
+        XCTAssertFalse(focusRightSidebar.option)
         XCTAssertFalse(focusRightSidebar.control)
 
         let findInDirectory = KeyboardShortcutSettings.Action.findInDirectory.defaultShortcut
@@ -356,17 +356,21 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(findInDirectory.control)
     }
 
-    func testRightSidebarModeSwitchesAreNotPublicDefaultShortcuts() {
-        let modeSwitchActions: [KeyboardShortcutSettings.Action] = [
-            .switchRightSidebarToFiles,
-            .switchRightSidebarToFind,
-            .switchRightSidebarToSessions,
-            .switchRightSidebarToFeed,
-            .switchRightSidebarToDock,
+    func testRightSidebarModeSwitchesHavePrivateControlDigitDefaults() {
+        let modeSwitchActions: [(KeyboardShortcutSettings.Action, String)] = [
+            (.switchRightSidebarToFiles, "1"),
+            (.switchRightSidebarToFind, "2"),
+            (.switchRightSidebarToSessions, "3"),
+            (.switchRightSidebarToFeed, "4"),
+            (.switchRightSidebarToDock, "5"),
         ]
 
-        for action in modeSwitchActions {
-            XCTAssertTrue(action.defaultShortcut.isUnbound)
+        for (action, key) in modeSwitchActions {
+            XCTAssertEqual(action.defaultShortcut.key, key)
+            XCTAssertFalse(action.defaultShortcut.command)
+            XCTAssertFalse(action.defaultShortcut.shift)
+            XCTAssertFalse(action.defaultShortcut.option)
+            XCTAssertTrue(action.defaultShortcut.control)
             XCTAssertFalse(action.isPublicShortcutAction)
             XCTAssertFalse(KeyboardShortcutSettings.publicShortcutActions.contains(action))
             XCTAssertFalse(KeyboardShortcutSettings.settingsVisibleActions.contains(action))
@@ -391,7 +395,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         ]
 
         guard let startIndex = visibleActions.firstIndex(of: .focusRightSidebar) else {
-            XCTFail("Toggle Right Sidebar should be visible in keyboard shortcut settings")
+            XCTFail("Toggle Right Sidebar Focus should be visible in keyboard shortcut settings")
             return
         }
 

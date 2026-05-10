@@ -755,12 +755,11 @@ final class WindowDragHandleHitTests: XCTestCase {
         )
     }
 
-    func testMinimalModeSidebarFallbackHitUsesProvidedDebugLeadingInset() {
-        let suiteName = "WindowDragHandleHitTests.debugLeadingInset.\(UUID().uuidString)"
+    func testMinimalModeSidebarFallbackHitUsesHardcodedLeadingInset() {
+        let suiteName = "WindowDragHandleHitTests.leadingInset.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
         defaults.set(TitlebarControlsStyle.classic.rawValue, forKey: "titlebarControlsStyle")
-        defaults.set(120.0, forKey: MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let window = NSWindow(
@@ -778,7 +777,7 @@ final class WindowDragHandleHitTests: XCTestCase {
 
         let firstButtonX = TitlebarControlsHitRegions.buttonXRanges(config: TitlebarControlsStyle.classic.config)[0].lowerBound + 1
         let titlebarY = contentView.bounds.maxY - 4
-        XCTAssertNil(
+        XCTAssertEqual(
             minimalModeSidebarControlActionSlot(
                 window: window,
                 locationInWindow: NSPoint(
@@ -787,23 +786,13 @@ final class WindowDragHandleHitTests: XCTestCase {
                 ),
                 defaults: defaults
             ),
-            "Fallback hit testing should move away from the default leading inset when debug defaults override it."
-        )
-        XCTAssertEqual(
-            minimalModeSidebarControlActionSlot(
-                window: window,
-                locationInWindow: NSPoint(x: CGFloat(120) + firstButtonX, y: titlebarY),
-                defaults: defaults
-            ),
             .toggleSidebar
         )
     }
 
-    func testTitlebarDebugSettingsRejectNonFiniteValues() {
-        let suiteName = "WindowDragHandleHitTests.nonFiniteDebugSettings.\(UUID().uuidString)"
+    func testTitlebarChromeSettingsUseHardcodedDefaults() {
+        let suiteName = "WindowDragHandleHitTests.titlebarChromeSettings.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
-        defaults.set("nan", forKey: MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
-        defaults.set("inf", forKey: MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let snapshot = MinimalModeTitlebarDebugSettings.snapshot(defaults: defaults)
@@ -1453,7 +1442,8 @@ final class WindowDragHandleHitTests: XCTestCase {
             titlebarHeight: 36,
             workspaceId: nil,
             onResumeSession: nil,
-            onOpenFilePreview: { _ in }
+            onOpenFilePreview: { _ in },
+            onClose: {}
         )
         let hostingView = NSHostingView(rootView: rootView)
         hostingView.frame = window.contentRect(forFrameRect: window.frame)
@@ -1478,7 +1468,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             return
         }
 
-        let emptyModeBarPoint = dragHandle.convert(emptyModeBarLocalPoint, to: nil)
+        let emptyModeBarPoint = dragHandle.convert(emptyModeBarLocalPoint, to: nil as NSView?)
         guard let event = NSEvent.mouseEvent(
             with: .leftMouseDown,
             location: emptyModeBarPoint,
