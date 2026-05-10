@@ -5565,7 +5565,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return .ok
 
         case .show:
-            state.setVisible(true)
+            guard !state.isVisible else {
+                return .ok
+            }
+            if target.isActiveTarget || preferredWindow != nil {
+                guard toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindow) else {
+                    return .failure(String(localized: "rightSidebar.remote.error.unavailable", defaultValue: "ERROR: Right sidebar not available"))
+                }
+            } else {
+                state.setVisible(true)
+            }
             return .ok
 
         case .hide:

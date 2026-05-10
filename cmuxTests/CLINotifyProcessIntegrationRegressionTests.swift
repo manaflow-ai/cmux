@@ -55,6 +55,27 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
     }
 
+    func testRightSidebarInvalidCommandValidatesBeforeTargetResolution() throws {
+        let cliPath = try bundledCLIPath()
+        let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = missingSocketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["right-sidebar", "unknown", "--workspace", "workspace:2"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stdout.isEmpty, result.stdout)
+        XCTAssertTrue(result.stderr.contains("Unknown right-sidebar command 'unknown'"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
+    }
+
     @MainActor
     func testNotifyWithUUIDSurfaceKeepsCallerWorkspaceFallback() throws {
         let cliPath = try bundledCLIPath()

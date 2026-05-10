@@ -10304,9 +10304,9 @@ struct CMUXCLI {
         windowOverride: String?
     ) throws {
         let parsed = try parseRightSidebarCLIArguments(commandArgs)
+        let socketArgs = try rightSidebarSocketArguments(from: parsed)
         let windowId = try resolveRightSidebarWindowId(parsed.window ?? windowOverride, client: client)
         let workspaceId = try resolveRightSidebarWorkspaceId(parsed.workspace, windowId: windowId, client: client)
-        let socketArgs = try rightSidebarSocketArguments(from: parsed)
 
         var forwardedArgs = socketArgs
         if let workspaceId {
