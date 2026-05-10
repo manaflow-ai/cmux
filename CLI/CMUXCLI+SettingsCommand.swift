@@ -318,6 +318,7 @@ extension CMUXCLI {
             return ShortcutListRow(
                 action: definition.action,
                 label: definition.label,
+                context: definition.context.rawValue,
                 value: resolved.shortcut.configString,
                 defaultValue: definition.defaultValue,
                 source: resolved.source
@@ -345,6 +346,7 @@ extension CMUXCLI {
         if jsonOutput {
             print(jsonString([
                 "action": definition.action,
+                "context": definition.context.rawValue,
                 "value": resolved.shortcut.configString,
                 "default": definition.defaultValue,
                 "source": resolved.source,
@@ -436,6 +438,7 @@ extension CMUXCLI {
     private struct ShortcutListRow {
         let action: String
         let label: String
+        let context: String
         let value: String
         let defaultValue: String
         let source: String
@@ -444,6 +447,7 @@ extension CMUXCLI {
             [
                 "action": action,
                 "label": label,
+                "context": context,
                 "value": value,
                 "default": defaultValue,
                 "source": source,
@@ -555,6 +559,9 @@ extension CMUXCLI {
                 return nil
             }
             for definition in CmuxSettingsRegistry.shortcutActions where definition.action != proposedAction.action {
+                guard definition.context.overlaps(proposedAction.context) else {
+                    continue
+                }
                 let configured = try resolvedShortcut(for: definition, root: root).shortcut
                 guard configured.conflicts(with: proposed, lhsNumbered: definition.usesNumberedDigitMatching, rhsNumbered: proposedAction.usesNumberedDigitMatching) else {
                     continue

@@ -332,6 +332,18 @@ openSettings = "cmd+option+,"
         conflict = run_cli(cli_path, ["settings", "shortcuts", "set", "openSettings", "cmd+n"], home)
         assert_fails(failures, "shortcut conflict", conflict, "conflicts with")
 
+        browser_context_shortcut = run_cli(cli_path, ["settings", "shortcuts", "set", "browserReload", "cmd+option+r"], home)
+        assert_ok(failures, "browser-context shortcut set", browser_context_shortcut)
+        rename_context_shortcut = run_cli(cli_path, ["settings", "shortcuts", "set", "renameTab", "cmd+option+r"], home)
+        assert_ok(failures, "non-browser shortcut may share browser-context chord", rename_context_shortcut)
+        same_context_conflict = run_cli(cli_path, ["settings", "shortcuts", "set", "renameWorkspace", "cmd+option+r"], home)
+        assert_fails(
+            failures,
+            "same-context shortcut conflict",
+            same_context_conflict,
+            "conflicts with renameTab",
+        )
+
         before_shortcut_import = read_config(home)
         shortcut_conflict_import_path = home / "bad-shortcut-import.json"
         shortcut_conflict_import_path.write_text(

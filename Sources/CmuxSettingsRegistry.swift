@@ -34,6 +34,37 @@ enum CmuxSettingsRegistry {
         let defaultValue: String
         let usesNumberedDigitMatching: Bool
         let aliases: [String]
+        let context: ShortcutContext
+
+        init(
+            action: String,
+            label: String,
+            defaultValue: String,
+            usesNumberedDigitMatching: Bool,
+            aliases: [String],
+            context: ShortcutContext = .application
+        ) {
+            self.action = action
+            self.label = label
+            self.defaultValue = defaultValue
+            self.usesNumberedDigitMatching = usesNumberedDigitMatching
+            self.aliases = aliases
+            self.context = context
+        }
+    }
+
+    enum ShortcutContext: String {
+        case application
+        case nonBrowserPanel
+        case browserPanel
+        case rightSidebarFocus
+
+        func overlaps(_ other: ShortcutContext) -> Bool {
+            if self == .application || other == .application {
+                return true
+            }
+            return self == other
+        }
     }
 
     struct ValidationError: Error, CustomStringConvertible {
@@ -204,8 +235,8 @@ enum CmuxSettingsRegistry {
         ShortcutActionDefinition(action: "nextSidebarTab", label: "Next Workspace", defaultValue: "cmd+ctrl+]", usesNumberedDigitMatching: false, aliases: []),
         ShortcutActionDefinition(action: "prevSidebarTab", label: "Previous Workspace", defaultValue: "cmd+ctrl+[", usesNumberedDigitMatching: false, aliases: []),
         ShortcutActionDefinition(action: "selectWorkspaceByNumber", label: "Select Workspace 1-9", defaultValue: "cmd+1", usesNumberedDigitMatching: true, aliases: []),
-        ShortcutActionDefinition(action: "renameTab", label: "Rename Tab", defaultValue: "cmd+r", usesNumberedDigitMatching: false, aliases: []),
-        ShortcutActionDefinition(action: "renameWorkspace", label: "Rename Workspace", defaultValue: "cmd+shift+r", usesNumberedDigitMatching: false, aliases: []),
+        ShortcutActionDefinition(action: "renameTab", label: "Rename Tab", defaultValue: "cmd+r", usesNumberedDigitMatching: false, aliases: [], context: .nonBrowserPanel),
+        ShortcutActionDefinition(action: "renameWorkspace", label: "Rename Workspace", defaultValue: "cmd+shift+r", usesNumberedDigitMatching: false, aliases: [], context: .nonBrowserPanel),
         ShortcutActionDefinition(action: "editWorkspaceDescription", label: "Edit Workspace Description", defaultValue: "cmd+option+e", usesNumberedDigitMatching: false, aliases: []),
         ShortcutActionDefinition(action: "closeTab", label: "Close Tab", defaultValue: "cmd+w", usesNumberedDigitMatching: false, aliases: []),
         ShortcutActionDefinition(action: "closeOtherTabsInPane", label: "Close Other Tabs in Pane", defaultValue: "cmd+option+t", usesNumberedDigitMatching: false, aliases: []),
@@ -226,19 +257,19 @@ enum CmuxSettingsRegistry {
         ShortcutActionDefinition(action: "saveFilePreview", label: "Save File Preview", defaultValue: "cmd+s", usesNumberedDigitMatching: false, aliases: []),
         ShortcutActionDefinition(action: "openBrowser", label: "Open Browser", defaultValue: "cmd+shift+l", usesNumberedDigitMatching: false, aliases: []),
         ShortcutActionDefinition(action: "focusBrowserAddressBar", label: "Focus Address Bar", defaultValue: "cmd+l", usesNumberedDigitMatching: false, aliases: []),
-        ShortcutActionDefinition(action: "browserBack", label: "Browser Back", defaultValue: "cmd+[", usesNumberedDigitMatching: false, aliases: []),
-        ShortcutActionDefinition(action: "browserForward", label: "Browser Forward", defaultValue: "cmd+]", usesNumberedDigitMatching: false, aliases: []),
-        ShortcutActionDefinition(action: "browserReload", label: "Browser Reload", defaultValue: "cmd+r", usesNumberedDigitMatching: false, aliases: []),
-        ShortcutActionDefinition(action: "browserZoomIn", label: "Browser Zoom In", defaultValue: "cmd+=", usesNumberedDigitMatching: false, aliases: []),
-        ShortcutActionDefinition(action: "browserZoomOut", label: "Browser Zoom Out", defaultValue: "cmd+-", usesNumberedDigitMatching: false, aliases: []),
-        ShortcutActionDefinition(action: "browserZoomReset", label: "Browser Actual Size", defaultValue: "cmd+0", usesNumberedDigitMatching: false, aliases: []),
+        ShortcutActionDefinition(action: "browserBack", label: "Browser Back", defaultValue: "cmd+[", usesNumberedDigitMatching: false, aliases: [], context: .browserPanel),
+        ShortcutActionDefinition(action: "browserForward", label: "Browser Forward", defaultValue: "cmd+]", usesNumberedDigitMatching: false, aliases: [], context: .browserPanel),
+        ShortcutActionDefinition(action: "browserReload", label: "Browser Reload", defaultValue: "cmd+r", usesNumberedDigitMatching: false, aliases: [], context: .browserPanel),
+        ShortcutActionDefinition(action: "browserZoomIn", label: "Browser Zoom In", defaultValue: "cmd+=", usesNumberedDigitMatching: false, aliases: [], context: .browserPanel),
+        ShortcutActionDefinition(action: "browserZoomOut", label: "Browser Zoom Out", defaultValue: "cmd+-", usesNumberedDigitMatching: false, aliases: [], context: .browserPanel),
+        ShortcutActionDefinition(action: "browserZoomReset", label: "Browser Actual Size", defaultValue: "cmd+0", usesNumberedDigitMatching: false, aliases: [], context: .browserPanel),
         ShortcutActionDefinition(action: "find", label: "Find", defaultValue: "cmd+f", usesNumberedDigitMatching: false, aliases: []),
         ShortcutActionDefinition(action: "findNext", label: "Find Next", defaultValue: "cmd+g", usesNumberedDigitMatching: false, aliases: []),
         ShortcutActionDefinition(action: "findPrevious", label: "Find Previous", defaultValue: "cmd+option+g", usesNumberedDigitMatching: false, aliases: []),
         ShortcutActionDefinition(action: "hideFind", label: "Hide Find Bar", defaultValue: "cmd+shift+option+f", usesNumberedDigitMatching: false, aliases: []),
         ShortcutActionDefinition(action: "useSelectionForFind", label: "Use Selection for Find", defaultValue: "cmd+e", usesNumberedDigitMatching: false, aliases: []),
-        ShortcutActionDefinition(action: "toggleBrowserDeveloperTools", label: "Toggle Browser Developer Tools", defaultValue: "cmd+option+i", usesNumberedDigitMatching: false, aliases: []),
-        ShortcutActionDefinition(action: "showBrowserJavaScriptConsole", label: "Show Browser JavaScript Console", defaultValue: "cmd+option+c", usesNumberedDigitMatching: false, aliases: []),
+        ShortcutActionDefinition(action: "toggleBrowserDeveloperTools", label: "Toggle Browser Developer Tools", defaultValue: "cmd+option+i", usesNumberedDigitMatching: false, aliases: [], context: .browserPanel),
+        ShortcutActionDefinition(action: "showBrowserJavaScriptConsole", label: "Show Browser JavaScript Console", defaultValue: "cmd+option+c", usesNumberedDigitMatching: false, aliases: [], context: .browserPanel),
         ShortcutActionDefinition(action: "toggleReactGrab", label: "Toggle React Grab", defaultValue: "cmd+shift+g", usesNumberedDigitMatching: false, aliases: []),
     ]
 
