@@ -5568,12 +5568,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard !state.isVisible else {
                 return .ok
             }
-            if target.isActiveTarget || preferredWindow != nil {
-                guard toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindow) else {
-                    return .failure(String(localized: "rightSidebar.remote.error.unavailable", defaultValue: "ERROR: Right sidebar not available"))
-                }
-            } else {
-                state.setVisible(true)
+            guard target.isActiveTarget || preferredWindow != nil else {
+                return .failure(String(localized: "rightSidebar.remote.error.targetNotFound", defaultValue: "ERROR: Right sidebar target not found"))
+            }
+            guard toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindow) else {
+                return .failure(String(localized: "rightSidebar.remote.error.unavailable", defaultValue: "ERROR: Right sidebar not available"))
             }
             return .ok
 
