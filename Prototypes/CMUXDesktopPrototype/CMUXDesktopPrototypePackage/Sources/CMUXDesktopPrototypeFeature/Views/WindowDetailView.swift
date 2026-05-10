@@ -4,27 +4,38 @@ import SwiftUI
 
 struct WindowDetailView: View {
     let window: HostWindow?
-    let snapshot: NSImage?
+    let liveFrame: CGImage?
+    let isLiveCaptureRunning: Bool
     let permissions: PermissionState
     let status: StatusBanner?
     let onRefreshWindows: () -> Void
-    let onRefreshSnapshot: () -> Void
+    let onRestartLiveCapture: () -> Void
     let onRequestAccessibility: () -> Void
     let onRequestScreenCapture: () -> Void
     let onRaise: () -> Void
     let onPlace: (WindowPlacement) -> Void
+    let onMouseInput: (WindowMouseInput) -> Void
+    let onScrollInput: (WindowScrollInput) -> Void
+    let onKeyInput: (WindowKeyInput) -> Void
 
     var body: some View {
         if let window {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    HeaderView(window: window, onRefreshWindows: onRefreshWindows, onRefreshSnapshot: onRefreshSnapshot)
+                    HeaderView(window: window, onRefreshWindows: onRefreshWindows, onRestartLiveCapture: onRestartLiveCapture)
 
                     if let status {
                         StatusBannerView(status: status)
                     }
 
-                    SnapshotView(snapshot: snapshot)
+                    LivePreviewView(
+                        image: liveFrame,
+                        window: window,
+                        isRunning: isLiveCaptureRunning,
+                        onMouseInput: onMouseInput,
+                        onScrollInput: onScrollInput,
+                        onKeyInput: onKeyInput
+                    )
 
                     PermissionsView(
                         permissions: permissions,
@@ -52,7 +63,7 @@ struct WindowDetailView: View {
 private struct HeaderView: View {
     let window: HostWindow
     let onRefreshWindows: () -> Void
-    let onRefreshSnapshot: () -> Void
+    let onRestartLiveCapture: () -> Void
 
     private var title: String {
         window.hasTitle
@@ -73,10 +84,10 @@ private struct HeaderView: View {
 
             Spacer()
 
-            Button(action: onRefreshSnapshot) {
+            Button(action: onRestartLiveCapture) {
                 Label(
-                    String(localized: "button.snapshot", defaultValue: "Snapshot", bundle: .module),
-                    systemImage: "camera.viewfinder"
+                    String(localized: "button.restartStream", defaultValue: "Restart Stream", bundle: .module),
+                    systemImage: "video.badge.arrow.down.left"
                 )
             }
 
@@ -90,27 +101,41 @@ private struct HeaderView: View {
     }
 }
 
-private struct SnapshotView: View {
-    let snapshot: NSImage?
+private struct LivePreviewView: View {
+    let image: CGImage?
+    let window: HostWindow
+    let isRunning: Bool
+    let onMouseInput: (WindowMouseInput) -> Void
+    let onScrollInput: (WindowScrollInput) -> Void
+    let onKeyInput: (WindowKeyInput) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(String(localized: "section.preview", defaultValue: "Preview", bundle: .module))
+            HStack(spacing: 8) {
+                Text(String(localized: "section.livePreview", defaultValue: "Live Preview", bundle: .module))
+                    .font(.headline)
+                Image(systemName: isRunning ? "record.circle.fill" : "record.circle")
+                    .foregroundStyle(isRunning ? .red : .secondary)
+            }
                 .font(.headline)
 
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(Color(nsColor: .controlBackgroundColor))
 
-                if let snapshot {
-                    Image(nsImage: snapshot)
-                        .resizable()
-                        .scaledToFit()
-                        .padding(12)
+                if let image {
+                    InteractiveWindowPreview(
+                        image: image,
+                        window: window,
+                        onMouse: onMouseInput,
+                        onScroll: onScrollInput,
+                        onKey: onKeyInput
+                    )
+                    .padding(12)
                 } else {
                     ContentUnavailableView(
-                        String(localized: "detail.preview.unavailable", defaultValue: "Preview unavailable", bundle: .module),
-                        systemImage: "eye.slash"
+                        String(localized: "detail.livePreview.waiting", defaultValue: "Waiting for live video", bundle: .module),
+                        systemImage: "video.slash"
                     )
                 }
             }

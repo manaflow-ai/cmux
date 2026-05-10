@@ -30,15 +30,19 @@ struct DesktopPrototypeView: View {
         } detail: {
             WindowDetailView(
                 window: store.selectedWindow,
-                snapshot: store.selectedSnapshot,
+                liveFrame: store.liveFrame,
+                isLiveCaptureRunning: store.isLiveCaptureRunning,
                 permissions: store.permissions,
                 status: store.status,
                 onRefreshWindows: store.reloadWindows,
-                onRefreshSnapshot: store.refreshSnapshot,
+                onRestartLiveCapture: store.restartLiveCapture,
                 onRequestAccessibility: store.requestAccessibilityPermission,
                 onRequestScreenCapture: store.requestScreenCapturePermission,
                 onRaise: store.raiseSelectedWindow,
-                onPlace: store.placeSelectedWindow
+                onPlace: store.placeSelectedWindow,
+                onMouseInput: store.forwardMouseInput,
+                onScrollInput: store.forwardScrollInput,
+                onKeyInput: store.forwardKeyInput
             )
         }
         .navigationSplitViewStyle(.balanced)

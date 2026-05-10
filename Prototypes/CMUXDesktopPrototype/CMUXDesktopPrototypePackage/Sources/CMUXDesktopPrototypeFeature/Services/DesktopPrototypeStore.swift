@@ -24,13 +24,17 @@ struct StatusBanner: Equatable {
 final class DesktopPrototypeStore {
     var windows: [HostWindow] = []
     var selectedWindowID: CGWindowID?
-    var selectedSnapshot: NSImage?
+    var liveFrame: CGImage?
+    var isLiveCaptureRunning = false
     var permissions = PermissionState()
     var status: StatusBanner?
 
     @ObservationIgnored private let enumerator = HostWindowEnumerator()
     @ObservationIgnored private let snapshotter = WindowSnapshotter()
     @ObservationIgnored private let accessibilityController = AccessibilityWindowController()
+    @ObservationIgnored private let captureController = LiveWindowCaptureController()
+    @ObservationIgnored private let inputForwarder = WindowInputForwarder()
+    @ObservationIgnored private var captureTask: Task<Void, Never>?
 
     var selectedWindow: HostWindow? {
         guard let selectedWindowID else {
@@ -44,10 +48,10 @@ final class DesktopPrototypeStore {
         windows = enumerator.windows()
 
         if let selectedWindowID, windows.contains(where: { $0.id == selectedWindowID }) {
-            refreshSnapshot()
+            restartLiveCapture()
         } else {
             selectedWindowID = windows.first?.id
-            refreshSnapshot()
+            restartLiveCapture()
         }
 
         status = StatusBanner(
@@ -58,16 +62,23 @@ final class DesktopPrototypeStore {
 
     func selectWindow(_ id: CGWindowID) {
         selectedWindowID = id
-        refreshSnapshot()
+        restartLiveCapture()
     }
 
-    func refreshSnapshot() {
+    func restartLiveCapture() {
         updatePermissions()
         guard let selectedWindow else {
-            selectedSnapshot = nil
+            liveFrame = nil
+            isLiveCaptureRunning = false
             return
         }
-        selectedSnapshot = snapshotter.snapshot(for: selectedWindow)
+
+        liveFrame = nil
+        isLiveCaptureRunning = false
+        captureTask?.cancel()
+        captureTask = Task { [weak self] in
+            await self?.startLiveCapture(for: selectedWindow)
+        }
     }
 
     func requestAccessibilityPermission() {
@@ -88,7 +99,7 @@ final class DesktopPrototypeStore {
             snapshotter.openScreenCaptureSettings()
         }
         updatePermissions()
-        refreshSnapshot()
+        restartLiveCapture()
         status = StatusBanner(
             kind: .info,
             message: String(localized: "status.screenRequested", defaultValue: "Screen Recording request sent. System Settings opened if approval is still needed.", bundle: .module)
@@ -109,13 +120,61 @@ final class DesktopPrototypeStore {
         apply(accessibilityController.place(selectedWindow, placement: placement), refreshAfterSuccess: true)
     }
 
+    func forwardMouseInput(_ input: WindowMouseInput) {
+        guard let selectedWindow else {
+            return
+        }
+        applyInputResult(inputForwarder.forwardMouse(input, to: selectedWindow))
+    }
+
+    func forwardScrollInput(_ input: WindowScrollInput) {
+        guard let selectedWindow else {
+            return
+        }
+        applyInputResult(inputForwarder.forwardScroll(input, to: selectedWindow))
+    }
+
+    func forwardKeyInput(_ input: WindowKeyInput) {
+        guard let selectedWindow else {
+            return
+        }
+        applyInputResult(inputForwarder.forwardKey(input, to: selectedWindow))
+    }
+
+    private func startLiveCapture(for window: HostWindow) async {
+        await captureController.stop()
+
+        guard !Task.isCancelled else {
+            return
+        }
+
+        do {
+            try await captureController.start(window: window) { [weak self] frame in
+                self?.liveFrame = frame
+                self?.isLiveCaptureRunning = true
+            }
+            status = StatusBanner(
+                kind: .success,
+                message: String(localized: "status.liveStarted", defaultValue: "Live capture started", bundle: .module)
+            )
+        } catch {
+            guard !Task.isCancelled else {
+                return
+            }
+
+            isLiveCaptureRunning = false
+            let format = String(localized: "status.liveFailed", defaultValue: "Live capture failed: %@", bundle: .module)
+            status = StatusBanner(kind: .error, message: String(format: format, error.localizedDescription))
+        }
+    }
+
     private func apply(_ result: AccessibilityActionResult, refreshAfterSuccess: Bool) {
         updatePermissions()
         switch result {
         case .succeeded:
             if refreshAfterSuccess {
                 windows = enumerator.windows()
-                refreshSnapshot()
+                restartLiveCapture()
             }
             status = StatusBanner(
                 kind: .success,
@@ -134,6 +193,24 @@ final class DesktopPrototypeStore {
         case .failed(let error):
             let format = String(localized: "status.actionFailed", defaultValue: "Window action failed: %@", bundle: .module)
             status = StatusBanner(kind: .error, message: String(format: format, String(describing: error)))
+        }
+    }
+
+    private func applyInputResult(_ result: WindowInputResult) {
+        updatePermissions()
+        switch result {
+        case .succeeded:
+            break
+        case .accessibilityPermissionMissing:
+            status = StatusBanner(
+                kind: .warning,
+                message: String(localized: "status.inputAccessibilityMissing", defaultValue: "Accessibility permission is needed before forwarding input", bundle: .module)
+            )
+        case .eventCreationFailed:
+            status = StatusBanner(
+                kind: .error,
+                message: String(localized: "status.inputFailed", defaultValue: "Input event could not be created", bundle: .module)
+            )
         }
     }
 

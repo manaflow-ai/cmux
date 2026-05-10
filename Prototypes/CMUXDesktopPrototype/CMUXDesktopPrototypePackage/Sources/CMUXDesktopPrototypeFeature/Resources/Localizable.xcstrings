@@ -50,10 +50,16 @@
         "ja": { "stringUnit": { "state": "translated", "value": "右" } }
       }
     },
-    "button.snapshot": {
+    "button.restartStream": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Snapshot" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "スナップショット" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Restart Stream" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ストリーム再起動" } }
+      }
+    },
+    "capture.error.windowUnavailable": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Window is unavailable for live capture" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウィンドウをライブキャプチャに使用できません" } }
       }
     },
     "detail.alpha": {
@@ -92,10 +98,10 @@
         "ja": { "stringUnit": { "state": "translated", "value": "PID" } }
       }
     },
-    "detail.preview.unavailable": {
+    "detail.livePreview.waiting": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Preview unavailable" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "プレビュー不可" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Waiting for live video" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ライブ映像を待機中" } }
       }
     },
     "detail.windowID": {
@@ -146,10 +152,10 @@
         "ja": { "stringUnit": { "state": "translated", "value": "権限" } }
       }
     },
-    "section.preview": {
+    "section.livePreview": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Preview" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "プレビュー" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Live Preview" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ライブプレビュー" } }
       }
     },
     "sidebar.search": {
@@ -186,6 +192,30 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Window updated" } },
         "ja": { "stringUnit": { "state": "translated", "value": "ウィンドウを更新しました" } }
+      }
+    },
+    "status.inputAccessibilityMissing": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Accessibility permission is needed before forwarding input" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "入力を転送するにはアクセシビリティ権限が必要です" } }
+      }
+    },
+    "status.inputFailed": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Input event could not be created" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "入力イベントを作成できませんでした" } }
+      }
+    },
+    "status.liveFailed": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Live capture failed: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ライブキャプチャに失敗しました: %@" } }
+      }
+    },
+    "status.liveStarted": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Live capture started" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ライブキャプチャを開始しました" } }
       }
     },
     "status.refreshed": {
