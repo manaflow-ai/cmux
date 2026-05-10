@@ -603,6 +603,33 @@ final class FileSearchControllerTests: XCTestCase {
         XCTAssertEqual(finalSnapshot.results.count, matchingFiles.count)
     }
 
+    func testSearchLimitsHighVolumeResultsWithoutWaitingForRipgrepExit() async throws {
+        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
+
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+
+        for index in 0..<650 {
+            try "needle \(index)\n".write(
+                to: rootURL.appendingPathComponent(String(format: "match-%04d.txt", index)),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let controller = FileSearchController()
+        var snapshots: [FileSearchSnapshot] = []
+        controller.onSnapshotChanged = { snapshots.append($0) }
+
+        controller.search(query: "needle", rootPath: rootURL.path, isLocal: true)
+        let finalSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
+
+        XCTAssertEqual(finalSnapshot.status, .limited(500))
+        XCTAssertEqual(finalSnapshot.results.count, 500)
+    }
+
     func testSearchRefreshesWhenContentRevisionChanges() async throws {
         try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
 
