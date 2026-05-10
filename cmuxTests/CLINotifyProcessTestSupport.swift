@@ -80,6 +80,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
         return fd
     }
 
+    func waitForSocketFile(at path: String, timeout: TimeInterval = 5.0) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if FileManager.default.fileExists(atPath: path) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return FileManager.default.fileExists(atPath: path)
+    }
+
     func startMockServer(
         listenerFD: Int32,
         state: MockSocketServerState,

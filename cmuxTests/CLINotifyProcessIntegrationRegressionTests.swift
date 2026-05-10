@@ -67,6 +67,197 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testNotificationCLIActionsMutateSocketStateAndListExtendedFields() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("notif-actions")
+        let store = TerminalNotificationStore.shared
+        let previousShared = AppDelegate.shared
+        let appDelegate = previousShared ?? AppDelegate()
+        let manager = TabManager()
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        AppDelegate.shared = appDelegate
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(title: "CLI Notification Workspace", select: true)
+        let surfaceId = try XCTUnwrap(workspace.focusedPanelId)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        window.makeKeyAndOrderFront(nil)
+
+        defer {
+            TerminalController.shared.stop()
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.close()
+            for workspace in manager.tabs {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            AppDelegate.shared = previousShared
+            unlink(socketPath)
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        XCTAssertTrue(waitForSocketFile(at: socketPath), "Socket did not appear at \(socketPath)")
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        func run(_ arguments: [String], timeout: TimeInterval = 5) -> ProcessRunResult {
+            runProcess(
+                executablePath: cliPath,
+                arguments: ["--socket", socketPath] + arguments,
+                environment: environment,
+                timeout: timeout
+            )
+        }
+
+        let createdAt = Date(timeIntervalSince1970: 1_767_225_600)
+        let listedNotification = TerminalNotification(
+            id: UUID(),
+            tabId: workspace.id,
+            surfaceId: surfaceId,
+            title: "List Fields",
+            subtitle: "cli-test",
+            body: "body",
+            createdAt: createdAt,
+            isRead: false
+        )
+        store.replaceNotificationsForTesting([listedNotification])
+
+        var result = run(["list-notifications", "--json", "--id-format", "uuids"])
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        var rows = try notificationRows(from: result.stdout)
+        var row = try XCTUnwrap(rows.first(where: { $0["id"] as? String == listedNotification.id.uuidString }))
+        XCTAssertEqual(row["workspace_id"] as? String, workspace.id.uuidString)
+        XCTAssertEqual(row["surface_id"] as? String, surfaceId.uuidString)
+        XCTAssertEqual(row["created_at"] as? String, "2026-01-01T00:00:00Z")
+        XCTAssertEqual(row["tab_title"] as? String, "CLI Notification Workspace")
+
+        result = run(["mark-notification-read", "--id", listedNotification.id.uuidString, "--json", "--id-format", "uuids"])
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        rows = try notificationRows(from: run(["list-notifications", "--json", "--id-format", "uuids"]).stdout)
+        row = try XCTUnwrap(rows.first(where: { $0["id"] as? String == listedNotification.id.uuidString }))
+        XCTAssertEqual(row["is_read"] as? Bool, true)
+
+        result = run(["dismiss-notification", "--all-read", "--json", "--id-format", "uuids"])
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        rows = try notificationRows(from: run(["list-notifications", "--json", "--id-format", "uuids"]).stdout)
+        XCTAssertTrue(rows.isEmpty)
+
+        let scopedNotification = TerminalNotification(
+            id: UUID(),
+            tabId: workspace.id,
+            surfaceId: surfaceId,
+            title: "Scoped",
+            subtitle: "cli-test",
+            body: "body",
+            createdAt: createdAt,
+            isRead: false
+        )
+        let siblingNotification = TerminalNotification(
+            id: UUID(),
+            tabId: workspace.id,
+            surfaceId: UUID(),
+            title: "Sibling",
+            subtitle: "cli-test",
+            body: "body",
+            createdAt: createdAt,
+            isRead: false
+        )
+        store.replaceNotificationsForTesting([scopedNotification, siblingNotification])
+
+        result = run([
+            "mark-notification-read",
+            "--workspace",
+            workspace.id.uuidString,
+            "--surface",
+            surfaceId.uuidString,
+            "--json",
+            "--id-format",
+            "uuids",
+        ])
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        rows = try notificationRows(from: run(["list-notifications", "--json", "--id-format", "uuids"]).stdout)
+        row = try XCTUnwrap(rows.first(where: { $0["id"] as? String == scopedNotification.id.uuidString }))
+        XCTAssertEqual(row["is_read"] as? Bool, true)
+        row = try XCTUnwrap(rows.first(where: { $0["id"] as? String == siblingNotification.id.uuidString }))
+        XCTAssertEqual(row["is_read"] as? Bool, false)
+
+        let targetWorkspace = manager.addWorkspace(title: "CLI Open Target", select: false)
+        let targetSurfaceId = try XCTUnwrap(targetWorkspace.focusedPanelId)
+        let openNotification = TerminalNotification(
+            id: UUID(),
+            tabId: targetWorkspace.id,
+            surfaceId: targetSurfaceId,
+            title: "Open",
+            subtitle: "cli-test",
+            body: "body",
+            createdAt: createdAt,
+            isRead: false
+        )
+        store.replaceNotificationsForTesting([openNotification])
+        manager.selectTab(workspace)
+
+        result = run(["open-notification", "--id", openNotification.id.uuidString, "--json", "--id-format", "uuids"])
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let openPayload = try jsonPayload(from: result.stdout)
+        XCTAssertEqual(openPayload["workspace_id"] as? String, targetWorkspace.id.uuidString)
+        XCTAssertEqual(openPayload["surface_id"] as? String, targetSurfaceId.uuidString)
+        XCTAssertTrue(waitForNotificationRead(openNotification.id, cliPath: cliPath, socketPath: socketPath, environment: environment))
+
+        let jumpNotification = TerminalNotification(
+            id: UUID(),
+            tabId: targetWorkspace.id,
+            surfaceId: targetSurfaceId,
+            title: "Jump",
+            subtitle: "cli-test",
+            body: "body",
+            createdAt: createdAt,
+            isRead: false
+        )
+        store.replaceNotificationsForTesting([jumpNotification])
+        manager.selectTab(workspace)
+
+        result = run(["jump-to-unread", "--json", "--id-format", "uuids"])
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let jumpPayload = try jsonPayload(from: result.stdout)
+        XCTAssertEqual(jumpPayload["workspace_id"] as? String, targetWorkspace.id.uuidString)
+        XCTAssertEqual(jumpPayload["surface_id"] as? String, targetSurfaceId.uuidString)
+        XCTAssertTrue(waitForNotificationRead(jumpNotification.id, cliPath: cliPath, socketPath: socketPath, environment: environment))
+    }
+
     func testCodexPromptSubmitRebindsRestoredSessionToCurrentCallerSurface() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-rebind")
@@ -531,4 +722,46 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
     }
 
+    private func notificationRows(from stdout: String) throws -> [[String: Any]] {
+        let data = Data(stdout.utf8)
+        return try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data, options: []) as? [[String: Any]],
+            "Expected notification JSON array, got: \(stdout)"
+        )
+    }
+
+    private func jsonPayload(from stdout: String) throws -> [String: Any] {
+        let data = Data(stdout.utf8)
+        return try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+            "Expected JSON object, got: \(stdout)"
+        )
+    }
+
+    private func waitForNotificationRead(
+        _ notificationId: UUID,
+        cliPath: String,
+        socketPath: String,
+        environment: [String: String],
+        timeout: TimeInterval = 2.0
+    ) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                let result = self.runProcess(
+                    executablePath: cliPath,
+                    arguments: ["--socket", socketPath, "list-notifications", "--json", "--id-format", "uuids"],
+                    environment: environment,
+                    timeout: 3
+                )
+                guard result.status == 0,
+                      let rows = try? self.notificationRows(from: result.stdout),
+                      let row = rows.first(where: { $0["id"] as? String == notificationId.uuidString }) else {
+                    return false
+                }
+                return row["is_read"] as? Bool == true
+            },
+            object: nil
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
 }
