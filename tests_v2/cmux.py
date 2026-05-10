@@ -980,6 +980,19 @@ class cmux:
         res = self._call("debug.terminal.is_focused", {"surface_id": sid}) or {}
         return bool(res.get("focused"))
 
+    def simulate_terminal_file_drop(
+        self,
+        panel: Union[str, int],
+        paths: list[str],
+        route: str = "text_destination",
+    ) -> None:
+        sid = self._resolve_surface_id(panel)
+        self._call(
+            "debug.terminal.simulate_file_drop",
+            {"surface_id": sid, "paths": [str(path) for path in paths], "route": route},
+            timeout_s=30.0,
+        )
+
     def read_terminal_text(self, panel: Union[str, int, None] = None) -> str:
         params: Dict[str, Any] = {}
         if panel is not None:

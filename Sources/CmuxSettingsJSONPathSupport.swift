@@ -69,7 +69,6 @@ extension CmuxSettingsFileStore {
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
         "browser.showImportHintOnBlankTabs",
         "browser.reactGrabVersion",
-        "shortcuts.showModifierHoldHints",
         "shortcuts.bindings",
     ]
 }
