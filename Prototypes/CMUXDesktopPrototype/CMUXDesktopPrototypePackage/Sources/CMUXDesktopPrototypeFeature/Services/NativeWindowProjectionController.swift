@@ -35,7 +35,12 @@ final class NativeWindowProjectionController {
         targetSlot = slot
         installMouseMonitors()
         isPointerInTarget = slot.cocoaFrame.contains(NSEvent.mouseLocation)
-        return accessibilityController.place(window, frame: slot.quartzFrame, raise: isPointerInTarget)
+        let shouldRaise = isPointerInTarget || !window.isOnScreen
+        let result = accessibilityController.place(window, frame: slot.quartzFrame, raise: shouldRaise)
+        if shouldRaise && !isPointerInTarget {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        return result
     }
 
     private func installMouseMonitors() {

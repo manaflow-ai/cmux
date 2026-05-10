@@ -33,12 +33,18 @@ struct WindowInputForwarder {
             return .accessibilityPermissionMissing
         }
 
+        let deltaX = scrollDelta(from: input.deltaX)
+        let deltaY = scrollDelta(from: input.deltaY)
+        guard deltaX != 0 || deltaY != 0 else {
+            return .succeeded
+        }
+
         guard let event = CGEvent(
             scrollWheelEvent2Source: eventSource,
             units: .pixel,
             wheelCount: 2,
-            wheel1: Int32(input.deltaY),
-            wheel2: Int32(input.deltaX),
+            wheel1: deltaY,
+            wheel2: deltaX,
             wheel3: 0
         ) else {
             return .eventCreationFailed
@@ -46,7 +52,11 @@ struct WindowInputForwarder {
 
         let point = screenPoint(for: input.normalizedPoint, in: window)
         event.location = point
+        event.timestamp = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.id))
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.id))
         SkyLightEventPost.setWindowLocation(event, windowLocalPoint(for: point, in: window))
+        SkyLightEventPost.setIntegerField(event, field: 40, value: Int64(window.ownerPID))
         postCursorNeutralMouseEvent(event, to: window.ownerPID)
         return .succeeded
     }
@@ -145,6 +155,18 @@ struct WindowInputForwarder {
 
     private func windowLocalPoint(for point: CGPoint, in window: HostWindow) -> CGPoint {
         CGPoint(x: point.x - window.frame.minX, y: point.y - window.frame.minY)
+    }
+
+    private func scrollDelta(from value: Double) -> Int32 {
+        guard value.isFinite, value != 0 else {
+            return 0
+        }
+
+        let rounded = value.rounded()
+        if rounded == 0 {
+            return value > 0 ? 1 : -1
+        }
+        return Int32(max(min(rounded, Double(Int32.max)), Double(Int32.min)))
     }
 
     private func cocoaLocation(fromScreenPoint point: CGPoint) -> CGPoint {

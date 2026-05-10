@@ -1,8 +1,11 @@
 import CoreGraphics
+import Darwin
 import Foundation
 @preconcurrency import ScreenCaptureKit
 
 struct HostWindowEnumerator {
+    private let currentProcessID = getpid()
+
     func windows() async -> [HostWindow] {
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
@@ -34,7 +37,7 @@ struct HostWindowEnumerator {
     }
 
     private func isUsableWindow(_ window: HostWindow) -> Bool {
-        window.layer == 0 && (window.isOnScreen || window.hasTitle)
+        window.ownerPID != currentProcessID && window.layer == 0 && (window.isOnScreen || window.hasTitle)
     }
 
     private func sortWindows(_ lhs: HostWindow, _ rhs: HostWindow) -> Bool {

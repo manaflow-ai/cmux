@@ -26,6 +26,8 @@ struct InteractiveWindowPreview: NSViewRepresentable {
 }
 
 final class InteractiveWindowPreviewView: NSView {
+    private var mouseTrackingArea: NSTrackingArea?
+
     var image: CGImage? {
         didSet {
             layer?.contents = image
@@ -61,7 +63,28 @@ final class InteractiveWindowPreviewView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        window?.makeFirstResponder(self)
+        window?.acceptsMouseMovedEvents = true
+        updateTrackingAreas()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let mouseTrackingArea {
+            removeTrackingArea(mouseTrackingArea)
+        }
+
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited, .mouseMoved],
+            owner: self
+        )
+        addTrackingArea(trackingArea)
+        mouseTrackingArea = trackingArea
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        emitMouse(event, phase: .moved, button: .left)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -108,6 +131,7 @@ final class InteractiveWindowPreviewView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        window?.makeFirstResponder(self)
         guard let normalizedPoint = normalizedPoint(for: event) else {
             return
         }

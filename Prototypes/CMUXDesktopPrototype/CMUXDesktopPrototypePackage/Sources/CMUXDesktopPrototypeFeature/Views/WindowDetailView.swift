@@ -110,6 +110,9 @@ private struct HeaderView: View {
 }
 
 private struct LivePreviewView: View {
+    private let previewPadding: CGFloat = 12
+    private let maxPreviewHeight: CGFloat = 760
+
     let image: CGImage?
     let window: HostWindow
     let isRunning: Bool
@@ -125,6 +128,10 @@ private struct LivePreviewView: View {
             width: max(window.frame.width, 1),
             height: max(window.frame.height, 1)
         )
+    }
+
+    private var reservedPreviewHeight: CGFloat {
+        min(previewSize.height, maxPreviewHeight) + previewPadding * 2
     }
 
     var body: some View {
@@ -157,11 +164,18 @@ private struct LivePreviewView: View {
             }
                 .font(.headline)
 
-            ScrollView(.horizontal) {
+            GeometryReader { proxy in
+                let fittedSize = fittedPreviewSize(
+                    in: CGSize(
+                        width: max(proxy.size.width - previewPadding * 2, 1),
+                        height: max(proxy.size.height - previewPadding * 2, 1)
+                    )
+                )
+
                 ZStack {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(Color(nsColor: .controlBackgroundColor))
-                        .frame(width: previewSize.width + 24, height: previewSize.height + 24)
+                        .frame(width: fittedSize.width + previewPadding * 2, height: fittedSize.height + previewPadding * 2)
 
                     switch renderMode {
                     case .video:
@@ -173,37 +187,53 @@ private struct LivePreviewView: View {
                                 onScroll: onScrollInput,
                                 onKey: onKeyInput
                             )
-                            .frame(width: previewSize.width, height: previewSize.height)
+                            .frame(width: fittedSize.width, height: fittedSize.height)
                         } else {
                             ContentUnavailableView(
                                 String(localized: "detail.livePreview.waiting", defaultValue: "Waiting for live video", bundle: .module),
                                 systemImage: "video.slash"
                             )
-                            .frame(width: previewSize.width, height: previewSize.height)
+                            .frame(width: fittedSize.width, height: fittedSize.height)
                         }
                     case .native:
                         if let image {
                             StaticWindowPreview(image: image)
-                                .frame(width: previewSize.width, height: previewSize.height)
+                                .frame(width: fittedSize.width, height: fittedSize.height)
                         } else {
                             ContentUnavailableView(
                                 String(localized: "detail.livePreview.waiting", defaultValue: "Waiting for live video", bundle: .module),
                                 systemImage: "video.slash"
                             )
-                            .frame(width: previewSize.width, height: previewSize.height)
+                            .frame(width: fittedSize.width, height: fittedSize.height)
                         }
                         NativeWindowDockView(onFrameChange: onNativeSlotFrameChange)
-                            .frame(width: previewSize.width, height: previewSize.height)
+                            .frame(width: fittedSize.width, height: fittedSize.height)
                         RoundedRectangle(cornerRadius: 4, style: .continuous)
                             .strokeBorder(Color.accentColor.opacity(0.45), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
-                            .frame(width: previewSize.width, height: previewSize.height)
+                            .frame(width: fittedSize.width, height: fittedSize.height)
                     }
                 }
-                .padding(.trailing, 1)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: previewSize.height + 24)
+            .frame(height: reservedPreviewHeight)
         }
+    }
+
+    private func fittedPreviewSize(in availableSize: CGSize) -> CGSize {
+        guard previewSize.width > 0, previewSize.height > 0 else {
+            return .zero
+        }
+
+        let scale = min(
+            availableSize.width / previewSize.width,
+            availableSize.height / previewSize.height,
+            1
+        )
+        return CGSize(
+            width: max((previewSize.width * scale).rounded(.down), 1),
+            height: max((previewSize.height * scale).rounded(.down), 1)
+        )
     }
 
     private var sizeString: String {

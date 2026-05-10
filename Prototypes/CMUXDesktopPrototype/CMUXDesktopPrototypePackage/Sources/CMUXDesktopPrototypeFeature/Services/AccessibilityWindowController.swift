@@ -83,12 +83,30 @@ struct AccessibilityWindowController {
         }
 
         let app = AXUIElementCreateApplication(window.ownerPID)
-        guard let axWindow = resolveAXWindow(for: window, app: app) else {
+        var axWindow = resolveAXWindow(for: window, app: app)
+        if axWindow == nil, raise {
+            let frontmostResult = setFrontmost(app)
+            guard frontmostResult == .success else {
+                return .failed(frontmostResult)
+            }
+            axWindow = resolveAXWindow(for: window, app: app)
+        }
+
+        guard let axWindow else {
             return .windowUnavailable
         }
 
-        let integralFrame = targetFrame.integral
+        if raise {
+            let frontmostResult = setFrontmost(app)
+            guard frontmostResult == .success else {
+                return .failed(frontmostResult)
+            }
+            _ = AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
+        }
+
+        let containerFrame = targetFrame.integral
         let currentFrame = readFrame(from: axWindow)
+        let integralFrame = fittedFrame(for: currentFrame?.size ?? window.frame.size, inside: containerFrame)
 
         if currentFrame?.size.isApproximatelyEqual(to: integralFrame.size) != true {
             let sizeResult = setSize(integralFrame.size, on: axWindow)
@@ -105,7 +123,6 @@ struct AccessibilityWindowController {
         }
 
         if raise {
-            _ = AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
             _ = AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
         }
 
@@ -224,6 +241,32 @@ struct AccessibilityWindowController {
             return .cannotComplete
         }
         return AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, value)
+    }
+
+    private func setFrontmost(_ app: AXUIElement) -> AXError {
+        AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+    }
+
+    private func fittedFrame(for windowSize: CGSize, inside containerFrame: CGRect) -> CGRect {
+        guard windowSize.width > 0, windowSize.height > 0 else {
+            return containerFrame
+        }
+
+        let scale = min(
+            containerFrame.width / windowSize.width,
+            containerFrame.height / windowSize.height,
+            1
+        )
+        let fittedSize = CGSize(
+            width: max((windowSize.width * scale).rounded(.down), 1),
+            height: max((windowSize.height * scale).rounded(.down), 1)
+        )
+        return CGRect(
+            x: containerFrame.midX - fittedSize.width / 2,
+            y: containerFrame.midY - fittedSize.height / 2,
+            width: fittedSize.width,
+            height: fittedSize.height
+        ).integral
     }
 
     private func targetFrame(for window: HostWindow, placement: WindowPlacement) -> CGRect {
