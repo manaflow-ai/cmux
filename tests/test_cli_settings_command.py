@@ -121,6 +121,17 @@ def main() -> int:
         if config.get("app", {}).get("appearance") != "dark":
             failures.append(f"app.appearance was not written to cmux.json: {config}")
 
+        set_placement = run_cli(
+            cli_path,
+            ["settings", "set", "app.newWorkspacePlacement", "after_current"],
+            home,
+        )
+        assert_ok(failures, "settings set enum alias with underscore", set_placement)
+        get_placement = run_cli(cli_path, ["settings", "get", "app.newWorkspacePlacement"], home)
+        assert_ok(failures, "settings get normalized enum", get_placement)
+        if get_placement.stdout.strip() != "afterCurrent":
+            failures.append(f"enum value was not canonicalized: {get_placement.stdout!r}")
+
         list_json = run_cli(cli_path, ["settings", "list", "--json"], home)
         assert_ok(failures, "settings list --json", list_json)
         payload = parse_json(failures, "settings list --json", list_json)
@@ -193,6 +204,11 @@ def main() -> int:
         if get_backslash_n.stdout.strip() != backslash_n_command:
             failures.append(f"TOML roundtrip corrupted literal backslash-n: {get_backslash_n.stdout!r}")
 
+        bad_escape_path = home / "bad-escape.toml"
+        bad_escape_path.write_text('notifications.command = "bad\\t"\n', encoding="utf-8")
+        bad_escape = run_cli(cli_path, ["settings", "import", str(bad_escape_path)], home)
+        assert_fails(failures, "settings import unsupported TOML escape", bad_escape, r"Unsupported TOML string escape: \t")
+
         sectioned_toml_path = home / "sectioned-settings.toml"
         sectioned_toml_path.write_text(
             """
@@ -249,8 +265,13 @@ openSettings = "cmd+option+,"
         export_path = home / "settings-export.toml"
         exported = run_cli(cli_path, ["settings", "export", "--format", "toml", "--out", str(export_path)], home)
         assert_ok(failures, "settings export toml", exported)
-        if not export_path.exists() or 'app.appearance = "dark"' not in export_path.read_text(encoding="utf-8"):
+        exported_text = export_path.read_text(encoding="utf-8") if export_path.exists() else ""
+        if 'app.appearance = "dark"' not in exported_text:
             failures.append("settings export --format toml did not write app.appearance")
+        if 'shortcuts.bindings.openSettings = "cmd+n"' not in exported_text:
+            failures.append("settings export --format toml did not write configured shortcut override")
+        if 'shortcuts.bindings.newWindow = "cmd+shift+n"' in exported_text:
+            failures.append("settings export --format toml pinned an unmodified default shortcut")
 
         unset = run_cli(cli_path, ["settings", "unset", "app.appearance"], home)
         assert_ok(failures, "settings unset app.appearance", unset)

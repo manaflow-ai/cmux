@@ -365,12 +365,15 @@ enum CmuxSettingsRegistry {
                 return aliases[raw] ?? raw
             }
             let normalized = raw
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .replacingOccurrences(of: "-", with: "")
-                .replacingOccurrences(of: "_", with: "")
-                .lowercased()
+                .normalizedEnumToken
             if let alias = aliases[raw] ?? aliases[normalized] {
                 return alias
+            }
+            if let alias = aliases.first(where: { $0.key.normalizedEnumToken == normalized })?.value {
+                return alias
+            }
+            if let canonical = values.first(where: { $0.normalizedEnumToken == normalized }) {
+                return aliases[canonical] ?? canonical
             }
             throw ValidationError(message: "\(definition.key) expects one of: \(values.joined(separator: ", "))")
         case .hexColor:
@@ -463,5 +466,14 @@ enum CmuxSettingsRegistry {
         if let int = value as? Int { return Double(int) }
         if let number = value as? NSNumber { return number.doubleValue }
         return nil
+    }
+}
+
+private extension String {
+    var normalizedEnumToken: String {
+        trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .lowercased()
     }
 }

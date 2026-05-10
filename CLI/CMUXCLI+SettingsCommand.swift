@@ -210,7 +210,7 @@ extension CMUXCLI {
             let value = store.resolvedValue(for: definition, root: root).value
             store.setValue(value, forPath: key, in: &exportRoot)
         }
-        let shortcutBindings = store.currentShortcutBindings(root: root)
+        let shortcutBindings = try store.configuredShortcutBindings(root: root)
         if !shortcutBindings.isEmpty {
             store.setValue(shortcutBindings, forPath: "shortcuts.bindings", in: &exportRoot)
         }
@@ -512,15 +512,18 @@ extension CMUXCLI {
             return (try CLIShortcut.parse(definition.defaultValue, action: definition), "default")
         }
 
-        func currentShortcutBindings(root: [String: Any]) -> [String: String] {
+        func configuredShortcutBindings(root: [String: Any]) throws -> [String: String] {
+            guard let rawBindings = value(forPath: "shortcuts.bindings", in: root) else {
+                return [:]
+            }
+            guard let bindings = rawBindings as? [String: Any] else {
+                throw CLIError(message: "shortcuts.bindings expects an object")
+            }
             var result: [String: String] = [:]
-            for definition in CmuxSettingsRegistry.shortcutActions {
-                if let raw = value(forPath: "shortcuts.bindings.\(definition.action)", in: root),
-                   let shortcut = try? CLIShortcut.parseJSONValue(raw, action: definition) {
-                    result[definition.action] = shortcut.configString
-                } else {
-                    result[definition.action] = definition.defaultValue
-                }
+            for (rawAction, rawValue) in bindings {
+                let definition = try CmuxSettingsRegistry.shortcutAction(for: rawAction)
+                let shortcut = try CLIShortcut.parseJSONValue(rawValue, action: definition)
+                result[definition.action] = shortcut.configString
             }
             return result
         }
@@ -849,7 +852,7 @@ extension CMUXCLI {
                 case "\\":
                     output.append("\\")
                 default:
-                    throw CLIError(message: "Unsupported TOML string escape: \\(raw[escapeIndex])")
+                    throw CLIError(message: "Unsupported TOML string escape: \\\(raw[escapeIndex])")
                 }
                 index = raw.index(after: escapeIndex)
             }
