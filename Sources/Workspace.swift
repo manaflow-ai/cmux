@@ -1180,7 +1180,7 @@ extension Workspace {
         }
     }
 
-    private func removePendingTerminalInputObservers(forPanelId panelId: UUID) {
+    func removePendingTerminalInputObservers(forPanelId panelId: UUID) {
         guard let observers = pendingTerminalInputObserversByPanelId.removeValue(forKey: panelId) else {
             return
         }
@@ -7107,27 +7107,6 @@ struct ClosedBrowserPanelRestoreSnapshot {
     let fallbackAnchorPaneId: UUID?
 }
 
-private extension RestorableAgentKind {
-    var sidebarStatusKey: String {
-        switch self {
-        case .claude:
-            return "claude_code"
-        default:
-            return rawValue
-        }
-    }
-
-    func sidebarAgentPIDKey(sessionId: String) -> String {
-        switch self {
-        case .claude:
-            return sidebarStatusKey
-        default:
-            let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
-            return "\(sidebarStatusKey).\(normalizedSessionId.isEmpty ? "default" : normalizedSessionId)"
-        }
-    }
-}
-
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
@@ -7173,23 +7152,23 @@ final class Workspace: Identifiable, ObservableObject {
     private var surfaceTabBarButtonGlobalConfigPath: String?
 
     /// Mapping from bonsplit TabID to our Panel instances
-    @Published private(set) var panels: [UUID: any Panel] = [:]
+    @Published var panels: [UUID: any Panel] = [:]
 
     /// Subscriptions for panel updates (e.g., browser title changes)
-    private var panelSubscriptions: [UUID: AnyCancellable] = [:]
+    var panelSubscriptions: [UUID: AnyCancellable] = [:]
 
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels)
     private var isProgrammaticSplit = false
     private var debugStressPreloadSelectionDepth = 0
 
     /// Last terminal panel used as an inheritance source (typically last focused terminal).
-    private var lastTerminalConfigInheritancePanelId: UUID?
+    var lastTerminalConfigInheritancePanelId: UUID?
     /// Last known terminal font points from inheritance sources. Used as fallback when
     /// no live terminal surface is currently available.
     private var lastTerminalConfigInheritanceFontPoints: Float?
     /// Per-panel inherited zoom lineage. Descendants reuse this root value unless
     /// a panel is explicitly re-zoomed by the user.
-    private var terminalInheritanceFontPointsByPanelId: [UUID: Float] = [:]
+    var terminalInheritanceFontPointsByPanelId: [UUID: Float] = [:]
 
     /// Callback used by TabManager to capture recently closed browser panels for Cmd+Shift+T restore.
     var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
@@ -7228,14 +7207,14 @@ final class Workspace: Identifiable, ObservableObject {
     /// Published directory for each panel
     @Published var panelDirectories: [UUID: String] = [:]
     @Published var panelTitles: [UUID: String] = [:]
-    @Published private(set) var panelCustomTitles: [UUID: String] = [:]
-    @Published private(set) var pinnedPanelIds: Set<UUID> = []
-    @Published private(set) var manualUnreadPanelIds: Set<UUID> = []
+    @Published var panelCustomTitles: [UUID: String] = [:]
+    @Published var pinnedPanelIds: Set<UUID> = []
+    @Published var manualUnreadPanelIds: Set<UUID> = []
     @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
     @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
     @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
     @Published private(set) var tmuxWorkspaceFlashToken: UInt64 = 0
-    private var manualUnreadMarkedAt: [UUID: Date] = [:]
+    var manualUnreadMarkedAt: [UUID: Date] = [:]
     nonisolated private static let manualUnreadFocusGraceInterval: TimeInterval = 0.2
     nonisolated private static let manualUnreadClearDelayAfterFocusFlash: TimeInterval = 0.2
     @Published var statusEntries: [String: SidebarStatusEntry] = [:]
@@ -7270,7 +7249,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var remoteLastPortConflictFingerprint: String?
     private var remoteDetectedSurfaceIds: Set<UUID> = []
     private var activeRemoteTerminalSurfaceIds: Set<UUID> = []
-    private var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
+    var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
     /// Display target of the remote workspace that just disconnected. Set right before
     /// `createReplacementTerminalPanel()` so the replacement shell can print a banner
     /// explaining that ssh ended (instead of the user seeing an unexplained local prompt
@@ -7290,20 +7269,20 @@ final class Workspace: Identifiable, ObservableObject {
         return formatter
     }()
     nonisolated(unsafe) static var runSSHControlMasterCommandOverrideForTesting: (([String]) -> Void)?
-    private var panelShellActivityStates: [UUID: PanelShellActivityState] = [:]
+    var panelShellActivityStates: [UUID: PanelShellActivityState] = [:]
     /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
     var agentPIDs: [String: pid_t] = [:]
-    private var agentPIDPanelIdsByKey: [String: UUID] = [:]
-    private var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
-    private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+    var agentPIDPanelIdsByKey: [String: UUID] = [:]
+    var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
+    var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
-    private var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
-    private var debugSessionSnapshotSyntheticScrollbackByPanelId: [UUID: String] = [:]
+    var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
+    var debugSessionSnapshotSyntheticScrollbackByPanelId: [UUID: String] = [:]
 #endif
-    private var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
-    private var restoredAgentAutoResumePendingPanelIds: Set<UUID> = []
-    private var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
+    var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
+    var restoredAgentAutoResumePendingPanelIds: Set<UUID> = []
+    var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
 
     private func sidebarObservationSignal<Value: Equatable>(
@@ -7950,7 +7929,7 @@ final class Workspace: Identifiable, ObservableObject {
     // MARK: - Surface ID to Panel ID Mapping
 
     /// Mapping from bonsplit TabID (surface ID) to panel UUID
-    private var surfaceIdToPanelId: [TabID: UUID] = [:]
+    var surfaceIdToPanelId: [TabID: UUID] = [:]
 
     /// Tab IDs that are allowed to close even if they would normally require confirmation.
     /// This is used by app-level confirmation prompts (e.g., Cmd+W "Close Tab?") so the
@@ -8025,7 +8004,7 @@ final class Workspace: Identifiable, ObservableObject {
     // closed immediately after the move succeeds. That teardown must not shut down the
     // shared SSH control master that is still serving the moved terminal.
     private var skipControlMasterCleanupAfterDetachedRemoteTransfer = false
-    private var transferredRemoteCleanupConfigurationsByPanelId: [UUID: WorkspaceRemoteConfiguration] = [:]
+    var transferredRemoteCleanupConfigurationsByPanelId: [UUID: WorkspaceRemoteConfiguration] = [:]
 
 #if DEBUG
     private func debugElapsedMs(since start: TimeInterval) -> String {
@@ -9325,7 +9304,7 @@ final class Workspace: Identifiable, ObservableObject {
         _ = applyPendingRemoteSurfacePortKickIfNeeded(to: panelId)
     }
 
-    private func untrackRemoteTerminalSurface(_ panelId: UUID) {
+    func untrackRemoteTerminalSurface(_ panelId: UUID) {
         guard activeRemoteTerminalSurfaceIds.remove(panelId) != nil else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         guard !isDetachingCloseTransaction else { return }
@@ -9462,7 +9441,7 @@ final class Workspace: Identifiable, ObservableObject {
         disconnectRemoteConnection(clearConfiguration: true)
     }
 
-    private static func requestSSHControlMasterCleanupIfNeeded(configuration: WorkspaceRemoteConfiguration) {
+    static func requestSSHControlMasterCleanupIfNeeded(configuration: WorkspaceRemoteConfiguration) {
         guard let arguments = sshControlMasterCleanupArguments(configuration: configuration) else { return }
         if let override = runSSHControlMasterCommandOverrideForTesting {
             override(arguments)
@@ -10588,218 +10567,6 @@ final class Workspace: Identifiable, ObservableObject {
         filePreviewPanel.focus()
         installFilePreviewPanelSubscription(filePreviewPanel)
         return filePreviewPanel
-    }
-
-    private func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
-        var pidKeys = agentPIDKeysByPanelId[panelId] ?? []
-        if let restorableAgent = restoredAgentSnapshotsByPanelId[panelId] {
-            pidKeys.insert(restorableAgent.kind.sidebarAgentPIDKey(sessionId: restorableAgent.sessionId))
-        }
-
-        var agentPIDsForPanel: [String: pid_t] = [:]
-        var statusEntriesForPanel: [String: SidebarStatusEntry] = [:]
-        for key in pidKeys {
-            if let pid = agentPIDs[key] {
-                agentPIDsForPanel[key] = pid
-            }
-            let statusKey = agentStatusKey(forAgentPIDKey: key)
-            if let statusEntry = statusEntries[statusKey] {
-                statusEntriesForPanel[statusKey] = statusEntry
-            }
-        }
-        guard !statusEntriesForPanel.isEmpty || !agentPIDsForPanel.isEmpty || !pidKeys.isEmpty else { return nil }
-        return DetachedAgentRuntimeState(
-            panelId: panelId,
-            statusEntries: statusEntriesForPanel,
-            agentPIDs: agentPIDsForPanel,
-            agentPIDKeys: pidKeys
-        )
-    }
-
-    private func agentStatusKey(forAgentPIDKey key: String) -> String {
-        if statusEntries[key] != nil {
-            return key
-        }
-        guard let dotIndex = key.firstIndex(of: ".") else {
-            return key
-        }
-        return String(key[..<dotIndex])
-    }
-
-    private func hasAgentRuntime(forStatusKey statusKey: String) -> Bool {
-        for key in agentPIDs.keys where agentStatusKey(forAgentPIDKey: key) == statusKey {
-            return true
-        }
-        for key in agentPIDPanelIdsByKey.keys where agentStatusKey(forAgentPIDKey: key) == statusKey {
-            return true
-        }
-        return false
-    }
-
-    private func removeAgentPIDOwnership(key: String) {
-        if let previousPanelId = agentPIDPanelIdsByKey[key] {
-            agentPIDKeysByPanelId[previousPanelId]?.remove(key)
-            if agentPIDKeysByPanelId[previousPanelId]?.isEmpty == true {
-                agentPIDKeysByPanelId.removeValue(forKey: previousPanelId)
-            }
-            agentPIDPanelIdsByKey.removeValue(forKey: key)
-        }
-    }
-
-    private func recordAgentPIDOwnership(key: String, panelId: UUID) {
-        if let previousPanelId = agentPIDPanelIdsByKey[key], previousPanelId != panelId {
-            removeAgentPIDOwnership(key: key)
-        }
-        agentPIDPanelIdsByKey[key] = panelId
-        agentPIDKeysByPanelId[panelId, default: []].insert(key)
-    }
-
-    func recordAgentPID(key: String, pid: pid_t, panelId: UUID?) {
-        agentPIDs[key] = pid
-        if let panelId {
-            recordAgentPIDOwnership(key: key, panelId: panelId)
-        } else {
-            removeAgentPIDOwnership(key: key)
-        }
-        refreshTrackedAgentPorts()
-    }
-
-    @discardableResult
-    func clearAgentPID(
-        key: String,
-        panelId: UUID? = nil,
-        clearStatus: Bool = false,
-        refreshPorts: Bool = true
-    ) -> Bool {
-        let ownedPanelId = agentPIDPanelIdsByKey[key]
-        if let panelId, let ownedPanelId, ownedPanelId != panelId {
-            return false
-        }
-        let statusKeyToClear = clearStatus ? agentStatusKey(forAgentPIDKey: key) : nil
-
-        var didChange = false
-        if agentPIDs.removeValue(forKey: key) != nil {
-            didChange = true
-        }
-        if ownedPanelId != nil {
-            removeAgentPIDOwnership(key: key)
-            didChange = true
-        }
-        if let statusKeyToClear,
-           !hasAgentRuntime(forStatusKey: statusKeyToClear),
-           statusEntries.removeValue(forKey: statusKeyToClear) != nil {
-            didChange = true
-        }
-        if didChange, refreshPorts {
-            refreshTrackedAgentPorts()
-        }
-        return didChange
-    }
-
-    private func refreshTrackedAgentPorts() {
-        agentListeningPorts.removeAll(keepingCapacity: false)
-        let remainingAgentPIDs = Set(agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
-        PortScanner.shared.refreshAgentPorts(workspaceId: id, agentPIDs: remainingAgentPIDs)
-        recomputeListeningPorts()
-    }
-
-    @discardableResult
-    private func discardAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) -> Bool {
-        guard let runtimeState else { return false }
-        var didChange = false
-        for key in runtimeState.agentPIDKeys {
-            if clearAgentPID(key: key, panelId: runtimeState.panelId, clearStatus: true, refreshPorts: false) {
-                didChange = true
-            }
-        }
-        if didChange {
-            refreshTrackedAgentPorts()
-        }
-        return didChange
-    }
-
-    private func adoptDetachedAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) {
-        guard let runtimeState else { return }
-        for (statusKey, statusEntry) in runtimeState.statusEntries {
-            statusEntries[statusKey] = statusEntry
-        }
-        for (key, pid) in runtimeState.agentPIDs {
-            recordAgentPID(key: key, pid: pid, panelId: runtimeState.panelId)
-        }
-        for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
-            recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
-        }
-    }
-
-    /// Discard every Workspace-owned contribution for a surface whose tab,
-    /// pane, or workspace has already been accepted for closure.
-    @discardableResult
-    private func discardClosedPanelLifecycleState(
-        panelId: UUID,
-        tabId: TabID? = nil,
-        paneId: PaneID?,
-        panel: (any Panel)?,
-        origin: String,
-        closePanel: Bool,
-        publishSurfaceClosedEvent: Bool,
-        clearSurfaceNotifications: Bool,
-        requestTransferredRemoteCleanup: Bool
-    ) -> WorkspaceRemoteConfiguration? {
-        if publishSurfaceClosedEvent {
-            publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
-        }
-
-        let closedAgentRuntimeState = agentRuntimeState(forPanelId: panelId)
-        removePendingTerminalInputObservers(forPanelId: panelId)
-        let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
-        panelSubscriptions.removeValue(forKey: panelId)?.cancel()
-        removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
-        if closePanel {
-            panel?.close()
-        }
-
-        panels.removeValue(forKey: panelId)
-        untrackRemoteTerminalSurface(panelId)
-        pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
-        if let tabId {
-            surfaceIdToPanelId.removeValue(forKey: tabId)
-        } else {
-            surfaceIdToPanelId = surfaceIdToPanelId.filter { $0.value != panelId }
-        }
-
-        panelDirectories.removeValue(forKey: panelId)
-        panelGitBranches.removeValue(forKey: panelId)
-        panelPullRequests.removeValue(forKey: panelId)
-        panelTitles.removeValue(forKey: panelId)
-        panelCustomTitles.removeValue(forKey: panelId)
-        pinnedPanelIds.remove(panelId)
-        manualUnreadPanelIds.remove(panelId)
-        manualUnreadMarkedAt.removeValue(forKey: panelId)
-        panelShellActivityStates.removeValue(forKey: panelId)
-        surfaceTTYNames.removeValue(forKey: panelId)
-        surfaceListeningPorts.removeValue(forKey: panelId)
-        restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
-#if DEBUG
-        debugSessionSnapshotScrollbackFallbackPanelIds.remove(panelId)
-        debugSessionSnapshotSyntheticScrollbackByPanelId.removeValue(forKey: panelId)
-#endif
-        discardAgentRuntimeState(closedAgentRuntimeState)
-        restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
-        restoredAgentAutoResumePendingPanelIds.remove(panelId)
-        invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
-        PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
-        terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)
-        if lastTerminalConfigInheritancePanelId == panelId {
-            lastTerminalConfigInheritancePanelId = nil
-        }
-        if clearSurfaceNotifications {
-            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
-        }
-
-        if requestTransferredRemoteCleanup, let transferredRemoteCleanupConfiguration {
-            Self.requestSSHControlMasterCleanupIfNeeded(configuration: transferredRemoteCleanupConfiguration)
-        }
-        return transferredRemoteCleanupConfiguration
     }
 
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
