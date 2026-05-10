@@ -780,7 +780,7 @@ extension CMUXCLI {
                   components.allSatisfy({ !$0.isEmpty }) else {
                 throw CLIError(message: "Invalid TOML key path: \(rawLine)")
             }
-            return components.map(String.init)
+            return components
         }
 
         private func stripTomlComment(_ rawLine: String) -> String {
