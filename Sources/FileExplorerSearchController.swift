@@ -332,8 +332,8 @@ final class FileSearchController: FileSearchControlling {
             let stdoutHandle = stdout.fileHandleForReading
             let stderrHandle = stderr.fileHandleForReading
             searchTask = Task { [weak self, pipeline, terminationSignal] in
-                // Result completeness is defined by stdout. Stderr is diagnostic-only, so
-                // drain it without letting an empty/error stream block final result publication.
+                // Result completeness is defined by stdout. Stderr stays diagnostic-only:
+                // successful searches do not wait on it, failed searches do before formatting the error.
                 let stderrTask = Task {
                     await Self.streamStderr(from: stderrHandle, pipeline: pipeline)
                 }
@@ -352,6 +352,9 @@ final class FileSearchController: FileSearchControlling {
                 guard let status = await terminationSignal.wait() else { return }
                 await stdoutDone
                 guard !Task.isCancelled else { return }
+                if status != 0 && status != 1 {
+                    await stderrTask.value
+                }
                 let update = await pipeline.finish(status: status)
                 self?.finish(generation: searchGeneration, update: update)
             }
