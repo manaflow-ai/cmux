@@ -697,6 +697,71 @@ final class FileSearchControllerTests: XCTestCase {
         XCTAssertEqual(searchController.searchRequests.last?.query, "private")
     }
 
+    func testContentRevisionChangeDoesNotRestartActiveFindSearch() async throws {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let searchController = SpyFileSearchController()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .find,
+            searchController: searchController
+        )
+        store.provider = MockFileExplorerProvider(homePath: "/tmp")
+        store.setRootPath("/tmp/cmux-find-content-revision-test")
+        container.updateHeader(store: store)
+        container.updatePresentation(.find)
+
+        let searchField = try XCTUnwrap(Self.findSearchField(in: container))
+        searchField.stringValue = "needle"
+        container.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: searchField))
+
+        try await waitFor("initial find search request") {
+            searchController.searchRequests.count == 1
+        }
+
+        searchController.publish(FileSearchSnapshot(
+            query: "needle",
+            results: [Self.searchResult(relativePath: "first.txt")],
+            status: .searching,
+            isSearching: true
+        ))
+        let originalRequestCount = searchController.searchRequests.count
+
+        store.reload()
+        container.updateHeader(store: store)
+
+        XCTAssertEqual(
+            searchController.searchRequests.count,
+            originalRequestCount,
+            "A content revision while a search is active should not cancel and restart the result stream."
+        )
+
+        searchController.publish(FileSearchSnapshot(
+            query: "needle",
+            results: [Self.searchResult(relativePath: "first.txt")],
+            status: .matches,
+            isSearching: false
+        ))
+
+        XCTAssertEqual(searchController.searchRequests.count, originalRequestCount + 1)
+        XCTAssertEqual(searchController.searchRequests.last?.contentRevision, store.contentRevision)
+    }
+
+    private static func searchResult(relativePath: String) -> FileSearchResult {
+        FileSearchResult(
+            path: "/tmp/cmux-find-content-revision-test/\(relativePath)",
+            relativePath: relativePath,
+            lineNumber: 1,
+            columnNumber: 1,
+            preview: "needle"
+        )
+    }
+
     private func waitForSettledSearchSnapshot(
         timeout: TimeInterval = 5,
         _ snapshot: @MainActor @escaping () -> FileSearchSnapshot?
@@ -759,6 +824,10 @@ final class FileSearchControllerTests: XCTestCase {
                 isLocal: isLocal,
                 contentRevision: contentRevision
             ))
+        }
+
+        func publish(_ snapshot: FileSearchSnapshot) {
+            onSnapshotChanged?(snapshot)
         }
 
         func cancel(clear: Bool) {
