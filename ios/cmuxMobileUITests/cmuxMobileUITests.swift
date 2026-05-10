@@ -9,11 +9,18 @@ final class cmuxMobileUITests: XCTestCase {
     }
 
     @MainActor
+    func testSignInScreenShowsOriginalAuthControls() throws {
+        let app = launchApp(authenticated: false)
+
+        XCTAssertTrue(app.buttons["signin.apple"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["signin.google"].exists)
+        XCTAssertTrue(app.textFields["Email"].exists)
+        XCTAssertTrue(app.buttons["signin.emailCode"].exists)
+    }
+
+    @MainActor
     func testSignInPairingAndWorkspaceShell() throws {
         let app = launchApp()
-
-        XCTAssertTrue(app.buttons["MobileSignInButton"].waitForExistence(timeout: 8))
-        app.buttons["MobileSignInButton"].tap()
 
         XCTAssertTrue(app.textFields["MobilePairingCodeField"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.buttons["MobileScanQRCodeButton"].isEnabled)
@@ -190,9 +197,18 @@ final class cmuxMobileUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchApp() -> XCUIApplication {
+    private func launchApp(authenticated: Bool = true) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = "0"
+        if authenticated {
+            app.launchEnvironment["CMUX_UITEST_AUTH_FIXTURE"] = "1"
+            app.launchEnvironment["CMUX_UITEST_AUTH_USER_ID"] = "mobile-uitest"
+            app.launchEnvironment["CMUX_UITEST_AUTH_EMAIL"] = "mobile-uitest@cmux.local"
+            app.launchEnvironment["CMUX_UITEST_AUTH_NAME"] = "Mobile UI Test"
+        } else {
+            app.launchEnvironment["CMUX_UITEST_CLEAR_AUTH"] = "1"
+        }
         app.launch()
         return app
     }
@@ -206,9 +222,6 @@ final class cmuxMobileUITests: XCTestCase {
 
     @MainActor
     private func connect(_ app: XCUIApplication, pairingCode: String) throws {
-        XCTAssertTrue(app.buttons["MobileSignInButton"].waitForExistence(timeout: 8))
-        app.buttons["MobileSignInButton"].tap()
-
         let field = app.textFields["MobilePairingCodeField"]
         XCTAssertTrue(field.waitForExistence(timeout: 4))
         try typeText(pairingCode, into: field, in: app)

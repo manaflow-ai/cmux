@@ -5,7 +5,7 @@ import PackageDescription
 
 let package = Package(
     name: "cmuxMobileFeature",
-    platforms: [.iOS(.v17)],
+    platforms: [.iOS("26.0")],
     products: [
         .library(
             name: "cmuxMobileFeature",
@@ -13,12 +13,20 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../../Packages/CMUXAuthCore"),
         .package(path: "../../Packages/CMUXMobileSyncCore"),
+        .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
+        .package(url: "https://github.com/getsentry/sentry-cocoa", from: "8.0.0"),
     ],
     targets: [
         .target(
             name: "cmuxMobileFeature",
-            dependencies: ["CMUXMobileSyncCore"]
+            dependencies: [
+                "CMUXAuthCore",
+                "CMUXMobileSyncCore",
+                .product(name: "Sentry", package: "sentry-cocoa"),
+                .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
+            ]
         ),
         .testTarget(
             name: "cmuxMobileFeatureTests",

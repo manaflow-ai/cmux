@@ -190,6 +190,132 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "コードを確認" } }
       }
     },
+    "auth.error.apple_config" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Apple Sign In is not available yet. Please use another sign-in method." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Apple でのサインインはまだ利用できません。別のサインイン方法を使用してください。" } }
+      }
+    },
+    "auth.error.code_expired" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Code expired. Please request a new one." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コードの有効期限が切れました。新しいコードをリクエストしてください。" } }
+      }
+    },
+    "auth.error.config" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sign in is temporarily unavailable. Please try again later." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サインインは一時的に利用できません。しばらくしてからもう一度お試しください。" } }
+      }
+    },
+    "auth.error.email_exists" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "An account with this email already exists. Try signing in instead." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このメールのアカウントはすでに存在します。サインインを試してください。" } }
+      }
+    },
+    "auth.error.generic" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Something went wrong. Please try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "問題が発生しました。もう一度お試しください。" } }
+      }
+    },
+    "auth.error.invalid_code" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Invalid code. Please check and try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コードが無効です。確認してもう一度お試しください。" } }
+      }
+    },
+    "auth.error.invalid_email" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Please enter a valid email address." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "有効なメールアドレスを入力してください。" } }
+      }
+    },
+    "auth.error.invalid_mfa" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Incorrect verification code. Please try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "確認コードが正しくありません。もう一度お試しください。" } }
+      }
+    },
+    "auth.error.invalidCodeShort" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Invalid code. Please try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コードが無効です。もう一度お試しください。" } }
+      }
+    },
+    "auth.error.network" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not connect to the server. Check your internet connection and try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サーバーに接続できませんでした。インターネット接続を確認してもう一度お試しください。" } }
+      }
+    },
+    "auth.error.networkError" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Network error. Please check your connection." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ネットワークエラーです。接続を確認してください。" } }
+      }
+    },
+    "auth.error.oauth_linked" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This account is already linked to another sign-in method." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このアカウントは別のサインイン方法にすでにリンクされています。" } }
+      }
+    },
+    "auth.error.passkey_failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Passkey authentication failed. Please try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "パスキー認証に失敗しました。もう一度お試しください。" } }
+      }
+    },
+    "auth.error.rate_limit" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Too many attempts. Please wait a moment and try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "試行回数が多すぎます。少し待ってからもう一度お試しください。" } }
+      }
+    },
+    "auth.error.serverError" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Something went wrong. Please try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "問題が発生しました。もう一度お試しください。" } }
+      }
+    },
+    "auth.error.unauthorized" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Session expired. Please sign in again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "セッションの有効期限が切れました。もう一度サインインしてください。" } }
+      }
+    },
+    "auth.error.user_not_found" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No account found with this email." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このメールのアカウントは見つかりません。" } }
+      }
+    },
+    "auth.error.wrong_password" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Incorrect email or password." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "メールまたはパスワードが正しくありません。" } }
+      }
+    },
     "mobile.signOut" : {
       "extractionState" : "manual",
       "localizations" : {
