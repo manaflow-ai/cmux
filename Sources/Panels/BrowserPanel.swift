@@ -1868,18 +1868,6 @@ final class BrowserPortalAnchorView: NSView {
 
 @MainActor
 final class BrowserPanel: Panel, ObservableObject {
-    private static let remoteLoopbackProxyAliasHost = RemoteLoopbackProxyAlias.aliasHost
-    private static let remoteLoopbackHosts: Set<String> = [
-        "localhost",
-        "127.0.0.1",
-        "::1",
-        "0.0.0.0",
-    ]
-
-    private static func isRemoteLoopbackHost(_ host: String) -> Bool {
-        remoteLoopbackHosts.contains(host) || host.hasSuffix(".localhost")
-    }
-
     /// Shared process pool for cookie sharing across all browser panels
     private static let sharedProcessPool = WKProcessPool()
 
@@ -1980,131 +1968,6 @@ final class BrowserPanel: Panel, ObservableObject {
       return true;
     })()
     """
-
-    static let remoteLoopbackRuntimeBridgeScriptSource: String = {
-        """
-        (() => {
-          const aliasHost = "\(remoteLoopbackProxyAliasHost)";
-          const normalizeHost = (host) => {
-            let value = String(host || '').trim().toLowerCase();
-            if (!value) return '';
-            if (value.endsWith('.')) value = value.slice(0, -1);
-            if (value.startsWith('[') && value.endsWith(']')) {
-              value = value.slice(1, -1);
-            }
-            return value;
-          };
-          const normalizedAliasHost = normalizeHost(aliasHost);
-          const currentHost = normalizeHost(window.location.hostname);
-          let effectiveHost = currentHost;
-          if (!effectiveHost && window.location.protocol === 'about:') {
-            try {
-              effectiveHost = normalizeHost(new URL(document.baseURI).hostname);
-            } catch (_) {}
-          }
-          if (effectiveHost !== normalizedAliasHost && !effectiveHost.endsWith(`.${normalizedAliasHost}`)) {
-            return true;
-          }
-          if (window.__cmuxRemoteLoopbackRuntimeBridgeInstalled) return true;
-          window.__cmuxRemoteLoopbackRuntimeBridgeInstalled = true;
-
-          const loopbackAliasHost = (host) => {
-            const normalizedHost = normalizeHost(host);
-            if (
-              normalizedHost === 'localhost' ||
-              normalizedHost === '127.0.0.1' ||
-              normalizedHost === '0.0.0.0' ||
-              normalizedHost === '::1'
-            ) {
-              return aliasHost;
-            }
-            const suffix = '.localhost';
-            if (normalizedHost.endsWith(suffix) && normalizedHost.length > suffix.length) {
-              return `${normalizedHost.slice(0, -suffix.length)}.${aliasHost}`;
-            }
-            return null;
-          };
-
-          const rewriteLoopbackURL = (input) => {
-            if (typeof input !== 'string' && !(input instanceof URL)) {
-              return input;
-            }
-            const original = input instanceof URL ? input.href : input;
-            let parsed;
-            try {
-              parsed = new URL(original, document.baseURI);
-            } catch {
-              return input;
-            }
-            if (parsed.protocol !== 'http:' && parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') {
-              return input;
-            }
-            const rewrittenHost = loopbackAliasHost(parsed.hostname);
-            if (!rewrittenHost) {
-              return input;
-            }
-            parsed.hostname = rewrittenHost;
-            return parsed.href;
-          };
-
-          Object.defineProperty(window, '__cmuxRewriteRemoteLoopbackURL', {
-            value: rewriteLoopbackURL,
-            configurable: true,
-          });
-
-          const nativeFetch = window.fetch ? window.fetch.bind(window) : null;
-          if (nativeFetch) {
-            window.fetch = (input, init) => {
-              if (typeof Request !== 'undefined' && input instanceof Request) {
-                const rewrittenURL = rewriteLoopbackURL(input.url);
-                if (rewrittenURL !== input.url) {
-                  return nativeFetch(new Request(rewrittenURL, input), init);
-                }
-                return nativeFetch(input, init);
-              }
-              return nativeFetch(rewriteLoopbackURL(input), init);
-            };
-          }
-
-          const nativeXHROpen = window.XMLHttpRequest && window.XMLHttpRequest.prototype.open;
-          if (nativeXHROpen) {
-            window.XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-              return nativeXHROpen.call(this, method, rewriteLoopbackURL(url), ...rest);
-            };
-          }
-
-          const NativeWebSocket = window.WebSocket;
-          if (typeof NativeWebSocket === 'function') {
-            const CmuxWebSocket = function(url, protocols) {
-              const rewrittenURL = rewriteLoopbackURL(url);
-              if (protocols === undefined) {
-                return new NativeWebSocket(rewrittenURL);
-              }
-              return new NativeWebSocket(rewrittenURL, protocols);
-            };
-            CmuxWebSocket.prototype = NativeWebSocket.prototype;
-            Object.setPrototypeOf(CmuxWebSocket, NativeWebSocket);
-            window.WebSocket = CmuxWebSocket;
-          }
-
-          const NativeEventSource = window.EventSource;
-          if (typeof NativeEventSource === 'function') {
-            const CmuxEventSource = function(url, eventSourceInitDict) {
-              const rewrittenURL = rewriteLoopbackURL(url);
-              if (eventSourceInitDict === undefined) {
-                return new NativeEventSource(rewrittenURL);
-              }
-              return new NativeEventSource(rewrittenURL, eventSourceInitDict);
-            };
-            CmuxEventSource.prototype = NativeEventSource.prototype;
-            Object.setPrototypeOf(CmuxEventSource, NativeEventSource);
-            window.EventSource = CmuxEventSource;
-          }
-
-          return true;
-        })();
-        """
-    }()
 
     private static func clampedGhosttyBackgroundOpacity(_ opacity: Double) -> CGFloat {
         CGFloat(max(0.0, min(1.0, opacity)))
@@ -2822,7 +2685,7 @@ final class BrowserPanel: Panel, ObservableObject {
         )
         configuration.userContentController.addUserScript(
             WKUserScript(
-                source: Self.remoteLoopbackRuntimeBridgeScriptSource,
+                source: RemoteLoopbackProxyAlias.runtimeBridgeScriptSource,
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: false
             )
@@ -4167,7 +4030,7 @@ final class BrowserPanel: Panel, ObservableObject {
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return url }
         guard let displayHost = RemoteLoopbackProxyAlias.localhostFamilyHost(
             forAliasHost: host,
-            aliasHost: remoteLoopbackProxyAliasHost
+            aliasHost: RemoteLoopbackProxyAlias.aliasHost
         ) else { return url }
 
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
@@ -4178,12 +4041,12 @@ final class BrowserPanel: Panel, ObservableObject {
     private static func remoteProxyLoopbackAliasURL(for url: URL) -> URL? {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" else { return nil }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return nil }
-        guard Self.isRemoteLoopbackHost(host) else { return nil }
+        guard RemoteLoopbackProxyAlias.isLoopbackHost(host) else { return nil }
 
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         components?.host = RemoteLoopbackProxyAlias.browserAliasHost(
             forLoopbackHost: host,
-            aliasHost: remoteLoopbackProxyAliasHost
+            aliasHost: RemoteLoopbackProxyAlias.aliasHost
         )
         return components?.url
     }
