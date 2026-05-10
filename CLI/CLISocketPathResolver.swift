@@ -78,10 +78,6 @@ enum CLISocketPathResolver {
     private static let nightlySocketPath = "/tmp/cmux-nightly.sock"
     private static let stagingSocketPath = "/tmp/cmux-staging.sock"
 
-    static var defaultSocketPath: String {
-        defaultSocketPath(bundleIdentifier: currentAppBundleIdentifier())
-    }
-
     static func defaultSocketPath(
         bundleIdentifier: String?,
         environment: [String: String] = ProcessInfo.processInfo.environment
