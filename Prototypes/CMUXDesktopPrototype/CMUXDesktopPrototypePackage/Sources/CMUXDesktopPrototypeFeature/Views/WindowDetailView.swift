@@ -12,6 +12,7 @@ struct WindowDetailView: View {
     let onRestartLiveCapture: () -> Void
     let onRequestAccessibility: () -> Void
     let onRequestScreenCapture: () -> Void
+    let onRelaunchApp: () -> Void
     let onRaise: () -> Void
     let onPlace: (WindowPlacement) -> Void
     let onMouseInput: (WindowMouseInput) -> Void
@@ -43,7 +44,8 @@ struct WindowDetailView: View {
                     PermissionsView(
                         permissions: permissions,
                         onRequestAccessibility: onRequestAccessibility,
-                        onRequestScreenCapture: onRequestScreenCapture
+                        onRequestScreenCapture: onRequestScreenCapture,
+                        onRelaunchApp: onRelaunchApp
                     )
 
                     ActionsView(onRaise: onRaise, onPlace: onPlace)
@@ -161,6 +163,7 @@ private struct PermissionsView: View {
     let permissions: PermissionState
     let onRequestAccessibility: () -> Void
     let onRequestScreenCapture: () -> Void
+    let onRelaunchApp: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -178,8 +181,13 @@ private struct PermissionsView: View {
                 PermissionStatusView(
                     title: String(localized: "permissions.screenCapture", defaultValue: "Screen Recording", bundle: .module),
                     isGranted: permissions.screenCaptureAllowed,
-                    actionTitle: String(localized: "button.request", defaultValue: "Request", bundle: .module),
-                    action: onRequestScreenCapture
+                    statusText: permissions.screenCaptureNeedsRestart
+                        ? String(localized: "permission.restartRequired", defaultValue: "Restart Required", bundle: .module)
+                        : nil,
+                    actionTitle: permissions.screenCaptureNeedsRestart
+                        ? String(localized: "button.relaunch", defaultValue: "Quit & Reopen", bundle: .module)
+                        : String(localized: "button.request", defaultValue: "Request", bundle: .module),
+                    action: permissions.screenCaptureNeedsRestart ? onRelaunchApp : onRequestScreenCapture
                 )
             }
         }
@@ -189,6 +197,7 @@ private struct PermissionsView: View {
 private struct PermissionStatusView: View {
     let title: String
     let isGranted: Bool
+    var statusText: String?
     let actionTitle: String
     let action: () -> Void
 
@@ -199,7 +208,7 @@ private struct PermissionStatusView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.callout.weight(.medium))
-                Text(statusText)
+                Text(statusText ?? defaultStatusText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -213,7 +222,7 @@ private struct PermissionStatusView: View {
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
-    private var statusText: String {
+    private var defaultStatusText: String {
         isGranted
             ? String(localized: "permission.granted", defaultValue: "Granted", bundle: .module)
             : String(localized: "permission.missing", defaultValue: "Missing", bundle: .module)

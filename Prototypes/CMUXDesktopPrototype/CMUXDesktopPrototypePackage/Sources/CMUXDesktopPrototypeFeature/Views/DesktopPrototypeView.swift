@@ -38,6 +38,7 @@ struct DesktopPrototypeView: View {
                 onRestartLiveCapture: store.restartLiveCapture,
                 onRequestAccessibility: store.requestAccessibilityPermission,
                 onRequestScreenCapture: store.requestScreenCapturePermission,
+                onRelaunchApp: store.relaunchApp,
                 onRaise: store.raiseSelectedWindow,
                 onPlace: store.placeSelectedWindow,
                 onMouseInput: store.forwardMouseInput,

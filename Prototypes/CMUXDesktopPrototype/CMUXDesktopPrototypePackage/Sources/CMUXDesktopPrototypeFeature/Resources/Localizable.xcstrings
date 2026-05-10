@@ -44,6 +44,12 @@
         "ja": { "stringUnit": { "state": "translated", "value": "要求" } }
       }
     },
+    "button.relaunch": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Quit & Reopen" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "終了して再度開く" } }
+      }
+    },
     "button.rightHalf": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Right" } },
@@ -60,6 +66,24 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Window is unavailable for live capture" } },
         "ja": { "stringUnit": { "state": "translated", "value": "ウィンドウをライブキャプチャに使用できません" } }
+      }
+    },
+    "capture.error.missingEntitlements": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "ScreenCaptureKit reported missing capture entitlements" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ScreenCaptureKitからキャプチャ権限の不足が報告されました" } }
+      }
+    },
+    "capture.error.screenCaptureMissing": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Screen Recording permission is required for live capture" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ライブキャプチャには画面収録権限が必要です" } }
+      }
+    },
+    "capture.error.screenCaptureRestartRequired": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Screen Recording is enabled, but macOS has not applied it to this running copy yet. Quit and reopen the app." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "画面収録は有効ですが、この実行中のアプリにはまだ適用されていません。アプリを終了して再度開いてください。" } }
       }
     },
     "detail.alpha": {
@@ -120,6 +144,12 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Missing" } },
         "ja": { "stringUnit": { "state": "translated", "value": "未許可" } }
+      }
+    },
+    "permission.restartRequired": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Restart Required" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再起動が必要" } }
       }
     },
     "permissions.accessibility": {
@@ -222,6 +252,12 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Live capture started" } },
         "ja": { "stringUnit": { "state": "translated", "value": "ライブキャプチャを開始しました" } }
+      }
+    },
+    "status.relaunchFailed": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Relaunch failed: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再起動に失敗しました: %@" } }
       }
     },
     "status.refreshed": {

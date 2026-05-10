@@ -12,7 +12,13 @@ final class LiveWindowCaptureController {
     func start(window: HostWindow, onFrame: @escaping @MainActor (CGImage) -> Void) async throws {
         await stop()
 
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        let content: SCShareableContent
+        do {
+            content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        } catch {
+            throw mapCaptureError(error)
+        }
+
         guard let captureWindow = content.windows.first(where: { $0.windowID == window.id }) else {
             throw LiveWindowCaptureError.windowUnavailable
         }
@@ -31,7 +37,13 @@ final class LiveWindowCaptureController {
 
         self.output = output
         self.stream = stream
-        try await stream.startCapture()
+        do {
+            try await stream.startCapture()
+        } catch {
+            self.output = nil
+            self.stream = nil
+            throw mapCaptureError(error)
+        }
     }
 
     func stop() async {
@@ -44,15 +56,54 @@ final class LiveWindowCaptureController {
         self.stream = nil
         output = nil
     }
+
+    private func mapCaptureError(_ error: Error) -> Error {
+        let nsError = error as NSError
+        guard nsError.domain == SCStreamErrorDomain,
+              let code = SCStreamError.Code(rawValue: nsError.code)
+        else {
+            return error
+        }
+
+        switch code {
+        case .userDeclined:
+            return LiveWindowCaptureError.screenCaptureDenied(restartRequired: CGPreflightScreenCaptureAccess())
+        case .missingEntitlements:
+            return LiveWindowCaptureError.missingEntitlements
+        default:
+            return error
+        }
+    }
 }
 
 enum LiveWindowCaptureError: LocalizedError {
     case windowUnavailable
+    case screenCaptureDenied(restartRequired: Bool)
+    case missingEntitlements
 
     var errorDescription: String? {
         switch self {
         case .windowUnavailable:
             return String(localized: "capture.error.windowUnavailable", defaultValue: "Window is unavailable for live capture", bundle: .module)
+        case .screenCaptureDenied(let restartRequired):
+            if restartRequired {
+                return String(
+                    localized: "capture.error.screenCaptureRestartRequired",
+                    defaultValue: "Screen Recording is enabled, but macOS has not applied it to this running copy yet. Quit and reopen the app.",
+                    bundle: .module
+                )
+            }
+            return String(
+                localized: "capture.error.screenCaptureMissing",
+                defaultValue: "Screen Recording permission is required for live capture",
+                bundle: .module
+            )
+        case .missingEntitlements:
+            return String(
+                localized: "capture.error.missingEntitlements",
+                defaultValue: "ScreenCaptureKit reported missing capture entitlements",
+                bundle: .module
+            )
         }
     }
 }

@@ -5,6 +5,7 @@ import Observation
 struct PermissionState: Equatable {
     var accessibilityTrusted = false
     var screenCaptureAllowed = false
+    var screenCaptureNeedsRestart = false
 }
 
 struct StatusBanner: Equatable {
@@ -35,6 +36,7 @@ final class DesktopPrototypeStore {
     @ObservationIgnored private let captureController = LiveWindowCaptureController()
     @ObservationIgnored private let inputForwarder = WindowInputForwarder()
     @ObservationIgnored private var captureTask: Task<Void, Never>?
+    @ObservationIgnored private var screenCaptureNeedsRestart = false
 
     var selectedWindow: HostWindow? {
         guard let selectedWindowID else {
@@ -106,6 +108,25 @@ final class DesktopPrototypeStore {
         )
     }
 
+    func relaunchApp() {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { [weak self] _, error in
+            if let error {
+                Task { @MainActor in
+                    let format = String(localized: "status.relaunchFailed", defaultValue: "Relaunch failed: %@", bundle: .module)
+                    self?.status = StatusBanner(kind: .error, message: String(format: format, error.localizedDescription))
+                }
+                return
+            }
+
+            Task { @MainActor in
+                NSApp.terminate(nil)
+            }
+        }
+    }
+
     func raiseSelectedWindow() {
         guard let selectedWindow else {
             return
@@ -153,6 +174,8 @@ final class DesktopPrototypeStore {
                 self?.liveFrame = frame
                 self?.isLiveCaptureRunning = true
             }
+            screenCaptureNeedsRestart = false
+            updatePermissions()
             status = StatusBanner(
                 kind: .success,
                 message: String(localized: "status.liveStarted", defaultValue: "Live capture started", bundle: .module)
@@ -163,6 +186,10 @@ final class DesktopPrototypeStore {
             }
 
             isLiveCaptureRunning = false
+            if case LiveWindowCaptureError.screenCaptureDenied(let restartRequired) = error {
+                screenCaptureNeedsRestart = restartRequired
+                updatePermissions()
+            }
             let format = String(localized: "status.liveFailed", defaultValue: "Live capture failed: %@", bundle: .module)
             status = StatusBanner(kind: .error, message: String(format: format, error.localizedDescription))
         }
@@ -215,9 +242,11 @@ final class DesktopPrototypeStore {
     }
 
     private func updatePermissions() {
+        let hasScreenCaptureAccess = snapshotter.hasScreenCaptureAccess
         permissions = PermissionState(
             accessibilityTrusted: accessibilityController.isTrusted,
-            screenCaptureAllowed: snapshotter.hasScreenCaptureAccess
+            screenCaptureAllowed: hasScreenCaptureAccess && !screenCaptureNeedsRestart,
+            screenCaptureNeedsRestart: hasScreenCaptureAccess && screenCaptureNeedsRestart
         )
     }
 }
