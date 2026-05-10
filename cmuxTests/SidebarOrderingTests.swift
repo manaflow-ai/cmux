@@ -1161,8 +1161,13 @@ final class SidebarAgentPIDFallbackTests: XCTestCase {
         workspace.setAgentPID(key: "codex.alpha", pid: 123, refreshPorts: false)
         workspace.setAgentPID(key: "codex.beta", pid: 456, refreshPorts: false)
 
+        let entries = workspace.sidebarStatusEntriesByKey()
+        XCTAssertEqual(Set(entries.keys), Set(["codex"]))
+        XCTAssertEqual(entries["codex"], statusEntry)
+
         XCTAssertTrue(workspace.clearAgentPID(key: "codex.alpha", clearStatus: true, refreshPorts: false))
         XCTAssertEqual(workspace.statusEntries["codex"], statusEntry)
+        XCTAssertEqual(Set(workspace.sidebarStatusEntriesByKey().keys), Set(["codex"]))
         XCTAssertNil(workspace.agentPIDs["codex.alpha"])
         XCTAssertNotNil(workspace.agentPIDs["codex.beta"])
 

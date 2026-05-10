@@ -8900,13 +8900,30 @@ final class Workspace: Identifiable, ObservableObject {
 
     func sidebarStatusEntriesByKey() -> [String: SidebarStatusEntry] {
         var entries = statusEntries
-        for (key, pid) in agentPIDs {
-            entries[key] = SidebarAgentProcessProbe.effectiveStatusEntry(
-                key: key,
-                pid: pid,
-                explicitEntry: entries[key],
-                processState: agentProcessStates[key]
-            )
+        let agentKeysByStatusKey = Dictionary(grouping: agentPIDs.keys, by: agentStatusKey)
+        for (statusKey, agentKeys) in agentKeysByStatusKey {
+            let explicitEntry = entries[statusKey]
+            var selectedEntry: SidebarStatusEntry?
+            for key in agentKeys.sorted() {
+                guard let pid = agentPIDs[key],
+                      let candidate = SidebarAgentProcessProbe.effectiveStatusEntry(
+                          key: statusKey,
+                          pid: pid,
+                          explicitEntry: explicitEntry,
+                          processState: agentProcessStates[key]
+                      ) else {
+                    continue
+                }
+                selectedEntry = candidate
+                if candidate.protocolValue == SidebarAgentFallbackActivity.needsInput.protocolValue {
+                    break
+                }
+            }
+            if let selectedEntry {
+                entries[statusKey] = selectedEntry
+            } else if explicitEntry != nil {
+                entries.removeValue(forKey: statusKey)
+            }
         }
         return entries
     }

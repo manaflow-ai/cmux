@@ -26,7 +26,7 @@ extension Workspace {
         )
     }
 
-    private func agentStatusKey(forAgentPIDKey key: String) -> String {
+    func agentStatusKey(forAgentPIDKey key: String) -> String {
         if statusEntries[key] != nil {
             return key
         }
