@@ -18,7 +18,6 @@ final class BackgroundWorkspacePrimeCoordinator {
 
     private nonisolated enum Policy {
         static let timeoutSeconds: TimeInterval = 2.0
-        static let maxTimeoutRetries = 3
     }
 
     private nonisolated final class Waiter: @unchecked Sendable {
@@ -94,8 +93,6 @@ final class BackgroundWorkspacePrimeCoordinator {
         }
     }
 
-    private var timeoutCounts: [UUID: Int] = [:]
-
     deinit {
         // Explicit for the required_deinit lint; per-prime resources live on Waiter.
     }
@@ -117,17 +114,11 @@ final class BackgroundWorkspacePrimeCoordinator {
 
                 switch reason {
                 case .timeout:
-                    let timeoutCount = (timeoutCounts[workspaceId] ?? 0) + 1
-                    timeoutCounts[workspaceId] = timeoutCount
-                    if timeoutCount >= Policy.maxTimeoutRetries {
-                        tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
-                        timeoutCounts[workspaceId] = nil
-                    }
+                    tabManager.releaseBackgroundWorkspaceMount(for: workspaceId)
                 case .cancelled:
-                    // SwiftUI restarts this .task(id:) as pending IDs change; preserve timeout debt.
                     continue
                 case .alreadyCleared, .surfaceReady, .workspaceRemoved:
-                    timeoutCounts[workspaceId] = nil
+                    continue
                 }
             }
         }
@@ -138,8 +129,10 @@ final class BackgroundWorkspacePrimeCoordinator {
         tabManager: TabManager
     ) async -> PrimeCompletionReason {
         guard tabManager.pendingBackgroundWorkspaceLoadIds.contains(workspaceId) else {
+            tabManager.releaseBackgroundWorkspaceMount(for: workspaceId)
             return .alreadyCleared
         }
+        tabManager.retainBackgroundWorkspaceMount(for: workspaceId)
 
 #if DEBUG
         let startedAt = ProcessInfo.processInfo.systemUptime
@@ -170,11 +163,11 @@ final class BackgroundWorkspacePrimeCoordinator {
 
     private func stepBackgroundWorkspacePrime(workspaceId: UUID, tabManager: TabManager) -> PrimeState {
         guard tabManager.pendingBackgroundWorkspaceLoadIds.contains(workspaceId) else {
+            tabManager.releaseBackgroundWorkspaceMount(for: workspaceId)
             return .completed(reason: .alreadyCleared)
         }
         guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
             tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
-            timeoutCounts[workspaceId] = nil
             return .completed(reason: .workspaceRemoved)
         }
 
@@ -184,7 +177,6 @@ final class BackgroundWorkspacePrimeCoordinator {
         }
 
         tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
-        timeoutCounts[workspaceId] = nil
         return .completed(reason: .surfaceReady)
     }
 
