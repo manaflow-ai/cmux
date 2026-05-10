@@ -3296,12 +3296,7 @@ struct CMUXCLI {
                 let payload = try client.sendV2(method: "notification.dismiss", params: ["id": id])
                 printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: okText)
             } else {
-                let response = try sendV1Command("list_notifications", client: client)
-                let readNotifications = parseNotifications(response).filter(\.isRead)
-                for notification in readNotifications {
-                    _ = try client.sendV2(method: "notification.dismiss", params: ["id": notification.id])
-                }
-                let payload: [String: Any] = ["dismissed": readNotifications.count, "all_read": true]
+                let payload = try client.sendV2(method: "notification.dismiss", params: ["all_read": true])
                 printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: okText)
             }
 
@@ -8582,7 +8577,7 @@ struct CMUXCLI {
                 let body: String
                 let createdAt: String?
                 let tabTitle: String?
-                if payload.count >= 9 && isNotificationListCreatedAtField(payload[payload.count - 2]) {
+                if payload.count >= 9 {
                     body = payload[6..<(payload.count - 2)].joined(separator: "|")
                     createdAt = payload[payload.count - 2].isEmpty ? nil : payload[payload.count - 2]
                     tabTitle = payload[payload.count - 1].isEmpty ? nil : payload[payload.count - 1]
@@ -8603,13 +8598,6 @@ struct CMUXCLI {
                     tabTitle: tabTitle
                 )
             }
-    }
-
-    private func isNotificationListCreatedAtField(_ value: String) -> Bool {
-        value.range(
-            of: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"#,
-            options: .regularExpression
-        ) != nil
     }
 
     private func resolveWorkspaceId(_ raw: String?, client: SocketClient) throws -> String {

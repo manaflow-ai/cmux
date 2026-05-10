@@ -40,6 +40,30 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         XCTAssertTrue(fixture.store.notifications.contains(where: { $0.id == sibling.id }))
     }
 
+    func testNotificationDismissAllReadRemovesOnlyReadNotifications() async throws {
+        let fixture = try makeSocketFixture(name: "notif-dismiss-read")
+        defer { fixture.cleanup() }
+
+        let firstRead = makeNotification(tabId: fixture.workspace.id, surfaceId: fixture.surfaceId, title: "Read 1", isRead: true)
+        let secondRead = makeNotification(tabId: fixture.workspace.id, surfaceId: fixture.surfaceId, title: "Read 2", isRead: true)
+        let unread = makeNotification(tabId: fixture.workspace.id, surfaceId: fixture.surfaceId, title: "Unread")
+        fixture.store.replaceNotificationsForTesting([firstRead, secondRead, unread])
+
+        let response = try await sendV2RequestAsync(
+            method: "notification.dismiss",
+            params: ["all_read": true],
+            to: fixture.socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["dismissed"] as? Int, 2)
+        XCTAssertEqual(result["all_read"] as? Bool, true)
+        XCTAssertFalse(fixture.store.notifications.contains(where: { $0.id == firstRead.id }))
+        XCTAssertFalse(fixture.store.notifications.contains(where: { $0.id == secondRead.id }))
+        XCTAssertTrue(fixture.store.notifications.contains(where: { $0.id == unread.id }))
+    }
+
     func testNotificationMarkReadSupportsIdTabSurfaceAndAllSelectors() async throws {
         let fixture = try makeSocketFixture(name: "notif-read")
         defer { fixture.cleanup() }
@@ -152,6 +176,35 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         XCTAssertEqual(result["opened"] as? Bool, false)
         XCTAssertEqual(fixture.manager.selectedTabId, selectedBeforeNoop)
         XCTAssertEqual(fixture.manager.focusedSurfaceId(for: targetWorkspace.id), focusedBeforeNoop)
+    }
+
+    func testNotificationJumpToUnreadPayloadMatchesOpenedFallbackNotification() async throws {
+        let fixture = try makeSocketFixture(name: "notif-jump-skip", includeWindow: true)
+        defer { fixture.cleanup() }
+
+        let targetWorkspace = fixture.manager.addWorkspace(title: "Unread Fallback", select: false)
+        let targetSurfaceId = try XCTUnwrap(targetWorkspace.focusedPanelId)
+        let unopenable = makeNotification(tabId: UUID(), surfaceId: nil, title: "Closed Workspace")
+        let openable = makeNotification(tabId: targetWorkspace.id, surfaceId: targetSurfaceId, title: "Openable")
+        fixture.store.replaceNotificationsForTesting([unopenable, openable])
+        fixture.manager.selectTab(fixture.workspace)
+
+        let response = try await sendV2RequestAsync(
+            method: "notification.jump_to_unread",
+            params: [:],
+            to: fixture.socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["opened"] as? Bool, true)
+        XCTAssertEqual(result["id"] as? String, openable.id.uuidString)
+        XCTAssertEqual(result["workspace_id"] as? String, targetWorkspace.id.uuidString)
+        XCTAssertEqual(result["surface_id"] as? String, targetSurfaceId.uuidString)
+        XCTAssertEqual(fixture.manager.selectedTabId, targetWorkspace.id)
+        XCTAssertTrue(waitForCondition(timeout: 1.0) {
+            fixture.notification(openable.id)?.isRead == true
+        })
     }
 
     private struct SocketFixture {
@@ -290,7 +343,13 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         }
-        XCTFail("Socket did not appear at \(path)")
+        let message = "Socket did not appear at \(path) within \(timeout)s"
+        XCTFail(message)
+        throw NSError(
+            domain: "TerminalNotificationSocketActionTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: message]
+        )
     }
 
     private func waitForCondition(timeout: TimeInterval, predicate: () -> Bool) -> Bool {

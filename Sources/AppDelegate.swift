@@ -10224,8 +10224,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func jumpToLatestUnread() -> Bool {
-        guard let notificationStore else { return false }
+    func jumpToLatestUnread() -> TerminalNotification? {
+        guard let notificationStore else { return nil }
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
             writeJumpUnreadTestData([
@@ -10239,10 +10239,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // tab manager currently owns the tab.
         for notification in notificationStore.notifications where !notification.isRead {
             if openNotification(tabId: notification.tabId, surfaceId: notification.surfaceId, notificationId: notification.id) {
-                return true
+                return notificationStore.notifications.first(where: { $0.id == notification.id }) ?? notification
             }
         }
-        return false
+        return nil
     }
 
     static func installWindowResponderSwizzlesForTesting() {

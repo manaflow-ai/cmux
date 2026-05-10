@@ -3824,6 +3824,7 @@ class TerminalController {
     private static func notificationCreatedAtString(_ date: Date) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter.string(from: date)
     }
 
@@ -7965,7 +7966,33 @@ class TerminalController {
     }
 
     private func v2NotificationDismiss(params: [String: Any]) -> V2CallResult {
-        guard let id = v2UUID(params, "id") else {
+        let id = v2UUID(params, "id")
+        let allRead = v2Bool(params, "all_read") ?? false
+        let selectorCount = (id == nil ? 0 : 1) + (allRead ? 1 : 0)
+
+        guard selectorCount == 1 else {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.notification.dismissSelectorRequired", defaultValue: "Select exactly one of id or all_read"),
+                data: nil
+            )
+        }
+
+        if allRead {
+            var dismissedCount = 0
+            v2MainSync {
+                let readIds = TerminalNotificationStore.shared.notifications
+                    .filter(\.isRead)
+                    .map(\.id)
+                for id in readIds {
+                    TerminalNotificationStore.shared.remove(id: id)
+                }
+                dismissedCount = readIds.count
+            }
+            return .ok(["dismissed": dismissedCount, "all_read": true])
+        }
+
+        guard let id else {
             return .err(
                 code: "invalid_params",
                 message: String(localized: "socket.notification.idRequired", defaultValue: "Missing or invalid notification id"),
@@ -8092,17 +8119,15 @@ class TerminalController {
     }
 
     private func v2NotificationJumpToUnread() -> V2CallResult {
-        var target: TerminalNotification?
-        var opened = false
+        var openedNotification: TerminalNotification?
         var payload: [String: Any] = [:]
         v2MainSync {
-            target = TerminalNotificationStore.shared.notifications.first(where: { !$0.isRead })
-            if let target {
-                opened = AppDelegate.shared?.jumpToLatestUnread() ?? false
-                payload = notificationPayload(target, opened: opened, includeReadState: true)
+            openedNotification = AppDelegate.shared?.jumpToLatestUnread()
+            if let openedNotification {
+                payload = notificationPayload(openedNotification, opened: true, includeReadState: true)
             }
         }
-        guard target != nil else {
+        guard openedNotification != nil else {
             return .ok(["opened": false])
         }
         return .ok(payload)

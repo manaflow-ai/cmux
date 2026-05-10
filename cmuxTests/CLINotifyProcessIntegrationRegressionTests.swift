@@ -170,6 +170,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         result = run(["dismiss-notification", "--all-read", "--json", "--id-format", "uuids"])
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
+        let dismissPayload = try jsonPayload(from: result.stdout)
+        XCTAssertEqual(dismissPayload["dismissed"] as? Int, 1)
+        XCTAssertEqual(dismissPayload["all_read"] as? Bool, true)
         rows = try notificationRows(from: run(["list-notifications", "--json", "--id-format", "uuids"]).stdout)
         XCTAssertTrue(rows.isEmpty)
 
