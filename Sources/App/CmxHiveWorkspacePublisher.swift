@@ -3,7 +3,13 @@ import Combine
 import CMUXWorkstream
 import Darwin
 import Foundation
+import OSLog
 import Security
+
+private let cmxHivePublisherLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    category: "hive-publisher"
+)
 
 @MainActor
 final class CmxHiveWorkspacePublisher {
@@ -23,7 +29,7 @@ final class CmxHiveWorkspacePublisher {
     private var publishWorkItem: DispatchWorkItem?
     private var publishTask: Task<Void, Never>?
     private var bridgeStartTask: Task<Void, Never>?
-    private var bridgeProcess: Process?
+    private var bridgeHost: CmxEmbeddedIrohBridge?
     private var bridgeAttachTicket: CmxHiveAttachTicket?
     private var nativeBridgeAdapter: CmxNativeBridgeSocketAdapter?
     private let nodeEpoch = UUID().uuidString
@@ -75,8 +81,8 @@ final class CmxHiveWorkspacePublisher {
     func stop() {
         bridgeStartTask?.cancel()
         bridgeStartTask = nil
-        bridgeProcess?.terminate()
-        bridgeProcess = nil
+        bridgeHost?.stop()
+        bridgeHost = nil
         bridgeAttachTicket = nil
         nativeBridgeAdapter?.stop()
         nativeBridgeAdapter = nil
@@ -175,10 +181,9 @@ final class CmxHiveWorkspacePublisher {
         guard bridgeStartTask == nil else { return }
         if let bridgeAttachTicket,
            bridgeAttachTicket.isUsable(at: now, leadTime: Self.bridgeRotationLeadTime),
-           bridgeProcess?.isRunning == true {
+           bridgeHost?.isRunning == true {
             return
         }
-        guard let cmxURL = Self.bundledCmxURL() else { return }
         let cmxSocketPath: String
         if let overridePath = Self.hiveCmxSocketPath() {
             cmxSocketPath = overridePath
@@ -199,12 +204,11 @@ final class CmxHiveWorkspacePublisher {
             }
         }
 
-        let previousBridgeProcess = bridgeProcess
+        let previousBridgeHost = bridgeHost
         bridgeAttachTicket = nil
 
         let expiresAtUnix = UInt64(now.addingTimeInterval(Self.bridgePairingTTL).timeIntervalSince1970.rounded(.down))
         let context = CmxHiveBridgeStartContext(
-            cmxURL: cmxURL,
             socketPath: cmxSocketPath,
             pairingID: "pairing_\(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased())",
             pairingSecret: Self.randomURLSafeToken(),
@@ -222,10 +226,11 @@ final class CmxHiveWorkspacePublisher {
             do {
                 let bridge = try await Self.startHiveBridge(context: context)
                 await MainActor.run {
-                    self?.bridgeProcess = bridge.process
+                    self?.bridgeHost = bridge.host
                     self?.bridgeAttachTicket = bridge.attachTicket
                     self?.bridgeStartTask = nil
-                    Self.terminate(process: previousBridgeProcess, after: Self.bridgePairingTTL)
+                    previousBridgeHost?.retire()
+                    cmxHivePublisherLogger.info("embedded iroh host started")
                     self?.schedulePublish()
                 }
             } catch is CancellationError {
@@ -233,6 +238,7 @@ final class CmxHiveWorkspacePublisher {
                     self?.bridgeStartTask = nil
                 }
             } catch {
+                cmxHivePublisherLogger.error("embedded iroh host failed: \(error.localizedDescription, privacy: .public)")
 #if DEBUG
                 cmuxDebugLog("hive.bridge.failed error=\(error.localizedDescription)")
 #endif
@@ -264,6 +270,7 @@ final class CmxHiveWorkspacePublisher {
         let restore = appDelegate.hiveRestoreStateForPublisher()
         let attachTicket = Self.hiveAttachTicket()
             ?? bridgeAttachTicket?.usableTicket(at: now, leadTime: Self.bridgeRotationLeadTime)
+        let attach = attachTicket.flatMap { CmxHiveAttachPayload.fromTicket($0.ticket) }
 
         return CmxHiveNodePublishPayload(
             id: nodeIdentity.nodeID,
@@ -278,6 +285,7 @@ final class CmxHiveWorkspacePublisher {
             leaseExpiresAtUnix: now.addingTimeInterval(Self.leaseDuration).timeIntervalSince1970,
             restoreState: restore.restoreState,
             snapshotMode: restore.snapshotMode,
+            attach: attach,
             attachTicket: attachTicket?.ticket,
             attachTicketExpiresAtUnix: attachTicket?.expiresAtUnix,
             workspaces: workspaces
@@ -352,37 +360,11 @@ final class CmxHiveWorkspacePublisher {
         context: CmxHiveBridgeStartContext
     ) async throws -> CmxHiveStartedBridge {
         try await upsertBridgePairing(context)
-
-        let stdout = Pipe()
-        let process = Process()
-        process.executableURL = context.cmxURL
-        process.arguments = [
-            "--socket", context.socketPath,
-            "bridge",
-            "--pairing-id", context.pairingID,
-            "--pairing-secret", context.pairingSecret,
-            "--rivet-endpoint", context.rivetEndpoint,
-            "--stack-project-id", context.stackProjectID,
-            "--expires-at-unix", String(context.expiresAtUnix),
-            "--node-id", context.nodeID,
-            "--node-name", context.nodeName,
-            "--node-subtitle", context.nodeSubtitle,
-            "--node-kind", context.nodeKind,
-        ]
-        process.standardOutput = stdout
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-
-        do {
-            let ticket = try readBridgeTicket(from: stdout.fileHandleForReading, process: process)
-            return CmxHiveStartedBridge(
-                process: process,
-                attachTicket: CmxHiveAttachTicket(ticket: ticket, expiresAtUnix: context.expiresAtUnix)
-            )
-        } catch {
-            process.terminate()
-            throw error
-        }
+        let host = try await CmxEmbeddedIrohBridge.start(context: context)
+        return CmxHiveStartedBridge(
+            host: host,
+            attachTicket: CmxHiveAttachTicket(ticket: host.ticket, expiresAtUnix: context.expiresAtUnix)
+        )
     }
 
     private nonisolated static func upsertBridgePairing(_ context: CmxHiveBridgeStartContext) async throws {
@@ -417,32 +399,6 @@ final class CmxHiveWorkspacePublisher {
         }
     }
 
-    private nonisolated static func readBridgeTicket(
-        from fileHandle: FileHandle,
-        process: Process
-    ) throws -> String {
-        var data = Data()
-        while process.isRunning || !data.isEmpty {
-            let chunk = fileHandle.readData(ofLength: 1)
-            if chunk.isEmpty {
-                break
-            }
-            if chunk.first == UInt8(ascii: "\n") {
-                break
-            }
-            data.append(chunk)
-            if data.count > 16 * 1024 {
-                throw CmxHiveWorkspacePublisherError.bridgeTicketTooLarge
-            }
-        }
-        guard let ticket = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-              !ticket.isEmpty else {
-            throw CmxHiveWorkspacePublisherError.bridgeTicketMissing
-        }
-        return ticket
-    }
-
     private nonisolated static func randomURLSafeToken() -> String {
         var bytes = [UInt8](repeating: 0, count: 32)
         let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
@@ -454,18 +410,6 @@ final class CmxHiveWorkspacePublisher {
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
-    }
-
-    private nonisolated static func terminate(process: Process?, after delay: TimeInterval) {
-        guard let process else { return }
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) {
-            guard process.isRunning else { return }
-            process.terminate()
-        }
-    }
-
-    private static func bundledCmxURL() -> URL? {
-        Bundle.main.url(forResource: "cmx", withExtension: nil, subdirectory: "bin")
     }
 
     private static func nodeDisplayName() -> String {
@@ -540,19 +484,19 @@ final class CmxHiveWorkspacePublisher {
     }
 }
 
-private enum CmxHiveWorkspacePublisherError: LocalizedError {
+enum CmxHiveWorkspacePublisherError: LocalizedError {
     case badStatus(Int)
+    case embeddedBridgeStartFailed(String)
     case bridgeTicketMissing
-    case bridgeTicketTooLarge
 
     var errorDescription: String? {
         switch self {
         case .badStatus(let status):
             "Hive publish failed (\(status))."
+        case .embeddedBridgeStartFailed(let message):
+            "Embedded cmux iroh bridge failed to start: \(message)"
         case .bridgeTicketMissing:
             "cmux iroh bridge did not print an attach ticket."
-        case .bridgeTicketTooLarge:
-            "cmux iroh bridge printed an oversized attach ticket."
         }
     }
 }
@@ -571,8 +515,7 @@ private struct CmxHiveAttachTicket {
     }
 }
 
-private struct CmxHiveBridgeStartContext {
-    let cmxURL: URL
+struct CmxHiveBridgeStartContext: Sendable {
     let socketPath: String
     let pairingID: String
     let pairingSecret: String
@@ -587,7 +530,7 @@ private struct CmxHiveBridgeStartContext {
 }
 
 private struct CmxHiveStartedBridge {
-    let process: Process
+    let host: CmxEmbeddedIrohBridge
     let attachTicket: CmxHiveAttachTicket
 }
 
@@ -1794,6 +1737,7 @@ private struct CmxHiveNodePublishPayload: Encodable {
     let leaseExpiresAtUnix: TimeInterval
     let restoreState: String
     let snapshotMode: String
+    let attach: CmxHiveAttachPayload?
     let attachTicket: String?
     let attachTicketExpiresAtUnix: UInt64?
     let workspaces: [CmxHiveWorkspacePublishPayload]
@@ -1811,6 +1755,7 @@ private struct CmxHiveNodePublishPayload: Encodable {
         case leaseExpiresAtUnix = "lease_expires_at_unix"
         case restoreState = "restore_state"
         case snapshotMode = "snapshot_mode"
+        case attach
         case attachTicket = "attach_ticket"
         case attachTicketExpiresAtUnix = "attach_ticket_expires_at_unix"
         case workspaces

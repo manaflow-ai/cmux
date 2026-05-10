@@ -70,7 +70,9 @@ struct CmxHiveDiscoveryClient: CmxHiveDiscoveryFetching {
         }
 
         do {
-            return try JSONDecoder().decode(CmxHiveDiscoveryWireSnapshot.self, from: data).snapshot()
+            return try JSONDecoder().decode(CmxHiveDiscoveryWireSnapshot.self, from: data).snapshot(
+                hiveEndpoint: endpoint
+            )
         } catch {
             throw CmxHiveDiscoveryError.invalidResponse
         }
@@ -189,8 +191,8 @@ private struct CmxHiveDiscoveryWireSnapshot: Decodable {
         workspaces = try container.decodeIfPresent([CmxHiveDiscoveryWireWorkspace].self, forKey: .workspaces) ?? []
     }
 
-    func snapshot() -> CmxHiveDiscoverySnapshot {
-        let decodedNodes = nodes.map(\.node)
+    func snapshot(hiveEndpoint: URL) -> CmxHiveDiscoverySnapshot {
+        let decodedNodes = nodes.map { $0.node(hiveEndpoint: hiveEndpoint) }
         let defaultNodeID = nodes.count == 1 ? nodes[0].id.stableUInt64 : nil
         let defaultNodeKey = nodes.count == 1 ? nodes[0].id.stableKey : nil
         var seenWorkspaceIDs = Set<UInt64>()
@@ -226,11 +228,22 @@ private struct CmxHiveDiscoveryWireNode: Decodable {
     let restoreState: String?
     let attachTicket: String?
     let attachTicketExpiresAtUnix: UInt64?
+    let attach: CmxHiveDiscoveryWireAttach?
     let workspaces: [CmxHiveDiscoveryWireWorkspace]
 
-    var node: CmxHiveNode {
+    func node(hiveEndpoint: URL) -> CmxHiveNode {
         let restoreIsReady = restoreState?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "restoring"
             && restoreState?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "starting"
+        let resolvedAttachTicket = attachTicket?.nonEmpty
+            ?? attach?.ticket(
+                hiveEndpoint: hiveEndpoint,
+                node: CmxHiveDiscoveryWireAttachNode(
+                    id: rawID,
+                    name: name,
+                    subtitle: subtitle,
+                    kind: kind
+                )
+            )
         return CmxHiveNode(
             id: id.stableUInt64,
             rawID: rawID,
@@ -239,8 +252,8 @@ private struct CmxHiveDiscoveryWireNode: Decodable {
             symbolName: CmxHiveNodeFactory.symbolName(for: kind),
             platform: CmxHostPlatform.infer(kind: kind, name: name, subtitle: subtitle),
             isOnline: isOnline && restoreIsReady,
-            attachTicket: attachTicket?.nonEmpty,
-            attachTicketExpiresAtUnix: attachTicketExpiresAtUnix
+            attachTicket: resolvedAttachTicket,
+            attachTicketExpiresAtUnix: attachTicketExpiresAtUnix ?? attach?.expiresAtUnix
         )
     }
 
@@ -254,6 +267,7 @@ private struct CmxHiveDiscoveryWireNode: Decodable {
         case restoreState = "restore_state"
         case attachTicket = "attach_ticket"
         case attachTicketExpiresAtUnix = "attach_ticket_expires_at_unix"
+        case attach
         case workspaces
     }
 
@@ -270,8 +284,84 @@ private struct CmxHiveDiscoveryWireNode: Decodable {
         restoreState = try container.decodeIfPresent(String.self, forKey: .restoreState)
         attachTicket = try container.decodeIfPresent(String.self, forKey: .attachTicket)
         attachTicketExpiresAtUnix = try container.decodeIfPresent(UInt64.self, forKey: .attachTicketExpiresAtUnix)
+        attach = try container.decodeIfPresent(CmxHiveDiscoveryWireAttach.self, forKey: .attach)
         workspaces = try container.decodeIfPresent([CmxHiveDiscoveryWireWorkspace].self, forKey: .workspaces) ?? []
     }
+}
+
+private struct CmxHiveDiscoveryWireAttach: Decodable {
+    let endpoint: CmxHiveDiscoveryJSONValue
+    let pairingID: String
+    let rivetEndpoint: String?
+    let stackProjectID: String
+    let expiresAtUnix: UInt64
+
+    private enum CodingKeys: String, CodingKey {
+        case endpoint
+        case pairingID = "pairing_id"
+        case rivetEndpoint = "rivet_endpoint"
+        case stackProjectID = "stack_project_id"
+        case expiresAtUnix = "expires_at_unix"
+    }
+
+    func ticket(hiveEndpoint: URL, node: CmxHiveDiscoveryWireAttachNode) -> String? {
+        let resolvedRivetEndpoint = rivetEndpoint?.nonEmpty ?? hiveEndpoint.absoluteString
+        guard !pairingID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !resolvedRivetEndpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !stackProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              expiresAtUnix > 0 else {
+            return nil
+        }
+
+        let ticket = CmxHiveDiscoveryWireAttachTicket(
+            version: 1,
+            alpn: "/cmux/cmx/3",
+            endpoint: endpoint,
+            auth: CmxHiveDiscoveryWireAttachAuth(
+                mode: "rivet_stack",
+                pairingID: pairingID,
+                rivetEndpoint: resolvedRivetEndpoint,
+                stackProjectID: stackProjectID,
+                expiresAtUnix: expiresAtUnix
+            ),
+            node: node
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(ticket) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+}
+
+private struct CmxHiveDiscoveryWireAttachTicket: Encodable {
+    let version: Int
+    let alpn: String
+    let endpoint: CmxHiveDiscoveryJSONValue
+    let auth: CmxHiveDiscoveryWireAttachAuth
+    let node: CmxHiveDiscoveryWireAttachNode
+}
+
+private struct CmxHiveDiscoveryWireAttachAuth: Encodable {
+    let mode: String
+    let pairingID: String
+    let rivetEndpoint: String
+    let stackProjectID: String
+    let expiresAtUnix: UInt64
+
+    private enum CodingKeys: String, CodingKey {
+        case mode
+        case pairingID = "pairing_id"
+        case rivetEndpoint = "rivet_endpoint"
+        case stackProjectID = "stack_project_id"
+        case expiresAtUnix = "expires_at_unix"
+    }
+}
+
+private struct CmxHiveDiscoveryWireAttachNode: Encodable {
+    let id: String?
+    let name: String
+    let subtitle: String?
+    let kind: String?
 }
 
 private struct CmxHiveDiscoveryWireWorkspace: Decodable {
@@ -485,6 +575,50 @@ private enum CmxHiveDiscoveryID: Decodable, Hashable {
             return
         }
         self = .string(try container.decode(String.self))
+    }
+}
+
+private enum CmxHiveDiscoveryJSONValue: Codable, Equatable {
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case object([String: CmxHiveDiscoveryJSONValue])
+    case array([CmxHiveDiscoveryJSONValue])
+    case null
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            self = .null
+        } else if let value = try? container.decode(Bool.self) {
+            self = .bool(value)
+        } else if let value = try? container.decode(Double.self) {
+            self = .number(value)
+        } else if let value = try? container.decode(String.self) {
+            self = .string(value)
+        } else if let value = try? container.decode([CmxHiveDiscoveryJSONValue].self) {
+            self = .array(value)
+        } else {
+            self = .object(try container.decode([String: CmxHiveDiscoveryJSONValue].self))
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let value):
+            try container.encode(value)
+        case .number(let value):
+            try container.encode(value)
+        case .bool(let value):
+            try container.encode(value)
+        case .object(let value):
+            try container.encode(value)
+        case .array(let value):
+            try container.encode(value)
+        case .null:
+            try container.encodeNil()
+        }
     }
 }
 

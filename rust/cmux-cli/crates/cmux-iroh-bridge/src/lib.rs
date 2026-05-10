@@ -175,7 +175,7 @@ pub struct BridgePairingOptions {
 }
 
 impl BridgePairingOptions {
-    fn ticket_auth(&self) -> BridgeTicketAuth {
+    pub(crate) fn ticket_auth(&self) -> BridgeTicketAuth {
         BridgeTicketAuth::RivetStack {
             pairing_id: self.pairing_id.clone(),
             rivet_endpoint: self.rivet_endpoint.clone(),
@@ -184,7 +184,7 @@ impl BridgePairingOptions {
         }
     }
 
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         self.ticket_auth().validate()?;
         if self.secret.trim().is_empty() {
             bail!("missing pairing secret");
@@ -200,7 +200,7 @@ pub enum BridgeRelayMode {
 }
 
 impl BridgeRelayMode {
-    fn as_iroh(self) -> RelayMode {
+    pub(crate) fn as_iroh(self) -> RelayMode {
         match self {
             Self::Default => RelayMode::Default,
             Self::Disabled => RelayMode::Disabled,
@@ -446,7 +446,7 @@ where
     Ok(true)
 }
 
-async fn proxy_incoming(
+pub(crate) async fn proxy_incoming(
     incoming: iroh::endpoint::Incoming,
     socket_path: PathBuf,
     pairing: Option<BridgePairingOptions>,
@@ -515,7 +515,7 @@ fn is_expected_stream_close(error: &std::io::Error) -> bool {
     )
 }
 
-async fn publishable_endpoint_addr(
+pub(crate) async fn publishable_endpoint_addr(
     endpoint: &Endpoint,
     relay_mode: BridgeRelayMode,
 ) -> EndpointAddr {

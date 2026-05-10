@@ -208,6 +208,7 @@ final class CmxConnectionStore: ObservableObject {
     private var currentSessionID: String?
     private var prefetchedWorkspaceIDs: Set<UInt64> = []
     private var pendingHiveAttachTarget: HiveAttachTarget?
+    private var activeHiveAttachTarget: HiveAttachTarget?
 
     private struct ReplayRequestKey: Equatable {
         var terminalID: UInt64
@@ -400,6 +401,9 @@ final class CmxConnectionStore: ObservableObject {
         do {
             let rawTicket = ticketText.trimmingCharacters(in: .whitespacesAndNewlines)
             let parsed = try CmxBridgeTicketParser.parse(rawTicket)
+            if !isAutomaticReconnect, pendingHiveAttachTarget == nil {
+                activeHiveAttachTarget = nil
+            }
             try? launchTicketStore.save(CmxLaunchTicketState(ticket: rawTicket, autoconnect: true))
             reconnectAllowed = true
             reconnectPending = false
@@ -464,6 +468,7 @@ final class CmxConnectionStore: ObservableObject {
             hiveDiscoveryTask?.cancel()
             hiveDiscoveryTask = nil
             isDiscoveringHive = false
+            activeHiveAttachTarget = nil
         } catch {
             errorText = error.localizedDescription
         }
@@ -478,6 +483,7 @@ final class CmxConnectionStore: ObservableObject {
         connectTask?.cancel()
         connectTask = nil
         pendingHiveAttachTarget = nil
+        activeHiveAttachTarget = nil
         terminalSession?.disconnect()
         terminalSession = nil
         lastSentNativeLayoutByTerminalID = [:]
@@ -647,6 +653,7 @@ final class CmxConnectionStore: ObservableObject {
             localWorkspaceID: workspace.localWorkspaceID,
             title: workspace.title
         )
+        activeHiveAttachTarget = pendingHiveAttachTarget
         ticketText = attachTicket
         connect()
     }
@@ -810,6 +817,7 @@ final class CmxConnectionStore: ObservableObject {
                     teamID: effectiveHiveTeamID
                 )
                 applyHiveDiscoverySnapshot(snapshot)
+                resumeHiveReconnectIfNeeded(from: snapshot)
                 errorText = nil
             } catch is CancellationError {
                 return
@@ -1131,6 +1139,34 @@ final class CmxConnectionStore: ObservableObject {
         saveHiveDiscoveryCache()
     }
 
+    private func resumeHiveReconnectIfNeeded(from snapshot: CmxHiveDiscoverySnapshot) {
+        guard reconnectPending, reconnectAllowed, !isConnecting, !isConnected,
+              let target = activeHiveAttachTarget,
+              let match = hiveWorkspace(in: snapshot, matching: target) else {
+            return
+        }
+        attachToHiveWorkspace(match.workspace, node: match.node)
+    }
+
+    private func hiveWorkspace(
+        in snapshot: CmxHiveDiscoverySnapshot,
+        matching target: HiveAttachTarget
+    ) -> (workspace: CmxWorkspace, node: CmxHiveNode)? {
+        guard let node = snapshot.nodes.first(where: { $0.rawID == target.nodeRawID }) else { return nil }
+        let workspaces = snapshot.workspaces.filter { $0.nodeID == node.id }
+        if let localWorkspaceID = CmxStringNormalization.trimmedNonEmpty(target.localWorkspaceID) {
+            if let workspace = workspaces.first(where: {
+                $0.localWorkspaceID == localWorkspaceID || String($0.id) == localWorkspaceID
+            }) {
+                return (workspace, node)
+            }
+        }
+        if let workspace = workspaces.first(where: { $0.title == target.title }) {
+            return (workspace, node)
+        }
+        return nil
+    }
+
     func applyHiveTeamsSnapshot(_ snapshot: CmxHiveTeamsSnapshot) {
         hiveTeams = snapshot.teams
         defaultHiveTeamID = snapshot.defaultTeamID
@@ -1211,6 +1247,7 @@ final class CmxConnectionStore: ObservableObject {
         nextOutputChunkID = 1
         prefetchedWorkspaceIDs = []
         pendingHiveAttachTarget = nil
+        activeHiveAttachTarget = nil
     }
 
     func refreshTerminalAppearance(colorPreference: CmxTerminalColorPreference) {
@@ -1503,6 +1540,9 @@ final class CmxConnectionStore: ObservableObject {
         isConnected = false
         guard reconnectAllowed else { return }
         reconnectPending = true
+        if activeHiveAttachTarget != nil, refreshHiveDiscoveryIfPossible() != nil {
+            return
+        }
         guard canAttemptReconnect, !didUseImmediateReconnectForCurrentLoss else { return }
         didUseImmediateReconnectForCurrentLoss = true
         resumePendingConnectionIfNeeded()
@@ -1587,6 +1627,7 @@ extension CmxConnectionStore: CmxTerminalSessionDelegate {
             #endif
             reconnectAllowed = false
             reconnectPending = false
+            activeHiveAttachTarget = nil
             latencyMilliseconds = nil
             errorText = message
             terminalSession = nil

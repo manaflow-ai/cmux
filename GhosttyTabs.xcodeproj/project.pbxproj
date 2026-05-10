@@ -28,6 +28,7 @@
 		4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */; };
 		46F6AC15863EC84DCD3770A2 /* TerminalAndGhosttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */; };
 		51D800000000000000000001 /* SidebarIdentifierFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51D800000000000000000002 /* SidebarIdentifierFormattingTests.swift */; };
+		5F8A1E2B3C4D5E6F708190A0 /* CmxHiveWorkspacePublisherAttachPayloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F8A1E2B3C4D5E6F708190A1 /* CmxHiveWorkspacePublisherAttachPayloadTests.swift */; };
 		C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */; };
 		C0DE31390000000000000103 /* FilePreviewReviewFeedbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000104 /* FilePreviewReviewFeedbackTests.swift */; };
 		C0DEF0A10000000000000001 /* CmuxConfigUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A10000000000000002 /* CmuxConfigUI.swift */; };
@@ -105,7 +106,9 @@
 		A8CBA43C2DA5AB9E3A1E65A4 /* CommandPaletteSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38A09EB2E92203B2E95923A7 /* CommandPaletteSearch.swift */; };
 		0D56BE882EAD4B67AC44F96D /* TerminalDirectoryOpenSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8E2E03F4A64C61B729CF19 /* TerminalDirectoryOpenSupport.swift */; };
 		A72C9F4179B54DF38E99A021 /* CmuxCLIPathInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A4FE96C3F394FC6A6D4B018 /* CmuxCLIPathInstaller.swift */; };
+		C0DEF1B00000000000000001 /* CmxEmbeddedIrohBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF1B00000000000000002 /* CmxEmbeddedIrohBridge.swift */; };
 		C0DEF1A00000000000000001 /* CmxHiveWorkspacePublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF1A00000000000000002 /* CmxHiveWorkspacePublisher.swift */; };
+		C0DEF1C00000000000000001 /* CmxHiveAttachPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF1C00000000000000002 /* CmxHiveAttachPayload.swift */; };
 		E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */; };
 		5C3E0454B6C24B02A2F091A8 /* ShortcutRoutingSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42A82C6AA614E74873D9A5F /* ShortcutRoutingSupport.swift */; };
 		E5C0F1A0E5C0F1A0E5C0F1A0 /* TerminalFindEscapeRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */; };
@@ -406,6 +409,7 @@
 		43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthEnvironment.swift; sourceTree = "<group>"; };
 		491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerSocketSecurityTests.swift; sourceTree = "<group>"; };
 		51D800000000000000000002 /* SidebarIdentifierFormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarIdentifierFormattingTests.swift; sourceTree = "<group>"; };
+		5F8A1E2B3C4D5E6F708190A1 /* CmxHiveWorkspacePublisherAttachPayloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmxHiveWorkspacePublisherAttachPayloadTests.swift; sourceTree = "<group>"; };
 		D7AB34300000000000000006 /* SidebarWorkspaceDropPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceDropPlannerTests.swift; sourceTree = "<group>"; };
 		D7AB34400000000000000004 /* GhosttyTerminalViewVisibilityPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalViewVisibilityPolicyTests.swift; sourceTree = "<group>"; };
 		9C1BEA3D2E6F49709A71C021 /* TerminalControllerSocketWriteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerSocketWriteTests.swift; sourceTree = "<group>"; };
@@ -468,6 +472,8 @@
 		6B8E2E03F4A64C61B729CF19 /* TerminalDirectoryOpenSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalDirectoryOpenSupport.swift; sourceTree = "<group>"; };
 		8A4FE96C3F394FC6A6D4B018 /* CmuxCLIPathInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxCLIPathInstaller.swift; sourceTree = "<group>"; };
 		C0DEF1A00000000000000002 /* CmxHiveWorkspacePublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmxHiveWorkspacePublisher.swift; sourceTree = "<group>"; };
+		C0DEF1B00000000000000002 /* CmxEmbeddedIrohBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmxEmbeddedIrohBridge.swift; sourceTree = "<group>"; };
+		C0DEF1C00000000000000002 /* CmxHiveAttachPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmxHiveAttachPayload.swift; sourceTree = "<group>"; };
 		47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ScreenIdentity.swift; sourceTree = "<group>"; };
 		B42A82C6AA614E74873D9A5F /* ShortcutRoutingSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ShortcutRoutingSupport.swift; sourceTree = "<group>"; };
 		E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalFindEscapeRouting.swift; sourceTree = "<group>"; };
@@ -864,6 +870,8 @@
 				6B8E2E03F4A64C61B729CF19 /* TerminalDirectoryOpenSupport.swift */,
 				8A4FE96C3F394FC6A6D4B018 /* CmuxCLIPathInstaller.swift */,
 				C0DEF1A00000000000000002 /* CmxHiveWorkspacePublisher.swift */,
+				C0DEF1B00000000000000002 /* CmxEmbeddedIrohBridge.swift */,
+				C0DEF1C00000000000000002 /* CmxHiveAttachPayload.swift */,
 				47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */,
 				B42A82C6AA614E74873D9A5F /* ShortcutRoutingSupport.swift */,
 				E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */,
@@ -1047,6 +1055,7 @@
 				E3309A0A /* AppDelegateEqualizeSplitsShortcutTests.swift */,
 				F6001001A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift */,
 				F6100001A1B2C3D4E5F60718 /* WorkspaceRemoteConnectionTests.swift */,
+				5F8A1E2B3C4D5E6F708190A1 /* CmxHiveWorkspacePublisherAttachPayloadTests.swift */,
 				F7000001A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift */,
 				F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */,
 				F9000001A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift */,
@@ -1115,6 +1124,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = A5001060 /* Build configuration list for PBXNativeTarget "GhosttyTabs" */;
 			buildPhases = (
+				C1020A0B0C0D0E0F01020304 /* Build Rust iroh bridge */,
 				A5001051 /* Sources */,
 				A5001030 /* Frameworks */,
 				A5001102 /* Resources */,
@@ -1317,6 +1327,26 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		C1020A0B0C0D0E0F01020304 /* Build Rust iroh bridge */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust iroh bridge";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/libcmux_iroh_bridge.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "scripts/build-iroh-bridge.sh";
+		};
 		A5001300A1B2C3D4E5F60719 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -1373,6 +1403,8 @@
 				0D56BE882EAD4B67AC44F96D /* TerminalDirectoryOpenSupport.swift in Sources */,
 				A72C9F4179B54DF38E99A021 /* CmuxCLIPathInstaller.swift in Sources */,
 				C0DEF1A00000000000000001 /* CmxHiveWorkspacePublisher.swift in Sources */,
+				C0DEF1B00000000000000001 /* CmxEmbeddedIrohBridge.swift in Sources */,
+				C0DEF1C00000000000000001 /* CmxHiveAttachPayload.swift in Sources */,
 				E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */,
 				5C3E0454B6C24B02A2F091A8 /* ShortcutRoutingSupport.swift in Sources */,
 				E5C0F1A0E5C0F1A0E5C0F1A0 /* TerminalFindEscapeRouting.swift in Sources */,
@@ -1593,6 +1625,7 @@
 				E3309A09 /* AppDelegateEqualizeSplitsShortcutTests.swift in Sources */,
 				F6001000A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift in Sources */,
 				F6100000A1B2C3D4E5F60718 /* WorkspaceRemoteConnectionTests.swift in Sources */,
+				5F8A1E2B3C4D5E6F708190A0 /* CmxHiveWorkspacePublisherAttachPayloadTests.swift in Sources */,
 				F7000000A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift in Sources */,
 				F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */,
 				F9000000A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift in Sources */,
@@ -1777,6 +1810,7 @@
 				MARKETING_VERSION = 0.63.2;
 				OTHER_LDFLAGS = (
 					"-lc++",
+					"$(DERIVED_FILE_DIR)/libcmux_iroh_bridge.a",
 					"-framework",
 					Metal,
 					"-framework",
@@ -1787,6 +1821,14 @@
 					UniformTypeIdentifiers,
 					"-framework",
 					Carbon,
+					"-framework",
+					Network,
+					"-framework",
+					Security,
+					"-framework",
+					SystemConfiguration,
+					"-framework",
+					CFNetwork,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.debug;
 				PRODUCT_NAME = "cmux DEV";
@@ -1818,6 +1860,7 @@
 				ONLY_ACTIVE_ARCH = NO;
 				OTHER_LDFLAGS = (
 					"-lc++",
+					"$(DERIVED_FILE_DIR)/libcmux_iroh_bridge.a",
 					"-framework",
 					Metal,
 					"-framework",
@@ -1828,6 +1871,14 @@
 					UniformTypeIdentifiers,
 					"-framework",
 					Carbon,
+					"-framework",
+					Network,
+					"-framework",
+					Security,
+					"-framework",
+					SystemConfiguration,
+					"-framework",
+					CFNetwork,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app;
 				PRODUCT_NAME = cmux;
