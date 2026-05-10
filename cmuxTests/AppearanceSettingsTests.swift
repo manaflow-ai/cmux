@@ -168,6 +168,72 @@ final class AppearanceSettingsTests: XCTestCase {
         XCTAssertTrue(synchronizedAppearanceWasCleared)
     }
 
+    func testSelectingAppearanceModesWritesManagedGhosttyConfig() throws {
+        let suiteName = "AppearanceSettingsTests.ManagedGhosttyConfig.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let scenarios: [(mode: AppearanceMode, systemAppearance: NSAppearance.Name, expectedBackground: String, expectedForeground: String)] = [
+            (.light, .darkAqua, "#feffff", "#000000"),
+            (.dark, .aqua, "#1e1e1e", "#ffffff"),
+            (.system, .aqua, "#feffff", "#000000"),
+            (.system, .darkAqua, "#1e1e1e", "#ffffff"),
+        ]
+
+        for scenario in scenarios {
+            try withTemporaryHomeDirectory { homeDirectory in
+                let configEnvironment = ConfigSourceEnvironment(
+                    homeDirectoryURL: homeDirectory,
+                    currentBundleIdentifier: "com.cmuxterm.app"
+                )
+                let configURL = try configEnvironment.materializeCmuxConfigFileIfNeeded()
+                XCTAssertEqual(try String(contentsOf: configURL, encoding: .utf8), "")
+
+                let environment = AppearanceSettings.LiveApplyEnvironment(
+                    setApplicationAppearance: { _ in },
+                    synchronizeTerminalThemeWithAppearance: { _, _ in },
+                    systemAppearance: {
+                        NSAppearance(named: scenario.systemAppearance)
+                    },
+                    persistManagedTerminalAppearanceConfig: { _, appearance, callbackDefaults, _ in
+                        let resolvedAppearance = appearance ?? NSAppearance(named: scenario.systemAppearance)
+                        let colorScheme = GhosttyConfig.currentColorSchemePreference(
+                            appAppearance: resolvedAppearance,
+                            defaults: callbackDefaults
+                        )
+                        do {
+                            try configEnvironment.writeCmuxConfigContents(
+                                GhosttyConfig.cmuxDefaultThemeConfigContents(
+                                    preferredColorScheme: colorScheme
+                                )
+                            )
+                        } catch {
+                            XCTFail("Failed to write managed Ghostty config: \(error)")
+                        }
+                    }
+                )
+
+                _ = AppearanceSettings.selectMode(
+                    scenario.mode,
+                    defaults: defaults,
+                    source: "settings.themePicker",
+                    environment: environment
+                )
+
+                let contents = try String(contentsOf: configURL, encoding: .utf8)
+                XCTAssertFalse(contents.isEmpty, "Expected \(scenario.mode.rawValue) to write \(configURL.path)")
+                XCTAssertTrue(
+                    contents.contains("background = \(scenario.expectedBackground)"),
+                    "Expected \(scenario.mode.rawValue) config to contain \(scenario.expectedBackground); got:\n\(contents)"
+                )
+                XCTAssertTrue(
+                    contents.contains("foreground = \(scenario.expectedForeground)"),
+                    "Expected \(scenario.mode.rawValue) config to contain \(scenario.expectedForeground); got:\n\(contents)"
+                )
+            }
+        }
+    }
+
     private func withTemporaryAppearanceDefaults(
         appearanceMode: String,
         appleInterfaceStyle: String?,
@@ -205,4 +271,15 @@ final class AppearanceSettingsTests: XCTestCase {
             defaults.removeObject(forKey: key)
         }
     }
+
+    private func withTemporaryHomeDirectory(
+        _ body: (URL) throws -> Void
+    ) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-appearance-home-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try body(directory)
+    }
+
 }

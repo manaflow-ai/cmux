@@ -32,6 +32,19 @@ enum AppearanceSettings {
         let setApplicationAppearance: (NSAppearance?) -> Void
         let synchronizeTerminalThemeWithAppearance: (NSAppearance?, String) -> Void
         let systemAppearance: () -> NSAppearance?
+        let persistManagedTerminalAppearanceConfig: (AppearanceMode, NSAppearance?, UserDefaults, String) -> Void
+
+        init(
+            setApplicationAppearance: @escaping (NSAppearance?) -> Void,
+            synchronizeTerminalThemeWithAppearance: @escaping (NSAppearance?, String) -> Void,
+            systemAppearance: @escaping () -> NSAppearance?,
+            persistManagedTerminalAppearanceConfig: @escaping (AppearanceMode, NSAppearance?, UserDefaults, String) -> Void = { _, _, _, _ in }
+        ) {
+            self.setApplicationAppearance = setApplicationAppearance
+            self.synchronizeTerminalThemeWithAppearance = synchronizeTerminalThemeWithAppearance
+            self.systemAppearance = systemAppearance
+            self.persistManagedTerminalAppearanceConfig = persistManagedTerminalAppearanceConfig
+        }
 
         static var live: LiveApplyEnvironment {
             LiveApplyEnvironment(
