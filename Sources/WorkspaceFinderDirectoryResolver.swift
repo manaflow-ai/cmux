@@ -3,7 +3,6 @@ import Foundation
 
 struct WorkspaceFinderDirectoryCacheKey: Equatable, Sendable {
     var path: String?
-    var refreshID: UInt64
 }
 
 struct WorkspaceFinderDirectoryCache: Equatable, Sendable {
