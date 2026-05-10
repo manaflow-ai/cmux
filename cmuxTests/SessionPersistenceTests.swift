@@ -699,6 +699,69 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNil(index.snapshot(workspaceId: regeneratedWorkspaceId, panelId: UUID()))
     }
 
+    func testRestorableAgentIndexFallbackPicksMostRecentRecordPerPanelId() throws {
+        // The panelId fallback may resolve from multiple hook records sharing
+        // a panelId — e.g. the user ended a session and started a new one in
+        // the same panel before relaunch. The fold must return the most-recent
+        // record per panelId so resume lands on the right session, not an
+        // arbitrary one.
+        let panelId = UUID()
+        let oldWorkspaceId = UUID()
+        let newWorkspaceId = UUID()
+        let now = Date().timeIntervalSince1970
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-recency-\(UUID().uuidString)", isDirectory: true)
+        let storeURL = RestorableAgentKind.claude.hookStoreFileURL(homeDirectory: home.path)
+        try FileManager.default.createDirectory(
+            at: storeURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        func record(sessionId: String, workspaceId: UUID, updatedAt: TimeInterval) -> [String: Any] {
+            return [
+                "sessionId": sessionId,
+                "workspaceId": workspaceId.uuidString,
+                "surfaceId": panelId.uuidString,
+                "cwd": "/tmp/repo",
+                "updatedAt": updatedAt,
+                "launchCommand": [
+                    "launcher": "claude",
+                    "executablePath": "/usr/local/bin/claude",
+                    "arguments": ["/usr/local/bin/claude"],
+                    "workingDirectory": "/tmp/repo",
+                    "environment": ["CLAUDE_CONFIG_DIR": "/tmp/claude"],
+                    "capturedAt": updatedAt,
+                    "source": "process",
+                ],
+            ]
+        }
+        let payload: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                "old-session": record(sessionId: "old-session", workspaceId: oldWorkspaceId, updatedAt: now - 100),
+                "new-session": record(sessionId: "new-session", workspaceId: newWorkspaceId, updatedAt: now),
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [])
+        try data.write(to: storeURL, options: .atomic)
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: home.path)
+
+        // Strict (workspaceId, panelId) lookups still return their own records.
+        XCTAssertEqual(index.snapshot(workspaceId: oldWorkspaceId, panelId: panelId)?.sessionId, "old-session")
+        XCTAssertEqual(index.snapshot(workspaceId: newWorkspaceId, panelId: panelId)?.sessionId, "new-session")
+
+        // Post-relaunch: a regenerated workspace UUID hits the panelId fallback,
+        // which must return the most-recent record (newer updatedAt wins).
+        let regeneratedWorkspaceId = UUID()
+        XCTAssertEqual(
+            index.snapshot(workspaceId: regeneratedWorkspaceId, panelId: panelId)?.sessionId,
+            "new-session",
+            "panelId fallback must return the most-recent record across the panel's history"
+        )
+    }
+
     func testClaudeTranscriptHasConversationFiltersMetadataOnlyTranscripts() throws {
         // Claude rejects `--resume <id>` for sessions whose .jsonl only
         // contains metadata events (e.g. `custom-title`, `agent-name`,
@@ -735,6 +798,15 @@ final class SessionPersistenceTests: XCTestCase {
         {"type":"assistant","sessionId":"\(realSessionId)","message":{"role":"assistant","content":"hi"}}
         """.write(to: realSession, atomically: true, encoding: .utf8)
 
+        // Whitespace variant: JSON permits arbitrary whitespace around `:`.
+        // Claude's writer is stable today, but the probe should still match
+        // valid JSON forms like `"type" : "user"` instead of dropping them.
+        let whitespaceId = "44444444-4444-4444-4444-444444444444"
+        let whitespaceSession = projectDir.appendingPathComponent("\(whitespaceId).jsonl")
+        try """
+        {"type" : "user","sessionId":"\(whitespaceId)","message":{"role":"user","content":"hi"}}
+        """.write(to: whitespaceSession, atomically: true, encoding: .utf8)
+
         XCTAssertFalse(
             RestorableAgentSessionIndex.claudeTranscriptHasConversation(
                 cwd: cwd,
@@ -758,6 +830,14 @@ final class SessionPersistenceTests: XCTestCase {
                 claudeConfigDir: tmp.path
             ),
             "a missing transcript should NOT be filtered out — let Claude error if it's truly broken at resume"
+        )
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.claudeTranscriptHasConversation(
+                cwd: cwd,
+                sessionId: whitespaceId,
+                claudeConfigDir: tmp.path
+            ),
+            "JSON whitespace around the `:` should not cause valid conversation events to be dropped"
         )
 
         // Same setup verifies the higher-level `claudeAgentIsRestorable`
@@ -788,7 +868,7 @@ final class SessionPersistenceTests: XCTestCase {
         // restored snapshot (fresh sessions started in this lifetime). Make
         // sure the call is safe — no crash, no spurious side effects.
         let workspace = Workspace(title: "Tests")
-        workspace.markRestorableAgentSessionEnded(panelId: UUID())
+        workspace.markRestorableAgentSessionEnded(panelId: UUID(), sessionId: "any-session")
         // No assertion needed beyond "did not crash"; the method is called
         // from a sidebar mutation closure and must tolerate missing entries.
     }

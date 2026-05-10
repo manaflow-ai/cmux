@@ -8475,8 +8475,14 @@ final class Workspace: Identifiable, ObservableObject {
     /// persists in `restoredAgentSnapshotsByPanelId` after the underlying
     /// session has been consumed from disk, and the next cmux launch tries to
     /// resume a session that no longer exists.
-    func markRestorableAgentSessionEnded(panelId: UUID) {
-        guard let restored = restoredAgentSnapshotsByPanelId[panelId] else { return }
+    ///
+    /// `sessionId` scopes the clear: a late or duplicate SessionEnd event for
+    /// session A must not wipe a freshly-started session B that has reused
+    /// the same panel. We no-op unless the currently-restored snapshot's
+    /// sessionId matches the ended one.
+    func markRestorableAgentSessionEnded(panelId: UUID, sessionId: String) {
+        guard let restored = restoredAgentSnapshotsByPanelId[panelId],
+              restored.sessionId == sessionId else { return }
         invalidatedRestoredAgentFingerprintsByPanelId[panelId] = TabManager.restorableAgentSnapshotFingerprint(restored)
         restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentAutoResumePendingPanelIds.remove(panelId)

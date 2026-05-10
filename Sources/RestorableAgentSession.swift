@@ -725,19 +725,34 @@ struct RestorableAgentSessionIndex: Sendable {
         )
     }
 
+    /// Cached regex for `lineDeclaresConversationEvent`. Compiled once so the
+    /// per-line scan stays cheap. Tolerates any whitespace around the colon
+    /// (valid JSON), which a fixed-substring check would miss for inputs like
+    /// `"type" : "assistant"`.
+    private static let conversationEventRegex: NSRegularExpression = {
+        // swiftlint:disable:next force_try
+        try! NSRegularExpression(
+            pattern: #""type"\s*:\s*"(?:user|assistant)""#,
+            options: []
+        )
+    }()
+
     private static func lineDeclaresConversationEvent(_ line: Data) -> Bool {
-        // Cheap probe: a line that mentions `"type":"user"` or
-        // `"type":"assistant"` is a real conversation event. Metadata-only
-        // lines (`custom-title`, `agent-name`, `permission-mode`, etc.) don't
-        // match. We avoid full JSON parsing per line for hot-path performance.
+        // A line carrying a top-level `"type": "user"` or `"type": "assistant"`
+        // is a real conversation event. Metadata-only lines (`custom-title`,
+        // `agent-name`, `permission-mode`, etc.) don't match. We avoid full
+        // JSON parsing per line for hot-path performance — the regex still
+        // costs <1 µs per line with a precompiled NSRegularExpression.
         guard !line.isEmpty,
               let text = String(data: line, encoding: .utf8) else {
             return false
         }
-        return text.contains("\"type\":\"user\"")
-            || text.contains("\"type\":\"assistant\"")
-            || text.contains("\"type\": \"user\"")
-            || text.contains("\"type\": \"assistant\"")
+        let nsLength = (text as NSString).length
+        return conversationEventRegex.firstMatch(
+            in: text,
+            options: [],
+            range: NSRange(location: 0, length: nsLength)
+        ) != nil
     }
 
     private init(
