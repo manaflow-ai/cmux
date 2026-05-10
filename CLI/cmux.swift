@@ -363,6 +363,8 @@ struct NotificationInfo {
     let title: String
     let subtitle: String
     let body: String
+    let createdAt: String?
+    let tabTitle: String?
 }
 
 private struct ClaudeHookParsedInput {
@@ -3274,12 +3276,74 @@ struct CMUXCLI {
                         "body": item.body
                     ]
                     dict["surface_id"] = item.surfaceId ?? NSNull()
+                    dict["created_at"] = item.createdAt ?? NSNull()
+                    dict["tab_title"] = item.tabTitle ?? NSNull()
                     return dict
                 }
                 print(jsonString(payload))
             } else {
                 print(response)
             }
+
+        case "dismiss-notification":
+            let id = optionValue(commandArgs, name: "--id")
+            let allRead = hasFlag(commandArgs, name: "--all-read")
+            let okText = String(localized: "common.ok", defaultValue: "OK")
+            guard (id != nil) != allRead else {
+                throw CLIError(message: String(localized: "cli.error.dismissNotificationSelector", defaultValue: "dismiss-notification requires exactly one of --id or --all-read"))
+            }
+            if let id {
+                let payload = try client.sendV2(method: "notification.dismiss", params: ["id": id])
+                printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: okText)
+            } else {
+                let response = try sendV1Command("list_notifications", client: client)
+                let readNotifications = parseNotifications(response).filter(\.isRead)
+                for notification in readNotifications {
+                    _ = try client.sendV2(method: "notification.dismiss", params: ["id": notification.id])
+                }
+                let payload: [String: Any] = ["dismissed": readNotifications.count, "all_read": true]
+                printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: okText)
+            }
+
+        case "mark-notification-read":
+            let id = optionValue(commandArgs, name: "--id")
+            let workspaceArg = optionValue(commandArgs, name: "--workspace")
+            let surfaceArg = optionValue(commandArgs, name: "--surface")
+            let all = hasFlag(commandArgs, name: "--all")
+            let okText = String(localized: "common.ok", defaultValue: "OK")
+            let selectorCount = (id == nil ? 0 : 1) + (workspaceArg == nil ? 0 : 1) + (all ? 1 : 0)
+            guard selectorCount == 1 else {
+                throw CLIError(message: String(localized: "cli.error.markNotificationReadSelector", defaultValue: "mark-notification-read requires exactly one selector: --id, --workspace, or --all"))
+            }
+            if surfaceArg != nil, workspaceArg == nil {
+                throw CLIError(message: String(localized: "cli.error.markNotificationReadSurfaceRequiresWorkspace", defaultValue: "--surface requires --workspace"))
+            }
+
+            var params: [String: Any] = [:]
+            if let id {
+                params["id"] = id
+            } else if let workspaceArg {
+                let workspaceId = try resolveWorkspaceId(workspaceArg, client: client)
+                params["tab_id"] = workspaceId
+                if let surfaceArg {
+                    params["surface_id"] = try resolveSurfaceId(surfaceArg, workspaceId: workspaceId, client: client)
+                }
+            } else if all {
+                params["all"] = true
+            }
+            let payload = try client.sendV2(method: "notification.mark_read", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: okText)
+
+        case "open-notification":
+            guard let id = optionValue(commandArgs, name: "--id") else {
+                throw CLIError(message: String(localized: "cli.error.openNotificationRequiresId", defaultValue: "open-notification requires --id"))
+            }
+            let payload = try client.sendV2(method: "notification.open", params: ["id": id])
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
+
+        case "jump-to-unread":
+            let payload = try client.sendV2(method: "notification.jump_to_unread")
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
         case "clear-notifications":
             var socketCmd = "clear_notifications"
@@ -8506,16 +8570,27 @@ struct CMUXCLI {
                 let raw = String(line)
                 let parts = raw.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
                 guard parts.count == 2 else { return nil }
-                let payload = parts[1].split(separator: "|", maxSplits: 6, omittingEmptySubsequences: false)
+                let payload = parts[1].split(separator: "|", omittingEmptySubsequences: false).map(String.init)
                 guard payload.count >= 7 else { return nil }
-                let notifId = String(payload[0])
-                let workspaceId = String(payload[1])
-                let surfaceRaw = String(payload[2])
+                let notifId = payload[0]
+                let workspaceId = payload[1]
+                let surfaceRaw = payload[2]
                 let surfaceId = surfaceRaw == "none" ? nil : surfaceRaw
-                let readText = String(payload[3])
-                let title = String(payload[4])
-                let subtitle = String(payload[5])
-                let body = String(payload[6])
+                let readText = payload[3]
+                let title = payload[4]
+                let subtitle = payload[5]
+                let body: String
+                let createdAt: String?
+                let tabTitle: String?
+                if payload.count >= 9 && isNotificationListCreatedAtField(payload[payload.count - 2]) {
+                    body = payload[6..<(payload.count - 2)].joined(separator: "|")
+                    createdAt = payload[payload.count - 2].isEmpty ? nil : payload[payload.count - 2]
+                    tabTitle = payload[payload.count - 1].isEmpty ? nil : payload[payload.count - 1]
+                } else {
+                    body = payload[6...].joined(separator: "|")
+                    createdAt = nil
+                    tabTitle = nil
+                }
                 return NotificationInfo(
                     id: notifId,
                     workspaceId: workspaceId,
@@ -8523,9 +8598,18 @@ struct CMUXCLI {
                     isRead: readText == "read",
                     title: title,
                     subtitle: subtitle,
-                    body: body
+                    body: body,
+                    createdAt: createdAt,
+                    tabTitle: tabTitle
                 )
             }
+    }
+
+    private func isNotificationListCreatedAtField(_ value: String) -> Bool {
+        value.range(
+            of: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"#,
+            options: .regularExpression
+        ) != nil
     }
 
     private func resolveWorkspaceId(_ raw: String?, client: SocketClient) throws -> String {
@@ -9812,6 +9896,53 @@ struct CMUXCLI {
 
             List queued notifications.
             """
+        case "dismiss-notification":
+            return String(localized: "cli.help.dismissNotification", defaultValue: """
+            Usage: cmux dismiss-notification (--id <uuid> | --all-read)
+
+            Remove one notification, or remove every already-read notification.
+
+            Flags:
+              --id <uuid>           Notification id to remove
+              --all-read            Remove every already-read notification
+              --json                Print JSON
+              --id-format <mode>    refs, uuids, or both
+            """)
+        case "mark-notification-read":
+            return String(localized: "cli.help.markNotificationRead", defaultValue: """
+            Usage: cmux mark-notification-read (--id <uuid> | --workspace <id|ref> [--surface <id|ref>] | --all)
+
+            Mark notifications read without opening them. Exactly one selector is required.
+
+            Flags:
+              --id <uuid>           Mark one notification read
+              --workspace <id|ref>  Mark notifications for a workspace
+              --surface <id|ref>    Narrow --workspace to one surface
+              --all                 Mark every notification read
+              --json                Print JSON
+              --id-format <mode>    refs, uuids, or both
+            """)
+        case "open-notification":
+            return String(localized: "cli.help.openNotification", defaultValue: """
+            Usage: cmux open-notification --id <uuid>
+
+            Focus the notification's workspace and surface, then mark the row read.
+
+            Flags:
+              --id <uuid>           Notification id to open
+              --json                Print JSON
+              --id-format <mode>    refs, uuids, or both
+            """)
+        case "jump-to-unread":
+            return String(localized: "cli.help.jumpToUnread", defaultValue: """
+            Usage: cmux jump-to-unread
+
+            Focus the latest unread notification, matching the Notifications page action.
+
+            Flags:
+              --json                Print JSON
+              --id-format <mode>    refs, uuids, or both
+            """)
         case "clear-notifications":
             return """
             Usage: cmux clear-notifications
@@ -20757,6 +20888,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           send-key-panel --panel <id|ref> [--workspace <id|ref>] <key>
           notify --title <text> [--subtitle <text>] [--body <text>] [--workspace <id|ref>] [--surface <id|ref>]
           list-notifications
+          dismiss-notification (--id <uuid> | --all-read)
+          mark-notification-read (--id <uuid> | --workspace <id|ref> [--surface <id|ref>] | --all)
+          open-notification --id <uuid>
+          jump-to-unread
           clear-notifications
           set-status <key> <value> [--workspace <id|ref>] [--icon <name>] [--color <#hex>]
           clear-status <key> [--workspace <id|ref>]

@@ -171,6 +171,10 @@ cmux sets these in child shells:
 ```
 cmux notify --title <text> [--subtitle <text>] [--body <text>] [--tab <id|index>] [--panel <id|index>]
 cmux list-notifications
+cmux dismiss-notification (--id <notification-id> | --all-read)
+cmux mark-notification-read (--id <notification-id> | --workspace <id|ref> [--surface <id|ref>] | --all)
+cmux open-notification --id <notification-id>
+cmux jump-to-unread
 cmux clear-notifications
 cmux set-status <key> <value>
 cmux clear-status <key>

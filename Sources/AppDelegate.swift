@@ -10223,8 +10223,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         titlebarAccessoryController.isNotificationsPopoverShown()
     }
 
-    func jumpToLatestUnread() {
-        guard let notificationStore else { return }
+    @discardableResult
+    func jumpToLatestUnread() -> Bool {
+        guard let notificationStore else { return false }
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
             writeJumpUnreadTestData([
@@ -10238,9 +10239,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // tab manager currently owns the tab.
         for notification in notificationStore.notifications where !notification.isRead {
             if openNotification(tabId: notification.tabId, surfaceId: notification.surfaceId, notificationId: notification.id) {
-                return
+                return true
             }
         }
+        return false
     }
 
     static func installWindowResponderSwizzlesForTesting() {

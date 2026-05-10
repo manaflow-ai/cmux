@@ -125,7 +125,11 @@ Environment:
 | `send-panel` | Send text to a panel/surface. |
 | `send-key-panel` | Send one key to a panel/surface. |
 | `notify` | Send a notification to a workspace/surface. |
-| `list-notifications` | List queued notifications. |
+| `list-notifications` | List queued notifications, including `created_at` and `tab_title`. |
+| `dismiss-notification` | Remove one notification, or remove already-read notifications with `--all-read`. |
+| `mark-notification-read` | Mark one notification, a workspace/surface scope, or all notifications read. |
+| `open-notification` | Focus the notification's workspace/surface and mark it read. |
+| `jump-to-unread` | Focus the latest unread notification. |
 | `clear-notifications` | Clear queued notifications. |
 | `set-status` | Set a sidebar status pill. |
 | `clear-status` | Remove a sidebar status pill. |
@@ -445,6 +449,10 @@ the expected text without connecting to a cmux socket.
 - `cmux send-key-panel --help` -> `Usage: cmux send-key-panel`
 - `cmux notify --help` -> `Usage: cmux notify`
 - `cmux list-notifications --help` -> `Usage: cmux list-notifications`
+- `cmux dismiss-notification --help` -> `Usage: cmux dismiss-notification`
+- `cmux mark-notification-read --help` -> `Usage: cmux mark-notification-read`
+- `cmux open-notification --help` -> `Usage: cmux open-notification`
+- `cmux jump-to-unread --help` -> `Usage: cmux jump-to-unread`
 - `cmux clear-notifications --help` -> `Usage: cmux clear-notifications`
 - `cmux set-status --help` -> `Usage: cmux set-status`
 - `cmux clear-status --help` -> `Usage: cmux clear-status`
