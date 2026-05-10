@@ -156,7 +156,8 @@ extension Workspace {
         if agentProcessStates.removeValue(forKey: key) != nil {
             didChange = true
         }
-        if agentPIDExitWatchers.removeValue(forKey: key) != nil {
+        if let watcher = agentPIDExitWatchers.removeValue(forKey: key) {
+            watcher.cancel()
             didChange = true
         }
         if ownedPanelId != nil {

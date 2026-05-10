@@ -8901,7 +8901,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     func sidebarStatusEntriesByKey() -> [String: SidebarStatusEntry] {
         var entries = statusEntries
-        let agentKeysByStatusKey = Dictionary(grouping: agentPIDs.keys, by: agentStatusKey)
+        let agentKeysByStatusKey = Dictionary(
+            grouping: agentPIDs.keys,
+            by: { agentStatusKey(forAgentPIDKey: $0) }
+        )
         for (statusKey, agentKeys) in agentKeysByStatusKey {
             let explicitEntry = entries[statusKey]
             var selectedEntry: SidebarStatusEntry?
