@@ -356,11 +356,11 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[PaneFirstClickFocusSettings.enabledKey] = .bool(value)
         }
         if let raw = jsonString(section["fileDropDefaultBehavior"]) {
-            guard let behavior = FileDropDefaultBehavior(rawValue: raw) else {
+            if let behavior = FileDropDefaultBehavior(rawValue: raw) {
+                snapshot.managedUserDefaults[FileDropBehaviorSettings.defaultBehaviorKey] = .string(behavior.rawValue)
+            } else {
                 logInvalid("app.fileDropDefaultBehavior", sourcePath: sourcePath)
-                return
             }
-            snapshot.managedUserDefaults[FileDropBehaviorSettings.defaultBehaviorKey] = .string(behavior.rawValue)
         }
         if let value = jsonString(section["preferredEditor"]) {
             snapshot.managedUserDefaults[PreferredEditorSettings.key] = .string(value)

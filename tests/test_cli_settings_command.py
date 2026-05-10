@@ -105,6 +105,12 @@ def main() -> int:
             if required not in keys:
                 failures.append(f"settings list --keys omitted {required}")
 
+        shortcut_keys = run_cli(cli_path, ["settings", "shortcuts", "list", "--keys"], home)
+        assert_ok(failures, "settings shortcuts list --keys", shortcut_keys)
+        shortcut_key_lines = [line.strip() for line in shortcut_keys.stdout.splitlines() if line.strip()]
+        if "openSettings" not in shortcut_key_lines or "showHideAllWindows" not in shortcut_key_lines:
+            failures.append(f"settings shortcuts list --keys omitted expected actions: {shortcut_keys.stdout!r}")
+
         set_appearance = run_cli(cli_path, ["settings", "set", "app.appearance", "dark"], home)
         assert_ok(failures, "settings set app.appearance", set_appearance)
         get_appearance = run_cli(cli_path, ["settings", "get", "app.appearance"], home)
@@ -137,6 +143,28 @@ def main() -> int:
 
         out_of_range = run_cli(cli_path, ["settings", "set", "automation.portRange", "0"], home)
         assert_fails(failures, "out-of-range setting set", out_of_range, "automation.portRange")
+
+        primitive_string = run_cli(cli_path, ["settings", "set", "notifications.command", "true"], home)
+        assert_ok(failures, "settings set string-looking bool", primitive_string)
+        get_primitive_string = run_cli(cli_path, ["settings", "get", "notifications.command"], home)
+        assert_ok(failures, "settings get string-looking bool", get_primitive_string)
+        if get_primitive_string.stdout.strip() != "true":
+            failures.append(f"string setting that looks like a bool was not preserved: {get_primitive_string.stdout!r}")
+
+        backslash_n_command = r"\nfoo"
+        set_backslash_n = run_cli(cli_path, ["settings", "set", "notifications.command", backslash_n_command], home)
+        assert_ok(failures, "settings set literal backslash-n command", set_backslash_n)
+        roundtrip_path = home / "settings-roundtrip.toml"
+        export_roundtrip = run_cli(cli_path, ["settings", "export", "--format", "toml", "--out", str(roundtrip_path)], home)
+        assert_ok(failures, "settings export literal backslash-n command", export_roundtrip)
+        unset_command = run_cli(cli_path, ["settings", "unset", "notifications.command"], home)
+        assert_ok(failures, "settings unset notifications.command before roundtrip import", unset_command)
+        import_roundtrip = run_cli(cli_path, ["settings", "import", str(roundtrip_path)], home)
+        assert_ok(failures, "settings import literal backslash-n command", import_roundtrip)
+        get_backslash_n = run_cli(cli_path, ["settings", "get", "notifications.command"], home)
+        assert_ok(failures, "settings get literal backslash-n command", get_backslash_n)
+        if get_backslash_n.stdout.strip() != backslash_n_command:
+            failures.append(f"TOML roundtrip corrupted literal backslash-n: {get_backslash_n.stdout!r}")
 
         conflict = run_cli(cli_path, ["settings", "shortcuts", "set", "openSettings", "cmd+n"], home)
         assert_fails(failures, "shortcut conflict", conflict, "conflicts with")

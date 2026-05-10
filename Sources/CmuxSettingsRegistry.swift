@@ -264,6 +264,10 @@ enum CmuxSettingsRegistry {
     }
 
     static func normalizeCommandLineValue(_ raw: String, for definition: SettingDefinition) throws -> Any {
+        if case .string = definition.kind {
+            return try normalizeJSONValue(raw, for: definition)
+        }
+
         if let jsonValue = parseJSONLiteral(raw) {
             return try normalizeJSONValue(jsonValue, for: definition)
         }

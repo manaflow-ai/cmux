@@ -19,6 +19,10 @@ extension CMUXCLI {
     func settingsManagementCommandDoesNotNeedSocket(_ commandArgs: [String]) -> Bool {
         let parsedArgs = docsSettingsArguments(commandArgs)
         let subcommand = parsedArgs.arguments.first?.lowercased() ?? "open"
+        if subcommand == "shortcuts" {
+            let nested = parsedArgs.arguments.dropFirst().first?.lowercased() ?? "list"
+            return ["list", "get"].contains(nested)
+        }
         return SettingsCommand.noSocketSubcommands.contains(subcommand)
     }
 
@@ -742,12 +746,38 @@ extension CMUXCLI {
             }
             if raw.hasPrefix("\""), raw.hasSuffix("\"") {
                 let inner = raw.dropFirst().dropLast()
-                return String(inner)
-                    .replacingOccurrences(of: "\\n", with: "\n")
-                    .replacingOccurrences(of: "\\\"", with: "\"")
-                    .replacingOccurrences(of: "\\\\", with: "\\")
+                return try unescapeTomlString(String(inner))
             }
             return raw
+        }
+
+        private func unescapeTomlString(_ raw: String) throws -> String {
+            var output = ""
+            var index = raw.startIndex
+            while index < raw.endIndex {
+                let character = raw[index]
+                guard character == "\\" else {
+                    output.append(character)
+                    index = raw.index(after: index)
+                    continue
+                }
+                let escapeIndex = raw.index(after: index)
+                guard escapeIndex < raw.endIndex else {
+                    throw CLIError(message: "Invalid TOML string escape")
+                }
+                switch raw[escapeIndex] {
+                case "n":
+                    output.append("\n")
+                case "\"":
+                    output.append("\"")
+                case "\\":
+                    output.append("\\")
+                default:
+                    throw CLIError(message: "Unsupported TOML string escape: \\(raw[escapeIndex])")
+                }
+                index = raw.index(after: escapeIndex)
+            }
+            return output
         }
     }
 
