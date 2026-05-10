@@ -890,6 +890,13 @@ final class FileExplorerContainerView: NSView {
         AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerFileExplorerHost(self)
     }
 
+    private struct VisibilityState: Equatable {
+        let hasContent: Bool
+        let isLoading: Bool
+    }
+
+    private var lastAppliedVisibility: VisibilityState?
+
     override func layout() {
         super.layout()
         registerWithKeyboardFocusCoordinatorIfNeeded()
@@ -940,14 +947,27 @@ final class FileExplorerContainerView: NSView {
     }
 
     func updateVisibility(hasContent: Bool, isLoading: Bool) {
+        let nextVisibility = VisibilityState(hasContent: hasContent, isLoading: isLoading)
+        guard nextVisibility != lastAppliedVisibility else { return }
+        lastAppliedVisibility = nextVisibility
 #if DEBUG
         FileExplorerDebugCounters.visibilityUpdateCount += 1
 #endif
-        headerView.isHidden = !hasContent
+
+        let shouldHideHeader = !hasContent
+        if headerView.isHidden != shouldHideHeader {
+            headerView.isHidden = shouldHideHeader
+        }
         updateSearchLayout(hasContent: hasContent, isLoading: isLoading)
         let searchCanShow = isSearchVisible && hasContent && !isLoading
-        emptyLabel.isHidden = hasContent || searchCanShow
-        loadingIndicator.isHidden = !isLoading
+        let shouldHideEmpty = hasContent || searchCanShow
+        if emptyLabel.isHidden != shouldHideEmpty {
+            emptyLabel.isHidden = shouldHideEmpty
+        }
+        let shouldHideLoading = !isLoading
+        if loadingIndicator.isHidden != shouldHideLoading {
+            loadingIndicator.isHidden = shouldHideLoading
+        }
         if isLoading {
             loadingIndicator.startAnimation(nil)
         } else {
@@ -1053,14 +1073,38 @@ final class FileExplorerContainerView: NSView {
         let effectiveHasContent = hasContent ?? !currentRootPath.isEmpty
         let effectiveIsLoading = isLoading ?? false
         let showSearch = isSearchVisible && effectiveHasContent && !effectiveIsLoading
-        searchBarView.isHidden = !showSearch
-        searchBarHeightConstraint.constant = showSearch ? RightSidebarChromeMetrics.secondaryBarHeight : 0
-        searchScrollView.isHidden = !showSearch
-        scrollView.isHidden = showSearch || !effectiveHasContent || effectiveIsLoading
+        var didChangeLayout = false
+
+        let shouldHideSearchBar = !showSearch
+        if searchBarView.isHidden != shouldHideSearchBar {
+            searchBarView.isHidden = shouldHideSearchBar
+            didChangeLayout = true
+        }
+
+        let nextSearchHeight = showSearch ? RightSidebarChromeMetrics.secondaryBarHeight : 0
+        if searchBarHeightConstraint.constant != nextSearchHeight {
+            searchBarHeightConstraint.constant = nextSearchHeight
+            didChangeLayout = true
+        }
+
+        let shouldHideSearchScroll = !showSearch
+        if searchScrollView.isHidden != shouldHideSearchScroll {
+            searchScrollView.isHidden = shouldHideSearchScroll
+            didChangeLayout = true
+        }
+
+        let shouldHideOutlineScroll = showSearch || !effectiveHasContent || effectiveIsLoading
+        if scrollView.isHidden != shouldHideOutlineScroll {
+            scrollView.isHidden = shouldHideOutlineScroll
+            didChangeLayout = true
+        }
+
+        if didChangeLayout {
 #if DEBUG
-        FileExplorerDebugCounters.searchLayoutInvalidationCount += 1
+            FileExplorerDebugCounters.searchLayoutInvalidationCount += 1
 #endif
-        needsLayout = true
+            needsLayout = true
+        }
     }
 
     private func applySearchSnapshot(_ snapshot: FileSearchSnapshot) {
@@ -1541,6 +1585,7 @@ final class FileExplorerHeaderView: NSView {
     }
 
     func update(displayPath: String) {
+        guard self.displayPath != displayPath else { return }
         self.displayPath = displayPath
         applyHeaderState()
     }
