@@ -138,6 +138,14 @@ final class AuthManager {
             return
         }
 
+        if DebugShortcutSession.isPersisted, let cachedUser = authUserCache.load() {
+            authLog.debug("Restoring local debug auth shortcut")
+            authSessionCache.setHasTokens(true)
+            currentUser = cachedUser
+            isAuthenticated = true
+            return
+        }
+
         if let credentials = autoLoginCredentials, !authSessionCache.hasTokens {
             authLog.debug("Starting auto-login for \(credentials.email, privacy: .private)")
             await performAutoLogin(credentials)
@@ -203,6 +211,10 @@ final class AuthManager {
 
     private func applySignedInUser(_ user: CurrentUser) async {
         let mappedUser = await StackAuthUser(currentUser: user)
+        await applySignedInUser(mappedUser)
+    }
+
+    private func applySignedInUser(_ mappedUser: StackAuthUser) async {
         currentUser = mappedUser
         isAuthenticated = true
         authUserCache.save(mappedUser)
@@ -211,6 +223,9 @@ final class AuthManager {
     }
 
     private func clearAuthState() {
+        #if DEBUG
+        DebugShortcutSession.clear()
+        #endif
         authUserCache.clear()
         authSessionCache.clear()
         applyAuthState(.cleared())
@@ -247,10 +262,8 @@ final class AuthManager {
 
         #if DEBUG
         if email.trimmingCharacters(in: .whitespacesAndNewlines) == "42" {
-            let creds = DebugCredentials(email: "l@l.com", password: "abc123")
-            try await signInWithPassword(email: creds.email, password: creds.password, setLoading: false)
-            creds.persist()
-            debugPasswordCredentials = creds
+            DebugShortcutSession.persist()
+            await applySignedInUser(debugShortcutUser)
             return
         }
         #endif
@@ -338,6 +351,10 @@ final class AuthManager {
         }
 
         #if DEBUG
+        if DebugShortcutSession.isPersisted, isAuthenticated {
+            return "debug-42-access-token"
+        }
+
         if let credentials = debugPasswordCredentials {
             try? await signInWithPassword(
                 email: credentials.email,
@@ -362,6 +379,16 @@ private extension AuthManager {
             displayName: "UI Test"
         )
     }
+
+    #if DEBUG
+    var debugShortcutUser: StackAuthUser {
+        StackAuthUser(
+            id: "debug_42",
+            primaryEmail: "42@cmux.local",
+            displayName: "Debug 42"
+        )
+    }
+    #endif
 
     func applyAuthState(_ state: CMUXAuthState) {
         currentUser = state.currentUser
@@ -403,6 +430,24 @@ enum AuthMagicLinkCode {
         CMUXAuthMagicLinkCode.compose(code: code, nonce: nonce)
     }
 }
+
+#if DEBUG
+private enum DebugShortcutSession {
+    private static let key = "cmux.debug.auth.local42"
+
+    static var isPersisted: Bool {
+        UserDefaults.standard.bool(forKey: key)
+    }
+
+    static func persist() {
+        UserDefaults.standard.set(true, forKey: key)
+    }
+
+    static func clear() {
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+}
+#endif
 
 @MainActor
 final class AuthSessionCache {

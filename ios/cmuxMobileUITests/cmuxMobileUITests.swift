@@ -19,6 +19,22 @@ final class cmuxMobileUITests: XCTestCase {
     }
 
     @MainActor
+    func testDebug42SignInMovesToPairing() throws {
+        let app = launchApp(authenticated: false)
+
+        let emailField = app.textFields["Email"]
+        XCTAssertTrue(emailField.waitForExistence(timeout: 8))
+        try typeText("42", into: emailField, in: app)
+
+        let emailCodeButton = app.buttons["signin.emailCode"]
+        XCTAssertTrue(emailCodeButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(emailCodeButton.isEnabled)
+        emailCodeButton.tap()
+
+        XCTAssertTrue(app.textFields["MobilePairingCodeField"].waitForExistence(timeout: 4))
+    }
+
+    @MainActor
     func testSignInPairingAndWorkspaceShell() throws {
         let app = launchApp()
 
