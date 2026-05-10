@@ -195,21 +195,15 @@ final class AppearanceSettingsTests: XCTestCase {
                     systemAppearance: {
                         NSAppearance(named: scenario.systemAppearance)
                     },
-                    persistManagedTerminalAppearanceConfig: { _, appearance, callbackDefaults, _ in
+                    persistManagedTerminalAppearanceConfig: { mode, appearance, callbackDefaults, source in
                         let resolvedAppearance = appearance ?? NSAppearance(named: scenario.systemAppearance)
-                        let colorScheme = GhosttyConfig.currentColorSchemePreference(
+                        AppearanceSettings.persistManagedTerminalAppearanceConfig(
+                            mode,
                             appAppearance: resolvedAppearance,
-                            defaults: callbackDefaults
+                            defaults: callbackDefaults,
+                            source: source,
+                            environment: configEnvironment
                         )
-                        do {
-                            try configEnvironment.writeCmuxConfigContents(
-                                GhosttyConfig.cmuxDefaultThemeConfigContents(
-                                    preferredColorScheme: colorScheme
-                                )
-                            )
-                        } catch {
-                            XCTFail("Failed to write managed Ghostty config: \(error)")
-                        }
                     }
                 )
 

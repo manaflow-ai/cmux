@@ -2899,6 +2899,11 @@ class GhosttyApp {
         }
         guard shouldReload else { return }
         lastAppearanceColorScheme = currentColorScheme
+        AppearanceSettings.persistManagedTerminalAppearanceConfig(
+            AppearanceSettings.resolvedMode(),
+            appAppearance: appearance ?? NSApp?.effectiveAppearance,
+            source: "appearanceSync:\(source)"
+        )
         reloadConfiguration(
             source: "appearanceSync:\(source)",
             reloadSettingsFromFile: false
