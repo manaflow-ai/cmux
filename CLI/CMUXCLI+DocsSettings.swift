@@ -355,7 +355,8 @@ extension CMUXCLI {
           set <key> <value>                         Set one setting in cmux.json.
           unset <key>                               Remove one setting from cmux.json.
           reset [--yes]                             Remove all managed settings and shortcut bindings.
-          export [--format json|toml] [--out file]  Export effective settings.
+          export [--format json|toml] [--out file] [--reveal]
+                                                   Export configured settings; sensitive values are omitted unless revealed.
           import <file>                             Import settings atomically.
           shortcuts list [--keys] [--json]          List shortcut actions.
           shortcuts get <action> [--json]           Print one shortcut.

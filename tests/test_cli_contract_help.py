@@ -255,7 +255,7 @@ def main() -> int:
             "set <key> <value>",
             "unset <key>",
             "reset [--yes]",
-            "export [--format json|toml] [--out file]",
+            "export [--format json|toml] [--out file] [--reveal]",
             "import <file>",
             "shortcuts list [--keys] [--json]",
             "shortcuts get <action> [--json]",

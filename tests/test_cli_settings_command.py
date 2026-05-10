@@ -277,8 +277,23 @@ openSettings = "cmd+option+,"
             failures.append("settings export --format toml did not write app.appearance")
         if 'shortcuts.bindings.openSettings = "cmd+n"' not in exported_text:
             failures.append("settings export --format toml did not write configured shortcut override")
+        if "browser.enabled = true" in exported_text:
+            failures.append("settings export --format toml pinned an unmodified default setting")
         if 'shortcuts.bindings.newWindow = "cmd+shift+n"' in exported_text:
             failures.append("settings export --format toml pinned an unmodified default shortcut")
+        if "automation.socketPassword" in exported_text or "secret-token" in exported_text:
+            failures.append("settings export --format toml leaked a sensitive setting without --reveal")
+
+        reveal_export_path = home / "settings-export-reveal.toml"
+        revealed_export = run_cli(
+            cli_path,
+            ["settings", "export", "--format", "toml", "--reveal", "--out", str(reveal_export_path)],
+            home,
+        )
+        assert_ok(failures, "settings export toml reveal", revealed_export)
+        revealed_export_text = reveal_export_path.read_text(encoding="utf-8") if reveal_export_path.exists() else ""
+        if 'automation.socketPassword = "secret-token"' not in revealed_export_text:
+            failures.append("settings export --format toml --reveal did not include the configured sensitive setting")
 
         unset = run_cli(cli_path, ["settings", "unset", "app.appearance"], home)
         assert_ok(failures, "settings unset app.appearance", unset)

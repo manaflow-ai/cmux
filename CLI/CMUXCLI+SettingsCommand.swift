@@ -181,6 +181,7 @@ extension CMUXCLI {
     private func runSettingsExport(args: [String], store: SettingsFileStore) throws {
         var format = "json"
         var outputPath: String?
+        var revealSensitive = false
         var index = 0
         while index < args.count {
             switch args[index] {
@@ -198,8 +199,11 @@ extension CMUXCLI {
                 }
                 outputPath = args[valueIndex]
                 index += 2
+            case "--reveal":
+                revealSensitive = true
+                index += 1
             default:
-                throw CLIError(message: "Usage: cmux settings export [--format json|toml] [--out <file>]")
+                throw CLIError(message: "Usage: cmux settings export [--format json|toml] [--out <file>] [--reveal]")
             }
         }
 
@@ -207,8 +211,10 @@ extension CMUXCLI {
         var exportRoot: [String: Any] = [:]
         for key in CmuxSettingsRegistry.sortedKeys {
             let definition = try CmuxSettingsRegistry.definition(for: key)
-            let value = store.resolvedValue(for: definition, root: root).value
-            store.setValue(value, forPath: key, in: &exportRoot)
+            let resolved = store.resolvedValue(for: definition, root: root)
+            guard resolved.source == "cmux.json" else { continue }
+            guard revealSensitive || !definition.isSensitive else { continue }
+            store.setValue(resolved.value, forPath: key, in: &exportRoot)
         }
         let shortcutBindings = try store.configuredShortcutBindings(root: root)
         if !shortcutBindings.isEmpty {
