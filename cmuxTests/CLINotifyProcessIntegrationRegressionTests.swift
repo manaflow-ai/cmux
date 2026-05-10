@@ -73,7 +73,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     @MainActor
-    func testNotificationCLIActionsMutateSocketStateAndListExtendedFields() throws {
+    func testNotificationCLIActionsMutateSocketStateAndListExtendedFields() async throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("notif-actions")
         let store = TerminalNotificationStore.shared
@@ -133,13 +133,18 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
-        func run(_ arguments: [String], timeout: TimeInterval = 5) -> ProcessRunResult {
-            runProcess(
-                executablePath: cliPath,
-                arguments: ["--socket", socketPath] + arguments,
-                environment: environment,
-                timeout: timeout
-            )
+        func run(_ arguments: [String], timeout: TimeInterval = 5) async -> ProcessRunResult {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let result = runProcess(
+                        executablePath: cliPath,
+                        arguments: ["--socket", socketPath] + arguments,
+                        environment: environment,
+                        timeout: timeout
+                    )
+                    continuation.resume(returning: result)
+                }
+            }
         }
 
         let createdAt = Date(timeIntervalSince1970: 1_767_225_600)
@@ -155,7 +160,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         store.replaceNotificationsForTesting([listedNotification])
 
-        var result = run(["list-notifications", "--json", "--id-format", "uuids"])
+        var result = await run(["list-notifications", "--json", "--id-format", "uuids"])
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         var rows = try notificationRows(from: result.stdout)
@@ -165,20 +170,20 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(row["created_at"] as? String, "2026-01-01T00:00:00Z")
         XCTAssertEqual(row["tab_title"] as? String, "CLI|Notification Workspace")
 
-        result = run(["mark-notification-read", "--id", listedNotification.id.uuidString, "--json", "--id-format", "uuids"])
+        result = await run(["mark-notification-read", "--id", listedNotification.id.uuidString, "--json", "--id-format", "uuids"])
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        rows = try notificationRows(from: run(["list-notifications", "--json", "--id-format", "uuids"]).stdout)
+        rows = try notificationRows(from: await run(["list-notifications", "--json", "--id-format", "uuids"]).stdout)
         row = try XCTUnwrap(rows.first(where: { $0["id"] as? String == listedNotification.id.uuidString }))
         XCTAssertEqual(row["is_read"] as? Bool, true)
 
-        result = run(["dismiss-notification", "--all-read", "--json", "--id-format", "uuids"])
+        result = await run(["dismiss-notification", "--all-read", "--json", "--id-format", "uuids"])
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         let dismissPayload = try jsonPayload(from: result.stdout)
         XCTAssertEqual(dismissPayload["dismissed"] as? Int, 1)
         XCTAssertEqual(dismissPayload["all_read"] as? Bool, true)
-        rows = try notificationRows(from: run(["list-notifications", "--json", "--id-format", "uuids"]).stdout)
+        rows = try notificationRows(from: await run(["list-notifications", "--json", "--id-format", "uuids"]).stdout)
         XCTAssertTrue(rows.isEmpty)
 
         let scopedNotification = TerminalNotification(
@@ -203,7 +208,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         store.replaceNotificationsForTesting([scopedNotification, siblingNotification])
 
-        result = run([
+        result = await run([
             "mark-notification-read",
             "--workspace",
             workspace.id.uuidString,
@@ -215,7 +220,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         ])
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        rows = try notificationRows(from: run(["list-notifications", "--json", "--id-format", "uuids"]).stdout)
+        rows = try notificationRows(from: await run(["list-notifications", "--json", "--id-format", "uuids"]).stdout)
         row = try XCTUnwrap(rows.first(where: { $0["id"] as? String == scopedNotification.id.uuidString }))
         XCTAssertEqual(row["is_read"] as? Bool, true)
         row = try XCTUnwrap(rows.first(where: { $0["id"] as? String == siblingNotification.id.uuidString }))
@@ -236,13 +241,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         store.replaceNotificationsForTesting([openNotification])
         manager.selectTab(workspace)
 
-        result = run(["open-notification", "--id", openNotification.id.uuidString, "--json", "--id-format", "uuids"])
+        result = await run(["open-notification", "--id", openNotification.id.uuidString, "--json", "--id-format", "uuids"])
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         let openPayload = try jsonPayload(from: result.stdout)
         XCTAssertEqual(openPayload["workspace_id"] as? String, targetWorkspace.id.uuidString)
         XCTAssertEqual(openPayload["surface_id"] as? String, targetSurfaceId.uuidString)
-        XCTAssertTrue(waitForNotificationRead(openNotification.id, cliPath: cliPath, socketPath: socketPath, environment: environment))
+        rows = try notificationRows(from: await run(["list-notifications", "--json", "--id-format", "uuids"]).stdout)
+        row = try XCTUnwrap(rows.first(where: { $0["id"] as? String == openNotification.id.uuidString }))
+        XCTAssertEqual(row["is_read"] as? Bool, true)
 
         let jumpNotification = TerminalNotification(
             id: UUID(),
@@ -257,13 +264,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         store.replaceNotificationsForTesting([jumpNotification])
         manager.selectTab(workspace)
 
-        result = run(["jump-to-unread", "--json", "--id-format", "uuids"])
+        result = await run(["jump-to-unread", "--json", "--id-format", "uuids"])
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         let jumpPayload = try jsonPayload(from: result.stdout)
         XCTAssertEqual(jumpPayload["workspace_id"] as? String, targetWorkspace.id.uuidString)
         XCTAssertEqual(jumpPayload["surface_id"] as? String, targetSurfaceId.uuidString)
-        XCTAssertTrue(waitForNotificationRead(jumpNotification.id, cliPath: cliPath, socketPath: socketPath, environment: environment))
+        rows = try notificationRows(from: await run(["list-notifications", "--json", "--id-format", "uuids"]).stdout)
+        row = try XCTUnwrap(rows.first(where: { $0["id"] as? String == jumpNotification.id.uuidString }))
+        XCTAssertEqual(row["is_read"] as? Bool, true)
     }
 
     func testCodexPromptSubmitRebindsRestoredSessionToCurrentCallerSurface() throws {
@@ -746,30 +755,4 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    private func waitForNotificationRead(
-        _ notificationId: UUID,
-        cliPath: String,
-        socketPath: String,
-        environment: [String: String],
-        timeout: TimeInterval = 2.0
-    ) -> Bool {
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                let result = self.runProcess(
-                    executablePath: cliPath,
-                    arguments: ["--socket", socketPath, "list-notifications", "--json", "--id-format", "uuids"],
-                    environment: environment,
-                    timeout: 3
-                )
-                guard result.status == 0,
-                      let rows = try? self.notificationRows(from: result.stdout),
-                      let row = rows.first(where: { $0["id"] as? String == notificationId.uuidString }) else {
-                    return false
-                }
-                return row["is_read"] as? Bool == true
-            },
-            object: nil
-        )
-        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
-    }
 }
