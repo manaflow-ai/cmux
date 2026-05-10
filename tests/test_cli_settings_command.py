@@ -344,6 +344,20 @@ openSettings = "cmd+option+,"
             "conflicts with renameTab",
         )
 
+        swap_source = run_cli(cli_path, ["settings", "shortcuts", "set", "focusRight", "cmd+option+l"], home)
+        assert_ok(failures, "shortcut swap source setup", swap_source)
+        shortcut_swap_import_path = home / "shortcut-swap-import.json"
+        shortcut_swap_import_path.write_text(
+            json.dumps({"shortcuts": {"bindings": {"focusLeft": "cmd+option+l", "focusRight": "cmd+option+h"}}}),
+            encoding="utf-8",
+        )
+        shortcut_swap_import = run_cli(cli_path, ["settings", "import", str(shortcut_swap_import_path)], home)
+        assert_ok(failures, "shortcut import accepts final-state swap", shortcut_swap_import)
+        swap_config = read_config(home)
+        swap_bindings = swap_config.get("shortcuts", {}).get("bindings", {})
+        if swap_bindings.get("focusLeft") != "cmd+option+l" or swap_bindings.get("focusRight") != "cmd+option+h":
+            failures.append(f"shortcut import swap did not persist the final bindings: {swap_config}")
+
         before_shortcut_import = read_config(home)
         shortcut_conflict_import_path = home / "bad-shortcut-import.json"
         shortcut_conflict_import_path.write_text(

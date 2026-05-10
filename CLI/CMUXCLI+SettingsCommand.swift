@@ -253,6 +253,7 @@ extension CMUXCLI {
         let operations = try store.validatedImportOperations(from: importRoot)
 
         var root = try store.loadRoot()
+        var importedShortcutActions: [String: CmuxSettingsRegistry.ShortcutActionDefinition] = [:]
         for operation in operations {
             switch operation {
             case let .setting(key, value):
@@ -260,12 +261,11 @@ extension CMUXCLI {
             case let .shortcut(action, shortcut):
                 let definition = try CmuxSettingsRegistry.shortcutAction(for: action)
                 let parsedShortcut = try CLIShortcut.parse(shortcut, action: definition)
-                if let conflict = try store.conflictingShortcutAction(for: parsedShortcut, action: definition, root: root) {
-                    throw CLIError(message: "Shortcut '\(parsedShortcut.configString)' for \(definition.action) conflicts with \(conflict)")
-                }
                 store.setValue(parsedShortcut.configString, forPath: "shortcuts.bindings.\(action)", in: &root)
+                importedShortcutActions[definition.action] = definition
             }
         }
+        try store.validateShortcutConflicts(for: Array(importedShortcutActions.values), root: root)
         try store.save(root)
         print("OK")
     }
@@ -553,10 +553,11 @@ extension CMUXCLI {
         func conflictingShortcutAction(
             for proposed: CLIShortcut,
             action proposedAction: CmuxSettingsRegistry.ShortcutActionDefinition,
-            root: [String: Any]
+            root: [String: Any],
+            skipCurrentShortcutCheck: Bool = false
         ) throws -> String? {
             let current = try resolvedShortcut(for: proposedAction, root: root).shortcut
-            if proposed == current {
+            if !skipCurrentShortcutCheck && proposed == current {
                 return nil
             }
             for definition in CmuxSettingsRegistry.shortcutActions where definition.action != proposedAction.action {
@@ -570,6 +571,23 @@ extension CMUXCLI {
                 return definition.action
             }
             return nil
+        }
+
+        func validateShortcutConflicts(
+            for definitions: [CmuxSettingsRegistry.ShortcutActionDefinition],
+            root: [String: Any]
+        ) throws {
+            for definition in definitions.sorted(by: { $0.action < $1.action }) {
+                let shortcut = try resolvedShortcut(for: definition, root: root).shortcut
+                if let conflict = try conflictingShortcutAction(
+                    for: shortcut,
+                    action: definition,
+                    root: root,
+                    skipCurrentShortcutCheck: true
+                ) {
+                    throw CLIError(message: "Shortcut '\(shortcut.configString)' for \(definition.action) conflicts with \(conflict)")
+                }
+            }
         }
 
         func validatedImportOperations(from root: [String: Any]) throws -> [ImportOperation] {
