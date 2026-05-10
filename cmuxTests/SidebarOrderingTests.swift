@@ -1295,6 +1295,35 @@ final class SidebarAgentPIDFallbackTests: XCTestCase {
         XCTAssertEqual(results.first?.state.isAlive, true)
     }
 
+    func testNeedsInputHeuristicStaysRunningWhenTerminalSleeperHasActiveNetworkSocket() {
+        let terminalSleeper = makeForegroundTerminalSleeperBSDInfo()
+
+        XCTAssertEqual(
+            SidebarAgentProcessProbe.inferredActivity(
+                isAlive: true,
+                bsdInfo: terminalSleeper,
+                activeNetworkSocket: true
+            ),
+            .running
+        )
+        XCTAssertEqual(
+            SidebarAgentProcessProbe.inferredActivity(
+                isAlive: true,
+                bsdInfo: terminalSleeper,
+                activeNetworkSocket: nil
+            ),
+            .running
+        )
+        XCTAssertEqual(
+            SidebarAgentProcessProbe.inferredActivity(
+                isAlive: true,
+                bsdInfo: terminalSleeper,
+                activeNetworkSocket: false
+            ),
+            .needsInput
+        )
+    }
+
     func testNeedsInputHeuristicUsesProtocolValueInsteadOfDisplayText() {
         let processState = SidebarAgentProcessState(
             pid: 123,
@@ -1344,6 +1373,15 @@ final class SidebarAgentPIDFallbackTests: XCTestCase {
         )
 
         XCTAssertEqual(entry?.protocolValue, "running")
+    }
+
+    private func makeForegroundTerminalSleeperBSDInfo() -> proc_bsdinfo {
+        var info = proc_bsdinfo()
+        info.pbi_status = UInt32(SSLEEP)
+        info.e_tdev = 1
+        info.pbi_pgid = 42
+        info.e_tpgid = 42
+        return info
     }
 
     private func terminateAndWait(_ process: Process, file: StaticString = #filePath, line: UInt = #line) {

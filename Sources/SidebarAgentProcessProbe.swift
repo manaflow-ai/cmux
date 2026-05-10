@@ -96,10 +96,30 @@ nonisolated enum SidebarAgentProcessProbe {
     /// returned cache value; sidebar rendering must use `effectiveStatusEntry`.
     static func processState(for pid: pid_t) -> SidebarAgentProcessState {
         let alive = isProcessAlive(pid)
-        let activity: SidebarAgentFallbackActivity = alive && isLikelyBlockedOnTerminalRead(pid)
-            ? .needsInput
-            : .running
+        let bsdInfo = alive ? bsdInfo(for: pid) : nil
+        let activeNetworkSocket = shouldInspectSocketsForNeedsInput(bsdInfo)
+            ? hasActiveNetworkSocket(for: pid, expectedFDCount: Int(bsdInfo?.pbi_nfiles ?? 0))
+            : false
+        let activity = inferredActivity(
+            isAlive: alive,
+            bsdInfo: bsdInfo,
+            activeNetworkSocket: activeNetworkSocket
+        )
         return SidebarAgentProcessState(pid: pid, isAlive: alive, activity: activity)
+    }
+
+    static func inferredActivity(
+        isAlive: Bool,
+        bsdInfo: proc_bsdinfo?,
+        activeNetworkSocket: Bool?
+    ) -> SidebarAgentFallbackActivity {
+        guard isAlive,
+              let bsdInfo,
+              isForegroundTerminalSleeper(bsdInfo),
+              activeNetworkSocket == false else {
+            return .running
+        }
+        return .needsInput
     }
 
     private static func entry(
@@ -127,15 +147,42 @@ nonisolated enum SidebarAgentProcessProbe {
         return normalized == SidebarAgentFallbackActivity.running.protocolValue
     }
 
-    private static func isLikelyBlockedOnTerminalRead(_ pid: pid_t) -> Bool {
-        guard let info = bsdInfo(for: pid),
-              Int32(info.pbi_status) == SSLEEP,
-              info.e_tdev > 0,
-              info.pbi_pgid > 0,
-              info.e_tpgid == info.pbi_pgid else {
-            return false
+    private static func shouldInspectSocketsForNeedsInput(_ bsdInfo: proc_bsdinfo?) -> Bool {
+        bsdInfo.map(isForegroundTerminalSleeper) == true
+    }
+
+    private static func isForegroundTerminalSleeper(_ info: proc_bsdinfo) -> Bool {
+        Int32(info.pbi_status) == SSLEEP
+            && info.e_tdev > 0
+            && info.pbi_pgid > 0
+            && info.e_tpgid == info.pbi_pgid
+    }
+
+    private static func hasActiveNetworkSocket(for pid: pid_t, expectedFDCount: Int) -> Bool? {
+        guard expectedFDCount > 0 else { return false }
+        let fdInfoSize = MemoryLayout<proc_fdinfo>.stride
+        let capacity = max(expectedFDCount + 8, 16)
+        guard let bufferSize = Int32(exactly: capacity * fdInfoSize) else {
+            return nil
         }
-        return true
+        var fdInfos = [proc_fdinfo](repeating: proc_fdinfo(), count: capacity)
+        let byteCount = fdInfos.withUnsafeMutableBytes { buffer in
+            proc_pidinfo(pid, PROC_PIDLISTFDS, 0, buffer.baseAddress, bufferSize)
+        }
+        guard byteCount > 0 else { return nil }
+        let returnedCount = min(Int(byteCount) / fdInfoSize, fdInfos.count)
+
+        var sawUninspectableSocket = false
+        for fdInfo in fdInfos.prefix(returnedCount) where fdInfo.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
+            guard let socketInfo = socketInfo(for: pid, fd: fdInfo.proc_fd) else {
+                sawUninspectableSocket = true
+                continue
+            }
+            if isActiveNetworkSocket(socketInfo) {
+                return true
+            }
+        }
+        return sawUninspectableSocket ? nil : false
     }
 
     private static func bsdInfo(for pid: pid_t) -> proc_bsdinfo? {
@@ -145,5 +192,35 @@ nonisolated enum SidebarAgentProcessProbe {
         }
         let size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, expectedSize)
         return size == expectedSize ? info : nil
+    }
+
+    private static func socketInfo(for pid: pid_t, fd: Int32) -> socket_fdinfo? {
+        var info = socket_fdinfo()
+        guard let expectedSize = Int32(exactly: MemoryLayout<socket_fdinfo>.size) else {
+            return nil
+        }
+        let size = proc_pidfdinfo(pid, fd, PROC_PIDFDSOCKETINFO, &info, expectedSize)
+        return size == expectedSize ? info : nil
+    }
+
+    private static func isActiveNetworkSocket(_ socketInfo: socket_fdinfo) -> Bool {
+        let info = socketInfo.psi
+        guard info.soi_family == AF_INET || info.soi_family == AF_INET6 else {
+            return false
+        }
+
+        let genericState = Int32(info.soi_state)
+        if genericState & Int32(SOI_S_ISCONNECTED) != 0
+            || genericState & Int32(SOI_S_ISCONNECTING) != 0 {
+            return true
+        }
+
+        guard info.soi_kind == SOCKINFO_TCP else {
+            return false
+        }
+        let tcpState = info.soi_proto.pri_tcp.tcpsi_state
+        return tcpState == TSI_S_ESTABLISHED
+            || tcpState == TSI_S_SYN_SENT
+            || tcpState == TSI_S_SYN_RECEIVED
     }
 }
