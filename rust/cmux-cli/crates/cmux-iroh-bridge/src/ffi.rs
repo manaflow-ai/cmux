@@ -1,16 +1,25 @@
 use std::collections::VecDeque;
 use std::ffi::{CStr, c_char, c_void};
+use std::path::PathBuf;
+use std::sync::mpsc as std_mpsc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
+use iroh::{Endpoint, endpoint::presets};
+use serde::Deserialize;
 use tokio::io::AsyncWrite;
 use tokio::sync::mpsc;
 
-use crate::{BridgeRelayMode, connect_encoded_ticket, read_cmx_payload, write_cmx_payload};
+use crate::{
+    BridgeNodeInfo, BridgeOptions, BridgePairingOptions, BridgeRelayMode, BridgeTicket,
+    BridgeTicketAuth, CMUX_IROH_ALPN, connect_encoded_ticket, proxy_incoming,
+    publishable_endpoint_addr, read_cmx_payload, write_cmx_payload,
+};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 const SEND_TIMEOUT: Duration = Duration::from_secs(10);
+const HOST_START_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_PRECONNECT_SENDS: usize = 256;
 
 #[repr(C)]
@@ -45,6 +54,59 @@ struct CmxIrohClientOptions {
     pairing_secret: Option<String>,
     callback: CmxIrohClientCallback,
     user_data: usize,
+}
+
+pub struct CmxIrohHostHandle {
+    commands: mpsc::UnboundedSender<CmxIrohHostCommand>,
+    thread: Option<JoinHandle<()>>,
+}
+
+enum CmxIrohHostCommand {
+    Stop,
+}
+
+#[derive(Debug, Deserialize)]
+struct CmxIrohHostStartConfig {
+    socket_path: String,
+    relay_mode: Option<u32>,
+    pairing: Option<CmxIrohHostPairingConfig>,
+    node: Option<BridgeNodeInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CmxIrohHostPairingConfig {
+    pairing_id: String,
+    secret: String,
+    rivet_endpoint: String,
+    stack_project_id: String,
+    expires_at_unix: u64,
+}
+
+impl CmxIrohHostStartConfig {
+    fn into_bridge_options(self) -> Result<BridgeOptions> {
+        let socket_path = self.socket_path.trim();
+        if socket_path.is_empty() {
+            bail!("missing cmx socket path");
+        }
+        Ok(BridgeOptions {
+            cmx_socket_path: PathBuf::from(socket_path),
+            relay_mode: ffi_relay_mode(self.relay_mode.unwrap_or(0)),
+            pairing: self.pairing.map(Into::into),
+            node: self.node,
+        })
+    }
+}
+
+impl From<CmxIrohHostPairingConfig> for BridgePairingOptions {
+    fn from(value: CmxIrohHostPairingConfig) -> Self {
+        BridgePairingOptions {
+            pairing_id: value.pairing_id,
+            secret: value.secret,
+            rivet_endpoint: value.rivet_endpoint,
+            stack_project_id: value.stack_project_id,
+            expires_at_unix: value.expires_at_unix,
+        }
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -123,11 +185,201 @@ pub unsafe extern "C" fn cmux_iroh_client_disconnect(handle: *mut CmxIrohClientH
     }
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_iroh_host_start(
+    config_json: *const c_char,
+    ticket_out: *mut c_char,
+    ticket_out_len: usize,
+    error_out: *mut c_char,
+    error_out_len: usize,
+) -> *mut CmxIrohHostHandle {
+    clear_c_string(ticket_out, ticket_out_len);
+    clear_c_string(error_out, error_out_len);
+    if ticket_out.is_null() || ticket_out_len == 0 {
+        write_c_string(error_out, error_out_len, "missing ticket output buffer");
+        return std::ptr::null_mut();
+    }
+
+    let options = match read_required_c_string(config_json)
+        .and_then(|json| {
+            serde_json::from_str::<CmxIrohHostStartConfig>(&json).context("decode host config")
+        })
+        .and_then(CmxIrohHostStartConfig::into_bridge_options)
+    {
+        Ok(options) => options,
+        Err(error) => {
+            write_c_string(error_out, error_out_len, &error.to_string());
+            return std::ptr::null_mut();
+        }
+    };
+
+    let (command_tx, command_rx) = mpsc::unbounded_channel();
+    let (ready_tx, ready_rx) = std_mpsc::channel();
+    let thread = match thread::Builder::new()
+        .name("cmux-iroh-host".into())
+        .spawn(move || run_host_thread(options, command_rx, ready_tx))
+    {
+        Ok(thread) => thread,
+        Err(error) => {
+            write_c_string(
+                error_out,
+                error_out_len,
+                &format!("start iroh host thread: {error}"),
+            );
+            return std::ptr::null_mut();
+        }
+    };
+
+    match ready_rx.recv_timeout(HOST_START_TIMEOUT) {
+        Ok(Ok(ticket)) => {
+            if !write_c_string(ticket_out, ticket_out_len, &ticket) {
+                let _ = command_tx.send(CmxIrohHostCommand::Stop);
+                write_c_string(error_out, error_out_len, "iroh host ticket is too large");
+                return std::ptr::null_mut();
+            }
+            Box::into_raw(Box::new(CmxIrohHostHandle {
+                commands: command_tx,
+                thread: Some(thread),
+            }))
+        }
+        Ok(Err(error)) => {
+            write_c_string(error_out, error_out_len, &error);
+            std::ptr::null_mut()
+        }
+        Err(std_mpsc::RecvTimeoutError::Timeout) => {
+            let _ = command_tx.send(CmxIrohHostCommand::Stop);
+            write_c_string(error_out, error_out_len, "starting iroh host timed out");
+            std::ptr::null_mut()
+        }
+        Err(std_mpsc::RecvTimeoutError::Disconnected) => {
+            write_c_string(
+                error_out,
+                error_out_len,
+                "iroh host stopped before it was ready",
+            );
+            std::ptr::null_mut()
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_iroh_host_stop(handle: *mut CmxIrohHostHandle) {
+    if handle.is_null() {
+        return;
+    }
+    let mut handle = unsafe { Box::from_raw(handle) };
+    let _ = handle.commands.send(CmxIrohHostCommand::Stop);
+    if let Some(thread) = handle.thread.take() {
+        let _ = thread.join();
+    }
+}
+
 fn ffi_relay_mode(value: u32) -> BridgeRelayMode {
     match value {
         1 => BridgeRelayMode::Disabled,
         _ => BridgeRelayMode::Default,
     }
+}
+
+fn run_host_thread(
+    options: BridgeOptions,
+    commands: mpsc::UnboundedReceiver<CmxIrohHostCommand>,
+    ready: std_mpsc::Sender<Result<String, String>>,
+) {
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            let _ = ready.send(Err(format!("start iroh runtime: {error}")));
+            return;
+        }
+    };
+
+    if let Err(error) = runtime.block_on(run_host_async(options, commands, ready)) {
+        tracing::warn!(?error, "embedded iroh host stopped with error");
+    }
+}
+
+async fn run_host_async(
+    options: BridgeOptions,
+    mut commands: mpsc::UnboundedReceiver<CmxIrohHostCommand>,
+    ready: std_mpsc::Sender<Result<String, String>>,
+) -> Result<()> {
+    if let Err(error) = validate_host_options(&options) {
+        let _ = ready.send(Err(error.to_string()));
+        return Err(error);
+    }
+
+    let endpoint = match Endpoint::builder(presets::N0)
+        .alpns(vec![CMUX_IROH_ALPN.to_vec()])
+        .relay_mode(options.relay_mode.as_iroh())
+        .bind()
+        .await
+        .context("bind iroh endpoint")
+    {
+        Ok(endpoint) => endpoint,
+        Err(error) => {
+            let _ = ready.send(Err(error.to_string()));
+            return Err(error);
+        }
+    };
+
+    let ticket = match embedded_host_ticket(&endpoint, &options).await {
+        Ok(ticket) => ticket,
+        Err(error) => {
+            endpoint.close().await;
+            let _ = ready.send(Err(error.to_string()));
+            return Err(error);
+        }
+    };
+    let _ = ready.send(Ok(ticket));
+
+    loop {
+        tokio::select! {
+            command = commands.recv() => {
+                match command {
+                    Some(CmxIrohHostCommand::Stop) | None => break,
+                }
+            }
+            incoming = endpoint.accept() => {
+                let Some(incoming) = incoming else {
+                    break;
+                };
+                let socket_path = options.cmx_socket_path.clone();
+                let pairing = options.pairing.clone();
+                tokio::spawn(async move {
+                    if let Err(error) = proxy_incoming(incoming, socket_path, pairing).await {
+                        tracing::warn!(?error, "embedded iroh host connection failed");
+                    }
+                });
+            }
+        }
+    }
+
+    endpoint.close().await;
+    Ok(())
+}
+
+fn validate_host_options(options: &BridgeOptions) -> Result<()> {
+    if let Some(pairing) = &options.pairing {
+        pairing.validate()?;
+    }
+    if let Some(node) = &options.node {
+        node.validate()?;
+    }
+    Ok(())
+}
+
+async fn embedded_host_ticket(endpoint: &Endpoint, options: &BridgeOptions) -> Result<String> {
+    let addr = publishable_endpoint_addr(endpoint, options.relay_mode).await;
+    let ticket_auth = options
+        .pairing
+        .as_ref()
+        .map(BridgePairingOptions::ticket_auth)
+        .unwrap_or(BridgeTicketAuth::Direct);
+    BridgeTicket::new_with_node(addr, ticket_auth, options.node.clone()).encode()
 }
 
 fn run_client_thread(
@@ -299,5 +551,97 @@ fn read_optional_c_string(value: *const c_char) -> Result<Option<String>> {
         Ok(None)
     } else {
         Ok(Some(string.to_owned()))
+    }
+}
+
+fn clear_c_string(buffer: *mut c_char, len: usize) {
+    if buffer.is_null() || len == 0 {
+        return;
+    }
+    unsafe {
+        *buffer = 0;
+    }
+}
+
+fn write_c_string(buffer: *mut c_char, len: usize, value: &str) -> bool {
+    if buffer.is_null() || len == 0 {
+        return false;
+    }
+    let bytes = value.as_bytes();
+    let copy_len = bytes.len().min(len - 1);
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr().cast::<c_char>(), buffer, copy_len);
+        *buffer.add(copy_len) = 0;
+    }
+    bytes.len() < len
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::{CStr, CString};
+
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::UnixListener;
+
+    #[tokio::test]
+    async fn host_ffi_starts_ticket_and_proxies_to_unix_socket() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let socket_path = dir.path().join("cmx.sock");
+        let listener = UnixListener::bind(&socket_path)?;
+        let unix_server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await?;
+            let input = read_cmx_payload(&mut socket)
+                .await?
+                .context("expected framed input")?;
+            assert_eq!(input, b"hello ffi");
+            write_cmx_payload(&mut socket, b"hello host").await?;
+            Result::<()>::Ok(())
+        });
+
+        let config = serde_json::json!({
+            "socket_path": socket_path,
+            "relay_mode": 1,
+            "node": {
+                "id": "node-ffi",
+                "name": "Mac",
+                "subtitle": "ffi test",
+                "kind": "macos"
+            }
+        });
+        let config = CString::new(config.to_string())?;
+        let mut ticket = vec![0 as c_char; 64 * 1024];
+        let mut error = vec![0 as c_char; 4096];
+        let handle = unsafe {
+            cmux_iroh_host_start(
+                config.as_ptr(),
+                ticket.as_mut_ptr(),
+                ticket.len(),
+                error.as_mut_ptr(),
+                error.len(),
+            )
+        };
+        assert!(
+            !handle.is_null(),
+            "host start failed: {}",
+            unsafe { CStr::from_ptr(error.as_ptr()) }.to_string_lossy()
+        );
+
+        let ticket = unsafe { CStr::from_ptr(ticket.as_ptr()) }.to_str()?;
+        let mut client = connect_encoded_ticket(ticket, BridgeRelayMode::Disabled, None).await?;
+        client.write_payload(b"hello ffi").await?;
+        let output = client
+            .read_payload()
+            .await?
+            .context("expected framed output")?;
+        assert_eq!(output, b"hello host");
+
+        client.send.shutdown().await?;
+        client.endpoint.close().await;
+        unsafe {
+            cmux_iroh_host_stop(handle);
+        }
+        unix_server.await??;
+        Ok(())
     }
 }

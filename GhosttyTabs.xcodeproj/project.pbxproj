@@ -1115,6 +1115,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = A5001060 /* Build configuration list for PBXNativeTarget "GhosttyTabs" */;
 			buildPhases = (
+				C1020A0B0C0D0E0F01020304 /* Build Rust iroh bridge */,
 				A5001051 /* Sources */,
 				A5001030 /* Frameworks */,
 				A5001102 /* Resources */,
@@ -1317,6 +1318,26 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		C1020A0B0C0D0E0F01020304 /* Build Rust iroh bridge */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust iroh bridge";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/libcmux_iroh_bridge.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "scripts/build-iroh-bridge.sh";
+		};
 		A5001300A1B2C3D4E5F60719 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -1777,6 +1798,7 @@
 				MARKETING_VERSION = 0.63.2;
 				OTHER_LDFLAGS = (
 					"-lc++",
+					"$(DERIVED_FILE_DIR)/libcmux_iroh_bridge.a",
 					"-framework",
 					Metal,
 					"-framework",
@@ -1787,6 +1809,14 @@
 					UniformTypeIdentifiers,
 					"-framework",
 					Carbon,
+					"-framework",
+					Network,
+					"-framework",
+					Security,
+					"-framework",
+					SystemConfiguration,
+					"-framework",
+					CFNetwork,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.debug;
 				PRODUCT_NAME = "cmux DEV";
@@ -1818,6 +1848,7 @@
 				ONLY_ACTIVE_ARCH = NO;
 				OTHER_LDFLAGS = (
 					"-lc++",
+					"$(DERIVED_FILE_DIR)/libcmux_iroh_bridge.a",
 					"-framework",
 					Metal,
 					"-framework",
@@ -1828,6 +1859,14 @@
 					UniformTypeIdentifiers,
 					"-framework",
 					Carbon,
+					"-framework",
+					Network,
+					"-framework",
+					Security,
+					"-framework",
+					SystemConfiguration,
+					"-framework",
+					CFNetwork,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app;
 				PRODUCT_NAME = cmux;
