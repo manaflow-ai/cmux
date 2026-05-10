@@ -23,6 +23,8 @@ enum SettingsSearchAliasIndex {
             return localized("settings.search.alias.section.keyboardShortcuts", defaultValue: "keybinds key bindings hotkeys chords accelerators commands")
         case .workspaceColors:
             return localized("settings.search.alias.section.workspaceColors", defaultValue: "tab colors palette accent badge selected highlight")
+        case .workspaces:
+            return localized("settings.search.alias.section.workspaces", defaultValue: "workspace commands local remote ssh launch new cmd-n titlebar plus")
         case .settingsJSON:
             return localized("settings.search.alias.section.settingsJSON", defaultValue: "configuration config file json jsonc dotfile ~/.config schema docs")
         case .reset:

@@ -5993,11 +5993,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // workspace TabManager.init already created.
         if isFreshLaunch,
            WorkspaceCommandsStore.shared.defaultCommandID != nil,
+           let defaultConfig = WorkspaceCommandsStore.shared.defaultCommand(),
            let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
             let initialWorkspace = context.tabManager.selectedWorkspace
             let initialWorkspaceId = initialWorkspace?.id
             _ = runWorkspaceCommandConfig(
-                WorkspaceCommandsStore.shared.defaultCommand()!,
+                defaultConfig,
                 preferredContext: context,
                 debugSource: "bootstrap.\(debugSource)",
                 onExecuted: { [weak self, weak context] in

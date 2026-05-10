@@ -273,10 +273,11 @@ extension WorkspaceCommandConfig {
     /// it without changes.
     func asCmuxCommandDefinition() -> CmuxCommandDefinition {
         let trimmedProgram = program?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedColor = color.flatMap { WorkspaceTabColorSettings.normalizedHex($0) }
         let workspace = CmuxWorkspaceDefinition(
             name: name,
             cwd: nil,
-            color: color,
+            color: normalizedColor,
             layout: nil,
             remote: remote.map { remote in
                 let host = remote.host.trimmingCharacters(in: .whitespacesAndNewlines)

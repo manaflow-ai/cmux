@@ -1164,6 +1164,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.browser-popup",
     "cmux.browserProfilePopoverDebug",
     "cmux.configEditor",
+    WorkspaceCommandsSettingsView.windowID,
     "cmux.feedButtonStyleDebug",
     "cmux.feedPreview",
     "cmux.feedTextEditorDebug",
@@ -6130,6 +6131,7 @@ struct SettingsView: View {
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.workspaces", defaultValue: "Workspaces"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .workspaces))
                     SettingsCard {
                         WorkspaceCommandsSettingsRow(openWindow: openWindow)
                     }
@@ -7403,18 +7405,29 @@ private struct WorkspaceCommandsSettingsRow: View {
         if store.userCommands.isEmpty {
             return String(
                 localized: "settings.workspaces.row.summary.empty",
-                defaultValue: "No commands yet. Add a Local or Remote (SSH) workspace to launch from Cmd-N or the titlebar +."
+                defaultValue: "Only the built-in Local workspace is available. Add a Local or Remote (SSH) command to launch from Cmd-N or the titlebar +."
             )
         }
         let count = store.commands.count
         let defaultName = store.defaultCommand()?.name
-        let countLabel = String(
-            format: String(
-                localized: "settings.workspaces.row.summary.count",
-                defaultValue: "%d configured"
-            ),
-            count
-        )
+        let countLabel: String
+        if count == 1 {
+            countLabel = String(
+                format: String(
+                    localized: "settings.workspaces.row.summary.count.one",
+                    defaultValue: "%d configured"
+                ),
+                count
+            )
+        } else {
+            countLabel = String(
+                format: String(
+                    localized: "settings.workspaces.row.summary.count.other",
+                    defaultValue: "%d configured"
+                ),
+                count
+            )
+        }
         if let defaultName, !defaultName.isEmpty {
             return countLabel + " · " + String(
                 format: String(

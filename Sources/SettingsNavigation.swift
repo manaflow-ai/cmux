@@ -12,6 +12,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case globalHotkey
     case keyboardShortcuts
     case workspaceColors
+    case workspaces
     case settingsJSON
     case reset
 
@@ -27,6 +28,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.terminal", defaultValue: "Terminal")
         case .workspaceColors:
             return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
+        case .workspaces:
+            return String(localized: "settings.section.workspaces", defaultValue: "Workspaces")
         case .sidebarAppearance:
             return String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar")
         case .betaFeatures:
@@ -58,6 +61,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "terminal"
         case .workspaceColors:
             return "paintpalette"
+        case .workspaces:
+            return "rectangle.stack"
         case .sidebarAppearance:
             return "sidebar.left"
         case .betaFeatures:
@@ -89,6 +94,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev toggle"
         case .workspaceColors:
             return "\(title) palette tabs"
+        case .workspaces:
+            return "\(title) commands local remote ssh launch new workspace cmd n"
         case .sidebarAppearance:
             return "\(title) sidebar details branches badges material terminal background"
         case .betaFeatures:
