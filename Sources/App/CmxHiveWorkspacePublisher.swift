@@ -3,7 +3,13 @@ import Combine
 import CMUXWorkstream
 import Darwin
 import Foundation
+import OSLog
 import Security
+
+private let cmxHivePublisherLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    category: "hive-publisher"
+)
 
 @MainActor
 final class CmxHiveWorkspacePublisher {
@@ -223,7 +229,8 @@ final class CmxHiveWorkspacePublisher {
                     self?.bridgeHost = bridge.host
                     self?.bridgeAttachTicket = bridge.attachTicket
                     self?.bridgeStartTask = nil
-                    Self.stop(host: previousBridgeHost, after: Self.bridgePairingTTL)
+                    previousBridgeHost?.retire()
+                    cmxHivePublisherLogger.info("embedded iroh host started")
                     self?.schedulePublish()
                 }
             } catch is CancellationError {
@@ -231,6 +238,7 @@ final class CmxHiveWorkspacePublisher {
                     self?.bridgeStartTask = nil
                 }
             } catch {
+                cmxHivePublisherLogger.error("embedded iroh host failed: \(error.localizedDescription, privacy: .public)")
 #if DEBUG
                 cmuxDebugLog("hive.bridge.failed error=\(error.localizedDescription)")
 #endif
@@ -402,13 +410,6 @@ final class CmxHiveWorkspacePublisher {
             .replacingOccurrences(of: "=", with: "")
     }
 
-    private nonisolated static func stop(host: CmxEmbeddedIrohBridge?, after delay: TimeInterval) {
-        guard let host else { return }
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) {
-            host.stop()
-        }
-    }
-
     private static func nodeDisplayName() -> String {
         Host.current().localizedName?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
             ?? String(localized: "node.connected.name", defaultValue: "cmx node")
@@ -561,7 +562,16 @@ private final class CmxEmbeddedIrohBridge: @unchecked Sendable {
         handle = nil
         stateLock.unlock()
         guard let handleToStop else { return }
-        cmux_iroh_host_stop(handleToStop)
+        Self.stopHandleOffMain(handleToStop)
+    }
+
+    func retire() {
+        stateLock.lock()
+        let handleToRetire = handle
+        handle = nil
+        stateLock.unlock()
+        guard let handleToRetire else { return }
+        cmux_iroh_host_retire(handleToRetire)
     }
 
     static func start(context: CmxHiveBridgeStartContext) async throws -> CmxEmbeddedIrohBridge {
@@ -599,6 +609,14 @@ private final class CmxEmbeddedIrohBridge: @unchecked Sendable {
             }
             return CmxEmbeddedIrohBridge(handle: handle, ticket: ticket)
         }.value
+    }
+
+    private static func stopHandleOffMain(_ handle: OpaquePointer) {
+        let handleAddress = UInt(bitPattern: handle)
+        Task.detached(priority: .utility) {
+            guard let rawPointer = UnsafeMutableRawPointer(bitPattern: handleAddress) else { return }
+            cmux_iroh_host_stop(OpaquePointer(rawPointer))
+        }
     }
 
     private static func hostConfigJSON(context: CmxHiveBridgeStartContext) throws -> String {

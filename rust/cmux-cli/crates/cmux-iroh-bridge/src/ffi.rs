@@ -10,6 +10,7 @@ use iroh::{Endpoint, endpoint::presets};
 use serde::Deserialize;
 use tokio::io::AsyncWrite;
 use tokio::sync::mpsc;
+use tokio::task::JoinSet;
 
 use crate::{
     BridgeNodeInfo, BridgeOptions, BridgePairingOptions, BridgeRelayMode, BridgeTicket,
@@ -63,6 +64,7 @@ pub struct CmxIrohHostHandle {
 
 enum CmxIrohHostCommand {
     Stop,
+    Retire,
 }
 
 #[derive(Debug, Deserialize)]
@@ -274,6 +276,22 @@ pub unsafe extern "C" fn cmux_iroh_host_stop(handle: *mut CmxIrohHostHandle) {
     }
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_iroh_host_retire(handle: *mut CmxIrohHostHandle) {
+    if handle.is_null() {
+        return;
+    }
+    let mut handle = unsafe { Box::from_raw(handle) };
+    let _ = handle.commands.send(CmxIrohHostCommand::Retire);
+    if let Some(host_thread) = handle.thread.take() {
+        let _ = thread::Builder::new()
+            .name("cmux-iroh-host-retire-join".into())
+            .spawn(move || {
+                let _ = host_thread.join();
+            });
+    }
+}
+
 fn ffi_relay_mode(value: u32) -> BridgeRelayMode {
     match value {
         1 => BridgeRelayMode::Disabled,
@@ -336,24 +354,55 @@ async fn run_host_async(
     };
     let _ = ready.send(Ok(ticket));
 
+    let mut connection_tasks = JoinSet::<Result<()>>::new();
+    let mut retiring = false;
+    let mut commands_closed = false;
     loop {
+        if retiring && connection_tasks.is_empty() {
+            break;
+        }
         tokio::select! {
-            command = commands.recv() => {
+            command = commands.recv(), if !commands_closed => {
                 match command {
-                    Some(CmxIrohHostCommand::Stop) | None => break,
+                    Some(CmxIrohHostCommand::Stop) => {
+                        endpoint.close().await;
+                        connection_tasks.abort_all();
+                        while connection_tasks.join_next().await.is_some() {}
+                        return Ok(());
+                    }
+                    Some(CmxIrohHostCommand::Retire) => {
+                        retiring = true;
+                    }
+                    None => {
+                        commands_closed = true;
+                        if !retiring {
+                            break;
+                        }
+                    }
                 }
             }
-            incoming = endpoint.accept() => {
+            incoming = endpoint.accept(), if !retiring => {
                 let Some(incoming) = incoming else {
-                    break;
+                    retiring = true;
+                    continue;
                 };
                 let socket_path = options.cmx_socket_path.clone();
                 let pairing = options.pairing.clone();
-                tokio::spawn(async move {
-                    if let Err(error) = proxy_incoming(incoming, socket_path, pairing).await {
+                connection_tasks.spawn(async move {
+                    proxy_incoming(incoming, socket_path, pairing).await
+                });
+            }
+            completed = connection_tasks.join_next(), if !connection_tasks.is_empty() => {
+                match completed {
+                    Some(Ok(Ok(()))) => {}
+                    Some(Ok(Err(error))) => {
                         tracing::warn!(?error, "embedded iroh host connection failed");
                     }
-                });
+                    Some(Err(error)) => {
+                        tracing::warn!(?error, "embedded iroh host connection task failed");
+                    }
+                    None => {}
+                }
             }
         }
     }
@@ -641,6 +690,81 @@ mod tests {
         unsafe {
             cmux_iroh_host_stop(handle);
         }
+        unix_server.await??;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn host_ffi_retire_keeps_active_stream_alive() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let socket_path = dir.path().join("cmx.sock");
+        let listener = UnixListener::bind(&socket_path)?;
+        let unix_server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await?;
+            let first = read_cmx_payload(&mut socket)
+                .await?
+                .context("expected first framed input")?;
+            assert_eq!(first, b"first");
+            write_cmx_payload(&mut socket, b"first ok").await?;
+
+            let second = read_cmx_payload(&mut socket)
+                .await?
+                .context("expected second framed input")?;
+            assert_eq!(second, b"second");
+            write_cmx_payload(&mut socket, b"second ok").await?;
+            Result::<()>::Ok(())
+        });
+
+        let config = serde_json::json!({
+            "socket_path": socket_path,
+            "relay_mode": 1,
+            "node": {
+                "id": "node-retire",
+                "name": "Mac",
+                "subtitle": "retire test",
+                "kind": "macos"
+            }
+        });
+        let config = CString::new(config.to_string())?;
+        let mut ticket = vec![0 as c_char; 64 * 1024];
+        let mut error = vec![0 as c_char; 4096];
+        let handle = unsafe {
+            cmux_iroh_host_start(
+                config.as_ptr(),
+                ticket.as_mut_ptr(),
+                ticket.len(),
+                error.as_mut_ptr(),
+                error.len(),
+            )
+        };
+        assert!(
+            !handle.is_null(),
+            "host start failed: {}",
+            unsafe { CStr::from_ptr(error.as_ptr()) }.to_string_lossy()
+        );
+
+        let ticket = unsafe { CStr::from_ptr(ticket.as_ptr()) }.to_str()?;
+        let mut client = connect_encoded_ticket(ticket, BridgeRelayMode::Disabled, None).await?;
+        client.write_payload(b"first").await?;
+        let first_output = client
+            .read_payload()
+            .await?
+            .context("expected first framed output")?;
+        assert_eq!(first_output, b"first ok");
+
+        unsafe {
+            cmux_iroh_host_retire(handle);
+        }
+
+        client.write_payload(b"second").await?;
+        let second_output = client
+            .read_payload()
+            .await?
+            .context("expected second framed output")?;
+        assert_eq!(second_output, b"second ok");
+
+        client.send.shutdown().await?;
+        client.endpoint.close().await;
         unix_server.await??;
         Ok(())
     }

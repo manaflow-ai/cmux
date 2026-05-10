@@ -646,6 +646,98 @@ final class CmxHiveDiscoveryStoreTests: XCTestCase {
         XCTAssertEqual(sessionFactory.session.sentCommands.last, .selectWorkspace(index: 1))
         XCTAssertEqual(store.selectedWorkspaceID, targetWorkspaceID)
     }
+
+    @MainActor
+    func testHiveTransportLossRefreshesDiscoveryBeforeReconnectingRotatedTicket() async {
+        let initialTicket = Self.attachTicket(endpointID: "old-endpoint")
+        let rotatedTicket = Self.attachTicket(endpointID: "new-endpoint")
+        let node = CmxHiveNode(
+            id: CmxStableID.uint64(for: "mac-mini-node"),
+            rawID: "mac-mini-node",
+            name: "Mac mini",
+            subtitle: "online",
+            symbolName: "macmini",
+            platform: .macOS,
+            isOnline: true,
+            attachTicket: initialTicket
+        )
+        let rotatedNode = CmxHiveNode(
+            id: node.id,
+            rawID: node.rawID,
+            name: node.name,
+            subtitle: node.subtitle,
+            symbolName: node.symbolName,
+            platform: node.platform,
+            isOnline: true,
+            attachTicket: rotatedTicket
+        )
+        let workspace = CmxWorkspace(
+            id: CmxStableID.uint64(for: "mac-mini-node:workspace-main"),
+            nodeID: node.id,
+            title: "main",
+            preview: "shared shell",
+            lastActivity: Date(timeIntervalSince1970: 1_777_680_000),
+            unread: false,
+            pinned: false,
+            spaces: [],
+            localWorkspaceID: "workspace-main"
+        )
+        let discovery = RecordingHiveDiscoveryClient(
+            snapshot: CmxHiveDiscoverySnapshot(nodes: [rotatedNode], workspaces: [workspace])
+        )
+        let sessionFactory = RecordingHiveTerminalSessionFactory()
+        let store = CmxConnectionStore(
+            authSessionStore: MemoryHiveAuthSessionStore(
+                session: CmxStackAuthSession(refreshToken: "refresh", accessToken: "access")
+            ),
+            pairingSecretClient: RecordingHivePairingSecretClient(),
+            hiveDiscoveryClient: discovery,
+            hiveControlClient: RecordingHiveControlClient(
+                teamsSnapshot: CmxHiveTeamsSnapshot(teams: [], defaultTeamID: nil, selectedTeamID: nil)
+            ),
+            hiveDiscoveryCacheStore: MemoryHiveDiscoveryCacheStore(),
+            hiveDiscoveryEndpoint: URL(string: "https://rivet.example/hive")!,
+            terminalSessionFactory: sessionFactory,
+            startHiveDiscoveryOnInit: false
+        )
+        store.applyHiveDiscoverySnapshot(CmxHiveDiscoverySnapshot(nodes: [node], workspaces: [workspace]))
+        store.select(workspace: workspace)
+        XCTAssertEqual(sessionFactory.lastRawTicket, initialTicket)
+        sessionFactory.session.delegate?.terminalSession(
+            sessionFactory.session,
+            didReceive: .welcome(serverVersion: "cmux-macos-adapter", sessionID: "ios-session")
+        )
+
+        let reconnect = expectation(description: "reconnected with rotated Hive ticket")
+        sessionFactory.makeExpectation = reconnect
+        sessionFactory.session.delegate?.terminalSession(sessionFactory.session, didFail: CmxTestHiveDiscoveryError.transportLost)
+        await fulfillment(of: [reconnect], timeout: 1)
+
+        XCTAssertEqual(discovery.fetchCount, 1)
+        XCTAssertEqual(sessionFactory.lastRawTicket, rotatedTicket)
+        XCTAssertTrue(store.isConnecting)
+        XCTAssertFalse(store.isConnected)
+    }
+
+    private static func attachTicket(endpointID: String) -> String {
+        """
+        {
+          "version": 1,
+          "alpn": "/cmux/cmx/3",
+          "endpoint": { "id": "\(endpointID)", "addrs": [] },
+          "auth": { "mode": "direct" },
+          "node": {
+            "id": "mac-mini-node",
+            "name": "Mac mini",
+            "kind": "macmini"
+          }
+        }
+        """.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private enum CmxTestHiveDiscoveryError: Error {
+    case transportLost
 }
 
 private final class CmxHiveDiscoveryURLProtocol: URLProtocol {
@@ -822,6 +914,7 @@ private final class RecordingHivePairingSecretClient: CmxRivetPairingSecretFetch
 @MainActor
 private final class RecordingHiveTerminalSessionFactory: CmxTerminalSessionMaking {
     private(set) var lastRawTicket: String?
+    var makeExpectation: XCTestExpectation?
     let session = RecordingHiveTerminalSession()
 
     func makeSession(
@@ -831,6 +924,8 @@ private final class RecordingHiveTerminalSessionFactory: CmxTerminalSessionMakin
         stackAuthSession: CmxStackAuthSession?
     ) throws -> any CmxTerminalSession {
         lastRawTicket = rawTicket
+        makeExpectation?.fulfill()
+        makeExpectation = nil
         return session
     }
 }

@@ -13,3 +13,4 @@ CmxIrohHostHandle *_Nullable cmux_iroh_host_start(
 );
 
 void cmux_iroh_host_stop(CmxIrohHostHandle *_Nullable handle);
+void cmux_iroh_host_retire(CmxIrohHostHandle *_Nullable handle);
