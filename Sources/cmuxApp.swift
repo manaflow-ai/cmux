@@ -5199,7 +5199,7 @@ struct SettingsView: View {
     @ViewBuilder
     private var browserEnabledSettingsRows: some View {
         SettingsCardRow(
-            configurationReview: .settingsOnly,
+            configurationReview: .json("browser.enabled"),
             String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"),
             subtitle: browserEnabledSubtitle,
             searchAnchorID: SettingsSearchIndex.settingID(for: .browser, idSuffix: "enable-browser")
@@ -5726,7 +5726,7 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsPickerRow(
-                            configurationReview: .settingsOnly,
+                            configurationReview: .json("app.fileDropDefaultBehavior"),
                             String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"),
                             subtitle: selectedFileDropDefaultBehavior.settingsSubtitle,
                             controlWidth: pickerColumnWidth,
@@ -6750,7 +6750,7 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
-                            configurationReview: .settingsOnly,
+                            configurationReview: .json("shortcuts.bindings"),
                             String(localized: "settings.shortcuts.resetDefaults", defaultValue: "Reset Default Shortcuts"),
                             subtitle: String(localized: "settings.shortcuts.resetDefaults.subtitle", defaultValue: "Restore built-in shortcut values for shortcuts managed in app settings."),
                             searchAnchorID: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "reset-defaults")
@@ -7891,7 +7891,7 @@ private struct GlobalHotkeySection: View {
 
         SettingsCard {
             SettingsCardRow(
-                configurationReview: .settingsOnly,
+                configurationReview: .json("globalHotkey.enabled"),
                 String(localized: "settings.globalHotkey.enable", defaultValue: "Enable System-Wide Hotkey"),
                 subtitle: enableSubtitle,
                 searchAnchorID: SettingsSearchIndex.settingID(for: .globalHotkey, idSuffix: "enable-hotkey")

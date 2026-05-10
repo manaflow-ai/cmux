@@ -275,6 +275,14 @@ extension CMUXCLI {
         }
 
         switch subcommand {
+        case let command where isSettingsManagementSubcommand(command):
+            try runSettingsManagementCommand(
+                commandArgs: commandArgs,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                jsonOutput: wantsJSON
+            )
+            return
         case "path", "paths":
             guard args.count == 1 else {
                 throw CLIError(message: "Usage: cmux settings path")
@@ -330,19 +338,34 @@ extension CMUXCLI {
         let parsedArgs = docsSettingsArguments(commandArgs)
         let subcommand = parsedArgs.arguments.first?.lowercased() ?? "open"
         return hasHelpRequest(beforeSeparator: parsedArgs.head) ||
-            ["path", "paths", "docs", "documentation"].contains(subcommand)
+            ["path", "paths", "docs", "documentation"].contains(subcommand) ||
+            settingsManagementCommandDoesNotNeedSocket(commandArgs)
     }
 
     func settingsUsage() -> String {
         return """
-        Usage: cmux settings [open [target]|path|docs|<target>]
+        Usage: cmux settings <subcommand>
 
-        Open cmux Settings, print cmux.json paths, or show settings documentation.
+        Manage cmux settings through ~/.config/cmux/cmux.json, open Settings, print paths,
+        or show settings documentation.
 
         Subcommands:
-          open [target]       Open Settings, optionally to a target section.
-          path                Print cmux.json paths, docs URL, and schema URL.
-          docs                Print the same output as `cmux docs settings`.
+          list [--keys] [--json]                    List settings, values, defaults, and sources.
+          get <key> [--json]                        Print one setting value.
+          set <key> <value>                         Set one setting in cmux.json.
+          unset <key>                               Remove one setting from cmux.json.
+          reset [--yes]                             Remove all managed settings and shortcut bindings.
+          export [--format json|toml] [--out file]  Export effective settings.
+          import <file>                             Import settings atomically.
+          shortcuts list [--keys] [--json]          List shortcut actions.
+          shortcuts get <action> [--json]           Print one shortcut.
+          shortcuts set <action> <key-combo> [--force]
+                                                   Set a shortcut; conflicts fail unless forced.
+          shortcuts unset <action>                  Remove one shortcut override.
+          shortcuts reset                           Remove all shortcut overrides.
+          open [target]                             Open Settings, optionally to a target section.
+          path                                      Print cmux.json paths, docs URL, and schema URL.
+          docs                                      Print the same output as `cmux docs settings`.
 
         Targets:
           account, app, terminal, sidebar-appearance, automation, browser,

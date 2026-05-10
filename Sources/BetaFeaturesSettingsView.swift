@@ -44,7 +44,7 @@ struct BetaFeaturesSettingsView: View {
             SettingsCardDivider()
 
             SettingsCardRow(
-                configurationReview: .settingsOnly,
+                configurationReview: .json("rightSidebar.beta.feed.enabled"),
                 String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"),
                 subtitle: feedSubtitle,
                 searchAnchorID: SettingsSearchIndex.settingID(for: .betaFeatures, idSuffix: "feed")
@@ -61,7 +61,7 @@ struct BetaFeaturesSettingsView: View {
             SettingsCardDivider()
 
             SettingsCardRow(
-                configurationReview: .settingsOnly,
+                configurationReview: .json("rightSidebar.beta.dock.enabled"),
                 String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"),
                 subtitle: dockSubtitle,
                 searchAnchorID: SettingsSearchIndex.settingID(for: .betaFeatures, idSuffix: "dock")

@@ -290,6 +290,14 @@ Settings subcommands:
 | Command | Contract |
 | --- | --- |
 | `settings` | Open the Settings window, launching cmux if needed. |
+| `settings list [--keys] [--json]` | List every GUI-backed setting key with current value, default, and source; `--keys` prints a sorted key list for completion. |
+| `settings get <key>` | Print one setting value. |
+| `settings set <key> <value>` | Persist one setting through `~/.config/cmux/cmux.json` and reload the running app when a socket is present. |
+| `settings unset <key>` | Remove one setting override from `cmux.json` and reload when possible. |
+| `settings reset [--yes]` | Remove all managed setting and shortcut overrides from `cmux.json`. |
+| `settings export [--format json|toml] [--out <file>]` | Export effective settings and shortcut bindings. |
+| `settings import <file>` | Atomically import settings from JSON/JSONC or generated TOML. |
+| `settings shortcuts <list|get|set|unset|reset>` | Manage every Settings-window keyboard shortcut through `shortcuts.bindings`. |
 | `settings open [target]` | Open Settings to an optional target section. |
 | `settings path` | Print cmux.json paths, docs URL, schema URL, backup reminder, and reload command without a socket. |
 | `settings docs` | Print the same output as `docs settings` without a socket. |
@@ -355,7 +363,8 @@ the expected text without connecting to a cmux socket.
 - `cmux docs` -> `Topics:`
 - `cmux docs settings` -> `Config files:`
 - `cmux docs dock` -> `dock: Custom right-sidebar terminal controls`
-- `cmux settings --help` -> `Usage: cmux settings [open [target]|path|docs|<target>]`
+- `cmux settings --help` -> `Usage: cmux settings <subcommand>`
+- `cmux settings list --keys` -> `app.appearance`
 - `cmux settings path` -> `Config files:`
 - `cmux settings docs` -> `Config files:`
 - `cmux config --help` -> `Usage: cmux config <doctor|check|validate|path|paths|docs|documentation|reload>`

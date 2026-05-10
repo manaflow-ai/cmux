@@ -321,6 +321,7 @@ enum SettingsSearchIndex {
         setting(.sidebarAppearance, "show-notification-message", String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"), "workspace latest notification"),
         setting(.sidebarAppearance, "show-branch-directory", String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"), "git cwd path"),
         setting(.sidebarAppearance, "show-pull-requests", String(localized: "settings.app.showPullRequests", defaultValue: "Show Pull Requests in Sidebar"), "review pr mr link"),
+        setting(.sidebarAppearance, "make-pull-requests-clickable", String(localized: "settings.app.makeSidebarPullRequestClickable", defaultValue: "Make Sidebar PR Clickable"), "pull request click select workspace"),
         setting(.sidebarAppearance, "open-pr-links", String(localized: "settings.app.openSidebarPRLinks", defaultValue: "Open Sidebar PR Links in cmux Browser"), "pull request link browser"),
         setting(.sidebarAppearance, "open-port-links", String(localized: "settings.app.openSidebarPortLinks", defaultValue: "Open Sidebar Port Links in cmux Browser"), "port link browser"),
         setting(.sidebarAppearance, "show-ssh", String(localized: "settings.app.showSSH", defaultValue: "Show SSH in Sidebar"), "remote target"),
@@ -402,6 +403,7 @@ enum SettingsSearchIndex {
         "sidebar.showNotificationMessage": settingID(for: .sidebarAppearance, idSuffix: "show-notification-message"),
         "sidebar.showBranchDirectory": settingID(for: .sidebarAppearance, idSuffix: "show-branch-directory"),
         "sidebar.showPullRequests": settingID(for: .sidebarAppearance, idSuffix: "show-pull-requests"),
+        "sidebar.makePullRequestsClickable": settingID(for: .sidebarAppearance, idSuffix: "make-pull-requests-clickable"),
         "sidebar.openPullRequestLinksInCmuxBrowser": settingID(for: .sidebarAppearance, idSuffix: "open-pr-links"),
         "sidebar.openPortLinksInCmuxBrowser": settingID(for: .sidebarAppearance, idSuffix: "open-port-links"),
         "sidebar.showSSH": settingID(for: .sidebarAppearance, idSuffix: "show-ssh"),
@@ -414,7 +416,14 @@ enum SettingsSearchIndex {
         "workspaceColors.indicatorStyle": settingID(for: .workspaceColors, idSuffix: "indicator"),
         "workspaceColors.selectionColor": settingID(for: .workspaceColors, idSuffix: "selection"),
         "workspaceColors.notificationBadgeColor": settingID(for: .workspaceColors, idSuffix: "badge"),
+        "workspaceColors.colors": settingID(for: .workspaceColors, idSuffix: "palette"),
+        "workspaceColors.paletteOverrides": settingID(for: .workspaceColors, idSuffix: "palette"),
+        "workspaceColors.customColors": settingID(for: .workspaceColors, idSuffix: "palette"),
         "sidebarAppearance.matchTerminalBackground": settingID(for: .sidebarAppearance, idSuffix: "match-terminal"),
+        "sidebarAppearance.tintColor": sectionID(for: .sidebarAppearance),
+        "sidebarAppearance.lightModeTintColor": sectionID(for: .sidebarAppearance),
+        "sidebarAppearance.darkModeTintColor": sectionID(for: .sidebarAppearance),
+        "sidebarAppearance.tintOpacity": sectionID(for: .sidebarAppearance),
         "automation.socketControlMode": settingID(for: .automation, idSuffix: "socket-mode"),
         "automation.socketPassword": settingID(for: .automation, idSuffix: "socket-password"),
         "automation.claudeCodeIntegration": settingID(for: .automation, idSuffix: "claude-code"),
@@ -433,7 +442,9 @@ enum SettingsSearchIndex {
         "browser.urlsToAlwaysOpenExternally": settingID(for: .browser, idSuffix: "external-patterns"),
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser": settingID(for: .browser, idSuffix: "http-allowlist"),
         "browser.showImportHintOnBlankTabs": settingID(for: .browserImport, idSuffix: "import-hint"),
-        "browser.reactGrabVersion": settingID(for: .browser, idSuffix: "react-grab")
+        "browser.reactGrabVersion": settingID(for: .browser, idSuffix: "react-grab"),
+        "globalHotkey.enabled": settingID(for: .globalHotkey, idSuffix: "enable-hotkey"),
+        "shortcuts.bindings": settingID(for: .keyboardShortcuts, idSuffix: "shortcut-chords")
     ]
 
     static func entries(matching query: String) -> [SettingsSearchEntry] {

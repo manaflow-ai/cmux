@@ -20679,14 +20679,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           --password takes precedence, then CMUX_SOCKET_PASSWORD env var, then password saved in Settings.
 
         Agent Help:
-          To change cmux settings, run `cmux docs settings` and `cmux settings path`; to add Dock controls, run `cmux docs dock`.
+          To change cmux settings, use `cmux settings list|get|set`; to add Dock controls, run `cmux docs dock`.
           Back up any existing cmux.json file to a timestamped .bak copy before editing.
           Use printed curl commands to fetch the latest docs/schema, and prefer Ghostty config for terminal behavior Ghostty already supports.
 
         Commands:
           welcome
           docs [settings|shortcuts|api|browser|agents|dock]
-          settings [open [target]|path|docs|<target>]
+          settings <list|get|set|unset|reset|export|import|shortcuts|open|path|docs>
           config <doctor|check|validate|path|paths|docs|documentation|reload>
           shortcuts
           disable-browser | enable-browser | browser-status
