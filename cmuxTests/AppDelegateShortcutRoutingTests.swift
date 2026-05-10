@@ -72,6 +72,35 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         return event
     }
 
+    private func ghosttyConfigKeyIsBinding(
+        _ config: ghostty_config_t,
+        key: String,
+        modifiers: NSEvent.ModifierFlags,
+        keyCode: UInt32
+    ) -> Bool {
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = GHOSTTY_ACTION_PRESS
+        keyEvent.keycode = keyCode
+        keyEvent.mods = ghosttyMods(from: modifiers)
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.unshifted_codepoint = key.unicodeScalars.first.map { UInt32($0.value) } ?? 0
+        keyEvent.composing = false
+
+        return key.withCString { ptr in
+            keyEvent.text = ptr
+            return ghostty_config_key_is_binding(config, keyEvent)
+        }
+    }
+
+    private func ghosttyMods(from modifiers: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
+        var rawValue = GHOSTTY_MODS_NONE.rawValue
+        if modifiers.contains(.shift) { rawValue |= GHOSTTY_MODS_SHIFT.rawValue }
+        if modifiers.contains(.control) { rawValue |= GHOSTTY_MODS_CTRL.rawValue }
+        if modifiers.contains(.option) { rawValue |= GHOSTTY_MODS_ALT.rawValue }
+        if modifiers.contains(.command) { rawValue |= GHOSTTY_MODS_SUPER.rawValue }
+        return ghostty_input_mods_e(rawValue: rawValue)
+    }
+
     override func setUp() {
         super.setUp()
         // Prevent a single hanging test from consuming the entire CI timeout budget.
@@ -1776,6 +1805,122 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertNil(workspace.panels[initialPanelId])
         XCTAssertEqual(workspace.panels.count, 1)
         XCTAssertNotEqual(workspace.focusedPanelId, initialPanelId)
+    }
+
+    func testRemappedCloseTabDoesNotLetCmdWReachGhosttyCloseSurfaceFallback() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let previousMainMenu = NSApp.mainMenu
+        let probeWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        probeWindow.identifier = NSUserInterfaceItemIdentifier("cmux.browser-popup")
+        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
+        let probeView = GhosttyCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let menuProbe = MenuActionProbe()
+
+        defer {
+            NSApp.mainMenu = previousMainMenu
+            probeWindow.orderOut(nil)
+        }
+
+        let staleMenu = NSMenu(title: "Test")
+        let staleCloseItem = NSMenuItem(
+            title: "Close Tab",
+            action: #selector(MenuActionProbe.perform(_:)),
+            keyEquivalent: "w"
+        )
+        staleCloseItem.keyEquivalentModifierMask = [.command]
+        staleCloseItem.target = menuProbe
+        staleMenu.addItem(staleCloseItem)
+        NSApp.mainMenu = staleMenu
+
+        probeWindow.contentView = contentView
+        contentView.addSubview(probeView)
+        probeWindow.makeKeyAndOrderFront(nil)
+        probeWindow.displayIfNeeded()
+        XCTAssertTrue(probeWindow.makeFirstResponder(probeView), "Expected probe Ghostty view to own first responder")
+
+        guard let ghosttyConfig = GhosttyApp.shared.config else {
+            XCTFail("Expected loaded Ghostty config")
+            return
+        }
+
+        let remappedCloseTab = StoredShortcut(
+            key: "w",
+            command: true,
+            shift: false,
+            option: true,
+            control: false
+        )
+
+        withTemporaryShortcut(action: .closeTab, shortcut: remappedCloseTab) {
+            guard let staleCmdW = makeKeyDownEvent(
+                key: "w",
+                modifiers: [.command],
+                keyCode: 13,
+                windowNumber: probeWindow.windowNumber
+            ) else {
+                XCTFail("Failed to construct Cmd+W event")
+                return
+            }
+
+            XCTAssertFalse(
+                KeyboardShortcutSettings.shortcut(for: .closeTab).matches(event: staleCmdW),
+                "After Close Tab is remapped, Cmd+W must not match the cmux Close Tab action"
+            )
+            if ghosttyConfigKeyIsBinding(ghosttyConfig, key: "w", modifiers: [.command], keyCode: 13) {
+                XCTFail("After Close Tab is remapped, Ghostty must not retain its super+w close_surface fallback")
+                return
+            }
+
+            XCTAssertTrue(
+                probeWindow.performKeyEquivalent(with: staleCmdW),
+                "Remapped-away Cmd+W should be handled only by forwarding it to the focused terminal"
+            )
+            XCTAssertEqual(
+                menuProbe.callCount,
+                0,
+                "A stale Close Tab menu equivalent must not keep consuming Cmd+W after remap"
+            )
+            XCTAssertEqual(
+                probeView.keyDownCallCount,
+                1,
+                "Remapped-away Cmd+W should reach the terminal as input instead of closing through cmux"
+            )
+            XCTAssertEqual(probeView.lastKeyDownCharactersIgnoringModifiers, "w")
+
+            guard let remappedCmdOptionW = makeKeyDownEvent(
+                key: "w",
+                modifiers: [.command, .option],
+                keyCode: 13,
+                windowNumber: probeWindow.windowNumber
+            ) else {
+                XCTFail("Failed to construct Cmd+Option+W event")
+                return
+            }
+
+            XCTAssertTrue(
+                KeyboardShortcutSettings.shortcut(for: .closeTab).matches(event: remappedCmdOptionW),
+                "The remapped Cmd+Option+W shortcut should match the cmux Close Tab action"
+            )
+#if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleShortcutMonitorEvent(event: remappedCmdOptionW),
+                "The remapped Cmd+Option+W shortcut should trigger the cmux Close Tab action"
+            )
+#else
+            XCTFail("debugHandleShortcutMonitorEvent is only available in DEBUG")
+#endif
+        }
     }
 
     func testCmdWClosesAuxiliaryWindowInsteadOfMainTerminalPanel() throws {
