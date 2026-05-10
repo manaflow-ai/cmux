@@ -14320,9 +14320,8 @@ struct CMUXCLI {
             if let consumedSession {
                 let workspaceId = consumedSession.workspaceId
                 sendClaudeFeedTelemetry(workspaceId: workspaceId)
-                _ = try? clearClaudeStatus(client: client, workspaceId: workspaceId)
                 _ = try? sendV1Command(
-                    "clear_agent_pid claude_code --tab=\(workspaceId)\(socketPanelOption(consumedSession.surfaceId))",
+                    "clear_agent_pid claude_code --tab=\(workspaceId)\(socketPanelOption(consumedSession.surfaceId)) --clear-status",
                     client: client
                 )
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
@@ -14423,14 +14422,11 @@ struct CMUXCLI {
 
     private func socketPanelOption(_ surfaceId: String?) -> String {
         guard let surfaceId = surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !surfaceId.isEmpty else {
+              !surfaceId.isEmpty,
+              UUID(uuidString: surfaceId) != nil else {
             return ""
         }
         return " --panel=\(surfaceId)"
-    }
-
-    private func clearClaudeStatus(client: SocketClient, workspaceId: String) throws {
-        _ = try client.send(command: "clear_status claude_code --tab=\(workspaceId)")
     }
 
     private func resolvePreferredWorkspaceIdForClaudeHook(
@@ -17414,9 +17410,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         case .sessionEnd:
             if let mapped = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
                 sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
-                _ = try? sendV1Command("clear_status \(def.statusKey) --tab=\(mapped.workspaceId)", client: client)
                 _ = try? sendV1Command(
-                    "clear_agent_pid \(pidKey) --tab=\(mapped.workspaceId)\(socketPanelOption(mapped.surfaceId))",
+                    "clear_agent_pid \(pidKey) --tab=\(mapped.workspaceId)\(socketPanelOption(mapped.surfaceId)) --clear-status",
                     client: client
                 )
             }

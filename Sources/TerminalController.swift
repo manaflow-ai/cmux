@@ -16257,7 +16257,6 @@ class TerminalController {
             if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
                 return
             }
-            let panelId = panelResolution.panelId
             guard Self.shouldReplaceStatusEntry(
                 current: tab.statusEntries[key],
                 key: key,
@@ -16270,7 +16269,7 @@ class TerminalController {
             ) else {
                 // Still update PID tracking even if the status display hasn't changed.
                 if let pidValue {
-                    tab.recordAgentPID(key: key, pid: pidValue, panelId: panelId)
+                    tab.recordAgentPID(key: key, pid: pidValue, panelId: panelResolution.panelId)
                 }
                 return
             }
@@ -16285,7 +16284,7 @@ class TerminalController {
                 timestamp: Date()
             )
             if let pidValue {
-                tab.recordAgentPID(key: key, pid: pidValue, panelId: panelId)
+                tab.recordAgentPID(key: key, pid: pidValue, panelId: panelResolution.panelId)
             }
         }
         return "OK"
@@ -16331,16 +16330,15 @@ class TerminalController {
             if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
                 return
             }
-            let panelId = panelResolution.panelId
-            tab.recordAgentPID(key: key, pid: pid, panelId: panelId)
+            tab.recordAgentPID(key: key, pid: pid, panelId: panelResolution.panelId)
         }
         return "OK"
     }
 
-    /// Unregister an agent PID. Usage: clear_agent_pid <key> [--tab=<id>] [--panel=<id>]
+    /// Unregister an agent PID. Usage: clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status]
     private func clearAgentPID(_ args: String) -> String {
         let parsed = parseOptions(args)
-        let usage = "clear_agent_pid <key> [--tab=<id>] [--panel=<id>]"
+        let usage = "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status]"
         guard let key = parsed.positional.first else {
             return "ERROR: Usage: \(usage)"
         }
@@ -16356,8 +16354,11 @@ class TerminalController {
             if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
                 return
             }
-            let panelId = panelResolution.panelId
-            tab.clearAgentPID(key: key, panelId: panelId)
+            tab.clearAgentPID(
+                key: key,
+                panelId: panelResolution.panelId,
+                clearStatus: parsed.options["clear-status"] != nil
+            )
         }
         return "OK"
     }

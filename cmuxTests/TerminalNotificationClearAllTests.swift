@@ -197,6 +197,40 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertFalse(workspace.listeningPorts.contains(port))
     }
 
+    func testClosingPanePreservesSharedAgentStatusForSiblingPanel() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let originalTabManager = appDelegate.tabManager
+        appDelegate.tabManager = manager
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = originalTabManager
+        }
+
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let firstPaneId = try XCTUnwrap(workspace.paneId(forPanelId: firstPanelId))
+        let secondPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal)
+        )
+
+        let firstPIDKey = "codex.agent-session-a"
+        let secondPIDKey = "codex.agent-session-b"
+        workspace.statusEntries["codex"] = SidebarStatusEntry(key: "codex", value: "Running")
+        workspace.recordAgentPID(key: firstPIDKey, pid: pid_t(12345), panelId: firstPanelId)
+        workspace.recordAgentPID(key: secondPIDKey, pid: pid_t(12346), panelId: secondPanel.id)
+
+        XCTAssertTrue(workspace.bonsplitController.closePane(firstPaneId))
+
+        XCTAssertNil(workspace.panels[firstPanelId])
+        XCTAssertNil(workspace.agentPIDs[firstPIDKey])
+        XCTAssertEqual(workspace.agentPIDs[secondPIDKey].map(Int.init), 12346)
+        XCTAssertEqual(workspace.statusEntries["codex"]?.value, "Running")
+    }
+
     func testDetachingSurfaceRebindsNotificationContributionToDestinationWorkspace() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()

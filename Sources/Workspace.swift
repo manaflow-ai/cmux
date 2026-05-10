@@ -10626,6 +10626,16 @@ final class Workspace: Identifiable, ObservableObject {
         return String(key[..<dotIndex])
     }
 
+    private func hasAgentRuntime(forStatusKey statusKey: String) -> Bool {
+        for key in agentPIDs.keys where agentStatusKey(forAgentPIDKey: key) == statusKey {
+            return true
+        }
+        for key in agentPIDPanelIdsByKey.keys where agentStatusKey(forAgentPIDKey: key) == statusKey {
+            return true
+        }
+        return false
+    }
+
     private func removeAgentPIDOwnership(key: String) {
         if let previousPanelId = agentPIDPanelIdsByKey[key] {
             agentPIDKeysByPanelId[previousPanelId]?.remove(key)
@@ -10665,6 +10675,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let panelId, let ownedPanelId, ownedPanelId != panelId {
             return false
         }
+        let statusKeyToClear = clearStatus ? agentStatusKey(forAgentPIDKey: key) : nil
 
         var didChange = false
         if agentPIDs.removeValue(forKey: key) != nil {
@@ -10674,7 +10685,9 @@ final class Workspace: Identifiable, ObservableObject {
             removeAgentPIDOwnership(key: key)
             didChange = true
         }
-        if clearStatus, statusEntries.removeValue(forKey: agentStatusKey(forAgentPIDKey: key)) != nil {
+        if let statusKeyToClear,
+           !hasAgentRuntime(forStatusKey: statusKeyToClear),
+           statusEntries.removeValue(forKey: statusKeyToClear) != nil {
             didChange = true
         }
         if didChange, refreshPorts {
@@ -10694,11 +10707,8 @@ final class Workspace: Identifiable, ObservableObject {
     private func discardAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) -> Bool {
         guard let runtimeState else { return false }
         var didChange = false
-        for statusKey in runtimeState.statusEntries.keys where statusEntries.removeValue(forKey: statusKey) != nil {
-            didChange = true
-        }
         for key in runtimeState.agentPIDKeys {
-            if clearAgentPID(key: key, panelId: runtimeState.panelId, clearStatus: false, refreshPorts: false) {
+            if clearAgentPID(key: key, panelId: runtimeState.panelId, clearStatus: true, refreshPorts: false) {
                 didChange = true
             }
         }
