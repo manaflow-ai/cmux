@@ -62,6 +62,24 @@ commands:
             fi
             ./scripts/install-zig-ci.sh "$ZIG_REQUIRED"
 
+  install-rust:
+    steps:
+      - run:
+          name: Install Rust toolchain
+          no_output_timeout: 35m
+          command: |
+            export PATH="$HOME/.cargo/bin:$PATH"
+            if ! command -v rustup >/dev/null 2>&1; then
+              curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- \
+                -y --profile minimal --default-toolchain stable
+            fi
+            BASH_ENV="${BASH_ENV:-$HOME/.bash_env}"
+            echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> "$BASH_ENV"
+            rustup default stable
+            rustup target add aarch64-apple-darwin x86_64-apple-darwin
+            rustc --version
+            cargo --version
+
   print-xcode:
     steps:
       - run:
@@ -152,6 +170,7 @@ jobs:
           no_output_timeout: 35m
           command: ./scripts/download-prebuilt-ghosttykit.sh
       - install-zig
+      - install-rust
       - resolve-swift-packages:
           scheme: cmux-unit
       - run:
@@ -243,6 +262,7 @@ jobs:
           no_output_timeout: 35m
           command: ./scripts/download-prebuilt-ghosttykit.sh
       - install-zig
+      - install-rust
       - resolve-swift-packages:
           scheme: cmux
       - run:
@@ -275,6 +295,7 @@ jobs:
           no_output_timeout: 35m
           command: ./scripts/download-prebuilt-ghosttykit.sh
       - install-zig
+      - install-rust
       - resolve-swift-packages:
           scheme: cmux
           source-packages-dir: .spm-cache
