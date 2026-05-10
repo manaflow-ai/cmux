@@ -1,6 +1,6 @@
 import type { Span } from "@opentelemetry/api";
 import { recordSpanError, withApiRouteSpan, type MaybeAttributes } from "../telemetry";
-import { unauthorized, verifyRequest, type AuthedUser } from "./auth";
+import { unauthorized, verifyRequest, type AuthedUser, type VerifyRequestOptions } from "./auth";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
 export type StackBearer = { accessToken: string; refreshToken: string };
@@ -20,12 +20,17 @@ export type AuthedVmRouteContext = {
   span: Span;
 };
 
+export type VmRouteAuthOptionsInput =
+  | VerifyRequestOptions
+  | ((request: Request) => VerifyRequestOptions | Promise<VerifyRequestOptions>);
+
 export async function withAuthedVmApiRoute(
   request: Request,
   route: string,
   attributes: MaybeAttributes,
   failureLog: string,
   handler: (context: AuthedVmRouteContext) => Promise<Response>,
+  authOptions: VmRouteAuthOptionsInput = {},
 ): Promise<Response> {
   return withApiRouteSpan(
     request,
@@ -34,7 +39,10 @@ export async function withAuthedVmApiRoute(
     async (span) => {
       try {
         const bearer = parseBearer(request);
-        const user = await verifyRequest(request);
+        const resolvedAuthOptions = typeof authOptions === "function"
+          ? await authOptions(request)
+          : authOptions;
+        const user = await verifyRequest(request, resolvedAuthOptions);
         if (!user) return unauthorized();
         if (requiresBrowserMutationProtection(request.method, bearer) && !browserMutationOriginAllowed(request)) {
           return jsonResponse({ error: "forbidden" }, 403);

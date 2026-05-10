@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -586,9 +587,82 @@ func TestCLIUnknownCommand(t *testing.T) {
 func TestCLINoSocket(t *testing.T) {
 	// Without CMUX_SOCKET_PATH set, should fail
 	os.Unsetenv("CMUX_SOCKET_PATH")
+	t.Setenv("HOME", t.TempDir())
 	code := runCLI([]string{"ping"})
 	if code != 1 {
 		t.Fatalf("missing socket should return 1, got %d", code)
+	}
+}
+
+func TestCLIPrefersWebSocketBackchannelOverSocketAddrFile(t *testing.T) {
+	home := t.TempDir()
+	cmuxDir := filepath.Join(home, ".cmux")
+	if err := os.MkdirAll(cmuxDir, 0o700); err != nil {
+		t.Fatalf("mkdir cmux dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cmuxDir, "socket_addr"), []byte("/tmp/stale-cmux.sock"), 0o600); err != nil {
+		t.Fatalf("write socket_addr: %v", err)
+	}
+	os.Unsetenv("CMUX_SOCKET_PATH")
+	t.Setenv("HOME", home)
+	t.Setenv("CMUX_REMOTE_TRANSPORT", "ws")
+	t.Setenv("CMUX_TERMINAL_BACKCHANNEL_TOKEN", "backchannel-token")
+
+	var code int
+	output := captureStdout(t, func() {
+		code = runCLI([]string{"notify", "--title", "Ready", "--body", "VM"})
+	})
+	if code != 0 {
+		t.Fatalf("notify over backchannel should return 0, got %d", code)
+	}
+	if !strings.HasPrefix(output, "\x1b]777;cmux-rpc;") || !strings.HasSuffix(output, "\a") {
+		t.Fatalf("unexpected backchannel output: %q", output)
+	}
+}
+
+func TestWebSocketTerminalBackchannelNotifyEncodesRPC(t *testing.T) {
+	t.Setenv("CMUX_WORKSPACE_ID", "ws-test")
+	t.Setenv("CMUX_TERMINAL_BACKCHANNEL_TOKEN", "backchannel-token")
+
+	method, params, err := terminalBackchannelRequest("notify", []string{"--title", "Build done", "--body", "All tests passed"})
+	if err != nil {
+		t.Fatalf("terminalBackchannelRequest: %v", err)
+	}
+	if method != "notification.create" {
+		t.Fatalf("method = %q, want notification.create", method)
+	}
+	if params["workspace_id"] != "ws-test" {
+		t.Fatalf("workspace_id fallback missing from params: %v", params)
+	}
+
+	var output strings.Builder
+	if err := emitTerminalBackchannelRPC(&output, method, params); err != nil {
+		t.Fatalf("emitTerminalBackchannelRPC: %v", err)
+	}
+	raw := output.String()
+	const prefix = "\x1b]777;cmux-rpc;"
+	if !strings.HasPrefix(raw, prefix) || !strings.HasSuffix(raw, "\a") {
+		t.Fatalf("unexpected terminal backchannel frame: %q", raw)
+	}
+
+	encoded := strings.TrimSuffix(strings.TrimPrefix(raw, prefix), "\a")
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("decode frame: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload["version"].(float64) != 1 || payload["token"] != "backchannel-token" || payload["method"] != "notification.create" {
+		t.Fatalf("unexpected payload header: %v", payload)
+	}
+	decodedParams, ok := payload["params"].(map[string]any)
+	if !ok {
+		t.Fatalf("params missing from payload: %v", payload)
+	}
+	if decodedParams["title"] != "Build done" || decodedParams["body"] != "All tests passed" || decodedParams["workspace_id"] != "ws-test" {
+		t.Fatalf("unexpected payload params: %v", decodedParams)
 	}
 }
 

@@ -117,6 +117,7 @@ async function buildE2BTemplate(
       forceUpload: true,
       mode: 0o755,
     })
+    .runCmd(cloudCLISetupCommands(), { user: "root" })
     .runCmd(cloudRootSetupCommands(), { user: "root" })
     .runCmd(cloudImageSmokeTestCommands(), { user: "root" })
     .setStartCmd(
@@ -209,8 +210,19 @@ function cloudRootSetupCommands(): string[] {
   ];
 }
 
+function cloudCLISetupCommands(): string[] {
+  return [
+    "chmod 0755 /usr/local/bin/cmuxd-remote",
+    "ln -sf /usr/local/bin/cmuxd-remote /usr/local/bin/cmux",
+  ];
+}
+
 function cloudImageSmokeTestCommands(): string[] {
   return [
+    "test -x /usr/local/bin/cmuxd-remote",
+    "command -v cmux >/tmp/cmux-cli-path.txt",
+    "cmux --help >/tmp/cmux-cli-help.txt",
+    "cmuxd-remote version >/tmp/cmuxd-remote-version.txt",
     "openssl version -a >/tmp/cmux-openssl-version.txt",
     "python3 -X faulthandler -c 'import ssl; print(ssl.OPENSSL_VERSION)'",
     "python3 -m http.server --help >/dev/null",
@@ -239,6 +251,7 @@ function freestyleBaseDockerfileContent(daemonURL: string): string {
     `RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${CLOUD_SHELL_PACKAGES.join(" ")} && rm -rf /var/lib/apt/lists/*`,
     ...freestylePythonOpenSSLCommands().map((command) => `RUN ${command}`),
     `RUN curl -fsSL ${shellQuote(daemonURL)} -o /usr/local/bin/cmuxd-remote && chmod 0755 /usr/local/bin/cmuxd-remote`,
+    ...cloudCLISetupCommands().map((command) => `RUN ${command}`),
     ...cloudRootSetupCommands().map((command) => `RUN ${command}`),
     ...cloudImageSmokeTestCommands().map((command) => `RUN ${command}`),
     "RUN mkdir -p /etc/systemd/system/multi-user.target.wants",

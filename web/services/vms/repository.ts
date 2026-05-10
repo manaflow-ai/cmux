@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -21,6 +21,11 @@ export type BillingGrantClaim =
 
 export type VmRepositoryShape = {
   readonly listUserVms: (userId: string, billingTeamId?: string | null) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  readonly listActiveProviderVmIdsForLimit: (input: {
+    readonly userId: string;
+    readonly billingTeamId: string;
+    readonly provider: ProviderId;
+  }) => Effect.Effect<readonly string[], VmDatabaseError>;
   readonly claimBillingGrant: (input: {
     readonly billingCustomerType: string;
     readonly billingCustomerId: string;
@@ -39,6 +44,7 @@ export type VmRepositoryShape = {
     readonly image: string;
     readonly imageVersion?: string | null;
     readonly maxActiveVms: number;
+    readonly liveActiveProviderVmIds?: readonly string[] | null;
     readonly idempotencyKey?: string;
   }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmLimitExceededError>;
   readonly markCreateRunning: (input: {
@@ -132,6 +138,28 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         .orderBy(desc(cloudVms.createdAt));
     }),
 
+  listActiveProviderVmIdsForLimit: (input) =>
+    dbEffect("listActiveProviderVmIdsForLimit", async () => {
+      const db = cloudDb();
+      const rows = await db
+        .select({ providerVmId: cloudVms.providerVmId })
+        .from(cloudVms)
+        .where(
+          and(
+            eq(cloudVms.provider, input.provider),
+            isNotNull(cloudVms.providerVmId),
+            inArray(cloudVms.status, ["provisioning", "running", "paused"]),
+            or(
+              eq(cloudVms.billingTeamId, input.billingTeamId),
+              and(isNull(cloudVms.billingTeamId), eq(cloudVms.userId, input.userId)),
+            ),
+          ),
+        );
+      return rows
+        .map((row) => row.providerVmId)
+        .filter((providerVmId): providerVmId is string => typeof providerVmId === "string");
+    }),
+
   claimBillingGrant: (input) =>
     dbEffect("claimBillingGrant", async () => {
       const db = cloudDb();
@@ -217,19 +245,31 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
               if (existing) return { inserted: false as const, vm: existing };
             }
 
-            const [active] = await tx
-              .select({ total: count() })
+            const activeCandidates = await tx
+              .select({
+                provider: cloudVms.provider,
+                providerVmId: cloudVms.providerVmId,
+                status: cloudVms.status,
+              })
               .from(cloudVms)
               .where(
-                and(
-                  inArray(cloudVms.status, ["provisioning", "running", "paused"]),
-                  or(
-                    eq(cloudVms.billingTeamId, input.billingTeamId),
-                    and(isNull(cloudVms.billingTeamId), eq(cloudVms.userId, input.userId)),
-                  ),
+                or(
+                  eq(cloudVms.billingTeamId, input.billingTeamId),
+                  and(isNull(cloudVms.billingTeamId), eq(cloudVms.userId, input.userId)),
                 ),
               );
-            const activeCount = Number(active?.total ?? 0);
+            const liveActiveProviderVmIds = input.liveActiveProviderVmIds
+              ? new Set(input.liveActiveProviderVmIds)
+              : null;
+            const activeCount = activeCandidates.filter((vm) =>
+              isActiveForLimit({
+                provider: vm.provider,
+                providerVmId: vm.providerVmId,
+                status: vm.status,
+                reconciledProvider: liveActiveProviderVmIds ? input.provider : null,
+                liveActiveProviderVmIds,
+              })
+            ).length;
             if (activeCount >= input.maxActiveVms) {
               throw new VmLimitExceededError({
                 kind: "active_vms",
@@ -420,3 +460,24 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
       });
     }),
 });
+
+function isActiveForLimit(input: {
+  readonly provider: ProviderId;
+  readonly providerVmId: string | null;
+  readonly status: CloudVmRow["status"];
+  readonly reconciledProvider: ProviderId | null;
+  readonly liveActiveProviderVmIds: ReadonlySet<string> | null;
+}): boolean {
+  if (
+    input.provider === input.reconciledProvider &&
+    input.providerVmId &&
+    input.liveActiveProviderVmIds?.has(input.providerVmId)
+  ) {
+    return true;
+  }
+  if (input.status === "failed" || input.status === "destroyed") return false;
+  if (input.provider !== input.reconciledProvider) {
+    return input.status === "provisioning" || input.status === "running" || input.status === "paused";
+  }
+  return input.status === "provisioning";
+}

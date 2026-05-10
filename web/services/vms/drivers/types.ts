@@ -76,6 +76,8 @@ export type SnapshotRef = {
 export interface VMProvider {
   readonly id: ProviderId;
 
+  activeVmIds?(vmIds: readonly string[]): Promise<readonly string[]>;
+
   create(options: CreateOptions): Promise<VMHandle>;
   destroy(vmId: string): Promise<void>;
 

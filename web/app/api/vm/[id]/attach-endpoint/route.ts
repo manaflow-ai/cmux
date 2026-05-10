@@ -37,6 +37,7 @@ export async function POST(
         throw err;
       }
     },
+    { includeTeams: "selected" },
   );
 }
 

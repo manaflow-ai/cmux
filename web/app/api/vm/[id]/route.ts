@@ -29,5 +29,6 @@ export async function DELETE(
       }
       return jsonResponse({ ok: true });
     },
+    { includeTeams: "selected" },
   );
 }

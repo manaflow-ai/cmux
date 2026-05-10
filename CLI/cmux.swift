@@ -6263,6 +6263,7 @@ struct CMUXCLI {
     private final class VMPtyWebSocketBridge {
         private let config: VMPtyWebSocketConfig
         private let debugEvent: ((String) -> Void)?
+        private let backchannelToken = UUID().uuidString.replacingOccurrences(of: "-", with: "")
         private let sendQueue = DispatchQueue(label: "com.cmux.vm-pty.websocket.send")
         private let stopLock = NSLock()
         private var stopped = false
@@ -6313,13 +6314,21 @@ struct CMUXCLI {
 
         private func sendAuthFrame() throws {
             let size = Self.currentTerminalSize()
-            let auth: [String: Any] = [
+            let environment = ProcessInfo.processInfo.environment
+            var auth: [String: Any] = [
                 "type": "auth",
                 "token": config.token,
                 "session_id": config.sessionId,
+                "backchannel_token": backchannelToken,
                 "cols": size.cols,
                 "rows": size.rows,
             ]
+            if let workspaceID = Self.normalizedEnvValue(environment["CMUX_WORKSPACE_ID"]) ?? Self.normalizedEnvValue(environment["CMUX_TAB_ID"]) {
+                auth["workspace_id"] = workspaceID
+            }
+            if let surfaceID = Self.normalizedEnvValue(environment["CMUX_SURFACE_ID"]) ?? Self.normalizedEnvValue(environment["CMUX_PANEL_ID"]) {
+                auth["surface_id"] = surfaceID
+            }
             let data = try JSONSerialization.data(withJSONObject: auth, options: [])
             let text = String(data: data, encoding: .utf8) ?? "{}"
             try sendSync(.string(text))
@@ -6386,15 +6395,133 @@ struct CMUXCLI {
         }
 
         private func receiveOutputLoop(delegate: VMPtyWebSocketBridgeDelegate) throws {
+            let backchannelFilter = TerminalBackchannelFilter()
             while let message = try receiveSync(delegate: delegate) {
                 switch message {
                 case .data(let data):
-                    FileHandle.standardOutput.write(data)
+                    let filtered = backchannelFilter.process(data) { [weak self] encodedPayload in
+                        self?.handleTerminalBackchannel(encodedPayload)
+                    }
+                    if !filtered.isEmpty {
+                        FileHandle.standardOutput.write(filtered)
+                    }
                 case .string:
                     continue
                 @unknown default:
                     continue
                 }
+            }
+            let trailing = backchannelFilter.flush()
+            if !trailing.isEmpty {
+                FileHandle.standardOutput.write(trailing)
+            }
+        }
+
+        private func handleTerminalBackchannel(_ encodedPayload: String) {
+            guard let data = Data(base64Encoded: encodedPayload),
+                  let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                  let version = object["version"] as? Int,
+                  version == 1,
+                  let token = object["token"] as? String,
+                  token == backchannelToken,
+                  let method = Self.normalizedEnvValue(object["method"] as? String) else {
+                debugEvent?("backchannel.drop.invalid")
+                return
+            }
+            let params = (object["params"] as? [String: Any]) ?? [:]
+            guard JSONSerialization.isValidJSONObject(params) else {
+                debugEvent?("backchannel.drop.invalid-params")
+                return
+            }
+            do {
+                guard let socketPath = try CLISocketEnvironment.socketPath(in: ProcessInfo.processInfo.environment) else {
+                    debugEvent?("backchannel.drop.no-socket")
+                    return
+                }
+                let client = SocketClient(path: socketPath)
+                try client.connect()
+                defer { client.close() }
+                _ = try client.sendV2(method: method, params: params, responseTimeout: 3)
+                debugEvent?("backchannel.rpc.ok")
+            } catch {
+                debugEvent?("backchannel.rpc.failed")
+            }
+        }
+
+        private static func normalizedEnvValue(_ raw: String?) -> String? {
+            let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        private final class TerminalBackchannelFilter {
+            private let prefix = Array("\u{001B}]777;cmux-rpc;".utf8)
+            private let maxFrameBytes = 64 * 1024
+            private var pending: [UInt8] = []
+
+            func process(_ data: Data, onFrame: (String) -> Void) -> Data {
+                pending.append(contentsOf: data)
+                var output: [UInt8] = []
+
+                while true {
+                    guard let start = prefixIndex(in: pending) else {
+                        let keepCount = min(pending.count, max(prefix.count - 1, 0))
+                        if pending.count > keepCount {
+                            output.append(contentsOf: pending[..<(pending.count - keepCount)])
+                            pending.removeFirst(pending.count - keepCount)
+                        }
+                        return Data(output)
+                    }
+
+                    if start > 0 {
+                        output.append(contentsOf: pending[..<start])
+                        pending.removeFirst(start)
+                    }
+                    pending.removeFirst(prefix.count)
+
+                    guard let terminator = terminatorIndex(in: pending) else {
+                        if pending.count > maxFrameBytes {
+                            output.append(contentsOf: prefix)
+                            output.append(contentsOf: pending)
+                            pending.removeAll()
+                        }
+                        return Data(output)
+                    }
+
+                    let payload = Array(pending[..<terminator.payloadEnd])
+                    pending.removeFirst(terminator.removeCount)
+                    if let encoded = String(bytes: payload, encoding: .utf8) {
+                        onFrame(encoded)
+                    }
+                }
+            }
+
+            func flush() -> Data {
+                defer { pending.removeAll() }
+                return Data(pending)
+            }
+
+            private func prefixIndex(in bytes: [UInt8]) -> Int? {
+                guard bytes.count >= prefix.count else { return nil }
+                for index in 0...(bytes.count - prefix.count) {
+                    if bytes[index..<(index + prefix.count)].elementsEqual(prefix) {
+                        return index
+                    }
+                }
+                return nil
+            }
+
+            private func terminatorIndex(in bytes: [UInt8]) -> (payloadEnd: Int, removeCount: Int)? {
+                var index = 0
+                while index < bytes.count {
+                    if bytes[index] == 0x07 {
+                        return (payloadEnd: index, removeCount: index + 1)
+                    }
+                    if bytes[index] == 0x1B, index + 1 < bytes.count, bytes[index + 1] == 0x5C {
+                        return (payloadEnd: index, removeCount: index + 2)
+                    }
+                    index += 1
+                }
+                return nil
             }
         }
 
