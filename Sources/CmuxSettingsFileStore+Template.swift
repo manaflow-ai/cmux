@@ -56,7 +56,7 @@ extension CmuxSettingsFileStore {
 
     private static func defaultTemplateSections() -> [[String: Any]] {
         let shortcutsBindings = Dictionary(
-            uniqueKeysWithValues: KeyboardShortcutSettings.Action.allCases.map { action in
+            uniqueKeysWithValues: KeyboardShortcutSettings.publicShortcutActions.map { action in
                 (action.rawValue, shortcutTemplateValue(action.defaultShortcut, usesNumberedDigits: action.usesNumberedDigitMatching))
             }
         )
@@ -163,8 +163,6 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "shortcuts": [
-                    "showModifierHoldHints": ShortcutHintDebugSettings.defaultShowHintsOnCommandHold &&
-                        ShortcutHintDebugSettings.defaultShowHintsOnControlHold,
                     "bindings": shortcutsBindings,
                 ],
             ],

@@ -298,7 +298,7 @@
       "browserLinkBehavior": "Comportement des liens du navigateur",
       "browserLinkDesc": "Dans Réglages > Navigateur, cmux expose deux listes d'hôtes avec des objectifs différents :",
       "browserHostsEmbed": "Hôtes à ouvrir dans le navigateur intégré : s'applique aux liens cliqués depuis la sortie du terminal. Les hôtes de cette liste s'ouvrent dans cmux ; les autres hôtes s'ouvrent dans votre navigateur par défaut. Supporte un hôte ou un joker par ligne (par exemple : example.com, *.internal.example).",
-      "browserHostsHttp": "Hôtes HTTP autorisés dans le navigateur intégré : s'applique uniquement aux URLs HTTP (non-HTTPS). Les hôtes de cette liste peuvent s'ouvrir dans cmux sans avertissement. Les valeurs par défaut incluent localhost, 127.0.0.1, ::1, 0.0.0.0 et *.localtest.me.",
+      "browserHostsHttp": "Hôtes HTTP autorisés dans le navigateur intégré : s'applique uniquement aux URLs HTTP (non-HTTPS). Les hôtes de cette liste peuvent s'ouvrir dans cmux sans avertissement. Les valeurs par défaut incluent localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 et *.localtest.me.",
       "exampleConfig": "Exemple de configuration",
       "metaTitle": "Configuration"
     },
