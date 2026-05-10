@@ -58,10 +58,6 @@ final class CmuxSettingsFileStore {
     private let saveSocketPassword: (String) throws -> Void
     private let clearSocketPassword: () throws -> Void
     private let stateLock = NSLock()
-    private let settingsPersistenceQueue = DispatchQueue(
-        label: "com.cmux.settings-file-store.persistence",
-        qos: .utility
-    )
 
     private var primaryWatcher: ShortcutSettingsFileWatcher?
     private var fallbackWatchers: [ShortcutSettingsFileWatcher] = []
@@ -72,6 +68,7 @@ final class CmuxSettingsFileStore {
     private var activeManagedUserDefaults: [String: ManagedSettingsValue] = [:]
     private var activeManagedCustomSettings = ManagedCustomSettings()
     private var lastPersistedSettingsValues: [String: ManagedSettingsValue] = [:]
+    private var settingsPersistenceTask: Task<Void, Never>?
     private var isApplyingManagedSettings = false
     private(set) var activeSourcePath: String?
 
@@ -247,17 +244,12 @@ final class CmuxSettingsFileStore {
             return
         }
 
+        let rollback = markSettingsJSONPersistencePending(changedValues)
         enqueueSettingsJSONPersistence(
             changedValues,
+            rollback: rollback,
             failureLogMessage: "[CmuxSettingsFileStore] failed to persist Settings UI change: %@"
-        ) { [weak self] in
-            guard let self else { return }
-            self.synchronized {
-                for (path, value) in currentValues {
-                    self.lastPersistedSettingsValues[path] = value
-                }
-            }
-        }
+        )
     }
 
     private func persistSocketPasswordSettingsChangeIfNeeded() {
@@ -276,15 +268,12 @@ final class CmuxSettingsFileStore {
         }
         guard !changedValues.isEmpty else { return }
 
+        let rollback = markSettingsJSONPersistencePending(changedValues)
         enqueueSettingsJSONPersistence(
             changedValues,
+            rollback: rollback,
             failureLogMessage: "[CmuxSettingsFileStore] failed to persist socket password Settings UI change: %@"
-        ) { [weak self] in
-            guard let self else { return }
-            self.synchronized {
-                self.lastPersistedSettingsValues["automation.socketPassword"] = currentValue
-            }
-        }
+        )
     }
 
     private func synchronized<T>(_ body: () -> T) -> T {
@@ -1207,23 +1196,65 @@ final class CmuxSettingsFileStore {
 
     private func enqueueSettingsJSONPersistence(
         _ values: [String: ManagedSettingsValue],
-        failureLogMessage: String,
-        onSuccess: @escaping () -> Void
+        rollback: SettingsJSONPersistenceRollback,
+        failureLogMessage: String
     ) {
-        settingsPersistenceQueue.async { [weak self] in
+        let previousTask = synchronized { settingsPersistenceTask }
+        let task = Task.detached(priority: .utility) { [weak self, previousTask] in
+            if let previousTask {
+                await previousTask.value
+            }
             guard let self else { return }
             do {
                 try persistSettingsJSONValues(values)
             } catch {
-                DispatchQueue.main.async { [weak self] in
+                await MainActor.run { [weak self] in
                     NSLog(failureLogMessage, String(describing: error))
+                    self?.rollbackSettingsJSONPersistenceIfCurrent(values, to: rollback)
                     self?.reapplyManagedSettingsIfNeeded()
                 }
-                return
             }
+        }
+        synchronized {
+            settingsPersistenceTask = task
+        }
+    }
 
-            DispatchQueue.main.async {
-                onSuccess()
+    private func markSettingsJSONPersistencePending(
+        _ values: [String: ManagedSettingsValue]
+    ) -> SettingsJSONPersistenceRollback {
+        synchronized {
+            var previousValues: [String: ManagedSettingsValue] = [:]
+            var missingPreviousPaths = Set<String>()
+            for (path, value) in values {
+                if let previousValue = lastPersistedSettingsValues[path] {
+                    previousValues[path] = previousValue
+                } else {
+                    missingPreviousPaths.insert(path)
+                }
+                lastPersistedSettingsValues[path] = value
+            }
+            return SettingsJSONPersistenceRollback(
+                previousValues: previousValues,
+                missingPreviousPaths: missingPreviousPaths
+            )
+        }
+    }
+
+    private func rollbackSettingsJSONPersistenceIfCurrent(
+        _ values: [String: ManagedSettingsValue],
+        to rollback: SettingsJSONPersistenceRollback
+    ) {
+        synchronized {
+            for (path, attemptedValue) in values {
+                guard lastPersistedSettingsValues[path] == attemptedValue else {
+                    continue
+                }
+                if let previousValue = rollback.previousValues[path] {
+                    lastPersistedSettingsValues[path] = previousValue
+                } else if rollback.missingPreviousPaths.contains(path) {
+                    lastPersistedSettingsValues.removeValue(forKey: path)
+                }
             }
         }
     }
@@ -1279,6 +1310,11 @@ final class CmuxSettingsFileStore {
 }
 
 typealias KeyboardShortcutSettingsFileStore = CmuxSettingsFileStore
+
+private struct SettingsJSONPersistenceRollback {
+    let previousValues: [String: ManagedSettingsValue]
+    let missingPreviousPaths: Set<String>
+}
 
 private struct ResolvedSettingsSnapshot {
     var path: String?
