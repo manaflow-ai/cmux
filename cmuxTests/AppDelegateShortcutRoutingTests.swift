@@ -3544,10 +3544,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             appDelegate.setCommandPaletteVisible(false, for: window)
         }
 
-        let dismissExpectation = expectation(description: "Expected command palette toggle notification for Escape dismiss")
+        let dismissExpectation = expectation(description: "Expected command palette dismiss notification for Escape")
         var observedDismissWindow: NSWindow?
         let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteToggleRequested,
+            forName: .commandPaletteDismissRequested,
             object: nil,
             queue: nil
         ) { notification in
@@ -3609,7 +3609,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         dismissExpectation.isInverted = true
         let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteToggleRequested,
+            forName: .commandPaletteDismissRequested,
             object: nil,
             queue: nil
         ) { notification in
@@ -3660,7 +3660,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let dismissExpectation = expectation(description: "Expected command palette dismiss notification for Escape")
         var observedDismissWindow: NSWindow?
         let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteToggleRequested,
+            forName: .commandPaletteDismissRequested,
             object: nil,
             queue: nil
         ) { notification in
@@ -3866,7 +3866,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let dismissExpectation = expectation(description: "Escape should dismiss stale-state command palette after delay")
         var observedDismissWindow: NSWindow?
         let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteToggleRequested,
+            forName: .commandPaletteDismissRequested,
             object: nil,
             queue: nil
         ) { notification in
@@ -3926,7 +3926,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let dismissExpectation = expectation(description: "Escape should dismiss stale-state command palette after extended delay")
         var observedDismissWindow: NSWindow?
         let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteToggleRequested,
+            forName: .commandPaletteDismissRequested,
             object: nil,
             queue: nil
         ) { notification in
@@ -3988,7 +3988,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let dismissExpectation = expectation(description: "No dismiss notification for expired pending-open state")
         dismissExpectation.isInverted = true
         let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteToggleRequested,
+            forName: .commandPaletteDismissRequested,
             object: nil,
             queue: nil
         ) { _ in
@@ -4053,7 +4053,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let dismissExpectation = expectation(description: "Expected command palette dismiss notification for menu-triggered stale visibility")
         var observedDismissWindow: NSWindow?
         let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteToggleRequested,
+            forName: .commandPaletteDismissRequested,
             object: nil,
             queue: nil
         ) { notification in
@@ -4253,7 +4253,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let dismissExpectation = expectation(description: "Escape in another window should not dismiss palette")
         dismissExpectation.isInverted = true
         let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteToggleRequested,
+            forName: .commandPaletteDismissRequested,
             object: nil,
             queue: nil
         ) { _ in
