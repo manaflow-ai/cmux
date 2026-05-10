@@ -122,6 +122,7 @@
 		B37A00000000000000000001 /* BetaFeaturesSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000002 /* BetaFeaturesSettingsView.swift */; };
 		B37A00000000000000000007 /* SettingsCardNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000008 /* SettingsCardNote.swift */; };
 		A5001002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001012 /* ContentView.swift */; };
+		C0DE36230000000000000001 /* WorkspaceFinderDirectoryResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE36230000000000000002 /* WorkspaceFinderDirectoryResolver.swift */; };
 		A5001F000000000000000001 /* DetachedFolderDragIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001F000000000000000002 /* DetachedFolderDragIcon.swift */; };
 		C0DE35010000000000000001 /* SidebarScrim.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE35010000000000000002 /* SidebarScrim.swift */; };
 		62270F3DCECB4787D789CCE3 /* SidebarWorkspaceSnapshotRefreshPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F016B5C09357B3226FA2E014 /* SidebarWorkspaceSnapshotRefreshPolicyTests.swift */; };
@@ -239,6 +240,7 @@
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
 		A5001406 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001416 /* Workspace.swift */; };
 		D7AB3605C10DEF0000000003 /* WorkspaceCloseTabsBatching.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */; };
+		C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */; };
 		E30780000000000000000002 /* WorkspaceRemoteConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30780000000000000000001 /* WorkspaceRemoteConfiguration.swift */; };
 		D0C0D0C0D0C0D0C0D0C00001 /* RemoteLoopbackProxyAlias.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C00002 /* RemoteLoopbackProxyAlias.swift */; };
 		E30770000000000000000002 /* WorkspaceRemoteSSHBatchCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30770000000000000000001 /* WorkspaceRemoteSSHBatchCommandBuilder.swift */; };
@@ -581,6 +583,7 @@
 		B37A00000000000000000002 /* BetaFeaturesSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BetaFeaturesSettingsView.swift; sourceTree = "<group>"; };
 		B37A00000000000000000008 /* SettingsCardNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsCardNote.swift; sourceTree = "<group>"; };
 		A5001012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		C0DE36230000000000000002 /* WorkspaceFinderDirectoryResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFinderDirectoryResolver.swift; sourceTree = "<group>"; };
 		A5001F000000000000000002 /* DetachedFolderDragIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedFolderDragIcon.swift; sourceTree = "<group>"; };
 		C0DE35010000000000000002 /* SidebarScrim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarScrim.swift; sourceTree = "<group>"; };
 		C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+RightSidebarCommandPalette.swift"; sourceTree = "<group>"; };
@@ -726,6 +729,7 @@
 		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
 		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCloseTabsBatching.swift; sourceTree = "<group>"; };
+		C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PanelLifecycle.swift"; sourceTree = "<group>"; };
 		E30780000000000000000001 /* WorkspaceRemoteConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteConfiguration.swift; sourceTree = "<group>"; };
 		D0C0D0C0D0C0D0C0D0C00002 /* RemoteLoopbackProxyAlias.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteLoopbackProxyAlias.swift; sourceTree = "<group>"; };
 		E30770000000000000000001 /* WorkspaceRemoteSSHBatchCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteSSHBatchCommandBuilder.swift; sourceTree = "<group>"; };
@@ -1078,6 +1082,7 @@
 				B37A00000000000000000002 /* BetaFeaturesSettingsView.swift */,
 				B37A00000000000000000008 /* SettingsCardNote.swift */,
 				A5001012 /* ContentView.swift */,
+				C0DE36230000000000000002 /* WorkspaceFinderDirectoryResolver.swift */,
 				A5001F000000000000000002 /* DetachedFolderDragIcon.swift */,
 				D0B1001BA1B2C3D4E5F60001 /* FileDropHintBadgeView.swift */,
 				D0B10021A1B2C3D4E5F60001 /* FileDropOverlayView.swift */,
@@ -1135,6 +1140,7 @@
 					A5001520 /* PostHogAnalytics.swift */,
 					A5001416 /* Workspace.swift */,
 					D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */,
+					C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */,
 					E30780000000000000000001 /* WorkspaceRemoteConfiguration.swift */,
 					D0C0D0C0D0C0D0C0D0C00002 /* RemoteLoopbackProxyAlias.swift */,
 					E30770000000000000000001 /* WorkspaceRemoteSSHBatchCommandBuilder.swift */,
@@ -1705,6 +1711,7 @@
 				B37A00000000000000000001 /* BetaFeaturesSettingsView.swift in Sources */,
 				B37A00000000000000000007 /* SettingsCardNote.swift in Sources */,
 				A5001002 /* ContentView.swift in Sources */,
+				C0DE36230000000000000001 /* WorkspaceFinderDirectoryResolver.swift in Sources */,
 				A5001F000000000000000001 /* DetachedFolderDragIcon.swift in Sources */,
 				C0DE35010000000000000001 /* SidebarScrim.swift in Sources */,
 				C3408A000000000000000001 /* ContentView+RightSidebarCommandPalette.swift in Sources */,
@@ -1757,6 +1764,7 @@
 				A5001521 /* PostHogAnalytics.swift in Sources */,
 					A5001406 /* Workspace.swift in Sources */,
 					D7AB3605C10DEF0000000003 /* WorkspaceCloseTabsBatching.swift in Sources */,
+					C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */,
 					E30780000000000000000002 /* WorkspaceRemoteConfiguration.swift in Sources */,
 					D0C0D0C0D0C0D0C0D0C00001 /* RemoteLoopbackProxyAlias.swift in Sources */,
 					E30770000000000000000002 /* WorkspaceRemoteSSHBatchCommandBuilder.swift in Sources */,

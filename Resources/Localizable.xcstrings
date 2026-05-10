@@ -105187,6 +105187,23 @@
         }
       }
     },
+    "contextMenu.showWorkspaceInFinder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show in Finder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderで表示"
+          }
+        }
+      }
+    },
     "contextMenu.workspaceSettings": {
       "extractionState": "manual",
       "localizations": {
