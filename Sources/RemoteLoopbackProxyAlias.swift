@@ -53,9 +53,15 @@ enum RemoteLoopbackProxyAlias {
     }
 
     static let runtimeBridgeScriptSource: String = {
+        let exactLoopbackHostLiterals = exactLoopbackHosts
+            .sorted()
+            .map(javaScriptStringLiteral)
+            .joined(separator: ", ")
         """
         (() => {
-          const aliasHost = "\(aliasHost)";
+          const aliasHost = \(javaScriptStringLiteral(aliasHost));
+          const canonicalLoopbackHost = \(javaScriptStringLiteral(canonicalLoopbackHost));
+          const exactLoopbackHosts = new Set([\(exactLoopbackHostLiterals)]);
           const normalizeHost = (host) => {
             let value = String(host || '').trim().toLowerCase();
             if (!value) return '';
@@ -81,15 +87,10 @@ enum RemoteLoopbackProxyAlias {
 
           const loopbackAliasHost = (host) => {
             const normalizedHost = normalizeHost(host);
-            if (
-              normalizedHost === 'localhost' ||
-              normalizedHost === '127.0.0.1' ||
-              normalizedHost === '0.0.0.0' ||
-              normalizedHost === '::1'
-            ) {
+            if (exactLoopbackHosts.has(normalizedHost)) {
               return aliasHost;
             }
-            const suffix = '.localhost';
+            const suffix = `.${canonicalLoopbackHost}`;
             if (normalizedHost.endsWith(suffix) && normalizedHost.length > suffix.length) {
               return `${normalizedHost.slice(0, -suffix.length)}.${aliasHost}`;
             }
@@ -107,6 +108,8 @@ enum RemoteLoopbackProxyAlias {
             } catch {
               return input;
             }
+            // Keep HMR/streaming WebSocket upgrades (`ws:`/`wss:`) on the SSH proxy alias,
+            // while leaving `https:` alone to avoid changing certificate expectations.
             if (parsed.protocol !== 'http:' && parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') {
               return input;
             }
@@ -176,4 +179,13 @@ enum RemoteLoopbackProxyAlias {
         })();
         """
     }()
+
+    private static func javaScriptStringLiteral(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+        return "'\(escaped)'"
+    }
 }
