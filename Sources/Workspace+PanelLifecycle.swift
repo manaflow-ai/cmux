@@ -64,14 +64,16 @@ extension Workspace {
         agentPIDKeysByPanelId[panelId, default: []].insert(key)
     }
 
-    func recordAgentPID(key: String, pid: pid_t, panelId: UUID?) {
+    func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) {
         agentPIDs[key] = pid
         if let panelId {
             recordAgentPIDOwnership(key: key, panelId: panelId)
         } else {
             removeAgentPIDOwnership(key: key)
         }
-        refreshTrackedAgentPorts()
+        if refreshPorts {
+            refreshTrackedAgentPorts()
+        }
     }
 
     @discardableResult
@@ -133,11 +135,16 @@ extension Workspace {
         for (statusKey, statusEntry) in runtimeState.statusEntries {
             statusEntries[statusKey] = statusEntry
         }
+        var didAdoptAgentPID = false
         for (key, pid) in runtimeState.agentPIDs {
-            recordAgentPID(key: key, pid: pid, panelId: runtimeState.panelId)
+            recordAgentPID(key: key, pid: pid, panelId: runtimeState.panelId, refreshPorts: false)
+            didAdoptAgentPID = true
         }
         for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
             recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
+        }
+        if didAdoptAgentPID {
+            refreshTrackedAgentPorts()
         }
     }
 

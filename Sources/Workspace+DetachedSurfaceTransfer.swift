@@ -25,6 +25,7 @@ extension Workspace {
         let customTitle: String?
         let manuallyUnread: Bool
         let restorableAgent: SessionRestorableAgentSnapshot?
+        let restorableAgentAutoResumePending: Bool
         let agentRuntime: DetachedAgentRuntimeState?
         let isRemoteTerminal: Bool
         let remoteRelayPort: Int?
@@ -47,6 +48,7 @@ extension Workspace {
                 customTitle: customTitle,
                 manuallyUnread: manuallyUnread,
                 restorableAgent: restorableAgent,
+                restorableAgentAutoResumePending: restorableAgentAutoResumePending,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: isRemoteTerminal,
                 remoteRelayPort: remoteRelayPort,

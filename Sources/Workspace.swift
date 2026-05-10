@@ -11197,6 +11197,13 @@ final class Workspace: Identifiable, ObservableObject {
         if let restorableAgent = detached.restorableAgent {
             restoredAgentSnapshotsByPanelId[detached.panelId] = restorableAgent
             invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
+            if detached.restorableAgentAutoResumePending {
+                restoredAgentAutoResumePendingPanelIds.insert(detached.panelId)
+            } else {
+                restoredAgentAutoResumePendingPanelIds.remove(detached.panelId)
+            }
+        } else {
+            restoredAgentAutoResumePendingPanelIds.remove(detached.panelId)
         }
         adoptDetachedAgentRuntimeState(detached.agentRuntime)
         if let markdownPanel = detached.panel as? MarkdownPanel,
@@ -12230,6 +12237,18 @@ final class Workspace: Identifiable, ObservableObject {
 
     func restoredAgentSnapshotForTesting(panelId: UUID) -> SessionRestorableAgentSnapshot? {
         restoredAgentSnapshotsByPanelId[panelId]
+    }
+
+    func setRestoredAgentAutoResumePendingForTesting(_ isPending: Bool, panelId: UUID) {
+        if isPending {
+            restoredAgentAutoResumePendingPanelIds.insert(panelId)
+        } else {
+            restoredAgentAutoResumePendingPanelIds.remove(panelId)
+        }
+    }
+
+    func restoredAgentAutoResumePendingForTesting(panelId: UUID) -> Bool {
+        restoredAgentAutoResumePendingPanelIds.contains(panelId)
     }
 #endif
 
@@ -13378,6 +13397,7 @@ extension Workspace: BonsplitDelegate {
             let cachedTitle = panelTitles[panelId]
             let transferFallbackTitle = cachedTitle ?? panel.displayTitle
             let restorableAgent = restoredAgentSnapshotsByPanelId[panelId]
+            let restorableAgentAutoResumePending = restoredAgentAutoResumePendingPanelIds.contains(panelId)
             let agentRuntime = agentRuntimeState(forPanelId: panelId)
             pendingDetachedSurfaces[tabId] = DetachedSurfaceTransfer(
                 sourceWorkspaceId: id,
@@ -13395,6 +13415,7 @@ extension Workspace: BonsplitDelegate {
                 customTitle: panelCustomTitles[panelId],
                 manuallyUnread: manualUnreadPanelIds.contains(panelId),
                 restorableAgent: restorableAgent,
+                restorableAgentAutoResumePending: restorableAgentAutoResumePending,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)

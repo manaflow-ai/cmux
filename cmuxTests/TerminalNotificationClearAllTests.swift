@@ -373,6 +373,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         )
 
         sourceWorkspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: movingPanelId)
+        sourceWorkspace.setRestoredAgentAutoResumePendingForTesting(true, panelId: movingPanelId)
         sourceWorkspace.statusEntries["codex"] = status
         sourceWorkspace.recordAgentPID(key: pidKey, pid: pid_t(12346), panelId: movingPanelId)
         sourceWorkspace.agentListeningPorts = [port]
@@ -384,6 +385,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertNil(sourceWorkspace.statusEntries["codex"])
         XCTAssertNil(sourceWorkspace.agentPIDs[pidKey])
         XCTAssertNil(sourceWorkspace.restoredAgentSnapshotForTesting(panelId: movingPanelId))
+        XCTAssertFalse(sourceWorkspace.restoredAgentAutoResumePendingForTesting(panelId: movingPanelId))
         XCTAssertFalse(sourceWorkspace.listeningPorts.contains(port))
 
         XCTAssertNotNil(
@@ -396,6 +398,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
             destinationWorkspace.restoredAgentSnapshotForTesting(panelId: movingPanelId)?.sessionId,
             "agent-session-detach"
         )
+        XCTAssertTrue(destinationWorkspace.restoredAgentAutoResumePendingForTesting(panelId: movingPanelId))
     }
 
     func testDetachingRestoredSnapshotWithoutPanelPIDDoesNotTransferAgentRuntimeStatus() throws {
