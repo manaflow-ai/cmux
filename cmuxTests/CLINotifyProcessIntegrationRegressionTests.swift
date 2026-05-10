@@ -136,7 +136,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         func run(_ arguments: [String], timeout: TimeInterval = 5) async -> ProcessRunResult {
             await withCheckedContinuation { continuation in
                 DispatchQueue.global(qos: .userInitiated).async {
-                    let result = runProcess(
+                    let result = self.runProcess(
                         executablePath: cliPath,
                         arguments: ["--socket", socketPath] + arguments,
                         environment: environment,
