@@ -155,6 +155,25 @@ def main() -> int:
         out_of_range = run_cli(cli_path, ["settings", "set", "automation.portRange", "0"], home)
         assert_fails(failures, "out-of-range setting set", out_of_range, "automation.portRange")
 
+        set_null_color = run_cli(cli_path, ["settings", "set", "workspaceColors.selectionColor", "null"], home)
+        assert_ok(failures, "settings set nullable color null", set_null_color)
+        null_toml_export = run_cli(cli_path, ["settings", "export", "--format", "toml"], home)
+        assert_fails(
+            failures,
+            "settings export toml rejects null",
+            null_toml_export,
+            "TOML format does not support null values",
+        )
+        null_json_export = run_cli(cli_path, ["settings", "export", "--format", "json"], home)
+        assert_ok(failures, "settings export json allows null", null_json_export)
+        null_json_payload = parse_json(failures, "settings export json allows null", null_json_export)
+        if isinstance(null_json_payload, dict):
+            workspace_colors = null_json_payload.get("workspaceColors")
+            if not isinstance(workspace_colors, dict) or workspace_colors.get("selectionColor") is not None:
+                failures.append(f"settings export json did not preserve null selectionColor: {null_json_payload}")
+        unset_null_color = run_cli(cli_path, ["settings", "unset", "workspaceColors.selectionColor"], home)
+        assert_ok(failures, "settings unset nullable color null before TOML exports", unset_null_color)
+
         primitive_string = run_cli(cli_path, ["settings", "set", "notifications.command", "true"], home)
         assert_ok(failures, "settings set string-looking bool", primitive_string)
         get_primitive_string = run_cli(cli_path, ["settings", "get", "notifications.command"], home)
@@ -242,6 +261,13 @@ openSettings = "cmd+option+,"
         assert_ok(failures, "shortcut two-stroke get", chord_get)
         if chord_get.stdout.strip() != "cmd+k, cmd+c":
             failures.append(f"two-stroke shortcut did not roundtrip: {chord_get.stdout!r}")
+
+        escape_shortcut = run_cli(cli_path, ["settings", "shortcuts", "set", "find", "cmd+escape"], home)
+        assert_ok(failures, "shortcut escape set", escape_shortcut)
+        escape_get = run_cli(cli_path, ["settings", "shortcuts", "get", "find"], home)
+        assert_ok(failures, "shortcut escape get", escape_get)
+        if escape_get.stdout.strip() != "cmd+escape":
+            failures.append(f"escape shortcut did not use printable config string: {escape_get.stdout!r}")
 
         conflict = run_cli(cli_path, ["settings", "shortcuts", "set", "openSettings", "cmd+n"], home)
         assert_fails(failures, "shortcut conflict", conflict, "conflicts with")

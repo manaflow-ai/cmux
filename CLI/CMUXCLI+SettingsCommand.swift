@@ -226,7 +226,7 @@ extension CMUXCLI {
         case "json":
             output = jsonString(exportRoot) + "\n"
         case "toml":
-            output = store.tomlString(from: exportRoot)
+            output = try store.tomlString(from: exportRoot)
         default:
             throw CLIError(message: "cmux settings export --format must be json or toml")
         }
@@ -680,10 +680,10 @@ extension CMUXCLI {
             return true
         }
 
-        func tomlString(from root: [String: Any]) -> String {
-            flatten(root)
+        func tomlString(from root: [String: Any]) throws -> String {
+            try flatten(root)
                 .sorted { $0.key < $1.key }
-                .map { key, value in "\(key) = \(tomlLiteral(value))" }
+                .map { key, value in "\(key) = \(try tomlLiteral(value))" }
                 .joined(separator: "\n") + "\n"
         }
 
@@ -724,9 +724,9 @@ extension CMUXCLI {
             return result
         }
 
-        private func tomlLiteral(_ value: Any) -> String {
+        private func tomlLiteral(_ value: Any) throws -> String {
             if value is NSNull {
-                return "null"
+                throw CLIError(message: "TOML format does not support null values; use --format json for settings with null values")
             }
             if let bool = value as? Bool {
                 return bool ? "true" : "false"
@@ -1014,6 +1014,7 @@ extension CMUXCLI {
             case "\r": return "return"
             case "\t": return "tab"
             case " ": return "space"
+            case "\u{1B}": return "escape"
             case "←": return "left"
             case "→": return "right"
             case "↑": return "up"
