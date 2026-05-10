@@ -2685,7 +2685,7 @@ final class BrowserPanel: Panel, ObservableObject {
         )
         configuration.userContentController.addUserScript(
             WKUserScript(
-                source: RemoteLoopbackProxyAlias.runtimeBridgeScriptSource,
+                source: RemoteLoopbackRuntimeBridge.runtimeBridgeScriptSource,
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: false
             )
