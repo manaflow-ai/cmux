@@ -1,13 +1,13 @@
 import Foundation
 
-enum CmuxSettingsRegistry {
-    struct SettingDefinition {
-        let key: String
-        let kind: ValueKind
-        let defaultValue: Any
-        let isSensitive: Bool
+public enum CmuxSettingsRegistry {
+    public struct SettingDefinition: @unchecked Sendable {
+        public let key: String
+        public let kind: ValueKind
+        public let defaultValue: Any
+        public let isSensitive: Bool
 
-        init(key: String, kind: ValueKind, defaultValue: Any, isSensitive: Bool = false) {
+        public init(key: String, kind: ValueKind, defaultValue: Any, isSensitive: Bool = false) {
             self.key = key
             self.kind = kind
             self.defaultValue = defaultValue
@@ -15,7 +15,7 @@ enum CmuxSettingsRegistry {
         }
     }
 
-    enum ValueKind {
+    public enum ValueKind: Sendable {
         case bool
         case int(min: Int?)
         case double(min: Double?, max: Double?)
@@ -28,15 +28,15 @@ enum CmuxSettingsRegistry {
         case hexColorDictionary
     }
 
-    struct ShortcutActionDefinition {
-        let action: String
-        let label: String
-        let defaultValue: String
-        let usesNumberedDigitMatching: Bool
-        let aliases: [String]
-        let context: ShortcutContext
+    public struct ShortcutActionDefinition: Sendable {
+        public let action: String
+        public let label: String
+        public let defaultValue: String
+        public let usesNumberedDigitMatching: Bool
+        public let aliases: [String]
+        public let context: ShortcutContext
 
-        init(
+        public init(
             action: String,
             label: String,
             defaultValue: String,
@@ -53,13 +53,13 @@ enum CmuxSettingsRegistry {
         }
     }
 
-    enum ShortcutContext: String {
+    public enum ShortcutContext: String, Sendable {
         case application
         case nonBrowserPanel
         case browserPanel
         case rightSidebarFocus
 
-        func overlaps(_ other: ShortcutContext) -> Bool {
+        public func overlaps(_ other: ShortcutContext) -> Bool {
             if self == .application || other == .application {
                 return true
             }
@@ -67,24 +67,24 @@ enum CmuxSettingsRegistry {
         }
     }
 
-    struct ValidationError: Error, CustomStringConvertible {
-        let message: String
+    public struct ValidationError: Error, CustomStringConvertible, Sendable {
+        public let message: String
 
-        var description: String { message }
+        public var description: String { message }
     }
 
-    static let languageValues = [
+    public static let languageValues = [
         "system", "en", "ar", "bs", "zh-Hans", "zh-Hant", "da", "de", "es", "fr",
         "it", "ja", "ko", "nb", "pl", "pt-BR", "ru", "th", "tr",
     ]
 
-    static let notificationSoundValues = [
+    public static let notificationSoundValues = [
         "default", "Basso", "Blow", "Bottle", "Frog", "Funk", "Glass", "Hero",
         "Morse", "Ping", "Pop", "Purr", "Sosumi", "Submarine", "Tink",
         "custom_file", "none",
     ]
 
-    static let defaultInsecureHTTPHosts = [
+    public static let defaultInsecureHTTPHosts = [
         "localhost",
         "*.localhost",
         "127.0.0.1",
@@ -93,7 +93,7 @@ enum CmuxSettingsRegistry {
         "*.localtest.me",
     ]
 
-    static let defaultWorkspaceColors: [String: String] = [
+    public static let defaultWorkspaceColors: [String: String] = [
         "Red": "#C0392B",
         "Crimson": "#922B21",
         "Orange": "#A04000",
@@ -112,7 +112,7 @@ enum CmuxSettingsRegistry {
         "Charcoal": "#3E4B5E",
     ]
 
-    static let settings: [SettingDefinition] = [
+    public static let settings: [SettingDefinition] = [
         SettingDefinition(key: "app.language", kind: .enumValue(languageValues), defaultValue: "system"),
         SettingDefinition(key: "app.appearance", kind: .enumValue(["system", "light", "dark"], aliases: ["auto": "system"]), defaultValue: "system"),
         SettingDefinition(key: "app.appIcon", kind: .enumValue(["automatic", "light", "dark"]), defaultValue: "automatic"),
@@ -202,11 +202,11 @@ enum CmuxSettingsRegistry {
         SettingDefinition(key: "rightSidebar.beta.dock.enabled", kind: .bool, defaultValue: false),
     ]
 
-    static let definitionsByKey = Dictionary(uniqueKeysWithValues: settings.map { ($0.key, $0) })
-    static let sortedKeys = settings.map(\.key).sorted()
-    static let supportedSettingsJSONPaths = Set(sortedKeys).union(["shortcuts.bindings"])
+    public static let definitionsByKey = Dictionary(uniqueKeysWithValues: settings.map { ($0.key, $0) })
+    public static let sortedKeys = settings.map(\.key).sorted()
+    public static let supportedSettingsJSONPaths = Set(sortedKeys).union(["shortcuts.bindings"])
 
-    static let shortcutActions: [ShortcutActionDefinition] = [
+    public static let shortcutActions: [ShortcutActionDefinition] = [
         ShortcutActionDefinition(action: "openSettings", label: "Settings", defaultValue: "cmd+,", usesNumberedDigitMatching: false, aliases: []),
         ShortcutActionDefinition(action: "reloadConfiguration", label: "Reload Configuration", defaultValue: "cmd+shift+,", usesNumberedDigitMatching: false, aliases: []),
         ShortcutActionDefinition(action: "showHideAllWindows", label: "Show/Hide All Windows", defaultValue: "cmd+option+ctrl+.", usesNumberedDigitMatching: false, aliases: []),
@@ -273,7 +273,7 @@ enum CmuxSettingsRegistry {
         ShortcutActionDefinition(action: "toggleReactGrab", label: "Toggle React Grab", defaultValue: "cmd+shift+g", usesNumberedDigitMatching: false, aliases: []),
     ]
 
-    static let shortcutActionsByName: [String: ShortcutActionDefinition] = {
+    public static let shortcutActionsByName: [String: ShortcutActionDefinition] = {
         var result: [String: ShortcutActionDefinition] = [:]
         for definition in shortcutActions {
             result[definition.action] = definition
@@ -286,23 +286,23 @@ enum CmuxSettingsRegistry {
         return result
     }()
 
-    static let sortedShortcutActions = shortcutActions.map(\.action).sorted()
+    public static let sortedShortcutActions = shortcutActions.map(\.action).sorted()
 
-    static func definition(for key: String) throws -> SettingDefinition {
+    public static func definition(for key: String) throws -> SettingDefinition {
         guard let definition = definitionsByKey[key] else {
             throw ValidationError(message: "Unknown setting key '\(key)'")
         }
         return definition
     }
 
-    static func shortcutAction(for action: String) throws -> ShortcutActionDefinition {
+    public static func shortcutAction(for action: String) throws -> ShortcutActionDefinition {
         guard let definition = shortcutActionsByName[action] ?? shortcutActionsByName[action.lowercased()] else {
             throw ValidationError(message: "Unknown shortcut action '\(action)'")
         }
         return definition
     }
 
-    static func normalizeCommandLineValue(_ raw: String, for definition: SettingDefinition) throws -> Any {
+    public static func normalizeCommandLineValue(_ raw: String, for definition: SettingDefinition) throws -> Any {
         if case .string = definition.kind {
             return try normalizeJSONValue(raw, for: definition)
         }
@@ -354,7 +354,7 @@ enum CmuxSettingsRegistry {
         }
     }
 
-    static func normalizeJSONValue(_ value: Any, for definition: SettingDefinition) throws -> Any {
+    public static func normalizeJSONValue(_ value: Any, for definition: SettingDefinition) throws -> Any {
         switch definition.kind {
         case .bool:
             guard let bool = value as? Bool else {
@@ -457,7 +457,7 @@ enum CmuxSettingsRegistry {
         }
     }
 
-    static func parseJSONLiteral(_ raw: String) -> Any? {
+    public static func parseJSONLiteral(_ raw: String) -> Any? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let first = trimmed.first,
               first == "{" || first == "[" || first == "\"" ||
@@ -472,7 +472,7 @@ enum CmuxSettingsRegistry {
         return value
     }
 
-    static func normalizeHexColor(_ raw: String) -> String? {
+    public static func normalizeHexColor(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let hex = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
         guard hex.count == 6,

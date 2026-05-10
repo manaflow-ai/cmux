@@ -516,6 +516,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "focused": true,
             "type": "terminal",
         ]
+        let paneWithSurfaces = pane.merging(["surfaces": [surface]]) { _, new in new }
+        let workspaceWithPanes = workspace.merging(["panes": [paneWithSurfaces]]) { _, new in new }
+        let windowWithWorkspaces = window.merging(["workspaces": [workspaceWithPanes]]) { _, new in new }
 
         var base: [String: Any] = [
             "ok": true,
@@ -563,13 +566,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             base["methods"] = ["system.identify", "workspace.list"]
         case "system.tree":
             base["windows"] = [
-                window.merging(["workspaces": [workspace.merging(["panes": [pane.merging(["surfaces": [surface]])])])]) { _, new in new },
+                windowWithWorkspaces,
             ]
             base["active"] = surface
             base["caller"] = surface
         case "system.top":
             base["windows"] = [
-                window.merging(["workspaces": [workspace.merging(["panes": [pane.merging(["surfaces": [surface]])])])]) { _, new in new },
+                windowWithWorkspaces,
             ]
             base["totals"] = ["windows": 1, "workspaces": 1, "panes": 1, "surfaces": 1]
         case "window.list":

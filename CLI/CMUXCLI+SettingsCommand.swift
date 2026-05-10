@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CMUXSettingsCore
 
 extension CMUXCLI {
     enum SettingsCommand {
