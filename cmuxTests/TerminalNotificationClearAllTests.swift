@@ -397,4 +397,48 @@ final class TerminalNotificationClearAllTests: XCTestCase {
             "agent-session-detach"
         )
     }
+
+    func testDetachingRestoredSnapshotWithoutPanelPIDDoesNotTransferAgentRuntimeStatus() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let originalTabManager = appDelegate.tabManager
+        appDelegate.tabManager = manager
+
+        let sourceWorkspace = manager.addWorkspace(select: true)
+        let destinationWorkspace = manager.addWorkspace(select: false)
+        defer {
+            if manager.tabs.contains(where: { $0.id == destinationWorkspace.id }) {
+                manager.closeWorkspace(destinationWorkspace)
+            }
+            if manager.tabs.contains(where: { $0.id == sourceWorkspace.id }) {
+                manager.closeWorkspace(sourceWorkspace)
+            }
+            appDelegate.tabManager = originalTabManager
+        }
+
+        let movingPanelId = try XCTUnwrap(sourceWorkspace.focusedPanelId)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "restored-only",
+            workingDirectory: nil,
+            launchCommand: nil
+        )
+
+        sourceWorkspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: movingPanelId)
+        sourceWorkspace.statusEntries["codex"] = SidebarStatusEntry(key: "codex", value: "Running")
+
+        let transfer = try XCTUnwrap(sourceWorkspace.detachSurface(panelId: movingPanelId))
+        let destinationPaneId = try XCTUnwrap(destinationWorkspace.bonsplitController.allPaneIds.first)
+
+        XCTAssertNotNil(
+            destinationWorkspace.attachDetachedSurface(transfer, inPane: destinationPaneId, focus: false)
+        )
+
+        XCTAssertNil(destinationWorkspace.statusEntries["codex"])
+        XCTAssertTrue(destinationWorkspace.agentPIDs.isEmpty)
+        XCTAssertEqual(
+            destinationWorkspace.restoredAgentSnapshotForTesting(panelId: movingPanelId)?.sessionId,
+            "restored-only"
+        )
+    }
 }

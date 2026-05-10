@@ -2,33 +2,9 @@ import Bonsplit
 import Darwin
 import Foundation
 
-private extension RestorableAgentKind {
-    var sidebarStatusKey: String {
-        switch self {
-        case .claude:
-            return "claude_code"
-        default:
-            return rawValue
-        }
-    }
-
-    func sidebarAgentPIDKey(sessionId: String) -> String {
-        switch self {
-        case .claude:
-            return sidebarStatusKey
-        default:
-            let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
-            return "\(sidebarStatusKey).\(normalizedSessionId.isEmpty ? "default" : normalizedSessionId)"
-        }
-    }
-}
-
 extension Workspace {
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
-        var pidKeys = agentPIDKeysByPanelId[panelId] ?? []
-        if let restorableAgent = restoredAgentSnapshotsByPanelId[panelId] {
-            pidKeys.insert(restorableAgent.kind.sidebarAgentPIDKey(sessionId: restorableAgent.sessionId))
-        }
+        let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
 
         var agentPIDsForPanel: [String: pid_t] = [:]
         var statusEntriesForPanel: [String: SidebarStatusEntry] = [:]

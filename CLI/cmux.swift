@@ -14354,9 +14354,9 @@ struct CMUXCLI {
                toolName == "AskUserQuestion",
                let question = describeAskUserQuestion(parsedInput.object),
                let sessionId = parsedInput.sessionId {
-                // Preserve the existing surfaceId from SessionStart; passing ""
+                // Preserve a non-empty surfaceId from SessionStart; passing ""
                 // would overwrite it and cause notifications to target the wrong workspace.
-                let existingSurfaceId = mappedSession?.surfaceId ?? surfaceId
+                let existingSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,

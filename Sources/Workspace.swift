@@ -11199,6 +11199,10 @@ final class Workspace: Identifiable, ObservableObject {
             invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
         }
         adoptDetachedAgentRuntimeState(detached.agentRuntime)
+        if let markdownPanel = detached.panel as? MarkdownPanel,
+           panelSubscriptions[markdownPanel.id] == nil {
+            installMarkdownPanelSubscription(markdownPanel)
+        }
         if let filePreviewPanel = detached.panel as? FilePreviewPanel,
            panelSubscriptions[filePreviewPanel.id] == nil {
             installFilePreviewPanelSubscription(filePreviewPanel)
