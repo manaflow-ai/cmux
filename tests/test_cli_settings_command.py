@@ -177,6 +177,30 @@ def main() -> int:
         unset_null_color = run_cli(cli_path, ["settings", "unset", "workspaceColors.selectionColor"], home)
         assert_ok(failures, "settings unset nullable color null before TOML exports", unset_null_color)
 
+        object_import_path = home / "object-settings.json"
+        object_import_path.write_text(
+            json.dumps({"workspaceColors": {"paletteOverrides": {"Work": "#123456"}}}),
+            encoding="utf-8",
+        )
+        object_import = run_cli(cli_path, ["settings", "import", str(object_import_path)], home)
+        assert_ok(failures, "settings import object setting", object_import)
+        object_toml_export = run_cli(cli_path, ["settings", "export", "--format", "toml"], home)
+        assert_fails(
+            failures,
+            "settings export toml rejects object values",
+            object_toml_export,
+            "TOML format does not support object values",
+        )
+        object_json_export = run_cli(cli_path, ["settings", "export", "--format", "json"], home)
+        assert_ok(failures, "settings export json allows object values", object_json_export)
+        object_json_payload = parse_json(failures, "settings export json allows object values", object_json_export)
+        if isinstance(object_json_payload, dict):
+            palette = object_json_payload.get("workspaceColors", {}).get("paletteOverrides")
+            if not isinstance(palette, dict) or palette.get("Work") != "#123456":
+                failures.append(f"settings export json did not preserve paletteOverrides: {object_json_payload}")
+        unset_object = run_cli(cli_path, ["settings", "unset", "workspaceColors.paletteOverrides"], home)
+        assert_ok(failures, "settings unset object setting before TOML exports", unset_object)
+
         primitive_string = run_cli(cli_path, ["settings", "set", "notifications.command", "true"], home)
         assert_ok(failures, "settings set string-looking bool", primitive_string)
         get_primitive_string = run_cli(cli_path, ["settings", "get", "notifications.command"], home)

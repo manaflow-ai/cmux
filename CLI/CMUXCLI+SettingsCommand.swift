@@ -748,10 +748,11 @@ extension CMUXCLI {
             if let values = value as? [String] {
                 return "[" + values.map { "\"\(escapeToml($0))\"" }.joined(separator: ", ") + "]"
             }
-            if JSONSerialization.isValidJSONObject(value),
-               let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .withoutEscapingSlashes]),
-               let string = String(data: data, encoding: .utf8) {
-                return string
+            if value is [String: Any] || value is NSDictionary {
+                throw CLIError(message: "TOML format does not support object values; use --format json for settings with object values")
+            }
+            if value is [Any] || value is NSArray {
+                throw CLIError(message: "TOML format does not support complex array values; use --format json for settings with complex array values")
             }
             return "\"\(escapeToml(String(describing: value)))\""
         }
