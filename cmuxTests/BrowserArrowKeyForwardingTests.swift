@@ -95,6 +95,30 @@ final class BrowserReturnKeyForwardingTests: XCTestCase {
         XCTAssertEqual(webSubview.lastKeyCode, 36)
     }
 
+    func testRoutesPlainArrowFromEmbeddedWKWebViewResponderToKeyDown() {
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+
+        let webView = WKWebView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 320, height: 240))
+        let webSubview = RecordingWebSubview(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
+        webView.addSubview(webSubview)
+        window.contentView = webView
+
+        XCTAssertTrue(window.makeFirstResponder(webSubview))
+
+        let event = makeKeyEvent(windowNumber: window.windowNumber, keyCode: 123)
+        XCTAssertTrue(window.performKeyEquivalent(with: event))
+        XCTAssertEqual(webSubview.keyDownCallCount, 1)
+        XCTAssertEqual(webSubview.lastKeyCode, 123)
+    }
+
     func testConsumesReentrantReturnDuringForwardedBrowserKeyDown() {
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
