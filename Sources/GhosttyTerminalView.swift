@@ -299,6 +299,12 @@ enum GhosttyPasteboardHelper {
         case rejectedImagePayload
     }
 
+    enum ImageFileListMaterializationResult {
+        case saved([URL])
+        case noDecodableImagePayload
+        case rejectedImagePayload
+    }
+
     private static let selectionPasteboard = NSPasteboard(
         name: NSPasteboard.Name("com.mitchellh.ghostty.selection")
     )
@@ -493,20 +499,34 @@ enum GhosttyPasteboardHelper {
         )
     }
 
-    private static func rtfdAttachmentImageRepresentation(
-        in pasteboard: NSPasteboard
-    ) -> (data: Data, fileExtension: String)? {
-        guard let attributed = attributedString(
-            from: pasteboard,
-            type: .rtfd,
-            documentType: .rtfd
-        ) else { return nil }
+    private static func attributedString(
+        from item: NSPasteboardItem,
+        type: NSPasteboard.PasteboardType,
+        documentType: NSAttributedString.DocumentType
+    ) -> NSAttributedString? {
+        let data =
+            item.data(forType: type)
+            ?? item.string(forType: type)?.data(using: .utf8)
+        guard let data else { return nil }
 
-        var result: (data: Data, fileExtension: String)?
+        return try? NSAttributedString(
+            data: data,
+            options: [
+                .documentType: documentType,
+                .characterEncoding: String.Encoding.utf8.rawValue
+            ],
+            documentAttributes: nil
+        )
+    }
+
+    private static func rtfdAttachmentImageRepresentations(
+        from attributed: NSAttributedString
+    ) -> [(data: Data, fileExtension: String)] {
+        var results: [(data: Data, fileExtension: String)] = []
         attributed.enumerateAttribute(
             .attachment,
             in: NSRange(location: 0, length: attributed.length)
-        ) { value, _, stop in
+        ) { value, _, _ in
             guard let attachment = value as? NSTextAttachment else { return }
 
             if let fileWrapper = attachment.fileWrapper,
@@ -515,12 +535,33 @@ enum GhosttyPasteboardHelper {
                 data: data,
                 preferredFilename: fileWrapper.preferredFilename
                ) {
-                result = imageRepresentation
-                stop.pointee = true
+                results.append(imageRepresentation)
             }
         }
 
-        return result
+        return results
+    }
+
+    private static func rtfdAttachmentImageRepresentations(
+        in pasteboard: NSPasteboard
+    ) -> [(data: Data, fileExtension: String)] {
+        guard let attributed = attributedString(
+            from: pasteboard,
+            type: .rtfd,
+            documentType: .rtfd
+        ) else { return [] }
+        return rtfdAttachmentImageRepresentations(from: attributed)
+    }
+
+    private static func rtfdAttachmentImageRepresentations(
+        in item: NSPasteboardItem
+    ) -> [(data: Data, fileExtension: String)] {
+        guard let attributed = attributedString(
+            from: item,
+            type: .rtfd,
+            documentType: .rtfd
+        ) else { return [] }
+        return rtfdAttachmentImageRepresentations(from: attributed)
     }
 
     private static func imageAttachmentRepresentation(
@@ -533,6 +574,9 @@ enum GhosttyPasteboardHelper {
         if let type = !pathExtension.isEmpty ? UTType(filenameExtension: pathExtension) : nil,
            type.conforms(to: .image),
            let fileExtension = type.preferredFilenameExtension ?? nonEmpty(pathExtension) {
+            if isTIFFType(type) {
+                return normalizedPNGRepresentation(from: data)
+            }
             return (data, fileExtension)
         }
 
@@ -541,7 +585,36 @@ enum GhosttyPasteboardHelper {
               let type = UTType(typeIdentifier),
               type.conforms(to: .image),
               let fileExtension = type.preferredFilenameExtension else { return nil }
+        if isTIFFType(type) {
+            return normalizedPNGRepresentation(from: data)
+        }
         return (data, fileExtension)
+    }
+
+    private static func imageDataRepresentation(
+        data: Data,
+        type: NSPasteboard.PasteboardType
+    ) -> (data: Data, fileExtension: String)? {
+        guard let utType = UTType(type.rawValue),
+              utType.conforms(to: .image),
+              let fileExtension = utType.preferredFilenameExtension,
+              !fileExtension.isEmpty else { return nil }
+        if isTIFFType(utType) {
+            return normalizedPNGRepresentation(from: data)
+        }
+        return (data, fileExtension)
+    }
+
+    private static func isTIFFType(_ type: UTType) -> Bool {
+        type == .tiff || type.conforms(to: .tiff)
+    }
+
+    private static func normalizedPNGRepresentation(from data: Data) -> (data: Data, fileExtension: String)? {
+        guard let image = NSImage(data: data),
+              let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else { return nil }
+        return (pngData, "png")
     }
 
     private static func nonEmpty(_ value: String) -> String? {
@@ -570,16 +643,182 @@ enum GhosttyPasteboardHelper {
 
         for type in pasteboard.types ?? [] {
             guard type != .png,
-                  type != .tiff,
-                  let utType = UTType(type.rawValue),
-                  utType.conforms(to: .image),
                   let imageData = pasteboard.data(forType: type),
-                  let fileExtension = utType.preferredFilenameExtension,
-                  !fileExtension.isEmpty else { continue }
-            return (imageData, fileExtension)
+                  let representation = imageDataRepresentation(data: imageData, type: type) else { continue }
+            return representation
         }
 
         return nil
+    }
+
+    private static func directImageRepresentation(
+        in item: NSPasteboardItem
+    ) -> (data: Data, fileExtension: String)? {
+        if let pngData = item.data(forType: .png) {
+            return (pngData, "png")
+        }
+
+        for type in item.types {
+            guard type != .png,
+                  let imageData = item.data(forType: type),
+                  let representation = imageDataRepresentation(data: imageData, type: type) else { continue }
+            return representation
+        }
+
+        return nil
+    }
+
+    private static func fallbackImageRepresentation(
+        in item: NSPasteboardItem
+    ) -> (data: Data, fileExtension: String)? {
+        for type in item.types {
+            guard let utType = UTType(type.rawValue),
+                  utType.conforms(to: .image),
+                  let data = item.data(forType: type),
+                  let normalized = normalizedPNGRepresentation(from: data) else { continue }
+            return normalized
+        }
+        return nil
+    }
+
+    private static func fallbackImageRepresentation(
+        in pasteboard: NSPasteboard
+    ) -> (data: Data, fileExtension: String)? {
+        guard hasImageData(in: pasteboard),
+              let tiffData = NSImage(pasteboard: pasteboard)?.tiffRepresentation else { return nil }
+        return normalizedPNGRepresentation(from: tiffData)
+    }
+
+    private static func imageRepresentations(
+        in item: NSPasteboardItem
+    ) -> [(data: Data, fileExtension: String)] {
+        if let directImage = directImageRepresentation(in: item) {
+            return [directImage]
+        }
+        let rtfdAttachments = rtfdAttachmentImageRepresentations(in: item)
+        if !rtfdAttachments.isEmpty {
+            return rtfdAttachments
+        }
+        if let fallbackImage = fallbackImageRepresentation(in: item) {
+            return [fallbackImage]
+        }
+        return []
+    }
+
+    private static func pasteboardFallbackImageRepresentations(
+        for item: NSPasteboardItem
+    ) -> [(data: Data, fileExtension: String)] {
+        guard let copiedItem = copiedPasteboardItem(from: item) else { return [] }
+
+        let pasteboard = NSPasteboard(name: .init("cmux-single-image-item-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
+        guard pasteboard.writeObjects([copiedItem]) else { return [] }
+
+        if let directImage = directImageRepresentation(in: pasteboard) {
+            return [directImage]
+        }
+        let rtfdAttachments = rtfdAttachmentImageRepresentations(in: pasteboard)
+        if !rtfdAttachments.isEmpty {
+            return rtfdAttachments
+        }
+        if let fallbackImage = fallbackImageRepresentation(in: pasteboard) {
+            return [fallbackImage]
+        }
+        return []
+    }
+
+    private static func copiedPasteboardItem(from item: NSPasteboardItem) -> NSPasteboardItem? {
+        let copiedItem = NSPasteboardItem()
+        var copiedAnyType = false
+
+        for type in item.types {
+            if let data = item.data(forType: type) {
+                copiedAnyType = copiedItem.setData(data, forType: type) || copiedAnyType
+                continue
+            }
+
+            if let string = item.string(forType: type) {
+                copiedAnyType = copiedItem.setString(string, forType: type) || copiedAnyType
+            }
+        }
+
+        return copiedAnyType ? copiedItem : nil
+    }
+
+    private static func imageRepresentations(
+        in pasteboard: NSPasteboard
+    ) -> [(data: Data, fileExtension: String)] {
+        let itemRepresentations = (pasteboard.pasteboardItems ?? [])
+            .flatMap { item in
+                let representations = imageRepresentations(in: item)
+                if !representations.isEmpty {
+                    return representations
+                }
+                return pasteboardFallbackImageRepresentations(for: item)
+            }
+        if !itemRepresentations.isEmpty {
+            return itemRepresentations
+        }
+        if let directImage = directImageRepresentation(in: pasteboard) {
+            return [directImage]
+        }
+        let rtfdAttachments = rtfdAttachmentImageRepresentations(in: pasteboard)
+        if !rtfdAttachments.isEmpty {
+            return rtfdAttachments
+        }
+        if let fallbackImage = fallbackImageRepresentation(in: pasteboard) {
+            return [fallbackImage]
+        }
+        return []
+    }
+
+    private static func materializeImageFileURLs(
+        from representations: [(data: Data, fileExtension: String)]
+    ) -> ImageFileListMaterializationResult {
+        guard !representations.isEmpty else { return .noDecodableImagePayload }
+
+        let maxClipboardImageSize = 10 * 1024 * 1024  // 10 MB
+        var fileURLs: [URL] = []
+        for representation in representations {
+            guard representation.data.count <= maxClipboardImageSize else {
+#if DEBUG
+                cmuxDebugLog("terminal.paste.image.rejected reason=tooLarge bytes=\(representation.data.count)")
+#endif
+                cleanupTransferredTemporaryImageFiles(fileURLs)
+                return .rejectedImagePayload
+            }
+
+            let fileURL = temporaryImageFileURL(fileExtension: representation.fileExtension)
+
+            do {
+                try representation.data.write(to: fileURL)
+            } catch {
+#if DEBUG
+                cmuxDebugLog("terminal.paste.image.writeFailed error=\(error.localizedDescription)")
+#endif
+                try? FileManager.default.removeItem(at: fileURL)
+                cleanupTransferredTemporaryImageFiles(fileURLs)
+                return .rejectedImagePayload
+            }
+
+            registerOwnedTemporaryImageFile(fileURL)
+            fileURLs.append(fileURL)
+        }
+
+        return .saved(fileURLs)
+    }
+
+    private static func temporaryImageFileURL(fileExtension: String) -> URL {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        let timestamp = formatter.string(from: Date())
+        let filename = "\(temporaryImageFilenamePrefix)\(timestamp)-\(UUID().uuidString.prefix(8)).\(fileExtension)"
+        return FileManager.default.temporaryDirectory.appendingPathComponent(filename)
     }
 
     /// Attempts to materialize a decodable pasteboard image into a temporary file.
@@ -588,52 +827,34 @@ enum GhosttyPasteboardHelper {
     static func materializeImageFileURLIfNeeded(
         from pasteboard: NSPasteboard = .general
     ) -> ImageFileMaterializationResult {
-        let imageData: Data
-        let fileExtension: String
-        if let directImage = directImageRepresentation(in: pasteboard) {
-            imageData = directImage.data
-            fileExtension = directImage.fileExtension
-        } else if let rtfdAttachment = rtfdAttachmentImageRepresentation(in: pasteboard) {
-            imageData = rtfdAttachment.data
-            fileExtension = rtfdAttachment.fileExtension
-        } else {
-            guard hasImageData(in: pasteboard),
-                  let image = NSImage(pasteboard: pasteboard),
-                  let tiffData = image.tiffRepresentation,
-                  let bitmap = NSBitmapImageRep(data: tiffData),
-                  let pngData = bitmap.representation(using: .png, properties: [:]) else {
-                return .noDecodableImagePayload
-            }
-            imageData = pngData
-            fileExtension = "png"
-        }
-
-        let maxClipboardImageSize = 10 * 1024 * 1024  // 10 MB
-        guard imageData.count <= maxClipboardImageSize else {
-#if DEBUG
-            cmuxDebugLog("terminal.paste.image.rejected reason=tooLarge bytes=\(imageData.count)")
-#endif
+        let representations = Array(imageRepresentations(in: pasteboard).prefix(1))
+        switch materializeImageFileURLs(from: representations) {
+        case .saved(let fileURLs):
+            guard let fileURL = fileURLs.first else { return .noDecodableImagePayload }
+            return .saved(fileURL)
+        case .noDecodableImagePayload:
+            return .noDecodableImagePayload
+        case .rejectedImagePayload:
             return .rejectedImagePayload
         }
+    }
 
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        let timestamp = formatter.string(from: Date())
-        let filename = "\(temporaryImageFilenamePrefix)\(timestamp)-\(UUID().uuidString.prefix(8)).\(fileExtension)"
-        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+    static func materializeImageFileURLsIfNeeded(
+        from pasteboard: NSPasteboard = .general
+    ) -> ImageFileListMaterializationResult {
+        materializeImageFileURLs(from: imageRepresentations(in: pasteboard))
+    }
 
-        do {
-            try imageData.write(to: fileURL)
-        } catch {
-#if DEBUG
-            cmuxDebugLog("terminal.paste.image.writeFailed error=\(error.localizedDescription)")
-#endif
-            return .rejectedImagePayload
+    static func saveImageFileURLsIfNeeded(
+        from pasteboard: NSPasteboard = .general,
+        assumeNoText: Bool = false
+    ) -> [URL] {
+        if !assumeNoText && stringContents(from: pasteboard) != nil { return [] }
+
+        guard case .saved(let fileURLs) = materializeImageFileURLsIfNeeded(from: pasteboard) else {
+            return []
         }
-
-        registerOwnedTemporaryImageFile(fileURL)
-        return .saved(fileURL)
+        return fileURLs
     }
 
     /// When the clipboard contains only image data (or rich text that resolves to
@@ -670,6 +891,17 @@ enum GhosttyPasteboardHelper {
                 continue
             }
             try? FileManager.default.removeItem(at: normalizedURL)
+        }
+    }
+
+    static func cleanupAllOwnedTemporaryImageFiles() {
+        temporaryImageOwnershipLock.lock()
+        let paths = ownedTemporaryImagePaths
+        ownedTemporaryImagePaths.removeAll()
+        temporaryImageOwnershipLock.unlock()
+
+        for path in paths {
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: path))
         }
     }
 
@@ -9079,6 +9311,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ) {
         case .insertText(let text):
             return .insertText(text)
+        case .insertTextSegments(let segments, _):
+            return .insertText(segments.joined())
         case .uploadFiles(let fileURLs, _):
             return .uploadFiles(fileURLs)
         case .reject:
@@ -9261,22 +9495,52 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .fileURLs(let fileURLs):
             let plan = TerminalImageTransferPlanner.plan(
                 fileURLs: fileURLs,
-                target: resolvedImageTransferTarget()
+                target: resolvedImageTransferTarget(),
+                mode: .drop
             )
             return executeImageTransferPlan(plan, onCancel: onCancel)
         }
     }
 
 #if DEBUG
+    fileprivate enum DebugDropPayloadKind {
+        case fileURLs
+        case imageData
+    }
+
     @discardableResult
-    fileprivate func debugSimulateFileDrop(paths: [String]) -> Bool {
+    fileprivate func debugSimulateFileDrop(
+        paths: [String],
+        asImageData: Bool = false
+    ) -> Bool {
         guard !paths.isEmpty else { return false }
-        let urls = paths.map { URL(fileURLWithPath: $0) as NSURL }
         let pbName = NSPasteboard.Name("cmux.debug.drop.\(UUID().uuidString)")
         let pasteboard = NSPasteboard(name: pbName)
         pasteboard.clearContents()
-        pasteboard.writeObjects(urls)
+        switch asImageData ? DebugDropPayloadKind.imageData : .fileURLs {
+        case .fileURLs:
+            let urls = paths.map { URL(fileURLWithPath: $0) as NSURL }
+            pasteboard.writeObjects(urls)
+        case .imageData:
+            let items = paths.compactMap { path -> NSPasteboardItem? in
+                let url = URL(fileURLWithPath: path)
+                guard let data = try? Data(contentsOf: url),
+                      let type = debugImagePasteboardType(for: url) else { return nil }
+                let item = NSPasteboardItem()
+                item.setData(data, forType: type)
+                return item
+            }
+            guard items.count == paths.count else { return false }
+            pasteboard.writeObjects(items)
+        }
         return insertDroppedPasteboard(pasteboard)
+    }
+
+    private func debugImagePasteboardType(for url: URL) -> NSPasteboard.PasteboardType? {
+        let pathExtension = url.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let utType = UTType(filenameExtension: pathExtension),
+              utType.conforms(to: .image) else { return nil }
+        return NSPasteboard.PasteboardType(utType.identifier)
     }
 
     fileprivate func debugRegisteredDropTypes() -> [String] {
@@ -11143,8 +11407,8 @@ final class GhosttySurfaceScrollView: NSView {
 
 #if DEBUG
     @discardableResult
-    func debugSimulateFileDrop(paths: [String]) -> Bool {
-        surfaceView.debugSimulateFileDrop(paths: paths)
+    func debugSimulateFileDrop(paths: [String], asImageData: Bool = false) -> Bool {
+        surfaceView.debugSimulateFileDrop(paths: paths, asImageData: asImageData)
     }
 
     func debugPendingSurfaceSize() -> CGSize? {

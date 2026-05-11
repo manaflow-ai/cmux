@@ -20707,6 +20707,32 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 #endif
 }
 
+private enum CMUXCLIOutput {
+    static func writeStandardError(_ message: String) {
+        write(Data(message.utf8), to: STDERR_FILENO)
+    }
+
+    private static func write(_ data: Data, to fd: Int32) {
+        data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else {
+                return
+            }
+
+            var offset = 0
+            while offset < data.count {
+                let bytesWritten = Darwin.write(fd, baseAddress.advanced(by: offset), data.count - offset)
+                if bytesWritten > 0 {
+                    offset += bytesWritten
+                } else if bytesWritten == -1, errno == EINTR {
+                    continue
+                } else {
+                    return
+                }
+            }
+        }
+    }
+}
+
 @main
 struct CMUXTermMain {
     static func main() {
@@ -20716,7 +20742,7 @@ struct CMUXTermMain {
         do {
             try cli.run()
         } catch {
-            FileHandle.standardError.write(Data("Error: \(error)\n".utf8))
+            CMUXCLIOutput.writeStandardError("Error: \(error)\n")
             let exitCode = (error as? CLIError)?.exitCode ?? 1
             exit(exitCode)
         }
