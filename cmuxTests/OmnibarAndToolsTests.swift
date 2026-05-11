@@ -528,6 +528,188 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertTrue(omnibarSuggestionSupportsAutocompletion(query: "gm", suggestion: state.suggestions[state.selectedSuggestionIndex]))
         XCTAssertEqual(state.suggestions[state.selectedSuggestionIndex].completion, "https://gmail.com/")
     }
+
+    @MainActor
+    func testCommandBackspaceClearsInlineCompletionTypedPrefix() throws {
+        let harness = OmnibarInlineDeletionHarness(
+            typedText: "gma",
+            displayText: "gmail.com",
+            suggestions: [
+                .history(url: "https://gmail.com/", title: "Gmail"),
+            ]
+        )
+
+        try harness.dispatchBackspace(
+            modifiers: [.command],
+            fallbackCommand: #selector(NSResponder.deleteToBeginningOfLine(_:))
+        )
+
+        XCTAssertEqual(harness.state.buffer, "")
+        XCTAssertNil(harness.inlineCompletion)
+        XCTAssertTrue(harness.state.suggestions.isEmpty)
+    }
+
+    @MainActor
+    func testOptionBackspaceDeletesWordBeforeInlineCompletion() throws {
+        let harness = OmnibarInlineDeletionHarness(
+            typedText: "gmail account info",
+            displayText: "gmail account information",
+            suggestions: [
+                .remoteSearchSuggestion("gmail account information"),
+            ]
+        )
+
+        try harness.dispatchBackspace(
+            modifiers: [.option],
+            fallbackCommand: #selector(NSResponder.deleteWordBackward(_:))
+        )
+
+        XCTAssertEqual(harness.state.buffer, "gmail account ")
+        XCTAssertNil(harness.inlineCompletion)
+        XCTAssertTrue(harness.state.suggestions.isEmpty)
+    }
+
+    @MainActor
+    func testPlainBackspaceStillDeletesSingleCharacterWithInlineCompletion() throws {
+        let harness = OmnibarInlineDeletionHarness(
+            typedText: "gma",
+            displayText: "gmail.com",
+            suggestions: [
+                .history(url: "https://gmail.com/", title: "Gmail"),
+            ]
+        )
+
+        try harness.dispatchBackspace(modifiers: [], fallbackCommand: #selector(NSResponder.deleteBackward(_:)))
+
+        XCTAssertEqual(harness.state.buffer, "gm")
+        XCTAssertEqual(harness.inlineCompletion?.typedText, "gm")
+        XCTAssertEqual(harness.inlineCompletion?.displayText, "gmail.com")
+    }
+}
+
+@MainActor
+private final class OmnibarInlineDeletionHarness {
+    var state = OmnibarState()
+    var inlineCompletion: OmnibarInlineCompletion?
+
+    init(
+        typedText: String,
+        displayText: String,
+        suggestions: [OmnibarSuggestion]
+    ) {
+        state.isFocused = true
+        state.currentURLString = ""
+        state.buffer = typedText
+        state.suggestions = suggestions
+        inlineCompletion = OmnibarInlineCompletion(
+            typedText: typedText,
+            displayText: displayText,
+            acceptedText: displayText
+        )
+    }
+
+    func dispatchBackspace(
+        modifiers: NSEvent.ModifierFlags,
+        fallbackCommand: Selector,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let coordinator = makeCoordinator()
+        let editor = NSTextView()
+        editor.string = inlineCompletion?.displayText ?? state.buffer
+        if let inlineCompletion {
+            editor.setSelectedRange(inlineCompletion.suffixRange)
+        }
+
+        let event = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: modifiers,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: "\u{7F}",
+                charactersIgnoringModifiers: "\u{7F}",
+                isARepeat: false,
+                keyCode: 51
+            ),
+            file: file,
+            line: line
+        )
+
+        let handledInKeyDown = coordinator.handleKeyEvent(event, editor: editor)
+        if !handledInKeyDown {
+            _ = coordinator.control(NSTextField(), textView: editor, doCommandBy: fallbackCommand)
+        }
+    }
+
+    private func makeCoordinator() -> OmnibarTextFieldRepresentable.Coordinator {
+        OmnibarTextFieldRepresentable.Coordinator(
+            parent: OmnibarTextFieldRepresentable(
+                panelId: UUID(),
+                text: Binding(
+                    get: { self.state.buffer },
+                    set: { self.state.buffer = $0 }
+                ),
+                isFocused: Binding(
+                    get: { self.state.isFocused },
+                    set: { self.state.isFocused = $0 }
+                ),
+                selectAllRequestId: 0,
+                inlineCompletion: inlineCompletion,
+                placeholder: "",
+                onTap: {},
+                onSubmit: {},
+                onEscape: {},
+                onFieldLostFocus: {},
+                onMoveSelection: { _ in },
+                onDeleteSelectedSuggestion: {},
+                onAcceptInlineCompletion: {},
+                onDeleteBackwardWithInlineSelection: { self.deleteSingleCharacterBeforeInlineCompletion() },
+                onClearTypedPrefixWithInlineSelection: { self.clearTypedPrefix() },
+                onDeleteWordBackwardWithInlineSelection: { self.deleteWordBeforeInlineCompletion() },
+                onSelectionChanged: { _, _ in },
+                shouldSuppressWebViewFocus: { false }
+            )
+        )
+    }
+
+    private func deleteSingleCharacterBeforeInlineCompletion() {
+        guard let inlineCompletion else { return }
+        let updated = String(inlineCompletion.typedText.dropLast())
+        replaceTypedPrefix(with: updated)
+    }
+
+    private func clearTypedPrefix() {
+        replaceTypedPrefixAndDismissSuggestions(with: "")
+    }
+
+    private func deleteWordBeforeInlineCompletion() {
+        guard let inlineCompletion else { return }
+        let updated = omnibarPrefixAfterDeletingTrailingWord(from: inlineCompletion.typedText)
+        replaceTypedPrefixAndDismissSuggestions(with: updated)
+    }
+
+    private func replaceTypedPrefix(with updated: String) {
+        let effects = omnibarReduce(state: &state, event: .bufferChanged(updated))
+        XCTAssertTrue(effects.shouldRefreshSuggestions)
+        inlineCompletion = omnibarInlineCompletionForDisplay(
+            typedText: state.buffer,
+            suggestions: state.suggestions,
+            isFocused: state.isFocused,
+            selectionRange: NSRange(location: updated.utf16.count, length: 0),
+            hasMarkedText: false
+        )
+    }
+
+    private func replaceTypedPrefixAndDismissSuggestions(with updated: String) {
+        _ = omnibarReduce(state: &state, event: .bufferChanged(updated))
+        let effects = omnibarReduce(state: &state, event: .suggestionsUpdated([]))
+        XCTAssertFalse(effects.shouldRefreshSuggestions)
+        inlineCompletion = nil
+    }
+
 }
 
 

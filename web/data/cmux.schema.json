@@ -273,6 +273,11 @@
           "default": true,
           "description": "Show a confirmation before quitting cmux."
         },
+        "warnBeforeClosingTab": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a confirmation before closing a tab."
+        },
         "renameSelectsExistingName": {
           "type": "boolean",
           "default": true,

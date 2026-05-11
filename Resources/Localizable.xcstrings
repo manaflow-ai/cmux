@@ -2,6 +2,11 @@
   "sourceLanguage": "en",
   "version": "1.0",
   "strings": {
+    "command.toggleLeftSidebar.title": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"تبديل الشريط الجانبي الأيسر"}},"bs":{"stringUnit":{"state":"translated","value":"Prebaci lijevu bočnu traku"}},"da":{"stringUnit":{"state":"translated","value":"Slå venstre sidebjælke til/fra"}},"de":{"stringUnit":{"state":"translated","value":"Linke Seitenleiste ein-/ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Toggle Left Sidebar"}},"es":{"stringUnit":{"state":"translated","value":"Alternar barra lateral izquierda"}},"fr":{"stringUnit":{"state":"translated","value":"Afficher/masquer la barre latérale gauche"}},"it":{"stringUnit":{"state":"translated","value":"Attiva/Disattiva barra laterale sinistra"}},"ja":{"stringUnit":{"state":"translated","value":"左サイドバーを切り替え"}},"ko":{"stringUnit":{"state":"translated","value":"왼쪽 사이드바 전환"}},"nb":{"stringUnit":{"state":"translated","value":"Slå venstre sidepanel av/på"}},"pl":{"stringUnit":{"state":"translated","value":"Przełącz lewy pasek boczny"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Alternar barra lateral esquerda"}},"ru":{"stringUnit":{"state":"translated","value":"Переключить левую боковую панель"}},"th":{"stringUnit":{"state":"translated","value":"สลับแถบด้านข้างซ้าย"}},"tr":{"stringUnit":{"state":"translated","value":"Sol Kenar Çubuğunu Aç/Kapat"}},"uk":{"stringUnit":{"state":"translated","value":"Перемкнути ліву бічну панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"切换左侧边栏"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"切換左側邊欄"}}} },
+    "menu.view.toggleLeftSidebar": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"تبديل الشريط الجانبي الأيسر"}},"bs":{"stringUnit":{"state":"translated","value":"Prebaci lijevu bočnu traku"}},"da":{"stringUnit":{"state":"translated","value":"Slå venstre sidebjælke til/fra"}},"de":{"stringUnit":{"state":"translated","value":"Linke Seitenleiste ein-/ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Toggle Left Sidebar"}},"es":{"stringUnit":{"state":"translated","value":"Alternar barra lateral izquierda"}},"fr":{"stringUnit":{"state":"translated","value":"Afficher/masquer la barre latérale gauche"}},"it":{"stringUnit":{"state":"translated","value":"Attiva/Disattiva barra laterale sinistra"}},"ja":{"stringUnit":{"state":"translated","value":"左サイドバーを切り替え"}},"ko":{"stringUnit":{"state":"translated","value":"왼쪽 사이드바 전환"}},"nb":{"stringUnit":{"state":"translated","value":"Slå venstre sidepanel av/på"}},"pl":{"stringUnit":{"state":"translated","value":"Przełącz lewy pasek boczny"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Alternar barra lateral esquerda"}},"ru":{"stringUnit":{"state":"translated","value":"Переключить левую боковую панель"}},"th":{"stringUnit":{"state":"translated","value":"สลับแถบด้านข้างซ้าย"}},"tr":{"stringUnit":{"state":"translated","value":"Sol Kenar Çubuğunu Aç/Kapat"}},"uk":{"stringUnit":{"state":"translated","value":"Перемкнути ліву бічну панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"切换左侧边栏"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"切換左側邊欄"}}} },
+    "menu.view.toggleRightSidebar": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"تبديل الشريط الجانبي الأيمن"}},"bs":{"stringUnit":{"state":"translated","value":"Prebaci desnu bočnu traku"}},"da":{"stringUnit":{"state":"translated","value":"Slå højre sidebjælke til/fra"}},"de":{"stringUnit":{"state":"translated","value":"Rechte Seitenleiste ein-/ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Toggle Right Sidebar"}},"es":{"stringUnit":{"state":"translated","value":"Alternar barra lateral derecha"}},"fr":{"stringUnit":{"state":"translated","value":"Afficher/masquer la barre latérale droite"}},"it":{"stringUnit":{"state":"translated","value":"Attiva/Disattiva barra laterale destra"}},"ja":{"stringUnit":{"state":"translated","value":"右サイドバーを切り替え"}},"ko":{"stringUnit":{"state":"translated","value":"오른쪽 사이드바 전환"}},"nb":{"stringUnit":{"state":"translated","value":"Slå høyre sidepanel av/på"}},"pl":{"stringUnit":{"state":"translated","value":"Przełącz prawy pasek boczny"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Alternar barra lateral direita"}},"ru":{"stringUnit":{"state":"translated","value":"Переключить правую боковую панель"}},"th":{"stringUnit":{"state":"translated","value":"สลับแถบด้านข้างขวา"}},"tr":{"stringUnit":{"state":"translated","value":"Sağ Kenar Çubuğunu Aç/Kapat"}},"uk":{"stringUnit":{"state":"translated","value":"Перемкнути праву бічну панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"切换右侧边栏"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"切換右側邊欄"}}} },
+    "shortcut.toggleLeftSidebar.label": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"تبديل الشريط الجانبي الأيسر"}},"bs":{"stringUnit":{"state":"translated","value":"Prebaci lijevu bočnu traku"}},"da":{"stringUnit":{"state":"translated","value":"Slå venstre sidebjælke til/fra"}},"de":{"stringUnit":{"state":"translated","value":"Linke Seitenleiste ein-/ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Toggle Left Sidebar"}},"es":{"stringUnit":{"state":"translated","value":"Alternar barra lateral izquierda"}},"fr":{"stringUnit":{"state":"translated","value":"Afficher/masquer la barre latérale gauche"}},"it":{"stringUnit":{"state":"translated","value":"Attiva/Disattiva barra laterale sinistra"}},"ja":{"stringUnit":{"state":"translated","value":"左サイドバーを切り替え"}},"ko":{"stringUnit":{"state":"translated","value":"왼쪽 사이드바 전환"}},"nb":{"stringUnit":{"state":"translated","value":"Slå venstre sidepanel av/på"}},"pl":{"stringUnit":{"state":"translated","value":"Przełącz lewy pasek boczny"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Alternar barra lateral esquerda"}},"ru":{"stringUnit":{"state":"translated","value":"Переключить левую боковую панель"}},"th":{"stringUnit":{"state":"translated","value":"สลับแถบด้านข้างซ้าย"}},"tr":{"stringUnit":{"state":"translated","value":"Sol Kenar Çubuğunu Aç/Kapat"}},"uk":{"stringUnit":{"state":"translated","value":"Перемкнути ліву бічну панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"切换左侧边栏"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"切換左側邊欄"}}} },
+    "shortcut.toggleRightSidebar.label": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"تبديل الشريط الجانبي الأيمن"}},"bs":{"stringUnit":{"state":"translated","value":"Prebaci desnu bočnu traku"}},"da":{"stringUnit":{"state":"translated","value":"Slå højre sidebjælke til/fra"}},"de":{"stringUnit":{"state":"translated","value":"Rechte Seitenleiste ein-/ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Toggle Right Sidebar"}},"es":{"stringUnit":{"state":"translated","value":"Alternar barra lateral derecha"}},"fr":{"stringUnit":{"state":"translated","value":"Afficher/masquer la barre latérale droite"}},"it":{"stringUnit":{"state":"translated","value":"Attiva/Disattiva barra laterale destra"}},"ja":{"stringUnit":{"state":"translated","value":"右サイドバーを切り替え"}},"ko":{"stringUnit":{"state":"translated","value":"오른쪽 사이드바 전환"}},"nb":{"stringUnit":{"state":"translated","value":"Slå høyre sidepanel av/på"}},"pl":{"stringUnit":{"state":"translated","value":"Przełącz prawy pasek boczny"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Alternar barra lateral direita"}},"ru":{"stringUnit":{"state":"translated","value":"Переключить правую боковую панель"}},"th":{"stringUnit":{"state":"translated","value":"สลับแถบด้านข้างขวา"}},"tr":{"stringUnit":{"state":"translated","value":"Sağ Kenar Çubuğunu Aç/Kapat"}},"uk":{"stringUnit":{"state":"translated","value":"Перемкнути праву бічну панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"切换右侧边栏"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"切換右側邊欄"}}} },
     "shortcut.commandPaletteNext.label": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "ja": { "stringUnit": { "state": "translated", "value": "コマンドパレット: 次へ" } }, "zh-Hans": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "zh-Hant": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "ko": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "de": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "es": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "fr": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "it": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "da": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "pl": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "ru": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "bs": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "ar": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "nb": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "th": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "tr": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "uk": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } } } },
     "shortcut.commandPalettePrevious.label": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "ja": { "stringUnit": { "state": "translated", "value": "コマンドパレット: 前へ" } }, "zh-Hans": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "zh-Hant": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "ko": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "de": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "es": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "fr": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "it": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "da": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "pl": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "ru": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "bs": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "ar": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "nb": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "th": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "tr": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "uk": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } } } },
     "settings.shortcuts.managedByFile": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "ja": { "stringUnit": { "state": "translated", "value": "cmux.json で管理" } }, "zh-Hans": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "zh-Hant": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "ko": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "de": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "es": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "fr": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "it": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "da": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "pl": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "ru": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "bs": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "ar": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "nb": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "th": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "tr": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "uk": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } } } },
@@ -7381,6 +7386,193 @@
         }
       }
     },
+    "browser.profile.automation.error.ambiguousProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multiple cmux browser profiles match '%@'. Use the profile ID instead."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' に一致する cmux ブラウザープロファイルが複数あります。代わりにプロファイル ID を使用してください。"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.cannotDeleteDefaultProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The default browser profile cannot be deleted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトのブラウザープロファイルは削除できません"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.fallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser profile command failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルコマンドに失敗しました"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.missingName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing browser profile name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイル名がありません"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.missingProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing browser profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルがありません"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileClearFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to clear cmux browser profile '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイル '%@' を消去できませんでした"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileCreationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to create cmux browser profile '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイル '%@' を作成できませんでした"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileDeleteFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to delete cmux browser profile '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイル '%@' を削除できませんでした"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileInUse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot delete cmux browser profile '%@' while %d browser panel(s) are using it"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイル '%@' は %d 個のブラウザーパネルが使用中のため削除できません"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No cmux browser profile matches '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' に一致する cmux ブラウザープロファイルが見つかりません"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileRenameFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to rename cmux browser profile to '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイルの名前を '%@' に変更できませんでした"
+          }
+        }
+      }
+    },
     "browser.profile.menu.title": {
       "extractionState": "manual",
       "localizations": {
@@ -8595,6 +8787,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "가져오기를 시작할 수 없습니다"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.browserNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No importable browser matches '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' に一致するインポート可能なブラウザーが見つかりません"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.destinationProfileCreationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to create cmux browser profile '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイル '%@' を作成できませんでした"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.destinationProfileNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No cmux browser profile matches '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' に一致する cmux ブラウザープロファイルが見つかりません"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.fallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser import failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザーのインポートに失敗しました"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.noBrowsers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No importable browsers found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポート可能なブラウザーが見つかりません"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.noProfiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No source profiles found for %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のソースプロファイルが見つかりません"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.sourceProfileNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No source profile matches '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' に一致するソースプロファイルが見つかりません"
           }
         }
       }
@@ -27209,125 +27520,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Макет"
-          }
-        }
-      }
-    },
-    "command.toggleSidebar.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle Sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーの切り替え"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切换侧边栏"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切換側邊欄"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바 전환"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seitenleiste ein-/ausblenden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar barra lateral"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher/masquer la barre latérale"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attiva/Disattiva barra laterale"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå sidebjælke til/fra"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przełącz pasek boczny"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Боковая панель"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prebaci bočnu traku"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تبديل الشريط الجانبي"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå sidepanelet av/på"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar Barra Lateral"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สลับแถบด้านข้าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kenar Çubuğunu Aç/Kapat"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перемкнути бічну панель"
           }
         }
       }
@@ -48742,125 +48934,6 @@
         }
       }
     },
-    "menu.view.toggleSidebar": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle Sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーの切り替え"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切换侧边栏"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切換側邊欄"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바 전환"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seitenleiste ein-/ausblenden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar barra lateral"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher/masquer la barre latérale"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attiva/Disattiva barra laterale"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå sidebjælke til/fra"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przełącz pasek boczny"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Боковая панель"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prebaci bočnu traku"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تبديل الشريط الجانبي"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå sidepanelet av/på"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar Barra Lateral"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สลับแถบด้านข้าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kenar Çubuğunu Aç/Kapat"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перемкнути бічну панель"
-          }
-        }
-      }
-    },
     "menu.view.workspace": {
       "extractionState": "manual",
       "localizations": {
@@ -57945,6 +58018,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Показувати підтвердження перед виходом через Cmd+Q."
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before Closing Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを閉じる前に警告"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingTab.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabs close immediately without confirmation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認なしにすぐタブを閉じます。"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingTab.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show a confirmation before closing a tab."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを閉じる前に確認を表示します。"
           }
         }
       }
@@ -72178,115 +72302,115 @@
             "en": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace"
                 }
             },
             "ja": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace 閉じる 最後のペイン サーフェス ワークスペースを残す コマンドw"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace 閉じる 最後のペイン サーフェス ワークスペースを残す"
                 }
             },
             "ar": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace تطبيق عام تفضيلات سلوك شريط القائمة حالة الشريط الجانبي مساحة عمل تبويب ألوان لوحة شارة محدد تمييز مؤشر نشط نقطة محرر ملف كود فتح مسار لسان إغلاق اللسان العمل • %@ اللسان؟ العمل؟ التطبيق مفتوح"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace تطبيق عام تفضيلات سلوك شريط القائمة حالة الشريط الجانبي مساحة عمل تبويب ألوان لوحة شارة محدد تمييز مؤشر نشط نقطة محرر ملف كود فتح مسار لسان إغلاق اللسان العمل • %@ اللسان؟ العمل؟ التطبيق مفتوح"
                 }
             },
             "bs": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace aplikacija opće postavke ponašanje dock traka menija status bočna radni prostor kartica boje paleta značka odabrano isticanje indikator aktivno tačka editor datoteka kod otvori putanja Zatvori • %@ Zatvoriti tab? prostor? otvoren"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace aplikacija opće postavke ponašanje dock traka menija status bočna radni prostor kartica boje paleta značka odabrano isticanje indikator aktivno tačka editor datoteka kod otvori putanja Zatvori • %@ Zatvoriti tab? prostor? otvoren"
                 }
             },
             "da": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace app generelt indstillinger adfærd dock menulinje status sidepanel arbejdsområde fane farver palette badge valgt fremhævning indikator aktiv prik editor fil kode åbn sti Luk • %@ fane? arbejdsområde? åben"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace app generelt indstillinger adfærd dock menulinje status sidepanel arbejdsområde fane farver palette badge valgt fremhævning indikator aktiv prik editor fil kode åbn sti Luk • %@ fane? arbejdsområde? åben"
                 }
             },
             "de": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace app allgemein einstellungen verhalten dock menüleiste status seitenleiste arbeitsbereich farben palette badge ausgewählt hervorhebung indikator aktiv punkt editor datei code öffnen pfad schließen • %@ schließen? offen"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace app allgemein einstellungen verhalten dock menüleiste status seitenleiste arbeitsbereich farben palette badge ausgewählt hervorhebung indikator aktiv punkt editor datei code öffnen pfad schließen • %@ schließen? offen"
                 }
             },
             "es": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace aplicación general preferencias comportamiento dock barra de menú estado lateral espacio trabajo pestaña colores paleta insignia seleccionado resaltado indicador activo punto editor archivo código abrir ruta Cerrar • %@ ¿Cerrar pestaña? trabajo? App abierto"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace aplicación general preferencias comportamiento dock barra de menú estado lateral espacio trabajo pestaña colores paleta insignia seleccionado resaltado indicador activo punto editor archivo código abrir ruta Cerrar • %@ ¿Cerrar pestaña? trabajo? App abierto"
                 }
             },
             "fr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace application général préférences comportement dock barre de menus état latérale espace travail onglet couleurs palette badge sélectionné surbrillance indicateur actif point éditeur fichier code ouvrir chemin Fermer l'onglet l'espace • %@ ? App ouverte"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace application général préférences comportement dock barre de menus état latérale espace travail onglet couleurs palette badge sélectionné surbrillance indicateur actif point éditeur fichier code ouvrir chemin Fermer l'onglet l'espace • %@ ? App ouverte"
                 }
             },
             "it": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace app generale preferenze comportamento dock barra menu stato laterale area di lavoro scheda colori tavolozza badge selezionato evidenziazione indicatore attivo punto editor file codice apri percorso Chiudi • %@ Chiudere la scheda? l'area lavoro? aperta"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace app generale preferenze comportamento dock barra menu stato laterale area di lavoro scheda colori tavolozza badge selezionato evidenziazione indicatore attivo punto editor file codice apri percorso Chiudi • %@ Chiudere la scheda? l'area lavoro? aperta"
                 }
             },
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 편집기 파일 코드 열기 경로 닫기 작업 공간 • %@ 탭을 닫으시겠습니까? 공간을 열림"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 편집기 파일 코드 열기 경로 닫기 작업 공간 • %@ 탭을 닫으시겠습니까? 공간을 열림"
                 }
             },
             "nb": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace app generelt innstillinger oppførsel dock menylinje status sidepanel arbeidsområde fane farger palett merke valgt utheving indikator aktiv prikk redigerer fil kode åpne bane Lukk • %@ Lukke fane? arbeidsområde? åpen"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace app generelt innstillinger oppførsel dock menylinje status sidepanel arbeidsområde fane farger palett merke valgt utheving indikator aktiv prikk redigerer fil kode åpne bane Lukk • %@ Lukke fane? arbeidsområde? åpen"
                 }
             },
             "pl": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace aplikacja ogólne preferencje zachowanie dock pasek menu status boczny obszar roboczy karta kolory paleta odznaka zaznaczone podświetlenie wskaźnik aktywny kropka edytor plik kod otwórz ścieżka Zamknij kartę Przestrzeń robocza roboczą • %@ Zamknąć kartę? roboczą? otwarty"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace aplikacja ogólne preferencje zachowanie dock pasek menu status boczny obszar roboczy karta kolory paleta odznaka zaznaczone podświetlenie wskaźnik aktywny kropka edytor plik kod otwórz ścieżka Zamknij kartę Przestrzeń robocza roboczą • %@ Zamknąć kartę? roboczą? otwarty"
                 }
             },
             "pt-BR": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace app geral preferências comportamento dock barra de menu status lateral aba cores paleta selo selecionado destaque indicador ativo ponto editor arquivo código abrir caminho Fechar Área Trabalho • %@ aba? trabalho? aberto"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace app geral preferências comportamento dock barra de menu status lateral aba cores paleta selo selecionado destaque indicador ativo ponto editor arquivo código abrir caminho Fechar Área Trabalho • %@ aba? trabalho? aberto"
                 }
             },
             "ru": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace приложение общие настройки поведение док строка меню статус боковая панель рабочая область вкладка цвета палитра значок выбранный подсветка индикатор активный точка редактор файл код открыть путь Закрыть вкладку Рабочее пространство • %@ вкладку? пространство? открыт"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace приложение общие настройки поведение док строка меню статус боковая панель рабочая область вкладка цвета палитра значок выбранный подсветка индикатор активный точка редактор файл код открыть путь Закрыть вкладку Рабочее пространство • %@ вкладку? пространство? открыт"
                 }
             },
             "th": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace แอป ทั่วไป ค่ากำหนด พฤติกรรม ด็อก แถบเมนู สถานะ แถบด้านข้าง พื้นที่ทำงาน แท็บ สี จานสี ป้าย เลือก ไฮไลต์ ตัวบ่งชี้ ใช้งาน จุด ตัวแก้ไข ไฟล์ โค้ด เปิด เส้นทาง ปิดแท็บ เวิร์กสเปซ ปิดเวิร์กสเปซ • %@ ปิด ปิดแท็บหรือไม่? ปิดเวิร์กสเปซหรือไม่?"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace แอป ทั่วไป ค่ากำหนด พฤติกรรม ด็อก แถบเมนู สถานะ แถบด้านข้าง พื้นที่ทำงาน แท็บ สี จานสี ป้าย เลือก ไฮไลต์ ตัวบ่งชี้ ใช้งาน จุด ตัวแก้ไข ไฟล์ โค้ด เปิด เส้นทาง ปิดแท็บ เวิร์กสเปซ ปิดเวิร์กสเปซ • %@ ปิด ปิดแท็บหรือไม่? ปิดเวิร์กสเปซหรือไม่?"
                 }
             },
             "tr": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace uygulama genel tercihler davranış dock menü çubuğu durum kenar çalışma alanı sekme renkler palet rozet seçili vurgulama gösterge aktif nokta düzenleyici dosya kod aç yol Sekmeyi Kapat Alanını • %@ kapatılsın mı? açık"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace uygulama genel tercihler davranış dock menü çubuğu durum kenar çalışma alanı sekme renkler palet rozet seçili vurgulama gösterge aktif nokta düzenleyici dosya kod aç yol Sekmeyi Kapat Alanını • %@ kapatılsın mı? açık"
                 }
             },
             "zh-Hans": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace 应用 通用 偏好设置 行为 程序坞 菜单栏 状态 侧边栏 工作区 标签页 颜色 调色板 徽章 已选中 高亮 指示器 活动 点 编辑器 文件 代码 打开 路径 关闭标签页 关闭工作区 • %@ 关闭 关闭标签页？ 关闭工作区？"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace 应用 通用 偏好设置 行为 程序坞 菜单栏 状态 侧边栏 工作区 标签页 颜色 调色板 徽章 已选中 高亮 指示器 活动 点 编辑器 文件 代码 打开 路径 关闭标签页 关闭工作区 • %@ 关闭 关闭标签页？ 关闭工作区？"
                 }
             },
             "zh-Hant": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace 應用程式 一般 偏好設定 行為 Dock 選單列 狀態 側邊欄 工作區 分頁 顏色 調色盤 徽章 已選取 反白 指示器 作用中 點 編輯器 檔案 程式碼 開啟 路徑 標籤頁 關閉標籤頁 關閉工作區 • %@ 關閉 要關閉標籤頁嗎？ 要關閉工作區嗎？ App"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace 應用程式 一般 偏好設定 行為 Dock 選單列 狀態 側邊欄 工作區 分頁 顏色 調色盤 徽章 已選取 反白 指示器 作用中 點 編輯器 檔案 程式碼 開啟 路徑 標籤頁 關閉標籤頁 關閉工作區 • %@ 關閉 要關閉標籤頁嗎？ 要關閉工作區嗎？ App"
                 }
             },
             "uk": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace програма загальні параметри поведінка док рядок меню статус бічна панель робочий простір вкладка кольори палітра значок вибрано підсвічування індикатор активний крапка редактор файл код відкрити шлях Закрити вкладку Робоча область робочу • %@ вкладку? область? відкритий"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace програма загальні параметри поведінка док рядок меню статус бічна панель робочий простір вкладка кольори палітра значок вибрано підсвічування індикатор активний крапка редактор файл код відкрити шлях Закрити вкладку Робоча область робочу • %@ вкладку? область? відкритий"
                 }
             }
         }
@@ -74072,6 +74196,23 @@
                 "stringUnit": {
                     "state": "translated",
                     "value": "app.warnBeforeQuit quit confirmation command-q cmd-q exit close app програма загальні параметри поведінка док рядок меню статус бічна панель Закрити Завершити Попереджувати перед виходом"
+                }
+            }
+        }
+    },
+    "settings.search.alias.setting.app.warn-before-closing-tab": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTab close tab confirmation command-w cmd-w terminal surface"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTab close tab confirmation command-w cmd-w terminal surface タブを閉じる 確認 警告"
                 }
             }
         }
@@ -85731,148 +85872,6 @@
         }
       }
     },
-    "shortcut.toggleSidebar.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle Sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーを切替"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切换侧边栏"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切換側邊欄"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바 전환"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seitenleiste ein-/ausblenden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar barra lateral"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher/masquer la barre latérale"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attiva/Disattiva barra laterale"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå sidebjælke til/fra"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przełącz pasek boczny"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Боковая панель"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prebaci bočnu traku"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تبديل الشريط الجانبي"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå sidepanelet av/på"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar Barra Lateral"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สลับแถบด้านข้าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kenar Çubuğunu Aç/Kapat"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перемкнути бічну панель"
-          }
-        }
-      }
-    },
-    "shortcut.toggleFileExplorer.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle Right Sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右サイドバーを切替"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오른쪽 사이드바 토글"
-          }
-        }
-      }
-    },
     "fileExplorer.empty": {
       "extractionState": "manual",
       "localizations": {
@@ -86034,6 +86033,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "파일 탐색기를 사용할 수 없습니다"
+          }
+        }
+      }
+    },
+    "fileExplorer.status.sshHomeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to resolve SSH home: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH のホームを解決できません: %@"
+          }
+        }
+      }
+    },
+    "fileExplorer.status.sshResolvingHome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolving remote home..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートのホームを解決中..."
+          }
+        }
+      }
+    },
+    "fileExplorer.status.sshUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH files unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ファイルを利用できません"
+          }
+        }
+      }
+    },
+    "fileExplorer.status.sshUnavailableWithDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH files unavailable: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ファイルを利用できません: %@"
           }
         }
       }
@@ -104936,19 +105003,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Right Sidebar"
+            "value": "Toggle Right Sidebar Focus"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右サイドバーを切り替え"
+            "value": "右サイドバーのフォーカスを切替"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오른쪽 사이드바 전환"
+            "value": "오른쪽 사이드바 포커스 전환"
           }
         }
       }
@@ -105068,19 +105135,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Right Sidebar"
+            "value": "Toggle Right Sidebar Focus"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右サイドバーを切り替え"
+            "value": "右サイドバーのフォーカスを切替"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오른쪽 사이드바 전환"
+            "value": "오른쪽 사이드바 포커스 전환"
           }
         }
       }
@@ -105242,6 +105309,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "워크스페이스 설명 지우기"
+          }
+        }
+      }
+    },
+    "contextMenu.showWorkspaceInFinder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show in Finder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderで表示"
           }
         }
       }

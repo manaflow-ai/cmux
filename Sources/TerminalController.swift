@@ -211,6 +211,23 @@ class TerminalController {
     private let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
     private var browserDownloadObserver: NSObjectProtocol?
 
+    func cleanupSurfaceState(surfaceIds: [UUID]) {
+        for surfaceId in Set(surfaceIds) {
+            v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
+            v2BrowserInitScriptsBySurface.removeValue(forKey: surfaceId)
+            v2BrowserInitStylesBySurface.removeValue(forKey: surfaceId)
+            v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
+            v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
+            v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
+            v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
+
+            if let surfaceRef = v2RefByUUID[.surface]?[surfaceId] {
+                v2UUIDByRef[.surface]?.removeValue(forKey: surfaceRef)
+            }
+            v2RefByUUID[.surface]?.removeValue(forKey: surfaceId)
+        }
+    }
+
     private init() {
         browserDownloadObserver = NotificationCenter.default.addObserver(
             forName: .browserDownloadEventDidArrive,
@@ -1483,6 +1500,12 @@ class TerminalController {
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
+        "browser.profiles.list",
+        "browser.profiles.create",
+        "browser.profiles.rename",
+        "browser.profiles.clear",
+        "browser.profiles.delete",
+        "browser.import.cookies",
         "system.top",
     ]
 
@@ -1564,6 +1587,31 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "browser.profiles.list":
+            return v2VmCall(id: request.id, timeoutSeconds: 30) {
+                try await BrowserProfileAutomation.list(params: request.params)
+            }
+        case "browser.profiles.create":
+            return v2VmCall(id: request.id, timeoutSeconds: 30) {
+                try await BrowserProfileAutomation.create(params: request.params)
+            }
+        case "browser.profiles.rename":
+            return v2VmCall(id: request.id, timeoutSeconds: 30) {
+                try await BrowserProfileAutomation.rename(params: request.params)
+            }
+        case "browser.profiles.clear":
+            return v2VmCall(id: request.id, timeoutSeconds: 120) {
+                try await BrowserProfileAutomation.clear(params: request.params)
+            }
+        case "browser.profiles.delete":
+            return v2VmCall(id: request.id, timeoutSeconds: 120) {
+                try await BrowserProfileAutomation.delete(params: request.params)
+            }
+        case "browser.import.cookies":
+            return v2VmCall(id: request.id, timeoutSeconds: 10 * 60) {
+                let outcome = try await BrowserImportAutomation.importCookies(params: request.params)
+                return outcome.socketPayload
+            }
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case let method where method.hasPrefix("vm."):
@@ -2668,6 +2716,8 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserDialogRespond(params: params, accept: false))
         case "browser.download.wait":
             return v2Result(id: id, self.v2BrowserDownloadWait(params: params))
+        case "browser.import.dialog":
+            return v2Result(id: id, self.v2BrowserImportDialog(params: params))
         case "browser.cookies.get":
             return v2Result(id: id, self.v2BrowserCookiesGet(params: params))
         case "browser.cookies.set":
@@ -11084,6 +11134,81 @@ class TerminalController {
         }
     }
 
+    private func v2BrowserImportDialog(params: [String: Any]) -> V2CallResult {
+        let scope: BrowserImportScope?
+        if params.keys.contains("scope") {
+            guard let raw = v2String(params, "scope")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                  !raw.isEmpty else {
+                return .err(code: "invalid_params", message: "scope must be a non-empty string", data: ["param": "scope"])
+            }
+            switch raw {
+            case "cookie", "cookies", "cookiesonly", "cookies_only", "cookies-only":
+                scope = .cookiesOnly
+            case "history", "historyonly", "history_only", "history-only":
+                scope = .historyOnly
+            case "cookiesandhistory", "cookies_and_history", "cookies-and-history", "all-basic":
+                scope = .cookiesAndHistory
+            case "everything", "all":
+                scope = .everything
+            default:
+                return .err(code: "invalid_params", message: "scope is invalid", data: ["param": "scope"])
+            }
+        } else {
+            scope = nil
+        }
+
+        let defaultDestinationProfileID: UUID?
+        if params.keys.contains("destination_profile") {
+            guard let query = v2String(params, "destination_profile")?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !query.isEmpty else {
+                return .err(
+                    code: "invalid_params",
+                    message: "destination_profile must be a non-empty string",
+                    data: ["param": "destination_profile"]
+                )
+            }
+            let profiles = BrowserProfileStore.shared.profiles
+            if let uuid = UUID(uuidString: query),
+               profiles.contains(where: { $0.id == uuid }) {
+                defaultDestinationProfileID = uuid
+            } else if let profile = profiles.first(where: {
+                $0.displayName.localizedCaseInsensitiveCompare(query) == .orderedSame ||
+                    $0.slug.localizedCaseInsensitiveCompare(query) == .orderedSame
+            }) {
+                defaultDestinationProfileID = profile.id
+            } else if v2Bool(params, "create_destination_profile") == true ||
+                v2Bool(params, "create_profile") == true {
+                guard let createdProfileID = BrowserProfileStore.shared.createProfile(named: query)?.id else {
+                    return .err(
+                        code: "invalid_params",
+                        message: "destination_profile could not be created",
+                        data: ["param": "destination_profile"]
+                    )
+                }
+                defaultDestinationProfileID = createdProfileID
+            } else {
+                return .err(
+                    code: "invalid_params",
+                    message: "destination_profile does not match a cmux browser profile",
+                    data: ["param": "destination_profile"]
+                )
+            }
+        } else {
+            defaultDestinationProfileID = nil
+        }
+        Task { @MainActor in
+            BrowserDataImportCoordinator.shared.presentImportDialog(
+                defaultDestinationProfileID: defaultDestinationProfileID,
+                defaultScope: scope
+            )
+        }
+        return .ok([
+            "opened": true,
+            "scope": scope.map { $0.rawValue as Any } ?? NSNull(),
+        ])
+    }
+
     private func v2BrowserCookieDict(_ cookie: HTTPCookie) -> [String: Any] {
         var out: [String: Any] = [
             "name": cookie.name,
@@ -16007,6 +16132,23 @@ class TerminalController {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    private func parseOptionalPanelIdOption(
+        options: [String: String],
+        usage: String
+    ) -> (panelId: UUID?, error: String?) {
+        guard let rawPanelArg = options["panel"] ?? options["surface"] else {
+            return (nil, nil)
+        }
+        let panelArg = rawPanelArg.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !panelArg.isEmpty else {
+            return (nil, "ERROR: Missing panel id — usage: \(usage)")
+        }
+        guard let panelId = UUID(uuidString: panelArg) else {
+            return (nil, "ERROR: Invalid panel id '\(rawPanelArg)'")
+        }
+        return (panelId, nil)
+    }
+
     private func scheduleSidebarMutation(
         target: SidebarMutationTabTarget,
         mutation: @escaping (TerminalController, Tab) -> Void
@@ -16112,6 +16254,13 @@ class TerminalController {
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: No tab selected"
         }
+        let panelResolution = parseOptionalPanelIdOption(
+            options: parsed.options,
+            usage: "set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=ID]"
+        )
+        if let error = panelResolution.error {
+            return error
+        }
 
         let pidValue: pid_t? = {
             if let rawPid = normalizedOptionValue(parsed.options["pid"]),
@@ -16121,7 +16270,10 @@ class TerminalController {
             return nil
         }()
 
-        scheduleSidebarMutation(target: target) { controller, tab in
+        scheduleSidebarMutation(target: target) { _, tab in
+            if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
+                return
+            }
             guard Self.shouldReplaceStatusEntry(
                 current: tab.statusEntries[key],
                 key: key,
@@ -16134,8 +16286,7 @@ class TerminalController {
             ) else {
                 // Still update PID tracking even if the status display hasn't changed.
                 if let pidValue {
-                    tab.agentPIDs[key] = pidValue
-                    controller.refreshTrackedAgentPorts(for: tab)
+                    tab.recordAgentPID(key: key, pid: pidValue, panelId: panelResolution.panelId)
                 }
                 return
             }
@@ -16150,8 +16301,7 @@ class TerminalController {
                 timestamp: Date()
             )
             if let pidValue {
-                tab.agentPIDs[key] = pidValue
-                controller.refreshTrackedAgentPorts(for: tab)
+                tab.recordAgentPID(key: key, pid: pidValue, panelId: panelResolution.panelId)
             }
         }
         return "OK"
@@ -16168,55 +16318,66 @@ class TerminalController {
             return targetResolution.error ?? "ERROR: No tab selected"
         }
 
-        scheduleSidebarMutation(target: target) { controller, tab in
+        scheduleSidebarMutation(target: target) { _, tab in
             _ = tab.statusEntries.removeValue(forKey: key)
-            if tab.agentPIDs.removeValue(forKey: key) != nil {
-                controller.refreshTrackedAgentPorts(for: tab)
-            }
+            tab.clearAgentPID(key: key)
         }
         return "OK"
     }
 
     /// Register an agent PID for stale-session detection without setting a visible status entry.
-    /// Usage: set_agent_pid <key> <pid> [--tab=<id>]
+    /// Usage: set_agent_pid <key> <pid> [--tab=<id>] [--panel=<id>]
     private func setAgentPID(_ args: String) -> String {
         let parsed = parseOptions(args)
+        let usage = "set_agent_pid <key> <pid> [--tab=<id>] [--panel=<id>]"
         guard parsed.positional.count >= 2,
               let pid = Int32(parsed.positional[1]), pid > 0 else {
-            return "ERROR: Usage: set_agent_pid <key> <pid> [--tab=<id>]"
+            return "ERROR: Usage: \(usage)"
         }
         let key = parsed.positional[0]
         let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: No tab selected"
         }
-        scheduleSidebarMutation(target: target) { controller, tab in
-            tab.agentPIDs[key] = pid
-            controller.refreshTrackedAgentPorts(for: tab)
+        let panelResolution = parseOptionalPanelIdOption(options: parsed.options, usage: usage)
+        if let error = panelResolution.error {
+            return error
+        }
+        scheduleSidebarMutation(target: target) { _, tab in
+            if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
+                return
+            }
+            tab.recordAgentPID(key: key, pid: pid, panelId: panelResolution.panelId)
         }
         return "OK"
     }
 
-    /// Unregister an agent PID. Usage: clear_agent_pid <key> [--tab=<id>]
+    /// Unregister an agent PID. Usage: clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status]
     private func clearAgentPID(_ args: String) -> String {
         let parsed = parseOptions(args)
+        let usage = "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status]"
         guard let key = parsed.positional.first else {
-            return "ERROR: Usage: clear_agent_pid <key> [--tab=<id>]"
+            return "ERROR: Usage: \(usage)"
         }
         let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: No tab selected"
         }
-        scheduleSidebarMutation(target: target) { controller, tab in
-            tab.agentPIDs.removeValue(forKey: key)
-            controller.refreshTrackedAgentPorts(for: tab)
+        let panelResolution = parseOptionalPanelIdOption(options: parsed.options, usage: usage)
+        if let error = panelResolution.error {
+            return error
+        }
+        scheduleSidebarMutation(target: target) { _, tab in
+            if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
+                return
+            }
+            tab.clearAgentPID(
+                key: key,
+                panelId: panelResolution.panelId,
+                clearStatus: parsed.options["clear-status"] != nil
+            )
         }
         return "OK"
-    }
-
-    private func refreshTrackedAgentPorts(for tab: Workspace) {
-        let agentPIDs = Set(tab.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
-        PortScanner.shared.refreshAgentPorts(workspaceId: tab.id, agentPIDs: agentPIDs)
     }
 
     private func sidebarMetadataLine(_ entry: SidebarStatusEntry) -> String {

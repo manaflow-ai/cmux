@@ -519,10 +519,10 @@ struct cmuxApp: App {
                 Divider()
 
                 // Terminal semantics:
-                // Cmd+W closes the focused tab/surface (with confirmation if needed). By
-                // default, closing the last surface also closes the workspace and the window
-                // if it was also the last workspace. Users can opt into keeping the workspace
-                // open instead.
+                // The Close Tab shortcut closes the focused tab/surface with confirmation
+                // when needed. By default, closing the last surface also closes the
+                // workspace and the window if it was also the last workspace.
+                // Users can opt into keeping the workspace open instead.
                 splitCommandButton(title: String(localized: "menu.file.closeTab", defaultValue: "Close Tab"), shortcut: menuShortcut(for: .closeTab)) {
                     closePanelOrWindow()
                 }
@@ -532,8 +532,8 @@ struct cmuxApp: App {
                 }
                 .disabled(!activeTabManager.canCloseOtherTabsInFocusedPane())
 
-                // Cmd+Shift+W closes the current workspace (with confirmation if needed). If this
-                // is the last workspace, it closes the window.
+                // The Close Workspace shortcut closes the current workspace with confirmation
+                // when needed. If this is the last workspace, it closes the window.
                 splitCommandButton(title: String(localized: "menu.file.closeWorkspace", defaultValue: "Close Workspace"), shortcut: menuShortcut(for: .closeWorkspace)) {
                     closeTabOrWindow()
                 }
@@ -636,13 +636,21 @@ struct cmuxApp: App {
         }
         helpCommands
         CommandGroup(after: .toolbar) {
-            splitCommandButton(title: String(localized: "menu.view.toggleSidebar", defaultValue: "Toggle Sidebar"), shortcut: menuShortcut(for: .toggleSidebar)) {
+            splitCommandButton(title: String(localized: "menu.view.toggleLeftSidebar", defaultValue: "Toggle Left Sidebar"), shortcut: menuShortcut(for: .toggleSidebar)) {
                 if AppDelegate.shared?.toggleSidebarInActiveMainWindow() != true {
                     sidebarState.toggle()
                 }
             }
 
-            splitCommandButton(title: String(localized: "menu.view.focusRightSidebar", defaultValue: "Toggle Right Sidebar"), shortcut: menuShortcut(for: .focusRightSidebar)) {
+            splitCommandButton(title: String(localized: "menu.view.toggleRightSidebar", defaultValue: "Toggle Right Sidebar"), shortcut: menuShortcut(for: .toggleRightSidebar)) {
+                if AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                ) != true {
+                    NSSound.beep()
+                }
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.focusRightSidebar", defaultValue: "Toggle Right Sidebar Focus"), shortcut: menuShortcut(for: .focusRightSidebar)) {
                 if AppDelegate.shared?.toggleRightSidebarKeyboardFocusInActiveMainWindow() != true {
                     if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                         preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
@@ -1147,6 +1155,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.feedPreview",
     "cmux.feedTextEditorDebug",
     "cmux.fileExplorerStyleDebug",
+    "cmux.folderDragIcon",
     "cmux.pdfPreviewChromeDebug",
     "cmux.splitButtonLayoutDebug",
     "cmux.tabBarBackdropLab",
@@ -4573,6 +4582,47 @@ enum QuitWarningSettings {
     }
 }
 
+enum CloseTabWarningSettings {
+    static let warnBeforeClosingTabKey = "warnBeforeClosingTabShortcut"
+    static let defaultWarnBeforeClosingTab = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: warnBeforeClosingTabKey) == nil {
+            return defaultWarnBeforeClosingTab
+        }
+        return defaults.bool(forKey: warnBeforeClosingTabKey)
+    }
+
+    static func setEnabled(_ isEnabled: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(isEnabled, forKey: warnBeforeClosingTabKey)
+    }
+}
+
+enum CloseTabConfirmationPolicy {
+    enum Decision: Equatable {
+        case closeImmediately
+        case confirmBeforeClosing
+    }
+
+    static func decision(
+        requiresConfirmation: Bool,
+        defaults: UserDefaults = .standard
+    ) -> Decision {
+        guard requiresConfirmation,
+              CloseTabWarningSettings.isEnabled(defaults: defaults) else {
+            return .closeImmediately
+        }
+        return .confirmBeforeClosing
+    }
+
+    static func shouldConfirm(
+        requiresConfirmation: Bool,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        decision(requiresConfirmation: requiresConfirmation, defaults: defaults) == .confirmBeforeClosing
+    }
+}
+
 enum CommandPaletteRenameSelectionSettings {
     static let selectAllOnFocusKey = "commandPalette.renameSelectAllOnFocus"
     static let defaultSelectAllOnFocus = true
@@ -4898,6 +4948,7 @@ struct SettingsView: View {
     private let shortcutChordsDocsURL = URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
     private let settingsJSONDocsURL = URL(string: "https://cmux.com/docs/configuration#cmux-json")!
     @Environment(\.openWindow) private var openWindow
+    @SceneStorage("selectedSettingsSection") private var selectedSettingsSectionRaw = SettingsNavigationTarget.account.rawValue
     @State private var highlightedSearchAnchorID: String?
     @State private var searchHighlightToken = 0
     @State private var searchHighlightStartedAt: Date?
@@ -4948,6 +4999,7 @@ struct SettingsView: View {
     @AppStorage(MenuBarExtraSettings.showInMenuBarKey) private var showMenuBarExtra = MenuBarExtraSettings.defaultShowInMenuBar
     @AppStorage(MenuBarOnlySettings.menuBarOnlyKey) private var menuBarOnly = MenuBarOnlySettings.defaultMenuBarOnly
     @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
+    @AppStorage(CloseTabWarningSettings.warnBeforeClosingTabKey) private var warnBeforeClosingTab = CloseTabWarningSettings.defaultWarnBeforeClosingTab
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
     @AppStorage(CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey)
@@ -5485,6 +5537,30 @@ struct SettingsView: View {
         }
     }
 
+    private func applySettingsNavigation(
+        _ destination: SettingsNavigationDestination,
+        proxy: ScrollViewProxy
+    ) {
+        settingsNavigationGeneration += 1
+        let navigationGeneration = settingsNavigationGeneration
+        let sectionID = SettingsSearchIndex.sectionID(for: destination.target)
+        if destination.shouldHighlight {
+            highlightedSearchAnchorID = destination.anchorID
+            searchHighlightStartedAt = Date()
+            searchHighlightToken += 1
+        } else {
+            highlightedSearchAnchorID = nil
+            searchHighlightStartedAt = nil
+        }
+        DispatchQueue.main.async {
+            guard navigationGeneration == settingsNavigationGeneration else { return }
+            proxy.scrollTo(sectionID, anchor: .top)
+            if destination.shouldHighlight {
+                proxy.scrollTo(destination.anchorID, anchor: .center)
+            }
+        }
+    }
+
     private func chooseNotificationSoundFile() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
@@ -5988,6 +6064,20 @@ struct SettingsView: View {
                                 : String(localized: "settings.app.warnBeforeQuit.subtitleOff", defaultValue: "Cmd+Q quits immediately without confirmation.")
                         ) {
                             Toggle("", isOn: $warnBeforeQuitShortcut)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("app.warnBeforeClosingTab"),
+                            String(localized: "settings.app.warnBeforeClosingTab", defaultValue: "Warn Before Closing Tab"),
+                            subtitle: warnBeforeClosingTab
+                                ? String(localized: "settings.app.warnBeforeClosingTab.subtitleOn", defaultValue: "Show a confirmation before closing a tab.")
+                                : String(localized: "settings.app.warnBeforeClosingTab.subtitleOff", defaultValue: "Tabs close immediately without confirmation.")
+                        ) {
+                            Toggle("", isOn: $warnBeforeClosingTab)
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
@@ -6986,6 +7076,17 @@ struct SettingsView: View {
             refreshDetectedImportBrowsers()
             reloadWorkspaceTabColorSettings()
             refreshNotificationCustomSoundStatus()
+            let target = SettingsWindowPresenter.consumePendingContentNavigationTarget()
+                ?? SettingsNavigationTarget(rawValue: selectedSettingsSectionRaw)
+                ?? .account
+            applySettingsNavigation(
+                SettingsNavigationDestination(
+                    target: target,
+                    anchorID: SettingsSearchIndex.sectionID(for: target),
+                    shouldHighlight: false
+                ),
+                proxy: proxy
+            )
         }
         .onChange(of: notificationSound) { _, _ in
             refreshNotificationCustomSoundStatus()
@@ -7007,24 +7108,7 @@ struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let destination = SettingsNavigationRequest.destination(from: notification) else { return }
-            settingsNavigationGeneration += 1
-            let navigationGeneration = settingsNavigationGeneration
-            let sectionID = SettingsSearchIndex.sectionID(for: destination.target)
-            if destination.shouldHighlight {
-                highlightedSearchAnchorID = destination.anchorID
-                searchHighlightStartedAt = Date()
-                searchHighlightToken += 1
-            } else {
-                highlightedSearchAnchorID = nil
-                searchHighlightStartedAt = nil
-            }
-            DispatchQueue.main.async {
-                guard navigationGeneration == settingsNavigationGeneration else { return }
-                proxy.scrollTo(sectionID, anchor: .top)
-                if destination.shouldHighlight {
-                    proxy.scrollTo(destination.anchorID, anchor: .center)
-                }
-            }
+            applySettingsNavigation(destination, proxy: proxy)
         }
         .confirmationDialog(
             String(localized: "settings.browser.history.clearDialog.title", defaultValue: "Clear browser history?"),
@@ -7146,6 +7230,7 @@ struct SettingsView: View {
         showMenuBarExtra = MenuBarExtraSettings.defaultShowInMenuBar
         menuBarOnly = MenuBarOnlySettings.defaultMenuBarOnly
         warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
+        warnBeforeClosingTab = CloseTabWarningSettings.defaultWarnBeforeClosingTab
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
         commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue

@@ -102,11 +102,11 @@ enum BrowserImageCopyPasteboardBuilder {
     }
 }
 
-/// WKWebView tends to consume some Command-key equivalents (e.g. Cmd+N/Cmd+W),
+/// WKWebView tends to consume some app command equivalents,
 /// preventing the app menu/SwiftUI Commands from receiving them. Route app/menu
 /// shortcuts first by default, but allow browser content to try browser-local
-/// Find-family shortcuts. Cmd+F stays app-owned so cmux can choose browser find
-/// or right-sidebar file search from the current focus owner.
+/// Find-family shortcuts. The configured Find shortcut stays app-owned so cmux can
+/// choose browser find or right-sidebar file search from the current focus owner.
 final class CmuxWebView: WKWebView {
     // Some sites/WebKit paths report middle-click link activations as
     // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
