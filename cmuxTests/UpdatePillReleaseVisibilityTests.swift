@@ -1,12 +1,66 @@
 import XCTest
 import Foundation
 import AppKit
+import Sparkle
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+@MainActor
+final class UpdateViewModelLatestEmissionTests: XCTestCase {
+    func testVisibleUpdatePillFollowsEveryValidUpdateEmissionIncludingRollback() throws {
+        let model = UpdateViewModel()
+
+        let firstPollItem = try Self.appcastItem(displayVersion: "9.9.0")
+        model.recordDetectedUpdate(firstPollItem)
+        XCTAssertEqual(model.text, "Update Available: 9.9.0")
+        XCTAssertEqual(Self.visibleUpdateVersion(in: model), "9.9.0")
+
+        model.state = .updateAvailable(.init(appcastItem: firstPollItem, reply: { _ in }))
+        XCTAssertEqual(model.text, "Update Available: 9.9.0")
+
+        let newerPollItem = try Self.appcastItem(displayVersion: "9.9.1")
+        model.recordDetectedUpdate(newerPollItem)
+        XCTAssertEqual(model.text, "Update Available: 9.9.1")
+        XCTAssertEqual(Self.visibleUpdateVersion(in: model), "9.9.1")
+
+        // The pill follows the current appcast emission. If a newer release is yanked,
+        // keeping the unavailable version would be another stale first-signal cache.
+        let rollbackPollItem = try Self.appcastItem(displayVersion: "9.9.0")
+        model.recordDetectedUpdate(rollbackPollItem)
+        XCTAssertEqual(model.text, "Update Available: 9.9.0")
+        XCTAssertEqual(Self.visibleUpdateVersion(in: model), "9.9.0")
+    }
+
+    private static func visibleUpdateVersion(in model: UpdateViewModel) -> String? {
+        switch model.effectiveState {
+        case .idle:
+            return model.detectedUpdateVersion
+        case .updateAvailable(let update):
+            return update.appcastItem.displayVersionString
+        default:
+            return nil
+        }
+    }
+
+    private static func appcastItem(displayVersion: String) throws -> SUAppcastItem {
+        let enclosure: [String: Any] = [
+            "url": "https://example.com/cmux-\(displayVersion).zip",
+            "length": "1024",
+            "sparkle:version": displayVersion,
+            "sparkle:shortVersionString": displayVersion,
+        ]
+        let item: [String: Any] = [
+            "title": "cmux \(displayVersion)",
+            "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
+            "enclosure": enclosure,
+        ]
+        return try XCTUnwrap(SUAppcastItem(dictionary: item))
+    }
+}
 
 final class BrowserInsecureHTTPSettingsTests: XCTestCase {
     func testDefaultAllowlistPatternsArePresent() {
