@@ -257,13 +257,7 @@ final class CmuxSettingsFileStore {
         }
         guard isManaged else { return }
 
-        let currentValue: ManagedSettingsValue
-        do {
-            currentValue = try currentSocketPasswordSettingsJSONValue()
-        } catch {
-            NSLog("[CmuxSettingsFileStore] failed to read socket password for Settings UI change: %@", String(describing: error))
-            return
-        }
+        guard let currentValue = try? currentSocketPasswordSettingsJSONValue() else { return }
         let changedValues: [String: ManagedSettingsValue] = synchronized {
             guard lastPersistedSettingsValues["automation.socketPassword"] != currentValue else {
                 return [:]
@@ -1271,10 +1265,8 @@ final class CmuxSettingsFileStore {
         guard includingManagedCustomSettings else { return values }
         let customSettings = managedCustomSettings ?? synchronized { activeManagedCustomSettings }
         if customSettings.socketPassword != nil {
-            do {
-                values["automation.socketPassword"] = try currentSocketPasswordSettingsJSONValue()
-            } catch {
-                NSLog("[CmuxSettingsFileStore] failed to read socket password for settings snapshot: %@", String(describing: error))
+            if let value = try? currentSocketPasswordSettingsJSONValue() {
+                values["automation.socketPassword"] = value
             }
         }
         return values
