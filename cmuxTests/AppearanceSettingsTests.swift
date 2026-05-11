@@ -287,6 +287,39 @@ final class AppearanceSettingsTests: XCTestCase {
         }
     }
 
+    func testManagedGhosttyConfigReplacementIsIdempotent() throws {
+        try withTemporaryHomeDirectory { homeDirectory in
+            let configEnvironment = ConfigSourceEnvironment(
+                homeDirectoryURL: homeDirectory,
+                currentBundleIdentifier: "com.cmuxterm.app"
+            )
+            try configEnvironment.writeCmuxConfigContents("""
+            font-size = 13
+            keybind = ctrl+shift+c=copy_to_clipboard
+            """)
+
+            let store = ManagedGhosttyAppearanceConfigStore(environment: configEnvironment)
+            store.persistManagedTerminalAppearanceConfig(
+                mode: .dark,
+                appAppearance: NSAppearance(named: .darkAqua),
+                source: "test.idempotent.first"
+            )
+            let firstContents = try String(contentsOf: configEnvironment.cmuxConfigURL, encoding: .utf8)
+
+            let didPersistAgain = store.persistManagedTerminalAppearanceConfig(
+                mode: .dark,
+                appAppearance: NSAppearance(named: .darkAqua),
+                source: "test.idempotent.second"
+            )
+            let secondContents = try String(contentsOf: configEnvironment.cmuxConfigURL, encoding: .utf8)
+
+            XCTAssertTrue(didPersistAgain)
+            XCTAssertEqual(secondContents, firstContents)
+            XCTAssertEqual(occurrenceCount(of: "# cmux-managed-appearance: begin", in: secondContents), 1)
+            XCTAssertEqual(occurrenceCount(of: "# cmux-managed-appearance: end", in: secondContents), 1)
+        }
+    }
+
     func testManagedGhosttyConfigDoesNotOverwriteUnreadableExistingConfig() throws {
         try withTemporaryHomeDirectory { homeDirectory in
             let configEnvironment = ConfigSourceEnvironment(

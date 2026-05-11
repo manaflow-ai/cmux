@@ -165,9 +165,7 @@ struct ManagedGhosttyAppearanceConfigStore {
                 return updated.hasSuffix("\n") ? updated : updated + "\n"
             }
 
-            let replacementEnd = contents[endRange.upperBound...]
-                .firstIndex(of: "\n")
-                .map { contents.index(after: $0) } ?? contents.endIndex
+            let replacementEnd = replacementEndAfterManagedEndMarker(endRange, in: contents)
             var updated = contents
             updated.replaceSubrange(replacementStart..<replacementEnd, with: managedBlock)
             return updated.hasSuffix("\n") ? updated : updated + "\n"
@@ -177,9 +175,7 @@ struct ManagedGhosttyAppearanceConfigStore {
             let replacementStart = contents[..<orphanedEndRange.lowerBound]
                 .lastIndex(of: "\n")
                 .map { contents.index(after: $0) } ?? contents.startIndex
-            let replacementEnd = contents[orphanedEndRange.upperBound...]
-                .firstIndex(of: "\n")
-                .map { contents.index(after: $0) } ?? contents.endIndex
+            let replacementEnd = replacementEndAfterManagedEndMarker(orphanedEndRange, in: contents)
             var updated = contents
             updated.replaceSubrange(replacementStart..<replacementEnd, with: managedBlock)
             return updated.hasSuffix("\n") ? updated : updated + "\n"
@@ -187,6 +183,26 @@ struct ManagedGhosttyAppearanceConfigStore {
 
         let separator = contents.hasSuffix("\n") ? "\n" : "\n\n"
         return contents + separator + managedBlock
+    }
+
+    private nonisolated static func replacementEndAfterManagedEndMarker(
+        _ endRange: Range<String.Index>,
+        in contents: String
+    ) -> String.Index {
+        var replacementEnd = contents[endRange.upperBound...]
+            .firstIndex(of: "\n")
+            .map { contents.index(after: $0) } ?? contents.endIndex
+
+        while replacementEnd < contents.endIndex {
+            let lineEnd = contents[replacementEnd...].firstIndex(of: "\n") ?? contents.endIndex
+            let line = contents[replacementEnd..<lineEnd]
+            guard line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                break
+            }
+            replacementEnd = lineEnd < contents.endIndex ? contents.index(after: lineEnd) : contents.endIndex
+        }
+
+        return replacementEnd
     }
 }
 
