@@ -922,7 +922,7 @@ private struct SessionTranscriptTurnView: View, Equatable {
                 }
             }
             Text(row.text)
-                .font(row.role.bodyFont)
+                .cmuxFont(size: row.role.bodyFontSize, design: row.role.bodyFontDesign)
                 .foregroundColor(.primary.opacity(0.92))
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1857,6 +1857,8 @@ private struct EscapeKeyCatcher: NSViewRepresentable {
 // MARK: - "Show more" popover with search
 
 private struct SectionPopoverView: View {
+    @Environment(\.uiScaleFactor) private var uiScaleFactor
+
     let section: IndexSection
     /// Closure-typed search handle. The popover never holds a reference to
     /// `SessionIndexStore`; the parent view is the only owner.
@@ -1998,10 +2000,10 @@ private struct SectionPopoverView: View {
                 .padding(.top, 4)
                 .padding(.bottom, 10)
             }
-            .frame(height: 420)
+            .frame(height: UIScaleSettings.scaled(420, by: uiScaleFactor))
         }
-        // ScrollView is pinned at fixed 420; the outer VStack's natural
-        // height (chrome + 420) then drives NSHostingController's
+        // ScrollView is pinned at scaled 420; the outer VStack's natural
+        // height (chrome + scaled 420) then drives NSHostingController's
         // preferred content size via sizingOptions. Do NOT pin an outer
         // fixed height; it made SwiftUI center-distribute slack space
         // and squashed the top header padding.
@@ -2561,7 +2563,7 @@ struct SectionPopoverHost: NSViewRepresentable {
             guard fitting.width > 0, fitting.height > 0 else { return }
             popover?.contentSize = NSSize(
                 width: ceil(max(fitting.width, 360)),
-                height: ceil(min(fitting.height, 480))
+                height: ceil(min(fitting.height, UIScaleSettings.scaled(480, by: currentUIScaleFactor)))
             )
         }
     }
