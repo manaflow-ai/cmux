@@ -262,7 +262,6 @@ final class CmuxSettingsFileStore {
             currentValue = try currentSocketPasswordSettingsJSONValue()
         } catch {
             NSLog("[CmuxSettingsFileStore] failed to read socket password for Settings UI change: %@", String(describing: error))
-            reapplyManagedSettingsIfNeeded()
             return
         }
         let changedValues: [String: ManagedSettingsValue] = synchronized {
