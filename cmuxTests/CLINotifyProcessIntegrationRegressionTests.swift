@@ -148,6 +148,64 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeSessionEndDoesNotConsumeSameSessionStaleTurn() throws {
+        let context = try makeClaudeHookContext(name: "claude-stale-session-end-turn")
+        defer { context.cleanup() }
+
+        let sessionId = "same-session"
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+            "activeSessionsByWorkspace": [
+                context.workspaceId: [
+                    "sessionId": sessionId,
+                    "turnId": "turn-2",
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("clear_agent_pid claude_code ") && $0.contains("--tab=\(context.workspaceId)") },
+            "Expected stale same-session turn not to clear current PID, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0 == "clear_notifications --tab=\(context.workspaceId)" },
+            "Expected stale same-session turn not to clear current notifications, saw \(context.state.commands)"
+        )
+
+        let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        XCTAssertNotNil(
+            savedSessions[sessionId],
+            "Expected stale same-session SessionEnd not to consume the active session"
+        )
+        let activeSessions = try XCTUnwrap(savedState["activeSessionsByWorkspace"] as? [String: Any])
+        let active = try XCTUnwrap(activeSessions[context.workspaceId] as? [String: Any])
+        XCTAssertEqual(active["turnId"] as? String, "turn-2")
+    }
+
     @MainActor
     func testNotifyWithUUIDSurfaceKeepsCallerWorkspaceFallback() throws {
         let cliPath = try bundledCLIPath()

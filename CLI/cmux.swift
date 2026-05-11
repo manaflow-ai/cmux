@@ -553,15 +553,20 @@ private final class ClaudeHookSessionStore {
     func consume(
         sessionId: String?,
         workspaceId: String?,
-        surfaceId: String?
+        surfaceId: String?,
+        turnId: String? = nil
     ) throws -> ClaudeHookSessionRecord? {
         let normalizedSessionId = normalizeOptional(sessionId)
         let normalizedWorkspace = normalizeOptional(workspaceId)
         let normalizedSurface = normalizeOptional(surfaceId)
         return try withLockedState { state in
             if let normalizedSessionId,
-               let removed = state.sessions.removeValue(forKey: normalizedSessionId) {
-                clearActiveSessionIfMatching(&state, removed: removed)
+               let existing = state.sessions[normalizedSessionId] {
+                guard !hasActiveTurnMismatch(state, record: existing, turnId: turnId) else {
+                    return nil
+                }
+                let removed = state.sessions.removeValue(forKey: normalizedSessionId) ?? existing
+                clearActiveSessionIfMatching(&state, removed: removed, turnId: turnId)
                 return removed
             }
 
@@ -572,19 +577,43 @@ private final class ClaudeHookSessionStore {
             ) else {
                 return nil
             }
+            guard !hasActiveTurnMismatch(state, record: fallback, turnId: turnId) else {
+                return nil
+            }
             state.sessions.removeValue(forKey: fallback.sessionId)
-            clearActiveSessionIfMatching(&state, removed: fallback)
+            clearActiveSessionIfMatching(&state, removed: fallback, turnId: turnId)
             return fallback
         }
     }
 
+    private func hasActiveTurnMismatch(
+        _ state: ClaudeHookSessionStoreFile,
+        record: ClaudeHookSessionRecord,
+        turnId: String?
+    ) -> Bool {
+        guard let workspaceId = normalizeOptional(record.workspaceId),
+              let active = state.activeSessionsByWorkspace[workspaceId],
+              active.sessionId == record.sessionId,
+              let activeTurnId = normalizeOptional(active.turnId),
+              let incomingTurnId = normalizeOptional(turnId) else {
+            return false
+        }
+        return activeTurnId != incomingTurnId
+    }
+
     private func clearActiveSessionIfMatching(
         _ state: inout ClaudeHookSessionStoreFile,
-        removed: ClaudeHookSessionRecord
+        removed: ClaudeHookSessionRecord,
+        turnId: String?
     ) {
         guard let workspaceId = normalizeOptional(removed.workspaceId),
               let active = state.activeSessionsByWorkspace[workspaceId],
               active.sessionId == removed.sessionId else {
+            return
+        }
+        if let activeTurnId = normalizeOptional(active.turnId),
+           let incomingTurnId = normalizeOptional(turnId),
+           activeTurnId != incomingTurnId {
             return
         }
         state.activeSessionsByWorkspace.removeValue(forKey: workspaceId)
@@ -14228,7 +14257,15 @@ struct CMUXCLI {
             // Startup/resume SessionStart remains non-visible; /clear is a
             // new active boundary and must keep the sidebar Running before
             // any late pre-clear Stop can write Idle.
-            if let claudePid {
+            let shouldRegisterPID =
+                isClearSessionStart ||
+                shouldApplyClaudeHookVisibleMutation(
+                    sessionStore: sessionStore,
+                    parsedInput: parsedInput,
+                    workspaceId: workspaceId,
+                    telemetry: telemetry
+                )
+            if shouldRegisterPID, let claudePid {
                 _ = try? sendV1Command(
                     "set_agent_pid claude_code \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
@@ -14453,7 +14490,8 @@ struct CMUXCLI {
             let consumedSession = try? sessionStore.consume(
                 sessionId: parsedInput.sessionId,
                 workspaceId: fallbackWorkspaceId,
-                surfaceId: fallbackSurfaceId
+                surfaceId: fallbackSurfaceId,
+                turnId: parsedInput.turnId
             )
             // consume() calls clearActiveSessionIfMatching before returning
             // consumedSession, so isCurrent can treat parsedInput.sessionId as

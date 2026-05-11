@@ -163,12 +163,12 @@ def run_claude_hook(
         )
 
 
-def has_command(commands: list[str], prefix: str) -> bool:
-    return any(command.startswith(prefix) for command in commands)
+def has_command(commands: list[str], fragment: str) -> bool:
+    return any(fragment in command for command in commands)
 
 
-def has_command_with(commands: list[str], prefix: str, fragment: str) -> bool:
-    return any(command.startswith(prefix) and fragment in command for command in commands)
+def has_command_with(commands: list[str], *fragments: str) -> bool:
+    return any(all(fragment in command for fragment in fragments) for command in commands)
 
 
 def main() -> int:
@@ -192,13 +192,17 @@ def main() -> int:
         env["CMUX_CLAUDE_HOOK_STATE_PATH"] = str(state_path)
         env["CMUX_CLI_SENTRY_DISABLED"] = "1"
         env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        old_pid_env = env.copy()
+        old_pid_env["CMUX_CLAUDE_PID"] = "11111"
+        clear_pid_env = env.copy()
+        clear_pid_env["CMUX_CLAUDE_PID"] = "22222"
 
         run_claude_hook(
             cli_path,
             server.socket_path,
             "session-start",
             {"session_id": old_session_id, "source": "startup", "cwd": "/tmp"},
-            env,
+            old_pid_env,
         )
         run_claude_hook(
             cli_path,
@@ -246,7 +250,7 @@ def main() -> int:
             server.socket_path,
             "session-start",
             {"session_id": new_session_id, "source": "clear", "cwd": "/tmp"},
-            env,
+            clear_pid_env,
         )
         clear_commands = server.commands[clear_start:]
 
@@ -263,13 +267,20 @@ def main() -> int:
             print(f"clear_commands={clear_commands!r}")
             return 1
 
+        late_old_start = len(server.commands)
         run_claude_hook(
             cli_path,
             server.socket_path,
             "session-start",
             {"session_id": old_session_id, "source": "startup", "cwd": "/tmp"},
-            env,
+            old_pid_env,
         )
+        late_old_start_commands = server.commands[late_old_start:]
+
+        if has_command(late_old_start_commands, "set_agent_pid claude_code 11111"):
+            print("FAIL: stale pre-clear SessionStart must not overwrite active Claude PID")
+            print(f"late_old_start_commands={late_old_start_commands!r}")
+            return 1
 
         old_stop_start = len(server.commands)
         run_claude_hook(
