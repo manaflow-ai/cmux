@@ -107,14 +107,12 @@ extension GhosttyNSView {
         }
     }
 
-    func isBopomofoInputSource(_ sourceId: String?) -> Bool {
+    func isTraditionalZhuyinInputSource(_ sourceId: String?) -> Bool {
         guard let sourceId else { return false }
-        // Apple's source IDs use "Zhuyin"; McBopomofo/OpenVanilla use "Bopomofo".
-        return sourceId.localizedCaseInsensitiveContains("Zhuyin")
-            || sourceId.localizedCaseInsensitiveContains("Bopomofo")
+        return sourceId.localizedCaseInsensitiveContains("TCIM.Zhuyin")
     }
 
-    func shouldOpenBopomofoCandidatesWithSyntheticSpace(
+    func shouldOpenZhuyinCandidatesWithSyntheticSpace(
         event: NSEvent,
         inputSourceId: String?,
         markedTextBefore: Bool,
@@ -127,7 +125,7 @@ extension GhosttyNSView {
         guard !candidateOpenAlreadyRequested,
               markedTextBefore,
               accumulatedText.isEmpty,
-              isBopomofoInputSource(inputSourceId),
+              isTraditionalZhuyinInputSource(inputSourceId),
               Int(event.keyCode) == kVK_DownArrow,
               commandSelector == #selector(NSResponder.moveDown(_:)),
               before.text == after.text,
@@ -137,7 +135,7 @@ extension GhosttyNSView {
         return true
     }
 
-    func shouldRememberBopomofoCandidateInteraction(
+    func shouldRememberZhuyinCandidateInteraction(
         event: NSEvent,
         inputSourceId: String?,
         markedTextBefore: Bool,
@@ -145,7 +143,7 @@ extension GhosttyNSView {
     ) -> Bool {
         guard markedTextBefore,
               accumulatedText.isEmpty,
-              isBopomofoInputSource(inputSourceId) else {
+              isTraditionalZhuyinInputSource(inputSourceId) else {
             return false
         }
 
