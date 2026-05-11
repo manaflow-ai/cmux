@@ -7170,6 +7170,7 @@ final class Workspace: Identifiable, ObservableObject {
     var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
     var agentPIDExitWatchers: [String: DispatchSourceProcess] = [:]
     var agentPIDExitWatcherPIDs: [String: pid_t] = [:]
+    var agentPIDExitWatcherScopes: [String: AgentPIDExitWatcherScope] = [:]
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []

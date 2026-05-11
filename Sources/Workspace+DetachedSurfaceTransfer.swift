@@ -6,6 +6,7 @@ extension Workspace {
         let panelId: UUID
         let statusEntries: [String: SidebarStatusEntry]
         let agentPIDs: [String: pid_t]
+        let agentProcessStates: [String: SidebarAgentProcessState]
         let agentPIDKeys: Set<String>
     }
 

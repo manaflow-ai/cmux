@@ -16304,8 +16304,7 @@ class TerminalController {
         }
 
         scheduleSidebarMutation(target: target) { _, tab in
-            _ = tab.statusEntries.removeValue(forKey: key)
-            tab.clearAgentPID(key: key, clearStatus: false)
+            tab.clearSidebarMetadataEntry(key: key)
         }
         return "OK"
     }

@@ -3,6 +3,28 @@ import Darwin
 import Foundation
 
 extension Workspace {
+    enum AgentPIDExitWatcherScope: Equatable {
+        case panel(UUID)
+        case unscoped
+
+        init(panelId: UUID?) {
+            if let panelId {
+                self = .panel(panelId)
+            } else {
+                self = .unscoped
+            }
+        }
+
+        var panelId: UUID? {
+            switch self {
+            case .panel(let id):
+                id
+            case .unscoped:
+                nil
+            }
+        }
+    }
+
     private static let agentPIDExitWatcherQueue = DispatchQueue(
         label: "com.cmux.sidebar-agent-pid-exit",
         qos: .utility
@@ -12,21 +34,26 @@ extension Workspace {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
 
         var agentPIDsForPanel: [String: pid_t] = [:]
+        var agentProcessStatesForPanel: [String: SidebarAgentProcessState] = [:]
         var statusEntriesForPanel: [String: SidebarStatusEntry] = [:]
         for key in pidKeys {
             if let pid = agentPIDs[key] {
                 agentPIDsForPanel[key] = pid
+            }
+            if let processState = agentProcessStates[key] {
+                agentProcessStatesForPanel[key] = processState
             }
             let statusKey = agentStatusKey(forAgentPIDKey: key)
             if let statusEntry = statusEntries[statusKey] {
                 statusEntriesForPanel[statusKey] = statusEntry
             }
         }
-        guard !statusEntriesForPanel.isEmpty || !agentPIDsForPanel.isEmpty || !pidKeys.isEmpty else { return nil }
+        guard !statusEntriesForPanel.isEmpty || !agentPIDsForPanel.isEmpty || !agentProcessStatesForPanel.isEmpty || !pidKeys.isEmpty else { return nil }
         return DetachedAgentRuntimeState(
             panelId: panelId,
             statusEntries: statusEntriesForPanel,
             agentPIDs: agentPIDsForPanel,
+            agentProcessStates: agentProcessStatesForPanel,
             agentPIDKeys: pidKeys
         )
     }
@@ -73,8 +100,15 @@ extension Workspace {
     }
 
     private func armAgentPIDExitWatcher(key: String, pid: pid_t, panelId: UUID?) {
+        let scope = AgentPIDExitWatcherScope(panelId: panelId)
+        if agentPIDExitWatchers[key] != nil,
+           agentPIDExitWatcherPIDs[key] == pid,
+           agentPIDExitWatcherScopes[key] == scope {
+            return
+        }
         agentPIDExitWatchers.removeValue(forKey: key)?.cancel()
         agentPIDExitWatcherPIDs.removeValue(forKey: key)
+        agentPIDExitWatcherScopes.removeValue(forKey: key)
         let source = DispatchSource.makeProcessSource(
             identifier: pid,
             eventMask: .exit,
@@ -83,11 +117,12 @@ extension Workspace {
         source.setEventHandler { [weak self] in
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.agentPIDs[key] == pid else { return }
-                _ = self.clearAgentPID(key: key, panelId: panelId, clearStatus: true)
+                _ = self.clearAgentPID(key: key, panelId: scope.panelId, clearStatus: true)
             }
         }
         agentPIDExitWatchers[key] = source
         agentPIDExitWatcherPIDs[key] = pid
+        agentPIDExitWatcherScopes[key] = scope
         source.resume()
     }
 
@@ -164,6 +199,9 @@ extension Workspace {
         if agentPIDExitWatcherPIDs.removeValue(forKey: key) != nil {
             didChange = true
         }
+        if agentPIDExitWatcherScopes.removeValue(forKey: key) != nil {
+            didChange = true
+        }
         if ownedPanelId != nil {
             removeAgentPIDOwnership(key: key)
             didChange = true
@@ -197,6 +235,7 @@ extension Workspace {
             .union(agentPIDPanelIdsByKey.keys)
             .union(agentPIDExitWatchers.keys)
             .union(agentPIDExitWatcherPIDs.keys)
+            .union(agentPIDExitWatcherScopes.keys)
         for key in keys {
             _ = clearAgentPID(key: key, clearStatus: true, refreshPorts: false)
         }
@@ -204,6 +243,19 @@ extension Workspace {
         if refreshPorts {
             refreshTrackedAgentPorts()
         }
+    }
+
+    @discardableResult
+    func clearSidebarMetadataEntry(key: String, refreshPorts: Bool = true) -> Bool {
+        let didClearRuntime = clearAgentPID(
+            key: key,
+            clearStatus: true,
+            refreshPorts: refreshPorts
+        )
+        if statusEntries.removeValue(forKey: key) != nil {
+            return true
+        }
+        return didClearRuntime
     }
 
     @discardableResult
@@ -229,6 +281,10 @@ extension Workspace {
         var didAdoptAgentPID = false
         for (key, pid) in runtimeState.agentPIDs {
             recordAgentPID(key: key, pid: pid, panelId: runtimeState.panelId, refreshPorts: false)
+            if let processState = runtimeState.agentProcessStates[key],
+               processState.pid == pid {
+                agentProcessStates[key] = processState
+            }
             didAdoptAgentPID = true
         }
         for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {

@@ -1879,16 +1879,10 @@ class TabManager: ObservableObject {
                 keysToRemove.insert(key)
             }
             if !keysToRemove.isEmpty {
-                let hasUnpanelledKey = keysToRemove.contains { tab.agentPIDPanelIdsByKey[$0] == nil }
                 for key in keysToRemove.sorted() {
                     tab.clearAgentPID(key: key, clearStatus: true, refreshPorts: false)
                 }
                 tab.refreshTrackedAgentPorts()
-                if hasUnpanelledKey {
-                    // Hook-registered agents do not carry panel IDs, so preserve
-                    // the tab-wide notification cleanup used before PID fallback.
-                    AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
-                }
             }
         }
     }
