@@ -1868,18 +1868,6 @@ final class BrowserPortalAnchorView: NSView {
 
 @MainActor
 final class BrowserPanel: Panel, ObservableObject {
-    private static let remoteLoopbackProxyAliasHost = RemoteLoopbackProxyAlias.aliasHost
-    private static let remoteLoopbackHosts: Set<String> = [
-        "localhost",
-        "127.0.0.1",
-        "::1",
-        "0.0.0.0",
-    ]
-
-    private static func isRemoteLoopbackHost(_ host: String) -> Bool {
-        remoteLoopbackHosts.contains(host) || host.hasSuffix(".localhost")
-    }
-
     /// Shared process pool for cookie sharing across all browser panels
     private static let sharedProcessPool = WKProcessPool()
 
@@ -2693,6 +2681,13 @@ final class BrowserPanel: Panel, ObservableObject {
                 source: Self.telemetryHookBootstrapScriptSource,
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: true
+            )
+        )
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: RemoteLoopbackRuntimeBridge.runtimeBridgeScriptSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
             )
         )
         // Track the last editable focused element continuously so omnibar exit can
@@ -4037,7 +4032,7 @@ final class BrowserPanel: Panel, ObservableObject {
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return url }
         guard let displayHost = RemoteLoopbackProxyAlias.localhostFamilyHost(
             forAliasHost: host,
-            aliasHost: remoteLoopbackProxyAliasHost
+            aliasHost: RemoteLoopbackProxyAlias.aliasHost
         ) else { return url }
 
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
@@ -4048,12 +4043,12 @@ final class BrowserPanel: Panel, ObservableObject {
     private static func remoteProxyLoopbackAliasURL(for url: URL) -> URL? {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" else { return nil }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return nil }
-        guard Self.isRemoteLoopbackHost(host) else { return nil }
+        guard RemoteLoopbackProxyAlias.isLoopbackHost(host) else { return nil }
 
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         components?.host = RemoteLoopbackProxyAlias.browserAliasHost(
             forLoopbackHost: host,
-            aliasHost: remoteLoopbackProxyAliasHost
+            aliasHost: RemoteLoopbackProxyAlias.aliasHost
         )
         return components?.url
     }
