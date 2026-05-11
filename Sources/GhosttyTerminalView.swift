@@ -7027,7 +7027,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             desiredFocus = false
             terminalSurface?.recordExternalFocusState(false)
             imeSuppressedKeyUpKeyCodes.removeAll()
-            zhuyinCandidateOpenRequested = false
+            bopomofoCandidateOpenRequested = false
         }
         if result, let surface = surface {
             let now = CACurrentMediaTime()
@@ -7047,7 +7047,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var numpadIMECommitDeduplicator = NumpadIMECommitDeduplicator()
     private var imeSuppressedKeyUpKeyCodes: Set<UInt16> = []
     private var textInputCommandSelectorDuringKeyDown: Selector?
-    private var zhuyinCandidateOpenRequested = false
+    private var bopomofoCandidateOpenRequested = false
     private struct SelectionSnapshot {
         let range: NSRange
         let string: String
@@ -7056,41 +7056,30 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
 #if DEBUG
     // Test-only accessors for keyTextAccumulator to verify CJK IME composition behavior.
+    func setKeyTextAccumulatorForTesting(_ value: [String]?) { keyTextAccumulator = value }
+    var keyTextAccumulatorForTesting: [String]? { keyTextAccumulator }
     static var debugTextInputEventHandler: ((GhosttyNSView, NSEvent) -> Bool)?
 
-    func setKeyTextAccumulatorForTesting(_ value: [String]?) {
-        keyTextAccumulator = value
-    }
-    var keyTextAccumulatorForTesting: [String]? {
-        keyTextAccumulator
-    }
     func setIMETransientStateForTesting(
         suppressedKeyUpKeyCodes: Set<UInt16>,
-        zhuyinCandidateOpenRequested: Bool
+        bopomofoCandidateOpenRequested: Bool
     ) {
         imeSuppressedKeyUpKeyCodes = suppressedKeyUpKeyCodes
-        self.zhuyinCandidateOpenRequested = zhuyinCandidateOpenRequested
+        self.bopomofoCandidateOpenRequested = bopomofoCandidateOpenRequested
     }
     var imeSuppressedKeyUpKeyCodesForTesting: Set<UInt16> {
         imeSuppressedKeyUpKeyCodes
     }
-    var zhuyinCandidateOpenRequestedForTesting: Bool {
-        zhuyinCandidateOpenRequested
+    var bopomofoCandidateOpenRequestedForTesting: Bool {
+        bopomofoCandidateOpenRequested
     }
     func shouldSuppressShiftSpaceFallbackTextForTesting(event: NSEvent, markedTextBefore: Bool) -> Bool {
         shouldSuppressShiftSpaceFallbackText(event: event, markedTextBefore: markedTextBefore)
     }
-
     // Test-only IME point override so firstRect behavior can be regression tested.
     private var imePointOverrideForTesting: (x: Double, y: Double, width: Double, height: Double)?
-
-    func setIMEPointForTesting(x: Double, y: Double, width: Double, height: Double) {
-        imePointOverrideForTesting = (x, y, width, height)
-    }
-
-    func clearIMEPointForTesting() {
-        imePointOverrideForTesting = nil
-    }
+    func setIMEPointForTesting(x: Double, y: Double, width: Double, height: Double) { imePointOverrideForTesting = (x, y, width, height) }
+    func clearIMEPointForTesting() { imePointOverrideForTesting = nil }
 #endif
 
 #if DEBUG
@@ -7147,10 +7136,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
               fr === self || fr.isDescendant(of: self) else { return false }
         guard let surface = ensureSurfaceReadyForInput() else { return false }
 
-        // If the IME is composing (marked text present) and the key has no Cmd
-        // modifier, don't intercept — let it flow through to keyDown so the input
-        // method can process it normally. Cmd-based shortcuts should still work
-        // during composition since Cmd is never part of IME input sequences.
+        // Let non-Cmd keys flow to keyDown while IME is composing; Cmd shortcuts still work.
         if hasMarkedText(), !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
             return false
         }
@@ -7529,8 +7515,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
 
-        // Sync the preedit state with Ghostty so it can render the IME
-        // composition overlay (e.g. for Korean, Japanese, Chinese input).
+        // Sync preedit so Ghostty can render the IME composition overlay.
 #if DEBUG
         let syncPreeditStart = ProcessInfo.processInfo.systemUptime
 #endif
@@ -7541,7 +7526,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         var accumulatedText = keyTextAccumulator ?? []
         var markedStateAfter = (markedText.string, markedSelectedRange)
-        if shouldOpenZhuyinCandidatesWithSyntheticSpace(
+        if shouldOpenBopomofoCandidatesWithSyntheticSpace(
             event: translationEvent,
             inputSourceId: keyboardIdBefore,
             markedTextBefore: markedTextBefore,
@@ -7549,23 +7534,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             after: markedStateAfter,
             accumulatedText: accumulatedText,
             commandSelector: textInputCommandSelectorDuringKeyDown,
-            candidateOpenAlreadyRequested: zhuyinCandidateOpenRequested
+            candidateOpenAlreadyRequested: bopomofoCandidateOpenRequested
         ) {
-            zhuyinCandidateOpenRequested = true
+            bopomofoCandidateOpenRequested = true
             textInputCommandSelectorDuringKeyDown = nil
-            _ = handleTextInputKeyEvent(zhuyinCandidateOpenSpaceEvent(from: translationEvent))
+            _ = handleTextInputKeyEvent(bopomofoCandidateOpenSpaceEvent(from: translationEvent))
             syncPreedit(clearIfNeeded: markedTextBefore)
             accumulatedText = keyTextAccumulator ?? []
             markedStateAfter = (markedText.string, markedSelectedRange)
-        } else if shouldRememberZhuyinCandidateInteraction(
+        } else if shouldRememberBopomofoCandidateInteraction(
             event: translationEvent,
             inputSourceId: keyboardIdBefore,
             markedTextBefore: markedTextBefore,
             accumulatedText: accumulatedText
         ) {
-            zhuyinCandidateOpenRequested = true
-        } else if markedTextBefore, isTraditionalZhuyinInputSource(keyboardIdBefore) {
-            zhuyinCandidateOpenRequested = false
+            bopomofoCandidateOpenRequested = true
+        } else if markedTextBefore, isBopomofoInputSource(keyboardIdBefore) {
+            bopomofoCandidateOpenRequested = false
         }
 
         if shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
@@ -7589,12 +7574,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyEvent.consumed_mods = consumedModsFromFlags(translationMods)
         keyEvent.unshifted_codepoint = unshiftedCodepointFromEvent(event)
 
-        // We're composing if we have preedit (the obvious case). But we're also
-        // composing if we don't have preedit and we had marked text before,
-        // because this input probably just reset the preedit state. It shouldn't
-        // be encoded. Example: Japanese begin composing, then press backspace.
-        // This should only cancel the composing state but not actually delete
-        // the prior input characters (prior to the composing).
+        // Treat cleared preedit as composing too, so a composing Backspace cancels
+        // composition without deleting the preceding terminal input.
         keyEvent.composing = markedText.length > 0 || markedTextBefore
 
         // Use accumulated text from insertText (for IME), or compute text for key
@@ -7778,7 +7759,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return inputContext.handleEvent(event)
     }
 
-    private func zhuyinCandidateOpenSpaceEvent(from event: NSEvent) -> NSEvent {
+    private func bopomofoCandidateOpenSpaceEvent(from event: NSEvent) -> NSEvent {
         NSEvent.keyEvent(
             with: event.type,
             location: event.locationInWindow,
@@ -12862,7 +12843,7 @@ extension GhosttyNSView: NSTextInputClient {
 #endif
         markedText.mutableString.setString("")
         markedSelectedRange = NSRange(location: NSNotFound, length: 0)
-        zhuyinCandidateOpenRequested = false
+        bopomofoCandidateOpenRequested = false
 
         if hadMarkedText {
             syncPreedit()
