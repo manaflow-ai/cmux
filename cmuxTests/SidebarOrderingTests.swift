@@ -658,6 +658,7 @@ final class TerminalOSC7LocationTests: XCTestCase {
         manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: sequence)
 
         XCTAssertEqual(workspace.terminalLocation(for: panelId)?.remoteHost, "devbox.example")
+        XCTAssertNil(workspace.panelDirectories[panelId])
         XCTAssertEqual(
             workspace.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: [panelId]),
             [
@@ -690,6 +691,26 @@ final class TerminalOSC7LocationTests: XCTestCase {
         XCTAssertEqual(workspace.surfaceTabBarDirectory, "/tmp/local-cmux")
 
         workspace.focusPanel(remotePanelId)
+        XCTAssertEqual(workspace.surfaceTabBarDirectory, "devbox.example:/home/george/cmux")
+    }
+
+    @MainActor
+    func testRemoteLocationClearsStaleLocalPanelDirectoryBeforeRefocus() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        workspace.updatePanelDirectory(panelId: panelId, directory: "/tmp/local-before-ssh")
+        workspace.currentDirectory = "/tmp/fallback"
+        workspace.updatePanelLocation(
+            panelId: panelId,
+            location: try XCTUnwrap(
+                TerminalLocation.parseReportedDirectory("file://devbox.example/home/george/cmux")
+            )
+        )
+        workspace.focusPanel(panelId)
+
+        XCTAssertNil(workspace.panelDirectories[panelId])
+        XCTAssertEqual(workspace.currentDirectory, "/tmp/fallback")
         XCTAssertEqual(workspace.surfaceTabBarDirectory, "devbox.example:/home/george/cmux")
     }
 

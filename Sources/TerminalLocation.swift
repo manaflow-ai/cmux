@@ -130,12 +130,7 @@ struct TerminalLocation: Equatable {
             return true
         }
 
-        let candidates = Set(localHostnames().flatMap { name -> [String] in
-            let lower = name.lowercased()
-            let short = lower.split(separator: ".").first.map(String.init)
-            return [lower, short].compactMap { $0 }
-        })
-        return candidates.contains(normalized)
+        return localHostnameCandidates.contains(normalized)
     }
 
     private static func isIPv4Loopback(_ host: String) -> Bool {
@@ -152,14 +147,18 @@ struct TerminalLocation: Equatable {
         }
     }
 
-    private static func localHostnames() -> [String] {
+    private static let localHostnameCandidates: Set<String> = {
         var names = [ProcessInfo.processInfo.hostName]
         var buffer = [CChar](repeating: 0, count: 256)
         if gethostname(&buffer, buffer.count) == 0 {
             names.append(String(cString: buffer))
         }
-        return names
-    }
+        return Set(names.flatMap { name -> [String] in
+            let lower = name.lowercased()
+            let short = lower.split(separator: ".").first.map(String.init)
+            return [lower, short].compactMap { $0 }
+        })
+    }()
 }
 
 extension TerminalLocation {

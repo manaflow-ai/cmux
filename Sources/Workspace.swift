@@ -8472,7 +8472,10 @@ final class Workspace: Identifiable, ObservableObject {
                 surfaceTabBarDirectory = displayDirectory
             }
         }
-        guard !location.isRemote else { return }
+        guard !location.isRemote else {
+            panelDirectories.removeValue(forKey: panelId)
+            return
+        }
         if panelDirectories[panelId] != path {
             panelDirectories[panelId] = path
         }
