@@ -84,6 +84,11 @@ enum WorkspaceIconPrompting {
 }
 
 private enum SidebarWorkspaceIconImageCache {
+    private struct FileMetadata: Sendable {
+        let cacheKey: String
+    }
+
+    @MainActor
     private static let cache: NSCache<NSString, NSImage> = {
         let cache = NSCache<NSString, NSImage>()
         cache.countLimit = 128
@@ -91,35 +96,50 @@ private enum SidebarWorkspaceIconImageCache {
         return cache
     }()
 
-    static func image(forExpandedPath expandedPath: String) -> NSImage? {
-        let key = cacheKey(forExpandedPath: expandedPath)
-        if let cached = cache.object(forKey: key) {
-            return cached
-        }
-        guard let image = NSImage(contentsOfFile: expandedPath) else { return nil }
-        cache.setObject(image, forKey: key, cost: cacheCost(for: image))
-        return image
+    @MainActor
+    static func cachedImage(forKey key: String) -> NSImage? {
+        cache.object(forKey: key as NSString)
     }
 
-    private static func cacheKey(forExpandedPath expandedPath: String) -> NSString {
+    @MainActor
+    static func store(_ image: NSImage, forKey key: String) {
+        cache.setObject(image, forKey: key as NSString, cost: cacheCost(for: image))
+    }
+
+    nonisolated static func metadata(forExpandedPath expandedPath: String) async -> String {
+        await Task.detached(priority: .utility) {
+            FileMetadata(cacheKey: cacheKey(forExpandedPath: expandedPath))
+        }.value.cacheKey
+    }
+
+    nonisolated static func fileData(forExpandedPath expandedPath: String) async -> Data? {
+        await Task.detached(priority: .utility) {
+            try? Data(contentsOf: URL(fileURLWithPath: expandedPath, isDirectory: false))
+        }.value
+    }
+
+    nonisolated private static func cacheKey(forExpandedPath expandedPath: String) -> String {
         let attributes = try? FileManager.default.attributesOfItem(atPath: expandedPath)
         let modifiedAt = (attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
         let byteSize = (attributes?[.size] as? NSNumber)?.int64Value ?? -1
-        return "\(expandedPath)|\(modifiedAt)|\(byteSize)" as NSString
+        return "\(expandedPath)|\(modifiedAt)|\(byteSize)"
     }
 
+    @MainActor
     private static func cacheCost(for image: NSImage) -> Int {
         let pixels = max(1, Int(image.size.width * image.size.height))
         return pixels * 4
     }
 }
 
+@MainActor
 private final class SidebarWorkspaceIconImageLoader: ObservableObject {
     @Published var image: NSImage?
     @Published var didLoad = false
 
     private var requestedPath: String?
     private var isLoading = false
+    private var loadTask: Task<Void, Never>?
 
     func load(path: String) {
         let expandedPath = (path as NSString).expandingTildeInPath
@@ -128,15 +148,31 @@ private final class SidebarWorkspaceIconImageLoader: ObservableObject {
         image = nil
         didLoad = false
         isLoading = true
+        loadTask?.cancel()
 
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            let loadedImage = SidebarWorkspaceIconImageCache.image(forExpandedPath: expandedPath)
-            DispatchQueue.main.async {
+        loadTask = Task { [weak self, expandedPath] in
+            let cacheKey = await SidebarWorkspaceIconImageCache.metadata(forExpandedPath: expandedPath)
+            guard !Task.isCancelled else { return }
+
+            if let cached = SidebarWorkspaceIconImageCache.cachedImage(forKey: cacheKey) {
                 guard let self, self.requestedPath == expandedPath else { return }
-                self.image = loadedImage
+                self.image = cached
                 self.didLoad = true
                 self.isLoading = false
+                return
             }
+
+            let data = await SidebarWorkspaceIconImageCache.fileData(forExpandedPath: expandedPath)
+            guard !Task.isCancelled else { return }
+
+            let loadedImage = data.flatMap(NSImage.init(data:))
+            if let loadedImage {
+                SidebarWorkspaceIconImageCache.store(loadedImage, forKey: cacheKey)
+            }
+            guard let self, self.requestedPath == expandedPath else { return }
+            self.image = loadedImage
+            self.didLoad = true
+            self.isLoading = false
         }
     }
 }

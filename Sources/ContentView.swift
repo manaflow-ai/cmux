@@ -13734,6 +13734,7 @@ private struct TabItemView: View, Equatable {
             String(localized: "alert.renameWorkspace.icon.clear", defaultValue: "Clear Icon"),
         ])
         iconPopup.selectItem(at: 0)
+        iconPopup.setAccessibilityLabel(String(localized: "alert.renameWorkspace.icon.label", defaultValue: "Icon"))
 
         let iconRow = NSStackView(views: [iconLabel, iconPopup])
         iconRow.orientation = .horizontal

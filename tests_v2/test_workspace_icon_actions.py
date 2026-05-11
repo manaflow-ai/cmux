@@ -3,6 +3,7 @@
 
 import glob
 import json
+import logging
 import os
 import subprocess
 from pathlib import Path
@@ -12,6 +13,7 @@ from cmux import cmux, cmuxError
 
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
+logger = logging.getLogger(__name__)
 
 
 def _must(cond: bool, msg: str) -> None:
@@ -104,7 +106,7 @@ def main() -> int:
             try:
                 c.close_workspace(ws_id)
             except Exception:
-                pass
+                logger.exception("failed to close workspace %s during workspace icon cleanup", ws_id)
 
     print("PASS: workspace icon socket and CLI actions round-trip CmuxButtonIcon payloads")
     return 0
