@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression: Claude Stop notifications should use the final assistant text."""
+"""Regression: Claude Stop feed events should use the final assistant text."""
 
 from __future__ import annotations
 
@@ -157,22 +157,52 @@ def main() -> int:
             print(f"commands={server.commands!r}")
             return 1
 
-        notify_commands = [line for line in server.commands if line.startswith("notify_target_async ")]
-        if not notify_commands:
-            print("FAIL: expected notify_target_async command")
+        feed_pushes: list[dict[str, object]] = []
+        for line in server.commands:
+            if not line.startswith("{"):
+                continue
+            try:
+                request = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if request.get("method") == "feed.push":
+                feed_pushes.append(request)
+
+        stop_events = []
+        for request in feed_pushes:
+            params = request.get("params")
+            if not isinstance(params, dict):
+                continue
+            event = params.get("event")
+            if isinstance(event, dict) and event.get("hook_event_name") == "Stop":
+                stop_events.append(event)
+
+        if not stop_events:
+            print("FAIL: expected Stop feed.push command")
             print(f"commands={server.commands!r}")
             return 1
 
-        notify = notify_commands[-1]
-        expected_payload = f"notify_target_async {workspace_id} {surface_id} Claude Code|Completed in fun|2"
-        if notify != expected_payload:
-            print("FAIL: expected stop notification to use final assistant text")
-            print(f"expected={expected_payload!r}")
-            print(f"actual={notify!r}")
+        event = stop_events[-1]
+        context = event.get("context")
+        if not isinstance(context, dict):
+            print("FAIL: expected Stop feed event context")
+            print(f"event={event!r}")
             print(f"commands={server.commands!r}")
             return 1
 
-    print("PASS: Claude Stop notification uses final assistant text")
+        expected_workspace_id = workspace_id
+        actual_workspace_id = event.get("workspace_id")
+        actual_assistant_message = context.get("assistantPreamble")
+        if actual_workspace_id != expected_workspace_id or actual_assistant_message != "2":
+            print("FAIL: expected Stop feed event to use final assistant text")
+            print(f"expected_workspace_id={expected_workspace_id!r}")
+            print(f"actual_workspace_id={actual_workspace_id!r}")
+            print("expected_assistantPreamble='2'")
+            print(f"actual_assistantPreamble={actual_assistant_message!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+
+    print("PASS: Claude Stop feed event uses final assistant text")
     return 0
 
 
