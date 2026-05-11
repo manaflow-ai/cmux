@@ -308,6 +308,33 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 #endif
     }
 
+    func testRightSidebarV1FocusPolicyIsCommandSpecific() throws {
+#if DEBUG
+        let cases: [(String, Bool)] = [
+            ("right_sidebar toggle", true),
+            ("right_sidebar show", true),
+            ("right_sidebar focus", true),
+            ("right_sidebar set find", true),
+            ("right_sidebar sessions", true),
+            ("right_sidebar set vault --no-focus", false),
+            ("right_sidebar hide", false),
+            ("right_sidebar mode", false),
+            ("right_sidebar state", false),
+            ("right_sidebar set unknown", false),
+        ]
+
+        for (line, expected) in cases {
+            XCTAssertEqual(
+                TerminalController.shared.rightSidebarCommandAllowsInAppFocusMutationsForTesting(line),
+                expected,
+                line
+            )
+        }
+#else
+        throw XCTSkip("Right sidebar focus policy helper is debug-only.")
+#endif
+    }
+
     func testRightSidebarRemoteCommandsCanTargetRegisteredWindowOrWorkspaceWithoutFocus() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
