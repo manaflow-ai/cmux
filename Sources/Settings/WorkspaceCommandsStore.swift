@@ -27,7 +27,6 @@ final class WorkspaceCommandsStore: ObservableObject {
     @Published private(set) var defaultCommandID: WorkspaceCommandConfig.ID?
 
     private let defaults: UserDefaults
-    private var suppressPersist = false
 
     /// Stable identifier for the built-in `Local` command so persisted
     /// `defaultCommandID` references survive across launches.
@@ -162,7 +161,6 @@ final class WorkspaceCommandsStore: ObservableObject {
     }
 
     private func persist() {
-        guard !suppressPersist else { return }
         let snapshot = StoredSnapshot(
             userCommands: userCommands,
             defaultCommandID: defaultCommandID
@@ -176,7 +174,6 @@ final class WorkspaceCommandsStore: ObservableObject {
     private func load() {
         guard let data = defaults.data(forKey: Self.storageKey) else { return }
         guard let snapshot = try? JSONDecoder().decode(StoredSnapshot.self, from: data) else { return }
-        suppressPersist = true
         let sanitizedUserCommands = snapshot.userCommands.filter { $0.id != Self.builtInLocalID }
         userCommands = sanitizedUserCommands
         if let id = snapshot.defaultCommandID,
@@ -186,7 +183,6 @@ final class WorkspaceCommandsStore: ObservableObject {
         } else {
             defaultCommandID = nil
         }
-        suppressPersist = false
     }
 
     private struct StoredSnapshot: Codable {
