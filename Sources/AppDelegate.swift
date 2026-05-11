@@ -12366,9 +12366,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleUIScaleShortcut(event: NSEvent) -> Bool {
-        guard !isCommandPaletteBlockingUIScaleShortcut(for: event) else {
-            return false
-        }
         if matchConfiguredShortcut(event: event, action: .uiScaleZoomIn) {
             UIScaleSettings.zoomIn()
             return true

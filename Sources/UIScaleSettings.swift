@@ -76,7 +76,10 @@ enum UIScaleSettings {
     ) {
         let workItem = DispatchWorkItem {
             do {
-                try settingsFileStore.persistAppUIScale(value)
+                try settingsFileStore.writeAppUIScale(value)
+                DispatchQueue.main.async {
+                    settingsFileStore.reload()
+                }
             } catch {
                 logger.error(
                     "Failed to persist \(jsonPath, privacy: .public): \(String(describing: error), privacy: .public)"

@@ -164,6 +164,11 @@ final class CmuxSettingsFileStore {
     }
 
     func persistAppUIScale(_ uiScale: Double) throws {
+        try writeAppUIScale(uiScale)
+        reload()
+    }
+
+    func writeAppUIScale(_ uiScale: Double) throws {
         let fileURL = settingsFileURLForEditing()
         let data = fileManager.contents(atPath: fileURL.path) ?? Data("{}".utf8)
         let sanitized = try JSONCParser.preprocess(data: data)
@@ -184,7 +189,6 @@ final class CmuxSettingsFileStore {
         )
         try updated.write(to: fileURL, options: [.atomic])
         try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
-        reload()
     }
 
     private func bootstrapPrimaryTemplateIfNeeded() {
