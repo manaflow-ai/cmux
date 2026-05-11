@@ -12348,7 +12348,9 @@ struct CMUXCLI {
             guard let buffer = store.buffers[name] else {
                 throw CLIError(message: "Buffer not found: \(name)")
             }
+            let bracketed = commandArgs.contains("--bracketed")
             var params: [String: Any] = ["text": buffer]
+            if bracketed { params["paste"] = true }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, allowCurrent: true)
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, allowFocused: true)
