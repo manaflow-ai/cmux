@@ -1057,6 +1057,7 @@ struct BrowserPanelView: View {
         }
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        .background(BrowserWebExtensionActionPopupAnchor(panelID: panel.id))
         .popover(isPresented: $isBrowserExtensionsPopoverPresented, arrowEdge: .bottom) {
             browserExtensionsPopover
         }
@@ -3460,6 +3461,38 @@ private final class OmnibarNativeTextField: NSTextField {
         handled = result
 #endif
         return result
+    }
+}
+
+private struct BrowserWebExtensionActionPopupAnchor: NSViewRepresentable {
+    let panelID: UUID
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(panelID: panelID)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        context.coordinator.panelID = panelID
+        BrowserWebExtensionSupport.setActionPopupAnchorView(view, forPanelID: panelID)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.panelID = panelID
+        BrowserWebExtensionSupport.setActionPopupAnchorView(nsView, forPanelID: panelID)
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        BrowserWebExtensionSupport.setActionPopupAnchorView(nil, forPanelID: coordinator.panelID)
+    }
+
+    final class Coordinator {
+        var panelID: UUID
+
+        init(panelID: UUID) {
+            self.panelID = panelID
+        }
     }
 }
 

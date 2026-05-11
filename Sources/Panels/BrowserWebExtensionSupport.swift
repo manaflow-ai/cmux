@@ -497,6 +497,11 @@ enum BrowserWebExtensionSupport {
         BrowserWebExtensionRuntime.shared.performAction(actionID, for: panel)
     }
 
+    static func setActionPopupAnchorView(_ view: NSView?, forPanelID panelID: UUID) {
+        guard #available(macOS 15.4, *) else { return }
+        BrowserWebExtensionRuntime.shared.setActionPopupAnchorView(view, forPanelID: panelID)
+    }
+
     static func installExtension(from url: URL) async throws -> BrowserWebExtensionInstallResult {
         guard #available(macOS 15.4, *) else {
             throw BrowserWebExtensionInstallError.unsupportedOS
@@ -517,6 +522,16 @@ enum BrowserWebExtensionSupport {
 
 @available(macOS 15.4, *)
 @MainActor
+private final class BrowserWebExtensionWeakView {
+    weak var view: NSView?
+
+    init(_ view: NSView) {
+        self.view = view
+    }
+}
+
+@available(macOS 15.4, *)
+@MainActor
 private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControllerDelegate {
     static let shared = BrowserWebExtensionRuntime()
 
@@ -526,6 +541,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     private var tabAdaptersByPanelID: [UUID: BrowserWebExtensionTabAdapter] = [:]
     private var auxiliaryWindowAdaptersByID: [UUID: BrowserWebExtensionAuxiliaryWindowAdapter] = [:]
     private var actionPopupPresentationsByID: [UUID: BrowserWebExtensionActionPopupPresentation] = [:]
+    private var actionPopupAnchorViewsByPanelID: [UUID: BrowserWebExtensionWeakView] = [:]
     private let windowAdapter = BrowserWebExtensionWindowAdapter()
     private var hasLoadedRecords = false
 
@@ -557,6 +573,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
     func unregister(panelID: UUID) {
         guard let adapter = tabAdaptersByPanelID.removeValue(forKey: panelID) else { return }
+        actionPopupAnchorViewsByPanelID.removeValue(forKey: panelID)
         controller?.didCloseTab(adapter, windowIsClosing: false)
         postDidChange()
     }
@@ -587,6 +604,14 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             return
         }
         context.performAction(for: tab)
+    }
+
+    func setActionPopupAnchorView(_ view: NSView?, forPanelID panelID: UUID) {
+        guard let view else {
+            actionPopupAnchorViewsByPanelID.removeValue(forKey: panelID)
+            return
+        }
+        actionPopupAnchorViewsByPanelID[panelID] = BrowserWebExtensionWeakView(view)
     }
 
     func notePanelPropertiesChanged(panel: BrowserPanel) {
@@ -1024,13 +1049,14 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     ) {
         guard action.presentsPopup,
               let popupWebView = action.popupWebView,
-              let anchorView = (action.associatedTab as? BrowserWebExtensionTabAdapter)?.panel?.webView
+              let fallbackAnchorView = (action.associatedTab as? BrowserWebExtensionTabAdapter)?.panel?.webView
                 ?? activeTabAdapter()?.panel?.webView else {
             completionHandler(nil)
             return
         }
+        let anchorView = actionPopupAnchorView(for: action) ?? fallbackAnchorView
         closeAllActionPopups()
-        let rect = NSRect(x: max(anchorView.bounds.maxX - 1, 0), y: anchorView.bounds.maxY, width: 1, height: 1)
+        let rect = anchorView.bounds
         let visibleFrame = anchorView.window?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? anchorView.visibleRect
         let presentation = BrowserWebExtensionActionPopupPresentation(
             action: action,
@@ -1048,6 +1074,17 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             preferredEdge: .maxY
         )
         completionHandler(nil)
+    }
+
+    private func actionPopupAnchorView(for action: WKWebExtension.Action) -> NSView? {
+        guard let panelID = (action.associatedTab as? BrowserWebExtensionTabAdapter)?.panel?.id
+            ?? activeTabAdapter()?.panel?.id,
+            let view = actionPopupAnchorViewsByPanelID[panelID]?.view,
+            view.window != nil
+        else {
+            return nil
+        }
+        return view
     }
 
     private func promptForRuntimePermission(
@@ -1166,9 +1203,13 @@ private final class BrowserWebExtensionActionPopupPresentation: NSObject, NSWind
         let anchorRect = positioningView.convert(positioningRect, to: nil)
         let anchorScreenRect = anchorWindow.convertToScreen(anchorRect)
         let visibleFrame = anchorWindow.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? anchorScreenRect
+        let hostFrame = anchorWindow.frame.intersection(visibleFrame)
+        let allowedFrame = hostFrame.isNull || hostFrame.isEmpty ? visibleFrame : hostFrame
         let size = panel.frame.size
-        let x = max(visibleFrame.minX, min(anchorScreenRect.maxX - size.width, visibleFrame.maxX - size.width))
-        let y = max(visibleFrame.minY, min(anchorScreenRect.minY - size.height, visibleFrame.maxY - size.height))
+        let maxXOrigin = max(allowedFrame.minX, allowedFrame.maxX - size.width)
+        let maxYOrigin = max(allowedFrame.minY, allowedFrame.maxY - size.height)
+        let x = max(allowedFrame.minX, min(anchorScreenRect.midX - size.width / 2, maxXOrigin))
+        let y = max(allowedFrame.minY, min(anchorScreenRect.minY - size.height - 6, maxYOrigin))
         panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
         panel.makeKeyAndOrderFront(nil)
     }
