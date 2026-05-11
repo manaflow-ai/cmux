@@ -48,9 +48,7 @@ struct TerminalPanelView: View {
                 surface: panel.surface,
                 backgroundColor: appearance.backgroundColor,
                 foregroundColor: appearance.foregroundColor,
-                font: NSFont.monospacedSystemFont(
-                    ofType: GhosttyConfig.load().fontSize, weight: .regular
-                )
+                font: appearance.font
             )
         }
     }
@@ -60,6 +58,7 @@ struct TerminalPanelView: View {
 struct PanelAppearance {
     let backgroundColor: NSColor
     let foregroundColor: NSColor
+    let font: NSFont
     let dividerColor: Color
     let unfocusedOverlayNSColor: NSColor
     let unfocusedOverlayOpacity: Double
@@ -71,6 +70,7 @@ struct PanelAppearance {
                 opacity: config.backgroundOpacity
             ),
             foregroundColor: config.foregroundColor,
+            font: NSFont.monospacedSystemFont(ofSize: config.fontSize, weight: .regular),
             dividerColor: Color(nsColor: config.resolvedSplitDividerColor),
             unfocusedOverlayNSColor: config.unfocusedSplitOverlayFill,
             unfocusedOverlayOpacity: config.unfocusedSplitOverlayOpacity

@@ -37,8 +37,6 @@ private enum TextBoxSubmit {
         if !trimmed.isEmpty {
             surface.sendText(trimmed)
         }
-        // Send Return as a separate write so bracket-paste-aware shells
-        // (zsh, Claude CLI) execute the pasted text.
         surface.sendText("\r")
     }
 }
@@ -263,9 +261,10 @@ final class InputTextView: NSTextView {
     }
 
     private func updateBorder(focused: Bool) {
-        guard let sv = superview?.superview else { return }
+        // container = the border-drawing NSView from makeNSView
+        guard let container = enclosingScrollView?.superview else { return }
         let opacity = focused ? Layout.focusedBorderOpacity : Layout.borderOpacity
-        sv.layer?.borderColor = (textColor ?? .white)
+        container.layer?.borderColor = (textColor ?? .white)
             .withAlphaComponent(opacity).cgColor
     }
 
@@ -298,7 +297,10 @@ final class InputTextView: NSTextView {
             }
         }
         if selector == #selector(NSResponder.cancelOperation(_:)) {
-            window?.resignFirstResponder()
+            // Release focus so the terminal's GhosttyNSView can reclaim it.
+            // makeFirstResponder(nil) resigns current first responder;
+            // clicking the terminal will then naturally restore focus there.
+            window?.makeFirstResponder(nil)
             return
         }
         super.doCommand(by: selector)
