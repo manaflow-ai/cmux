@@ -383,9 +383,9 @@ final class AppearanceSettingsTests: XCTestCase {
 private actor AppearancePersistenceBlocker {
     private var continuations: [String: CheckedContinuation<Void, Never>] = [:]
 
-    func task(for source: String) -> Task<Void, Never> {
+    nonisolated func task(for source: String) -> Task<Void, Never> {
         Task {
-            await wait(for: source)
+            await self.wait(for: source)
         }
     }
 
