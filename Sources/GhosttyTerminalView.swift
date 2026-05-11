@@ -4216,6 +4216,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var pendingSocketInputBytes: Int = 0
     private let maxPendingSocketInputBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
+    private var runtimeSurfaceCreationDeferredUntilVisible: Bool
+    private var runtimeSurfaceCreationDeferredReleaseEnabled: Bool
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     /// The desired focus state for the Ghostty C surface. May be set before the
     /// C surface exists (e.g. during layout restoration); `createSurface`
@@ -4297,7 +4299,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
-        focusPlacement: TerminalSurfaceFocusPlacement = .workspace
+        focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        deferRuntimeSurfaceCreationUntilVisible: Bool = false
     ) {
         #if DEBUG
         dispatchPrecondition(condition: .onQueue(.main))
@@ -4317,6 +4320,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.initialEnvironmentOverrides = Self.mergedNormalizedEnvironment(base: [:], overrides: initialEnvironmentOverrides)
         self.additionalEnvironment = Self.mergedNormalizedEnvironment(base: [:], overrides: additionalEnvironment)
         self.focusPlacement = focusPlacement
+        self.runtimeSurfaceCreationDeferredUntilVisible = deferRuntimeSurfaceCreationUntilVisible
+        self.runtimeSurfaceCreationDeferredReleaseEnabled = !deferRuntimeSurfaceCreationUntilVisible
         // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
         // has non-zero bounds and the renderer can initialize without presenting a blank/stretched
         // intermediate frame on the first real resize.
@@ -4790,6 +4795,25 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 cmuxDebugLog(
                     "surface.attach.skip surface=\(id.uuidString.prefix(5)) " +
                     "reason=lifecycle.\(portalLifecycleState.rawValue)"
+                )
+#endif
+                return
+            }
+            guard !runtimeSurfaceCreationDeferredUntilVisible else {
+#if DEBUG
+                cmuxDebugLog(
+                    "surface.attach.defer surface=\(id.uuidString.prefix(5)) reason=sessionRestoreDeferred " +
+                    "visible=\(view.isVisibleInUI ? 1 : 0) releaseEnabled=\(runtimeSurfaceCreationDeferredReleaseEnabled ? 1 : 0) " +
+                    "bounds=\(String(format: "%.1fx%.1f", view.bounds.width, view.bounds.height))"
+                )
+#endif
+                return
+            }
+            guard view.isVisibleInUI else {
+#if DEBUG
+                cmuxDebugLog(
+                    "surface.attach.defer surface=\(id.uuidString.prefix(5)) reason=notVisible " +
+                    "bounds=\(String(format: "%.1fx%.1f", view.bounds.width, view.bounds.height))"
                 )
 #endif
                 return
@@ -5423,6 +5447,17 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         guard allowsRuntimeSurfaceCreation() else { return }
+        if runtimeSurfaceCreationDeferredUntilVisible {
+            guard runtimeSurfaceCreationDeferredReleaseEnabled else {
+#if DEBUG
+                cmuxDebugLog(
+                    "surface.background_start.defer surface=\(id.uuidString.prefix(8)) reason=sessionRestoreDeferred"
+                )
+#endif
+                return
+            }
+            releaseDeferredRuntimeSurfaceCreation(reason: "backgroundStart")
+        }
         guard surface == nil, attachedView != nil else { return }
         guard !backgroundSurfaceStartQueued else { return }
         backgroundSurfaceStartQueued = true
@@ -5451,6 +5486,39 @@ final class TerminalSurface: Identifiable, ObservableObject {
             )
             #endif
         }
+    }
+
+    func enableDeferredRuntimeSurfaceCreationRelease(reason: String) {
+        guard runtimeSurfaceCreationDeferredUntilVisible else { return }
+        runtimeSurfaceCreationDeferredReleaseEnabled = true
+#if DEBUG
+        cmuxDebugLog(
+            "surface.restoreDeferred.enableRelease surface=\(id.uuidString.prefix(5)) reason=\(reason)"
+        )
+#endif
+    }
+
+    fileprivate func releaseDeferredRuntimeSurfaceCreationIfVisibleAllowed(reason: String) {
+        guard runtimeSurfaceCreationDeferredUntilVisible,
+              runtimeSurfaceCreationDeferredReleaseEnabled,
+              attachedView?.isVisibleInUI == true else {
+            return
+        }
+        releaseDeferredRuntimeSurfaceCreation(reason: reason)
+    }
+
+    func releaseDeferredRuntimeSurfaceCreation(reason: String) {
+        guard runtimeSurfaceCreationDeferredUntilVisible else { return }
+        runtimeSurfaceCreationDeferredUntilVisible = false
+        runtimeSurfaceCreationDeferredReleaseEnabled = true
+#if DEBUG
+        cmuxDebugLog(
+            "surface.restoreDeferred.release surface=\(id.uuidString.prefix(5)) reason=\(reason) " +
+            "attached=\(attachedView != nil ? 1 : 0) hasSurface=\(surface != nil ? 1 : 0)"
+        )
+#endif
+        guard surface == nil, let view = attachedView else { return }
+        attachToView(view)
     }
 
     private func writeTextData(_ data: Data, to surface: ghostty_surface_t) {
@@ -5943,7 +6011,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var trackingArea: NSTrackingArea?
     private var windowObserver: NSObjectProtocol?
     private var lastScrollEventTime: CFTimeInterval = 0
-    private var visibleInUI: Bool = true
+    private var visibleInUI: Bool = false
     private var pendingSurfaceSize: CGSize?
     private var deferredSurfaceSizeRetryQueued = false
     private var lastDrawableSize: CGSize = .zero
@@ -5980,6 +6048,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         fileprivate var isVisibleInUI: Bool { visibleInUI }
         fileprivate func setVisibleInUI(_ visible: Bool) {
             visibleInUI = visible
+            guard visible else { return }
+            terminalSurface?.releaseDeferredRuntimeSurfaceCreationIfVisibleAllowed(reason: "visibleInUI")
+            if terminalSurface?.surface == nil, window != nil {
+                terminalSurface?.attachToView(self)
+            }
         }
 
     override init(frame frameRect: NSRect) {
@@ -13263,6 +13336,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
         } ?? true
 
         // Keep the surface lifecycle and handlers updated even if we defer re-parenting.
+        // Hidden tabs can still receive SwiftUI updates and enter the portal host. Apply
+        // the visibility bit before attachment so they do not create Ghostty runtime
+        // surfaces until selected or explicitly background-primed.
+        hostedView.setVisibleInUI(isVisibleInUI)
         hostedView.attachSurface(terminalSurface)
         hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
         hostedView.setTriggerFlashHandler(onTriggerFlash)

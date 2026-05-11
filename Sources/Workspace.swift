@@ -234,6 +234,17 @@ extension Workspace {
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) {
+        sessionRestoreTerminalSurfaceCreationDeferralDepth += 1
+        defer {
+            sessionRestoreTerminalSurfaceCreationDeferralDepth = max(
+                sessionRestoreTerminalSurfaceCreationDeferralDepth - 1,
+                0
+            )
+            if sessionRestoreTerminalSurfaceCreationDeferralDepth == 0 {
+                allowDeferredRuntimeSurfaceCreationForRestoredTerminalPanels()
+            }
+        }
+
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
         debugSessionSnapshotScrollbackFallbackPanelIds.removeAll(keepingCapacity: false)
@@ -311,6 +322,29 @@ extension Workspace {
         } else {
             scheduleFocusReconcile()
         }
+    }
+
+    private func allowDeferredRuntimeSurfaceCreationForRestoredTerminalPanels() {
+        let terminalPanels = panels.values.compactMap { $0 as? TerminalPanel }
+        terminalPanels.forEach {
+            $0.surface.enableDeferredRuntimeSurfaceCreationRelease(reason: "sessionRestoreComplete")
+        }
+
+        var selectedPanelIds = Set<UUID>()
+        for paneId in bonsplitController.allPaneIds {
+            guard let selectedTabId = bonsplitController.selectedTab(inPane: paneId)?.id,
+                  let selectedPanelId = panelIdFromSurfaceId(selectedTabId) else {
+                continue
+            }
+            selectedPanelIds.insert(selectedPanelId)
+        }
+
+        terminalPanels
+            .filter { selectedPanelIds.contains($0.id) }
+            .forEach {
+                $0.surface.releaseDeferredRuntimeSurfaceCreation(reason: "sessionRestoreSelected")
+                $0.surface.requestBackgroundSurfaceStartIfNeeded()
+            }
     }
 
     private func sessionLayoutSnapshot(from node: ExternalTreeNode) -> SessionWorkspaceLayoutSnapshot {
@@ -7050,6 +7084,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels)
     private var isProgrammaticSplit = false
     private var debugStressPreloadSelectionDepth = 0
+    private var sessionRestoreTerminalSurfaceCreationDeferralDepth = 0
 
     /// Last terminal panel used as an inheritance source (typically last focused terminal).
     var lastTerminalConfigInheritancePanelId: UUID?
@@ -9848,7 +9883,8 @@ final class Workspace: Identifiable, ObservableObject {
             workingDirectory: splitWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
-            tmuxStartCommand: tmuxStartCommand
+            tmuxStartCommand: tmuxStartCommand,
+            deferRuntimeSurfaceCreationUntilVisible: sessionRestoreTerminalSurfaceCreationDeferralDepth > 0
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -9981,7 +10017,8 @@ final class Workspace: Identifiable, ObservableObject {
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
-            additionalEnvironment: startupEnvironment
+            additionalEnvironment: startupEnvironment,
+            deferRuntimeSurfaceCreationUntilVisible: sessionRestoreTerminalSurfaceCreationDeferralDepth > 0
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -11663,7 +11700,8 @@ final class Workspace: Identifiable, ObservableObject {
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
             configTemplate: inheritedConfig,
             portOrdinal: portOrdinal,
-            initialCommand: replacementInitialCommand
+            initialCommand: replacementInitialCommand,
+            deferRuntimeSurfaceCreationUntilVisible: sessionRestoreTerminalSurfaceCreationDeferralDepth > 0
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -12606,7 +12644,8 @@ final class Workspace: Identifiable, ObservableObject {
             configTemplate: inheritedConfig,
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
-            initialInput: initialInput
+            initialInput: initialInput,
+            deferRuntimeSurfaceCreationUntilVisible: sessionRestoreTerminalSurfaceCreationDeferralDepth > 0
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -13620,7 +13659,8 @@ extension Workspace: BonsplitDelegate {
                         workspaceId: id,
                         context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
                         configTemplate: inheritedConfig,
-                        portOrdinal: portOrdinal
+                        portOrdinal: portOrdinal,
+                        deferRuntimeSurfaceCreationUntilVisible: sessionRestoreTerminalSurfaceCreationDeferralDepth > 0
                     )
                     configureTerminalPanel(replacementPanel)
                     panels[replacementPanel.id] = replacementPanel
@@ -13688,7 +13728,8 @@ extension Workspace: BonsplitDelegate {
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            portOrdinal: portOrdinal
+            portOrdinal: portOrdinal,
+            deferRuntimeSurfaceCreationUntilVisible: sessionRestoreTerminalSurfaceCreationDeferralDepth > 0
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
