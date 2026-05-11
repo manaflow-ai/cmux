@@ -6,7 +6,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 from cmux import cmux, cmuxError
 
@@ -33,11 +33,11 @@ def _find_cli_binary() -> str:
     candidates = [p for p in candidates if os.path.isfile(p) and os.access(p, os.X_OK)]
     if not candidates:
         raise cmuxError("Could not locate cmux CLI binary; set CMUXTERM_CLI")
-    candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+    candidates.sort(key=os.path.getmtime, reverse=True)
     return candidates[0]
 
 
-def _run_cli_json(cli: str, args: List[str]) -> Dict[str, Any]:
+def _run_cli_json(cli: str, args: list[str]) -> dict[str, Any]:
     env = dict(os.environ)
     env.pop("CMUX_WORKSPACE_ID", None)
     env.pop("CMUX_SURFACE_ID", None)
@@ -57,10 +57,10 @@ def _run_cli_json(cli: str, args: List[str]) -> Dict[str, Any]:
     try:
         return json.loads(proc.stdout or "{}")
     except Exception as exc:
-        raise cmuxError(f"Invalid JSON output for {' '.join(args)}: {proc.stdout!r} ({exc})")
+        raise cmuxError(f"Invalid JSON output for {' '.join(args)}: {proc.stdout!r} ({exc})") from exc
 
 
-def _workspace_icon(c: cmux, workspace_id: str) -> Dict[str, Any] | None:
+def _workspace_icon(c: cmux, workspace_id: str) -> dict[str, Any] | None:
     rows = (c._call("workspace.list", {}) or {}).get("workspaces") or []
     for row in rows:
         if str(row.get("id") or "") == workspace_id:

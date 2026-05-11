@@ -4081,6 +4081,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.borderless)
                 .safeHelp(String(localized: "commandPalette.workspaceIcon.setSymbol.tooltip", defaultValue: "Set Symbol"))
+                .accessibilityLabel(String(localized: "commandPalette.workspaceIcon.setSymbol.tooltip", defaultValue: "Set Symbol"))
 
                 Button {
                     WorkspaceIconPrompting.promptEmoji { icon in
@@ -4091,6 +4092,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.borderless)
                 .safeHelp(String(localized: "commandPalette.workspaceIcon.setEmoji.tooltip", defaultValue: "Set Emoji"))
+                .accessibilityLabel(String(localized: "commandPalette.workspaceIcon.setEmoji.tooltip", defaultValue: "Set Emoji"))
 
                 Button {
                     WorkspaceIconPrompting.promptImage { icon in
@@ -4101,6 +4103,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.borderless)
                 .safeHelp(String(localized: "commandPalette.workspaceIcon.setImage.tooltip", defaultValue: "Set Image"))
+                .accessibilityLabel(String(localized: "commandPalette.workspaceIcon.setImage.tooltip", defaultValue: "Set Image"))
 
                 if tabManager.tabs.first(where: { $0.id == target.workspaceId })?.customIcon != nil {
                     Button {
@@ -4110,6 +4113,7 @@ struct ContentView: View {
                     }
                     .buttonStyle(.borderless)
                     .safeHelp(String(localized: "commandPalette.workspaceIcon.clear.tooltip", defaultValue: "Clear Icon"))
+                    .accessibilityLabel(String(localized: "commandPalette.workspaceIcon.clear.tooltip", defaultValue: "Clear Icon"))
                 }
             }
             .padding(.horizontal, 9)
