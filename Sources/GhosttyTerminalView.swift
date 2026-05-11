@@ -7564,7 +7564,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             accumulatedText: accumulatedText
         ) {
             zhuyinCandidateOpenRequested = true
-        } else if markedTextBefore, isTraditionalZhuyinInputSource(keyboardIdBefore) {
+        } else if markedTextBefore, isBopomofoInputSource(keyboardIdBefore) {
             zhuyinCandidateOpenRequested = false
         }
 
