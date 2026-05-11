@@ -12453,6 +12453,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
+    @discardableResult
+    func handleBrowserPopupCloseShortcutKeyEquivalent(event: NSEvent, popupWindow: NSWindow) -> Bool {
+        guard event.type == .keyDown else {
+            clearConfiguredShortcutChordState()
+            return false
+        }
+        guard !KeyboardShortcutRecorderActivity.isAnyRecorderActive else {
+            clearConfiguredShortcutChordState()
+            return false
+        }
+
+        let configuredShortcutEventWindowNumber = configuredShortcutChordWindowNumber(for: event)
+        if let pendingConfiguredShortcutChord,
+           pendingConfiguredShortcutChord.windowNumber == configuredShortcutEventWindowNumber {
+            activeConfiguredShortcutChordPrefixForCurrentEvent = pendingConfiguredShortcutChord.firstStroke
+        } else {
+            activeConfiguredShortcutChordPrefixForCurrentEvent = nil
+        }
+        pendingConfiguredShortcutChord = nil
+        defer {
+            activeConfiguredShortcutChordPrefixForCurrentEvent = nil
+            clearShortcutEventFocusContextCache(for: event)
+        }
+
+        if matchConfiguredShortcut(event: event, action: .closeTab) {
+#if DEBUG
+            cmuxDebugLog("popup.panel.closeShortcut close")
+#endif
+            popupWindow.performClose(nil)
+            return true
+        }
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           armConfiguredShortcutChordIfNeeded(event: event, actions: [.closeTab]) {
+#if DEBUG
+            cmuxDebugLog("popup.panel.closeShortcut armChord")
+#endif
+            return true
+        }
+        return false
+    }
+
     private func matchConfiguredShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
         guard !shortcut.isUnbound else { return false }
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {

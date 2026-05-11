@@ -34,12 +34,11 @@ func browserPopupContentRect(
     return NSRect(x: x, y: y, width: clampedWidth, height: clampedHeight)
 }
 
-func browserPopupPanelShouldCloseForCloseTabShortcut(_ event: NSEvent) -> Bool {
-    KeyboardShortcutSettings.shortcut(for: .closeTab).matches(event: event)
-}
-
-func browserPopupPanelShouldSuppressStaleCloseTabShortcut(_ event: NSEvent) -> Bool {
-    guard !browserPopupPanelShouldCloseForCloseTabShortcut(event) else { return false }
+private func browserPopupPanelShouldSuppressStaleCloseTabShortcut(_ event: NSEvent) -> Bool {
+    let closeTabShortcut = KeyboardShortcutSettings.shortcut(for: .closeTab)
+    guard closeTabShortcut.isUnbound || closeTabShortcut != KeyboardShortcutSettings.Action.closeTab.defaultShortcut else {
+        return false
+    }
     return KeyboardShortcutSettings.Action.closeTab.defaultShortcut.matches(event: event)
 }
 
@@ -48,11 +47,7 @@ func browserPopupPanelShouldSuppressStaleCloseTabShortcut(_ event: NSEvent) -> B
 /// "Close Tab" action (which would close the parent browser tab).
 final class BrowserPopupPanel: NSPanel {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if browserPopupPanelShouldCloseForCloseTabShortcut(event) {
-            #if DEBUG
-            cmuxDebugLog("popup.panel.closeShortcut close")
-            #endif
-            performClose(nil)
+        if AppDelegate.shared?.handleBrowserPopupCloseShortcutKeyEquivalent(event: event, popupWindow: self) == true {
             return true
         }
         if browserPopupPanelShouldSuppressStaleCloseTabShortcut(event) {

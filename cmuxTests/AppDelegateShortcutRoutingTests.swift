@@ -1991,6 +1991,73 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testBrowserPopupPanelCloseShortcutSupportsChordedCloseTabRemap() throws {
+        guard AppDelegate.shared != nil else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let chordedCloseTab = StoredShortcut(
+            key: "b",
+            command: false,
+            shift: false,
+            option: false,
+            control: true,
+            keyCode: 11,
+            chordKey: "n",
+            chordCommand: false,
+            chordShift: false,
+            chordOption: false,
+            chordControl: false,
+            chordKeyCode: 45
+        )
+
+        withTemporaryShortcut(action: .closeTab, shortcut: chordedCloseTab) {
+            let panel = BrowserPopupPanel(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            panel.isReleasedWhenClosed = false
+            panel.identifier = NSUserInterfaceItemIdentifier("cmux.browser-popup")
+            panel.orderFront(nil)
+            defer { panel.orderOut(nil) }
+
+            guard let prefixEvent = makeKeyDownEvent(
+                key: "b",
+                modifiers: [.control],
+                keyCode: 11,
+                windowNumber: panel.windowNumber
+            ) else {
+                XCTFail("Failed to construct Ctrl+B prefix event")
+                return
+            }
+
+            guard let suffixEvent = makeKeyDownEvent(
+                key: "n",
+                modifiers: [],
+                keyCode: 45,
+                windowNumber: panel.windowNumber
+            ) else {
+                XCTFail("Failed to construct N suffix event")
+                return
+            }
+
+            XCTAssertTrue(
+                panel.performKeyEquivalent(with: prefixEvent),
+                "A chorded Close Tab prefix should be consumed without closing the browser popup"
+            )
+            XCTAssertTrue(panel.isVisible, "Chord prefix alone should leave the browser popup open")
+
+            XCTAssertTrue(
+                panel.performKeyEquivalent(with: suffixEvent),
+                "The chorded Close Tab suffix should close the browser popup"
+            )
+            XCTAssertFalse(panel.isVisible, "Chorded Close Tab shortcut should close the browser popup")
+        }
+    }
+
     func testBrowserPopupPanelLeavesDefaultCloseTabShortcutAloneWhenCloseTabIsUnbound() throws {
         let defaultCloseTab = KeyboardShortcutSettings.Action.closeTab.defaultShortcut
         withTemporaryShortcut(action: .closeTab, shortcut: .unbound) {
