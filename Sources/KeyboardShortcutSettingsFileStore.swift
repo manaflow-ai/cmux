@@ -163,17 +163,6 @@ final class CmuxSettingsFileStore {
         (primaryPath as NSString).abbreviatingWithTildeInPath
     }
 
-    func persistAppUIScale(_ uiScale: Double) throws {
-        try writeAppUIScale(uiScale)
-        if Thread.isMainThread {
-            reload()
-        } else {
-            DispatchQueue.main.async { [weak self] in
-                self?.reload()
-            }
-        }
-    }
-
     func writeAppUIScale(_ uiScale: Double) throws {
         let fileURL = settingsFileURLForEditing()
         let data = fileManager.contents(atPath: fileURL.path) ?? Data("{}".utf8)
