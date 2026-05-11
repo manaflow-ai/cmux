@@ -165,7 +165,13 @@ final class CmuxSettingsFileStore {
 
     func persistAppUIScale(_ uiScale: Double) throws {
         try writeAppUIScale(uiScale)
-        reload()
+        if Thread.isMainThread {
+            reload()
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.reload()
+            }
+        }
     }
 
     func writeAppUIScale(_ uiScale: Double) throws {

@@ -220,7 +220,9 @@ private struct AgentIconImage: View, Equatable {
     let size: CGFloat
 
     static func == (lhs: AgentIconImage, rhs: AgentIconImage) -> Bool {
-        lhs.agent == rhs.agent && lhs.size == rhs.size
+        lhs.agent == rhs.agent &&
+            lhs.size == rhs.size &&
+            lhs.uiScaleFactor == rhs.uiScaleFactor
     }
 
     private var scaledSize: CGFloat {
