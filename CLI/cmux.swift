@@ -5800,7 +5800,6 @@ struct CMUXCLI {
             "  wait \"$CMUX_SSH_CHILD_PID\"",
             "  cmux_ssh_status=$?",
             "  CMUX_SSH_CHILD_PID=",
-            "  case \"$cmux_ssh_status\" in 129) cmux_ssh_signal_exit 129 ;; 130) cmux_ssh_signal_exit 130 ;; 143) cmux_ssh_signal_exit 143 ;; esac",
             "  if [ \"$cmux_ssh_status\" -eq 0 ]; then break; fi",
             "  if [ \"$cmux_ssh_status\" -ne 255 ]; then break; fi",
             "  if [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi",
