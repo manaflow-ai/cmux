@@ -54,6 +54,15 @@ final class BrowserReturnKeyForwardingTests: XCTestCase {
         override var acceptsFirstResponder: Bool { true }
     }
 
+    private final class DetachedFieldEditor: NSTextView {
+        override var acceptsFirstResponder: Bool { true }
+
+        override var isFieldEditor: Bool {
+            get { true }
+            set {}
+        }
+    }
+
     private func makeKeyEvent(
         windowNumber: Int,
         keyCode: UInt16,
@@ -125,6 +134,35 @@ final class BrowserReturnKeyForwardingTests: XCTestCase {
         XCTAssertTrue(window.performKeyEquivalent(with: event))
         XCTAssertEqual(webView.keyDownCallCount, 1)
         XCTAssertEqual(webView.lastKeyCode, 123)
+    }
+
+    func testRoutesReturnFromDetachedFieldEditorOwnerResponderChainToEmbeddedWKWebView() {
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+
+        let webView = RecordingWKWebView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 320, height: 240))
+        window.contentView = webView
+
+        let ownerView = FocusableWebSubview(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
+        ownerView.nextResponder = webView
+
+        let fieldEditor = DetachedFieldEditor(frame: NSRect(x: 0, y: 0, width: 100, height: 20))
+        fieldEditor.nextResponder = ownerView
+
+        XCTAssertTrue(window.makeFirstResponder(fieldEditor))
+        fieldEditor.nextResponder = ownerView
+
+        let event = makeKeyEvent(windowNumber: window.windowNumber, keyCode: 36)
+        XCTAssertTrue(window.performKeyEquivalent(with: event))
+        XCTAssertEqual(webView.keyDownCallCount, 1)
+        XCTAssertEqual(webView.lastKeyCode, 36)
     }
 
     func testConsumesReentrantReturnDuringForwardedBrowserKeyDown() {

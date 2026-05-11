@@ -13783,13 +13783,11 @@ private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
 private struct CmuxForwardedBrowserReturnEvent: Equatable {
     let keyCode: UInt16
     let timestamp: TimeInterval
-    let windowNumber: Int
     let charactersIgnoringModifiers: String?
 
     init(_ event: NSEvent) {
         keyCode = event.keyCode
         timestamp = event.timestamp
-        windowNumber = event.windowNumber
         charactersIgnoringModifiers = event.charactersIgnoringModifiers
     }
 }
@@ -14641,7 +14639,26 @@ private extension NSWindow {
             return nil
         }
 
-        return cmuxOwningEmbeddedWebView(for: ownerView)
+        if let webView = cmuxOwningEmbeddedWebView(for: ownerView) {
+            return webView
+        }
+
+        var current = ownerView.nextResponder
+        while let next = current {
+            if next === ownerView {
+                break
+            }
+            if let webView = next as? WKWebView {
+                return webView
+            }
+            if let view = next as? NSView,
+               let webView = cmuxOwningEmbeddedWebView(for: view) {
+                return webView
+            }
+            current = next.nextResponder
+        }
+
+        return nil
     }
 
     private static func cmuxOwningEmbeddedWebView(for view: NSView) -> WKWebView? {
