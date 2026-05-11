@@ -146,7 +146,8 @@ final class FileSearchOutputPipelineTests: XCTestCase {
         )
         let line = try makeMatchLine(relativePath: "Sources/App.swift") + "\n"
 
-        let streamingUpdate = try XCTUnwrap(await pipeline.consumeStdout(Data(line.utf8)))
+        let maybeStreamingUpdate = await pipeline.consumeStdout(Data(line.utf8))
+        let streamingUpdate = try XCTUnwrap(maybeStreamingUpdate)
         XCTAssertEqual(streamingUpdate.status, .limited(1))
         XCTAssertTrue(streamingUpdate.shouldStopProcess)
 
