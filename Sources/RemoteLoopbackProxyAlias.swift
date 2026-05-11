@@ -3,7 +3,21 @@ import Foundation
 enum RemoteLoopbackProxyAlias {
     static let aliasHost = "cmux-loopback.localtest.me"
 
-    private static let canonicalLoopbackHost = "localhost"
+    static let canonicalLoopbackHost = "localhost"
+    static let exactLoopbackHosts: Set<String> = [
+        canonicalLoopbackHost,
+        "127.0.0.1",
+        "::1",
+        "0.0.0.0",
+    ]
+
+    static func isLoopbackHost(_ host: String) -> Bool {
+        guard let normalizedHost = BrowserInsecureHTTPSettings.normalizeHost(host) else {
+            return false
+        }
+        return exactLoopbackHosts.contains(normalizedHost)
+            || normalizedHost.hasSuffix(".\(canonicalLoopbackHost)")
+    }
 
     static func browserAliasHost(forLoopbackHost host: String, aliasHost: String) -> String {
         localhostFamilyAliasHost(forLoopbackHost: host, aliasHost: aliasHost) ?? aliasHost

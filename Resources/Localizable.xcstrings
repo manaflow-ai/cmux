@@ -58022,6 +58022,57 @@
         }
       }
     },
+    "settings.app.warnBeforeClosingTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before Closing Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを閉じる前に警告"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingTab.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabs close immediately without confirmation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認なしにすぐタブを閉じます。"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingTab.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show a confirmation before closing a tab."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを閉じる前に確認を表示します。"
+          }
+        }
+      }
+    },
     "settings.notifications.sound.custom.choose.button": {
       "extractionState": "manual",
       "localizations": {
@@ -74145,6 +74196,23 @@
                 "stringUnit": {
                     "state": "translated",
                     "value": "app.warnBeforeQuit quit confirmation command-q cmd-q exit close app програма загальні параметри поведінка док рядок меню статус бічна панель Закрити Завершити Попереджувати перед виходом"
+                }
+            }
+        }
+    },
+    "settings.search.alias.setting.app.warn-before-closing-tab": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTab close tab confirmation command-w cmd-w terminal surface"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.warnBeforeClosingTab close tab confirmation command-w cmd-w terminal surface タブを閉じる 確認 警告"
                 }
             }
         }
