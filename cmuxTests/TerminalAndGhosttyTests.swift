@@ -2821,7 +2821,11 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
 
         let initialContentWidth = scrollView.contentSize.width
-        XCTAssertEqual(initialSurfaceSize.width, initialContentWidth, accuracy: 0.5)
+        let reservedOverlayWidth = contentView.bounds.width - NSScroller.scrollerWidth(
+            for: .regular,
+            scrollerStyle: .overlay
+        )
+        XCTAssertEqual(initialSurfaceSize.width, reservedOverlayWidth, accuracy: 0.5)
 
         scrollView.scrollerStyle = .legacy
         scrollView.layoutSubtreeIfNeeded()
@@ -2848,8 +2852,8 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             "Preferred scroller style changes should restore Ghostty's overlay scrollbar behavior so terminal content is not occluded by a persistent gutter"
         )
         assertPendingSurfaceWidth(
-            restoredContentWidth,
-            "Preferred scroller style changes should restore the wider terminal grid when overlay scrollbars return"
+            reservedOverlayWidth,
+            "Preferred scroller style changes should keep the PTY grid on the permanently reserved overlay-scroller width"
         )
     }
 
