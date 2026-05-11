@@ -298,7 +298,7 @@
       "browserLinkBehavior": "พฤติกรรมลิงก์เบราว์เซอร์",
       "browserLinkDesc": "ใน Settings > Browser cmux มีรายการ host สองรายการที่มีจุดประสงค์ต่างกัน:",
       "browserHostsEmbed": "Hosts to Open in Embedded Browser: ใช้กับลิงก์ที่คลิกจากเอาต์พุตเทอร์มินัล Host ในรายการนี้เปิดใน cmux ส่วน host อื่นเปิดในเบราว์เซอร์เริ่มต้นของคุณ รองรับ host เดี่ยวหรือ wildcard ต่อบรรทัด (เช่น: example.com, *.internal.example)",
-      "browserHostsHttp": "HTTP Hosts Allowed in Embedded Browser: ใช้เฉพาะกับ URL แบบ HTTP (ไม่ใช่ HTTPS) Host ในรายการนี้เปิดใน cmux ได้โดยไม่มีข้อความเตือน ค่าเริ่มต้นรวม localhost, 127.0.0.1, ::1, 0.0.0.0 และ *.localtest.me",
+      "browserHostsHttp": "HTTP Hosts Allowed in Embedded Browser: ใช้เฉพาะกับ URL แบบ HTTP (ไม่ใช่ HTTPS) Host ในรายการนี้เปิดใน cmux ได้โดยไม่มีข้อความเตือน ค่าเริ่มต้นรวม localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 และ *.localtest.me",
       "exampleConfig": "ตัวอย่างคอนฟิก",
       "metaTitle": "การตั้งค่า"
     },

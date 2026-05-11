@@ -1167,6 +1167,14 @@ final class SessionPersistenceTests: XCTestCase {
                 ]
             ),
             (
+                .pi,
+                [
+                    "/usr/local/bin/pi",
+                    "--model",
+                    "anthropic/claude-sonnet-4-5",
+                ]
+            ),
+            (
                 .cursor,
                 [
                     "/usr/local/bin/cursor-agent",
@@ -1199,6 +1207,7 @@ final class SessionPersistenceTests: XCTestCase {
                     "--yolo",
                 ]
             ),
+            (.hermesAgent, ["/usr/local/bin/hermes", "--tui", "--model", "anthropic/claude-sonnet-4.6"]),
             (
                 .copilot,
                 [
@@ -1347,20 +1356,20 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["CLAUDE_CONFIG_DIR": "/tmp/claude"]
             case .codex:
                 resolvedEnvironment = ["CODEX_HOME": "/tmp/codex"]
-            case .cursor:
+            case .pi:
+                resolvedEnvironment = ["PI_CODING_AGENT_DIR": "/tmp/pi"]
+            case .cursor, .rovodev, .factory, .custom:
                 resolvedEnvironment = [:]
             case .gemini:
                 resolvedEnvironment = ["GEMINI_CLI_HOME": "/tmp/gemini"]
             case .opencode:
                 resolvedEnvironment = ["OPENCODE_CONFIG_DIR": "/tmp/opencode"]
-            case .rovodev:
-                resolvedEnvironment = [:]
+            case .hermesAgent:
+                resolvedEnvironment = ["HERMES_HOME": "/tmp/hermes"]
             case .copilot:
                 resolvedEnvironment = ["COPILOT_HOME": "/tmp/copilot"]
             case .codebuddy:
                 resolvedEnvironment = ["CODEBUDDY_CONFIG_DIR": "/tmp/codebuddy"]
-            case .factory:
-                resolvedEnvironment = [:]
             case .qoder:
                 resolvedEnvironment = ["QODER_CONFIG_DIR": "/tmp/qoder"]
             }
@@ -1641,6 +1650,28 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(
             snapshot.resumeCommand,
             "cd '/tmp/cmux project' && 'env' 'CLAUDE_CONFIG_DIR=/tmp/claude config' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' '/opt/Claude Code/bin/claude' '--resume' 'claude-session-123' '--model' 'sonnet' '--permission-mode' 'auto'"
+        )
+    }
+
+    func testSessionEntryClaudeResumeCommandChangesToSessionCwdBeforeResume() {
+        let entry = SessionEntry(
+            id: "claude:a22293b7-bcef-4707-8439-2f538c8517a4",
+            agent: .claude,
+            sessionId: "a22293b7-bcef-4707-8439-2f538c8517a4",
+            title: "resume me",
+            cwd: "/Users/tiffanysun/fun",
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 0),
+            fileURL: URL(
+                fileURLWithPath: "/Users/tiffanysun/.claude/projects/-Users-tiffanysun-fun/a22293b7-bcef-4707-8439-2f538c8517a4.jsonl"
+            ),
+            specifics: .claude(model: nil, permissionMode: nil)
+        )
+
+        XCTAssertEqual(
+            entry.resumeCommand,
+            "cd /Users/tiffanysun/fun && env CLAUDE_CONFIG_DIR=/Users/tiffanysun/.claude CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume a22293b7-bcef-4707-8439-2f538c8517a4"
         )
     }
 
