@@ -1546,34 +1546,52 @@ final class FolderWindowMoveSuppressionTests: XCTestCase {
         )
     }
 
-    func testSuppressionDisablesMovableWindow() {
+    func testSuppressionTracksMovableWindowWithoutChangingMovability() {
         let window = makeWindow()
         window.isMovable = true
 
-        let previous = temporarilyDisableWindowDragging(window: window)
+        let depth = beginWindowDragSuppression(window: window)
 
-        XCTAssertEqual(previous, true)
-        XCTAssertFalse(window.isMovable)
-    }
-
-    func testSuppressionPreservesAlreadyImmovableWindow() {
-        let window = makeWindow()
-        window.isMovable = false
-
-        let previous = temporarilyDisableWindowDragging(window: window)
-
-        XCTAssertEqual(previous, false)
-        XCTAssertFalse(window.isMovable)
-    }
-
-    func testRestoreAppliesPreviousMovableState() {
-        let window = makeWindow()
-        window.isMovable = false
-
-        restoreWindowDragging(window: window, previousMovableState: true)
+        XCTAssertEqual(depth, 1)
+        XCTAssertTrue(isWindowDragSuppressed(window: window))
         XCTAssertTrue(window.isMovable)
+    }
 
-        restoreWindowDragging(window: window, previousMovableState: false)
+    func testSuppressionTracksImmovableWindowWithoutChangingMovability() {
+        let window = makeWindow()
+        window.isMovable = false
+
+        let depth = beginWindowDragSuppression(window: window)
+
+        XCTAssertEqual(depth, 1)
+        XCTAssertTrue(isWindowDragSuppressed(window: window))
+        XCTAssertFalse(window.isMovable)
+    }
+
+    func testEndingSuppressionDoesNotRestoreStaleMovability() {
+        let window = makeWindow()
+        window.isMovable = false
+
+        XCTAssertEqual(beginWindowDragSuppression(window: window), 1)
+        XCTAssertFalse(window.isMovable)
+
+        window.isMovable = true
+
+        XCTAssertEqual(endWindowDragSuppression(window: window), 0)
+        XCTAssertFalse(isWindowDragSuppressed(window: window))
+        XCTAssertTrue(window.isMovable)
+    }
+
+    func testClearWindowDragSuppressionRemovesAllDepth() {
+        let window = makeWindow()
+        window.isMovable = false
+
+        XCTAssertEqual(beginWindowDragSuppression(window: window), 1)
+        XCTAssertEqual(beginWindowDragSuppression(window: window), 2)
+        XCTAssertEqual(windowDragSuppressionDepth(window: window), 2)
+
+        XCTAssertEqual(clearWindowDragSuppression(window: window), 0)
+        XCTAssertEqual(windowDragSuppressionDepth(window: window), 0)
         XCTAssertFalse(window.isMovable)
     }
 

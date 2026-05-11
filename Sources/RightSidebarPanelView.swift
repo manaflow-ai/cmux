@@ -264,7 +264,7 @@ struct RightSidebarPanelView: View {
 
     private var closeButton: some View {
         let _ = keyboardShortcutSettingsObserver.revision
-        let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleFileExplorer)
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleRightSidebar)
         let showsShortcutHint = titlebarShortcutHintShouldShow(
             shortcut: shortcut,
             alwaysShowShortcutHints: alwaysShowShortcutHints,
@@ -280,7 +280,7 @@ struct RightSidebarPanelView: View {
             .buttonStyle(.plain)
             .foregroundColor(.secondary)
             .safeHelp(
-                KeyboardShortcutSettings.Action.toggleFileExplorer.tooltip(
+                KeyboardShortcutSettings.Action.toggleRightSidebar.tooltip(
                     String(localized: "rightSidebar.toggle.tooltip", defaultValue: "Toggle right sidebar")
                 )
             )

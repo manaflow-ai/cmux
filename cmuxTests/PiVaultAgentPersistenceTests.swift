@@ -152,7 +152,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         )
 
         XCTAssertNil(entry.resumeWorkingDirectory)
-        XCTAssertEqual(entry.resumeCommandWithCwd, "'acme-agent' '--session' 'session-123'")
+        XCTAssertEqual(entry.resumeCommand, "'acme-agent' '--session' 'session-123'")
     }
 
     func testRegisteredAgentJSONLNativeSessionIDOverridesPathFallback() async throws {
