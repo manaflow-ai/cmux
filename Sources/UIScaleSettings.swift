@@ -15,6 +15,8 @@ enum UIScaleSettings {
     private static let persistenceDebounceInterval: TimeInterval = 0.15
     private static let persistenceStateLock = NSLock()
     private static var pendingPersistenceWorkItem: DispatchWorkItem?
+    private static var latestPersistenceGeneration: UInt64 = 0
+    private static var completedPersistenceGeneration: UInt64 = 0
 
     static func clamped(_ value: Double) -> Double {
         min(max(value, minimum), maximum)
@@ -70,17 +72,34 @@ enum UIScaleSettings {
         (clamped(value) * 100).rounded() / 100
     }
 
+    static func shouldApplySettingsFileValue(
+        _ value: Double,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        let persisted = roundedForPersistence(value)
+        let current = roundedForPersistence(resolved(defaults: defaults))
+        persistenceStateLock.lock()
+        let hasPendingLocalPersistence = completedPersistenceGeneration < latestPersistenceGeneration
+        persistenceStateLock.unlock()
+        return !hasPendingLocalPersistence || persisted == current
+    }
+
     private static func persistAppUIScaleInBackground(
         _ value: Double,
         settingsFileStore: CmuxSettingsFileStore
     ) {
+        let generation = nextPersistenceGeneration()
         let workItem = DispatchWorkItem {
+            guard isCurrentPersistenceGeneration(generation) else { return }
             do {
                 try settingsFileStore.writeAppUIScale(value)
+                completePersistenceGeneration(generation)
                 DispatchQueue.main.async {
+                    guard isCurrentPersistenceGeneration(generation) else { return }
                     settingsFileStore.reload()
                 }
             } catch {
+                completePersistenceGeneration(generation)
                 logger.error(
                     "Failed to persist \(jsonPath, privacy: .public): \(String(describing: error), privacy: .public)"
                 )
@@ -91,6 +110,29 @@ enum UIScaleSettings {
         pendingPersistenceWorkItem = workItem
         persistenceStateLock.unlock()
         persistenceQueue.asyncAfter(deadline: .now() + persistenceDebounceInterval, execute: workItem)
+    }
+
+    private static func nextPersistenceGeneration() -> UInt64 {
+        persistenceStateLock.lock()
+        latestPersistenceGeneration &+= 1
+        let generation = latestPersistenceGeneration
+        persistenceStateLock.unlock()
+        return generation
+    }
+
+    private static func isCurrentPersistenceGeneration(_ generation: UInt64) -> Bool {
+        persistenceStateLock.lock()
+        let isCurrent = generation == latestPersistenceGeneration
+        persistenceStateLock.unlock()
+        return isCurrent
+    }
+
+    private static func completePersistenceGeneration(_ generation: UInt64) {
+        persistenceStateLock.lock()
+        if generation == latestPersistenceGeneration {
+            completedPersistenceGeneration = generation
+        }
+        persistenceStateLock.unlock()
     }
 }
 
