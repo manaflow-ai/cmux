@@ -9738,7 +9738,6 @@ final class GhosttySurfaceScrollView: NSView {
     private var userScrolledAwayFromBottom = false
     private var pendingExplicitWheelScroll = false
     private var allowExplicitScrollbarSync = false
-    private var scrollbarSizingReservationArmed = false
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private static func reservedOverlayScrollerWidth() -> CGFloat {
@@ -9746,7 +9745,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func reservedScrollerWidthForSizing() -> CGFloat {
-        shouldReserveScrollerWidthForSizing() ? Self.reservedOverlayScrollerWidth() : 0
+        terminalScrollBarAllowedBySettings() ? Self.reservedOverlayScrollerWidth() : 0
     }
 
     private var isActive = true
@@ -12638,17 +12637,14 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
         let wasVisible = scrollView.hasVerticalScroller
-        let wasReservingScrollerWidth = shouldReserveScrollerWidthForSizing()
         if pendingExplicitWheelScroll {
             userScrolledAwayFromBottom = scrollbar.offset + scrollbar.len < scrollbar.total
             allowExplicitScrollbarSync = true
             pendingExplicitWheelScroll = false
         }
         surfaceView.scrollbar = scrollbar
-        _ = updateScrollbarSizingReservation()
         let isVisible = shouldShowTerminalScrollBar()
-        let isReservingScrollerWidth = shouldReserveScrollerWidthForSizing()
-        if wasVisible != isVisible || wasReservingScrollerWidth != isReservingScrollerWidth {
+        if wasVisible != isVisible {
             _ = synchronizeGeometryAndContent()
             return
         }
@@ -12696,7 +12692,6 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
-        _ = updateScrollbarSizingReservation()
         _ = synchronizeGeometryAndContent()
     }
 
@@ -12760,29 +12755,13 @@ final class GhosttySurfaceScrollView: NSView {
         scrollbar.total > scrollbar.len
     }
 
-    private func updateScrollbarSizingReservation() -> Bool {
-        let wasArmed = scrollbarSizingReservationArmed
-        if !terminalScrollBarAllowedBySettings() {
-            scrollbarSizingReservationArmed = false
-        } else if let scrollbar = surfaceView.scrollbar,
-                  scrollbarHasScrollableContent(scrollbar) {
-            scrollbarSizingReservationArmed = true
-        }
-        return wasArmed != scrollbarSizingReservationArmed
-    }
-
-    private func shouldReserveScrollerWidthForSizing() -> Bool {
-        terminalScrollBarAllowedBySettings() && scrollbarSizingReservationArmed
-    }
-
     private func surfaceHasScrollback() -> Bool? {
         guard let scrollbar = surfaceView.scrollbar else { return nil }
         // Embedded Ghostty exposes alternate-screen TUIs to the wrapper as a
         // viewport with no additional scrollback (`total <= len`). Treat that
         // as the signal to suppress the visible overlay scrollbar. PTY sizing
-        // only reserves the gutter after this surface has actually reported
-        // scrollable content; after that, reservation stays armed so a later
-        // hide packet cannot grow the PTY and restart resize oscillation.
+        // is intentionally driven only by scrollbar settings, so scrollback
+        // packets cannot resize the terminal grid on the first overflow edge.
         return scrollbarHasScrollableContent(scrollbar)
     }
 

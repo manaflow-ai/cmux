@@ -2864,12 +2864,11 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             guard let scrollView = mountedScrollView(in: hostedView) else { return }
             flushTerminalLayout(window: window, contentView: contentView, hostedView: hostedView)
 
-            let expectedFullWidth = expectedTerminalWidth(in: contentView, reservingScrollbar: false)
             let expectedReservedWidth = expectedTerminalWidth(in: contentView, reservingScrollbar: true)
             assertPendingSurfaceWidth(
                 hostedView,
-                equals: expectedFullWidth,
-                "Terminal PTY width should not reserve a gutter before this surface reports scrollable content"
+                equals: expectedReservedWidth,
+                "Terminal PTY width should reserve the gutter as soon as scrollbars are allowed"
             )
             XCTAssertTrue(scrollView.hasVerticalScroller)
 
@@ -2877,8 +2876,8 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
             assertPendingSurfaceWidth(
                 hostedView,
-                equals: expectedFullWidth,
-                "A no-scrollback packet should hide the scrollbar without shrinking the PTY"
+                equals: expectedReservedWidth,
+                "A no-scrollback packet should hide the scrollbar without changing the PTY reservation"
             )
             XCTAssertFalse(scrollView.hasVerticalScroller)
 
@@ -2887,7 +2886,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             assertPendingSurfaceWidth(
                 hostedView,
                 equals: expectedReservedWidth,
-                "The first real scrollback packet should arm the reserved scrollbar width"
+                "The first real scrollback packet should not change the already-reserved PTY width"
             )
             XCTAssertTrue(scrollView.hasVerticalScroller)
 
@@ -2977,14 +2976,14 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             let reservedOverlayWidth = expectedTerminalWidth(in: contentView, reservingScrollbar: true)
             XCTAssertEqual(
                 initialSurfaceSize.width,
-                expectedTerminalWidth(in: contentView, reservingScrollbar: false),
+                expectedTerminalWidth(in: contentView, reservingScrollbar: true),
                 accuracy: 0.5,
-                "Terminal PTY width should start full-width before real scrollback arms reservation"
+                "Terminal PTY width should reserve the overlay gutter before real scrollback arrives"
             )
             assertPendingSurfaceWidth(
                 hostedView,
                 equals: reservedOverlayWidth,
-                "Real scrollback should arm reserved width before scroller-style restoration is tested"
+                "Real scrollback should keep the existing reserved width before scroller-style restoration is tested"
             )
 
             scrollView.scrollerStyle = .legacy
