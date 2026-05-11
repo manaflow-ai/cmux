@@ -30,12 +30,6 @@ class UpdateViewModel: ObservableObject {
 
     func recordDetectedUpdate(_ item: SUAppcastItem) {
         recordDetectedUpdateMetadata(item)
-        if case .updateAvailable = state {
-            state = state.replacingAvailableUpdateItem(with: item)
-        }
-        if let overrideState, case .updateAvailable = overrideState {
-            self.overrideState = overrideState.replacingAvailableUpdateItem(with: item)
-        }
     }
 
     func recordAvailableUpdate(_ update: UpdateState.UpdateAvailable) {
@@ -480,15 +474,6 @@ enum UpdateState: Equatable {
         }
     }
 
-    func replacingAvailableUpdateItem(with item: SUAppcastItem) -> UpdateState {
-        switch self {
-        case .updateAvailable(let update):
-            return .updateAvailable(update.replacingAppcastItem(with: item))
-        default:
-            return self
-        }
-    }
-
     static func == (lhs: UpdateState, rhs: UpdateState) -> Bool {
         switch (lhs, rhs) {
         case (.idle, .idle):
@@ -530,10 +515,6 @@ enum UpdateState: Equatable {
     struct UpdateAvailable {
         let appcastItem: SUAppcastItem
         let reply: @Sendable (SPUUserUpdateChoice) -> Void
-
-        func replacingAppcastItem(with item: SUAppcastItem) -> UpdateAvailable {
-            .init(appcastItem: item, reply: reply)
-        }
 
         var releaseNotes: ReleaseNotes? {
             ReleaseNotes(displayVersionString: appcastItem.displayVersionString)

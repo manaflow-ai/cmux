@@ -11,16 +11,13 @@ import Sparkle
 
 @MainActor
 final class UpdateViewModelLatestEmissionTests: XCTestCase {
-    func testVisibleUpdatePillFollowsEveryValidUpdateEmissionIncludingRollback() throws {
+    func testPassiveDetectedUpdatePillFollowsEveryValidEmissionIncludingRollback() throws {
         let model = UpdateViewModel()
 
         let firstPollItem = try Self.appcastItem(displayVersion: "9.9.0")
         model.recordDetectedUpdate(firstPollItem)
         XCTAssertEqual(model.text, "Update Available: 9.9.0")
         XCTAssertEqual(Self.visibleUpdateVersion(in: model), "9.9.0")
-
-        model.state = .updateAvailable(.init(appcastItem: firstPollItem, reply: { _ in }))
-        XCTAssertEqual(model.text, "Update Available: 9.9.0")
 
         let newerPollItem = try Self.appcastItem(displayVersion: "9.9.1")
         model.recordDetectedUpdate(newerPollItem)
@@ -35,6 +32,76 @@ final class UpdateViewModelLatestEmissionTests: XCTestCase {
         XCTAssertEqual(Self.visibleUpdateVersion(in: model), "9.9.0")
     }
 
+    func testPassiveDetectionDoesNotReplaceInstallableStateWithoutMatchingReply() throws {
+        let model = UpdateViewModel()
+        let installedReply = UpdateChoiceRecorder()
+
+        model.recordAvailableUpdate(try Self.updateAvailable(
+            displayVersion: "9.9.0",
+            recorder: installedReply
+        ))
+
+        model.recordDetectedUpdate(try Self.appcastItem(displayVersion: "9.9.1"))
+
+        XCTAssertEqual(model.detectedUpdateVersion, "9.9.1")
+        XCTAssertEqual(Self.visibleUpdateVersion(in: model), "9.9.0")
+        XCTAssertEqual(model.text, "Update Available: 9.9.0")
+
+        guard case .updateAvailable(let update) = model.effectiveState else {
+            XCTFail("Expected installable state to remain updateAvailable")
+            return
+        }
+        update.reply(.install)
+
+        XCTAssertEqual(installedReply.count, 1)
+    }
+
+    func testAvailableUpdateRefreshUsesLatestReplyWhenOverrideIsVisible() throws {
+        let model = UpdateViewModel()
+        let staleReply = UpdateChoiceRecorder()
+        let latestReply = UpdateChoiceRecorder()
+
+        model.overrideState = .updateAvailable(try Self.updateAvailable(
+            displayVersion: "9.9.0",
+            recorder: staleReply
+        ))
+
+        model.recordAvailableUpdate(try Self.updateAvailable(
+            displayVersion: "9.9.1",
+            recorder: latestReply
+        ))
+
+        XCTAssertEqual(Self.visibleUpdateVersion(in: model), "9.9.1")
+
+        guard case .updateAvailable(let update) = model.effectiveState else {
+            XCTFail("Expected visible override to remain updateAvailable")
+            return
+        }
+        update.reply(.dismiss)
+
+        XCTAssertEqual(staleReply.count, 0)
+        XCTAssertEqual(latestReply.count, 1)
+    }
+
+    func testDismissDetectedAvailableUpdateClearsStaleInstallableStateAndRepliesOnce() throws {
+        let model = UpdateViewModel()
+        let reply = UpdateChoiceRecorder()
+        let update = try Self.updateAvailable(displayVersion: "9.9.0", recorder: reply)
+
+        model.recordAvailableUpdate(update)
+        model.overrideState = .updateAvailable(update)
+        XCTAssertTrue(model.showsPill)
+        XCTAssertEqual(model.detectedUpdateVersion, "9.9.0")
+
+        model.dismissDetectedAvailableUpdate()
+
+        XCTAssertEqual(model.state, .idle)
+        XCTAssertNil(model.overrideState)
+        XCTAssertNil(model.detectedUpdateVersion)
+        XCTAssertFalse(model.showsPill)
+        XCTAssertEqual(reply.count, 1)
+    }
+
     private static func visibleUpdateVersion(in model: UpdateViewModel) -> String? {
         switch model.effectiveState {
         case .idle:
@@ -44,6 +111,16 @@ final class UpdateViewModelLatestEmissionTests: XCTestCase {
         default:
             return nil
         }
+    }
+
+    private static func updateAvailable(
+        displayVersion: String,
+        recorder: UpdateChoiceRecorder? = nil
+    ) throws -> UpdateState.UpdateAvailable {
+        .init(
+            appcastItem: try appcastItem(displayVersion: displayVersion),
+            reply: { choice in recorder?.record(choice) }
+        )
     }
 
     private static func appcastItem(displayVersion: String) throws -> SUAppcastItem {
@@ -59,6 +136,23 @@ final class UpdateViewModelLatestEmissionTests: XCTestCase {
             "enclosure": enclosure,
         ]
         return try XCTUnwrap(SUAppcastItem(dictionary: item))
+    }
+
+    private final class UpdateChoiceRecorder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var recordedCount = 0
+
+        var count: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return recordedCount
+        }
+
+        func record(_: SPUUserUpdateChoice) {
+            lock.lock()
+            recordedCount += 1
+            lock.unlock()
+        }
     }
 }
 
