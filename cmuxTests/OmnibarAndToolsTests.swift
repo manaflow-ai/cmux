@@ -689,7 +689,7 @@ private final class OmnibarInlineDeletionHarness {
 
     private func deleteWordBeforeInlineCompletion() {
         guard let inlineCompletion else { return }
-        let updated = Self.prefixAfterDeletingTrailingWord(from: inlineCompletion.typedText)
+        let updated = omnibarPrefixAfterDeletingTrailingWord(from: inlineCompletion.typedText)
         replaceTypedPrefix(with: updated)
     }
 
@@ -705,16 +705,6 @@ private final class OmnibarInlineDeletionHarness {
         )
     }
 
-    private static func prefixAfterDeletingTrailingWord(from text: String) -> String {
-        let nsText = text as NSString
-        let fullRange = NSRange(location: 0, length: nsText.length)
-        var deletionStart = nsText.length
-        nsText.enumerateSubstrings(in: fullRange, options: [.byWords, .reverse]) { _, range, _, stop in
-            deletionStart = range.location
-            stop.pointee = true
-        }
-        return nsText.substring(to: deletionStart)
-    }
 }
 
 
