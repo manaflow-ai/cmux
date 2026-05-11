@@ -20,10 +20,19 @@ enum AgentResumeCommandBuilder {
         kind: RestorableAgentKind,
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
-        workingDirectory: String?
+        workingDirectory: String?,
+        registrationOverride: CmuxVaultAgentRegistration? = nil,
+        includeWorkingDirectoryPrefix: Bool = true
     ) -> String? {
+        let customRegistration = registrationOverride
         guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let argv = resumeArguments(kind: kind, sessionId: sessionId, launchCommand: launchCommand),
+              let argv = resumeArguments(
+                  kind: kind,
+                  sessionId: sessionId,
+                  launchCommand: launchCommand,
+                  workingDirectory: workingDirectory,
+                  customRegistration: customRegistration
+              ),
               !argv.isEmpty else {
             return nil
         }
@@ -37,7 +46,9 @@ enum AgentResumeCommandBuilder {
         commandParts.append(contentsOf: argv)
 
         var shellCommand = commandParts.map(shellSingleQuoted).joined(separator: " ")
-        let cwd = normalized(workingDirectory ?? launchCommand?.workingDirectory)
+        let cwd = !includeWorkingDirectoryPrefix || customRegistration?.cwd == .ignore
+            ? nil
+            : normalized(workingDirectory ?? launchCommand?.workingDirectory)
         if let cwd {
             shellCommand = "cd \(shellSingleQuoted(cwd)) && \(shellCommand)"
         }
@@ -75,7 +86,9 @@ enum AgentResumeCommandBuilder {
     private static func resumeArguments(
         kind: RestorableAgentKind,
         sessionId: String,
-        launchCommand: AgentLaunchCommandSnapshot?
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        customRegistration: CmuxVaultAgentRegistration?
     ) -> [String]? {
         switch launchCommand?.launcher {
         case "claudeTeams":
@@ -104,6 +117,17 @@ enum AgentResumeCommandBuilder {
             return nil
         default:
             break
+        }
+
+        if case .custom = kind {
+            guard let customRegistration else { return nil }
+            let arguments = customResumeArguments(
+                registration: customRegistration,
+                sessionId: sessionId,
+                launchCommand: launchCommand,
+                workingDirectory: workingDirectory
+            )
+            return arguments.isEmpty ? nil : arguments
         }
 
         switch kind {
@@ -187,7 +211,115 @@ enum AgentResumeCommandBuilder {
                 option: "--resume",
                 sessionId: sessionId
             )
+        case .custom:
+            return nil
         }
+    }
+
+    private static func customResumeArguments(
+        registration: CmuxVaultAgentRegistration,
+        sessionId: String,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?
+    ) -> [String] {
+        let templateParts = splitShellWords(registration.resumeCommand)
+        guard !templateParts.isEmpty else { return [] }
+        let original = commandParts(
+            launchCommand: launchCommand,
+            fallbackExecutable: registration.defaultExecutable
+        )
+        let sessionDirectory = normalized(registration.sessionDirectory).map {
+            ($0 as NSString).expandingTildeInPath
+        }
+        let replacements: [String: String] = [
+            "sessionId": sessionId,
+            "sessionPath": sessionId,
+            "executable": original.executable,
+            "cwd": normalized(workingDirectory ?? launchCommand?.workingDirectory) ?? "",
+            "sessionDir": sessionDirectory ?? "",
+        ]
+        var resolved: [String] = []
+        for part in templateParts {
+            guard let value = resolveTemplatePart(part, replacements: replacements) else { return [] }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return [] }
+            resolved.append(trimmed)
+        }
+        return resolved
+    }
+
+    private static func resolveTemplatePart(
+        _ part: String,
+        replacements: [String: String]
+    ) -> String? {
+        var resolved = ""
+        var searchStart = part.startIndex
+        while let opening = part[searchStart...].range(of: "{{") {
+            resolved.append(contentsOf: part[searchStart..<opening.lowerBound])
+            guard let closing = part[opening.upperBound...].range(of: "}}") else {
+                resolved.append(contentsOf: part[opening.lowerBound...])
+                return resolved
+            }
+            let key = String(part[opening.upperBound..<closing.lowerBound])
+            if let replacement = replacements[key] {
+                if replacement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return nil
+                }
+                resolved += replacement
+            } else {
+                resolved.append(contentsOf: part[opening.lowerBound..<closing.upperBound])
+            }
+            searchStart = closing.upperBound
+        }
+        resolved.append(contentsOf: part[searchStart...])
+        return resolved
+    }
+
+    private static func splitShellWords(_ command: String) -> [String] {
+        enum Quote {
+            case single
+            case double
+        }
+
+        var words: [String] = []
+        var current = ""
+        var quote: Quote?
+        var escaping = false
+
+        func finishWord() {
+            guard !current.isEmpty else { return }
+            words.append(current)
+            current = ""
+        }
+
+        for character in command {
+            if escaping {
+                current.append(character)
+                escaping = false
+                continue
+            }
+            if character == "\\" {
+                escaping = true
+                continue
+            }
+            switch (quote, character) {
+            case (.single, "'"), (.double, "\""):
+                quote = nil
+            case (nil, "'"):
+                quote = .single
+            case (nil, "\""):
+                quote = .double
+            case (nil, " "), (nil, "\t"), (nil, "\n"):
+                finishWord()
+            default:
+                current.append(character)
+            }
+        }
+        if escaping {
+            current.append("\\")
+        }
+        finishWord()
+        return words
     }
 
     private static func resumeWithOption(
@@ -232,12 +364,15 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     var sessionId: String
     var workingDirectory: String?
     var launchCommand: AgentLaunchCommandSnapshot?
+    var registration: CmuxVaultAgentRegistration? = nil
 
     var resumeCommand: String? {
-        kind.resumeCommand(
+        AgentResumeCommandBuilder.resumeShellCommand(
+            kind: kind,
             sessionId: sessionId,
             launchCommand: launchCommand,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            registrationOverride: registration
         )
     }
 
@@ -341,7 +476,7 @@ private struct RestorableAgentHookSessionStoreFile: Codable, Sendable {
 struct RestorableAgentSessionIndex: Sendable {
     static let empty = RestorableAgentSessionIndex(snapshotsByPanel: [:])
 
-    private struct PanelKey: Hashable, Sendable {
+    struct PanelKey: Hashable, Sendable {
         let workspaceId: UUID
         let panelId: UUID
     }
@@ -356,10 +491,52 @@ struct RestorableAgentSessionIndex: Sendable {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) -> RestorableAgentSessionIndex {
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+        return load(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            registry: registry,
+            detectedSnapshots: [:]
+        )
+    }
+
+    static func loadIncludingProcessDetectedSnapshots(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) async -> RestorableAgentSessionIndex {
+        await Task.detached(priority: .utility) {
+            let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+            let detectedSnapshots = processDetectedSnapshots(
+                registry: registry,
+                fileManager: fileManager
+            )
+            return load(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager,
+                registry: registry,
+                detectedSnapshots: detectedSnapshots
+            )
+        }.value
+    }
+
+    private static func load(
+        homeDirectory: String,
+        fileManager: FileManager,
+        registry: CmuxVaultAgentRegistry,
+        detectedSnapshots: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)]
+    ) -> RestorableAgentSessionIndex {
         let decoder = JSONDecoder()
         var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
+        let builtInKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
+        let hookKinds: [(kind: RestorableAgentKind, registration: CmuxVaultAgentRegistration?)] =
+            RestorableAgentKind.allCases.map { (kind: $0, registration: nil) }
+            + registry.registrations.compactMap { registration in
+                builtInKindIDs.contains(registration.id)
+                    ? nil
+                    : (kind: .custom(registration.id), registration: registration)
+            }
 
-        for kind in RestorableAgentKind.allCases {
+        for (kind, registration) in hookKinds {
             let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory)
             guard fileManager.fileExists(atPath: fileURL.path),
                   let data = try? Data(contentsOf: fileURL),
@@ -379,7 +556,8 @@ struct RestorableAgentSessionIndex: Sendable {
                     kind: kind,
                     sessionId: normalizedSessionId,
                     workingDirectory: normalizedWorkingDirectory(record.cwd),
-                    launchCommand: record.launchCommand
+                    launchCommand: record.launchCommand,
+                    registration: registration
                 )
                 let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
                 if let existing = resolved[key], existing.updatedAt > record.updatedAt {
@@ -387,6 +565,13 @@ struct RestorableAgentSessionIndex: Sendable {
                 }
                 resolved[key] = (snapshot: snapshot, updatedAt: record.updatedAt)
             }
+        }
+
+        for (key, detected) in detectedSnapshots {
+            if let existing = resolved[key], existing.updatedAt > detected.updatedAt {
+                continue
+            }
+            resolved[key] = detected
         }
 
         return RestorableAgentSessionIndex(snapshotsByPanel: resolved.mapValues(\.snapshot))
