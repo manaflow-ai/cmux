@@ -9681,7 +9681,8 @@ struct CMUXCLI {
                 }
                 var previousText = ""
 
-                // Ignore SIGPIPE so we exit cleanly when the reader disconnects
+                // Ignore SIGPIPE so writes return EPIPE instead of killing the process;
+                // we detect broken pipes via fflush(stdout) return value below
                 signal(SIGPIPE, SIG_IGN)
 
                 while true {
@@ -9702,11 +9703,21 @@ struct CMUXCLI {
                                 // Content changed completely (screen refresh) — print separator + all
                                 print("\n---\n\(currentText)", terminator: "")
                             }
-                            fflush(stdout)
+                            // Check for broken pipe (EPIPE) — reader disconnected
+                            if fflush(stdout) != 0 {
+                                break
+                            }
                             previousText = currentText
                         }
                     } catch {
-                        // Transient error — retry after interval
+                        // Socket died — close and reconnect before retrying
+                        client.close()
+                        do {
+                            try client.connect()
+                        } catch {
+                            // Can't reconnect — exit
+                            break
+                        }
                     }
 
                     Thread.sleep(forTimeInterval: interval)
@@ -11127,7 +11138,7 @@ struct CMUXCLI {
           simulate-app-active
 
           # tmux compatibility commands
-          capture-pane [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]
+          capture-pane [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>] [--follow [--interval <s>]]
           resize-pane --pane <id|ref> [--workspace <id|ref>] (-L|-R|-U|-D) [--amount <n>]
           pipe-pane --command <shell-command> [--workspace <id|ref>] [--surface <id|ref>]
           wait-for [-S|--signal] <name> [--timeout <seconds>]
