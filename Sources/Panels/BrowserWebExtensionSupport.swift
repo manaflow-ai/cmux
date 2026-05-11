@@ -71,55 +71,172 @@ func browserWebExtensionConfigureBaseWebViewConfiguration(
     configuration.applicationNameForUserAgent = BrowserUserAgentSettings.safariApplicationNameForUserAgent
 }
 
-private let browserWebExtensionHostGrantablePermissionNameSet: Set<String> = [
-    "activeTab",
-    "alarms",
-    "clipboardWrite",
-    "contextMenus",
-    "cookies",
-    "declarativeNetRequest",
-    "declarativeNetRequestFeedback",
-    "declarativeNetRequestWithHostAccess",
-    "menus",
-    "scripting",
-    "storage",
-    "tabs",
-    "unlimitedStorage",
-    "webRequest",
-]
+struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
+    enum Availability: Equatable {
+        case delegatedToWebKit
+        case hostedByCmux
+        case unavailable(UnavailableReason)
+
+        var isAvailable: Bool {
+            switch self {
+            case .delegatedToWebKit, .hostedByCmux:
+                return true
+            case .unavailable:
+                return false
+            }
+        }
+    }
+
+    enum UnavailableReason: Equatable {
+        case missingHostAdapter
+        case noPublicWebKitSurface
+        case knownRuntimeRegression(String)
+    }
+
+    struct PermissionCapability: Equatable {
+        let name: String
+        let availability: Availability
+        let apiPaths: [String]
+
+        init(
+            _ name: String,
+            availability: Availability,
+            apiPaths: [String] = []
+        ) {
+            self.name = name
+            self.availability = availability
+            self.apiPaths = apiPaths
+        }
+    }
+
+    struct APICapability: Equatable {
+        let path: String
+        let availability: Availability
+
+        init(_ path: String, availability: Availability) {
+            self.path = path
+            self.availability = availability
+        }
+    }
+
+    static let current = BrowserWebExtensionHostCapabilityPolicy(
+        permissions: [
+            PermissionCapability("activeTab", availability: .delegatedToWebKit),
+            PermissionCapability("alarms", availability: .delegatedToWebKit, apiPaths: ["browser.alarms"]),
+            PermissionCapability("clipboardRead", availability: .unavailable(.noPublicWebKitSurface)),
+            PermissionCapability("clipboardWrite", availability: .delegatedToWebKit),
+            PermissionCapability("contextMenus", availability: .delegatedToWebKit, apiPaths: ["browser.contextMenus"]),
+            PermissionCapability("cookies", availability: .delegatedToWebKit, apiPaths: ["browser.cookies"]),
+            PermissionCapability(
+                "declarativeNetRequest",
+                availability: .delegatedToWebKit,
+                apiPaths: ["browser.declarativeNetRequest"]
+            ),
+            PermissionCapability("declarativeNetRequestFeedback", availability: .delegatedToWebKit),
+            PermissionCapability("declarativeNetRequestWithHostAccess", availability: .delegatedToWebKit),
+            PermissionCapability("idle", availability: .unavailable(.noPublicWebKitSurface), apiPaths: ["browser.idle"]),
+            PermissionCapability("menus", availability: .delegatedToWebKit, apiPaths: ["browser.menus"]),
+            PermissionCapability(
+                "nativeMessaging",
+                availability: .unavailable(.missingHostAdapter),
+                apiPaths: ["browser.runtime.connectNative", "browser.runtime.sendNativeMessage"]
+            ),
+            PermissionCapability(
+                "notifications",
+                availability: .unavailable(.missingHostAdapter),
+                apiPaths: ["browser.notifications"]
+            ),
+            PermissionCapability(
+                "offscreen",
+                availability: .unavailable(.noPublicWebKitSurface),
+                apiPaths: ["browser.offscreen"]
+            ),
+            PermissionCapability(
+                "privacy",
+                availability: .unavailable(.noPublicWebKitSurface),
+                apiPaths: ["browser.privacy"]
+            ),
+            PermissionCapability("scripting", availability: .delegatedToWebKit, apiPaths: ["browser.scripting"]),
+            PermissionCapability("storage", availability: .delegatedToWebKit, apiPaths: ["browser.storage"]),
+            PermissionCapability("tabs", availability: .hostedByCmux, apiPaths: ["browser.tabs"]),
+            PermissionCapability("unlimitedStorage", availability: .delegatedToWebKit),
+            PermissionCapability(
+                "userScripts",
+                availability: .unavailable(.noPublicWebKitSurface),
+                apiPaths: ["browser.userScripts"]
+            ),
+            PermissionCapability(
+                "webNavigation",
+                availability: .unavailable(.knownRuntimeRegression("Bitwarden WebKit namespace CPU loop")),
+                apiPaths: ["browser.webNavigation"]
+            ),
+            PermissionCapability("webRequest", availability: .delegatedToWebKit, apiPaths: ["browser.webRequest"]),
+            PermissionCapability(
+                "webRequestAuthProvider",
+                availability: .unavailable(.missingHostAdapter),
+                apiPaths: ["browser.webRequest.onAuthRequired"]
+            ),
+        ],
+        apis: [
+            APICapability("browser.commands", availability: .unavailable(.missingHostAdapter)),
+            APICapability("browser.clipboardRead", availability: .unavailable(.noPublicWebKitSurface)),
+            APICapability("browser.idle", availability: .unavailable(.noPublicWebKitSurface)),
+            APICapability("browser.notifications", availability: .unavailable(.missingHostAdapter)),
+            APICapability("browser.offscreen", availability: .unavailable(.noPublicWebKitSurface)),
+            APICapability("browser.privacy", availability: .unavailable(.noPublicWebKitSurface)),
+            APICapability("browser.runtime.connectNative", availability: .unavailable(.missingHostAdapter)),
+            APICapability("browser.runtime.getContexts", availability: .unavailable(.noPublicWebKitSurface)),
+            APICapability("browser.runtime.openOptionsPage", availability: .unavailable(.missingHostAdapter)),
+            APICapability("browser.runtime.sendNativeMessage", availability: .unavailable(.missingHostAdapter)),
+            APICapability("browser.userScripts", availability: .unavailable(.noPublicWebKitSurface)),
+            APICapability("browser.webRequest.onAuthRequired", availability: .unavailable(.missingHostAdapter)),
+        ]
+    )
+
+    private let permissionsByName: [String: PermissionCapability]
+    private let apiCapabilities: [APICapability]
+
+    init(permissions: [PermissionCapability], apis: [APICapability]) {
+        self.permissionsByName = Dictionary(uniqueKeysWithValues: permissions.map { ($0.name, $0) })
+        self.apiCapabilities = apis
+    }
+
+    func isPermissionGrantable(_ rawPermission: String) -> Bool {
+        permissionsByName[rawPermission]?.availability.isAvailable == true
+    }
+
+    func grantablePermissionNames(from rawPermissions: [String]) -> [String] {
+        rawPermissions.filter(isPermissionGrantable)
+    }
+
+    func unsupportedAPIs(forPermissionNames rawPermissions: [String]) -> Set<String> {
+        var unsupportedAPIs = Set(apiCapabilities.compactMap { api in
+            api.availability.isAvailable ? nil : api.path
+        })
+
+        for rawPermission in rawPermissions {
+            guard let permission = permissionsByName[rawPermission],
+                  !permission.availability.isAvailable else {
+                continue
+            }
+            unsupportedAPIs.formUnion(permission.apiPaths)
+        }
+
+        return unsupportedAPIs
+    }
+}
 
 func browserWebExtensionHostGrantablePermissionNames(from rawPermissions: [String]) -> [String] {
-    rawPermissions.filter { browserWebExtensionHostGrantablePermissionNameSet.contains($0) }
+    BrowserWebExtensionHostCapabilityPolicy.current.grantablePermissionNames(from: rawPermissions)
 }
 
 @available(macOS 15.4, *)
 func browserWebExtensionUnsupportedAPIs(for webExtension: WKWebExtension) -> Set<String> {
-    var unsupportedAPIs: Set<String> = [
-        "browser.commands",
-        "browser.clipboardRead",
-        "browser.idle",
-        "browser.menus",
-        "browser.nativeMessaging",
-        "browser.notifications",
-        "browser.offscreen",
-        "browser.privacy",
-        "browser.runtime.connectNative",
-        "browser.runtime.getContexts",
-        "browser.runtime.openOptionsPage",
-        "browser.runtime.sendNativeMessage",
-        "browser.userScripts",
-        "browser.webNavigation",
-        "browser.webRequest.onAuthRequired",
-    ]
-
-    let grantablePermissions = Set(browserWebExtensionHostGrantablePermissionNames(
-        from: webExtension.requestedPermissions.map { String($0.rawValue) }
-    ))
-    if !grantablePermissions.contains("webRequest") {
-        unsupportedAPIs.insert("browser.webRequest")
-    }
-
-    return unsupportedAPIs
+    let requestedPermissions = webExtension.requestedPermissions.map { String($0.rawValue) }
+    let optionalPermissions = webExtension.optionalPermissions.map { String($0.rawValue) }
+    return BrowserWebExtensionHostCapabilityPolicy.current.unsupportedAPIs(
+        forPermissionNames: requestedPermissions + optionalPermissions
+    )
 }
 
 struct BrowserWebExtensionInstallResult: Equatable {
@@ -238,7 +355,10 @@ final class BrowserWebExtensionInstallStore {
             records = []
             return
         }
-        records = decoded
+        records = decoded.map(sanitizedRecord)
+        if records != decoded {
+            try? persist()
+        }
     }
 
     func summaries(loadedRecordIDs: Set<UUID> = []) -> [BrowserWebExtensionInstalledSummary] {
@@ -451,6 +571,16 @@ final class BrowserWebExtensionInstallStore {
         } catch {
             throw BrowserWebExtensionInstallError.persistFailed(error.localizedDescription)
         }
+    }
+
+    private func sanitizedRecord(
+        _ record: BrowserWebExtensionInstallRecord
+    ) -> BrowserWebExtensionInstallRecord {
+        var record = record
+        record.grantedPermissions = browserWebExtensionHostGrantablePermissionNames(
+            from: record.grantedPermissions
+        ).sorted()
+        return record
     }
 
     private func firstWebExtensionAppExtension(in appURL: URL) -> URL? {
@@ -893,8 +1023,9 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     private func installConsentMessage(_ webExtension: WKWebExtension) -> String {
         let extensionName = webExtension.displayName
             ?? String(localized: "browser.extensions.unknownExtension", defaultValue: "Unknown extension")
-        let permissions = webExtension.requestedPermissions
-            .map { String($0.rawValue) }
+        let permissions = browserWebExtensionHostGrantablePermissionNames(
+            from: webExtension.requestedPermissions.map { String($0.rawValue) }
+        )
             .sorted()
             .joined(separator: ", ")
         let hosts = requiredMatchPatternStrings(for: webExtension)
@@ -1107,9 +1238,16 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         for context: WKWebExtensionContext,
         completionHandler: @escaping (Set<WKWebExtension.Permission>, Date?) -> Void
     ) {
-        let message = permissions.map { String($0.rawValue) }.sorted().joined(separator: ", ")
+        let grantablePermissions = Set(permissions.filter {
+            BrowserWebExtensionHostCapabilityPolicy.current.isPermissionGrantable(String($0.rawValue))
+        })
+        guard !grantablePermissions.isEmpty else {
+            completionHandler([], nil)
+            return
+        }
+        let message = grantablePermissions.map { String($0.rawValue) }.sorted().joined(separator: ", ")
         promptForRuntimePermission(message: message) { allowed in
-            completionHandler(allowed ? permissions : [], nil)
+            completionHandler(allowed ? grantablePermissions : [], nil)
         }
     }
 

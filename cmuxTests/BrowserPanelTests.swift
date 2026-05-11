@@ -180,6 +180,37 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         XCTAssertEqual(reloadedStore.records, [record])
     }
 
+    func testReloadSanitizesPersistedUnsupportedPermissionGrants() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let registryURL = root.appendingPathComponent("registry.json")
+        let staleRecord = BrowserWebExtensionInstallRecord(
+            id: UUID(),
+            displayName: "Bitwarden",
+            displayVersion: nil,
+            sourceKind: .appExtensionBundle,
+            sourcePath: root.appendingPathComponent("Bitwarden.appex").path,
+            isEnabled: true,
+            grantedPermissions: ["storage", "webNavigation", "webRequestAuthProvider", "menus"],
+            grantedPermissionMatchPatterns: ["https://example.com/*"]
+        )
+        try JSONEncoder().encode([staleRecord]).write(to: registryURL)
+
+        let store = BrowserWebExtensionInstallStore(
+            registryURL: registryURL,
+            installedResourceDirectoryURL: root.appendingPathComponent("resources", isDirectory: true)
+        )
+
+        XCTAssertEqual(store.records.first?.grantedPermissions, ["menus", "storage"])
+
+        let persisted = try JSONDecoder().decode(
+            [BrowserWebExtensionInstallRecord].self,
+            from: Data(contentsOf: registryURL)
+        )
+        XCTAssertEqual(persisted.first?.grantedPermissions, ["menus", "storage"])
+    }
+
     func testDiscoversSafariWebExtensionInsideApplicationBundle() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -284,7 +315,8 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
           "manifest_version": 3,
           "name": "cmux API Surface Test",
           "version": "1.0.0",
-          "permissions": ["storage", "webNavigation", "webRequest"],
+          "permissions": ["menus", "storage", "webNavigation", "webRequest"],
+          "optional_permissions": ["nativeMessaging"],
           "host_permissions": ["https://example.com/*"]
         }
         """.data(using: .utf8)?.write(to: root.appendingPathComponent("manifest.json"))
@@ -297,11 +329,45 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
 
         XCTAssertTrue(unsupportedAPIs.contains("browser.notifications"))
         XCTAssertTrue(unsupportedAPIs.contains("browser.offscreen"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.runtime.connectNative"))
         XCTAssertTrue(unsupportedAPIs.contains("browser.runtime.getContexts"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.runtime.sendNativeMessage"))
         XCTAssertTrue(unsupportedAPIs.contains("browser.webNavigation"))
         XCTAssertTrue(unsupportedAPIs.contains("browser.webRequest.onAuthRequired"))
+        XCTAssertTrue(grantablePermissions.contains("menus"))
         XCTAssertTrue(grantablePermissions.contains("webRequest"))
         XCTAssertFalse(grantablePermissions.contains("webNavigation"))
+        XCTAssertFalse(unsupportedAPIs.contains("browser.menus"))
+        XCTAssertFalse(unsupportedAPIs.contains("browser.webRequest"))
+    }
+
+    func testHostCapabilityPolicyDrivesGrantsAndAPISurface() {
+        let policy = BrowserWebExtensionHostCapabilityPolicy.current
+        let requestedPermissions = [
+            "storage",
+            "webNavigation",
+            "nativeMessaging",
+            "webRequest",
+            "menus",
+            "clipboardRead",
+            "madeUpPermission",
+        ]
+
+        XCTAssertEqual(
+            policy.grantablePermissionNames(from: requestedPermissions),
+            ["storage", "webRequest", "menus"]
+        )
+
+        let unsupportedAPIs = policy.unsupportedAPIs(forPermissionNames: requestedPermissions)
+        XCTAssertTrue(unsupportedAPIs.contains("browser.commands"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.runtime.connectNative"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.runtime.getContexts"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.runtime.openOptionsPage"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.runtime.sendNativeMessage"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.webNavigation"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.webRequest.onAuthRequired"))
+        XCTAssertFalse(unsupportedAPIs.contains("browser.menus"))
+        XCTAssertFalse(unsupportedAPIs.contains("browser.storage"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.webRequest"))
     }
 
