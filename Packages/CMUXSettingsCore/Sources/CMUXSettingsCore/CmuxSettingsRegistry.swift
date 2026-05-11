@@ -128,6 +128,7 @@ public enum CmuxSettingsRegistry {
         SettingDefinition(key: "app.reorderOnNotification", kind: .bool, defaultValue: true),
         SettingDefinition(key: "app.sendAnonymousTelemetry", kind: .bool, defaultValue: true),
         SettingDefinition(key: "app.warnBeforeQuit", kind: .bool, defaultValue: true),
+        SettingDefinition(key: "app.warnBeforeClosingTab", kind: .bool, defaultValue: true),
         SettingDefinition(key: "app.renameSelectsExistingName", kind: .bool, defaultValue: true),
         SettingDefinition(key: "app.commandPaletteSearchesAllSurfaces", kind: .bool, defaultValue: false),
         SettingDefinition(key: "terminal.showScrollBar", kind: .bool, defaultValue: true),

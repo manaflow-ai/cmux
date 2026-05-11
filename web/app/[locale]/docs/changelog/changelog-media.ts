@@ -26,6 +26,31 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.4": {
+    title: "SSH Files Polish, Vault Pi & Hermes, Browser Cookie Import",
+    features: [
+      {
+        title: "SSH Files Polish",
+        description:
+          "The Files sidebar now follows SSH workspaces and shows the remote root instead of the local macOS path. SSH workspace descriptors restore on relaunch, and new guarded cmux://ssh deep links prompt before launching ssh so unfamiliar links can't run arbitrary commands.",
+      },
+      {
+        title: "Vault Pi and Hermes",
+        description:
+          "Pi sessions now restore across relaunch via Vault, and Hermes Agent hooks pipe into the sidebar like Claude, Codex, OpenCode, Gemini, and Rovo Dev. Per-agent toggles let you hide individual agent session restores from Vault.",
+      },
+      {
+        title: "Browser Cookie Import",
+        description:
+          "A new cmux browser cookies import CLI brings cookies from other browsers into cmux's browser panes so logged-in sessions follow you over.",
+      },
+      {
+        title: "Quality-of-life Polish",
+        description:
+          "Welcome sidebar toggle shortcuts, Insert Path and Insert Relative Path in the file explorer right-click menu, a warnBeforeClosingTab toggle to opt back into the close confirmation prompt, plus fixes for IME, command palette Escape, modified Backspace in the omnibar, and stale terminal colors after theme switches.",
+      },
+    ],
+  },
   "0.64.0": {
     title: "Session Restore on Quit, Passkeys, File Explorer, Task Manager",
     features: [
