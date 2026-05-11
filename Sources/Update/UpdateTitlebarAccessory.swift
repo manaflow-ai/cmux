@@ -347,6 +347,11 @@ func titlebarShortcutHintVerticalOffset(for config: TitlebarControlsStyleConfig)
     max(0, floor(config.buttonSize - titlebarShortcutHintHeight(for: config)))
 }
 
+/// Extra width the new-workspace split button adds to its primary `+` square
+/// for the chevron half. Shared by the AppKit layout and the SwiftUI titlebar
+/// frame so the shortcut-hint pill can stay aligned with the visual right edge.
+let newWorkspaceChevronWidth: CGFloat = 14
+
 /// Split button: the `+` half runs the default new-workspace action; clicking
 /// the chevron opens an NSMenu listing every workspace command from the user's
 /// store. Backed by AppKit so the menu rebuilds via `menuNeedsUpdate(_:)` every
@@ -446,7 +451,7 @@ final class NewWorkspaceSplitButtonView: NSView, NSMenuDelegate {
 
     private func rebuildLayoutConstraints() {
         let buttonSize = styleConfig.buttonSize
-        let chevronWidth: CGFloat = 14
+        let chevronWidth = newWorkspaceChevronWidth
         NSLayoutConstraint.activate([
             primaryButton.leadingAnchor.constraint(equalTo: leadingAnchor),
             primaryButton.topAnchor.constraint(equalTo: topAnchor),
@@ -755,7 +760,7 @@ struct TitlebarControlsView: View {
                     )
                 }
             )
-            .frame(width: config.buttonSize + 14, height: config.buttonSize)
+            .frame(width: config.buttonSize + newWorkspaceChevronWidth, height: config.buttonSize)
             .accessibilityIdentifier("titlebarControl.newTab")
             .accessibilityLabel(String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"))
             .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
@@ -841,7 +846,11 @@ struct TitlebarControlsView: View {
 
     private func titlebarButtonRightEdge(for slot: HintSlot, config: TitlebarControlsStyleConfig) -> CGFloat {
         let index = CGFloat(slot.rawValue)
-        return (index + 1) * config.buttonSize + index * config.spacing
+        let baseEdge = (index + 1) * config.buttonSize + index * config.spacing
+        // The new-tab slot hosts a split button whose frame is
+        // `buttonSize + newWorkspaceChevronWidth`. Shift the hint pill by the
+        // chevron's width so it lines up with the visual right edge.
+        return slot == .newTab ? baseEdge + newWorkspaceChevronWidth : baseEdge
     }
 
     @ViewBuilder
