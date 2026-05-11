@@ -397,6 +397,16 @@ private struct AgentHookLaunchCommandRecord: Codable {
     var source: String?
 }
 
+private struct CodexMonitorLeaseRecord: Codable {
+    var leaseId: String
+    var sessionId: String
+    var turnId: String?
+    var workspaceId: String
+    var surfaceId: String?
+    var createdAt: TimeInterval
+    var retiredAt: TimeInterval?
+}
+
 private struct ClaudeHookSessionStoreFile: Codable {
     var version: Int = 1
     var sessions: [String: ClaudeHookSessionRecord] = [:]
@@ -982,6 +992,35 @@ final class SocketClient {
 
     var socketPath: String {
         path
+    }
+
+    var isRelayBacked: Bool {
+        relayEndpoint != nil
+    }
+
+    func connectionAppearsOpen() -> Bool {
+        if relayEndpoint != nil, socketFD < 0 {
+            do {
+                try connect()
+            } catch {
+                return false
+            }
+        }
+        guard socketFD >= 0 else { return false }
+        while true {
+            var descriptor = pollfd(
+                fd: socketFD,
+                events: Int16(POLLIN | POLLHUP | POLLERR),
+                revents: 0
+            )
+            let ready = Darwin.poll(&descriptor, 1, 0)
+            if ready < 0 {
+                if errno == EINTR { continue }
+                return false
+            }
+            let terminalEvents = Int16(POLLHUP | POLLERR | POLLNVAL)
+            return descriptor.revents & terminalEvents == 0
+        }
     }
 
     func operationTelemetryContext() -> [String: Any] {
@@ -14146,7 +14185,7 @@ struct CMUXCLI {
             // (PreToolUse).
             if let claudePid {
                 _ = try? sendV1Command(
-                    "set_agent_pid claude_code \(claudePid) --tab=\(workspaceId)",
+                    "set_agent_pid claude_code \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
                 )
             }
@@ -14190,6 +14229,7 @@ struct CMUXCLI {
                 try? setClaudeStatus(
                     client: client,
                     workspaceId: workspaceId,
+                    surfaceId: surfaceId,
                     value: "Idle",
                     icon: "pause.circle.fill",
                     color: "#8E8E93"
@@ -14220,11 +14260,18 @@ struct CMUXCLI {
                 fallback: workspaceArg,
                 client: client
             )
+            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+                preferred: mappedSession?.surfaceId,
+                fallback: surfaceArg,
+                workspaceId: workspaceId,
+                client: client
+            )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             try setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,
+                surfaceId: surfaceId,
                 value: "Running",
                 icon: "bolt.fill",
                 color: "#4C8DFF"
@@ -14275,6 +14322,7 @@ struct CMUXCLI {
             _ = try? setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,
+                surfaceId: surfaceId,
                 value: "Needs input",
                 icon: "bell.fill",
                 color: "#4C8DFF"
@@ -14311,8 +14359,10 @@ struct CMUXCLI {
             if let consumedSession {
                 let workspaceId = consumedSession.workspaceId
                 sendClaudeFeedTelemetry(workspaceId: workspaceId)
-                _ = try? clearClaudeStatus(client: client, workspaceId: workspaceId)
-                _ = try? sendV1Command("clear_agent_pid claude_code --tab=\(workspaceId)", client: client)
+                _ = try? sendV1Command(
+                    "clear_agent_pid claude_code --tab=\(workspaceId)\(socketPanelOption(consumedSession.surfaceId)) --clear-status",
+                    client: client
+                )
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             }
             print("OK")
@@ -14327,6 +14377,12 @@ struct CMUXCLI {
                 fallback: workspaceArg,
                 client: client
             )
+            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+                preferred: mappedSession?.surfaceId,
+                fallback: surfaceArg,
+                workspaceId: workspaceId,
+                client: client
+            )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
             let claudePid = mappedSession?.pid
 
@@ -14337,9 +14393,9 @@ struct CMUXCLI {
                toolName == "AskUserQuestion",
                let question = describeAskUserQuestion(parsedInput.object),
                let sessionId = parsedInput.sessionId {
-                // Preserve the existing surfaceId from SessionStart; passing ""
+                // Preserve a non-empty surfaceId from SessionStart; passing ""
                 // would overwrite it and cause notifications to target the wrong workspace.
-                let existingSurfaceId = (try? sessionStore.lookup(sessionId: sessionId))?.surfaceId ?? ""
+                let existingSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -14366,6 +14422,7 @@ struct CMUXCLI {
             try setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,
+                surfaceId: surfaceId,
                 value: statusValue,
                 icon: "bolt.fill",
                 color: "#4C8DFF",
@@ -14389,20 +14446,26 @@ struct CMUXCLI {
     private func setClaudeStatus(
         client: SocketClient,
         workspaceId: String,
+        surfaceId: String? = nil,
         value: String,
         icon: String,
         color: String,
         pid: Int? = nil
     ) throws {
-        var cmd = "set_status claude_code \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)"
+        var cmd = "set_status claude_code \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
         if let pid {
             cmd += " --pid=\(pid)"
         }
         _ = try client.send(command: cmd)
     }
 
-    private func clearClaudeStatus(client: SocketClient, workspaceId: String) throws {
-        _ = try client.send(command: "clear_status claude_code --tab=\(workspaceId)")
+    private func socketPanelOption(_ surfaceId: String?) -> String {
+        guard let surfaceId = surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !surfaceId.isEmpty,
+              UUID(uuidString: surfaceId) != nil else {
+            return ""
+        }
+        return " --panel=\(surfaceId)"
     }
 
     private func resolvePreferredWorkspaceIdForClaudeHook(
@@ -15021,6 +15084,12 @@ struct CMUXCLI {
         case failure(CodexHookFailureCandidate)
     }
 
+    private enum CodexMonitorOwnerState {
+        case alive
+        case gone
+        case unknown
+    }
+
     private func summarizeCodexHookFailure(
         parsedInput: ClaudeHookParsedInput,
         sessionId: String,
@@ -15432,6 +15501,159 @@ struct CMUXCLI {
         return directories
     }
 
+    private static let codexMonitorLeaseDirectoryName = "codex-monitor-leases"
+    private static let codexMonitorLeaseMaxAgeSeconds: TimeInterval = 4 * 60 * 60
+    private static let codexMonitorRetiredLeaseMaxAgeSeconds: TimeInterval = 2 * 60
+    private static let codexMonitorOwnerCheckIntervalSeconds: TimeInterval = 60
+    private static let codexMonitorOwnerCheckTimeoutSeconds: TimeInterval = 1
+
+    private func codexMonitorLeaseDirectory(env: [String: String]) -> URL {
+        let statePath = NSString(
+            string: agentHookStatePath(sessionStoreSuffix: "codex", env: env)
+        ).expandingTildeInPath
+        return URL(fileURLWithPath: statePath, isDirectory: false)
+            .deletingLastPathComponent()
+            .appendingPathComponent(Self.codexMonitorLeaseDirectoryName, isDirectory: true)
+    }
+
+    private func codexMonitorLeasePath(leaseId: String, env: [String: String]) -> String {
+        return codexMonitorLeaseDirectory(env: env)
+            .appendingPathComponent("\(leaseId).json", isDirectory: false)
+            .path
+    }
+
+    private func writeCodexMonitorLease(_ record: CodexMonitorLeaseRecord, to path: String) throws {
+        let url = URL(fileURLWithPath: path, isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(record)
+        try data.write(to: url, options: .atomic)
+    }
+
+    private func readCodexMonitorLease(path: String) -> CodexMonitorLeaseRecord? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path, isDirectory: false)) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(CodexMonitorLeaseRecord.self, from: data)
+    }
+
+    private func createCodexMonitorLease(
+        sessionId: String,
+        turnId: String?,
+        workspaceId: String,
+        surfaceId: String?,
+        env: [String: String]
+    ) -> String? {
+        let leaseId = UUID().uuidString.lowercased()
+        let path = codexMonitorLeasePath(leaseId: leaseId, env: env)
+        let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedTurnId = turnId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionId.isEmpty else { return nil }
+        let record = CodexMonitorLeaseRecord(
+            leaseId: leaseId,
+            sessionId: normalizedSessionId,
+            turnId: normalizedTurnId?.isEmpty == false ? normalizedTurnId : nil,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            createdAt: Date().timeIntervalSince1970,
+            retiredAt: nil
+        )
+        try? pruneExpiredCodexMonitorLeases(env: env)
+        do {
+            try writeCodexMonitorLease(record, to: path)
+            return path
+        } catch {
+            return nil
+        }
+    }
+
+    private func retireCodexMonitorLeases(sessionId: String, turnId: String?, env: [String: String]) {
+        let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionId.isEmpty else { return }
+
+        let fileManager = FileManager.default
+        let now = Date().timeIntervalSince1970
+        let normalizedTurnId = turnId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let shouldMatchTurn = normalizedTurnId?.isEmpty == false
+        let directory = codexMonitorLeaseDirectory(env: env)
+        let targetPaths = ((try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? []).map(\.path)
+
+        for path in targetPaths {
+            guard var record = readCodexMonitorLease(path: path),
+                  record.sessionId == normalizedSessionId,
+                  !shouldMatchTurn || record.turnId == normalizedTurnId,
+                  record.retiredAt == nil else {
+                continue
+            }
+            record.retiredAt = now
+            try? writeCodexMonitorLease(record, to: path)
+        }
+        try? pruneExpiredCodexMonitorLeases(env: env)
+    }
+
+    private func pruneExpiredCodexMonitorLeases(env: [String: String]) throws {
+        let fileManager = FileManager.default
+        let directory = codexMonitorLeaseDirectory(env: env)
+        guard fileManager.fileExists(atPath: directory.path) else { return }
+        let now = Date().timeIntervalSince1970
+        let activeLeaseCutoff = now - Self.codexMonitorLeaseMaxAgeSeconds
+        let retiredLeaseCutoff = now - Self.codexMonitorRetiredLeaseMaxAgeSeconds
+        let urls = try fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        for url in urls {
+            guard let record = readCodexMonitorLease(path: url.path) else {
+                continue
+            }
+            let activeLeaseExpired = record.createdAt < activeLeaseCutoff
+            let retiredLeaseExpired = record.retiredAt.map { $0 < retiredLeaseCutoff } ?? false
+            if activeLeaseExpired || retiredLeaseExpired {
+                try? fileManager.removeItem(at: url)
+            }
+        }
+    }
+
+    private func isCodexMonitorLeaseRetired(path: String?) -> Bool {
+        guard let path, !path.isEmpty else { return false }
+        guard let record = readCodexMonitorLease(path: path) else {
+            return !FileManager.default.fileExists(atPath: path)
+        }
+        return record.retiredAt != nil
+    }
+
+    private func removeCodexMonitorLease(path: String?) {
+        guard let path, !path.isEmpty else { return }
+        try? FileManager.default.removeItem(atPath: path)
+    }
+
+    private func codexMonitorOwnerState(workspaceId: String, surfaceId: String?, client: SocketClient) -> CodexMonitorOwnerState {
+        guard client.connectionAppearsOpen() else { return client.isRelayBacked ? .unknown : .gone }
+        guard let payload = try? client.sendV2(
+            method: "surface.list",
+            params: ["workspace_id": workspaceId],
+            responseTimeout: Self.codexMonitorOwnerCheckTimeoutSeconds
+        ) else {
+            return .unknown
+        }
+        let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
+        guard let surfaceId, !surfaceId.isEmpty else { return surfaces.isEmpty ? .gone : .alive }
+        let ownerFound = surfaces.contains { surface in
+            (surface["id"] as? String) == surfaceId || (surface["ref"] as? String) == surfaceId
+        }
+        return ownerFound ? .alive : .gone
+    }
+
     private func startCodexTranscriptMonitor(
         sessionId: String,
         turnId: String?,
@@ -15439,12 +15661,22 @@ struct CMUXCLI {
         cwd: String?,
         workspaceId: String,
         surfaceId: String?,
-        env: [String: String]
+        leasePath: String?,
+        env: [String: String],
+        telemetry: CLISocketSentryTelemetry
     ) {
         guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return
         }
+
+        let monitorTelemetry: [String: Any] = [
+            "has_lease": normalizedHookValue(leasePath) != nil,
+            "has_turn_id": normalizedHookValue(turnId) != nil,
+            "has_transcript": normalizedHookValue(transcriptPath) != nil,
+            "has_surface_id": normalizedHookValue(surfaceId) != nil,
+        ]
+        telemetry.breadcrumb("codex-hook.monitor.start", data: monitorTelemetry)
 
         let executablePath = resolvedExecutableURL()?.path ?? args.first ?? "cmux"
         let process = Process()
@@ -15469,12 +15701,20 @@ struct CMUXCLI {
         if let cwd, !cwd.isEmpty {
             monitorArgs += ["--cwd", cwd]
         }
+        if let leasePath, !leasePath.isEmpty {
+            monitorArgs += ["--lease", leasePath]
+        }
         process.arguments = monitorArgs
         process.environment = env.merging(["CMUX_CLI_SENTRY_DISABLED": "1"], uniquingKeysWith: { _, new in new })
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        try? process.run()
+        do {
+            try process.run()
+            telemetry.breadcrumb("codex-hook.monitor.started", data: monitorTelemetry)
+        } catch {
+            telemetry.captureError(stage: "codex-monitor-start", error: error, data: monitorTelemetry)
+        }
     }
 
     private func runCodexTranscriptMonitor(commandArgs: [String], client: SocketClient) throws {
@@ -15488,14 +15728,28 @@ struct CMUXCLI {
             ?? ""
         let turnId = optionValue(commandArgs, name: "--turn")
         var transcriptPath = optionValue(commandArgs, name: "--transcript")
+        let leasePath = optionValue(commandArgs, name: "--lease")
 
         guard !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return
         }
 
+        defer { removeCodexMonitorLease(path: leasePath) }
         let deadline = Date().addingTimeInterval(4 * 60 * 60)
+        var nextOwnerCheck = Date.distantPast
         while Date() < deadline {
+            if isCodexMonitorLeaseRetired(path: leasePath) {
+                return
+            }
+            let now = Date()
+            if now >= nextOwnerCheck {
+                nextOwnerCheck = now.addingTimeInterval(Self.codexMonitorOwnerCheckIntervalSeconds)
+                if codexMonitorOwnerState(workspaceId: workspaceId, surfaceId: surfaceId, client: client) == .gone {
+                    return
+                }
+            }
+
             if transcriptPath == nil {
                 transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
             }
@@ -15532,7 +15786,7 @@ struct CMUXCLI {
 
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return }
-            waitForCodexTranscriptChange(path: transcriptPath, timeout: min(30, remaining))
+            waitForCodexTranscriptChange(path: transcriptPath, leasePath: leasePath, timeout: min(30, remaining))
         }
     }
 
@@ -15547,38 +15801,48 @@ struct CMUXCLI {
             let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
             _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
         }
-        _ = try? sendV1Command("set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)", client: client)
+        _ = try? sendV1Command(
+            "set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+            client: client
+        )
     }
 
-    private func waitForCodexTranscriptChange(path: String?, timeout: TimeInterval) {
+    private func waitForCodexTranscriptChange(path: String?, leasePath: String?, timeout: TimeInterval) {
         guard timeout > 0 else { return }
-        guard let path, !path.isEmpty else {
-            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
-            return
-        }
-
-        let expandedPath = NSString(string: path).expandingTildeInPath
-        let fd = open(expandedPath, O_EVTONLY)
-        guard fd >= 0 else {
-            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
-            return
-        }
 
         let semaphore = DispatchSemaphore(value: 0)
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .extend, .delete, .rename],
-            queue: DispatchQueue.global(qos: .utility)
-        )
-        source.setEventHandler {
-            semaphore.signal()
+        var sources: [DispatchSourceFileSystemObject] = []
+
+        func addFileSource(path: String?, eventMask: DispatchSource.FileSystemEvent) {
+            guard let path, !path.isEmpty else { return }
+            let expandedPath = NSString(string: path).expandingTildeInPath
+            let fd = open(expandedPath, O_EVTONLY)
+            guard fd >= 0 else { return }
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: fd,
+                eventMask: eventMask,
+                queue: DispatchQueue.global(qos: .utility)
+            )
+            source.setEventHandler {
+                semaphore.signal()
+            }
+            source.setCancelHandler {
+                close(fd)
+            }
+            source.resume()
+            sources.append(source)
         }
-        source.setCancelHandler {
-            close(fd)
+
+        addFileSource(path: path, eventMask: [.write, .extend, .delete, .rename])
+        addFileSource(path: leasePath, eventMask: [.write, .delete, .rename])
+
+        guard !sources.isEmpty else {
+            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
+            return
         }
-        source.resume()
+
         _ = semaphore.wait(timeout: .now() + timeout)
-        source.cancel()
+        sources.forEach { $0.cancel() }
     }
 
     private func extractMessageText(from message: [String: Any]) -> String? {
@@ -15968,251 +16232,6 @@ struct CMUXCLI {
         )
     }
 
-    // MARK: - Generic agent hook system
-
-    /// Configuration for a hook-based agent integration.
-    struct AgentHookDef {
-        let name: String            // CLI name: "cursor", "gemini", etc.
-        let displayName: String     // Human-readable: "Cursor", "Gemini"
-        let statusKey: String       // Key for set_status: "cursor", "gemini"
-        let configDir: String       // Relative to ~: ".cursor", ".gemini"
-        let configFile: String      // File name: "hooks.json", "settings.json"
-        let configDirEnvOverride: String? // e.g. "CODEX_HOME" overrides configDir
-        let sessionStoreSuffix: String // e.g. "cursor" -> ~/.cmuxterm/cursor-hook-sessions.json
-        let disableEnvVar: String   // e.g. "CMUX_CURSOR_HOOKS_DISABLED"
-        let hookMarker: String      // Marker in commands: "cmux hooks cursor"
-        let binaryName: String
-        let format: HookFormat
-        let events: [HookEvent]
-        let aliases: Set<String>
-        /// Feed-hook events. Each entry installs a second hook for
-        /// `agentEvent` that invokes `cmux hooks feed --source <name>`
-        /// with a 120s timeout so the socket reply wait doesn't trip the
-        /// agent's default hook timeout when the user takes time to
-        /// approve/deny a permission / plan / question.
-        let feedHookEvents: [String]
-        let postInstallAction: PostInstallAction?
-
-        enum HookFormat {
-            case flat       // Cursor: {"hooks": {"event": [{"command": "..."}]}, "version": 1}
-            case nested(timeoutMs: Int)  // Codex/Gemini: nested with type/command/timeout
-            case rovoDevYAML
-            case hermesAgentYAML
-        }
-
-        struct HookEvent {
-            let agentEvent: String
-            let cmuxSubcommand: String
-        }
-
-        enum PostInstallAction {
-            case codexConfigToml // write codex_hooks = true to config.toml on install, remove on uninstall
-        }
-
-        /// Resolves the config directory, respecting env override if set.
-        func resolvedConfigDir() -> String {
-            if let envKey = configDirEnvOverride,
-               let envValue = ProcessInfo.processInfo.environment[envKey],
-               !envValue.isEmpty {
-                return NSString(string: envValue).expandingTildeInPath
-            }
-            let home = ProcessInfo.processInfo.environment["HOME"].flatMap { value -> String? in
-                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                return trimmed.isEmpty ? nil : trimmed
-            } ?? NSHomeDirectory()
-            return URL(fileURLWithPath: home, isDirectory: true)
-                .appendingPathComponent(configDir, isDirectory: true)
-                .path
-        }
-
-        init(name: String, displayName: String, statusKey: String,
-             configDir: String, configFile: String, configDirEnvOverride: String? = nil,
-             binaryName: String? = nil,
-             sessionStoreSuffix: String, disableEnvVar: String, hookMarker: String,
-             format: HookFormat, events: [HookEvent],
-             aliases: Set<String> = [],
-             feedHookEvents: [String] = [],
-             postInstallAction: PostInstallAction? = nil) {
-            self.name = name; self.displayName = displayName; self.statusKey = statusKey
-            self.configDir = configDir; self.configFile = configFile
-            self.configDirEnvOverride = configDirEnvOverride
-            self.binaryName = binaryName ?? name
-            self.sessionStoreSuffix = sessionStoreSuffix; self.disableEnvVar = disableEnvVar
-            self.hookMarker = hookMarker; self.format = format; self.events = events
-            self.aliases = Set(aliases.compactMap { alias in
-                let normalized = alias.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                return normalized.isEmpty ? nil : normalized
-            })
-            self.feedHookEvents = feedHookEvents
-            self.postInstallAction = postInstallAction
-        }
-    }
-
-    private enum AgentHookAction {
-        case sessionStart, promptSubmit, stop, sessionEnd, noop
-    }
-
-    private static let subcommandActions: [String: AgentHookAction] = [
-        "session-start": .sessionStart,
-        "prompt-submit": .promptSubmit,
-        "stop": .stop,
-        "agent-response": .stop,
-        "shell-exec": .promptSubmit,
-        "shell-done": .noop,
-        "session-end": .sessionEnd,
-    ]
-
-    // MARK: Agent definitions
-
-    private static let agentDefs: [AgentHookDef] = [
-        AgentHookDef(
-            name: "codex", displayName: "Codex", statusKey: "codex",
-            configDir: ".codex", configFile: "hooks.json", configDirEnvOverride: "CODEX_HOME",
-            sessionStoreSuffix: "codex", disableEnvVar: "CMUX_CODEX_HOOKS_DISABLED",
-            hookMarker: "cmux hooks codex", format: .nested(timeoutMs: 5000),
-            events: [
-                .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
-                .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
-                .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
-            ],
-            feedHookEvents: ["PreToolUse", "PermissionRequest"],
-            postInstallAction: .codexConfigToml
-        ),
-        AgentHookDef(
-            name: "opencode", displayName: "OpenCode", statusKey: "opencode",
-            configDir: ".config/opencode", configFile: "plugins/cmux-session.js", configDirEnvOverride: "OPENCODE_CONFIG_DIR",
-            sessionStoreSuffix: "opencode", disableEnvVar: "CMUX_OPENCODE_HOOKS_DISABLED",
-            hookMarker: "cmux hooks opencode", format: .flat,
-            events: []
-        ),
-        AgentHookDef(
-            name: "pi", displayName: "Pi", statusKey: "pi",
-            configDir: ".pi/agent", configFile: "extensions/cmux-session.ts", configDirEnvOverride: "PI_CODING_AGENT_DIR",
-            sessionStoreSuffix: "pi", disableEnvVar: "CMUX_PI_HOOKS_DISABLED",
-            hookMarker: "cmux hooks pi", format: .flat,
-            events: []
-        ),
-        AgentHookDef(
-            name: "cursor", displayName: "Cursor", statusKey: "cursor",
-            configDir: ".cursor", configFile: "hooks.json", binaryName: "cursor-agent",
-            sessionStoreSuffix: "cursor", disableEnvVar: "CMUX_CURSOR_HOOKS_DISABLED",
-            hookMarker: "cmux hooks cursor", format: .flat,
-            events: [
-                .init(agentEvent: "beforeSubmitPrompt", cmuxSubcommand: "prompt-submit"),
-                .init(agentEvent: "stop", cmuxSubcommand: "stop"),
-                .init(agentEvent: "afterAgentResponse", cmuxSubcommand: "agent-response"),
-                .init(agentEvent: "beforeShellExecution", cmuxSubcommand: "shell-exec"),
-                .init(agentEvent: "afterShellExecution", cmuxSubcommand: "shell-done"),
-            ],
-            feedHookEvents: ["beforeShellExecution"]
-        ),
-        AgentHookDef(
-            name: "gemini", displayName: "Gemini", statusKey: "gemini",
-            configDir: ".gemini", configFile: "settings.json",
-            sessionStoreSuffix: "gemini", disableEnvVar: "CMUX_GEMINI_HOOKS_DISABLED",
-            hookMarker: "cmux hooks gemini", format: .nested(timeoutMs: 10000),
-            events: [
-                .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
-                .init(agentEvent: "BeforeAgent", cmuxSubcommand: "prompt-submit"),
-                .init(agentEvent: "AfterAgent", cmuxSubcommand: "stop"),
-                .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
-            ],
-            feedHookEvents: ["PreToolUse"]
-        ),
-        AgentHookDef(
-            name: "rovodev", displayName: "Rovo Dev", statusKey: "rovodev",
-            configDir: ".rovodev", configFile: "config.yml", binaryName: "acli",
-            sessionStoreSuffix: "rovodev", disableEnvVar: "CMUX_ROVODEV_HOOKS_DISABLED",
-            hookMarker: "cmux hooks rovodev", format: .rovoDevYAML,
-            events: [
-                .init(agentEvent: "on_complete", cmuxSubcommand: "stop"),
-                .init(agentEvent: "on_error", cmuxSubcommand: "stop"),
-                .init(agentEvent: "on_tool_permission", cmuxSubcommand: "prompt-submit"),
-            ],
-            aliases: ["rovo"]
-        ),
-        AgentHookDef(
-            name: "hermes-agent", displayName: "Hermes Agent", statusKey: "hermes-agent",
-            configDir: ".hermes", configFile: "config.yaml", configDirEnvOverride: "HERMES_HOME",
-            binaryName: "hermes",
-            sessionStoreSuffix: "hermes-agent", disableEnvVar: "CMUX_HERMES_AGENT_HOOKS_DISABLED",
-            hookMarker: "cmux hooks hermes-agent", format: .hermesAgentYAML,
-            events: [
-                .init(agentEvent: "on_session_start", cmuxSubcommand: "session-start"),
-                .init(agentEvent: "pre_llm_call", cmuxSubcommand: "prompt-submit"),
-                .init(agentEvent: "post_llm_call", cmuxSubcommand: "agent-response"),
-                .init(agentEvent: "on_session_end", cmuxSubcommand: "session-end"),
-                .init(agentEvent: "on_session_finalize", cmuxSubcommand: "session-end"),
-                .init(agentEvent: "on_session_reset", cmuxSubcommand: "session-start"),
-            ],
-            feedHookEvents: ["pre_tool_call", "post_tool_call", "pre_approval_request", "post_approval_response"]
-        ),
-        AgentHookDef(
-            name: "copilot", displayName: "Copilot", statusKey: "copilot",
-            configDir: ".copilot", configFile: "config.json", configDirEnvOverride: "COPILOT_HOME",
-            sessionStoreSuffix: "copilot", disableEnvVar: "CMUX_COPILOT_HOOKS_DISABLED",
-            hookMarker: "cmux hooks copilot", format: .nested(timeoutMs: 5000),
-            events: [
-                .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
-                .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
-                .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
-                .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
-            ],
-            feedHookEvents: ["PreToolUse"]
-        ),
-        AgentHookDef(
-            name: "codebuddy", displayName: "CodeBuddy", statusKey: "codebuddy",
-            configDir: ".codebuddy", configFile: "settings.json", configDirEnvOverride: "CODEBUDDY_CONFIG_DIR",
-            sessionStoreSuffix: "codebuddy", disableEnvVar: "CMUX_CODEBUDDY_HOOKS_DISABLED",
-            hookMarker: "cmux hooks codebuddy", format: .nested(timeoutMs: 5000),
-            events: [
-                .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
-                .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
-                .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
-                .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
-            ],
-            feedHookEvents: ["PreToolUse"]
-        ),
-        AgentHookDef(
-            name: "factory", displayName: "Factory", statusKey: "factory",
-            configDir: ".factory", configFile: "settings.json", binaryName: "droid",
-            sessionStoreSuffix: "factory", disableEnvVar: "CMUX_FACTORY_HOOKS_DISABLED",
-            hookMarker: "cmux hooks factory", format: .nested(timeoutMs: 5000),
-            events: [
-                .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
-                .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
-                .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
-                .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
-            ],
-            feedHookEvents: ["PreToolUse"]
-        ),
-        AgentHookDef(
-            name: "qoder", displayName: "Qoder", statusKey: "qoder",
-            configDir: ".qoder", configFile: "settings.json", configDirEnvOverride: "QODER_CONFIG_DIR", binaryName: "qodercli",
-            sessionStoreSuffix: "qoder", disableEnvVar: "CMUX_QODER_HOOKS_DISABLED",
-            hookMarker: "cmux hooks qoder", format: .nested(timeoutMs: 5000),
-            events: [
-                .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
-                .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
-                .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
-            ],
-            feedHookEvents: ["PreToolUse"]
-        ),
-    ]
-
-    private static func agentDef(named name: String) -> AgentHookDef? {
-        let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return agentDefs.first { $0.name == normalized || $0.aliases.contains(normalized) }
-    }
-
-    private static func hookMarkers(for def: AgentHookDef) -> [String] {
-        var markers = [def.hookMarker]
-        if def.name == "codex" {
-            markers.append("cmux codex-hook")
-        }
-        return markers
-    }
-
     // MARK: Generic hook install/uninstall
     func hookCommand(for def: AgentHookDef, event: AgentHookDef.HookEvent) -> String {
         "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks \(def.name) \(event.cmuxSubcommand) || echo '{}'"
@@ -16224,16 +16243,6 @@ struct CMUXCLI {
     /// itself just dispatches.
     func feedHookCommand(for def: AgentHookDef, agentEvent: String) -> String {
         "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks feed --source \(def.name) --event \(agentEvent) || echo '{}'"
-    }
-
-    /// Marker substrings used when removing / upgrading our own Feed bridge
-    /// entries on reinstall or uninstall.
-    private static func feedHookMarkers(for def: AgentHookDef) -> [String] {
-        var markers = ["cmux hooks feed --source"]
-        if def.name == "codex" {
-            markers.append("cmux feed-hook --source")
-        }
-        return markers
     }
 
     private func buildHooksDict(for def: AgentHookDef) -> [String: Any] {
@@ -17239,7 +17248,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
             }
             if let pid {
-                _ = try? sendV1Command("set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)", client: client)
+                _ = try? sendV1Command(
+                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
             }
 
         case .promptSubmit:
@@ -17270,11 +17282,30 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
             }
             if let pid {
-                _ = try? sendV1Command("set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)", client: client)
+                _ = try? sendV1Command(
+                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
             }
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
-            _ = try sendV1Command("set_status \(def.statusKey) Running --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)", client: client)
+            _ = try sendV1Command(
+                "set_status \(def.statusKey) Running --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                client: client
+            )
             if def.name == "codex", !sessionId.isEmpty {
+                let leasePath = createCodexMonitorLease(
+                    sessionId: sessionId,
+                    turnId: input.turnId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    env: env
+                )
+                if leasePath == nil {
+                    telemetry.breadcrumb(
+                        "codex-hook.monitor.lease-unavailable",
+                        data: ["has_turn_id": normalizedHookValue(input.turnId) != nil]
+                    )
+                }
                 startCodexTranscriptMonitor(
                     sessionId: sessionId,
                     turnId: input.turnId,
@@ -17282,11 +17313,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     cwd: hookCwd ?? mapped?.cwd,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    env: env
+                    leasePath: leasePath,
+                    env: env,
+                    telemetry: telemetry
                 )
             }
 
         case .stop:
+            if def.name == "codex", !sessionId.isEmpty {
+                let stopTurnId = input.turnId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !stopTurnId.isEmpty {
+                    retireCodexMonitorLeases(sessionId: sessionId, turnId: stopTurnId, env: env)
+                }
+            }
             do {
                 let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
                 let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: workspaceArg, fallback: mapped?.workspaceId, client: client)
@@ -17343,16 +17382,25 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                                       lastBody: body)
                 }
                 if let pid {
-                    _ = try? sendV1Command("set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)", client: client)
+                    _ = try? sendV1Command(
+                        "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
                 }
 
                 let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
                 _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 if let codexFailure {
-                    _ = try? sendV1Command("set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)", client: client)
+                    _ = try? sendV1Command(
+                        "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
                 } else {
                     let idleStatus = String(localized: "agent.codex.status.idle", defaultValue: "Idle")
-                    _ = try? sendV1Command("set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)", client: client)
+                    _ = try? sendV1Command(
+                        "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
                 }
             } catch {
                 if shouldIgnoreClaudeHookTeardownError(error) {
@@ -17363,10 +17411,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
 
         case .sessionEnd:
+            if def.name == "codex", !sessionId.isEmpty {
+                retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
+            }
             if let mapped = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
                 sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
-                _ = try? sendV1Command("clear_status \(def.statusKey) --tab=\(mapped.workspaceId)", client: client)
-                _ = try? sendV1Command("clear_agent_pid \(pidKey) --tab=\(mapped.workspaceId)", client: client)
+                _ = try? sendV1Command(
+                    "clear_agent_pid \(pidKey) --tab=\(mapped.workspaceId)\(socketPanelOption(mapped.surfaceId)) --clear-status",
+                    client: client
+                )
             }
 
         case .noop:
@@ -17374,208 +17427,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         print("{}")
-    }
-
-    enum AnsiStyle {
-        static func reset(_ tty: Bool) -> String { tty ? "\u{001B}[0m" : "" }
-        static func bold(_ tty: Bool) -> String { tty ? "\u{001B}[1m" : "" }
-        static func dim(_ tty: Bool) -> String { tty ? "\u{001B}[2m" : "" }
-        static func red(_ tty: Bool) -> String { tty ? "\u{001B}[31m" : "" }
-        static func green(_ tty: Bool) -> String { tty ? "\u{001B}[32m" : "" }
-        static func yellow(_ tty: Bool) -> String { tty ? "\u{001B}[33m" : "" }
-        static func magenta(_ tty: Bool) -> String { tty ? "\u{001B}[35m" : "" }
-        static func cyan(_ tty: Bool) -> String { tty ? "\u{001B}[36m" : "" }
-    }
-
-    // MARK: - Install preview (ANSI-colored diff)
-
-    /// Prints a colored diff preview framed with the target path both
-    /// above and below the diff. Every changed line is prefixed with
-    /// `+` (addition) or `-` (deletion) and colored accordingly so the
-    /// user can see at a glance what's being added/removed. A summary
-    /// line above the diff counts adds/deletes so users who pipe the
-    /// output into tee/less still see the shape of the change.
-    static func printInstallPreview(
-        path: String,
-        oldContent: String,
-        newContent: String,
-        fallbackContent: String
-    ) {
-        let tty = isatty(fileno(stdout)) != 0
-        let verb = oldContent.isEmpty ? "create" : "update"
-        let header = AnsiStyle.bold(tty)
-            + "─── Will \(verb) \(path) ───" + AnsiStyle.reset(tty)
-        let footer = AnsiStyle.bold(tty)
-            + "─── The above will be written to \(path) ───" + AnsiStyle.reset(tty)
-
-        print("")
-        print(header)
-
-        if oldContent == newContent {
-            print(AnsiStyle.dim(tty) + "(no changes — file already matches target)" + AnsiStyle.reset(tty))
-            print(footer)
-            return
-        }
-
-        if let diff = unifiedDiff(old: oldContent, new: newContent), !diff.isEmpty {
-            let (adds, dels) = countAddDeleteLines(diff)
-            let summary = AnsiStyle.bold(tty)
-                + AnsiStyle.green(tty) + "+\(adds) additions" + AnsiStyle.reset(tty)
-                + AnsiStyle.bold(tty) + ", "
-                + AnsiStyle.red(tty) + "-\(dels) deletions" + AnsiStyle.reset(tty)
-            print(summary)
-            print("")
-            print(colorizeDiff(diff, tty: tty))
-        } else {
-            // Diff unavailable (binary `/usr/bin/diff` missing, or
-            // temp-file write failed). Fall back to the full pretty-
-            // printed content with every line prefixed `+` so the user
-            // still sees what will land.
-            print(AnsiStyle.bold(tty) + "(diff unavailable — full content follows)" + AnsiStyle.reset(tty))
-            for line in fallbackContent.split(separator: "\n", omittingEmptySubsequences: false) {
-                let plus = AnsiStyle.green(tty) + AnsiStyle.bold(tty) + "+" + AnsiStyle.reset(tty)
-                print("\(plus) " + jsonHighlight(String(line), tty: tty))
-            }
-        }
-        print(footer)
-    }
-
-    /// Counts added and deleted lines in a unified-diff body, ignoring
-    /// file header lines (`+++ …`, `--- …`).
-    private static func countAddDeleteLines(_ diff: String) -> (adds: Int, dels: Int) {
-        var adds = 0
-        var dels = 0
-        for raw in diff.split(separator: "\n", omittingEmptySubsequences: false) {
-            let line = String(raw)
-            if line.hasPrefix("+++") || line.hasPrefix("---") { continue }
-            if line.hasPrefix("+") { adds += 1 }
-            if line.hasPrefix("-") { dels += 1 }
-        }
-        return (adds, dels)
-    }
-
-    /// Shells out to `/usr/bin/diff -u` against two temp files. Returns
-    /// nil if diff isn't available or both inputs are identical.
-    private static func unifiedDiff(old: String, new: String) -> String? {
-        if old == new { return "" }
-        let tempDir = FileManager.default.temporaryDirectory
-        let oldURL = tempDir.appendingPathComponent("cmux-old-\(UUID().uuidString)")
-        let newURL = tempDir.appendingPathComponent("cmux-new-\(UUID().uuidString)")
-        defer {
-            try? FileManager.default.removeItem(at: oldURL)
-            try? FileManager.default.removeItem(at: newURL)
-        }
-        do {
-            try old.write(to: oldURL, atomically: true, encoding: .utf8)
-            try new.write(to: newURL, atomically: true, encoding: .utf8)
-        } catch { return nil }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/diff")
-        process.arguments = ["-u", oldURL.path, newURL.path]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-        var output = Data()
-        let outputLock = NSLock()
-        pipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            outputLock.lock()
-            output.append(data)
-            outputLock.unlock()
-        }
-        do {
-            try process.run()
-        } catch { return nil }
-        process.waitUntilExit()
-        pipe.fileHandleForReading.readabilityHandler = nil
-        let remaining = pipe.fileHandleForReading.readDataToEndOfFile()
-        if !remaining.isEmpty {
-            outputLock.lock()
-            output.append(remaining)
-            outputLock.unlock()
-        }
-        // diff exits with 1 on differences; that's fine.
-        outputLock.lock()
-        let data = output
-        outputLock.unlock()
-        return String(data: data, encoding: .utf8)
-    }
-
-    /// Colors a unified diff: file headers dim, hunks cyan, additions
-    /// bright-green-bold, deletions bright-red-bold, context uncolored.
-    /// Non-tty output still retains the leading +/- markers so the
-    /// change shape is obvious even when piped into a file or pager.
-    private static func colorizeDiff(_ diff: String, tty: Bool) -> String {
-        var out: [String] = []
-        for line in diff.split(separator: "\n", omittingEmptySubsequences: false) {
-            let s = String(line)
-            if s.hasPrefix("+++") || s.hasPrefix("---") {
-                out.append(AnsiStyle.dim(tty) + s + AnsiStyle.reset(tty))
-            } else if s.hasPrefix("@@") {
-                out.append(AnsiStyle.cyan(tty) + s + AnsiStyle.reset(tty))
-            } else if s.hasPrefix("+") {
-                out.append(AnsiStyle.bold(tty) + AnsiStyle.green(tty) + s + AnsiStyle.reset(tty))
-            } else if s.hasPrefix("-") {
-                out.append(AnsiStyle.bold(tty) + AnsiStyle.red(tty) + s + AnsiStyle.reset(tty))
-            } else {
-                out.append(s)
-            }
-        }
-        return out.joined(separator: "\n")
-    }
-
-    /// Tiny JSON syntax highlighter. Strings cyan; numbers yellow;
-    /// booleans/null magenta. Keys stay uncolored because we'd need a
-    /// lookahead parser to reliably distinguish them from string values.
-    private static func jsonHighlight(_ json: String, tty: Bool) -> String {
-        guard tty else { return json }
-        var out = ""
-        out.reserveCapacity(json.count + 32)
-        var i = json.startIndex
-        while i < json.endIndex {
-            let c = json[i]
-            if c == "\"" {
-                // Scan to closing quote, honoring escapes.
-                let start = i
-                i = json.index(after: i)
-                while i < json.endIndex {
-                    let ch = json[i]
-                    if ch == "\\", json.index(after: i) < json.endIndex {
-                        i = json.index(i, offsetBy: 2)
-                        continue
-                    }
-                    if ch == "\"" {
-                        i = json.index(after: i)
-                        break
-                    }
-                    i = json.index(after: i)
-                }
-                let lit = String(json[start..<i])
-                out += AnsiStyle.cyan(tty) + lit + AnsiStyle.reset(tty)
-                continue
-            }
-            if c.isNumber || (c == "-" && json.index(after: i) < json.endIndex && json[json.index(after: i)].isNumber) {
-                let start = i
-                while i < json.endIndex, let ch = Optional(json[i]),
-                      ch.isNumber || ch == "." || ch == "-" || ch == "+" || ch == "e" || ch == "E" {
-                    i = json.index(after: i)
-                }
-                out += AnsiStyle.yellow(tty) + String(json[start..<i]) + AnsiStyle.reset(tty)
-                continue
-            }
-            if json[i...].hasPrefix("true") || json[i...].hasPrefix("false") || json[i...].hasPrefix("null") {
-                let token = json[i...].hasPrefix("false") ? "false"
-                    : (json[i...].hasPrefix("true") ? "true" : "null")
-                out += AnsiStyle.magenta(tty) + token + AnsiStyle.reset(tty)
-                i = json.index(i, offsetBy: token.count)
-                continue
-            }
-            out.append(c)
-            i = json.index(after: i)
-        }
-        return out
     }
 
     // MARK: - Feed telemetry helper

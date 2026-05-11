@@ -848,27 +848,14 @@ struct MountedWorkspacePresentation: Equatable {
 enum MountedWorkspacePresentationPolicy {
     static func resolve(
         isSelectedWorkspace: Bool,
-        isRetiringWorkspace: Bool,
-        shouldPrimeInBackground: Bool
+        isRetiringWorkspace: Bool
     ) -> MountedWorkspacePresentation {
         let isRenderedVisible = isSelectedWorkspace || isRetiringWorkspace
-        let renderOpacity: Double = {
-            if isRenderedVisible {
-                return 1
-            }
-            if shouldPrimeInBackground {
-                // Keep the workspace mounted long enough to warm the terminal surface, but do
-                // not mark it panel-visible. Visible portal entries intentionally survive
-                // transient anchor loss during bonsplit drag/reparent churn.
-                return 0.001
-            }
-            return 0
-        }()
 
         return MountedWorkspacePresentation(
             isRenderedVisible: isRenderedVisible,
             isPanelVisible: isRenderedVisible,
-            renderOpacity: renderOpacity
+            renderOpacity: isRenderedVisible ? 1 : 0
         )
     }
 }
@@ -980,6 +967,15 @@ private func installFileDropOverlayWhenReady(
 
 @MainActor
 private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
+    private struct Snapshot: Equatable {
+        let workspaceId: UUID?
+        let currentDirectory: String?
+        let remoteConfiguration: WorkspaceRemoteConfiguration?
+        let remoteConnectionState: WorkspaceRemoteConnectionState?
+        let remoteConnectionDetail: String?
+        let remoteDaemonStatus: WorkspaceRemoteDaemonStatus?
+    }
+
     @Published private(set) var directoryChangeGeneration: UInt64 = 0
     private weak var tabManager: TabManager?
     private var cancellable: AnyCancellable?
@@ -993,18 +989,47 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                 return tabManager.tabs.first(where: { $0.id == tabId })
             }
             .removeDuplicates(by: { $0?.id == $1?.id })
-            .map { workspace -> AnyPublisher<(UUID?, String?), Never> in
+            .map { workspace -> AnyPublisher<Snapshot, Never> in
                 guard let workspace else {
-                    return Just<(UUID?, String?)>((nil, nil)).eraseToAnyPublisher()
+                    return Just(
+                        Snapshot(
+                            workspaceId: nil,
+                            currentDirectory: nil,
+                            remoteConfiguration: nil,
+                            remoteConnectionState: nil,
+                            remoteConnectionDetail: nil,
+                            remoteDaemonStatus: nil
+                        )
+                    )
+                    .eraseToAnyPublisher()
                 }
                 return workspace.$currentDirectory
-                    .map { (Optional(workspace.id), Optional($0)) }
+                    .combineLatest(
+                        workspace.$remoteConfiguration,
+                        workspace.$remoteConnectionState,
+                        workspace.$remoteConnectionDetail
+                    )
+                    .combineLatest(workspace.$remoteDaemonStatus)
+                    .map { values, remoteDaemonStatus in
+                        let (
+                            currentDirectory,
+                            remoteConfiguration,
+                            remoteConnectionState,
+                            remoteConnectionDetail
+                        ) = values
+                        return Snapshot(
+                            workspaceId: workspace.id,
+                            currentDirectory: currentDirectory,
+                            remoteConfiguration: remoteConfiguration,
+                            remoteConnectionState: remoteConnectionState,
+                            remoteConnectionDetail: remoteConnectionDetail,
+                            remoteDaemonStatus: remoteDaemonStatus
+                        )
+                    }
                     .eraseToAnyPublisher()
             }
             .switchToLatest()
-            .removeDuplicates { previous, next in
-                previous.0 == next.0 && previous.1 == next.1
-            }
+            .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.directoryChangeGeneration &+= 1
@@ -1045,6 +1070,7 @@ struct ContentView: View {
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
+    @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
     @State private var fileExplorerWidth: CGFloat = 220
     @State private var fileExplorerDragStartWidth: CGFloat?
     @State private var previousSelectedWorkspaceId: UUID?
@@ -2014,11 +2040,9 @@ struct ContentView: View {
                 ForEach(mountedWorkspaces) { tab in
                     let isSelectedWorkspace = selectedWorkspaceId == tab.id
                     let isRetiringWorkspace = retiringWorkspaceId == tab.id
-                    let shouldPrimeInBackground = tabManager.pendingBackgroundWorkspaceLoadIds.contains(tab.id)
                     let presentation = MountedWorkspacePresentationPolicy.resolve(
                         isSelectedWorkspace: isSelectedWorkspace,
-                        isRetiringWorkspace: isRetiringWorkspace,
-                        shouldPrimeInBackground: shouldPrimeInBackground
+                        isRetiringWorkspace: isRetiringWorkspace
                     )
                     // Keep the retiring workspace visible during handoff, but never input-active.
                     // Allowing both selected+retiring workspaces to be input-active lets the
@@ -2046,9 +2070,6 @@ struct ContentView: View {
                     .allowsHitTesting(isSelectedWorkspace)
                     .accessibilityHidden(!presentation.isRenderedVisible)
                     .zIndex(isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0))
-                    .task(id: shouldPrimeInBackground ? tab.id : nil) {
-                        await primeBackgroundWorkspaceIfNeeded(workspaceId: tab.id)
-                    }
                 }
             }
             .opacity(sidebarSelectionState.selection == .tabs ? 1 : 0)
@@ -2411,7 +2432,7 @@ struct ContentView: View {
     }
 
     private func resumeSession(entry: SessionEntry) {
-        guard let resumeCommand = entry.resumeCommandWithCwd else { return }
+        guard let resumeCommand = entry.resumeCommand else { return }
         let inputWithReturn = resumeCommand + "\n"
         let targetCwd = entry.resumeWorkingDirectory
 
@@ -2469,70 +2490,57 @@ struct ContentView: View {
             // No selection means we have no local cwd to scope by; clear so the
             // sessions panel doesn't keep filtering by a stale previous tab.
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
+            fileExplorerStore.applyWorkspaceRoot(.none)
+            return
+        }
+
+        fileExplorerStore.showHiddenFiles = true
+
+        if tab.isRemoteWorkspace {
+            sessionIndexStore.setCurrentDirectoryIfChanged(nil)
+            guard let config = tab.remoteConfiguration, config.transport == .ssh else {
+                fileExplorerStore.applyWorkspaceRoot(.none)
+                return
+            }
+            let unavailableDetail = tab.remoteConnectionDetail ?? tab.remoteDaemonStatus.detail
+
+            #if DEBUG
+            let hasUnavailableDetail = unavailableDetail?.isEmpty == false
+            cmuxDebugLog(
+                "fileExplorer.sync remote state=\(tab.remoteConnectionState.rawValue) " +
+                "hasDestination=\(config.destination.isEmpty ? 0 : 1) " +
+                "hasDisplayTarget=\(config.displayTarget.isEmpty ? 0 : 1) " +
+                "hasIdentityFile=\(config.identityFile == nil ? 0 : 1) " +
+                "hasDetail=\(hasUnavailableDetail ? 1 : 0)"
+            )
+            #endif
+
+            fileExplorerStore.applyWorkspaceRoot(
+                .remoteSSH(
+                    workspaceId: tab.id,
+                    connection: SSHFileExplorerConnection(
+                        destination: config.destination,
+                        port: config.port,
+                        identityFile: config.identityFile,
+                        sshOptions: config.sshOptions
+                    ),
+                    displayTarget: config.displayTarget,
+                    isAvailable: tab.remoteConnectionState == .connected,
+                    unavailableDetail: unavailableDetail
+                )
+            )
             return
         }
 
         let dir = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !dir.isEmpty else {
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
+            fileExplorerStore.applyWorkspaceRoot(.none)
             return
         }
 
-        fileExplorerStore.showHiddenFiles = true
-        if !tab.isRemoteWorkspace {
-            sessionIndexStore.setCurrentDirectoryIfChanged(dir)
-        } else {
-            sessionIndexStore.setCurrentDirectoryIfChanged(nil)
-        }
-
-        if tab.isRemoteWorkspace {
-            let config = tab.remoteConfiguration
-            let remotePath = tab.remoteDaemonStatus.remotePath
-            let isReady = tab.remoteDaemonStatus.state == .ready
-            let homePath = remotePath.flatMap { path -> String? in
-                let components = dir.split(separator: "/")
-                if components.count >= 2, components[0] == "home" {
-                    return "/home/\(components[1])"
-                }
-                if dir.hasPrefix("/root") {
-                    return "/root"
-                }
-                return nil
-            } ?? ""
-
-            #if DEBUG
-            cmuxDebugLog("fileExplorer.sync remote dir=\(dir) ready=\(isReady) dest=\(config?.destination ?? "nil")")
-            #endif
-
-            if let existingProvider = fileExplorerStore.provider as? SSHFileExplorerProvider,
-               existingProvider.destination == config?.destination {
-                existingProvider.updateAvailability(isReady, homePath: isReady ? homePath : nil)
-                if isReady {
-                    // Only reload if the path actually changed
-                    let pathChanged = fileExplorerStore.rootPath != dir
-                    fileExplorerStore.setRootPath(dir)
-                    if pathChanged {
-                        fileExplorerStore.hydrateExpandedNodes()
-                    }
-                }
-            } else if let config {
-                let provider = SSHFileExplorerProvider(
-                    destination: config.destination,
-                    port: config.port,
-                    identityFile: config.identityFile,
-                    sshOptions: config.sshOptions,
-                    homePath: homePath,
-                    isAvailable: isReady
-                )
-                fileExplorerStore.setProvider(provider)
-                fileExplorerStore.setRootPath(dir)
-            }
-        } else {
-            if !(fileExplorerStore.provider is LocalFileExplorerProvider) {
-                fileExplorerStore.setProvider(LocalFileExplorerProvider())
-            }
-            fileExplorerStore.setRootPath(dir)
-        }
+        sessionIndexStore.setCurrentDirectoryIfChanged(dir)
+        fileExplorerStore.applyWorkspaceRoot(.local(path: dir))
     }
 
     private var focusedDirectory: String? {
@@ -2750,11 +2758,17 @@ struct ContentView: View {
             reconcileMountedWorkspaceIds()
         })
 
-        view = AnyView(view.onReceive(tabManager.$pendingBackgroundWorkspaceLoadIds) { _ in
-            reconcileMountedWorkspaceIds()
+        // Prime background workspaces off-screen. Rendering them just to run a task
+        // mounts every keepAllAlive tab view and can materialize hidden terminals.
+        view = AnyView(view.task(id: backgroundWorkspacePrimeCoordinator.taskKey(for: tabManager)) {
+            await backgroundWorkspacePrimeCoordinator.primePendingBackgroundWorkspaces(tabManager: tabManager)
         })
 
         view = AnyView(view.onReceive(tabManager.$debugPinnedWorkspaceLoadIds) { _ in
+            reconcileMountedWorkspaceIds()
+        })
+
+        view = AnyView(view.onReceive(tabManager.$mountedBackgroundWorkspaceLoadIds) { _ in
             reconcileMountedWorkspaceIds()
         })
 
@@ -3276,7 +3290,7 @@ struct ContentView: View {
         let effectiveSelectedId = selectedId ?? tabManager.selectedTabId
         let handoffPinnedIds = retiringWorkspaceId.map { Set([ $0 ]) } ?? []
         let pinnedIds = handoffPinnedIds
-            .union(tabManager.pendingBackgroundWorkspaceLoadIds)
+            .union(tabManager.mountedBackgroundWorkspaceLoadIds)
             .union(tabManager.debugPinnedWorkspaceLoadIds)
         let isCycleHot = tabManager.isWorkspaceCycleHot
         let shouldKeepHandoffPair = isCycleHot && !handoffPinnedIds.isEmpty
@@ -3321,175 +3335,6 @@ struct ContentView: View {
             }
         }
 #endif
-    }
-
-    private enum BackgroundWorkspacePrimeState {
-        case pending
-        case completed(reason: String)
-    }
-
-    private enum BackgroundWorkspacePrimePolicy {
-        static let timeoutSeconds: TimeInterval = 2.0
-    }
-
-    private func primeBackgroundWorkspaceIfNeeded(workspaceId: UUID) async {
-        let shouldPrime = await MainActor.run {
-            tabManager.pendingBackgroundWorkspaceLoadIds.contains(workspaceId)
-        }
-        guard shouldPrime else { return }
-
-#if DEBUG
-        let startedAt = ProcessInfo.processInfo.systemUptime
-        cmuxDebugLog("workspace.backgroundPrime.start workspace=\(workspaceId.uuidString.prefix(5))")
-#endif
-
-        let initialState = await MainActor.run {
-            stepBackgroundWorkspacePrime(workspaceId: workspaceId)
-        }
-        let completionReason: String
-        switch initialState {
-        case .completed(let reason):
-            completionReason = reason
-        case .pending:
-            completionReason = await waitForBackgroundWorkspacePrimeCompletion(
-                workspaceId: workspaceId,
-                timeoutSeconds: BackgroundWorkspacePrimePolicy.timeoutSeconds
-            )
-        }
-#if DEBUG
-        let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000
-        cmuxDebugLog(
-            "workspace.backgroundPrime.finish workspace=\(workspaceId.uuidString.prefix(5)) " +
-            "reason=\(completionReason) ms=\(String(format: "%.2f", elapsedMs))"
-        )
-#endif
-    }
-
-    @MainActor
-    private func stepBackgroundWorkspacePrime(workspaceId: UUID) -> BackgroundWorkspacePrimeState {
-        guard tabManager.pendingBackgroundWorkspaceLoadIds.contains(workspaceId) else {
-            return .completed(reason: "already_cleared")
-        }
-        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
-            tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
-            return .completed(reason: "workspace_removed")
-        }
-
-        workspace.requestBackgroundTerminalSurfaceStartIfNeeded()
-        guard workspace.hasLoadedTerminalSurface() else {
-            return .pending
-        }
-
-        tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
-        return .completed(reason: "surface_ready")
-    }
-
-    @MainActor
-    private func waitForBackgroundWorkspacePrimeCompletion(
-        workspaceId: UUID,
-        timeoutSeconds: TimeInterval
-    ) async -> String {
-        await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
-            var resolved = false
-            var workspacePanelsCancellable: AnyCancellable?
-            var pendingLoadsCancellable: AnyCancellable?
-            var tabsCancellable: AnyCancellable?
-            var readyObserver: NSObjectProtocol?
-            var hostedViewObserver: NSObjectProtocol?
-            var timeoutWorkItem: DispatchWorkItem?
-
-            @MainActor
-            func finish(_ reason: String) {
-                guard !resolved else { return }
-                resolved = true
-                workspacePanelsCancellable?.cancel()
-                pendingLoadsCancellable?.cancel()
-                tabsCancellable?.cancel()
-                if let readyObserver {
-                    NotificationCenter.default.removeObserver(readyObserver)
-                }
-                if let hostedViewObserver {
-                    NotificationCenter.default.removeObserver(hostedViewObserver)
-                }
-                timeoutWorkItem?.cancel()
-                continuation.resume(returning: reason)
-            }
-
-            @MainActor
-            func evaluate() {
-                switch stepBackgroundWorkspacePrime(workspaceId: workspaceId) {
-                case .pending:
-                    break
-                case .completed(let reason):
-                    finish(reason)
-                }
-            }
-
-            if let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) {
-                workspacePanelsCancellable = workspace.$panels
-                    .map { _ in () }
-                    .sink { _ in
-                        Task { @MainActor in
-                            evaluate()
-                        }
-                    }
-            }
-
-            pendingLoadsCancellable = tabManager.$pendingBackgroundWorkspaceLoadIds
-                .map { _ in () }
-                .sink { _ in
-                    Task { @MainActor in
-                        evaluate()
-                    }
-                }
-
-            tabsCancellable = tabManager.$tabs
-                .map { _ in () }
-                .sink { _ in
-                    Task { @MainActor in
-                        evaluate()
-                    }
-                }
-
-            readyObserver = NotificationCenter.default.addObserver(
-                forName: .terminalSurfaceDidBecomeReady,
-                object: nil,
-                queue: .main
-            ) { notification in
-                guard let readyWorkspaceId = notification.userInfo?["workspaceId"] as? UUID,
-                      readyWorkspaceId == workspaceId else { return }
-                Task { @MainActor in
-                    evaluate()
-                }
-            }
-
-            hostedViewObserver = NotificationCenter.default.addObserver(
-                forName: .terminalSurfaceHostedViewDidMoveToWindow,
-                object: nil,
-                queue: .main
-            ) { notification in
-                guard let hostedWorkspaceId = notification.userInfo?["workspaceId"] as? UUID,
-                      hostedWorkspaceId == workspaceId else { return }
-                Task { @MainActor in
-                    evaluate()
-                }
-            }
-
-            let timeoutWork = DispatchWorkItem {
-                Task { @MainActor in
-                    if tabManager.pendingBackgroundWorkspaceLoadIds.contains(workspaceId) {
-                        tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
-                    }
-                    finish("timeout")
-                }
-            }
-            timeoutWorkItem = timeoutWork
-            DispatchQueue.main.asyncAfter(deadline: .now() + timeoutSeconds, execute: timeoutWork)
-
-            Task { @MainActor in
-                evaluate()
-            }
-        }
     }
 
     private func addTab() {
@@ -12132,6 +11977,8 @@ private struct TabItemView: View, Equatable {
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var rowHeight: CGFloat = 1
+    @State private var workspaceFinderDirectoryCache = WorkspaceFinderDirectoryCache()
+    @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
 
     var isMultiSelected: Bool {
         selectedTabIds.contains(tab.id)
@@ -12372,6 +12219,8 @@ private struct TabItemView: View, Equatable {
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
+        let finderDirectoryPath = WorkspaceFinderDirectoryResolver.path(for: tab)
+        let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(path: finderDirectoryPath)
         let latestNotificationSubtitle = latestNotificationText
         let submittedMessageSubtitle = settings.iMessageModeEnabled
             ? workspaceSnapshot.latestSubmittedMessage?
@@ -12680,6 +12529,17 @@ private struct TabItemView: View, Equatable {
         .onAppear {
             refreshWorkspaceSnapshot(force: true)
         }
+        .task(id: finderDirectoryCacheKey) {
+            let cache = await WorkspaceFinderDirectoryResolver.cache(for: finderDirectoryCacheKey)
+            guard !Task.isCancelled else { return }
+            workspaceFinderDirectoryCache = cache
+        }
+        .task(id: workspaceFinderDirectoryOpenRequest) {
+            guard let request = workspaceFinderDirectoryOpenRequest else { return }
+            await WorkspaceFinderDirectoryOpener.openInFinder(request.directoryURL)
+            guard !Task.isCancelled, workspaceFinderDirectoryOpenRequest == request else { return }
+            workspaceFinderDirectoryOpenRequest = nil
+        }
         .onReceive(
             tab.sidebarImmediateObservationPublisher
                 .receive(on: RunLoop.main)
@@ -12859,6 +12719,10 @@ private struct TabItemView: View, Equatable {
         let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
         let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
+        let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(
+            path: isMulti ? nil : WorkspaceFinderDirectoryResolver.path(for: tab)
+        )
+        let finderDirectoryURL = workspaceFinderDirectoryCache.url(for: finderDirectoryCacheKey)
         Button(pinLabel) {
             guard let contextMenuPinState else {
                 NSSound.beep()
@@ -12906,6 +12770,7 @@ private struct TabItemView: View, Equatable {
                     tabManager.clearCustomDescription(tabId: tab.id)
                 }
             }
+
         }
 
         if !remoteContextMenuWorkspaceIds.isEmpty {
@@ -13073,6 +12938,13 @@ private struct TabItemView: View, Equatable {
             copyWorkspaceIdsToPasteboard(targetIds)
         }
         .disabled(targetIds.isEmpty)
+
+        if !isMulti {
+            Button(String(localized: "contextMenu.showWorkspaceInFinder", defaultValue: "Show in Finder")) {
+                workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: finderDirectoryURL)
+            }
+            .disabled(finderDirectoryURL == nil)
+        }
     }
 
     private var backgroundColor: Color {

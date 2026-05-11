@@ -906,6 +906,7 @@ class TabManager: ObservableObject {
     @Published var tabs: [Workspace] = []
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
+    @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
@@ -1825,8 +1826,7 @@ class TabManager: ObservableObject {
             }
             if !keysToRemove.isEmpty {
                 for key in keysToRemove {
-                    tab.statusEntries.removeValue(forKey: key)
-                    tab.agentPIDs.removeValue(forKey: key)
+                    tab.clearAgentPID(key: key, clearStatus: true, refreshPorts: false)
                 }
                 let remainingAgentPIDs = Set(tab.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
                 PortScanner.shared.refreshAgentPorts(workspaceId: tab.id, agentPIDs: remainingAgentPIDs)
@@ -3550,6 +3550,21 @@ class TabManager: ObservableObject {
         var updated = pendingBackgroundWorkspaceLoadIds
         updated.remove(workspaceId)
         pendingBackgroundWorkspaceLoadIds = updated
+        releaseBackgroundWorkspaceMount(for: workspaceId)
+    }
+
+    func retainBackgroundWorkspaceMount(for workspaceId: UUID) {
+        guard !mountedBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
+        var updated = mountedBackgroundWorkspaceLoadIds
+        updated.insert(workspaceId)
+        mountedBackgroundWorkspaceLoadIds = updated
+    }
+
+    func releaseBackgroundWorkspaceMount(for workspaceId: UUID) {
+        guard mountedBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
+        var updated = mountedBackgroundWorkspaceLoadIds
+        updated.remove(workspaceId)
+        mountedBackgroundWorkspaceLoadIds = updated
     }
 
     func retainDebugWorkspaceLoads(for workspaceIds: Set<UUID>) {
@@ -3572,6 +3587,10 @@ class TabManager: ObservableObject {
         let pruned = pendingBackgroundWorkspaceLoadIds.intersection(existingIds)
         if pruned != pendingBackgroundWorkspaceLoadIds {
             pendingBackgroundWorkspaceLoadIds = pruned
+        }
+        let mounted = mountedBackgroundWorkspaceLoadIds.intersection(existingIds)
+        if mounted != mountedBackgroundWorkspaceLoadIds {
+            mountedBackgroundWorkspaceLoadIds = mounted
         }
         let retained = debugPinnedWorkspaceLoadIds.intersection(existingIds)
         if retained != debugPinnedWorkspaceLoadIds {
@@ -4214,12 +4233,10 @@ class TabManager: ObservableObject {
         guard !closeConfirmationInFlight else { return }
         guard let plan = closeOtherTabsInFocusedPanePlan() else { return }
 
-        let count = plan.panelIds.count
-        let titleLines = plan.titles.map { "• \($0)" }.joined(separator: "\n")
-        let message = "This is about to close \(count) tab\(count == 1 ? "" : "s") in this pane:\n\(titleLines)"
+        let prompt = CloseOtherTabsConfirmationPrompt(titles: plan.titles)
         guard confirmClose(
-            title: "Close other tabs?",
-            message: message,
+            title: prompt.title,
+            message: prompt.message,
             acceptCmdD: false
         ) else { return }
 
@@ -4444,7 +4461,7 @@ class TabManager: ObservableObject {
                 continue
             }
             targetPanelIds.append(panelId)
-            targetTitles.append(closeOtherTabsDisplayTitle(workspace.panelTitle(panelId: panelId)))
+            targetTitles.append(CloseOtherTabsConfirmationPrompt.displayTitle(workspace.panelTitle(panelId: panelId)))
         }
 
         guard !targetPanelIds.isEmpty else { return nil }
@@ -4453,17 +4470,6 @@ class TabManager: ObservableObject {
             panelIds: targetPanelIds,
             titles: targetTitles
         )
-    }
-
-    private func closeOtherTabsDisplayTitle(_ title: String?) -> String {
-        let collapsed = title?
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\r", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let collapsed, !collapsed.isEmpty {
-            return collapsed
-        }
-        return "Untitled Tab"
     }
 
     private func orderedClosableWorkspaces(_ workspaceIds: [UUID], allowPinned: Bool) -> [Workspace] {
@@ -7297,7 +7303,7 @@ extension TabManager {
         restorableAgentIndex: RestorableAgentSessionIndex = .empty
     ) -> SessionTabManagerSnapshot {
         let restorableTabs = tabs
-            .filter { !$0.isRemoteWorkspace }
+            .filter(\.isRestorableInSessionSnapshot)
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         let workspaceSnapshots = restorableTabs
             .map {

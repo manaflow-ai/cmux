@@ -7060,14 +7060,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
 #if DEBUG
     // Test-only accessors for keyTextAccumulator to verify CJK IME composition behavior.
+    func setKeyTextAccumulatorForTesting(_ value: [String]?) { keyTextAccumulator = value }
+    var keyTextAccumulatorForTesting: [String]? { keyTextAccumulator }
     static var debugTextInputEventHandler: ((GhosttyNSView, NSEvent) -> Bool)?
 
-    func setKeyTextAccumulatorForTesting(_ value: [String]?) {
-        keyTextAccumulator = value
-    }
-    var keyTextAccumulatorForTesting: [String]? {
-        keyTextAccumulator
-    }
     func setIMETransientStateForTesting(
         suppressedKeyUpKeyCodes: Set<UInt16>,
         zhuyinCandidateOpenRequested: Bool
@@ -7084,17 +7080,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     func shouldSuppressShiftSpaceFallbackTextForTesting(event: NSEvent, markedTextBefore: Bool) -> Bool {
         shouldSuppressShiftSpaceFallbackText(event: event, markedTextBefore: markedTextBefore)
     }
-
     // Test-only IME point override so firstRect behavior can be regression tested.
     private var imePointOverrideForTesting: (x: Double, y: Double, width: Double, height: Double)?
-
-    func setIMEPointForTesting(x: Double, y: Double, width: Double, height: Double) {
-        imePointOverrideForTesting = (x, y, width, height)
-    }
-
-    func clearIMEPointForTesting() {
-        imePointOverrideForTesting = nil
-    }
+    func setIMEPointForTesting(x: Double, y: Double, width: Double, height: Double) { imePointOverrideForTesting = (x, y, width, height) }
+    func clearIMEPointForTesting() { imePointOverrideForTesting = nil }
 #endif
 
 #if DEBUG
@@ -7151,10 +7140,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
               fr === self || fr.isDescendant(of: self) else { return false }
         guard let surface = ensureSurfaceReadyForInput() else { return false }
 
-        // If the IME is composing (marked text present) and the key has no Cmd
-        // modifier, don't intercept — let it flow through to keyDown so the input
-        // method can process it normally. Cmd-based shortcuts should still work
-        // during composition since Cmd is never part of IME input sequences.
+        // Let non-Cmd keys flow to keyDown while IME is composing; Cmd shortcuts still work.
         if hasMarkedText(), !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
             return false
         }
@@ -7533,8 +7519,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
 
-        // Sync the preedit state with Ghostty so it can render the IME
-        // composition overlay (e.g. for Korean, Japanese, Chinese input).
+        // Sync preedit so Ghostty can render the IME composition overlay.
 #if DEBUG
         let syncPreeditStart = ProcessInfo.processInfo.systemUptime
 #endif
@@ -7593,12 +7578,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyEvent.consumed_mods = consumedModsFromFlags(translationMods)
         keyEvent.unshifted_codepoint = unshiftedCodepointFromEvent(event)
 
-        // We're composing if we have preedit (the obvious case). But we're also
-        // composing if we don't have preedit and we had marked text before,
-        // because this input probably just reset the preedit state. It shouldn't
-        // be encoded. Example: Japanese begin composing, then press backspace.
-        // This should only cancel the composing state but not actually delete
-        // the prior input characters (prior to the composing).
+        // Treat cleared preedit as composing too, so a composing Backspace cancels
+        // composition without deleting the preceding terminal input.
         keyEvent.composing = markedText.length > 0 || markedTextBefore
 
         // Use accumulated text from insertText (for IME), or compute text for key
