@@ -12,6 +12,88 @@ from pathlib import Path
 from typing import Any
 
 
+SETTING_SAMPLE_VALUES: dict[str, tuple[str, Any]] = {
+    "app.appIcon": ("dark", "dark"),
+    "app.appearance": ("light", "light"),
+    "app.commandPaletteSearchesAllSurfaces": ("true", True),
+    "app.fileDropDefaultBehavior": ("preview", "preview"),
+    "app.focusPaneOnFirstClick": ("true", True),
+    "app.iMessageMode": ("true", True),
+    "app.keepWorkspaceOpenWhenClosingLastSurface": ("true", True),
+    "app.language": ("ja", "ja"),
+    "app.menuBarOnly": ("true", True),
+    "app.minimalMode": ("true", True),
+    "app.newWorkspacePlacement": ("top", "top"),
+    "app.openMarkdownInCmuxViewer": ("true", True),
+    "app.preferredEditor": ("zed", "zed"),
+    "app.renameSelectsExistingName": ("false", False),
+    "app.reorderOnNotification": ("false", False),
+    "app.sendAnonymousTelemetry": ("false", False),
+    "app.warnBeforeQuit": ("false", False),
+    "automation.claudeBinaryPath": ("/opt/cmux/bin/claude", "/opt/cmux/bin/claude"),
+    "automation.claudeCodeIntegration": ("false", False),
+    "automation.cursorIntegration": ("false", False),
+    "automation.geminiIntegration": ("false", False),
+    "automation.portBase": ("9234", 9234),
+    "automation.portRange": ("64", 64),
+    "automation.socketControlMode": ("allow_all", "allowAll"),
+    "automation.socketPassword": ("span-secret", "span-secret"),
+    "browser.defaultSearchEngine": ("duckduckgo", "duckduckgo"),
+    "browser.enabled": ("false", False),
+    "browser.hostsToOpenInEmbeddedBrowser": ("example.com,*.internal", ["example.com", "*.internal"]),
+    "browser.insecureHttpHostsAllowedInEmbeddedBrowser": (
+        '["localhost","127.0.0.1","dev.local"]',
+        ["localhost", "127.0.0.1", "dev.local"],
+    ),
+    "browser.interceptTerminalOpenCommandInCmuxBrowser": ("false", False),
+    "browser.openTerminalLinksInCmuxBrowser": ("false", False),
+    "browser.reactGrabVersion": ("0.1.29", "0.1.29"),
+    "browser.showImportHintOnBlankTabs": ("false", False),
+    "browser.showSearchSuggestions": ("false", False),
+    "browser.theme": ("dark", "dark"),
+    "browser.urlsToAlwaysOpenExternally": ('["https://example.com/.*"]', ["https://example.com/.*"]),
+    "globalHotkey.enabled": ("true", True),
+    "notifications.command": ("printf true", "printf true"),
+    "notifications.customSoundFilePath": ("/tmp/cmux-sound.aiff", "/tmp/cmux-sound.aiff"),
+    "notifications.dockBadge": ("false", False),
+    "notifications.paneFlash": ("false", False),
+    "notifications.showInMenuBar": ("false", False),
+    "notifications.sound": ("Ping", "Ping"),
+    "notifications.unreadPaneRing": ("false", False),
+    "rightSidebar.beta.dock.enabled": ("true", True),
+    "rightSidebar.beta.feed.enabled": ("true", True),
+    "sidebar.branchLayout": ("inline", "inline"),
+    "sidebar.hideAllDetails": ("true", True),
+    "sidebar.makePullRequestsClickable": ("false", False),
+    "sidebar.openPortLinksInCmuxBrowser": ("false", False),
+    "sidebar.openPullRequestLinksInCmuxBrowser": ("false", False),
+    "sidebar.showBranchDirectory": ("false", False),
+    "sidebar.showCustomMetadata": ("false", False),
+    "sidebar.showLog": ("false", False),
+    "sidebar.showNotificationMessage": ("false", False),
+    "sidebar.showPorts": ("false", False),
+    "sidebar.showProgress": ("false", False),
+    "sidebar.showPullRequests": ("false", False),
+    "sidebar.showSSH": ("false", False),
+    "sidebarAppearance.darkModeTintColor": ("#aabbcc", "#AABBCC"),
+    "sidebarAppearance.lightModeTintColor": ("778899", "#778899"),
+    "sidebarAppearance.matchTerminalBackground": ("true", True),
+    "sidebarAppearance.tintColor": ("abc123", "#ABC123"),
+    "sidebarAppearance.tintOpacity": ("0.42", 0.42),
+    "terminal.autoResumeAgentSessions": ("false", False),
+    "terminal.showScrollBar": ("false", False),
+    "workspaceColors.colors": ('{"Ruby":"#aa0000","Ocean":"336699"}', {"Ocean": "#336699", "Ruby": "#AA0000"}),
+    "workspaceColors.customColors": ('["#111111","#222222"]', ["#111111", "#222222"]),
+    "workspaceColors.indicatorStyle": ("solid-fill", "solidFill"),
+    "workspaceColors.notificationBadgeColor": ("null", None),
+    "workspaceColors.paletteOverrides": ('{"Focus":"#010203"}', {"Focus": "#010203"}),
+    "workspaceColors.selectionColor": ("445566", "#445566"),
+}
+
+SENSITIVE_SETTING_KEYS = {"automation.socketPassword"}
+MISSING = object()
+
+
 def resolve_cmux_cli() -> str:
     explicit = os.environ.get("CMUX_CLI_BIN") or os.environ.get("CMUX_CLI")
     if explicit and os.path.isfile(explicit) and os.access(explicit, os.X_OK):
@@ -29,7 +111,12 @@ def resolve_cmux_cli() -> str:
     raise RuntimeError("Unable to find cmux CLI binary. Set CMUX_CLI_BIN.")
 
 
-def run_cli(cli_path: str, args: list[str], home: Path) -> subprocess.CompletedProcess[str]:
+def run_cli(
+    cli_path: str,
+    args: list[str],
+    home: Path,
+    input_text: str | None = None,
+) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
     env["HOME"] = str(home)
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
@@ -43,6 +130,7 @@ def run_cli(cli_path: str, args: list[str], home: Path) -> subprocess.CompletedP
         [cli_path, *args],
         text=True,
         capture_output=True,
+        input=input_text,
         env=env,
         timeout=5,
         check=False,
@@ -83,9 +171,273 @@ def parse_json(failures: list[str], label: str, result: subprocess.CompletedProc
         return None
 
 
+def value_for_path(root: dict[str, Any], path: str) -> Any:
+    current: Any = root
+    for component in path.split("."):
+        if not isinstance(current, dict) or component not in current:
+            return MISSING
+        current = current[component]
+    return current
+
+
+def assert_equal(failures: list[str], label: str, actual: Any, expected: Any) -> None:
+    if actual != expected:
+        failures.append(f"{label}: expected {expected!r}, got {actual!r}")
+
+
+def setting_row(payload: dict[str, Any], key: str) -> dict[str, Any] | None:
+    for item in payload.get("settings", []):
+        if isinstance(item, dict) and item.get("key") == key:
+            return item
+    return None
+
+
+def shortcut_row(payload: dict[str, Any], action: str) -> dict[str, Any] | None:
+    for item in payload.get("shortcuts", []):
+        if isinstance(item, dict) and item.get("action") == action:
+            return item
+    return None
+
+
+def exercise_entire_settings_key_span(cli_path: str, failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-settings-cli-span-") as temp:
+        home = Path(temp)
+
+        key_result = run_cli(cli_path, ["settings", "list", "--keys"], home)
+        assert_ok(failures, "settings span list --keys", key_result)
+        cli_keys = [line.strip() for line in key_result.stdout.splitlines() if line.strip()]
+        expected_keys = sorted(SETTING_SAMPLE_VALUES)
+        if cli_keys != expected_keys:
+            missing_samples = sorted(set(cli_keys) - set(expected_keys))
+            stale_samples = sorted(set(expected_keys) - set(cli_keys))
+            failures.append(
+                "settings span sample map is out of sync: "
+                f"missing_samples={missing_samples} stale_samples={stale_samples}"
+            )
+
+        for key in cli_keys:
+            sample = SETTING_SAMPLE_VALUES.get(key)
+            if sample is None:
+                continue
+            raw_value, expected = sample
+            result = run_cli(cli_path, ["settings", "set", key, raw_value], home)
+            assert_ok(failures, f"settings span set {key}", result)
+
+            get_args = ["settings", "get", key, "--json"]
+            if key in SENSITIVE_SETTING_KEYS:
+                get_args.append("--reveal")
+            get_result = run_cli(cli_path, get_args, home)
+            assert_ok(failures, f"settings span get {key}", get_result)
+            payload = parse_json(failures, f"settings span get {key}", get_result)
+            if isinstance(payload, dict):
+                assert_equal(failures, f"settings span get {key} key", payload.get("key"), key)
+                assert_equal(failures, f"settings span get {key} source", payload.get("source"), "cmux.json")
+                assert_equal(failures, f"settings span get {key} value", payload.get("value"), expected)
+                assert_equal(failures, f"settings span get {key} redacted", payload.get("redacted"), False)
+
+        list_result = run_cli(cli_path, ["settings", "list", "--json"], home)
+        assert_ok(failures, "settings span list --json after setting every key", list_result)
+        list_payload = parse_json(failures, "settings span list --json after setting every key", list_result)
+        if isinstance(list_payload, dict):
+            rows = list_payload.get("settings")
+            if not isinstance(rows, list) or len(rows) != len(cli_keys):
+                failures.append(f"settings span list --json returned wrong row count: {list_payload}")
+            for key in cli_keys:
+                sample = SETTING_SAMPLE_VALUES.get(key)
+                if sample is None:
+                    continue
+                _, expected = sample
+                row = setting_row(list_payload, key)
+                if row is None:
+                    failures.append(f"settings span list --json omitted {key}")
+                    continue
+                assert_equal(failures, f"settings span list {key} source", row.get("source"), "cmux.json")
+                if key in SENSITIVE_SETTING_KEYS:
+                    assert_equal(failures, f"settings span list {key} redacted value", row.get("value"), "<redacted>")
+                    assert_equal(failures, f"settings span list {key} redacted flag", row.get("redacted"), True)
+                else:
+                    assert_equal(failures, f"settings span list {key} value", row.get("value"), expected)
+                    assert_equal(failures, f"settings span list {key} redacted flag", row.get("redacted"), False)
+
+        export_result = run_cli(cli_path, ["settings", "export", "--format", "json"], home)
+        assert_ok(failures, "settings span export json", export_result)
+        export_payload = parse_json(failures, "settings span export json", export_result)
+        if isinstance(export_payload, dict):
+            for key in cli_keys:
+                sample = SETTING_SAMPLE_VALUES.get(key)
+                if sample is None:
+                    continue
+                _, expected = sample
+                exported = value_for_path(export_payload, key)
+                if key in SENSITIVE_SETTING_KEYS:
+                    if exported is not MISSING:
+                        failures.append(f"settings span export leaked sensitive {key}: {export_payload}")
+                else:
+                    assert_equal(failures, f"settings span export {key}", exported, expected)
+
+        reveal_export_result = run_cli(cli_path, ["settings", "export", "--format", "json", "--reveal"], home)
+        assert_ok(failures, "settings span export json reveal", reveal_export_result)
+        reveal_export_payload = parse_json(failures, "settings span export json reveal", reveal_export_result)
+        if isinstance(reveal_export_payload, dict):
+            exported_password = value_for_path(reveal_export_payload, "automation.socketPassword")
+            assert_equal(
+                failures,
+                "settings span export reveal automation.socketPassword",
+                exported_password,
+                SETTING_SAMPLE_VALUES["automation.socketPassword"][1],
+            )
+
+        for key in reversed(cli_keys):
+            if key not in SETTING_SAMPLE_VALUES:
+                continue
+            unset_result = run_cli(cli_path, ["settings", "unset", key], home)
+            assert_ok(failures, f"settings span unset {key}", unset_result)
+
+        empty_config = read_config(home)
+        if empty_config:
+            failures.append(f"settings span unset every key left config behind: {empty_config}")
+
+
+def exercise_entire_shortcut_action_span(cli_path: str, failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-shortcuts-cli-span-") as temp:
+        home = Path(temp)
+
+        keys_result = run_cli(cli_path, ["settings", "shortcuts", "list", "--keys"], home)
+        assert_ok(failures, "shortcut span list --keys", keys_result)
+        actions = [line.strip() for line in keys_result.stdout.splitlines() if line.strip()]
+        if actions != sorted(actions):
+            failures.append("shortcut span list --keys was not sorted")
+        if len(actions) < 50:
+            failures.append(f"shortcut span unexpectedly small action set: {actions}")
+
+        list_result = run_cli(cli_path, ["settings", "shortcuts", "list", "--json"], home)
+        assert_ok(failures, "shortcut span list --json defaults", list_result)
+        list_payload = parse_json(failures, "shortcut span list --json defaults", list_result)
+        default_values: dict[str, str] = {}
+        if isinstance(list_payload, dict):
+            rows = list_payload.get("shortcuts")
+            if not isinstance(rows, list) or len(rows) != len(actions):
+                failures.append(f"shortcut span list --json returned wrong row count: {list_payload}")
+            for action in actions:
+                row = shortcut_row(list_payload, action)
+                if row is None:
+                    failures.append(f"shortcut span list --json omitted {action}")
+                    continue
+                if not row.get("label") or row.get("context") not in {
+                    "application",
+                    "nonBrowserPanel",
+                    "browserPanel",
+                    "rightSidebarFocus",
+                }:
+                    failures.append(f"shortcut span row missing label/context for {action}: {row}")
+                assert_equal(failures, f"shortcut span default source {action}", row.get("source"), "default")
+                value = row.get("value")
+                default = row.get("default")
+                if not isinstance(value, str) or not isinstance(default, str) or value != default:
+                    failures.append(f"shortcut span default value mismatch for {action}: {row}")
+                else:
+                    default_values[action] = default
+
+        for action in actions:
+            set_result = run_cli(cli_path, ["settings", "shortcuts", "set", action, "none"], home)
+            assert_ok(failures, f"shortcut span set {action} none", set_result)
+            get_result = run_cli(cli_path, ["settings", "shortcuts", "get", action, "--json"], home)
+            assert_ok(failures, f"shortcut span get {action} none", get_result)
+            payload = parse_json(failures, f"shortcut span get {action} none", get_result)
+            if isinstance(payload, dict):
+                assert_equal(failures, f"shortcut span get {action} action", payload.get("action"), action)
+                assert_equal(failures, f"shortcut span get {action} source", payload.get("source"), "cmux.json")
+                assert_equal(failures, f"shortcut span get {action} value", payload.get("value"), "none")
+
+        all_none = run_cli(cli_path, ["settings", "shortcuts", "list", "--json"], home)
+        assert_ok(failures, "shortcut span list --json after clearing every action", all_none)
+        all_none_payload = parse_json(failures, "shortcut span list --json after clearing every action", all_none)
+        if isinstance(all_none_payload, dict):
+            for action in actions:
+                row = shortcut_row(all_none_payload, action)
+                if row is None:
+                    failures.append(f"shortcut span all-none list omitted {action}")
+                    continue
+                assert_equal(failures, f"shortcut span all-none {action} source", row.get("source"), "cmux.json")
+                assert_equal(failures, f"shortcut span all-none {action} value", row.get("value"), "none")
+
+        for action in reversed(actions):
+            unset_result = run_cli(cli_path, ["settings", "shortcuts", "unset", action], home)
+            assert_ok(failures, f"shortcut span unset {action}", unset_result)
+            default_result = run_cli(cli_path, ["settings", "shortcuts", "get", action, "--json"], home)
+            assert_ok(failures, f"shortcut span get {action} default", default_result)
+            payload = parse_json(failures, f"shortcut span get {action} default", default_result)
+            if isinstance(payload, dict) and action in default_values:
+                assert_equal(failures, f"shortcut span default source {action}", payload.get("source"), "default")
+                assert_equal(failures, f"shortcut span default value {action}", payload.get("value"), default_values[action])
+
+        if read_config(home):
+            failures.append(f"shortcut span unset every action left config behind: {read_config(home)}")
+
+        alias_set = run_cli(cli_path, ["settings", "shortcuts", "set", "toggleRightSidebar", "cmd+option+j"], home)
+        assert_ok(failures, "shortcut alias set toggleRightSidebar", alias_set)
+        alias_get = run_cli(cli_path, ["settings", "shortcuts", "get", "toggleFileExplorer", "--json"], home)
+        assert_ok(failures, "shortcut alias get canonical toggleFileExplorer", alias_get)
+        alias_payload = parse_json(failures, "shortcut alias get canonical toggleFileExplorer", alias_get)
+        if isinstance(alias_payload, dict):
+            assert_equal(failures, "shortcut alias canonical action", alias_payload.get("action"), "toggleFileExplorer")
+            assert_equal(failures, "shortcut alias canonical value", alias_payload.get("value"), "cmd+option+j")
+
+        case_set = run_cli(cli_path, ["settings", "shortcuts", "set", "OPENSETTINGS", "cmd+option+,"], home)
+        assert_ok(failures, "shortcut action set is case-insensitive", case_set)
+        case_get = run_cli(cli_path, ["settings", "shortcuts", "get", "openSettings"], home)
+        assert_ok(failures, "shortcut action get after case-insensitive set", case_get)
+        assert_equal(failures, "shortcut action case-insensitive value", case_get.stdout.strip(), "cmd+option+,")
+
+        numbered_surface = run_cli(cli_path, ["settings", "shortcuts", "set", "selectSurfaceByNumber", "ctrl+9"], home)
+        assert_ok(failures, "shortcut numbered surface set", numbered_surface)
+        numbered_surface_get = run_cli(cli_path, ["settings", "shortcuts", "get", "selectSurfaceByNumber"], home)
+        assert_ok(failures, "shortcut numbered surface get", numbered_surface_get)
+        assert_equal(failures, "shortcut numbered surface normalizes digit", numbered_surface_get.stdout.strip(), "ctrl+1")
+
+        numbered_workspace = run_cli(cli_path, ["settings", "shortcuts", "set", "selectWorkspaceByNumber", "cmd+9"], home)
+        assert_ok(failures, "shortcut numbered workspace set", numbered_workspace)
+        numbered_workspace_get = run_cli(cli_path, ["settings", "shortcuts", "get", "selectWorkspaceByNumber"], home)
+        assert_ok(failures, "shortcut numbered workspace get", numbered_workspace_get)
+        assert_equal(
+            failures,
+            "shortcut numbered workspace normalizes digit",
+            numbered_workspace_get.stdout.strip(),
+            "cmd+1",
+        )
+
+        bad_global_chord = run_cli(
+            cli_path,
+            ["settings", "shortcuts", "set", "showHideAllWindows", "cmd+k, cmd+c"],
+            home,
+        )
+        assert_fails(
+            failures,
+            "shortcut global hotkey rejects chords",
+            bad_global_chord,
+            "Global hotkey shortcut cannot be a chord",
+        )
+        bad_global_modifier = run_cli(cli_path, ["settings", "shortcuts", "set", "showHideAllWindows", "f"], home)
+        assert_fails(
+            failures,
+            "shortcut global hotkey requires modifier",
+            bad_global_modifier,
+            "must include a modifier",
+        )
+
+        reset_result = run_cli(cli_path, ["settings", "shortcuts", "reset"], home)
+        assert_ok(failures, "shortcut span reset", reset_result)
+        config_after_reset = read_config(home)
+        if config_after_reset.get("shortcuts"):
+            failures.append(f"settings shortcuts reset left bindings behind: {config_after_reset}")
+
+
 def main() -> int:
     cli_path = resolve_cmux_cli()
     failures: list[str] = []
+
+    exercise_entire_settings_key_span(cli_path, failures)
+    exercise_entire_shortcut_action_span(cli_path, failures)
 
     with tempfile.TemporaryDirectory(prefix="cmux-settings-cli-") as temp:
         home = Path(temp)
@@ -434,6 +786,15 @@ openSettings = "cmd+option+,"
         assert_ok(failures, "settings get app.appearance default", get_default)
         if get_default.stdout.strip() != "system":
             failures.append(f"settings get app.appearance after unset returned {get_default.stdout!r}")
+
+        before_cancelled_reset = read_config(home)
+        cancelled_reset = run_cli(cli_path, ["settings", "reset"], home, input_text="no\n")
+        assert_fails(failures, "settings reset cancellation", cancelled_reset, "settings reset cancelled")
+        after_cancelled_reset = read_config(home)
+        if after_cancelled_reset != before_cancelled_reset:
+            failures.append(
+                f"cancelled settings reset changed cmux.json: before={before_cancelled_reset} after={after_cancelled_reset}"
+            )
 
         reset = run_cli(cli_path, ["settings", "reset", "--yes"], home)
         assert_ok(failures, "settings reset --yes", reset)
