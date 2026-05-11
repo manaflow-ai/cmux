@@ -9416,6 +9416,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ) {
         case .insertText(let text):
             return .insertText(text)
+        case .insertTextSegments(let segments, _):
+            return .insertText(segments.joined())
         case .uploadFiles(let fileURLs, _):
             return .uploadFiles(fileURLs)
         case .reject:
@@ -9598,7 +9600,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .fileURLs(let fileURLs):
             let plan = TerminalImageTransferPlanner.plan(
                 fileURLs: fileURLs,
-                target: resolvedImageTransferTarget()
+                target: resolvedImageTransferTarget(),
+                mode: .drop
             )
             return executeImageTransferPlan(plan, onCancel: onCancel)
         }

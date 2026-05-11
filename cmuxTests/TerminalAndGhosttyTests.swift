@@ -511,7 +511,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: localPath))
     }
 
-    func testLocalImageFileURLDropPlanUsesSinglePastePayload() throws {
+    func testLocalImageFileURLPastePlanUsesSinglePastePayload() throws {
         let imageDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux local image paste \(UUID().uuidString)")
         try FileManager.default.createDirectory(at: imageDirectory, withIntermediateDirectories: true)
@@ -538,6 +538,37 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
                 .map(TerminalImageTransferPlanner.escapeForShell)
                 .joined(separator: " ")
         )
+    }
+
+    func testLocalImageFileURLDropPlanUsesDelayedPasteSegments() throws {
+        let imageDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux local image drop \(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: imageDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: imageDirectory) }
+
+        let firstURL = imageDirectory.appendingPathComponent("first image.png")
+        let secondURL = imageDirectory.appendingPathComponent("second image.png")
+        try make1x1PNG(color: .systemRed).write(to: firstURL)
+        try make1x1PNG(color: .systemGreen).write(to: secondURL)
+
+        let plan = TerminalImageTransferPlanner.plan(
+            fileURLs: [firstURL, secondURL],
+            target: .local,
+            mode: .drop
+        )
+
+        guard case .insertTextSegments(let segments, let delay) = plan else {
+            return XCTFail("expected delayed local image paste segments, got \(plan)")
+        }
+
+        XCTAssertEqual(
+            segments,
+            [
+                TerminalImageTransferPlanner.escapeForShell(firstURL.path),
+                " " + TerminalImageTransferPlanner.escapeForShell(secondURL.path)
+            ]
+        )
+        XCTAssertEqual(delay, 2.0)
     }
 
     func testRemoteImagePastePlanUploadsMaterializedFile() throws {
