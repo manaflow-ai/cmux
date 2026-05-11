@@ -5938,6 +5938,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")
     }()
     static var debugGhosttySurfaceKeyEventObserver: ((ghostty_input_key_s) -> Void)?
+    static var debugZhuyinCandidateExpansionEventHandler: ((GhosttyNSView, NSEvent) -> Bool)?
 #endif
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
@@ -7047,6 +7048,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastPerformKeyEvent: TimeInterval?
     private(set) var externalCommittedTextDepth = 0
     var numpadIMECommitDeduplicator = NumpadIMECommitDeduplicator()
+    private var commandObservedDuringTextInterpretation: Selector?
     private struct SelectionSnapshot {
         let range: NSRange
         let string: String
@@ -7079,6 +7081,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // Prevents NSBeep for unimplemented actions from interpretKeyEvents
     override func doCommand(by selector: Selector) {
+        commandObservedDuringTextInterpretation = selector
         // Intentionally empty - prevents system beep on unhandled key commands
     }
 
@@ -7460,6 +7463,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         let markedTextBefore = markedText.length > 0
         let markedStateBefore = (markedText.string, markedSelectedRange)
+        let zhuyinCandidateInputSourceId: String? = {
+            guard markedTextBefore else { return nil }
+            switch Int(event.keyCode) {
+            case kVK_DownArrow, kVK_UpArrow:
+                return KeyboardLayout.id
+            default:
+                return nil
+            }
+        }()
 
         // Capture the keyboard layout ID before interpretation so we can
         // detect if an IME changed it (e.g. toggling input methods).
@@ -7475,15 +7487,60 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let interpretTimingStart = CmuxTypingTiming.start()
         let interpretPhaseStart = ProcessInfo.processInfo.systemUptime
 #endif
-        interpretKeyEvents([translationEvent])
-#if DEBUG
-        interpretMs = (ProcessInfo.processInfo.systemUptime - interpretPhaseStart) * 1000.0
-        CmuxTypingTiming.logDuration(
-            path: "terminal.keyDown.interpretKeyEvents",
-            startedAt: interpretTimingStart,
-            event: event
+        commandObservedDuringTextInterpretation = nil
+        let handledByZhuyinCandidateContext = shouldRouteKeyToZhuyinCandidateInsteadOfTerminal(
+            event: event,
+            inputSourceId: zhuyinCandidateInputSourceId
         )
+        if handledByZhuyinCandidateContext {
+            interpretKeyEvents([event])
+            let commandSelector = commandObservedDuringTextInterpretation
+#if DEBUG
+            interpretMs = (ProcessInfo.processInfo.systemUptime - interpretPhaseStart) * 1000.0
+            CmuxTypingTiming.logDuration(
+                path: "terminal.keyDown.zhuyinCandidateInterpretKeyEvents",
+                startedAt: interpretTimingStart,
+                event: event
+            )
 #endif
+            // A candidate arrow normally only moves the AppKit IME UI. If
+            // interpretKeyEvents synchronously commits text, reuse the normal
+            // accumulated-text send path.
+            let hasAccumulatedText = keyTextAccumulator?.isEmpty == false
+            if !hasAccumulatedText {
+                let markedStateAfter = (markedText.string, markedSelectedRange)
+                if shouldExpandZhuyinCandidatesAfterTextInterpretation(
+                    event: event,
+                    inputSourceId: zhuyinCandidateInputSourceId,
+                    before: markedStateBefore,
+                    after: markedStateAfter,
+                    accumulatedText: keyTextAccumulator ?? [],
+                    commandSelector: commandSelector
+                ) {
+                    let didRequestCandidates = requestZhuyinCandidateExpansion(from: event)
+#if DEBUG
+                    cmuxDebugLog(
+                        "terminal.keyDown.zhuyinCandidateExpansion " +
+                        "keyCode=\(event.keyCode) requested=\(didRequestCandidates ? 1 : 0)"
+                    )
+#endif
+                }
+                syncPreedit(clearIfNeeded: markedTextBefore)
+                if keyTextAccumulator?.isEmpty != false {
+                    return
+                }
+            }
+        } else {
+            interpretKeyEvents([translationEvent])
+#if DEBUG
+            interpretMs = (ProcessInfo.processInfo.systemUptime - interpretPhaseStart) * 1000.0
+            CmuxTypingTiming.logDuration(
+                path: "terminal.keyDown.interpretKeyEvents",
+                startedAt: interpretTimingStart,
+                event: event
+            )
+#endif
+        }
 
         // If the keyboard layout changed, an input method grabbed the event.
         // Sync preedit and return without sending the key to Ghostty.
@@ -7946,6 +8003,37 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Only send the extra Return key for Korean input sources.
         guard let sourceId = KeyboardLayout.id else { return false }
         return sourceId.range(of: "korean", options: .caseInsensitive) != nil
+    }
+
+    private func zhuyinCandidateExpansionEvent(from event: NSEvent) -> NSEvent {
+        NSEvent.keyEvent(
+            with: event.type,
+            location: event.locationInWindow,
+            modifierFlags: [],
+            timestamp: event.timestamp,
+            windowNumber: event.windowNumber,
+            context: nil,
+            characters: " ",
+            charactersIgnoringModifiers: " ",
+            isARepeat: event.isARepeat,
+            keyCode: UInt16(kVK_Space)
+        ) ?? event
+    }
+
+    @discardableResult
+    private func requestZhuyinCandidateExpansion(from event: NSEvent) -> Bool {
+        let expansionEvent = zhuyinCandidateExpansionEvent(from: event)
+#if DEBUG
+        if let debugZhuyinCandidateExpansionEventHandler = Self.debugZhuyinCandidateExpansionEventHandler {
+            return debugZhuyinCandidateExpansionEventHandler(self, expansionEvent)
+        }
+#endif
+
+        guard let inputContext else {
+            interpretKeyEvents([expansionEvent])
+            return false
+        }
+        return inputContext.handleEvent(expansionEvent)
     }
 
     private func ghosttyKeyEvent(for event: NSEvent, surface: ghostty_surface_t) -> ghostty_input_key_s {

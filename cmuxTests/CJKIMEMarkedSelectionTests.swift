@@ -84,16 +84,20 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
 
     private var terminalNavigationKeyCases: [ForwardedKeyCase] {
         [
-            ForwardedKeyCase(name: "Left", keyCode: UInt16(kVK_LeftArrow), text: ""),
-            ForwardedKeyCase(name: "Right", keyCode: UInt16(kVK_RightArrow), text: ""),
-            ForwardedKeyCase(name: "Up", keyCode: UInt16(kVK_UpArrow), text: ""),
-            ForwardedKeyCase(name: "Down", keyCode: UInt16(kVK_DownArrow), text: ""),
-            ForwardedKeyCase(name: "PageUp", keyCode: UInt16(kVK_PageUp), text: ""),
-            ForwardedKeyCase(name: "PageDown", keyCode: UInt16(kVK_PageDown), text: ""),
-            ForwardedKeyCase(name: "Home", keyCode: UInt16(kVK_Home), text: ""),
-            ForwardedKeyCase(name: "End", keyCode: UInt16(kVK_End), text: ""),
+            ForwardedKeyCase(name: "Left", keyCode: UInt16(kVK_LeftArrow), text: "\u{F702}"),
+            ForwardedKeyCase(name: "Right", keyCode: UInt16(kVK_RightArrow), text: "\u{F703}"),
+            ForwardedKeyCase(name: "Up", keyCode: UInt16(kVK_UpArrow), text: "\u{F700}"),
+            ForwardedKeyCase(name: "Down", keyCode: UInt16(kVK_DownArrow), text: "\u{F701}"),
+            ForwardedKeyCase(name: "PageUp", keyCode: UInt16(kVK_PageUp), text: "\u{F72C}"),
+            ForwardedKeyCase(name: "PageDown", keyCode: UInt16(kVK_PageDown), text: "\u{F72D}"),
+            ForwardedKeyCase(name: "Home", keyCode: UInt16(kVK_Home), text: "\u{F729}"),
+            ForwardedKeyCase(name: "End", keyCode: UInt16(kVK_End), text: "\u{F72B}"),
             ForwardedKeyCase(name: "Space", keyCode: UInt16(kVK_Space), text: " "),
         ]
+    }
+
+    private func navigationKeyText(for keyCode: UInt16) -> String {
+        terminalNavigationKeyCases.first { $0.keyCode == keyCode }?.text ?? ""
     }
 
     private func assertPlainNavigationKeysReachShell(
@@ -108,10 +112,12 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
         let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        let previousCandidateExpansionHandler = GhosttyNSView.debugZhuyinCandidateExpansionEventHandler
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
             KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
             cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            GhosttyNSView.debugZhuyinCandidateExpansionEventHandler = previousCandidateExpansionHandler
             window.orderOut(nil)
             withExtendedLifetime(terminalSurface) {}
         }
@@ -156,6 +162,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
 
     private func assertZhuyinCandidateArrowDoesNotReachShell(
         keyCode: UInt16,
+        expectCandidateExpansion: Bool,
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
@@ -166,20 +173,18 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
         let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        let previousCandidateExpansionHandler = GhosttyNSView.debugZhuyinCandidateExpansionEventHandler
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
             KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
             cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            GhosttyNSView.debugZhuyinCandidateExpansionEventHandler = previousCandidateExpansionHandler
             window.orderOut(nil)
             withExtendedLifetime(terminalSurface) {}
         }
 
         KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
         installCJKIMEInterpretKeyEventsSwizzle()
-        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
-            guard candidateView === surfaceView else { return false }
-            return true
-        }
 
         var forwardedPressKeyCodes: [UInt16] = []
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
@@ -194,7 +199,33 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
             replacementRange: NSRange(location: NSNotFound, length: 0)
         )
 
-        let event = try keyEvent(text: "", keyCode: keyCode, windowNumber: window.windowNumber)
+        let event = try keyEvent(
+            text: navigationKeyText(for: keyCode),
+            keyCode: keyCode,
+            windowNumber: window.windowNumber
+        )
+        var interpretedKeyCodes: [UInt16] = []
+        var interpretedOriginalEvent = false
+        var candidateExpansionKeyCodes: [UInt16] = []
+        GhosttyNSView.debugZhuyinCandidateExpansionEventHandler = { candidateView, expansionEvent in
+            guard candidateView === surfaceView else { return false }
+            candidateExpansionKeyCodes.append(UInt16(expansionEvent.keyCode))
+            return true
+        }
+        cjkIMEInterpretKeyEventsHook = { candidateView, eventArray in
+            guard candidateView === surfaceView else { return false }
+            interpretedKeyCodes.append(contentsOf: eventArray.map { UInt16($0.keyCode) })
+            interpretedOriginalEvent = eventArray.count == 1 && eventArray.first === event
+            switch keyCode {
+            case UInt16(kVK_DownArrow):
+                candidateView.doCommand(by: #selector(NSResponder.moveDown(_:)))
+            case UInt16(kVK_UpArrow):
+                candidateView.doCommand(by: #selector(NSResponder.moveUp(_:)))
+            default:
+                break
+            }
+            return true
+        }
 
         window.makeFirstResponder(surfaceView)
         withExtendedLifetime(terminalSurface) {
@@ -202,9 +233,105 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         }
 
         XCTAssertTrue(surfaceView.hasMarkedText(), "Zhuyin composition should remain active", file: file, line: line)
+        XCTAssertEqual(
+            interpretedKeyCodes,
+            [keyCode],
+            "Zhuyin candidate arrow must be handed to interpretKeyEvents so AppKit can open or navigate the candidate UI",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            interpretedOriginalEvent,
+            "Zhuyin candidate arrow should use the original key event for AppKit text input",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            candidateExpansionKeyCodes,
+            expectCandidateExpansion ? [UInt16(kVK_Space)] : [],
+            "Only plain Zhuyin Down should ask the input context to expand the candidate list",
+            file: file,
+            line: line
+        )
         XCTAssertFalse(
             forwardedPressKeyCodes.contains(keyCode),
             "Zhuyin candidate arrow must stay in AppKit text input instead of reaching Ghostty",
+            file: file,
+            line: line
+        )
+    }
+
+    private func assertModifiedZhuyinCandidateArrowReachesShell(
+        keyCode: UInt16,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let terminalSurface = hostedTerminal.surface
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        let previousCandidateExpansionHandler = GhosttyNSView.debugZhuyinCandidateExpansionEventHandler
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            GhosttyNSView.debugZhuyinCandidateExpansionEventHandler = previousCandidateExpansionHandler
+            window.orderOut(nil)
+            withExtendedLifetime(terminalSurface) {}
+        }
+
+        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
+        installCJKIMEInterpretKeyEventsSwizzle()
+        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
+            guard candidateView === surfaceView else { return false }
+            return true
+        }
+
+        var forwardedPressKeyCodes: [UInt16] = []
+        var candidateExpansionKeyCodes: [UInt16] = []
+        GhosttyNSView.debugZhuyinCandidateExpansionEventHandler = { candidateView, expansionEvent in
+            guard candidateView === surfaceView else { return false }
+            candidateExpansionKeyCodes.append(UInt16(expansionEvent.keyCode))
+            return true
+        }
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            forwardedPressKeyCodes.append(UInt16(keyEvent.keycode))
+        }
+
+        surfaceView.setMarkedText(
+            "ㄋ",
+            selectedRange: NSRange(location: 1, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+
+        let event = try keyEvent(
+            text: navigationKeyText(for: keyCode),
+            keyCode: keyCode,
+            modifiers: [.shift],
+            windowNumber: window.windowNumber
+        )
+
+        window.makeFirstResponder(surfaceView)
+        withExtendedLifetime(terminalSurface) {
+            surfaceView.keyDown(with: event)
+        }
+
+        XCTAssertTrue(surfaceView.hasMarkedText(), "Zhuyin composition should remain active", file: file, line: line)
+        XCTAssertTrue(
+            forwardedPressKeyCodes.contains(keyCode),
+            "Modified Zhuyin arrows should keep reaching Ghostty",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            candidateExpansionKeyCodes,
+            [],
+            "Modified Zhuyin arrows must not open the candidate list",
             file: file,
             line: line
         )
@@ -305,10 +432,12 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
         let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        let previousCandidateExpansionHandler = GhosttyNSView.debugZhuyinCandidateExpansionEventHandler
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
             KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
             cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            GhosttyNSView.debugZhuyinCandidateExpansionEventHandler = previousCandidateExpansionHandler
             window.orderOut(nil)
             withExtendedLifetime(terminalSurface) {}
         }
@@ -372,11 +501,94 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
     }
 
     func testZhuyinDownArrowDuringCompositionOpensCandidates() throws {
-        try assertZhuyinCandidateArrowDoesNotReachShell(keyCode: UInt16(kVK_DownArrow))
+        try assertZhuyinCandidateArrowDoesNotReachShell(
+            keyCode: UInt16(kVK_DownArrow),
+            expectCandidateExpansion: true
+        )
     }
 
     func testZhuyinUpArrowDuringCompositionMovesCandidateSelection() throws {
-        try assertZhuyinCandidateArrowDoesNotReachShell(keyCode: UInt16(kVK_UpArrow))
+        try assertZhuyinCandidateArrowDoesNotReachShell(
+            keyCode: UInt16(kVK_UpArrow),
+            expectCandidateExpansion: false
+        )
+    }
+
+    func testZhuyinCandidateArrowCommitFromInterpretKeyEventsReachesShell() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let terminalSurface = hostedTerminal.surface
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        let previousCandidateExpansionHandler = GhosttyNSView.debugZhuyinCandidateExpansionEventHandler
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            GhosttyNSView.debugZhuyinCandidateExpansionEventHandler = previousCandidateExpansionHandler
+            window.orderOut(nil)
+            withExtendedLifetime(terminalSurface) {}
+        }
+
+        let keyCode = UInt16(kVK_DownArrow)
+        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
+        installCJKIMEInterpretKeyEventsSwizzle()
+        var interpretedKeyCodes: [UInt16] = []
+        cjkIMEInterpretKeyEventsHook = { candidateView, eventArray in
+            guard candidateView === surfaceView else { return false }
+            interpretedKeyCodes.append(contentsOf: eventArray.map { UInt16($0.keyCode) })
+            guard eventArray.count == 1, UInt16(eventArray[0].keyCode) == keyCode else { return false }
+            surfaceView.insertText("你", replacementRange: NSRange(location: NSNotFound, length: 0))
+            return true
+        }
+
+        var forwardedText: [String] = []
+        var forwardedBareArrow = false
+        var candidateExpansionKeyCodes: [UInt16] = []
+        GhosttyNSView.debugZhuyinCandidateExpansionEventHandler = { candidateView, expansionEvent in
+            guard candidateView === surfaceView else { return false }
+            candidateExpansionKeyCodes.append(UInt16(expansionEvent.keyCode))
+            return true
+        }
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            if let text = keyEvent.text {
+                forwardedText.append(String(cString: text))
+            } else if UInt16(keyEvent.keycode) == keyCode {
+                forwardedBareArrow = true
+            }
+        }
+
+        surfaceView.setMarkedText(
+            "ㄋ",
+            selectedRange: NSRange(location: 1, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+
+        let event = try keyEvent(
+            text: navigationKeyText(for: keyCode),
+            keyCode: keyCode,
+            windowNumber: window.windowNumber
+        )
+
+        window.makeFirstResponder(surfaceView)
+        withExtendedLifetime(terminalSurface) {
+            surfaceView.keyDown(with: event)
+        }
+
+        XCTAssertFalse(surfaceView.hasMarkedText(), "Committed text should clear Zhuyin composition")
+        XCTAssertEqual(interpretedKeyCodes, [keyCode])
+        XCTAssertEqual(forwardedText, ["你"])
+        XCTAssertFalse(forwardedBareArrow, "Committed candidate text must not also leak a bare Down arrow")
+        XCTAssertEqual(candidateExpansionKeyCodes, [], "Committed candidate text must not also expand the candidate list")
+    }
+
+    func testZhuyinModifiedCandidateArrowsDuringCompositionReachShell() throws {
+        try assertModifiedZhuyinCandidateArrowReachesShell(keyCode: UInt16(kVK_DownArrow))
+        try assertModifiedZhuyinCandidateArrowReachesShell(keyCode: UInt16(kVK_UpArrow))
     }
 
     func testSuppressesTerminalForwardingWhenZhuyinMarkedTextChanges() {
