@@ -80,6 +80,9 @@
 		D7AB34400000000000000003 /* GhosttyTerminalViewVisibilityPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34400000000000000004 /* GhosttyTerminalViewVisibilityPolicyTests.swift */; };
 		5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 29813FE5A6CBC1019289A251 /* CMUXAuthCore */; };
 		AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */ = {isa = PBXBuildFile; productRef = AA11BB22CC33DD44EE550002 /* CMUXWorkstream */; };
+		C3512A010000000000000001 /* CMUXNodeOptions in Frameworks */ = {isa = PBXBuildFile; productRef = C3512A010000000000000005 /* CMUXNodeOptions */; };
+		C3512A010000000000000002 /* CMUXNodeOptions in Frameworks */ = {isa = PBXBuildFile; productRef = C3512A010000000000000005 /* CMUXNodeOptions */; };
+		C3512A010000000000000003 /* CMUXNodeOptions in Frameworks */ = {isa = PBXBuildFile; productRef = C3512A010000000000000005 /* CMUXNodeOptions */; };
 		3069F1D10000000000000005 /* CMUXPasteboardFidelity in Frameworks */ = {isa = PBXBuildFile; productRef = 3069F1D10000000000000006 /* CMUXPasteboardFidelity */; };
 		F53000A0A1B2C3D4E5F60718 /* CMUXAgentVault in Frameworks */ = {isa = PBXBuildFile; productRef = F53000A2A1B2C3D4E5F60718 /* CMUXAgentVault */; };
 		A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
@@ -931,6 +934,7 @@
 				A5001290 /* MarkdownUI in Frameworks */,
 				5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */,
 				AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */,
+				C3512A010000000000000001 /* CMUXNodeOptions in Frameworks */,
 				3069F1D10000000000000005 /* CMUXPasteboardFidelity in Frameworks */,
 				F53000A0A1B2C3D4E5F60718 /* CMUXAgentVault in Frameworks */,
 				A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
@@ -950,6 +954,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B9000024A1B2C3D4E5F60719 /* Sentry in Frameworks */,
+				C3512A010000000000000002 /* CMUXNodeOptions in Frameworks */,
 				A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -966,6 +971,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C3512A010000000000000003 /* CMUXNodeOptions in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1501,6 +1507,7 @@
 				3069F1D10000000000000006 /* CMUXPasteboardFidelity */,
 				F53000A2A1B2C3D4E5F60718 /* CMUXAgentVault */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
+				C3512A010000000000000005 /* CMUXNodeOptions */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				A8BD195031FC4B82B4354297 /* StackAuth */,
 			);
@@ -1522,6 +1529,7 @@
 			name = "cmux-cli";
 			packageProductDependencies = (
 				A5001251 /* Sentry */,
+				C3512A010000000000000005 /* CMUXNodeOptions */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 			);
 			productName = cmux;
@@ -1578,6 +1586,7 @@
 			);
 			name = cmuxTests;
 			packageProductDependencies = (
+				C3512A010000000000000005 /* CMUXNodeOptions */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 			);
 			productName = cmuxTests;
@@ -1631,6 +1640,7 @@
 				3069F1D10000000000000007 /* XCLocalSwiftPackageReference "CMUXPasteboardFidelity" */,
 				F53000A1A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentVault" */,
 				A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */,
+				C3512A010000000000000004 /* XCLocalSwiftPackageReference "CMUXNodeOptions" */,
 				A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */,
 				28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */,
 			);
@@ -2552,6 +2562,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXAgentLaunch;
 		};
+		C3512A010000000000000004 /* XCLocalSwiftPackageReference "CMUXNodeOptions" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CMUXNodeOptions;
+		};
 		A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXDebugLog;
@@ -2622,6 +2636,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */;
 			productName = CMUXAgentLaunch;
+		};
+		C3512A010000000000000005 /* CMUXNodeOptions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C3512A010000000000000004 /* XCLocalSwiftPackageReference "CMUXNodeOptions" */;
+			productName = CMUXNodeOptions;
 		};
 		A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */ = {
 			isa = XCSwiftPackageProductDependency;
