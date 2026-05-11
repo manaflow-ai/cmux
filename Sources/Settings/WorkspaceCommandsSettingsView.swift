@@ -95,6 +95,7 @@ struct WorkspaceCommandsSettingsView: View {
                                 && command.id == WorkspaceCommandsStore.builtInLocalID)
                     )
                     .tag(command.id as WorkspaceCommandConfig.ID?)
+                    .moveDisabled(store.isBuiltIn(id: command.id))
                 }
                 .onMove { source, destination in
                     store.move(fromOffsets: source, toOffset: destination)
@@ -300,7 +301,14 @@ private struct WorkspaceCommandDetailEditor: View {
                 )
             }
 
-            if command.remote == nil {
+            // The runtime treats a blank-host remote as no remote and falls
+            // back to the local program. Keep the local editor visible in
+            // that transitional state so the user can still configure it.
+            let hasConfiguredRemoteHost: Bool = {
+                guard let host = command.remote?.host else { return false }
+                return !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }()
+            if !hasConfiguredRemoteHost {
                 Section(String(
                     localized: "settings.workspaces.section.local",
                     defaultValue: "Local"

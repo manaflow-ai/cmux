@@ -5981,8 +5981,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             startupSessionSnapshot != nil && !didHandleExplicitOpenIntentAtStartup
         // Use the bootstrap-once flag rather than `mainWindowContexts.isEmpty`:
         // SwiftUI's WindowGroup can register a main window context before this
-        // method runs, which would otherwise mask a genuine fresh launch.
-        let isFreshLaunch = !didBootstrapInitialMainWindow && !willRestoreStartupSession
+        // method runs, which would otherwise mask a genuine fresh launch. Also
+        // skip when Finder/services/URL-open already populated the first window
+        // for an explicit intent, so we don't stack the default profile on top.
+        let isFreshLaunch =
+            !didBootstrapInitialMainWindow
+            && !willRestoreStartupSession
+            && !didHandleExplicitOpenIntentAtStartup
         let windowId = ensureInitialMainWindowIfNeeded(shouldActivate: shouldActivate)
         if let manager = tabManagerFor(windowId: windowId) {
             startSocketListenerIfEnabled(

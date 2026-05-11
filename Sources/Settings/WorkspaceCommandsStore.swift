@@ -87,8 +87,14 @@ final class WorkspaceCommandsStore: ObservableObject {
     func update(_ command: WorkspaceCommandConfig) {
         guard !isBuiltIn(id: command.id) else { return }
         guard let index = userCommands.firstIndex(where: { $0.id == command.id }) else { return }
+        var sanitized = command
+        // Only collapse whitespace-only names; preserve in-progress typing
+        // (e.g. trailing space while the user types "My Workspace").
+        if command.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            sanitized.name = defaultNewCommandName()
+        }
         var updated = userCommands
-        updated[index] = command
+        updated[index] = sanitized
         applyUserCommands(updated)
     }
 
