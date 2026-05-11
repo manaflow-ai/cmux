@@ -309,20 +309,28 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
     }
 
     func testRightSidebarRemoteCommandsCanTargetRegisteredWindowOrWorkspaceWithoutFocus() throws {
+        let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
         let windowAId = UUID()
         let windowBId = UUID()
         let managerA = TabManager()
         let managerB = TabManager()
+        let managerC = TabManager()
         _ = managerA.addWorkspace(select: false, eagerLoadTerminal: false)
         let workspaceB = managerB.addWorkspace(select: false, eagerLoadTerminal: false)
+        let workspaceC = managerC.addWorkspace(select: false, eagerLoadTerminal: false)
         let stateA = FileExplorerState()
         let stateB = FileExplorerState()
+        let fallbackState = FileExplorerState()
 
         stateA.setVisible(false)
         stateA.mode = .files
         stateB.setVisible(false)
         stateB.mode = .files
+        fallbackState.setVisible(true)
+        fallbackState.mode = .dock
+        appDelegate.fileExplorerState = fallbackState
 
         appDelegate.registerMainWindowContextForTesting(
             windowId: windowAId,
@@ -334,9 +342,13 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             tabManager: managerB,
             fileExplorerState: stateB
         )
+        let windowCId = appDelegate.registerMainWindowContextForTesting(
+            tabManager: managerC
+        )
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowAId)
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowBId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowCId)
         }
 
         XCTAssertEqual(
@@ -379,6 +391,16 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             ),
             .state(.init(visible: false, mode: .sessions))
         )
+
+        switch appDelegate.applyRightSidebarRemoteCommand(
+            .getState,
+            target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceC.id)
+        ) {
+        case .failure(let message):
+            XCTAssertTrue(message.contains("state not available"), message)
+        case .ok, .state:
+            XCTFail("Expected explicit target without right-sidebar state to fail")
+        }
 
         switch appDelegate.applyRightSidebarRemoteCommand(
             .hide,

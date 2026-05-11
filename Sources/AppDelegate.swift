@@ -5531,7 +5531,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !target.isActiveTarget, context == nil {
             return .failure(String(localized: "rightSidebar.remote.error.targetNotFound", defaultValue: "ERROR: Right sidebar target not found"))
         }
-        guard let state = context?.fileExplorerState ?? fileExplorerState else {
+        let state: FileExplorerState?
+        if target.isActiveTarget {
+            state = context?.fileExplorerState ?? fileExplorerState
+        } else {
+            state = context?.fileExplorerState
+        }
+        guard let state else {
             return .failure(String(localized: "rightSidebar.remote.error.stateUnavailable", defaultValue: "ERROR: Right sidebar state not available"))
         }
 

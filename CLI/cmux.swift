@@ -10393,7 +10393,11 @@ struct CMUXCLI {
             guard parsed.positional.count == 2 else {
                 throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, find, vault, sessions, feed, or dock"))
             }
-            var args = ["set", parsed.positional[1]]
+            let mode = parsed.positional[1].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard isRightSidebarCLIMode(mode) else {
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownMode", defaultValue: "Unknown right-sidebar mode '\(parsed.positional[1])'"))
+            }
+            var args = ["set", mode]
             if parsed.noFocus {
                 args.append("--no-focus")
             }
@@ -10410,6 +10414,15 @@ struct CMUXCLI {
 
         default:
             throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownCommand", defaultValue: "Unknown right-sidebar command '\(action)'"))
+        }
+    }
+
+    private func isRightSidebarCLIMode(_ value: String) -> Bool {
+        switch value {
+        case "files", "find", "vault", "sessions", "feed", "dock":
+            return true
+        default:
+            return false
         }
     }
 

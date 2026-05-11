@@ -95,38 +95,38 @@ extension RightSidebarRemoteRequest {
         }
 
         guard let action = positional.first?.lowercased() else {
-            return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage", defaultValue: "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--tab=<workspace-id>] [--window=<window-id>] [--no-focus]")))
+            return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage", defaultValue: "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]")))
         }
 
         switch action {
         case "toggle":
             guard positional.count == 1, !noFocus else {
-                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.toggle", defaultValue: "ERROR: Usage: right_sidebar toggle [--tab=<workspace-id>] [--window=<window-id>]")))
+                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.toggle", defaultValue: "ERROR: Usage: right_sidebar toggle [--workspace=<workspace-id>] [--window=<window-id>]")))
             }
             return .success(.init(command: .toggle, target: target))
         case "show":
             guard positional.count == 1, !noFocus else {
-                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.show", defaultValue: "ERROR: Usage: right_sidebar show [--tab=<workspace-id>] [--window=<window-id>]")))
+                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.show", defaultValue: "ERROR: Usage: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]")))
             }
             return .success(.init(command: .show, target: target))
         case "hide":
             guard positional.count == 1, !noFocus else {
-                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.hide", defaultValue: "ERROR: Usage: right_sidebar hide [--tab=<workspace-id>] [--window=<window-id>]")))
+                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.hide", defaultValue: "ERROR: Usage: right_sidebar hide [--workspace=<workspace-id>] [--window=<window-id>]")))
             }
             return .success(.init(command: .hide, target: target))
         case "focus":
             guard positional.count == 1, !noFocus else {
-                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.focus", defaultValue: "ERROR: Usage: right_sidebar focus [--tab=<workspace-id>] [--window=<window-id>]")))
+                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.focus", defaultValue: "ERROR: Usage: right_sidebar focus [--workspace=<workspace-id>] [--window=<window-id>]")))
             }
             return .success(.init(command: .focus, target: target))
         case "mode", "state":
             guard positional.count == 1, !noFocus else {
-                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.mode", defaultValue: "ERROR: Usage: right_sidebar mode [--tab=<workspace-id>] [--window=<window-id>]")))
+                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.mode", defaultValue: "ERROR: Usage: right_sidebar mode [--workspace=<workspace-id>] [--window=<window-id>]")))
             }
             return .success(.init(command: .getState, target: target))
         case "set":
             guard positional.count == 2 else {
-                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.set", defaultValue: "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock> [--no-focus] [--tab=<workspace-id>] [--window=<window-id>]")))
+                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.set", defaultValue: "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]")))
             }
             guard let mode = RightSidebarMode.from(cliArgument: positional[1]) else {
                 return .failure(.init(message: String(localized: "rightSidebar.remote.error.unknownMode", defaultValue: "ERROR: Unknown right sidebar mode '\(positional[1])'")))
