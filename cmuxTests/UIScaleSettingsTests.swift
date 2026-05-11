@@ -78,6 +78,7 @@ final class UIScaleSettingsTests: XCTestCase {
         )
 
         UIScaleSettings.set(1.23)
+        waitForPersistedUIScale(1.23, in: settingsFileURL)
 
         let data = try Data(contentsOf: settingsFileURL)
         let json = try XCTUnwrap(
@@ -162,5 +163,30 @@ final class UIScaleSettingsTests: XCTestCase {
             fatalError("Failed to construct key event")
         }
         return event
+    }
+
+    private func waitForPersistedUIScale(
+        _ expected: Double,
+        in settingsFileURL: URL,
+        timeout: TimeInterval = 2.0
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if let persisted = try? persistedUIScale(in: settingsFileURL),
+               let value = persisted,
+               abs(value - expected) <= 0.001 {
+                return
+            }
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+        } while Date() < deadline
+
+        let finalValue = try? persistedUIScale(in: settingsFileURL)
+        XCTFail("Timed out waiting for app.uiScale \(expected); last value: \(String(describing: finalValue))")
+    }
+
+    private func persistedUIScale(in settingsFileURL: URL) throws -> Double? {
+        let data = try Data(contentsOf: settingsFileURL)
+        let json = try JSONSerialization.jsonObject(with: JSONCParser.preprocess(data)) as? [String: Any]
+        return (json?["app"] as? [String: Any])?["uiScale"] as? Double
     }
 }

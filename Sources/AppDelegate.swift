@@ -12362,6 +12362,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleUIScaleShortcut(event: NSEvent) -> Bool {
+        guard !isCommandPaletteBlockingUIScaleShortcut(for: event) else {
+            return false
+        }
         if matchConfiguredShortcut(event: event, action: .uiScaleZoomIn) {
             UIScaleSettings.zoomIn()
             return true
@@ -12372,6 +12375,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if matchConfiguredShortcut(event: event, action: .uiScaleReset) {
             UIScaleSettings.reset()
+            return true
+        }
+        return false
+    }
+
+    private func isCommandPaletteBlockingUIScaleShortcut(for event: NSEvent) -> Bool {
+        if let targetWindow = commandPaletteWindowForShortcutEvent(event),
+           isCommandPaletteEffectivelyVisible(in: targetWindow) {
+            return true
+        }
+        if let activePaletteWindow = activeCommandPaletteWindow(),
+           isCommandPaletteEffectivelyVisible(in: activePaletteWindow) {
             return true
         }
         return false

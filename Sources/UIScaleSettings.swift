@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 import SwiftUI
 
 enum UIScaleSettings {
@@ -9,6 +10,8 @@ enum UIScaleSettings {
     static let minimum = 0.7
     static let maximum = 2.0
     static let keyboardStep = 0.1
+    private static let logger = Logger(subsystem: "ai.manaflow.cmux", category: "UIScaleSettings")
+    private static let persistenceQueue = DispatchQueue(label: "ai.manaflow.cmux.ui-scale-settings")
 
     static func clamped(_ value: Double) -> Double {
         min(max(value, minimum), maximum)
@@ -32,11 +35,10 @@ enum UIScaleSettings {
         let next = roundedForPersistence(clamped(value))
         defaults.set(next, forKey: userDefaultsKey)
         if persistToSettingsFile {
-            do {
-                try (settingsFileStore ?? KeyboardShortcutSettings.settingsFileStore).persistAppUIScale(next)
-            } catch {
-                NSLog("[UIScaleSettings] failed to persist %@: %@", jsonPath, String(describing: error))
-            }
+            persistAppUIScaleInBackground(
+                next,
+                settingsFileStore: settingsFileStore ?? KeyboardShortcutSettings.settingsFileStore
+            )
         }
         notificationCenter.post(name: didChangeNotification, object: nil, userInfo: ["value": next])
         return next
@@ -63,6 +65,21 @@ enum UIScaleSettings {
 
     static func roundedForPersistence(_ value: Double) -> Double {
         (clamped(value) * 100).rounded() / 100
+    }
+
+    private static func persistAppUIScaleInBackground(
+        _ value: Double,
+        settingsFileStore: CmuxSettingsFileStore
+    ) {
+        persistenceQueue.async {
+            do {
+                try settingsFileStore.persistAppUIScale(value)
+            } catch {
+                logger.error(
+                    "Failed to persist \(jsonPath, privacy: .public): \(String(describing: error), privacy: .public)"
+                )
+            }
+        }
     }
 }
 

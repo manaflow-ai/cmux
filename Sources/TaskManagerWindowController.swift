@@ -8,8 +8,6 @@ final class TaskManagerWindowController: NSWindowController, NSWindowDelegate {
     static let shared = TaskManagerWindowController()
 
     private let model = CmuxTaskManagerModel()
-    private let hostingView: NSHostingView<AnyView>
-    private var uiScaleObserver: NSObjectProtocol?
 
     private init() {
         let window = NSWindow(
@@ -22,20 +20,11 @@ final class TaskManagerWindowController: NSWindowController, NSWindowDelegate {
         window.identifier = NSUserInterfaceItemIdentifier("cmux.taskManager")
         window.title = String(localized: "taskManager.windowTitle", defaultValue: "Task Manager")
         window.center()
-        let hostingView = NSHostingView(rootView: Self.rootView(model: model))
-        self.hostingView = hostingView
+        let hostingView = NSHostingView(rootView: TaskManagerRootView(model: model))
         window.contentView = hostingView
         AppDelegate.shared?.applyWindowDecorations(to: window)
         super.init(window: window)
         window.delegate = self
-        uiScaleObserver = NotificationCenter.default.addObserver(
-            forName: UIScaleSettings.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            self.hostingView.rootView = Self.rootView(model: self.model)
-        }
     }
 
     @available(*, unavailable)
@@ -58,8 +47,16 @@ final class TaskManagerWindowController: NSWindowController, NSWindowDelegate {
         model.stop()
     }
 
-    private static func rootView(model: CmuxTaskManagerModel) -> AnyView {
-        AnyView(CmuxTaskManagerView(model: model).environment(\.uiScaleFactor, UIScaleSettings.resolved()))
+}
+
+private struct TaskManagerRootView: View {
+    @AppStorage(UIScaleSettings.userDefaultsKey) private var uiScaleRaw = UIScaleSettings.defaultValue
+
+    @ObservedObject var model: CmuxTaskManagerModel
+
+    var body: some View {
+        CmuxTaskManagerView(model: model)
+            .environment(\.uiScaleFactor, UIScaleSettings.clamped(uiScaleRaw))
     }
 }
 

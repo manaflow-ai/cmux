@@ -13484,8 +13484,18 @@ private struct TabItemView: View, Equatable {
             switch status {
             case .open:
                 PullRequestOpenIcon(color: color)
+                    .scaleEffect(uiScaleFactor)
+                    .frame(
+                        width: UIScaleSettings.scaled(Self.frameSize, by: uiScaleFactor),
+                        height: UIScaleSettings.scaled(Self.frameSize, by: uiScaleFactor)
+                    )
             case .merged:
                 PullRequestMergedIcon(color: color)
+                    .scaleEffect(uiScaleFactor)
+                    .frame(
+                        width: UIScaleSettings.scaled(Self.frameSize, by: uiScaleFactor),
+                        height: UIScaleSettings.scaled(Self.frameSize, by: uiScaleFactor)
+                    )
             case .closed:
                 Image(systemName: "xmark.circle")
                     .font(.system(size: UIScaleSettings.scaled(7, by: uiScaleFactor), weight: .regular))

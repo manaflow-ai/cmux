@@ -1657,6 +1657,8 @@ private enum SessionTranscriptLoader {
 }
 
 private struct SessionTranscriptPopoverHost: NSViewRepresentable {
+    @Environment(\.uiScaleFactor) private var uiScaleFactor
+
     @Binding var isPresented: Bool
     let entry: SessionEntry
 
@@ -1677,7 +1679,7 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
     func updateNSView(_ nsView: PopoverAnchorView, context: Context) {
         let coordinator = context.coordinator
         coordinator.anchorView = nsView
-        coordinator.update(entry: entry)
+        coordinator.update(entry: entry, uiScaleFactor: uiScaleFactor)
         if isPresented {
             coordinator.present()
         } else {
@@ -1699,14 +1701,17 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
         private var currentEntry: SessionEntry?
         private let sizeModel = SessionTranscriptPopoverSizeModel()
         private var wantsPresentation = false
+        private var currentUIScaleFactor = UIScaleSettings.defaultValue
 
         init(isPresented: Binding<Bool>) {
             _isPresented = isPresented
         }
 
-        func update(entry: SessionEntry) {
-            let shouldRefresh = currentEntry?.id != entry.id
+        func update(entry: SessionEntry, uiScaleFactor: Double) {
+            let nextUIScaleFactor = UIScaleSettings.clamped(uiScaleFactor)
+            let shouldRefresh = currentEntry?.id != entry.id || currentUIScaleFactor != nextUIScaleFactor
             currentEntry = entry
+            currentUIScaleFactor = nextUIScaleFactor
             if shouldRefresh {
                 refreshContent()
             }
@@ -1761,6 +1766,7 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
                     self?.closeFromContent()
                 }
                 .id(entry.id)
+                .environment(\.uiScaleFactor, currentUIScaleFactor)
             )
             hostingController.view.invalidateIntrinsicContentSize()
             hostingController.view.layoutSubtreeIfNeeded()
@@ -2200,7 +2206,8 @@ private struct PopoverRow: View, Equatable {
     @State private var isHovered: Bool = false
 
     static func == (lhs: PopoverRow, rhs: PopoverRow) -> Bool {
-        lhs.entry == rhs.entry
+        lhs.entry == rhs.entry &&
+            lhs.uiScaleFactor == rhs.uiScaleFactor
     }
 
     fileprivate static func flatten(_ s: String) -> String {
@@ -2365,6 +2372,8 @@ private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider 
 /// doesn't reliably let the embedded TextField become first responder in cmux's
 /// focus-managed environment because the terminal keeps grabbing focus back.
 struct SectionPopoverHost: NSViewRepresentable {
+    @Environment(\.uiScaleFactor) private var uiScaleFactor
+
     @Binding var isPresented: Bool
     let section: IndexSection
     /// Closure-typed search handle passed through to the SwiftUI popover
@@ -2391,7 +2400,8 @@ struct SectionPopoverHost: NSViewRepresentable {
             section: section,
             search: search,
             loadSnapshot: loadSnapshot,
-            onResume: onResume
+            onResume: onResume,
+            uiScaleFactor: uiScaleFactor
         )
         if isPresented {
             coordinator.present()
@@ -2432,6 +2442,8 @@ struct SectionPopoverHost: NSViewRepresentable {
         private var currentOnResume: ((SessionEntry) -> Void)?
         private var lastRenderedSection: IndexSection?
         private var lastRenderedPresentationCount: Int?
+        private var lastRenderedUIScaleFactor: Double?
+        private var currentUIScaleFactor = UIScaleSettings.defaultValue
         /// Bumped on every present(). Used as the SwiftUI view identity so each
         /// open gets fresh view-local state.
         private var presentationCount = 0
@@ -2444,12 +2456,14 @@ struct SectionPopoverHost: NSViewRepresentable {
             section: IndexSection,
             search: @escaping SessionSearchFn,
             loadSnapshot: @escaping DirectorySnapshotFn,
-            onResume: ((SessionEntry) -> Void)?
+            onResume: ((SessionEntry) -> Void)?,
+            uiScaleFactor: Double
         ) {
             currentSection = section
             currentSearch = search
             currentLoadSnapshot = loadSnapshot
             currentOnResume = onResume
+            currentUIScaleFactor = UIScaleSettings.clamped(uiScaleFactor)
             // When hidden, defer rebuilding the hosting view until `present()`.
             // Rewriting rootView + forcing layout on every parent re-render was
             // the 100% CPU loop behind #3010.
@@ -2459,7 +2473,9 @@ struct SectionPopoverHost: NSViewRepresentable {
             // identical visible-section updates avoids re-laying out the popover
             // during unrelated parent re-renders while still refreshing when the
             // visible content actually changes.
-            guard lastRenderedSection != section || lastRenderedPresentationCount != presentationCount else { return }
+            guard lastRenderedSection != section ||
+                lastRenderedPresentationCount != presentationCount ||
+                lastRenderedUIScaleFactor != currentUIScaleFactor else { return }
             refreshContent()
         }
 
@@ -2482,9 +2498,11 @@ struct SectionPopoverHost: NSViewRepresentable {
                 // Tied to presentationCount so reopening the popover discards
                 // the prior open's view-local search and scroll state.
                 .id(identity)
+                .environment(\.uiScaleFactor, currentUIScaleFactor)
             )
             lastRenderedSection = section
             lastRenderedPresentationCount = presentationCount
+            lastRenderedUIScaleFactor = currentUIScaleFactor
             hostingController.view.invalidateIntrinsicContentSize()
             hostingController.view.layoutSubtreeIfNeeded()
             updateContentSize()
