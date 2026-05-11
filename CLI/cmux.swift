@@ -1739,6 +1739,18 @@ struct CMUXCLI {
         }
     }
 
+    private static func manualSignInURL(from response: [String: Any]) -> String? {
+        guard let value = response["sign_in_url"] as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func printManualSignInFallback(_ url: String?) {
+        guard let url else { return }
+        print("If it does not open, paste this URL in your browser:")
+        print(url)
+    }
+
     private struct VMCreateIdempotencyStore: Codable {
         var records: [String: VMCreateIdempotencyRecord] = [:]
     }
@@ -2419,7 +2431,9 @@ struct CMUXCLI {
                     print("Already signed in\(email.map { " as \($0)" } ?? ""). Use `cmux auth logout` to sign out first.")
                     break
                 }
+                let statusSignInURL = Self.manualSignInURL(from: statusBefore)
                 print("Opening sign-in popup on the cmux web app.")
+                Self.printManualSignInFallback(statusSignInURL)
                 // auth.begin_sign_in blocks on the server side until the
                 // popup completes (or 5min timeout). The response is the
                 // callback — no polling.
@@ -2428,9 +2442,13 @@ struct CMUXCLI {
                     let email = (result["user"] as? [String: Any])?["email"] as? String
                     print("Signed in\(email.map { " as \($0)" } ?? "").")
                 } else if (result["timed_out"] as? Bool) == true {
-                    print("Timed out waiting for sign-in. Run `cmux auth status` once you've finished in the popup.")
+                    print("Timed out waiting for sign-in. Run `cmux auth status` once you've finished in the browser.")
+                    let resultSignInURL = Self.manualSignInURL(from: result) ?? statusSignInURL
+                    Self.printManualSignInFallback(resultSignInURL)
                 } else {
                     print("Sign-in did not complete. Run `cmux auth status` to check.")
+                    let resultSignInURL = Self.manualSignInURL(from: result) ?? statusSignInURL
+                    Self.printManualSignInFallback(resultSignInURL)
                 }
 
             case "logout":

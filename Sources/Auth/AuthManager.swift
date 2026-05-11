@@ -7,8 +7,16 @@ import StackAuth
 import Security
 #endif
 
+@inline(__always)
+private func authDebugLog(_ message: @autoclosure () -> String) {
+    #if DEBUG
+    cmuxDebugLog(message())
+    #endif
+}
+
 private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
     static let shared = AuthPresentationContext()
+    @MainActor private static var fallbackAnchor: NSWindow?
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         // ASWebAuthenticationSession invokes this on whichever thread called
@@ -18,16 +26,103 @@ private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresen
         if Thread.isMainThread {
             return Self.currentAnchor()
         }
-        var result: ASPresentationAnchor = NSWindow()
+        var result: ASPresentationAnchor?
         DispatchQueue.main.sync {
             result = Self.currentAnchor()
         }
-        return result
+        return result!
+    }
+
+    @MainActor
+    static func prepareForPresentation() async {
+        let window = currentAnchor()
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+        if !window.isVisible {
+            window.orderFront(nil)
+        }
+        if !NSApp.isActive {
+            await requestApplicationActivation()
+        }
+        window.makeKeyAndOrderFront(nil)
+        authDebugLog(
+            "auth.webauth.prepare active=\(NSApp.isActive ? 1 : 0) visible=\(window.isVisible ? 1 : 0) key=\(window.isKeyWindow ? 1 : 0) main=\(window.isMainWindow ? 1 : 0)"
+        )
+    }
+
+    @MainActor
+    private static func requestApplicationActivation() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let activationRequest = AuthActivationRequest(continuation: continuation)
+
+            let observer = NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: NSApp,
+                queue: .main
+            ) { _ in
+                activationRequest.resume()
+            }
+            activationRequest.observer = observer
+
+            let didRequestActivation = NSRunningApplication.current.activate(
+                options: [.activateAllWindows]
+            )
+            if !didRequestActivation || NSApp.isActive {
+                activationRequest.resume()
+                return
+            }
+
+            DispatchQueue.main.async {
+                activationRequest.resume()
+            }
+        }
     }
 
     @MainActor
     private static func currentAnchor() -> ASPresentationAnchor {
-        NSApp.keyWindow ?? NSApp.mainWindow ?? (NSApp.windows.first ?? NSWindow())
+        if let keyWindow = NSApp.keyWindow {
+            return keyWindow
+        }
+        if let mainWindow = NSApp.mainWindow {
+            return mainWindow
+        }
+        if let visibleWindow = NSApp.windows.first(where: { $0.isVisible && !$0.isMiniaturized }) {
+            return visibleWindow
+        }
+        if let window = NSApp.windows.first {
+            return window
+        }
+        if let fallbackAnchor {
+            return fallbackAnchor
+        }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1, height: 1),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        fallbackAnchor = window
+        return window
+    }
+}
+
+private final class AuthActivationRequest: @unchecked Sendable {
+    let continuation: CheckedContinuation<Void, Never>
+    var observer: NSObjectProtocol?
+    private var didResume = false
+
+    init(continuation: CheckedContinuation<Void, Never>) {
+        self.continuation = continuation
+    }
+
+    func resume() {
+        guard !didResume else { return }
+        didResume = true
+        if let observer {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        continuation.resume()
     }
 }
 
@@ -55,6 +150,17 @@ enum AuthManagerError: LocalizedError {
             )
         }
     }
+}
+
+enum AuthSignInAwaitResult: Equatable, Sendable {
+    case signedIn
+    case cancelled
+    case timedOut
+}
+
+private struct AuthSignInAttempt {
+    let sessionID: UUID?
+    let startedNewSession: Bool
 }
 
 protocol StackAuthTokenStoreProtocol: TokenStoreProtocol, Sendable {
@@ -184,27 +290,56 @@ final class AuthManager: ObservableObject {
 
     private var loginPollTask: Task<Void, Never>?
     private var webAuthSession: ASWebAuthenticationSession?
+    private var webAuthSessionID: UUID?
+    private var webAuthSignInURL: URL?
+
+    var currentSignInURL: URL? {
+        if isAuthenticated { return nil }
+        return webAuthSignInURL ?? AuthEnvironment.signInURL()
+    }
 
     func beginSignIn() {
+        Task { @MainActor in
+            _ = await startOrAttachSignIn()
+        }
+    }
+
+    private func startOrAttachSignIn() async -> AuthSignInAttempt {
+        await awaitBootstrapped()
+        if isAuthenticated {
+            return AuthSignInAttempt(sessionID: nil, startedNewSession: false)
+        }
+        if let activeSessionID = webAuthSessionID {
+            return AuthSignInAttempt(sessionID: activeSessionID, startedNewSession: false)
+        }
+
         loginPollTask?.cancel()
-        webAuthSession?.cancel()
-        webAuthSession = nil
+        cancelActiveWebAuthSession(clearLoading: false)
         isLoading = true
 
         let signInURL = AuthEnvironment.signInURL()
         let callbackScheme = AuthEnvironment.callbackScheme
+        let sessionID = UUID()
+        webAuthSessionID = sessionID
+        webAuthSignInURL = signInURL
 
         let session = ASWebAuthenticationSession(
             url: signInURL,
             callbackURLScheme: callbackScheme
-        ) { [weak self] callbackURL, error in
+        ) { [weak self, sessionID] callbackURL, error in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                guard self.webAuthSessionID == sessionID else { return }
                 defer {
-                    self.isLoading = false
-                    self.webAuthSession = nil
+                    if self.webAuthSessionID == sessionID {
+                        self.isLoading = false
+                        self.webAuthSession = nil
+                        self.webAuthSessionID = nil
+                        self.webAuthSignInURL = nil
+                    }
                 }
                 if let error {
+                    authDebugLog("auth.webauth.failed session=\(sessionID.uuidString.prefix(8)) error=\(error)")
                     NSLog("auth.webauth failed: %@", "\(error)")
                     return
                 }
@@ -219,11 +354,24 @@ final class AuthManager: ObservableObject {
         session.presentationContextProvider = AuthPresentationContext.shared
         session.prefersEphemeralWebBrowserSession = false
 
+        await AuthPresentationContext.prepareForPresentation()
+        authDebugLog(
+            "auth.webauth.start session=\(sessionID.uuidString.prefix(8)) scheme=\(callbackScheme) active=\(NSApp.isActive ? 1 : 0)"
+        )
         if session.start() {
             webAuthSession = session
+            authDebugLog("auth.webauth.started session=\(sessionID.uuidString.prefix(8))")
+            return AuthSignInAttempt(sessionID: sessionID, startedNewSession: true)
         } else {
+            authDebugLog("auth.webauth.startFailed session=\(sessionID.uuidString.prefix(8))")
             NSLog("auth.webauth: session.start() returned false")
-            isLoading = false
+            if webAuthSessionID == sessionID {
+                isLoading = false
+                webAuthSession = nil
+                webAuthSessionID = nil
+                webAuthSignInURL = nil
+            }
+            return AuthSignInAttempt(sessionID: nil, startedNewSession: false)
         }
     }
 
@@ -232,10 +380,17 @@ final class AuthManager: ObservableObject {
     /// authenticated, when the sign-in attempt settles unsuccessfully (popup
     /// dismissed/cancelled/error), or when the deadline elapses. No polling
     /// — the $isAuthenticated / $isLoading AsyncPublishers drive the wait.
-    func beginSignInAndAwait(timeout: TimeInterval) async -> Bool {
-        if isAuthenticated { return true }
-        beginSignIn()
-        return await waitForSignInSettled(timeout: timeout)
+    func beginSignInAndAwait(timeout: TimeInterval) async -> AuthSignInAwaitResult {
+        if isAuthenticated { return .signedIn }
+        let attempt = await startOrAttachSignIn()
+        if attempt.sessionID == nil, !isLoading {
+            return isAuthenticated ? .signedIn : .cancelled
+        }
+        let result = await waitForSignInSettled(timeout: timeout)
+        if result == .timedOut, attempt.startedNewSession, let sessionID = attempt.sessionID {
+            cancelActiveWebAuthSession(sessionID: sessionID, clearLoading: true)
+        }
+        return result
     }
 
     /// Signs out and awaits the state to flip. signOut() is already async and
@@ -247,36 +402,50 @@ final class AuthManager: ObservableObject {
         return await waitForAuthState(target: false, timeout: timeout)
     }
 
-    private func waitForSignInSettled(timeout: TimeInterval) async -> Bool {
-        await withTaskGroup(of: Bool.self) { group in
+    private func waitForSignInSettled(timeout: TimeInterval) async -> AuthSignInAwaitResult {
+        await withTaskGroup(of: AuthSignInAwaitResult.self) { group in
             group.addTask { @MainActor [weak self] in
-                guard let self else { return false }
+                guard let self else { return .cancelled }
                 for await value in self.$isAuthenticated.values {
-                    if value { return true }
+                    if value { return .signedIn }
                 }
-                return false
+                return .cancelled
             }
             group.addTask { @MainActor [weak self] in
-                guard let self else { return false }
+                guard let self else { return .cancelled }
                 // Wait for isLoading to flip false after we started the
                 // popup. If authentication hasn't succeeded by then the
                 // user cancelled/errored and we can resolve early.
                 for await loading in self.$isLoading.values {
-                    if !loading && !self.isAuthenticated { return false }
-                    if self.isAuthenticated { return true }
+                    if !loading && !self.isAuthenticated { return .cancelled }
+                    if self.isAuthenticated { return .signedIn }
                 }
-                return false
+                return .cancelled
             }
             group.addTask {
                 let maxSeconds: Double = 24 * 60 * 60
                 let clamped = max(0, min(timeout, maxSeconds))
                 try? await Task.sleep(nanoseconds: UInt64(clamped * 1_000_000_000))
-                return false
+                return .timedOut
             }
-            let first = await group.next() ?? false
+            let first = await group.next() ?? .cancelled
             group.cancelAll()
             return first
         }
+    }
+
+    private func cancelActiveWebAuthSession(sessionID: UUID? = nil, clearLoading: Bool) {
+        if let sessionID, webAuthSessionID != sessionID {
+            return
+        }
+        let session = webAuthSession
+        webAuthSession = nil
+        webAuthSessionID = nil
+        webAuthSignInURL = nil
+        if clearLoading {
+            isLoading = false
+        }
+        session?.cancel()
     }
 
     private func waitForAuthState(target: Bool, timeout: TimeInterval) async -> Bool {
