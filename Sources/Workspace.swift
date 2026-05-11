@@ -4101,14 +4101,17 @@ final class WorkspaceRemoteSessionController {
         }
         let connectDetail: String
         let bootstrapDetail: String
+        let connectionState: WorkspaceRemoteConnectionState
         if reconnectRetryCount > 0 {
+            connectionState = .reconnecting
             connectDetail = "Reconnecting to \(configuration.displayTarget) (retry \(reconnectRetryCount))"
             bootstrapDetail = "Bootstrapping remote daemon on \(configuration.displayTarget) (retry \(reconnectRetryCount))"
         } else {
+            connectionState = .connecting
             connectDetail = "Connecting to \(configuration.displayTarget)"
             bootstrapDetail = "Bootstrapping remote daemon on \(configuration.displayTarget)"
         }
-        publishState(.connecting, detail: connectDetail)
+        publishState(connectionState, detail: connectDetail)
         publishDaemonStatus(.bootstrapping, detail: bootstrapDetail)
         do {
             let hello: DaemonHello
@@ -4392,7 +4395,14 @@ final class WorkspaceRemoteSessionController {
         case .connecting:
             debugLog("remote.proxy.connecting \(debugConfigSummary())")
             if proxyEndpoint == nil {
-                publishState(.connecting, detail: "Connecting to \(configuration.displayTarget)")
+                if reconnectRetryCount > 0 {
+                    publishState(
+                        .reconnecting,
+                        detail: "Reconnecting to \(configuration.displayTarget) (retry \(reconnectRetryCount))"
+                    )
+                } else {
+                    publishState(.connecting, detail: "Connecting to \(configuration.displayTarget)")
+                }
             }
         case .ready(let endpoint):
             debugLog("remote.proxy.ready host=\(endpoint.host) port=\(endpoint.port) \(debugConfigSummary())")
@@ -6544,6 +6554,7 @@ private struct SidebarPanelObservationState: Equatable {
 enum WorkspaceRemoteConnectionState: String {
     case disconnected
     case connecting
+    case reconnecting
     case connected
     case error
 }
@@ -7845,7 +7856,7 @@ final class Workspace: Identifiable, ObservableObject {
     var surfaceIdToPanelId: [TabID: UUID] = [:]
 
     /// Tab IDs that are allowed to close even if they would normally require confirmation.
-    /// This is used by app-level confirmation prompts (e.g., Cmd+W "Close Tab?") so the
+    /// This is used by app-level confirmation prompts (for example, Close Tab) so the
     /// Bonsplit delegate doesn't block the close after the user already confirmed.
     private var forceCloseTabIds: Set<TabID> = []
 
@@ -7854,8 +7865,8 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingCloseConfirmTabIds: Set<TabID> = []
 
     /// Tab IDs whose next close attempt should be treated as an explicit
-    /// workspace-close gesture from the user (the tab-strip X button, or Cmd+W when
-    /// the shortcut preference is set to close the workspace on the last surface),
+    /// workspace-close gesture from the user (the tab-strip X button, or the Close Tab
+    /// shortcut when the shortcut preference is set to close the workspace on the last surface),
     /// rather than an internal close/move flow.
     private var explicitUserCloseTabIds: Set<TabID> = []
 
@@ -9084,7 +9095,7 @@ final class Workspace: Identifiable, ObservableObject {
                 proxyState = "error"
             } else {
                 switch remoteConnectionState {
-                case .connecting:
+                case .connecting, .reconnecting:
                     proxyState = "connecting"
                 case .error:
                     proxyState = "error"
@@ -9290,7 +9301,10 @@ final class Workspace: Identifiable, ObservableObject {
         guard activeRemoteTerminalSurfaceIds.isEmpty, remoteConfiguration != nil else { return }
         let hasBrowserPanels = panels.values.contains { $0 is BrowserPanel }
         if !hasBrowserPanels {
-            if remoteConnectionState == .error || remoteDaemonStatus.state == .error || remoteConnectionState == .connecting {
+            if remoteConnectionState == .error ||
+                remoteDaemonStatus.state == .error ||
+                remoteConnectionState == .connecting ||
+                remoteConnectionState == .reconnecting {
                 return
             }
             disconnectRemoteConnection(clearConfiguration: true)
@@ -9497,7 +9511,9 @@ final class Workspace: Identifiable, ObservableObject {
         let trimmedDetail = detail?.trimmingCharacters(in: .whitespacesAndNewlines)
         let proxyOnlyError = trimmedDetail.map(Self.isProxyOnlyRemoteError) ?? false
         let preserveConnectedStateForRetry =
-            state == .connecting && preservesSSHTerminalConnection && hasProxyOnlyRemoteSidebarError
+            (state == .connecting || state == .reconnecting) &&
+                preservesSSHTerminalConnection &&
+                hasProxyOnlyRemoteSidebarError
         let effectiveState: WorkspaceRemoteConnectionState
         if state == .error && proxyOnlyError && preservesSSHTerminalConnection {
             effectiveState = .connected
