@@ -274,6 +274,37 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
         XCTAssertTrue(userAgent.contains("Safari/"), userAgent)
     }
 
+    func testHostUnsupportedAPIsDeclareUnbridgedBrowserFeatures() async throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("cmux-webkit-extension-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try """
+        {
+          "manifest_version": 3,
+          "name": "cmux API Surface Test",
+          "version": "1.0.0",
+          "permissions": ["storage", "webNavigation", "webRequest"],
+          "host_permissions": ["https://example.com/*"]
+        }
+        """.data(using: .utf8)?.write(to: root.appendingPathComponent("manifest.json"))
+
+        let webExtension = try await WKWebExtension(resourceBaseURL: root)
+        let unsupportedAPIs = browserWebExtensionUnsupportedAPIs(for: webExtension)
+        let grantablePermissions = browserWebExtensionHostGrantablePermissionNames(
+            from: webExtension.requestedPermissions.map { String($0.rawValue) }
+        )
+
+        XCTAssertTrue(unsupportedAPIs.contains("browser.notifications"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.offscreen"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.runtime.getContexts"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.webNavigation"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.webRequest.onAuthRequired"))
+        XCTAssertTrue(grantablePermissions.contains("webRequest"))
+        XCTAssertFalse(grantablePermissions.contains("webNavigation"))
+        XCTAssertFalse(unsupportedAPIs.contains("browser.webRequest"))
+    }
+
     func testWebKitLoadsMinimalUnpackedExtension() async throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("cmux-webkit-extension-\(UUID().uuidString)", isDirectory: true)

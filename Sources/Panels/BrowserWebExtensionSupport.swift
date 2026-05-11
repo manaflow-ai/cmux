@@ -71,6 +71,57 @@ func browserWebExtensionConfigureBaseWebViewConfiguration(
     configuration.applicationNameForUserAgent = BrowserUserAgentSettings.safariApplicationNameForUserAgent
 }
 
+private let browserWebExtensionHostGrantablePermissionNameSet: Set<String> = [
+    "activeTab",
+    "alarms",
+    "clipboardWrite",
+    "contextMenus",
+    "cookies",
+    "declarativeNetRequest",
+    "declarativeNetRequestFeedback",
+    "declarativeNetRequestWithHostAccess",
+    "menus",
+    "scripting",
+    "storage",
+    "tabs",
+    "unlimitedStorage",
+    "webRequest",
+]
+
+func browserWebExtensionHostGrantablePermissionNames(from rawPermissions: [String]) -> [String] {
+    rawPermissions.filter { browserWebExtensionHostGrantablePermissionNameSet.contains($0) }
+}
+
+@available(macOS 15.4, *)
+func browserWebExtensionUnsupportedAPIs(for webExtension: WKWebExtension) -> Set<String> {
+    var unsupportedAPIs: Set<String> = [
+        "browser.commands",
+        "browser.clipboardRead",
+        "browser.idle",
+        "browser.menus",
+        "browser.nativeMessaging",
+        "browser.notifications",
+        "browser.offscreen",
+        "browser.privacy",
+        "browser.runtime.connectNative",
+        "browser.runtime.getContexts",
+        "browser.runtime.openOptionsPage",
+        "browser.runtime.sendNativeMessage",
+        "browser.userScripts",
+        "browser.webNavigation",
+        "browser.webRequest.onAuthRequired",
+    ]
+
+    let grantablePermissions = Set(browserWebExtensionHostGrantablePermissionNames(
+        from: webExtension.requestedPermissions.map { String($0.rawValue) }
+    ))
+    if !grantablePermissions.contains("webRequest") {
+        unsupportedAPIs.insert("browser.webRequest")
+    }
+
+    return unsupportedAPIs
+}
+
 struct BrowserWebExtensionInstallResult: Equatable {
     let summary: BrowserWebExtensionInstalledSummary
     let parseErrors: [String]
@@ -236,7 +287,7 @@ final class BrowserWebExtensionInstallStore {
             sourceKind: source.kind,
             sourcePath: storedSourceURL.path,
             isEnabled: true,
-            grantedPermissions: grantedPermissions.sorted(),
+            grantedPermissions: browserWebExtensionHostGrantablePermissionNames(from: grantedPermissions).sorted(),
             grantedPermissionMatchPatterns: grantedPermissionMatchPatterns.sorted()
         )
 
@@ -792,7 +843,8 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 #if DEBUG
         context.isInspectable = true
 #endif
-        for rawPermission in record.grantedPermissions {
+        context.unsupportedAPIs = browserWebExtensionUnsupportedAPIs(for: webExtension)
+        for rawPermission in browserWebExtensionHostGrantablePermissionNames(from: record.grantedPermissions) {
             context.setPermissionStatus(
                 .grantedExplicitly,
                 for: WKWebExtension.Permission(rawPermission)
