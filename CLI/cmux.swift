@@ -10414,28 +10414,16 @@ struct CMUXCLI {
     }
 
     private func resolveRightSidebarWindowId(_ raw: String?, client: SocketClient) throws -> String? {
-        guard let raw else { return nil }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        if isUUID(trimmed) { return trimmed }
-
-        let listed = try client.sendV2(method: "window.list")
-        let windows = listed["windows"] as? [[String: Any]] ?? []
-        if let refIndex = handleIndex(trimmed, kind: "window") {
-            return try idFromIndexedItems(
-                windows,
-                index: refIndex,
-                missingMessage: String(localized: "cli.rightSidebar.error.windowRefNotFound", defaultValue: "Window ref not found")
-            )
-        }
-        if let index = Int(trimmed) {
-            return try idFromIndexedItems(
-                windows,
-                index: index,
-                missingMessage: String(localized: "cli.rightSidebar.error.windowIndexNotFound", defaultValue: "Window index not found")
-            )
-        }
-        throw CLIError(message: String(localized: "cli.rightSidebar.error.invalidWindow", defaultValue: "Invalid window handle: \(trimmed)"))
+        guard let normalized = try normalizeWindowHandle(raw, client: client) else { return nil }
+        return try resolvedRightSidebarHandleID(
+            normalized,
+            expectedRefKind: "window",
+            invalidMessage: String(localized: "cli.rightSidebar.error.invalidWindow", defaultValue: "Invalid window handle: \(normalized)"),
+            missingRefMessage: String(localized: "cli.rightSidebar.error.windowRefNotFound", defaultValue: "Window ref not found"),
+            listMethod: "window.list",
+            listKey: "windows",
+            client: client
+        )
     }
 
     private func resolveRightSidebarWorkspaceId(
@@ -10443,49 +10431,57 @@ struct CMUXCLI {
         windowId: String?,
         client: SocketClient
     ) throws -> String? {
-        guard let raw else { return nil }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        if isUUID(trimmed) { return trimmed }
-
         var params: [String: Any] = [:]
         if let windowId {
             params["window_id"] = windowId
         }
-        let listed = try client.sendV2(method: "workspace.list", params: params)
-        let workspaces = listed["workspaces"] as? [[String: Any]] ?? []
-        if let refIndex = handleIndex(trimmed, kind: "workspace") {
-            return try idFromIndexedItems(
-                workspaces,
-                index: refIndex,
-                missingMessage: String(localized: "cli.rightSidebar.error.workspaceRefNotFound", defaultValue: "Workspace ref not found")
-            )
-        }
-        if let index = Int(trimmed) {
-            return try idFromIndexedItems(
-                workspaces,
-                index: index,
-                missingMessage: String(localized: "cli.rightSidebar.error.workspaceIndexNotFound", defaultValue: "Workspace index not found")
-            )
-        }
-        throw CLIError(message: String(localized: "cli.rightSidebar.error.invalidWorkspace", defaultValue: "Invalid workspace handle: \(trimmed)"))
+        guard let normalized = try normalizeWorkspaceHandle(raw, client: client, windowHandle: windowId) else { return nil }
+        return try resolvedRightSidebarHandleID(
+            normalized,
+            expectedRefKind: "workspace",
+            invalidMessage: String(localized: "cli.rightSidebar.error.invalidWorkspace", defaultValue: "Invalid workspace handle: \(normalized)"),
+            missingRefMessage: String(localized: "cli.rightSidebar.error.workspaceRefNotFound", defaultValue: "Workspace ref not found"),
+            listMethod: "workspace.list",
+            listKey: "workspaces",
+            listParams: params,
+            client: client
+        )
     }
 
-    private func handleIndex(_ value: String, kind: String) -> Int? {
-        let pieces = value.split(separator: ":", omittingEmptySubsequences: false)
-        guard pieces.count == 2, pieces[0].lowercased() == kind else { return nil }
-        return Int(pieces[1])
-    }
-
-    private func idFromIndexedItems(
-        _ items: [[String: Any]],
-        index: Int,
-        missingMessage: String
+    private func resolvedRightSidebarHandleID(
+        _ handle: String,
+        expectedRefKind: String,
+        invalidMessage: String,
+        missingRefMessage: String,
+        listMethod: String,
+        listKey: String,
+        listParams: [String: Any] = [:],
+        client: SocketClient
     ) throws -> String {
-        for item in items where intFromAny(item["index"]) == index {
-            if let id = item["id"] as? String { return id }
+        let trimmed = handle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isUUID(trimmed) { return trimmed }
+        let refIndex: Int?
+        if isHandleRef(trimmed) {
+            let pieces = trimmed.split(separator: ":", omittingEmptySubsequences: false)
+            guard pieces.count == 2, pieces[0].lowercased() == expectedRefKind else {
+                throw CLIError(message: invalidMessage)
+            }
+            refIndex = Int(pieces[1])
+        } else {
+            refIndex = nil
         }
-        throw CLIError(message: missingMessage)
+
+        let listed = try client.sendV2(method: listMethod, params: listParams)
+        let items = listed[listKey] as? [[String: Any]] ?? []
+        for item in items {
+            guard let id = item["id"] as? String else { continue }
+            if id == trimmed ||
+                (item["ref"] as? String) == trimmed ||
+                (refIndex != nil && intFromAny(item["index"]) == refIndex) {
+                return id
+            }
+        }
+        throw CLIError(message: missingRefMessage)
     }
 
     /// Pick the display handle for an item dict based on --id-format.
