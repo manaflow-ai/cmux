@@ -430,16 +430,17 @@ final class AuthManager: ObservableObject {
 
         // System web-auth callbacks arrive from the session completion handler,
         // so there is no active presentation to cancel on this shared callback path.
+        // The external-browser path never creates an ASWebAuthenticationSession.
         webAuthSession = nil
         isLoading = true
         defer { isLoading = false }
 
-        lastKnownAccessToken = payload.accessToken
         await tokenStore.seed(
             accessToken: payload.accessToken,
             refreshToken: payload.refreshToken
         )
         try await refreshSession()
+        lastKnownAccessToken = payload.accessToken
         didCompleteBrowserSignIn = true
     }
 

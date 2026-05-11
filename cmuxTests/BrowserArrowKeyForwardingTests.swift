@@ -269,6 +269,16 @@ final class AuthManagerBrowserSignInTests: XCTestCase {
         }
     }
 
+    private struct FailingRefreshAuthClient: AuthClientProtocol {
+        func currentUser() async throws -> CMUXAuthUser? {
+            throw AuthManagerError.invalidCallback
+        }
+
+        func listTeams() async throws -> [AuthTeamSummary] {
+            []
+        }
+    }
+
     private func makeIsolatedSettingsStore() -> AuthSettingsStore {
         let suiteName = "cmux-auth-manager-browser-sign-in-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -346,6 +356,38 @@ final class AuthManagerBrowserSignInTests: XCTestCase {
             XCTAssertNil(storedAccessTokenAfterSignOut)
         } catch {
             XCTFail("Unexpected access token error: \(error)")
+        }
+    }
+
+    func testBrowserCallbackDoesNotCacheAccessTokenWhenRefreshFails() async throws {
+        let tokenStore = InMemoryAuthTokenStore()
+        let manager = AuthManager(
+            client: FailingRefreshAuthClient(),
+            tokenStore: tokenStore,
+            settingsStore: makeIsolatedSettingsStore(),
+            urlOpener: { _ in }
+        )
+        await manager.awaitBootstrapped()
+
+        let callbackURL = try XCTUnwrap(URL(
+            string: "\(AuthEnvironment.callbackScheme)://auth-callback?stack_refresh=refresh-token&stack_access=access-token"
+        ))
+
+        do {
+            try await manager.handleCallbackURL(callbackURL)
+            XCTFail("Expected refresh failure to propagate")
+        } catch AuthManagerError.invalidCallback {
+            XCTAssertFalse(manager.isAuthenticated)
+            XCTAssertFalse(manager.isLoading)
+            do {
+                _ = try await manager.getAccessToken()
+                XCTFail("Expected failed callback refresh to leave the fast cache empty")
+            } catch AuthManagerError.missingAccessToken {
+            } catch {
+                XCTFail("Unexpected access token error: \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected callback error: \(error)")
         }
     }
 }
