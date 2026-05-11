@@ -114,7 +114,7 @@ extension GhosttyNSView {
             || sourceId.localizedCaseInsensitiveContains("Bopomofo")
     }
 
-    func shouldOpenZhuyinCandidatesWithSyntheticSpace(
+    func shouldOpenBopomofoCandidatesWithSyntheticSpace(
         event: NSEvent,
         inputSourceId: String?,
         markedTextBefore: Bool,
@@ -137,7 +137,7 @@ extension GhosttyNSView {
         return true
     }
 
-    func shouldRememberZhuyinCandidateInteraction(
+    func shouldRememberBopomofoCandidateInteraction(
         event: NSEvent,
         inputSourceId: String?,
         markedTextBefore: Bool,
