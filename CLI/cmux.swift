@@ -9674,6 +9674,9 @@ struct CMUXCLI {
             let followMode = rem3.contains("--follow")
 
             if followMode {
+                guard !jsonOutput else {
+                    throw CLIError(message: "--json is not supported with --follow; use plain text output for streaming")
+                }
                 // Continuous streaming: poll surface, print only new content
                 let interval = Double(intervalArg ?? "0.5") ?? 0.5
                 guard interval > 0 else {
