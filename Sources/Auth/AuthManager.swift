@@ -183,11 +183,16 @@ final class AuthManager: ObservableObject {
         await bootstrapTask.value
     }
 
-    private var loginPollTask: Task<Void, Never>?
+    private var browserSignInTimeoutTimer: Timer?
     private var webAuthSession: ASWebAuthenticationSession?
 
     func beginSignIn(timeout: TimeInterval = AuthManager.defaultBrowserSignInTimeout) {
-        loginPollTask?.cancel()
+        beginSignIn(timeout: timeout, scheduleBrowserTimeout: true)
+    }
+
+    private func beginSignIn(timeout: TimeInterval, scheduleBrowserTimeout: Bool) {
+        browserSignInTimeoutTimer?.invalidate()
+        browserSignInTimeoutTimer = nil
         webAuthSession?.cancel()
         webAuthSession = nil
         isLoading = true
@@ -201,15 +206,29 @@ final class AuthManager: ObservableObject {
         authLog("beginSignIn: opening external browser url=\(signInURL.absoluteString)")
         urlOpener(signInURL)
 
-        loginPollTask = Task { @MainActor [weak self] in
-            let maxSeconds: Double = 24 * 60 * 60
-            let clamped = max(0, min(timeout, maxSeconds))
-            try? await Task.sleep(nanoseconds: UInt64(clamped * 1_000_000_000))
-            guard let self, !Task.isCancelled else { return }
-            if self.isLoading && !self.isAuthenticated {
-                self.isLoading = false
+        if scheduleBrowserTimeout {
+            scheduleBrowserSignInTimeout(timeout)
+        }
+    }
+
+    private func scheduleBrowserSignInTimeout(_ timeout: TimeInterval) {
+        let maxSeconds: Double = 24 * 60 * 60
+        let clamped = max(0, min(timeout, maxSeconds))
+        guard clamped > 0 else {
+            if isLoading && !isAuthenticated {
+                isLoading = false
             }
-            self.loginPollTask = nil
+            return
+        }
+
+        browserSignInTimeoutTimer = Timer.scheduledTimer(withTimeInterval: clamped, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if self.isLoading && !self.isAuthenticated {
+                    self.isLoading = false
+                }
+                self.browserSignInTimeoutTimer = nil
+            }
         }
     }
 
@@ -257,15 +276,19 @@ final class AuthManager: ObservableObject {
         }
     }
 
-    /// Starts the ASWebAuthenticationSession popup and awaits the user's
+    /// Starts sign-in and awaits the user's
     /// completion by observing isAuthenticated AND isLoading. Resolves when
-    /// authenticated, when the sign-in attempt settles unsuccessfully (popup
-    /// dismissed/cancelled/error), or when the deadline elapses. No polling
+    /// authenticated, when the sign-in attempt settles unsuccessfully
+    /// (popup dismissed/cancelled/error), or when the deadline elapses. No polling
     /// — the $isAuthenticated / $isLoading AsyncPublishers drive the wait.
     func beginSignInAndAwait(timeout: TimeInterval) async -> Bool {
         if isAuthenticated { return true }
-        beginSignIn(timeout: timeout)
-        return await waitForSignInSettled(timeout: timeout)
+        beginSignIn(timeout: timeout, scheduleBrowserTimeout: false)
+        let signedIn = await waitForSignInSettled(timeout: timeout)
+        if !signedIn && isLoading && !isAuthenticated {
+            isLoading = false
+        }
+        return signedIn
     }
 
     /// Signs out and awaits the state to flip. signOut() is already async and
@@ -428,8 +451,8 @@ final class AuthManager: ObservableObject {
             throw AuthManagerError.invalidCallback
         }
 
-        loginPollTask?.cancel()
-        loginPollTask = nil
+        browserSignInTimeoutTimer?.invalidate()
+        browserSignInTimeoutTimer = nil
         webAuthSession = nil
         isLoading = true
         defer { isLoading = false }
@@ -606,8 +629,8 @@ final class AuthManager: ObservableObject {
     }
 
     func signOut() async {
-        loginPollTask?.cancel()
-        loginPollTask = nil
+        browserSignInTimeoutTimer?.invalidate()
+        browserSignInTimeoutTimer = nil
         webAuthSession?.cancel()
         webAuthSession = nil
         try? await client.signOut()
