@@ -152,6 +152,7 @@ final class AuthManager: ObservableObject {
     /// `var` rather than `let` so the init body can reference `self` before it's
     /// assigned; the value is written exactly once, before init returns.
     private var bootstrapTask: Task<Void, Never>!
+    private static let defaultBrowserSignInTimeout: TimeInterval = 300
 
     init(
         client: (any AuthClientProtocol)? = nil,
@@ -185,12 +186,41 @@ final class AuthManager: ObservableObject {
     private var loginPollTask: Task<Void, Never>?
     private var webAuthSession: ASWebAuthenticationSession?
 
-    func beginSignIn() {
+    func beginSignIn(timeout: TimeInterval = AuthManager.defaultBrowserSignInTimeout) {
         loginPollTask?.cancel()
         webAuthSession?.cancel()
         webAuthSession = nil
         isLoading = true
 
+        if Self.shouldUseSystemWebAuthenticationSession {
+            beginSystemWebAuthenticationSession()
+            return
+        }
+
+        let signInURL = AuthEnvironment.signInURL()
+        authLog("beginSignIn: opening external browser url=\(signInURL.absoluteString)")
+        urlOpener(signInURL)
+
+        loginPollTask = Task { @MainActor [weak self] in
+            let maxSeconds: Double = 24 * 60 * 60
+            let clamped = max(0, min(timeout, maxSeconds))
+            try? await Task.sleep(nanoseconds: UInt64(clamped * 1_000_000_000))
+            guard let self, !Task.isCancelled else { return }
+            if self.isLoading && !self.isAuthenticated {
+                self.isLoading = false
+            }
+            self.loginPollTask = nil
+        }
+    }
+
+    private static var shouldUseSystemWebAuthenticationSession: Bool {
+        let value = ProcessInfo.processInfo.environment["CMUX_AUTH_USE_ASWEB_AUTH_SESSION"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return value == "1" || value == "true" || value == "yes"
+    }
+
+    private func beginSystemWebAuthenticationSession() {
         let signInURL = AuthEnvironment.signInURL()
         let callbackScheme = AuthEnvironment.callbackScheme
 
@@ -234,7 +264,7 @@ final class AuthManager: ObservableObject {
     /// — the $isAuthenticated / $isLoading AsyncPublishers drive the wait.
     func beginSignInAndAwait(timeout: TimeInterval) async -> Bool {
         if isAuthenticated { return true }
-        beginSignIn()
+        beginSignIn(timeout: timeout)
         return await waitForSignInSettled(timeout: timeout)
     }
 
@@ -398,6 +428,9 @@ final class AuthManager: ObservableObject {
             throw AuthManagerError.invalidCallback
         }
 
+        loginPollTask?.cancel()
+        loginPollTask = nil
+        webAuthSession = nil
         isLoading = true
         defer { isLoading = false }
 
@@ -573,6 +606,10 @@ final class AuthManager: ObservableObject {
     }
 
     func signOut() async {
+        loginPollTask?.cancel()
+        loginPollTask = nil
+        webAuthSession?.cancel()
+        webAuthSession = nil
         try? await client.signOut()
         await tokenStore.clear()
         clearSessionState(clearSelectedTeam: true)

@@ -14233,6 +14233,9 @@ private extension NSWindow {
         let firstResponderWebView = self.firstResponder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
+        let firstResponderEmbeddedWebView = self.firstResponder.flatMap {
+            Self.cmuxOwningEmbeddedWebView(for: $0)
+        }
         let firstResponderHasMarkedText = browserResponderHasMarkedText(self.firstResponder)
         let firstResponderIsCommandPaletteFieldEditor = Self.cmuxCommandPaletteOwnsFieldEditor(
             self.firstResponder as? NSTextView,
@@ -14324,22 +14327,23 @@ private extension NSWindow {
         }
 
         // Web forms rely on Return/Enter flowing through keyDown. If the original
-        // NSWindow.performKeyEquivalent consumes Enter first, submission never reaches
-        // WebKit. Route Return/Enter directly to the current first responder and
-        // mark handled to avoid the AppKit alert sound path.
+        // NSWindow.performKeyEquivalent handles Enter as an unclaimed key equivalent,
+        // AppKit can play the alert sound even though WebKit submits the form. Route
+        // Return/Enter directly to the current WebKit first responder and mark handled.
         if shouldDispatchBrowserReturnViaFirstResponderKeyDown(
             keyCode: event.keyCode,
-            firstResponderIsBrowser: firstResponderWebView != nil,
+            firstResponderIsBrowser: firstResponderWebView != nil || firstResponderEmbeddedWebView != nil,
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
             // Forwarding keyDown can re-enter performKeyEquivalent in WebKit/AppKit internals.
-            // On re-entry, fall back to normal dispatch to avoid an infinite loop.
+            // On re-entry, consume the in-flight Return so AppKit does not treat the
+            // already-submitted form key as an unhandled key equivalent and beep.
             if cmuxBrowserReturnForwardingDepth > 0 {
 #if DEBUG
-                cmuxDebugLog("  → browser Return/Enter reentry; using normal dispatch")
+                cmuxDebugLog("  → browser Return/Enter reentry; consumed during forwarded keyDown")
 #endif
-                return false
+                return true
             }
             cmuxBrowserReturnForwardingDepth += 1
             defer { cmuxBrowserReturnForwardingDepth = max(0, cmuxBrowserReturnForwardingDepth - 1) }
@@ -14543,6 +14547,51 @@ private extension NSWindow {
                     return nil
                 }
                 return portalWebView
+            }
+            current = candidate.superview
+        }
+
+        return nil
+    }
+
+    private static func cmuxOwningEmbeddedWebView(for responder: NSResponder) -> WKWebView? {
+        if let webView = responder as? WKWebView {
+            return webView
+        }
+
+        if let view = responder as? NSView,
+           let webView = cmuxOwningEmbeddedWebView(for: view) {
+            return webView
+        }
+
+        // WebKit's active text responder is often an internal descendant or next
+        // responder rather than the WKWebView itself. Walk the AppKit responder
+        // chain so ASWebAuthenticationSession-hosted forms get the same Return
+        // handling as cmux-owned browser panels.
+        var current = responder.nextResponder
+        while let next = current {
+            if let webView = next as? WKWebView {
+                return webView
+            }
+            if let view = next as? NSView,
+               let webView = cmuxOwningEmbeddedWebView(for: view) {
+                return webView
+            }
+            current = next.nextResponder
+        }
+
+        return nil
+    }
+
+    private static func cmuxOwningEmbeddedWebView(for view: NSView) -> WKWebView? {
+        if let webView = view as? WKWebView {
+            return webView
+        }
+
+        var current: NSView? = view.superview
+        while let candidate = current {
+            if let webView = candidate as? WKWebView {
+                return webView
             }
             current = candidate.superview
         }

@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import CMUXAuthCore
 import WebKit
 
 #if canImport(cmux_DEV)
@@ -151,5 +152,118 @@ final class BrowserReturnKeyForwardingTests: XCTestCase {
                 flags: [.shift]
             )
         )
+    }
+}
+
+@MainActor
+final class AuthManagerBrowserSignInTests: XCTestCase {
+    private actor InMemoryAuthTokenStore: StackAuthTokenStoreProtocol {
+        private var accessToken: String?
+        private var refreshToken: String?
+
+        func getStoredAccessToken() async -> String? {
+            accessToken
+        }
+
+        func getStoredRefreshToken() async -> String? {
+            refreshToken
+        }
+
+        func setTokens(accessToken: String?, refreshToken: String?) async {
+            self.accessToken = accessToken
+            self.refreshToken = refreshToken
+        }
+
+        func clearTokens() async {
+            accessToken = nil
+            refreshToken = nil
+        }
+
+        func compareAndSet(
+            compareRefreshToken: String,
+            newRefreshToken: String?,
+            newAccessToken: String?
+        ) async {
+            guard refreshToken == compareRefreshToken else { return }
+            refreshToken = newRefreshToken
+            accessToken = newAccessToken
+        }
+    }
+
+    private struct StubAuthClient: AuthClientProtocol {
+        let user = CMUXAuthUser(
+            id: "user_123",
+            primaryEmail: "user@example.com",
+            displayName: "Test User"
+        )
+        let teams = [AuthTeamSummary(id: "team_123", displayName: "Team")]
+
+        func currentUser() async throws -> CMUXAuthUser? {
+            user
+        }
+
+        func listTeams() async throws -> [AuthTeamSummary] {
+            teams
+        }
+    }
+
+    private func makeIsolatedSettingsStore() -> AuthSettingsStore {
+        let suiteName = "cmux-auth-manager-browser-sign-in-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        return AuthSettingsStore(userDefaults: defaults)
+    }
+
+    func testBeginSignInOpensExternalBrowserCallbackURL() async {
+        let tokenStore = InMemoryAuthTokenStore()
+        var openedURL: URL?
+        let manager = AuthManager(
+            client: StubAuthClient(),
+            tokenStore: tokenStore,
+            settingsStore: makeIsolatedSettingsStore(),
+            urlOpener: { openedURL = $0 }
+        )
+        await manager.awaitBootstrapped()
+
+        manager.beginSignIn(timeout: 60)
+
+        let url = openedURL
+        XCTAssertEqual(url?.path, "/handler/sign-in")
+        let components = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        let afterAuthReturnTo = components?.queryItems?.first { $0.name == "after_auth_return_to" }?.value
+        XCTAssertEqual(url?.scheme, AuthEnvironment.afterSignInOrigin.scheme)
+        XCTAssertEqual(url?.host, AuthEnvironment.afterSignInOrigin.host)
+        XCTAssertTrue(afterAuthReturnTo?.contains(AuthEnvironment.callbackURL.absoluteString) == true)
+        XCTAssertTrue(manager.isLoading)
+        await manager.signOut()
+    }
+
+    func testBrowserCallbackClearsLoadingAndSeedsTokens() async throws {
+        let tokenStore = InMemoryAuthTokenStore()
+        var openedURL: URL?
+        let manager = AuthManager(
+            client: StubAuthClient(),
+            tokenStore: tokenStore,
+            settingsStore: makeIsolatedSettingsStore(),
+            urlOpener: { openedURL = $0 }
+        )
+        await manager.awaitBootstrapped()
+
+        manager.beginSignIn(timeout: 60)
+        XCTAssertNotNil(openedURL)
+        XCTAssertTrue(manager.isLoading)
+
+        let callbackURL = try XCTUnwrap(URL(
+            string: "\(AuthEnvironment.callbackScheme)://auth-callback?stack_refresh=refresh-token&stack_access=access-token"
+        ))
+        try await manager.handleCallbackURL(callbackURL)
+
+        XCTAssertFalse(manager.isLoading)
+        XCTAssertTrue(manager.isAuthenticated)
+        XCTAssertEqual(manager.currentUser?.id, "user_123")
+        let storedAccessToken = await tokenStore.getStoredAccessToken()
+        let storedRefreshToken = await tokenStore.getStoredRefreshToken()
+        XCTAssertEqual(storedAccessToken, "access-token")
+        XCTAssertEqual(storedRefreshToken, "refresh-token")
     }
 }
