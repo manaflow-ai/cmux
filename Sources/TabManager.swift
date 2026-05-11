@@ -963,6 +963,7 @@ class TabManager: ObservableObject {
             if !isNavigatingHistory, let selectedTabId {
                 recordTabInHistory(selectedTabId)
             }
+            publishCmuxWorkspaceSelectedChange(from: previousTabId)
 #if DEBUG
             let switchId = debugWorkspaceSwitchId
             let switchDtMs = debugWorkspaceSwitchStartTime > 0
@@ -1053,8 +1054,18 @@ class TabManager: ObservableObject {
     private var uiTestCancellables = Set<AnyCancellable>()
 #endif
 
-    init(initialWorkingDirectory: String? = nil) {
-        addWorkspace(workingDirectory: initialWorkingDirectory)
+    init(
+        initialWorkspaceTitle: String? = nil,
+        initialWorkingDirectory: String? = nil,
+        initialTerminalInput: String? = nil,
+        autoWelcomeIfNeeded: Bool = true
+    ) {
+        addWorkspace(
+            title: initialWorkspaceTitle,
+            workingDirectory: initialWorkingDirectory,
+            initialTerminalInput: initialTerminalInput,
+            autoWelcomeIfNeeded: autoWelcomeIfNeeded
+        )
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
             object: nil,
@@ -1814,8 +1825,7 @@ class TabManager: ObservableObject {
             }
             if !keysToRemove.isEmpty {
                 for key in keysToRemove {
-                    tab.statusEntries.removeValue(forKey: key)
-                    tab.agentPIDs.removeValue(forKey: key)
+                    tab.clearAgentPID(key: key, clearStatus: true, refreshPorts: false)
                 }
                 let remainingAgentPIDs = Set(tab.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
                 PortScanner.shared.refreshAgentPorts(workspaceId: tab.id, agentPIDs: remainingAgentPIDs)
@@ -2142,6 +2152,8 @@ class TabManager: ObservableObject {
                     newWorkspace.focusedTerminalPanel?.surface.requestBackgroundSurfaceStartIfNeeded()
                 }
             }
+            publishCmuxWorkspaceCreated(newWorkspace, selected: select)
+            publishCmuxInitialSurfaceCreated(newWorkspace, selected: select)
             if select {
 #if DEBUG
                 debugPrimeWorkspaceSwitchTrigger("create", to: newWorkspace.id)
@@ -4127,6 +4139,7 @@ class TabManager: ObservableObject {
                 selectedTabId = tabs[newIndex].id
             }
         }
+        publishCmuxWorkspaceClosed(workspace)
     }
 
     /// Detach a workspace from this window without closing its panels.
@@ -4200,12 +4213,10 @@ class TabManager: ObservableObject {
         guard !closeConfirmationInFlight else { return }
         guard let plan = closeOtherTabsInFocusedPanePlan() else { return }
 
-        let count = plan.panelIds.count
-        let titleLines = plan.titles.map { "• \($0)" }.joined(separator: "\n")
-        let message = "This is about to close \(count) tab\(count == 1 ? "" : "s") in this pane:\n\(titleLines)"
+        let prompt = CloseOtherTabsConfirmationPrompt(titles: plan.titles)
         guard confirmClose(
-            title: "Close other tabs?",
-            message: message,
+            title: prompt.title,
+            message: prompt.message,
             acceptCmdD: false
         ) else { return }
 
@@ -4430,7 +4441,7 @@ class TabManager: ObservableObject {
                 continue
             }
             targetPanelIds.append(panelId)
-            targetTitles.append(closeOtherTabsDisplayTitle(workspace.panelTitle(panelId: panelId)))
+            targetTitles.append(CloseOtherTabsConfirmationPrompt.displayTitle(workspace.panelTitle(panelId: panelId)))
         }
 
         guard !targetPanelIds.isEmpty else { return nil }
@@ -4439,17 +4450,6 @@ class TabManager: ObservableObject {
             panelIds: targetPanelIds,
             titles: targetTitles
         )
-    }
-
-    private func closeOtherTabsDisplayTitle(_ title: String?) -> String {
-        let collapsed = title?
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\r", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let collapsed, !collapsed.isEmpty {
-            return collapsed
-        }
-        return "Untitled Tab"
     }
 
     private func orderedClosableWorkspaces(_ workspaceIds: [UUID], allowPinned: Bool) -> [Workspace] {
@@ -7282,7 +7282,7 @@ extension TabManager {
         restorableAgentIndex: RestorableAgentSessionIndex = .empty
     ) -> SessionTabManagerSnapshot {
         let restorableTabs = tabs
-            .filter { !$0.isRemoteWorkspace }
+            .filter(\.isRestorableInSessionSnapshot)
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         let workspaceSnapshots = restorableTabs
             .map {
@@ -7401,57 +7401,6 @@ extension TabManager {
                 userInfo: [GhosttyNotificationKey.tabId: selectedTabId]
             )
         }
-    }
-}
-
-// MARK: - Direction Types for Backwards Compatibility
-
-/// Split direction for backwards compatibility with old API
-enum SplitDirection {
-    case left, right, up, down
-
-    var isHorizontal: Bool {
-        self == .left || self == .right
-    }
-
-    var orientation: SplitOrientation {
-        isHorizontal ? .horizontal : .vertical
-    }
-
-    /// If true, insert the new pane on the "first" side (left/top).
-    /// If false, insert on the "second" side (right/bottom).
-    var insertFirst: Bool {
-        self == .left || self == .up
-    }
-}
-
-/// Resize direction for backwards compatibility
-enum ResizeDirection {
-    case left, right, up, down
-
-    var splitOrientation: String {
-        switch self {
-        case .left, .right:
-            return "horizontal"
-        case .up, .down:
-            return "vertical"
-        }
-    }
-
-    /// A split controls the target pane's right/bottom edge when the target is
-    /// the first child, and left/top edge when the target is the second child.
-    var requiresPaneInFirstChild: Bool {
-        switch self {
-        case .right, .down:
-            return true
-        case .left, .up:
-            return false
-        }
-    }
-
-    /// Positive values move the divider toward the second child (right/down).
-    var dividerDeltaSign: CGFloat {
-        requiresPaneInFirstChild ? 1 : -1
     }
 }
 

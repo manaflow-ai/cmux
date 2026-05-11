@@ -298,7 +298,7 @@
       "browserLinkBehavior": "Tarayıcı bağlantı davranışı",
       "browserLinkDesc": "Ayarlar > Tarayıcı'da cmux, farklı amaçlara sahip iki ana bilgisayar listesi sunar:",
       "browserHostsEmbed": "Gömülü Tarayıcıda Açılacak Ana Bilgisayarlar: terminal çıktısından tıklanan bağlantılara uygulanır. Bu listedeki ana bilgisayarlar cmux'ta açılır; diğer ana bilgisayarlar varsayılan tarayıcınızda açılır. Satır başına bir ana bilgisayar veya joker karakter destekler (örneğin: example.com, *.internal.example).",
-      "browserHostsHttp": "Gömülü Tarayıcıda İzin Verilen HTTP Ana Bilgisayarları: yalnızca HTTP (HTTPS olmayan) URL'lere uygulanır. Bu listedeki ana bilgisayarlar cmux'ta uyarı istemeden açılabilir. Varsayılanlar localhost, 127.0.0.1, ::1, 0.0.0.0 ve *.localtest.me'yi içerir.",
+      "browserHostsHttp": "Gömülü Tarayıcıda İzin Verilen HTTP Ana Bilgisayarları: yalnızca HTTP (HTTPS olmayan) URL'lere uygulanır. Bu listedeki ana bilgisayarlar cmux'ta uyarı istemeden açılabilir. Varsayılanlar localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 ve *.localtest.me'yi içerir.",
       "exampleConfig": "Örnek yapılandırma",
       "metaTitle": "Yapılandırma"
     },

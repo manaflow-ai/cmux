@@ -298,7 +298,7 @@
       "browserLinkBehavior": "Ponašanje linkova preglednika",
       "browserLinkDesc": "U Postavke > Preglednik, cmux izlaže dvije liste hostova sa različitim namjenama:",
       "browserHostsEmbed": "Hostovi za otvaranje u ugrađenom pregledniku: primjenjuje se na linkove kliknute iz terminalskog izlaza. Hostovi na ovoj listi se otvaraju u cmux-u; ostali hostovi se otvaraju u vašem podrazumijevanom pregledniku. Podržava jedan host ili wildcard po liniji (na primjer: example.com, *.internal.example).",
-      "browserHostsHttp": "HTTP hostovi dozvoljeni u ugrađenom pregledniku: primjenjuje se samo na HTTP (ne-HTTPS) URL-ove. Hostovi na ovoj listi se mogu otvoriti u cmux-u bez upozorenja. Podrazumijevane vrijednosti uključuju localhost, 127.0.0.1, ::1, 0.0.0.0 i *.localtest.me.",
+      "browserHostsHttp": "HTTP hostovi dozvoljeni u ugrađenom pregledniku: primjenjuje se samo na HTTP (ne-HTTPS) URL-ove. Hostovi na ovoj listi se mogu otvoriti u cmux-u bez upozorenja. Podrazumijevane vrijednosti uključuju localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 i *.localtest.me.",
       "exampleConfig": "Primjer konfiguracije",
       "metaTitle": "Konfiguracija"
     },
