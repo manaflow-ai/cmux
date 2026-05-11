@@ -84,10 +84,6 @@ enum WorkspaceIconPrompting {
 }
 
 private enum SidebarWorkspaceIconImageCache {
-    private struct FileMetadata: Sendable {
-        let cacheKey: String
-    }
-
     @MainActor
     private static let cache: NSCache<NSString, NSImage> = {
         let cache = NSCache<NSString, NSImage>()
@@ -108,8 +104,8 @@ private enum SidebarWorkspaceIconImageCache {
 
     nonisolated static func metadata(forExpandedPath expandedPath: String) async -> String {
         await Task.detached(priority: .utility) {
-            FileMetadata(cacheKey: cacheKey(forExpandedPath: expandedPath))
-        }.value.cacheKey
+            cacheKey(forExpandedPath: expandedPath)
+        }.value
     }
 
     nonisolated static func fileData(forExpandedPath expandedPath: String) async -> Data? {
@@ -127,7 +123,13 @@ private enum SidebarWorkspaceIconImageCache {
 
     @MainActor
     private static func cacheCost(for image: NSImage) -> Int {
-        let pixels = max(1, Int(image.size.width * image.size.height))
+        let representationPixels = image.representations.reduce(0) { currentMax, representation in
+            let width = max(0, representation.pixelsWide)
+            let height = max(0, representation.pixelsHigh)
+            return max(currentMax, width * height)
+        }
+        let fallbackPixels = Int(image.size.width * image.size.height)
+        let pixels = max(1, representationPixels, fallbackPixels)
         return pixels * 4
     }
 }
