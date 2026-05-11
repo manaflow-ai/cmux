@@ -279,8 +279,9 @@ extension WorkspaceCommandConfig {
             cwd: nil,
             color: normalizedColor,
             layout: nil,
-            remote: remote.map { remote in
+            remote: remote.flatMap { remote in
                 let host = remote.host.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !host.isEmpty else { return nil }
                 let identityFile = remote.identityFile?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let startupCommand = remote.startupCommand?

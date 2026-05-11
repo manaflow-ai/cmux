@@ -5979,7 +5979,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // bare local terminal.
         let willRestoreStartupSession =
             startupSessionSnapshot != nil && !didHandleExplicitOpenIntentAtStartup
-        let isFreshLaunch = mainWindowContexts.isEmpty && !willRestoreStartupSession
+        // Use the bootstrap-once flag rather than `mainWindowContexts.isEmpty`:
+        // SwiftUI's WindowGroup can register a main window context before this
+        // method runs, which would otherwise mask a genuine fresh launch.
+        let isFreshLaunch = !didBootstrapInitialMainWindow && !willRestoreStartupSession
         let windowId = ensureInitialMainWindowIfNeeded(shouldActivate: shouldActivate)
         if let manager = tabManagerFor(windowId: windowId) {
             startSocketListenerIfEnabled(
