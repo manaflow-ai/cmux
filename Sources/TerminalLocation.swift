@@ -64,21 +64,24 @@ struct TerminalLocation: Equatable {
         _ directory: String,
         source: Source = .plainPath
     ) -> TerminalLocation? {
-        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+        let trimmedForEmptyCheck = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedForEmptyCheck.isEmpty else { return nil }
 
-        if trimmed.hasPrefix("\u{1B}]7;") || trimmed.hasPrefix("7;") {
-            return parseOSC7Sequence(trimmed)
+        let newlineTrimmed = directory.trimmingCharacters(in: .newlines)
+        let uriCandidate = trimmedForEmptyCheck
+
+        if uriCandidate.hasPrefix("\u{1B}]7;") || uriCandidate.hasPrefix("7;") {
+            return parseOSC7Sequence(uriCandidate)
         }
 
-        guard trimmed.hasPrefix("file://") || trimmed.hasPrefix("kitty-shell-cwd://") else {
-            return local(path: trimmed, source: source)
+        guard uriCandidate.hasPrefix("file://") || uriCandidate.hasPrefix("kitty-shell-cwd://") else {
+            return local(path: newlineTrimmed, source: source)
         }
 
-        guard let components = URLComponents(string: trimmed),
+        guard let components = URLComponents(string: uriCandidate),
               let scheme = components.scheme?.lowercased(),
               scheme == "file" || scheme == "kitty-shell-cwd" else {
-            return local(path: trimmed, source: source)
+            return local(path: newlineTrimmed, source: source)
         }
 
         let path = components.percentEncodedPath.removingPercentEncoding ?? components.path

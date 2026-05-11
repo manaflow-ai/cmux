@@ -711,10 +711,14 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         }
 
         workspace.updatePanelDirectory(panelId: panelId, directory: directoryURL.path)
-        XCTAssertTrue(manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id).isEmpty)
+        XCTAssertTrue(
+            waitForCondition {
+                manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id).isEmpty
+            }
+        )
         let releaseProbe = DispatchSemaphore(value: 0)
         TabManager.commandRunnerForTesting = { _, executable, _, _ in
-            if executable == "git" || executable.hasSuffix("/git") {
+            if URL(fileURLWithPath: executable).lastPathComponent == "git" {
                 _ = releaseProbe.wait(timeout: .now() + 2)
             }
             return TabManager.CommandResult(

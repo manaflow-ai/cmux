@@ -8452,9 +8452,11 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func updatePanelDirectory(panelId: UUID, directory: String) {
-        let normalizedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedDirectory.isEmpty else { return }
-        let location = TerminalLocation.parseReportedDirectory(normalizedDirectory) ?? .local(path: normalizedDirectory)
+        let trimmedForEmptyCheck = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedForEmptyCheck.isEmpty else { return }
+        let newlineTrimmedDirectory = directory.trimmingCharacters(in: .newlines)
+        let location = TerminalLocation.parseReportedDirectory(newlineTrimmedDirectory) ??
+            .local(path: newlineTrimmedDirectory)
         updatePanelLocation(panelId: panelId, location: location)
     }
 

@@ -608,6 +608,16 @@ final class TerminalOSC7LocationTests: XCTestCase {
         XCTAssertEqual(location.displayDirectory, "remotehost:/tmp/repo ")
     }
 
+    func testPlainReportedDirectoryPreservesTrailingSpace() throws {
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("/tmp/repo ")
+        )
+
+        XCTAssertFalse(location.isRemote)
+        XCTAssertEqual(location.path, "/tmp/repo ")
+        XCTAssertEqual(location.displayDirectory, "/tmp/repo ")
+    }
+
     func testOSC7DecodesEscapedRemoteHostAuthorityBytes() throws {
         let location = try XCTUnwrap(
             TerminalLocation.parseReportedDirectory("file://deploy%40server/home/george/cmux")
@@ -693,6 +703,17 @@ final class TerminalOSC7LocationTests: XCTestCase {
 
         XCTAssertNil(workspace.panelDirectories[panelId])
         XCTAssertNil(workspace.terminalLocation(for: panelId))
+    }
+
+    @MainActor
+    func testPlainDirectoryUpdatePreservesTrailingSpace() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        workspace.updatePanelDirectory(panelId: panelId, directory: "/tmp/repo ")
+
+        XCTAssertEqual(workspace.terminalLocation(for: panelId)?.path, "/tmp/repo ")
+        XCTAssertEqual(workspace.panelDirectories[panelId], "/tmp/repo ")
     }
 
     @MainActor
