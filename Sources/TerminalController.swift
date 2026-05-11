@@ -387,8 +387,17 @@ class TerminalController {
     }
 
     nonisolated static func sidebarStatusProtocolValue(_ value: String) -> String {
-        value
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let localizedProtocolValues = [
+            (String(localized: "sidebar.agentStatus.needsInput", defaultValue: "Needs input"), "needs_input"),
+            (String(localized: "sidebar.agentStatus.running", defaultValue: "Running"), "running"),
+            (String(localized: "agent.codex.status.idle", defaultValue: "Idle"), "idle"),
+        ]
+        for (displayValue, protocolValue) in localizedProtocolValues
+            where trimmed.localizedCaseInsensitiveCompare(displayValue) == .orderedSame {
+            return protocolValue
+        }
+        return trimmed
             .lowercased()
             .replacingOccurrences(of: " ", with: "_")
     }
@@ -12881,7 +12890,7 @@ class TerminalController {
           clear_notifications [--tab=X]    - Clear notifications (all or per-tab)
           set_app_focus <active|inactive|clear> - Override app focus state
           simulate_app_active             - Trigger app active handler
-          set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set a status entry
+          set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--protocol=X] [--tab=X] - Set a status entry
           report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set sidebar metadata entry
           report_meta_block <key> [--priority=N] [--tab=X] -- <markdown> - Set freeform sidebar markdown block
           clear_status <key> [--tab=X] - Remove a status entry
@@ -16227,7 +16236,7 @@ class TerminalController {
         }
         let panelResolution = parseOptionalPanelIdOption(
             options: parsed.options,
-            usage: "set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=ID]"
+            usage: "set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--protocol=X] [--tab=X] [--panel=ID]"
         )
         if let error = panelResolution.error {
             return error
@@ -16240,7 +16249,9 @@ class TerminalController {
             }
             return nil
         }()
-        let protocolValue = Self.sidebarStatusProtocolValue(value)
+        let protocolValue = normalizedOptionValue(parsed.options["protocol"])
+            .map { Self.sidebarStatusProtocolValue($0) }
+            ?? Self.sidebarStatusProtocolValue(value)
 
         scheduleSidebarMutation(target: target) { _, tab in
             if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
@@ -16384,7 +16395,7 @@ class TerminalController {
     private func setStatus(_ args: String) -> String {
         upsertSidebarMetadata(
             args,
-            missingError: "ERROR: Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]"
+            missingError: "ERROR: Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--protocol=X] [--tab=X]"
         )
     }
 

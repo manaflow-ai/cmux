@@ -73,9 +73,6 @@ extension Workspace {
     }
 
     private func armAgentPIDExitWatcher(key: String, pid: pid_t, panelId: UUID?) {
-        if agentPIDExitWatchers[key] != nil, agentPIDExitWatcherPIDs[key] == pid {
-            return
-        }
         agentPIDExitWatchers.removeValue(forKey: key)?.cancel()
         agentPIDExitWatcherPIDs.removeValue(forKey: key)
         let source = DispatchSource.makeProcessSource(

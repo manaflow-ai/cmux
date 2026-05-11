@@ -14193,7 +14193,8 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     value: "Idle",
                     icon: "pause.circle.fill",
-                    color: "#8E8E93"
+                    color: "#8E8E93",
+                    protocolValue: "idle"
                 )
                 if let completion {
                     let title = String(
@@ -14235,7 +14236,8 @@ struct CMUXCLI {
                 surfaceId: surfaceId,
                 value: "Running",
                 icon: "bolt.fill",
-                color: "#4C8DFF"
+                color: "#4C8DFF",
+                protocolValue: "running"
             )
             print("OK")
 
@@ -14287,7 +14289,8 @@ struct CMUXCLI {
                 surfaceId: surfaceId,
                 value: sidebarStatus.value,
                 icon: sidebarStatus.icon,
-                color: sidebarStatus.color
+                color: sidebarStatus.color,
+                protocolValue: sidebarStatus.protocolValue
             )
             let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             print(response)
@@ -14388,6 +14391,7 @@ struct CMUXCLI {
                 value: statusValue,
                 icon: "bolt.fill",
                 color: "#4C8DFF",
+                protocolValue: "running",
                 pid: claudePid
             )
             print("OK")
@@ -14412,9 +14416,13 @@ struct CMUXCLI {
         value: String,
         icon: String,
         color: String,
+        protocolValue: String? = nil,
         pid: Int? = nil
     ) throws {
         var cmd = "set_status claude_code \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+        if let protocolValue {
+            cmd += " --protocol=\(protocolValue)"
+        }
         if let pid {
             cmd += " --pid=\(pid)"
         }
@@ -15684,22 +15692,26 @@ struct CMUXCLI {
         )
         static let needsInputIcon = "bell.fill"
         static let needsInputColor = "#4C8DFF"
+        static let needsInputProtocolValue = "needs_input"
         static let idleValue = String(localized: "agent.codex.status.idle", defaultValue: "Idle")
         static let idleIcon = "pause.circle.fill"
         static let idleColor = "#8E8E93"
+        static let idleProtocolValue = "idle"
     }
 
-    private func claudeNotificationSidebarStatus(subtitle: String) -> (value: String, icon: String, color: String) {
+    private func claudeNotificationSidebarStatus(subtitle: String) -> (value: String, protocolValue: String, icon: String, color: String) {
         switch subtitle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "permission", "attention", "error":
             return (
                 ClaudeNotificationSidebarStatusStyle.needsInputValue,
+                ClaudeNotificationSidebarStatusStyle.needsInputProtocolValue,
                 ClaudeNotificationSidebarStatusStyle.needsInputIcon,
                 ClaudeNotificationSidebarStatusStyle.needsInputColor
             )
         case "completed", "waiting":
             return (
                 ClaudeNotificationSidebarStatusStyle.idleValue,
+                ClaudeNotificationSidebarStatusStyle.idleProtocolValue,
                 ClaudeNotificationSidebarStatusStyle.idleIcon,
                 ClaudeNotificationSidebarStatusStyle.idleColor
             )
@@ -15707,6 +15719,7 @@ struct CMUXCLI {
             // Unknown Claude notification classes remain actionable until mapped explicitly.
             return (
                 ClaudeNotificationSidebarStatusStyle.needsInputValue,
+                ClaudeNotificationSidebarStatusStyle.needsInputProtocolValue,
                 ClaudeNotificationSidebarStatusStyle.needsInputIcon,
                 ClaudeNotificationSidebarStatusStyle.needsInputColor
             )
