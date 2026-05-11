@@ -2559,32 +2559,24 @@ struct CMUXCLI {
                     print("OK \(vmId)")
                 }
 
-            case "ssh-info", "ssh":
+            case "ssh":
                 guard let vmId = rest.first else {
                     throw CLIError(message: "Usage: cmux \(command) ssh <id>")
                 }
-                let response = try client.sendV2(method: "vm.ssh_info", params: ["id": vmId], responseTimeout: 60)
-                if jsonOutput {
-                    print(jsonString(response))
-                    break
+                let shortId = String(vmId.prefix(8))
+                try vmOpenShell(
+                    id: vmId,
+                    workspaceName: "vm:\(shortId)",
+                    client: client,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat
+                )
+
+            case "ssh-info":
+                guard let vmId = rest.first else {
+                    throw CLIError(message: "Usage: cmux \(command) ssh-info <id>")
                 }
-                let host = (response["host"] as? String) ?? "?"
-                let port = (response["port"] as? Int) ?? 22
-                let username = (response["username"] as? String) ?? "?"
-                let cred = (response["credential"] as? [String: Any]) ?? [:]
-                let credKind = (cred["kind"] as? String) ?? "?"
-                let credValue = (cred["value"] as? String) ?? "?"
-                if credKind == "password" {
-                    print("ssh \(username)@\(host) -p \(port)")
-                    print("")
-                    print("  host:      \(host)")
-                    print("  port:      \(port)")
-                    print("  username:  \(username)")
-                    print("  password:  \(credValue)")
-                } else {
-                    print("authorizedKey credential not yet supported by `cmux \(command) ssh`; raw response:")
-                    print(jsonString(response))
-                }
+                try printVMSSHInfo(id: vmId, command: command, client: client, jsonOutput: jsonOutput)
 
             case "ssh-attach":
                 try runVMSSHAttach(commandArgs: rest, client: client)
@@ -5236,8 +5228,10 @@ struct CMUXCLI {
             "cmux_remote_bootstrap_b64=\(shellQuote(encodedBootstrapScript))",
             "cmux_remote_bootstrap=\"$(printf %s \"$cmux_remote_bootstrap_b64\" | base64 -d 2>/dev/null || printf %s \"$cmux_remote_bootstrap_b64\" | base64 -D 2>/dev/null)\"",
             "cmux_remote_bootstrap=\"$(printf '%s' \"$cmux_remote_bootstrap\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_surface_id/g\")\"",
-            "if ! printf '%s' \"$cmux_remote_bootstrap\" | command \(installSSHPrefix) -T \(shellQuote(options.destination)) \(shellQuote(remoteBootstrapInstallCommand)); then",
-            "  exit 1",
+            "printf '%s' \"$cmux_remote_bootstrap\" | command \(installSSHPrefix) -T \(shellQuote(options.destination)) \(shellQuote(remoteBootstrapInstallCommand))",
+            "cmux_remote_install_status=$?",
+            "if [ \"$cmux_remote_install_status\" -ne 0 ]; then",
+            "  exit \"$cmux_remote_install_status\"",
             "fi",
             "cmux_remote_command_template=\(shellQuote(remoteCommandTemplate))",
             "cmux_remote_command=\"$(printf '%s' \"$cmux_remote_command_template\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_surface_id/g\")\"",
@@ -5773,20 +5767,47 @@ struct CMUXCLI {
         scriptLines += [
             "rm -f -- \"$0\" 2>/dev/null || true",
             "CMUX_SSH_SESSION_ENDED=0",
+            "CMUX_SSH_STARTUP_PID=$$",
+            "export CMUX_SSH_STARTUP_PID",
+            "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\"",
+            "case \"$cmux_ssh_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_reconnect_limit=20 ;; esac",
+            "cmux_ssh_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
+            "case \"$cmux_ssh_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_reconnect_delay=2 ;; esac",
+            "cmux_ssh_retry=0",
+            "CMUX_SSH_CHILD_PID=",
+            "CMUX_SSH_PENDING_SIGNAL=",
+            "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
             "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); }",
-            "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
+            "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; if [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; return; fi; CMUX_SSH_SESSION_ENDED=1; trap - EXIT HUP INT TERM; kill -TERM \"$CMUX_SSH_CHILD_PID\" 2>/dev/null || true; exit \"$cmux_ssh_signal_status\"; }",
             "trap 'cmux_ssh_session_end' EXIT",
             "trap 'cmux_ssh_signal_exit 129' HUP",
             "trap 'cmux_ssh_signal_exit 130' INT",
             "trap 'cmux_ssh_signal_exit 143' TERM",
+            "while :; do",
         ]
         if isShellSnippet {
-            scriptLines.append(sshCommand)
+            scriptLines += [
+                "  (",
+                "    \(sshCommand)",
+                "  ) &",
+            ]
         } else {
-            scriptLines.append("command \(sshCommand)")
+            scriptLines.append("  command \(sshCommand) &")
         }
         scriptLines += [
-            "cmux_ssh_status=$?",
+            "  CMUX_SSH_CHILD_PID=$!",
+            "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_signal_exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
+            "  wait \"$CMUX_SSH_CHILD_PID\"",
+            "  cmux_ssh_status=$?",
+            "  CMUX_SSH_CHILD_PID=",
+            "  if [ \"$cmux_ssh_status\" -eq 0 ]; then break; fi",
+            "  if [ \"$cmux_ssh_status\" -ne 255 ]; then break; fi",
+            "  if [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi",
+            "  cmux_ssh_retry=$((cmux_ssh_retry + 1))",
+            "  cmux_ssh_note '\\n\\033[33m[cmux] ssh exited with status %s; reconnecting (attempt %s/%s).\\033[0m\\n\\033[2m[cmux] close this pane or press Ctrl-C to stop reconnecting.\\033[0m\\n' \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"",
+            "  if [ \"$cmux_ssh_reconnect_delay\" -gt 0 ]; then sleep \"$cmux_ssh_reconnect_delay\"; fi",
+            "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_session_end; trap - EXIT HUP INT TERM; exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
+            "done",
             "trap - EXIT HUP INT TERM",
             "cmux_ssh_session_end",
             // Hold the pane so the user can see the error instead of silently falling
@@ -5794,9 +5815,7 @@ struct CMUXCLI {
             // after the startup command exits, and a dead VM looks identical to "I never
             // SSH'd" — the surface shows `Last login: ... on ttys072` + a local prompt.
             "if [ \"$cmux_ssh_status\" -ne 0 ]; then",
-            "  printf '\\n\\033[31m[cmux] ssh exited with status %s.\\033[0m\\n' \"$cmux_ssh_status\" >&2",
-            "  printf '\\033[2m[cmux] the remote VM may have been paused, destroyed, or lost network.\\033[0m\\n' >&2",
-            "  printf '\\033[2m[cmux] press Enter to close this pane.\\033[0m\\n' >&2",
+            "  printf '\\n\\033[31m[cmux] ssh exited with status %s.\\033[0m\\n\\033[2m[cmux] the remote VM may have been paused, destroyed, or lost network.\\033[0m\\n\\033[2m[cmux] press Enter to close this pane.\\033[0m\\n' \"$cmux_ssh_status\" >&2 || true",
             "  IFS= read -r _cmux_dismiss_key 2>/dev/null || true",
             "fi",
             "exit $cmux_ssh_status",
@@ -5991,6 +6010,32 @@ struct CMUXCLI {
             remoteRelayPort: remoteRelayPort,
             skipDaemonBootstrap: true
         )
+    }
+
+    private func printVMSSHInfo(id vmID: String, command: String, client: SocketClient, jsonOutput: Bool) throws {
+        let response = try client.sendV2(method: "vm.ssh_info", params: ["id": vmID], responseTimeout: 60)
+        if jsonOutput {
+            print(jsonString(response))
+            return
+        }
+        let host = (response["host"] as? String) ?? "?"
+        let port = (response["port"] as? Int) ?? 22
+        let username = (response["username"] as? String) ?? "?"
+        let cred = (response["credential"] as? [String: Any]) ?? [:]
+        let credKind = (cred["kind"] as? String) ?? "?"
+        let credValue = (cred["value"] as? String) ?? "?"
+        if credKind == "password" {
+            print("ssh \(username)@\(host) -p \(port)")
+            print("")
+            print("  host:      \(host)")
+            print("  port:      \(port)")
+            print("  username:  \(username)")
+            print("  password:  \(credValue)")
+        } else {
+            let kindDescription = credKind.isEmpty || credKind == "?" ? "unknown" : credKind
+            print("credential kind \"\(kindDescription)\" not yet supported by `cmux \(command) ssh-info`; raw response:")
+            print(jsonString(response))
+        }
     }
 
     private func runVMSSHAttach(commandArgs: [String], client: SocketClient) throws {
@@ -8688,7 +8733,7 @@ struct CMUXCLI {
             """
         case "vm", "cloud":
             return """
-            Usage: cmux \(command) <new|ls|rm|exec|shell|attach|ssh> [args...]
+            Usage: cmux \(command) <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
 
@@ -8700,10 +8745,12 @@ struct CMUXCLI {
                                         just print the id and exit (scripting primitive).
               shell <id>                Drop into an interactive shell on an existing VM.
                                         Alias: `attach <id>`.
+              ssh <id>                  Drop into a cmux-managed SSH workspace for an existing
+                                        VM, using the same session path as `cmux ssh`.
+              ssh-info <id>             Print SSH connection details when the VM provider
+                                        exposes SSH.
               rm <id>                   Destroy a VM.
               exec <id> -- <command...> Run a shell command inside the VM and print stdout.
-              ssh <id>                  Print a ready-to-paste SSH one-liner when the VM
-                                        provider exposes SSH.
 
             Env:
               CMUX_VM_API_BASE_URL       Override the backend origin (default: the cmux website).
