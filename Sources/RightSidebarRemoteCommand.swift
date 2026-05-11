@@ -1,6 +1,6 @@
 import Foundation
 
-struct RightSidebarRemoteTarget: Equatable {
+nonisolated struct RightSidebarRemoteTarget: Equatable, Sendable {
     var windowId: UUID? = nil
     var workspaceId: UUID? = nil
 
@@ -9,7 +9,7 @@ struct RightSidebarRemoteTarget: Equatable {
     }
 }
 
-enum RightSidebarRemoteCommand: Equatable {
+nonisolated enum RightSidebarRemoteCommand: Equatable, Sendable {
     case toggle
     case show
     case hide
@@ -18,21 +18,21 @@ enum RightSidebarRemoteCommand: Equatable {
     case getState
 }
 
-struct RightSidebarRemoteRequest: Equatable {
+nonisolated struct RightSidebarRemoteRequest: Equatable, Sendable {
     let command: RightSidebarRemoteCommand
     let target: RightSidebarRemoteTarget
 }
 
-struct RightSidebarRemoteParseError: Error, Equatable {
+nonisolated struct RightSidebarRemoteParseError: Error, Equatable, Sendable {
     let message: String
 }
 
-struct RightSidebarRemoteState: Equatable {
+nonisolated struct RightSidebarRemoteState: Equatable, Sendable {
     let visible: Bool
     let mode: RightSidebarMode
 }
 
-enum RightSidebarRemoteApplyResult: Equatable {
+nonisolated enum RightSidebarRemoteApplyResult: Equatable, Sendable {
     case ok
     case state(RightSidebarRemoteState)
     case failure(String)
