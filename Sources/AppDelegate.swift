@@ -14264,8 +14264,7 @@ private extension NSWindow {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
         let firstResponderEmbeddedWebView = self.firstResponder.flatMap {
-            Self.cmuxOwningEmbeddedWebViewFromFieldEditorOwner($0)
-                ?? Self.cmuxOwningEmbeddedWebView(for: $0)
+            Self.cmuxOwningEmbeddedWebView(for: $0)
         }
         let browserKeyDownTarget: NSResponder? = firstResponderWebView
             ?? firstResponderEmbeddedWebView
