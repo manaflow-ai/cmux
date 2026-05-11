@@ -430,6 +430,7 @@ final class AuthManager: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
+        lastKnownAccessToken = payload.accessToken
         await tokenStore.seed(
             accessToken: payload.accessToken,
             refreshToken: payload.refreshToken
@@ -605,6 +606,7 @@ final class AuthManager: ObservableObject {
         webAuthSession?.cancel()
         webAuthSession = nil
         isLoading = false
+        lastKnownAccessToken = nil
         try? await client.signOut()
         await tokenStore.clear()
         clearSessionState(clearSelectedTeam: true)

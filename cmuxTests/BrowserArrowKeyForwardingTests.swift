@@ -326,5 +326,18 @@ final class AuthManagerBrowserSignInTests: XCTestCase {
         let storedRefreshToken = await tokenStore.getStoredRefreshToken()
         XCTAssertEqual(storedAccessToken, "access-token")
         XCTAssertEqual(storedRefreshToken, "refresh-token")
+        let cachedAccessToken = try await manager.getAccessToken()
+        XCTAssertEqual(cachedAccessToken, "access-token")
+
+        await manager.signOut()
+        do {
+            _ = try await manager.getAccessToken()
+            XCTFail("Expected sign out to clear the cached access token")
+        } catch AuthManagerError.missingAccessToken {
+            let storedAccessTokenAfterSignOut = await tokenStore.getStoredAccessToken()
+            XCTAssertNil(storedAccessTokenAfterSignOut)
+        } catch {
+            XCTFail("Unexpected access token error: \(error)")
+        }
     }
 }
