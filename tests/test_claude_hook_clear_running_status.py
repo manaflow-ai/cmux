@@ -167,6 +167,10 @@ def has_command(commands: list[str], prefix: str) -> bool:
     return any(command.startswith(prefix) for command in commands)
 
 
+def has_command_with(commands: list[str], prefix: str, fragment: str) -> bool:
+    return any(command.startswith(prefix) and fragment in command for command in commands)
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -250,10 +254,22 @@ def main() -> int:
             print("FAIL: expected clear SessionStart to clear stale notifications")
             print(f"clear_commands={clear_commands!r}")
             return 1
-        if not has_command(clear_commands, f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}"):
-            print("FAIL: expected clear SessionStart to set Claude Running")
+        if not has_command_with(
+            clear_commands,
+            f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            print("FAIL: expected clear SessionStart to set Claude Running on the current panel")
             print(f"clear_commands={clear_commands!r}")
             return 1
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            {"session_id": old_session_id, "source": "startup", "cwd": "/tmp"},
+            env,
+        )
 
         old_stop_start = len(server.commands)
         run_claude_hook(

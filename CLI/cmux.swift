@@ -522,6 +522,10 @@ private final class ClaudeHookSessionStore {
         }
     }
 
+    /// Returns true when an event belongs to the workspace's active Claude session.
+    /// It fails open when the event cannot identify a session/workspace, when no
+    /// active session is registered yet, or when either side lacks a turnId so
+    /// multi-turn continuations can proceed after Stop clears the active turn.
     func isCurrent(
         sessionId: String?,
         workspaceId: String,
@@ -14205,7 +14209,10 @@ struct CMUXCLI {
                 fallbackKind: "claude",
                 cwd: parsedInput.cwd
             )
+            let isClearSessionStart = isClaudeClearSessionStart(parsedInput)
             if let sessionId = parsedInput.sessionId {
+                // Non-clear SessionStart can arrive late from startup/resume/compact
+                // after /clear, so only /clear establishes a new active boundary.
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -14213,7 +14220,7 @@ struct CMUXCLI {
                     cwd: parsedInput.cwd,
                     pid: claudePid,
                     launchCommand: launchCommand,
-                    markActive: true,
+                    markActive: isClearSessionStart,
                     turnId: parsedInput.turnId
                 )
             }
@@ -14227,11 +14234,12 @@ struct CMUXCLI {
                     client: client
                 )
             }
-            if isClaudeClearSessionStart(parsedInput) {
+            if isClearSessionStart {
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
                 try setClaudeStatus(
                     client: client,
                     workspaceId: workspaceId,
+                    surfaceId: surfaceId,
                     value: "Running",
                     icon: "bolt.fill",
                     color: "#4C8DFF",
@@ -14262,7 +14270,8 @@ struct CMUXCLI {
                 guard shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     parsedInput: parsedInput,
-                    workspaceId: workspaceId
+                    workspaceId: workspaceId,
+                    telemetry: telemetry
                 ) else {
                     telemetry.breadcrumb("claude-hook.stop.stale")
                     print("OK")
@@ -14330,7 +14339,8 @@ struct CMUXCLI {
             guard shouldApplyClaudeHookVisibleMutation(
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
-                workspaceId: workspaceId
+                workspaceId: workspaceId,
+                telemetry: telemetry
             ) else {
                 telemetry.breadcrumb("claude-hook.prompt-submit.stale")
                 print("OK")
@@ -14371,7 +14381,8 @@ struct CMUXCLI {
             guard shouldApplyClaudeHookVisibleMutation(
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
-                workspaceId: workspaceId
+                workspaceId: workspaceId,
+                telemetry: telemetry
             ) else {
                 telemetry.breadcrumb("claude-hook.notification.stale")
                 print("OK")
@@ -14444,13 +14455,17 @@ struct CMUXCLI {
                 workspaceId: fallbackWorkspaceId,
                 surfaceId: fallbackSurfaceId
             )
+            // consume() calls clearActiveSessionIfMatching before returning
+            // consumedSession, so isCurrent can treat parsedInput.sessionId as
+            // current only when the consumed session was the active one.
             if let consumedSession {
                 let workspaceId = consumedSession.workspaceId
                 sendClaudeFeedTelemetry(workspaceId: workspaceId)
                 let shouldClearVisibleState = shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     parsedInput: parsedInput,
-                    workspaceId: workspaceId
+                    workspaceId: workspaceId,
+                    telemetry: telemetry
                 )
                 if shouldClearVisibleState {
                     _ = try? sendV1Command(
@@ -14485,7 +14500,8 @@ struct CMUXCLI {
             guard shouldApplyClaudeHookVisibleMutation(
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
-                workspaceId: workspaceId
+                workspaceId: workspaceId,
+                telemetry: telemetry
             ) else {
                 telemetry.breadcrumb("claude-hook.pre-tool-use.stale")
                 print("OK")
@@ -14568,13 +14584,27 @@ struct CMUXCLI {
     private func shouldApplyClaudeHookVisibleMutation(
         sessionStore: ClaudeHookSessionStore,
         parsedInput: ClaudeHookParsedInput,
-        workspaceId: String
+        workspaceId: String,
+        telemetry: CLISocketSentryTelemetry
     ) -> Bool {
-        (try? sessionStore.isCurrent(
-            sessionId: parsedInput.sessionId,
-            workspaceId: workspaceId,
-            turnId: parsedInput.turnId
-        )) ?? true
+        do {
+            return try sessionStore.isCurrent(
+                sessionId: parsedInput.sessionId,
+                workspaceId: workspaceId,
+                turnId: parsedInput.turnId
+            )
+        } catch {
+            telemetry.breadcrumb(
+                "claude-hook.is-current.error",
+                data: [
+                    "error": String(describing: error),
+                    "session_id": parsedInput.sessionId ?? "",
+                    "workspace_id": workspaceId,
+                    "turn_id": parsedInput.turnId ?? "",
+                ]
+            )
+            return true
+        }
     }
 
     private func isClaudeClearSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {

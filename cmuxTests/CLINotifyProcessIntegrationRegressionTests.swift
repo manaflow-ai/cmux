@@ -21,7 +21,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertTrue(
             context.state.commands.contains {
-                $0 == "set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)"
+                $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
             },
             "Expected clear SessionStart to mark Claude running, saw \(context.state.commands)"
         )
@@ -47,6 +48,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(clearStart.timedOut, clearStart.stderr)
         XCTAssertEqual(clearStart.status, 0, clearStart.stderr)
 
+        let lateOldStart = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"old-session","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(lateOldStart.timedOut, lateOldStart.stderr)
+        XCTAssertEqual(lateOldStart.status, 0, lateOldStart.stderr)
+
         let staleStop = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "stop"],
@@ -57,7 +66,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         XCTAssertTrue(
             context.state.commands.contains {
-                $0 == "set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)"
+                $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
             },
             "Expected clear SessionStart to mark Claude running, saw \(context.state.commands)"
         )
