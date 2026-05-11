@@ -9649,6 +9649,7 @@ struct CMUXCLI {
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
             let (linesArg, rem2) = parseOption(rem1, name: "--lines")
+            let sawIntervalFlag = rem2.contains("--interval")
             let (intervalArg, rem3) = parseOption(rem2, name: "--interval")
             let workspaceArg = wsArg ?? (windowOverride == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let surfaceArg = sfArg ?? (wsArg == nil && windowOverride == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
@@ -9678,6 +9679,9 @@ struct CMUXCLI {
                     throw CLIError(message: "--json is not supported with --follow; use plain text output for streaming")
                 }
                 // Continuous streaming: poll surface, print only new content
+                if sawIntervalFlag && intervalArg == nil {
+                    throw CLIError(message: "--interval requires a value")
+                }
                 guard let intervalValue = Double(intervalArg ?? "0.5"), intervalValue > 0 else {
                     throw CLIError(message: "--interval must be a positive number")
                 }
