@@ -60,7 +60,7 @@ struct FeedPanelView: View {
             case .actionable:
                 return String(localized: "feed.filter.actionable", defaultValue: "Actionable")
             case .activity:
-                return String(localized: "feed.filter.activity", defaultValue: "Activity")
+                return String(localized: "feed.filter.activity", defaultValue: "All Activity")
             }
         }
         var symbolName: String {
@@ -108,7 +108,7 @@ struct FeedPanelView: View {
 
     private var controlBarContent: some View {
         HStack(spacing: 6) {
-            ForEach([Filter.actionable]) { f in
+            ForEach(Filter.allCases) { f in
                 FeedSecondaryFilterButton(
                     filter: f,
                     isSelected: filter == f
@@ -226,29 +226,11 @@ private struct FeedListView: View {
                 actions: actions
             )
         case .activity:
-            let stable = snapshots.filter(prefersStableSurface)
-            let history = snapshots.filter { !prefersStableSurface($0) }
-            if history.isEmpty && !hasMorePersistedItems {
-                stableScrollSurface(
-                    snapshots: stable,
-                    actions: actions
-                )
-            } else {
-                VStack(spacing: 0) {
-                    if !stable.isEmpty {
-                        stableRows(
-                            snapshots: stable,
-                            actions: actions
-                        )
-                        rowSeparator
-                    }
-                    historyList(
-                        snapshots: history,
-                        actions: actions,
-                        showsLoadMore: hasMorePersistedItems
-                    )
-                }
-            }
+            activityScrollSurface(
+                snapshots: snapshots,
+                actions: actions,
+                showsLoadMore: hasMorePersistedItems
+            )
         }
     }
 
@@ -272,36 +254,34 @@ private struct FeedListView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    private func stableRows(
-        snapshots: [FeedItemSnapshot],
-        actions: FeedRowActions
-    ) -> some View {
-        VStack(spacing: 0) {
-            ForEach(Array(snapshots.enumerated()), id: \.element.id) { idx, snapshot in
-                rowSurface(
-                    snapshot: snapshot,
-                    actions: actions,
-                    showsDivider: idx < snapshots.count - 1
-                )
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func historyList(
+    private func activityScrollSurface(
         snapshots: [FeedItemSnapshot],
         actions: FeedRowActions,
         showsLoadMore: Bool
     ) -> some View {
-        List {
-            // Single chronological history stream. The plain List keeps
-            // virtualization for older feed rows while active decision
-            // surfaces live above it in a stable stack.
-            ForEach(Array(snapshots.enumerated()), id: \.element.id) { idx, snapshot in
+        let groups = activitySnapshotGroups(snapshots)
+        return List {
+            ForEach(Array(groups.stable.enumerated()), id: \.element.id) { idx, snapshot in
                 rowSurface(
                     snapshot: snapshot,
                     actions: actions,
-                    showsDivider: idx < snapshots.count - 1
+                    showsDivider: idx < groups.stable.count - 1
+                )
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+            }
+            if !groups.stable.isEmpty && (!groups.history.isEmpty || showsLoadMore) {
+                rowSeparator
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+            }
+            ForEach(Array(groups.history.enumerated()), id: \.element.id) { idx, snapshot in
+                rowSurface(
+                    snapshot: snapshot,
+                    actions: actions,
+                    showsDivider: idx < groups.history.count - 1
                 )
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
@@ -322,6 +302,23 @@ private struct FeedListView: View {
         .feedZeroScrollContentMargins()
         .environment(\.defaultMinListRowHeight, 0)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func activitySnapshotGroups(
+        _ snapshots: [FeedItemSnapshot]
+    ) -> (stable: [FeedItemSnapshot], history: [FeedItemSnapshot]) {
+        var stable: [FeedItemSnapshot] = []
+        var history: [FeedItemSnapshot] = []
+        stable.reserveCapacity(snapshots.count)
+        history.reserveCapacity(snapshots.count)
+        for snapshot in snapshots {
+            if prefersStableSurface(snapshot) {
+                stable.append(snapshot)
+            } else {
+                history.append(snapshot)
+            }
+        }
+        return (stable, history)
     }
 
     private func rowSurface(
