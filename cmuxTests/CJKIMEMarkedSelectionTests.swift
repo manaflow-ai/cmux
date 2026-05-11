@@ -413,25 +413,25 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
-    func testKoreanInputSourceDoesNotSwallowArrowKeysWithoutComposition() throws {
+    func testKoreanInputSourceDoesNotSwallowNavigationAndSpaceKeysWithoutComposition() throws {
         try assertInputSourceDoesNotSwallowNoMarkedIMECommandKeys(
             "com.apple.inputmethod.Korean.2SetKorean"
         )
     }
 
-    func testJapaneseInputSourceDoesNotSwallowArrowKeysWithoutComposition() throws {
+    func testJapaneseInputSourceDoesNotSwallowNavigationAndSpaceKeysWithoutComposition() throws {
         try assertInputSourceDoesNotSwallowNoMarkedIMECommandKeys(
             "com.apple.inputmethod.Kotoeri.Japanese"
         )
     }
 
-    func testSimplifiedChinesePinyinDoesNotSwallowArrowKeysWithoutComposition() throws {
+    func testSimplifiedChinesePinyinDoesNotSwallowNavigationAndSpaceKeysWithoutComposition() throws {
         try assertInputSourceDoesNotSwallowNoMarkedIMECommandKeys(
             "com.apple.inputmethod.SCIM.ITABC"
         )
     }
 
-    func testCangjieDoesNotSwallowArrowKeysWithoutComposition() throws {
+    func testCangjieDoesNotSwallowNavigationAndSpaceKeysWithoutComposition() throws {
         try assertInputSourceDoesNotSwallowNoMarkedIMECommandKeys(
             "com.apple.inputmethod.TCIM.Cangjie"
         )
