@@ -9925,11 +9925,26 @@ final class Workspace: Identifiable, ObservableObject {
         // Suppress the old view's becomeFirstResponder side-effects during SwiftUI reparenting.
         // Without this, reparenting triggers onFocus + ghostty_surface_set_focus on the old view,
         // stealing focus from the new panel and creating model/surface divergence.
+        let browserSourcePanel = panels[panelId] as? BrowserPanel
         if focus {
             previousHostedView?.suppressReparentFocus()
-            focusPanel(newPanel.id, previousHostedView: previousHostedView)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                previousHostedView?.clearSuppressReparentFocus()
+            if let browserSourcePanel {
+                // WKWebView portal still covers the full workspace until SwiftUI layout
+                // shrinks it to the new split bounds. Focus the browser first (matches
+                // existing geometry), then move focus to the new terminal on the next
+                // runloop after layout has updated, so its first click is not swallowed
+                // by the stale portal.
+                focusPanel(browserSourcePanel.id, previousHostedView: previousHostedView)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.focusPanel(newPanel.id, previousHostedView: nil)
+                    previousHostedView?.clearSuppressReparentFocus()
+                }
+            } else {
+                focusPanel(newPanel.id, previousHostedView: previousHostedView)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    previousHostedView?.clearSuppressReparentFocus()
+                }
             }
         } else {
             preserveFocusAfterNonFocusSplit(

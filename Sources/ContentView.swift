@@ -877,7 +877,11 @@ private func findFileDropOverlayView(in root: NSView?) -> FileDropOverlayView? {
 private func configureFileDropOverlay(_ overlay: FileDropOverlayView, tabManager: TabManager) {
     overlay.onDrop = { [weak tabManager] urls in
         MainActor.assumeIsolated {
-            guard let tabManager, let terminal = tabManager.selectedWorkspace?.focusedTerminalPanel else { return false }
+            guard let tabManager else { return false }
+            // Plain-directory drops onto the sidebar open or extend a workspace.
+            if tabManager.handleSidebarFolderDrop(urls) { return true }
+            // Otherwise fall back to pasting the path into the focused terminal.
+            guard let terminal = tabManager.selectedWorkspace?.focusedTerminalPanel else { return false }
             return terminal.hostedView.handleDroppedURLs(urls)
         }
     }

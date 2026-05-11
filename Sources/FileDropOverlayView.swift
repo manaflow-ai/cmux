@@ -305,7 +305,9 @@ final class FileDropOverlayView: NSView {
             preparedDragWebView = accepted ? webView : nil
             return accepted
         }
-        return hasPaneTarget
+        // Allow the folder-drop fallback path (e.g. sidebar) when no pane target is under
+        // the cursor — performDragOperation will route the URLs through `onDrop`.
+        return hasPaneTarget || onDrop != nil
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
@@ -394,7 +396,15 @@ final class FileDropOverlayView: NSView {
             return handled
         }
         activeDragWebView = nil
-        guard let terminal else { return false }
+        guard let terminal else {
+            // No terminal/browser/pane target under the drop point — delegate to the folder-drop
+            // handler. In practice the only non-pane area visible to this overlay is the sidebar.
+            let urls = sender.draggingPasteboard.readObjects(
+                forClasses: [NSURL.self],
+                options: [.urlReadingFileURLsOnly: true]
+            ) as? [URL] ?? []
+            return onDrop?(urls) ?? false
+        }
         return terminal.performDragOperation(sender)
     }
 
