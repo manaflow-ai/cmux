@@ -77,6 +77,54 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         ))
     }
 
+    private struct NoMarkedIMEKeyProbe {
+        let name: String
+        let text: String
+        let keyCode: UInt16
+    }
+
+    private var noMarkedNavigationKeyProbes: [NoMarkedIMEKeyProbe] {
+        [
+            NoMarkedIMEKeyProbe(name: "Left", text: "\u{F702}", keyCode: UInt16(kVK_LeftArrow)),
+            NoMarkedIMEKeyProbe(name: "Right", text: "\u{F703}", keyCode: UInt16(kVK_RightArrow)),
+            NoMarkedIMEKeyProbe(name: "Up", text: "\u{F700}", keyCode: UInt16(kVK_UpArrow)),
+            NoMarkedIMEKeyProbe(name: "Down", text: "\u{F701}", keyCode: UInt16(kVK_DownArrow)),
+            NoMarkedIMEKeyProbe(name: "Home", text: "\u{F729}", keyCode: UInt16(kVK_Home)),
+            NoMarkedIMEKeyProbe(name: "End", text: "\u{F72B}", keyCode: UInt16(kVK_End)),
+            NoMarkedIMEKeyProbe(name: "PageUp", text: "\u{F72C}", keyCode: UInt16(kVK_PageUp)),
+            NoMarkedIMEKeyProbe(name: "PageDown", text: "\u{F72D}", keyCode: UInt16(kVK_PageDown)),
+            NoMarkedIMEKeyProbe(name: "Space", text: " ", keyCode: UInt16(kVK_Space)),
+        ]
+    }
+
+    private func assertInputSourceDoesNotSwallowNoMarkedIMECommandKeys(
+        _ inputSourceId: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let view = GhosttyNSView(frame: .zero)
+
+        for probe in noMarkedNavigationKeyProbes {
+            let event = try keyEvent(text: probe.text, keyCode: probe.keyCode, windowNumber: 0)
+
+            XCTAssertFalse(
+                view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                    markedTextBefore: "",
+                    markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
+                    markedTextAfter: "",
+                    markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                    accumulatedText: [],
+                    event: event,
+                    textInputHandledEvent: true,
+                    inputSourceId: inputSourceId
+                ),
+                "\(inputSourceId) should forward \(probe.name) to Ghostty when no composition is active",
+                file: file,
+                line: line
+            )
+        }
+    }
+
     func testSelectedRangeReturnsEmptyRangeWithoutSelectionOrMarkedText() {
         let view = GhosttyNSView(frame: .zero)
         let range = view.selectedRange()
@@ -695,6 +743,30 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
+    func testKoreanInputSourceDoesNotSwallowArrowKeysWithoutComposition() throws {
+        try assertInputSourceDoesNotSwallowNoMarkedIMECommandKeys(
+            "com.apple.inputmethod.Korean.2SetKorean"
+        )
+    }
+
+    func testJapaneseInputSourceDoesNotSwallowArrowKeysWithoutComposition() throws {
+        try assertInputSourceDoesNotSwallowNoMarkedIMECommandKeys(
+            "com.apple.inputmethod.Kotoeri.Japanese"
+        )
+    }
+
+    func testSimplifiedChinesePinyinDoesNotSwallowArrowKeysWithoutComposition() throws {
+        try assertInputSourceDoesNotSwallowNoMarkedIMECommandKeys(
+            "com.apple.inputmethod.SCIM.ITABC"
+        )
+    }
+
+    func testCangjieDoesNotSwallowArrowKeysWithoutComposition() throws {
+        try assertInputSourceDoesNotSwallowNoMarkedIMECommandKeys(
+            "com.apple.inputmethod.TCIM.Cangjie"
+        )
+    }
+
     func testUnmarkTextPreservesSuppressedKeyUpStateWithoutMarkedText() {
         let view = GhosttyNSView(frame: .zero)
         view.setIMETransientStateForTesting(
@@ -710,7 +782,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         XCTAssertFalse(view.zhuyinCandidateOpenRequestedForTesting)
     }
 
-    func testSuppressesInputMethodHandledKeyWithoutMarkedText() throws {
+    func testZhuyinPreCompositionStillUsesNoMarkedTextSuppression() throws {
         let view = GhosttyNSView(frame: .zero)
         let event = try keyEvent(
             text: "\u{F701}",
