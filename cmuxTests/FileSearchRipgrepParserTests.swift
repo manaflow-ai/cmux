@@ -138,6 +138,26 @@ final class FileSearchOutputPipelineTests: XCTestCase {
         XCTAssertTrue(finalUpdate.shouldStopProcess)
     }
 
+    func testFinishKeepsEarlierLimitedStatusAfterStreamingLimit() async throws {
+        let pipeline = FileSearchOutputPipeline(
+            rootPath: "/tmp/project",
+            maxResults: 1,
+            snapshotInterval: 60
+        )
+        let line = try makeMatchLine(relativePath: "Sources/App.swift") + "\n"
+
+        let streamingUpdate = try XCTUnwrap(await pipeline.consumeStdout(Data(line.utf8)))
+        XCTAssertEqual(streamingUpdate.status, .limited(1))
+        XCTAssertTrue(streamingUpdate.shouldStopProcess)
+
+        let finalUpdate = await pipeline.finish(status: 0)
+
+        XCTAssertEqual(finalUpdate.status, .limited(1))
+        XCTAssertEqual(finalUpdate.results.map(\.relativePath), ["Sources/App.swift"])
+        XCTAssertFalse(finalUpdate.isSearching)
+        XCTAssertTrue(finalUpdate.shouldStopProcess)
+    }
+
     private func makeMatchLine(relativePath: String) throws -> String {
         let object: [String: Any] = [
             "type": "match",

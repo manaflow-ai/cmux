@@ -138,6 +138,7 @@ actor FileSearchOutputPipeline {
     private var results: [FileSearchResult] = []
     private var lastSnapshotEmissionDate = Date.distantPast
     private var isFinished = false
+    private var terminalUpdate: FileSearchPipelineUpdate?
 
     init(rootPath: String, maxResults: Int, snapshotInterval: TimeInterval) {
         self.rootPath = rootPath
@@ -181,13 +182,15 @@ actor FileSearchOutputPipeline {
         }
         results.append(result)
         if results.count >= maxResults {
-            isFinished = true
-            return FileSearchPipelineUpdate(
+            let update = FileSearchPipelineUpdate(
                 results: results,
                 status: .limited(maxResults),
                 isSearching: false,
                 shouldStopProcess: true
             )
+            isFinished = true
+            terminalUpdate = update
+            return update
         }
 
         let now = Date()
@@ -218,6 +221,9 @@ actor FileSearchOutputPipeline {
     }
 
     func finish(status: Int32) -> FileSearchPipelineUpdate {
+        if let terminalUpdate {
+            return terminalUpdate
+        }
         let trailingUpdate: FileSearchPipelineUpdate?
         if !isFinished {
             trailingUpdate = consumeBufferedStdout(includeTrailingLine: true)
