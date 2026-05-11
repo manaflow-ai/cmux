@@ -1789,6 +1789,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 executablePath: "/Users/lawrence/.local/bin/claude",
                 arguments: [
                     "/Users/lawrence/.local/bin/claude",
+                    "--dangerously-load-development-channels",
+                    "server:custom-dev-channel",
                     "--dangerously-skip-permissions"
                 ],
                 workingDirectory: "/Users/lawrence/fun",
@@ -1804,7 +1806,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd '/Users/lawrence/fun' && 'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' '/Users/lawrence/.local/bin/claude' '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--dangerously-skip-permissions'"
+            "cd '/Users/lawrence/fun' && 'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' '/Users/lawrence/.local/bin/claude' '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--dangerously-load-development-channels' 'server:custom-dev-channel' '--dangerously-skip-permissions'"
         )
     }
 
