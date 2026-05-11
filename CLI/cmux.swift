@@ -15677,15 +15677,39 @@ struct CMUXCLI {
         return ("Attention", "Claude needs your attention")
     }
 
+    private enum ClaudeNotificationSidebarStatusStyle {
+        static let needsInputValue = String(
+            localized: "sidebar.agentStatus.needsInput",
+            defaultValue: "Needs input"
+        )
+        static let needsInputIcon = "bell.fill"
+        static let needsInputColor = "#4C8DFF"
+        static let idleValue = String(localized: "agent.codex.status.idle", defaultValue: "Idle")
+        static let idleIcon = "pause.circle.fill"
+        static let idleColor = "#8E8E93"
+    }
+
     private func claudeNotificationSidebarStatus(subtitle: String) -> (value: String, icon: String, color: String) {
         switch subtitle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "permission", "attention", "error":
-            return ("Needs input", "bell.fill", "#4C8DFF")
+            return (
+                ClaudeNotificationSidebarStatusStyle.needsInputValue,
+                ClaudeNotificationSidebarStatusStyle.needsInputIcon,
+                ClaudeNotificationSidebarStatusStyle.needsInputColor
+            )
         case "completed", "waiting":
-            return ("Idle", "pause.circle.fill", "#8E8E93")
+            return (
+                ClaudeNotificationSidebarStatusStyle.idleValue,
+                ClaudeNotificationSidebarStatusStyle.idleIcon,
+                ClaudeNotificationSidebarStatusStyle.idleColor
+            )
         default:
             // Unknown Claude notification classes remain actionable until mapped explicitly.
-            return ("Needs input", "bell.fill", "#4C8DFF")
+            return (
+                ClaudeNotificationSidebarStatusStyle.needsInputValue,
+                ClaudeNotificationSidebarStatusStyle.needsInputIcon,
+                ClaudeNotificationSidebarStatusStyle.needsInputColor
+            )
         }
     }
 

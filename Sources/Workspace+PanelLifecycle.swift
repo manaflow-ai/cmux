@@ -72,11 +72,12 @@ extension Workspace {
         agentPIDKeysByPanelId[panelId, default: []].insert(key)
     }
 
-    private func armAgentPIDExitWatcher(key: String, pid: pid_t) {
-        if agentPIDExitWatchers[key] != nil, agentPIDs[key] == pid {
+    private func armAgentPIDExitWatcher(key: String, pid: pid_t, panelId: UUID?) {
+        if agentPIDExitWatchers[key] != nil, agentPIDExitWatcherPIDs[key] == pid {
             return
         }
         agentPIDExitWatchers.removeValue(forKey: key)?.cancel()
+        agentPIDExitWatcherPIDs.removeValue(forKey: key)
         let source = DispatchSource.makeProcessSource(
             identifier: pid,
             eventMask: .exit,
@@ -85,10 +86,11 @@ extension Workspace {
         source.setEventHandler { [weak self] in
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.agentPIDs[key] == pid else { return }
-                _ = self.clearAgentPID(key: key, clearStatus: true)
+                _ = self.clearAgentPID(key: key, panelId: panelId, clearStatus: true)
             }
         }
         agentPIDExitWatchers[key] = source
+        agentPIDExitWatcherPIDs[key] = pid
         source.resume()
     }
 
@@ -99,12 +101,12 @@ extension Workspace {
         }
 
         agentPIDs[key] = pid
-        armAgentPIDExitWatcher(key: key, pid: pid)
         if let panelId {
             recordAgentPIDOwnership(key: key, panelId: panelId)
         } else {
             removeAgentPIDOwnership(key: key)
         }
+        armAgentPIDExitWatcher(key: key, pid: pid, panelId: panelId)
         if agentProcessStates[key]?.pid != pid || agentProcessStates[key]?.isAlive != true {
             agentProcessStates[key] = SidebarAgentProcessState(
                 pid: pid,
@@ -162,6 +164,9 @@ extension Workspace {
             watcher.cancel()
             didChange = true
         }
+        if agentPIDExitWatcherPIDs.removeValue(forKey: key) != nil {
+            didChange = true
+        }
         if ownedPanelId != nil {
             removeAgentPIDOwnership(key: key)
             didChange = true
@@ -193,14 +198,11 @@ extension Workspace {
         let keys = Set(agentPIDs.keys)
             .union(agentProcessStates.keys)
             .union(agentPIDPanelIdsByKey.keys)
+            .union(agentPIDExitWatchers.keys)
+            .union(agentPIDExitWatcherPIDs.keys)
         for key in keys {
             _ = clearAgentPID(key: key, clearStatus: true, refreshPorts: false)
         }
-        agentPIDKeysByPanelId.removeAll()
-        for watcher in agentPIDExitWatchers.values {
-            watcher.cancel()
-        }
-        agentPIDExitWatchers.removeAll()
         agentListeningPorts.removeAll()
         if refreshPorts {
             refreshTrackedAgentPorts()

@@ -1048,7 +1048,8 @@ class TabManager: ObservableObject {
     private let agentPIDDiscoveryQueue = DispatchQueue(label: "com.cmux.agent-pid-discovery", qos: .utility)
     private var agentPIDProbeInFlight = false
     private var agentPIDDiscoveryInFlight = false
-    private var agentPIDDiscoveryLastStartedAt: Date?
+    private var agentPIDProbeGeneration: UInt64 = 0
+    private var agentPIDDiscoveryLastStartedAtByRegistration: [String: Date] = [:]
     private var workspaceGitMetadataPollTimer: DispatchSourceTimer?
     private var selectedWorkspaceGitMetadataPollTimer: DispatchSourceTimer?
 #if DEBUG
@@ -1831,10 +1832,11 @@ class TabManager: ObservableObject {
         }
 
         agentPIDProbeInFlight = true
+        let generation = agentPIDProbeGeneration
         agentPIDProbeQueue.async {
             let results = SidebarAgentStatusService.probeResults(for: requests)
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
+                guard let self, self.agentPIDProbeGeneration == generation else { return }
                 self.agentPIDProbeInFlight = false
                 self.applyAgentPIDProbeResults(results)
             }
@@ -5103,30 +5105,49 @@ class TabManager: ObservableObject {
     }
 
     private func scheduleAgentPIDDiscoveryFromTerminalTitlesIfNeeded() {
-        guard !agentPIDDiscoveryInFlight,
-              !agentTitleRegistrationCandidates().isEmpty else {
+        guard !agentPIDDiscoveryInFlight else {
             return
         }
         let now = Date()
-        if let lastStarted = agentPIDDiscoveryLastStartedAt,
-           now.timeIntervalSince(lastStarted) < Self.agentPIDDiscoveryMinimumInterval {
+        let dueRegistrationKeys = Set(
+            agentTitleRegistrationCandidates().compactMap { tab, _, registration -> String? in
+                let registrationKey = SidebarAgentStatusService.registrationDeduplicationKey(
+                    workspaceId: tab.id,
+                    statusKey: registration.statusKey
+                )
+                if let lastStarted = agentPIDDiscoveryLastStartedAtByRegistration[registrationKey],
+                   now.timeIntervalSince(lastStarted) < Self.agentPIDDiscoveryMinimumInterval {
+                    return nil
+                }
+                return registrationKey
+            }
+        )
+        guard !dueRegistrationKeys.isEmpty else {
             return
+        }
+        for registrationKey in dueRegistrationKeys {
+            agentPIDDiscoveryLastStartedAtByRegistration[registrationKey] = now
         }
 
         agentPIDDiscoveryInFlight = true
+        let generation = agentPIDProbeGeneration
         agentPIDDiscoveryQueue.async {
             let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
+                guard let self, self.agentPIDProbeGeneration == generation else { return }
                 self.agentPIDDiscoveryInFlight = false
-                if self.registerAgentPIDsFromTerminalTitlesIfNeeded(processSnapshot: processSnapshot) {
-                    self.agentPIDDiscoveryLastStartedAt = Date()
-                }
+                _ = self.registerAgentPIDsFromTerminalTitlesIfNeeded(
+                    processSnapshot: processSnapshot,
+                    allowedRegistrationKeys: dueRegistrationKeys
+                )
             }
         }
     }
 
-    private func registerAgentPIDsFromTerminalTitlesIfNeeded(processSnapshot: CmuxTopProcessSnapshot) -> Bool {
+    private func registerAgentPIDsFromTerminalTitlesIfNeeded(
+        processSnapshot: CmuxTopProcessSnapshot,
+        allowedRegistrationKeys: Set<String>? = nil
+    ) -> Bool {
         let titleCandidates = agentTitleRegistrationCandidates()
             .sorted { lhs, rhs in
                 if lhs.0.id != rhs.0.id {
@@ -5146,6 +5167,10 @@ class TabManager: ObservableObject {
                 workspaceId: tab.id,
                 statusKey: registration.statusKey
             )
+            if let allowedRegistrationKeys,
+               !allowedRegistrationKeys.contains(registrationKey) {
+                continue
+            }
             guard !registeredKeys.contains(registrationKey),
                   tab.agentPIDs[registration.statusKey] == nil else {
                 continue
@@ -7524,6 +7549,10 @@ extension TabManager {
         pendingPanelTitleUpdates.removeAll()
         panelAgentTitleRegistrations.removeAll()
         panelAgentTitleRegistrationSeenAt.removeAll()
+        agentPIDProbeGeneration &+= 1
+        agentPIDProbeInFlight = false
+        agentPIDDiscoveryInFlight = false
+        agentPIDDiscoveryLastStartedAtByRegistration.removeAll()
         tabHistory.removeAll()
         historyIndex = -1
         isNavigatingHistory = false

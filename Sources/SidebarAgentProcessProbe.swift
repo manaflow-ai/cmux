@@ -64,6 +64,9 @@ nonisolated enum SidebarAgentProcessProbe {
         explicitEntry: SidebarStatusEntry?,
         processState: SidebarAgentProcessState?
     ) -> SidebarStatusEntry? {
+        // A newly registered PID may not have a fresh probe result yet. If the
+        // cached state belongs to an older PID, treat this PID as live/running
+        // until the next probe rather than letting stale death clear it.
         let state = (processState?.pid == pid)
             ? processState
             : SidebarAgentProcessState(pid: pid, isAlive: true, activity: .running)
@@ -161,7 +164,8 @@ nonisolated enum SidebarAgentProcessProbe {
     private static func hasActiveNetworkSocket(for pid: pid_t, expectedFDCount: Int) -> Bool? {
         guard expectedFDCount > 0 else { return false }
         let fdInfoSize = MemoryLayout<proc_fdinfo>.stride
-        let capacity = max(expectedFDCount + 8, 16)
+        let maxFDProbeCapacity = 256
+        let capacity = min(max(expectedFDCount + 8, 16), maxFDProbeCapacity)
         guard let bufferSize = Int32(exactly: capacity * fdInfoSize) else {
             return nil
         }
@@ -171,6 +175,7 @@ nonisolated enum SidebarAgentProcessProbe {
         }
         guard byteCount > 0 else { return nil }
         let returnedCount = min(Int(byteCount) / fdInfoSize, fdInfos.count)
+        let filledBuffer = byteCount == bufferSize
 
         var sawUninspectableSocket = false
         for fdInfo in fdInfos.prefix(returnedCount) where fdInfo.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
@@ -182,7 +187,7 @@ nonisolated enum SidebarAgentProcessProbe {
                 return true
             }
         }
-        return sawUninspectableSocket ? nil : false
+        return (sawUninspectableSocket || filledBuffer) ? nil : false
     }
 
     private static func bsdInfo(for pid: pid_t) -> proc_bsdinfo? {

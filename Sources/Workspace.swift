@@ -7169,6 +7169,7 @@ final class Workspace: Identifiable, ObservableObject {
     var agentPIDPanelIdsByKey: [String: UUID] = [:]
     var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
     var agentPIDExitWatchers: [String: DispatchSourceProcess] = [:]
+    var agentPIDExitWatcherPIDs: [String: pid_t] = [:]
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
@@ -8918,8 +8919,12 @@ final class Workspace: Identifiable, ObservableObject {
                       ) else {
                     continue
                 }
-                selectedEntry = candidate
-                if candidate.protocolValue == SidebarAgentFallbackActivity.needsInput.protocolValue {
+                if selectedEntry.map({ isSidebarAgentStatus(candidate, strongerThan: $0) }) ?? true {
+                    selectedEntry = candidate
+                }
+                if sidebarAgentStatusPrecedence(candidate)
+                    == sidebarAgentStatusPrecedenceValue(for: SidebarAgentFallbackActivity.running.protocolValue)
+                {
                     break
                 }
             }
@@ -8930,6 +8935,38 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
         return entries
+    }
+
+    private func isSidebarAgentStatus(_ candidate: SidebarStatusEntry, strongerThan current: SidebarStatusEntry) -> Bool {
+        let candidatePrecedence = sidebarAgentStatusPrecedence(candidate)
+        let currentPrecedence = sidebarAgentStatusPrecedence(current)
+        if candidatePrecedence != currentPrecedence {
+            return candidatePrecedence > currentPrecedence
+        }
+        if candidate.priority != current.priority {
+            return candidate.priority > current.priority
+        }
+        if candidate.timestamp != current.timestamp {
+            return candidate.timestamp > current.timestamp
+        }
+        return candidate.key < current.key
+    }
+
+    private func sidebarAgentStatusPrecedence(_ entry: SidebarStatusEntry) -> Int {
+        sidebarAgentStatusPrecedenceValue(for: entry.protocolValue)
+    }
+
+    private func sidebarAgentStatusPrecedenceValue(for protocolValue: String?) -> Int {
+        switch protocolValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case SidebarAgentFallbackActivity.running.protocolValue:
+            3
+        case SidebarAgentFallbackActivity.needsInput.protocolValue:
+            2
+        case "idle":
+            1
+        default:
+            0
+        }
     }
 
     func sidebarMetadataBlocksInDisplayOrder() -> [SidebarMetadataBlock] {
