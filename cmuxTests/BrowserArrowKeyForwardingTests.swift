@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Combine
 import CMUXAuthCore
 import WebKit
 
@@ -286,7 +287,13 @@ final class AuthManagerBrowserSignInTests: XCTestCase {
         )
         await manager.awaitBootstrapped()
 
+        var observedLoadingValues: [Bool] = []
+        let loadingSink = manager.$isLoading.sink {
+            observedLoadingValues.append($0)
+        }
+
         manager.beginSignIn()
+        withExtendedLifetime(loadingSink) {}
 
         let url = openedURL
         XCTAssertEqual(url?.path, "/handler/sign-in")
@@ -296,6 +303,7 @@ final class AuthManagerBrowserSignInTests: XCTestCase {
         XCTAssertEqual(url?.host, AuthEnvironment.afterSignInOrigin.host)
         XCTAssertTrue(afterAuthReturnTo?.contains(AuthEnvironment.callbackURL.absoluteString) == true)
         XCTAssertFalse(manager.isLoading)
+        XCTAssertEqual(observedLoadingValues, [false])
         await manager.signOut()
     }
 

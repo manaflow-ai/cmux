@@ -191,9 +191,9 @@ final class AuthManager: ObservableObject {
     private func beginSignIn(keepLoadingForExternalBrowser: Bool) {
         webAuthSession?.cancel()
         webAuthSession = nil
-        isLoading = true
 
         if Self.shouldUseSystemWebAuthenticationSession {
+            isLoading = true
             beginSystemWebAuthenticationSession()
             return
         }
@@ -202,7 +202,9 @@ final class AuthManager: ObservableObject {
         authLog("beginSignIn: opening external browser url=\(signInURL.absoluteString)")
         urlOpener(signInURL)
 
-        if !keepLoadingForExternalBrowser {
+        if keepLoadingForExternalBrowser {
+            isLoading = true
+        } else if isLoading {
             isLoading = false
         }
     }
@@ -426,6 +428,8 @@ final class AuthManager: ObservableObject {
             throw AuthManagerError.invalidCallback
         }
 
+        // System web-auth callbacks arrive from the session completion handler,
+        // so there is no active presentation to cancel on this shared callback path.
         webAuthSession = nil
         isLoading = true
         defer { isLoading = false }
