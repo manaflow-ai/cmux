@@ -13,10 +13,11 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `22fa801f8`, based on `495316732`, with the
-manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53.
-This head keeps the cmux theme picker hooks and exposes the manual surface IO
-needed by libghostty iOS clients.
+Current cmux pinned fork head: `6b8d558ce`, based on `41ab6c5ab`, with the
+manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53
+plus the Issue 3791 non-local OSC 7 URI patch. This head keeps the cmux theme
+picker hooks, exposes the manual surface IO needed by libghostty iOS clients,
+and lets embedded clients classify remote OSC 7 cwd reports.
 
 ### 1) macOS display link restart on display changes
 
@@ -169,23 +170,23 @@ tend to conflict together during rebases.
     render-now C API, or output C API. Upstream already has internal
     `Termio.processOutput`, so prefer an upstream C bridge if one lands.
 
-The current cmux pin is the head listed above. It is reachable from
-`manaflow-ai/ghostty` `main` through https://github.com/manaflow-ai/ghostty/pull/53.
+The manual IO pin is reachable from `manaflow-ai/ghostty` `main` through
+https://github.com/manaflow-ai/ghostty/pull/53.
 Published `xcframework-22fa801f88f96fa842e54ecce6c34a5d36003d19` and pinned
-its archive checksum in `scripts/ghosttykit-checksums.txt`. The release and
-checksum pin must be regenerated whenever this commit changes, even for
-comment-only amends, because the release tag is keyed by the Ghostty commit SHA.
+its archive checksum in `scripts/ghosttykit-checksums.txt`.
 
-Issue 3791 adds fork commit `6b8d558ce` on top of `manaflow-ai/ghostty`
+Issue 3791 adds the current fork commit `6b8d558ce` on top of `manaflow-ai/ghostty`
 `41ab6c5ab` so embedded apps receive full non-local OSC 7 URIs while Ghostty
 continues storing the decoded path internally. GitHub branch protection rejected
 a direct `main` push, so the commit is reachable on
 `manaflow-ai/ghostty` branch `issue-3791-mosh-remote-cwd-detection` until the
 fork main PR is merged. Milestone: merge that branch into fork `main` before
 the cmux issue 3791 parent PR lands, or during the next fork-main sync if the
-parent PR needs to merge first. After the fork-main merge, regenerate the
-`xcframework-6b8d558ce...` release from the final fork-main commit and checksum
-pin before moving this parent pointer onto Ghostty `main`.
+parent PR needs to merge first. Published
+`xcframework-6b8d558cea313b09c10ac107254d6ee41a5044d9` and pinned its archive
+checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum pin
+must be regenerated whenever the Ghostty commit changes, even for comment-only
+amends, because the release tag is keyed by the Ghostty commit SHA.
 
 ## Upstreamed fork changes
 

@@ -750,6 +750,67 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
     }
 
+    func testExplicitLocalClearBranchSignalClearsBranchImmediately() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-git-osc7-local-clear-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        TabManager.commandRunnerForTesting = { _, _, _, _ in
+            TabManager.CommandResult(
+                stdout: "",
+                stderr: "",
+                exitStatus: 1,
+                timedOut: false,
+                executionError: nil
+            )
+        }
+        defer { TabManager.commandRunnerForTesting = nil }
+
+        manager.updateSurfaceLocation(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            location: TerminalLocation(
+                host: nil,
+                path: directoryURL.path,
+                source: .osc7,
+                gitBranchSignal: .branch(SidebarGitBranchState(branch: "feature/osc7", isDirty: false))
+            )
+        )
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 3791,
+            label: "PR",
+            url: URL(string: "https://github.com/manaflow-ai/cmux/pull/3791")!,
+            status: .open,
+            branch: "feature/osc7"
+        )
+
+        manager.updateSurfaceLocation(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            location: TerminalLocation(
+                host: nil,
+                path: directoryURL.path,
+                source: .osc7,
+                gitBranchSignal: .clear
+            )
+        )
+
+        XCTAssertNil(workspace.panelGitBranches[panelId])
+        XCTAssertNil(workspace.panelPullRequests[panelId])
+    }
+
     func testLocalDirectoryUpdateClearsRemoteBranchBeforeGitProbeFinishes() throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(

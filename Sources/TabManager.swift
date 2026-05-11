@@ -1253,6 +1253,11 @@ class TabManager: ObservableObject {
         for workspace in tabs {
             for panelId in Set(workspace.panelGitBranches.keys).union(workspace.panelPullRequests.keys) {
                 let key = WorkspaceGitProbeKey(workspaceId: workspace.id, panelId: panelId)
+                if workspace.isRemoteWorkspace || workspace.terminalLocation(for: panelId)?.isRemote == true {
+                    workspace.clearPanelPullRequest(panelId: panelId)
+                    clearWorkspacePullRequestTracking(for: key)
+                    continue
+                }
                 validKeys.insert(key)
                 let branch = Self.normalizedBranchName(
                     workspace.panelGitBranches[panelId]?.branch
@@ -3998,11 +4003,16 @@ class TabManager: ObservableObject {
                 clearWorkspacePullRequestTracking(for: probeKey)
                 shouldScheduleLocalBranchRefresh = true
             }
-        case .clear where location.isRemote:
+        case .clear:
             tab.clearPanelGitBranch(panelId: surfaceId)
+            if !shouldClearLocalPullRequestState {
+                tab.clearPanelPullRequest(panelId: surfaceId)
+                clearWorkspacePullRequestTracking(for: probeKey)
+                shouldScheduleLocalBranchRefresh = true
+            }
         case .unspecified where location.isRemote:
             tab.clearPanelGitBranch(panelId: surfaceId)
-        case .clear, .unspecified:
+        case .unspecified:
             if wasRemoteLocation {
                 tab.clearPanelGitBranch(panelId: surfaceId)
             }

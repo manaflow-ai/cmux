@@ -421,6 +421,7 @@ extension Workspace {
             listeningPorts = (surfaceListeningPorts[panelId] ?? []).sorted()
         }
         let ttyName = surfaceTTYNames[panelId]
+        let terminalLocationSnapshot = sessionTerminalLocationSnapshot(panelId: panelId)
 
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
@@ -510,8 +511,18 @@ extension Workspace {
             browser: browserSnapshot,
             markdown: markdownSnapshot,
             filePreview: filePreviewSnapshot,
-            terminalLocation: panelTerminalLocations[panelId]?.sessionSnapshot
+            terminalLocation: terminalLocationSnapshot
         )
+    }
+
+    private func sessionTerminalLocationSnapshot(panelId: UUID) -> SessionTerminalLocationSnapshot? {
+        guard let location = panelTerminalLocations[panelId] else { return nil }
+        if location.isRemote,
+           remoteConfiguration == nil,
+           !activeRemoteTerminalSurfaceIds.contains(panelId) {
+            return nil
+        }
+        return location.sessionSnapshot
     }
 
     nonisolated static func resolvedSnapshotTerminalScrollback(

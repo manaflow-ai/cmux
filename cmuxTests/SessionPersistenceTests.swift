@@ -1101,9 +1101,43 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
-    func testSessionSnapshotRestoresRemoteTerminalLocation() throws {
+    func testSessionSnapshotSkipsPlainOSCRemoteTerminalLocation() throws {
         let source = Workspace()
         let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let sourceLocation = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("file://devbox.example/home/george/cmux")
+        )
+        source.updatePanelLocation(panelId: sourcePanelId, location: sourceLocation)
+
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        XCTAssertNil(snapshot.panels.first?.terminalLocation)
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+
+        XCTAssertNil(restored.terminalLocation(for: restoredPanelId))
+    }
+
+    @MainActor
+    func testSessionSnapshotRestoresManagedRemoteTerminalLocation() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        source.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "devbox.example",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64002,
+                relayID: "relay-test",
+                relayToken: String(repeating: "d", count: 64),
+                localSocketPath: "/tmp/cmux-test-managed-remote.sock",
+                terminalStartupCommand: "ssh devbox.example"
+            ),
+            autoConnect: false
+        )
         let sourceLocation = try XCTUnwrap(
             TerminalLocation.parseReportedDirectory("file://devbox.example/home/george/cmux")
         )
