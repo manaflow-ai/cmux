@@ -14251,7 +14251,8 @@ private extension NSWindow {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
         let firstResponderEmbeddedWebView = self.firstResponder.flatMap {
-            Self.cmuxOwningEmbeddedWebView(for: $0)
+            Self.cmuxOwningEmbeddedWebViewFromFieldEditorOwner($0)
+                ?? Self.cmuxOwningEmbeddedWebView(for: $0)
         }
         let browserKeyDownTarget: NSResponder? = firstResponderWebView
             ?? firstResponderEmbeddedWebView
@@ -14579,6 +14580,10 @@ private extension NSWindow {
             return webView
         }
 
+        if let webView = cmuxOwningEmbeddedWebViewFromFieldEditorOwner(responder) {
+            return webView
+        }
+
         if let view = responder as? NSView,
            let webView = cmuxOwningEmbeddedWebView(for: view) {
             return webView
@@ -14601,6 +14606,16 @@ private extension NSWindow {
         }
 
         return nil
+    }
+
+    private static func cmuxOwningEmbeddedWebViewFromFieldEditorOwner(_ responder: NSResponder) -> WKWebView? {
+        guard let fieldEditor = responder as? NSTextView,
+              fieldEditor.isFieldEditor,
+              let ownerView = cmuxFieldEditorOwnerView(fieldEditor) else {
+            return nil
+        }
+
+        return cmuxOwningEmbeddedWebView(for: ownerView)
     }
 
     private static func cmuxOwningEmbeddedWebView(for view: NSView) -> WKWebView? {
