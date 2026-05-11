@@ -80,14 +80,27 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         let name: String
         let keyCode: UInt16
         let text: String
+        let modifiers: NSEvent.ModifierFlags
+
+        init(
+            name: String,
+            keyCode: UInt16,
+            text: String,
+            modifiers: NSEvent.ModifierFlags = []
+        ) {
+            self.name = name
+            self.keyCode = keyCode
+            self.text = text
+            self.modifiers = modifiers
+        }
     }
 
     private var terminalNavigationKeyCases: [ForwardedKeyCase] {
         [
-            ForwardedKeyCase(name: "Left", keyCode: UInt16(kVK_LeftArrow), text: "\u{F702}"),
-            ForwardedKeyCase(name: "Right", keyCode: UInt16(kVK_RightArrow), text: "\u{F703}"),
-            ForwardedKeyCase(name: "Up", keyCode: UInt16(kVK_UpArrow), text: "\u{F700}"),
-            ForwardedKeyCase(name: "Down", keyCode: UInt16(kVK_DownArrow), text: "\u{F701}"),
+            ForwardedKeyCase(name: "Left", keyCode: UInt16(kVK_LeftArrow), text: "\u{F702}", modifiers: [.numericPad]),
+            ForwardedKeyCase(name: "Right", keyCode: UInt16(kVK_RightArrow), text: "\u{F703}", modifiers: [.numericPad]),
+            ForwardedKeyCase(name: "Up", keyCode: UInt16(kVK_UpArrow), text: "\u{F700}", modifiers: [.numericPad]),
+            ForwardedKeyCase(name: "Down", keyCode: UInt16(kVK_DownArrow), text: "\u{F701}", modifiers: [.numericPad]),
             ForwardedKeyCase(name: "PageUp", keyCode: UInt16(kVK_PageUp), text: "\u{F72C}"),
             ForwardedKeyCase(name: "PageDown", keyCode: UInt16(kVK_PageDown), text: "\u{F72D}"),
             ForwardedKeyCase(name: "Home", keyCode: UInt16(kVK_Home), text: "\u{F729}"),
@@ -98,6 +111,10 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
 
     private func navigationKeyText(for keyCode: UInt16) -> String {
         terminalNavigationKeyCases.first { $0.keyCode == keyCode }?.text ?? ""
+    }
+
+    private func navigationKeyModifiers(for keyCode: UInt16) -> NSEvent.ModifierFlags {
+        terminalNavigationKeyCases.first { $0.keyCode == keyCode }?.modifiers ?? []
     }
 
     private func assertPlainNavigationKeysReachShell(
@@ -144,6 +161,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
             let event = try keyEvent(
                 text: keyCase.text,
                 keyCode: keyCase.keyCode,
+                modifiers: keyCase.modifiers,
                 windowNumber: window.windowNumber
             )
 
@@ -202,6 +220,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         let event = try keyEvent(
             text: navigationKeyText(for: keyCode),
             keyCode: keyCode,
+            modifiers: navigationKeyModifiers(for: keyCode),
             windowNumber: window.windowNumber
         )
         var interpretedKeyCodes: [UInt16] = []
@@ -312,7 +331,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         let event = try keyEvent(
             text: navigationKeyText(for: keyCode),
             keyCode: keyCode,
-            modifiers: [.shift],
+            modifiers: navigationKeyModifiers(for: keyCode).union(.shift),
             windowNumber: window.windowNumber
         )
 
@@ -571,6 +590,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         let event = try keyEvent(
             text: navigationKeyText(for: keyCode),
             keyCode: keyCode,
+            modifiers: navigationKeyModifiers(for: keyCode),
             windowNumber: window.windowNumber
         )
 
