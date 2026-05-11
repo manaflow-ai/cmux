@@ -593,6 +593,33 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testRemoteReconnectingStateIsExposedInStatusPayload() {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64033,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.applyRemoteConnectionStateUpdate(
+            .reconnecting,
+            detail: "Reconnecting to cmux-macmini",
+            target: "cmux-macmini"
+        )
+
+        XCTAssertEqual(workspace.remoteConnectionState, .reconnecting)
+        XCTAssertEqual(workspace.remoteStatusPayload()["state"] as? String, "reconnecting")
+    }
+
+    @MainActor
     func testForegroundSSHAuthReadyIgnoresMismatchedConfiguredToken() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
