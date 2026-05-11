@@ -2106,7 +2106,7 @@ private struct SectionPopoverView: View {
         HStack(spacing: 6) {
             ProgressView().controlSize(.small)
             Text(String(localized: "sessionIndex.popover.loading", defaultValue: "Loading…"))
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
                 .foregroundColor(.secondary)
             Spacer(minLength: 0)
         }
