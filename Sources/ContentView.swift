@@ -12612,6 +12612,7 @@ private struct TabItemView: View, Equatable {
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex
         ))
         .onTapGesture {
+            if PaneFirstClickGate.shouldSwallowFirstClick() { return }
             updateSelection()
         }
         .safeHelp(workspaceSnapshot.title)

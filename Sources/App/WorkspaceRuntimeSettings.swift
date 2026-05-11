@@ -1,3 +1,4 @@
+import AppKit
 import Darwin
 import Foundation
 
@@ -89,6 +90,37 @@ enum PaneFirstClickFocusSettings {
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: enabledKey) as? Bool ?? defaultEnabled
+    }
+}
+
+@MainActor
+enum PaneFirstClickGate {
+    private static let graceInterval: TimeInterval = 0.2
+    private static var lastBecameActiveAt: TimeInterval = 0
+    private static var installed = false
+
+    static func install() {
+        guard !installed else { return }
+        installed = true
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                lastBecameActiveAt = ProcessInfo.processInfo.systemUptime
+            }
+        }
+    }
+
+    static func shouldSwallowFirstClick(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
+        if PaneFirstClickFocusSettings.isEnabled() { return false }
+        let elapsed = now - lastBecameActiveAt
+        return elapsed >= 0 && elapsed < graceInterval
+    }
+
+    static func markActivatedForTesting(at time: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        lastBecameActiveAt = time
     }
 }
 

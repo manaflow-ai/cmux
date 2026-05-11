@@ -69,4 +69,29 @@ final class InactivePaneFirstClickFocusTests: XCTestCase {
 
         XCTAssertFalse(view.acceptsFirstMouse(for: nil))
     }
+
+    func testPaneFirstClickGateSwallowsWithinGraceWhenSettingDisabled() {
+        UserDefaults.standard.set(false, forKey: settingsKey)
+        let now = ProcessInfo.processInfo.systemUptime
+        PaneFirstClickGate.markActivatedForTesting(at: now)
+
+        XCTAssertTrue(PaneFirstClickGate.shouldSwallowFirstClick(now: now + 0.05))
+        XCTAssertTrue(PaneFirstClickGate.shouldSwallowFirstClick(now: now + 0.19))
+    }
+
+    func testPaneFirstClickGateAllowsAfterGrace() {
+        UserDefaults.standard.set(false, forKey: settingsKey)
+        let now = ProcessInfo.processInfo.systemUptime
+        PaneFirstClickGate.markActivatedForTesting(at: now)
+
+        XCTAssertFalse(PaneFirstClickGate.shouldSwallowFirstClick(now: now + 1.0))
+    }
+
+    func testPaneFirstClickGateAllowsWhenSettingEnabled() {
+        UserDefaults.standard.set(true, forKey: settingsKey)
+        let now = ProcessInfo.processInfo.systemUptime
+        PaneFirstClickGate.markActivatedForTesting(at: now)
+
+        XCTAssertFalse(PaneFirstClickGate.shouldSwallowFirstClick(now: now + 0.05))
+    }
 }

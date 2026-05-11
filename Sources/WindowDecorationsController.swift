@@ -123,6 +123,9 @@ final class WindowDecorationsController {
                isHovering,
                controlsAreRevealed,
                let slot = actionSlot {
+                if MainActor.assumeIsolated({ PaneFirstClickGate.shouldSwallowFirstClick() }) {
+                    return nil
+                }
                 MinimalModeSidebarChromeHoverState.shared.setHovering(true, windowNumber: window.windowNumber)
                 self.performMinimalModeSidebarControlAction(
                     slot,
@@ -187,6 +190,9 @@ final class WindowDecorationsController {
         #endif
 
         guard isHovering, controlsAreRevealed, let actionSlot else { return false }
+        if MainActor.assumeIsolated({ PaneFirstClickGate.shouldSwallowFirstClick() }) {
+            return true
+        }
         MinimalModeSidebarChromeHoverState.shared.setHovering(true, windowNumber: window.windowNumber)
         performMinimalModeSidebarControlAction(
             actionSlot,

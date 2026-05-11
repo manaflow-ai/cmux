@@ -357,7 +357,11 @@ struct TitlebarControlButton<Content: View>: View {
     @State private var isHovering = false
 
     var body: some View {
-        let baseButton = Button(action: action) {
+        let gatedAction: () -> Void = {
+            if PaneFirstClickGate.shouldSwallowFirstClick() { return }
+            action()
+        }
+        let baseButton = Button(action: gatedAction) {
             content()
                 .frame(width: config.buttonSize, height: config.buttonSize)
                 .contentShape(Rectangle())

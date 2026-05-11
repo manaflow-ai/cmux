@@ -996,6 +996,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
         AppIconLaunchState.markDidFinishLaunching()
+        PaneFirstClickGate.install()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
         } else {
