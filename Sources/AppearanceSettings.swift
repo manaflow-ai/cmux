@@ -32,13 +32,13 @@ enum AppearanceSettings {
         let setApplicationAppearance: (NSAppearance?) -> Void
         let synchronizeTerminalThemeWithAppearance: (NSAppearance?, String) -> Void
         let systemAppearance: () -> NSAppearance?
-        let persistManagedTerminalAppearanceConfig: (AppearanceMode, NSAppearance?, UserDefaults, String) -> Task<Void, Never>?
+        let persistManagedTerminalAppearanceConfig: (AppearanceMode, NSAppearance?, UserDefaults, String) -> Task<Bool, Never>?
 
         init(
             setApplicationAppearance: @escaping (NSAppearance?) -> Void,
             synchronizeTerminalThemeWithAppearance: @escaping (NSAppearance?, String) -> Void,
             systemAppearance: @escaping () -> NSAppearance?,
-            persistManagedTerminalAppearanceConfig: @escaping (AppearanceMode, NSAppearance?, UserDefaults, String) -> Task<Void, Never>? = { _, _, _, _ in nil }
+            persistManagedTerminalAppearanceConfig: @escaping (AppearanceMode, NSAppearance?, UserDefaults, String) -> Task<Bool, Never>? = { _, _, _, _ in nil }
         ) {
             self.setApplicationAppearance = setApplicationAppearance
             self.synchronizeTerminalThemeWithAppearance = synchronizeTerminalThemeWithAppearance
@@ -54,8 +54,7 @@ enum AppearanceSettings {
                 synchronizeTerminalThemeWithAppearance: { appearance, source in
                     GhosttyApp.shared.synchronizeThemeWithAppearance(
                         appearance,
-                        source: source,
-                        persistManagedTerminalAppearanceConfig: { _, _, _, _ in nil }
+                        afterManagedConfigWriteFrom: source
                     )
                 },
                 systemAppearance: {
@@ -207,7 +206,7 @@ enum AppearanceSettings {
         return normalized
     }
 
-    static var liveManagedTerminalAppearanceConfigPersistence: (AppearanceMode, NSAppearance?, UserDefaults, String) -> Task<Void, Never>? {
+    static var liveManagedTerminalAppearanceConfigPersistence: (AppearanceMode, NSAppearance?, UserDefaults, String) -> Task<Bool, Never>? {
         { mode, appearance, defaults, source in
             ManagedGhosttyAppearanceConfigStore.livePersistenceTask(
                 mode: mode,
@@ -241,19 +240,41 @@ enum AppearanceSettings {
     private static func synchronizeTerminalThemeWithAppearance(
         _ appearance: NSAppearance?,
         source: String,
-        persistenceTask: Task<Void, Never>?,
+        persistenceTask: Task<Bool, Never>?,
         environment: LiveApplyEnvironment
     ) {
         let generation = AppearanceTerminalThemeSyncGate.shared.nextGeneration()
         guard let persistenceTask else {
-            environment.synchronizeTerminalThemeWithAppearance(appearance, source)
+            synchronizeTerminalThemeOnMainActor(
+                appearance,
+                source: source,
+                generation: generation,
+                environment: environment
+            )
             return
         }
 
         Task { @MainActor in
-            await persistenceTask.value
+            guard await persistenceTask.value else { return }
             guard AppearanceTerminalThemeSyncGate.shared.isCurrent(generation) else { return }
             environment.synchronizeTerminalThemeWithAppearance(appearance, source)
+        }
+    }
+
+    private static func synchronizeTerminalThemeOnMainActor(
+        _ appearance: NSAppearance?,
+        source: String,
+        generation: UInt64,
+        environment: LiveApplyEnvironment
+    ) {
+        if Thread.isMainThread {
+            guard AppearanceTerminalThemeSyncGate.shared.isCurrent(generation) else { return }
+            environment.synchronizeTerminalThemeWithAppearance(appearance, source)
+        } else {
+            Task { @MainActor in
+                guard AppearanceTerminalThemeSyncGate.shared.isCurrent(generation) else { return }
+                environment.synchronizeTerminalThemeWithAppearance(appearance, source)
+            }
         }
     }
 
@@ -275,7 +296,7 @@ enum AppearanceSettings {
     }
 }
 
-private final class AppearanceTerminalThemeSyncGate {
+private final class AppearanceTerminalThemeSyncGate: @unchecked Sendable {
     static let shared = AppearanceTerminalThemeSyncGate()
 
     private let lock = NSLock()

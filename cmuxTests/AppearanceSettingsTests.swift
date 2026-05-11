@@ -269,15 +269,51 @@ final class AppearanceSettingsTests: XCTestCase {
             let invalidUTF8 = Data([0xff, 0xfe, 0xfd])
             try invalidUTF8.write(to: configURL)
 
-            ManagedGhosttyAppearanceConfigStore(environment: configEnvironment)
+            let didPersist = ManagedGhosttyAppearanceConfigStore(environment: configEnvironment)
                 .persistManagedTerminalAppearanceConfig(
                     mode: .dark,
                     appAppearance: NSAppearance(named: .darkAqua),
                     source: "test.unreadableExistingConfig"
                 )
 
+            XCTAssertFalse(didPersist)
             XCTAssertEqual(try Data(contentsOf: configURL), invalidUTF8)
         }
+    }
+
+    func testTerminalThemeSyncSkipsReloadWhenManagedConfigPersistenceFails() async throws {
+        let suiteName = "AppearanceSettingsTests.FailedPersistence.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let blocker = AppearancePersistenceBlocker()
+        var synchronizedSources: [String] = []
+        let environment = AppearanceSettings.LiveApplyEnvironment(
+            setApplicationAppearance: { _ in },
+            synchronizeTerminalThemeWithAppearance: { _, source in
+                synchronizedSources.append(source)
+            },
+            systemAppearance: {
+                NSAppearance(named: .aqua)
+            },
+            persistManagedTerminalAppearanceConfig: { _, _, _, source in
+                blocker.task(for: source)
+            }
+        )
+
+        AppearanceSettings.synchronizeTerminalThemeWithManagedConfig(
+            appAppearance: NSAppearance(named: .aqua),
+            defaults: defaults,
+            source: "failedPersistence",
+            environment: environment
+        )
+
+        await blocker.waitUntilRegistered(count: 1)
+        await blocker.complete("appearanceSync:failedPersistence", result: false)
+        for _ in 0..<3 {
+            await Task.yield()
+        }
+        XCTAssertEqual(synchronizedSources, [])
     }
 
     func testTerminalThemeSyncIgnoresSupersededPersistenceCompletion() async throws {
@@ -381,9 +417,9 @@ final class AppearanceSettingsTests: XCTestCase {
 }
 
 private actor AppearancePersistenceBlocker {
-    private var continuations: [String: CheckedContinuation<Void, Never>] = [:]
+    private var continuations: [String: CheckedContinuation<Bool, Never>] = [:]
 
-    nonisolated func task(for source: String) -> Task<Void, Never> {
+    nonisolated func task(for source: String) -> Task<Bool, Never> {
         Task {
             await self.wait(for: source)
         }
@@ -395,11 +431,11 @@ private actor AppearancePersistenceBlocker {
         }
     }
 
-    func complete(_ source: String) {
-        continuations.removeValue(forKey: source)?.resume()
+    func complete(_ source: String, result: Bool = true) {
+        continuations.removeValue(forKey: source)?.resume(returning: result)
     }
 
-    private func wait(for source: String) async {
+    private func wait(for source: String) async -> Bool {
         await withCheckedContinuation { continuation in
             continuations[source] = continuation
         }

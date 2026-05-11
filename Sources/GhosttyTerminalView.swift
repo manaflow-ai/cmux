@@ -1607,7 +1607,6 @@ class GhosttyApp {
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
     private var defaultBackgroundScopeSource: String = "initialize"
     private var lastAppearanceColorScheme: GhosttyConfig.ColorSchemePreference?
-    private var appearanceSyncGeneration: UInt64 = 0
     private lazy var defaultBackgroundNotificationDispatcher: GhosttyDefaultBackgroundNotificationDispatcher =
         // Theme chrome should track terminal theme changes in the same frame.
         // Keep coalescing semantics, but flush in the next main turn instead of waiting ~1 frame.
@@ -2885,8 +2884,7 @@ class GhosttyApp {
 
     func synchronizeThemeWithAppearance(
         _ appearance: NSAppearance?,
-        source: String,
-        persistManagedTerminalAppearanceConfig: (AppearanceMode, NSAppearance?, UserDefaults, String) -> Task<Void, Never>?
+        afterManagedConfigWriteFrom source: String
     ) {
         let currentColorScheme = GhosttyConfig.currentColorSchemePreference(
             appAppearance: appearance ?? NSApp?.effectiveAppearance
@@ -2911,31 +2909,11 @@ class GhosttyApp {
             )
         }
         guard shouldReload else { return }
-        lastAppearanceColorScheme = currentColorScheme
-        appearanceSyncGeneration &+= 1
-        let appearanceSyncGeneration = appearanceSyncGeneration
         let reloadSource = "appearanceSync:\(source)"
-        let persistenceTask = persistManagedTerminalAppearanceConfig(
-            AppearanceSettings.resolvedMode(),
-            appearance ?? NSApp?.effectiveAppearance,
-            .standard,
-            reloadSource
+        reloadConfiguration(
+            source: reloadSource,
+            reloadSettingsFromFile: false
         )
-        guard let persistenceTask else {
-            reloadConfiguration(
-                source: reloadSource,
-                reloadSettingsFromFile: false
-            )
-            return
-        }
-        Task { @MainActor in
-            await persistenceTask.value
-            guard self.appearanceSyncGeneration == appearanceSyncGeneration else { return }
-            reloadConfiguration(
-                source: reloadSource,
-                reloadSettingsFromFile: false
-            )
-        }
     }
 
     func openConfigurationInTextEdit() {

@@ -13,11 +13,12 @@ struct ManagedGhosttyAppearanceConfigStore {
         self.defaults = defaults
     }
 
+    @discardableResult
     func persistManagedTerminalAppearanceConfig(
         mode: AppearanceMode,
         appAppearance: NSAppearance?,
         source: String
-    ) {
+    ) -> Bool {
         let normalized = AppearanceSettings.mode(for: mode.rawValue)
         let colorScheme = Self.managedTerminalColorScheme(
             for: normalized,
@@ -29,7 +30,7 @@ struct ManagedGhosttyAppearanceConfigStore {
             colorScheme: colorScheme
         )
 
-        Self.persistManagedTerminalAppearanceBlock(
+        return Self.persistManagedTerminalAppearanceBlock(
             managedBlock,
             source: source,
             environment: environment
@@ -41,7 +42,7 @@ struct ManagedGhosttyAppearanceConfigStore {
         appAppearance: NSAppearance?,
         defaults: UserDefaults,
         source: String
-    ) -> Task<Void, Never>? {
+    ) -> Task<Bool, Never>? {
         let normalized = AppearanceSettings.mode(for: mode.rawValue)
         let colorScheme = managedTerminalColorScheme(
             for: normalized,
@@ -105,7 +106,7 @@ struct ManagedGhosttyAppearanceConfigStore {
         _ managedBlock: String,
         source: String,
         environment: ConfigSourceEnvironment = .live()
-    ) {
+    ) -> Bool {
         do {
             let url = environment.cmuxConfigURL
             let existingContents = try existingContents(at: url, environment: environment)
@@ -113,12 +114,14 @@ struct ManagedGhosttyAppearanceConfigStore {
                 in: existingContents,
                 with: managedBlock
             )
-            guard updatedContents != existingContents else { return }
+            guard updatedContents != existingContents else { return true }
             try environment.writeCmuxConfigContents(updatedContents)
+            return true
         } catch {
             #if DEBUG
             cmuxDebugLog("appearance.ghosttyConfig.persist.failed source=\(source) error=\(error)")
             #endif
+            return false
         }
     }
 
@@ -181,7 +184,7 @@ private actor ManagedGhosttyAppearanceConfigWriteActor {
     func persist(
         _ managedBlock: String,
         source: String
-    ) {
+    ) -> Bool {
         ManagedGhosttyAppearanceConfigStore.persistManagedTerminalAppearanceBlock(
             managedBlock,
             source: source
