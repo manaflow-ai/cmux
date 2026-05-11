@@ -589,6 +589,29 @@ final class TerminalOSC7LocationTests: XCTestCase {
         XCTAssertEqual(location.gitBranch, SidebarGitBranchState(branch: "feature/mosh", isDirty: true))
     }
 
+    func testBareOSC7PayloadParserCapturesRemoteHostPathAndBranch() throws {
+        let location = try XCTUnwrap(
+            TerminalLocation.parseOSC7Sequence(
+                "7;file://remotehost/Users/foo/work?cmux_git_branch=feature%2Fmosh&cmux_git_dirty=1"
+            )
+        )
+
+        XCTAssertTrue(location.isRemote)
+        XCTAssertEqual(location.remoteHost, "remotehost")
+        XCTAssertEqual(location.path, "/Users/foo/work")
+        XCTAssertEqual(location.gitBranch, SidebarGitBranchState(branch: "feature/mosh", isDirty: true))
+    }
+
+    func testPlainPathBeginningWithOSC7PrefixStaysPlainPath() throws {
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("7;file://devbox.example/home/george/cmux")
+        )
+
+        XCTAssertFalse(location.isRemote)
+        XCTAssertEqual(location.path, "7;file://devbox.example/home/george/cmux")
+        XCTAssertEqual(location.displayDirectory, "7;file://devbox.example/home/george/cmux")
+    }
+
     func testOSC7LoopbackIPv4RangeStaysLocal() throws {
         let location = try XCTUnwrap(
             TerminalLocation.parseReportedDirectory("file://127.0.1.1/Users/foo/work")

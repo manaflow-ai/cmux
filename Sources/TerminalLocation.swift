@@ -77,7 +77,7 @@ struct TerminalLocation: Equatable {
         let newlineTrimmed = directory.trimmingCharacters(in: .newlines)
         let uriCandidate = trimmedForEmptyCheck
 
-        if uriCandidate.hasPrefix("\u{1B}]7;") || uriCandidate.hasPrefix("7;") {
+        if uriCandidate.hasPrefix("\u{1B}]7;") {
             return parseOSC7Sequence(uriCandidate)
         }
 
