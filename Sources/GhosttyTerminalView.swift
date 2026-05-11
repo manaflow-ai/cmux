@@ -2875,10 +2875,10 @@ class GhosttyApp {
     }
 
     func synchronizeThemeWithAppearance(_ appearance: NSAppearance?, source: String) {
-        synchronizeThemeWithAppearance(
-            appearance,
+        AppearanceSettings.synchronizeTerminalThemeWithManagedConfig(
+            appAppearance: appearance,
             source: source,
-            persistManagedTerminalAppearanceConfig: AppearanceSettings.liveManagedTerminalAppearanceConfigPersistence
+            environment: .live
         )
     }
 

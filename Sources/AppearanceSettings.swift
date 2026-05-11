@@ -294,6 +294,26 @@ enum AppearanceSettings {
         }
     }
 
+    static func synchronizeTerminalThemeWithManagedConfig(
+        appAppearance: NSAppearance?,
+        defaults: UserDefaults = .standard,
+        source: String,
+        environment: LiveApplyEnvironment = .live
+    ) {
+        let persistenceTask = environment.persistManagedTerminalAppearanceConfig(
+            resolvedMode(defaults: defaults),
+            appAppearance,
+            defaults,
+            "appearanceSync:\(source)"
+        )
+        synchronizeTerminalThemeWithAppearance(
+            appAppearance,
+            source: source,
+            persistenceTask: persistenceTask,
+            environment: environment
+        )
+    }
+
     private static func synchronizeTerminalThemeWithAppearance(
         _ appearance: NSAppearance?,
         source: String,
