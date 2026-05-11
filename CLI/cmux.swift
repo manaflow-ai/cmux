@@ -5815,7 +5815,7 @@ struct CMUXCLI {
             // after the startup command exits, and a dead VM looks identical to "I never
             // SSH'd" — the surface shows `Last login: ... on ttys072` + a local prompt.
             "if [ \"$cmux_ssh_status\" -ne 0 ]; then",
-            "  cmux_ssh_note '\\n\\033[31m[cmux] ssh exited with status %s.\\033[0m\\n\\033[2m[cmux] the remote VM may have been paused, destroyed, or lost network.\\033[0m\\n\\033[2m[cmux] press Enter to close this pane.\\033[0m\\n' \"$cmux_ssh_status\"",
+            "  printf '\\n\\033[31m[cmux] ssh exited with status %s.\\033[0m\\n\\033[2m[cmux] the remote VM may have been paused, destroyed, or lost network.\\033[0m\\n\\033[2m[cmux] press Enter to close this pane.\\033[0m\\n' \"$cmux_ssh_status\" >&2 || true",
             "  IFS= read -r _cmux_dismiss_key 2>/dev/null || true",
             "fi",
             "exit $cmux_ssh_status",
