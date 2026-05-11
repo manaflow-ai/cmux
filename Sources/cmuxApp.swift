@@ -7375,7 +7375,7 @@ struct SettingsSectionHeader: View {
 
 private struct WorkspaceCommandsSettingsRow: View {
     let openWindow: OpenWindowAction
-    @ObservedObject private var store = WorkspaceCommandsStore.shared
+    private let store = WorkspaceCommandsStore.shared
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {

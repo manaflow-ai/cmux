@@ -8,7 +8,7 @@ import SwiftUI
 struct WorkspaceCommandsSettingsView: View {
     static let windowID = "workspace-commands-editor"
 
-    @ObservedObject private var store = WorkspaceCommandsStore.shared
+    private let store = WorkspaceCommandsStore.shared
     @State private var selectedID: WorkspaceCommandConfig.ID?
 
     @State private var showRestoreConfirmation = false

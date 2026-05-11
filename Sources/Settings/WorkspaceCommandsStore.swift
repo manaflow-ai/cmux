@@ -1,6 +1,6 @@
 import AppKit
-import Combine
 import Foundation
+import Observation
 
 /// Single source of truth for the named workspace commands surfaced by the
 /// titlebar `+` picker, the command palette, and Cmd+N. Persisted to
@@ -9,7 +9,8 @@ import Foundation
 /// fallback: workspace commands live in UserDefaults and are edited from the
 /// Preferences UI.
 @MainActor
-final class WorkspaceCommandsStore: ObservableObject {
+@Observable
+final class WorkspaceCommandsStore {
     static let shared = WorkspaceCommandsStore()
 
     static let didChange = Notification.Name("cmux.workspaceCommandsStore.didChange")
@@ -21,10 +22,10 @@ final class WorkspaceCommandsStore: ObservableObject {
     var commands: [WorkspaceCommandConfig] {
         [Self.builtInLocal] + userCommands
     }
-    @Published private(set) var userCommands: [WorkspaceCommandConfig] = []
+    private(set) var userCommands: [WorkspaceCommandConfig] = []
     /// Identifier of the command treated as the default for Cmd+N. `nil`
     /// resolves to the built-in `Local` command.
-    @Published private(set) var defaultCommandID: WorkspaceCommandConfig.ID?
+    private(set) var defaultCommandID: WorkspaceCommandConfig.ID?
 
     private let defaults: UserDefaults
 
