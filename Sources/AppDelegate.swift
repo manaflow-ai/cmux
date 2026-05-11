@@ -627,7 +627,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         #endif
 
-        func windowShouldClose(_ sender: NSWindow) -> Bool { shouldClose?() ?? true }
+        func windowShouldClose(_ sender: NSWindow) -> Bool {
+            let shouldClose = shouldClose?() ?? true
+            if shouldClose {
+                WebViewInspectorTeardown.closeAllInspectors(in: sender)
+            }
+            return shouldClose
+        }
     }
 
     struct ScriptableMainWindowState {
@@ -1482,18 +1488,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
         if SocketControlSettings.isTaggedDevBuild() {
+            closeAllWebInspectorsBeforeAppTeardown()
             return .terminateNow
         }
 
         // If the user already confirmed via the Cmd+Q shortcut warning dialog
         // (handleQuitShortcutWarning), skip the check to avoid a second alert.
         if isQuitWarningConfirmed {
+            closeAllWebInspectorsBeforeAppTeardown()
             return .terminateNow
         }
 
         // Respect the "Warn Before Quit" setting even when Cmd+Q arrives via
         // the Cmd+Tab app switcher, bypassing handleCustomShortcut.
         guard QuitWarningSettings.isEnabled() else {
+            closeAllWebInspectorsBeforeAppTeardown()
             return .terminateNow
         }
 
@@ -1517,6 +1526,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let shouldQuit = response == .alertFirstButtonReturn
             if shouldQuit {
                 self.isQuitWarningConfirmed = true
+                self.closeAllWebInspectorsBeforeAppTeardown()
             } else {
                 // Reset so that the next quit attempt can show the dialog again.
                 self.isTerminatingApp = false
@@ -1526,8 +1536,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return .terminateLater
     }
 
+    @discardableResult
+    private func closeAllWebInspectorsBeforeAppTeardown() -> Int {
+        WebViewInspectorTeardown.closeAllInspectors(in: NSApp.windows)
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         isTerminatingApp = true
+        closeAllWebInspectorsBeforeAppTeardown()
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()

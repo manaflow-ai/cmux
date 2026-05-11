@@ -279,11 +279,17 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
     // MARK: - NSWindowDelegate
 
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        WebViewInspectorTeardown.closeAllInspectors(in: sender)
+        return true
+    }
+
     func windowWillClose(_ notification: Notification) {
         #if DEBUG
         cmuxDebugLog("popup.close depth=\(nestingDepth)")
         #endif
 
+        WebViewInspectorTeardown.closeInspector(for: webView)
         closeAllChildPopups()
 
         // Invalidate observations
