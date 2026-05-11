@@ -265,6 +265,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     // MARK: - Popup lifecycle
 
     func closePopup() {
+        WebViewInspectorTeardown.closeAllInspectors(in: panel)
         panel.close() // triggers windowWillClose
     }
 

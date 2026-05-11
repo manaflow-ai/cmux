@@ -2141,11 +2141,6 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         installCmuxUnitTestInspectorOverride()
     }
 
-    override func setUp() {
-        super.setUp()
-        setenv("NSZombieEnabled", "YES", 1)
-    }
-
     private func makePanelWithInspector(
         hideBehavior: FakeInspector.HideBehavior = .unsupported
     ) -> (BrowserPanel, FakeInspector) {
@@ -2200,9 +2195,10 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.closeCount, 0)
 
         panel.close()
-        spinRunLoopOneTick()
 
         XCTAssertEqual(inspector.closeCount, 1)
+        spinRunLoopOneTick()
+
         XCTAssertFalse(panel.isDeveloperToolsVisible())
     }
 

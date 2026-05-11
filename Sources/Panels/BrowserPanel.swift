@@ -5898,6 +5898,7 @@ extension WKWebView {
     }
 }
 
+@MainActor
 enum WebViewInspectorTeardown {
     @discardableResult
     static func closeAllInspectors(in window: NSWindow) -> Int {
