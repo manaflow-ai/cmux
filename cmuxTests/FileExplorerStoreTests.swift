@@ -563,6 +563,73 @@ final class FileSearchControllerTests: XCTestCase {
         XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix("DerivedData/") })
     }
 
+    func testSearchPublishesAllMatchingFilesInFolder() async throws {
+        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
+
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let nestedURL = rootURL.appendingPathComponent("Nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: nestedURL, withIntermediateDirectories: true)
+
+        let matchingFiles = [
+            "Alpha.swift",
+            "Beta.swift",
+            "Nested/Gamma.swift",
+        ]
+        for relativePath in matchingFiles {
+            try "issue3817Token \(relativePath)\n".write(
+                to: rootURL.appendingPathComponent(relativePath),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        try "no matching content\n".write(
+            to: rootURL.appendingPathComponent("Other.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let controller = FileSearchController()
+        var snapshots: [FileSearchSnapshot] = []
+        controller.onSnapshotChanged = { snapshots.append($0) }
+
+        controller.search(query: "issue3817Token", rootPath: rootURL.path, isLocal: true)
+        let finalSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
+
+        XCTAssertEqual(finalSnapshot.status, .matches)
+        XCTAssertEqual(Set(finalSnapshot.results.map(\.relativePath)), Set(matchingFiles))
+        XCTAssertEqual(finalSnapshot.results.count, matchingFiles.count)
+    }
+
+    func testSearchLimitsHighVolumeResultsWithoutWaitingForRipgrepExit() async throws {
+        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
+
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+
+        for index in 0..<650 {
+            try "needle \(index)\n".write(
+                to: rootURL.appendingPathComponent(String(format: "match-%04d.txt", index)),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let controller = FileSearchController()
+        var snapshots: [FileSearchSnapshot] = []
+        controller.onSnapshotChanged = { snapshots.append($0) }
+
+        controller.search(query: "needle", rootPath: rootURL.path, isLocal: true)
+        let finalSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
+
+        XCTAssertEqual(finalSnapshot.status, .limited(500))
+        XCTAssertEqual(finalSnapshot.results.count, 500)
+    }
+
     func testSearchRefreshesWhenContentRevisionChanges() async throws {
         try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
 
@@ -657,6 +724,93 @@ final class FileSearchControllerTests: XCTestCase {
         XCTAssertEqual(searchController.searchRequests.last?.query, "private")
     }
 
+    func testContentRevisionChangeDoesNotRestartActiveFindSearch() async throws {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let searchController = SpyFileSearchController()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .find,
+            searchController: searchController
+        )
+        store.provider = MockFileExplorerProvider(homePath: "/tmp")
+        store.setRootPath("/tmp/cmux-find-content-revision-test")
+        container.updateHeader(store: store)
+        container.updatePresentation(.find)
+
+        let searchField = try XCTUnwrap(Self.findSearchField(in: container))
+        searchField.stringValue = "needle"
+        container.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: searchField))
+
+        try await waitForSearchRequestCount(1, in: searchController)
+        XCTAssertEqual(searchController.searchRequests.count, 1)
+
+        searchController.publish(FileSearchSnapshot(
+            query: "needle",
+            results: [Self.searchResult(relativePath: "first.txt")],
+            status: .searching,
+            isSearching: true
+        ))
+        let originalRequestCount = searchController.searchRequests.count
+
+        store.reload()
+        container.updateHeader(store: store)
+        container.updatePresentation(.find)
+
+        XCTAssertEqual(
+            searchController.searchRequests.count,
+            originalRequestCount,
+            "A content revision while a search is active should not cancel and restart the result stream."
+        )
+
+        searchController.publish(FileSearchSnapshot(
+            query: "needle",
+            results: [Self.searchResult(relativePath: "first.txt")],
+            status: .matches,
+            isSearching: false
+        ))
+
+        XCTAssertEqual(searchController.searchRequests.count, originalRequestCount + 1)
+        XCTAssertEqual(searchController.searchRequests.last?.contentRevision, store.contentRevision)
+    }
+
+    private static func searchResult(relativePath: String) -> FileSearchResult {
+        FileSearchResult(
+            path: "/tmp/cmux-find-content-revision-test/\(relativePath)",
+            relativePath: relativePath,
+            lineNumber: 1,
+            columnNumber: 1,
+            preview: "needle"
+        )
+    }
+
+    private func waitForSearchRequestCount(
+        _ expectedCount: Int,
+        in searchController: SpyFileSearchController,
+        timeout: TimeInterval = 1,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if searchController.searchRequests.count >= expectedCount {
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTFail(
+            "Timed out waiting for \(expectedCount) file search requests",
+            file: file,
+            line: line
+        )
+        throw WaitTimeout()
+    }
+
     private func waitForSettledSearchSnapshot(
         timeout: TimeInterval = 5,
         _ snapshot: @MainActor @escaping () -> FileSearchSnapshot?
@@ -719,6 +873,10 @@ final class FileSearchControllerTests: XCTestCase {
                 isLocal: isLocal,
                 contentRevision: contentRevision
             ))
+        }
+
+        func publish(_ snapshot: FileSearchSnapshot) {
+            onSnapshotChanged?(snapshot)
         }
 
         func cancel(clear: Bool) {

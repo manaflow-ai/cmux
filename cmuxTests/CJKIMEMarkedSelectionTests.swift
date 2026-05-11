@@ -548,6 +548,86 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         XCTAssertEqual(forwardedReleaseKeyCodes, [])
     }
 
+    func testMcBopomofoDownArrowRequestsCandidatesViaSpaceCommandFallback() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let terminalSurface = hostedTerminal.surface
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            window.orderOut(nil)
+            withExtendedLifetime(terminalSurface) {}
+        }
+
+        surfaceView.setMarkedText(
+            "ㄋㄧˇ",
+            selectedRange: NSRange(location: 3, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        KeyboardLayout.debugInputSourceIdOverride = "org.openvanilla.inputmethod.McBopomofo.McBopomofo.Bopomofo"
+        installCJKIMEInterpretKeyEventsSwizzle()
+
+        var sawDownCommand = false
+        var syntheticSpaceCount = 0
+        cjkIMEInterpretKeyEventsHook = { candidateView, events in
+            guard candidateView === surfaceView, let event = events.first else { return false }
+            if Int(event.keyCode) == kVK_DownArrow {
+                sawDownCommand = true
+                candidateView.doCommand(by: #selector(NSResponder.moveDown(_:)))
+                return false
+            }
+            if Int(event.keyCode) == kVK_Space {
+                syntheticSpaceCount += 1
+                return true
+            }
+            return false
+        }
+
+        var forwardedPressKeyCodes: [UInt32] = []
+        var forwardedReleaseKeyCodes: [UInt32] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            if keyEvent.action == GHOSTTY_ACTION_PRESS {
+                forwardedPressKeyCodes.append(keyEvent.keycode)
+            } else if keyEvent.action == GHOSTTY_ACTION_RELEASE {
+                forwardedReleaseKeyCodes.append(keyEvent.keycode)
+            }
+        }
+
+        let keyDown = try keyEvent(
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: window.windowNumber
+        )
+        let keyUp = try keyEvent(
+            type: .keyUp,
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: window.windowNumber
+        )
+
+        window.makeFirstResponder(surfaceView)
+        withExtendedLifetime(terminalSurface) {
+            surfaceView.keyDown(with: keyDown)
+            surfaceView.keyUp(with: keyUp)
+        }
+
+        XCTAssertTrue(sawDownCommand)
+        XCTAssertEqual(
+            syntheticSpaceCount,
+            1,
+            "McBopomofo Bopomofo should share Zhuyin's candidate-opening path"
+        )
+        XCTAssertTrue(surfaceView.hasMarkedText())
+        XCTAssertEqual(forwardedPressKeyCodes, [])
+        XCTAssertEqual(forwardedReleaseKeyCodes, [])
+    }
+
     func testNumberCandidateSelectionStillCommitsTextDuringZhuyinComposition() throws {
         let hostedTerminal = try makeHostedTerminalWindow()
         let terminalSurface = hostedTerminal.surface
@@ -765,7 +845,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         let view = GhosttyNSView(frame: .zero)
         view.setIMETransientStateForTesting(
             suppressedKeyUpKeyCodes: [UInt16(kVK_DownArrow)],
-            zhuyinCandidateOpenRequested: true
+            bopomofoCandidateOpenRequested: true
         )
 
         view.unmarkText()
@@ -773,7 +853,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         XCTAssertFalse(view.hasMarkedText())
         XCTAssertEqual(view.markedRange(), NSRange(location: NSNotFound, length: 0))
         XCTAssertEqual(view.imeSuppressedKeyUpKeyCodesForTesting, [UInt16(kVK_DownArrow)])
-        XCTAssertFalse(view.zhuyinCandidateOpenRequestedForTesting)
+        XCTAssertFalse(view.bopomofoCandidateOpenRequestedForTesting)
     }
 
     func testSuppressesInputMethodHandledKeyWithoutMarkedText() throws {

@@ -7027,7 +7027,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             desiredFocus = false
             terminalSurface?.recordExternalFocusState(false)
             imeSuppressedKeyUpKeyCodes.removeAll()
-            zhuyinCandidateOpenRequested = false
+            bopomofoCandidateOpenRequested = false
         }
         if result, let surface = surface {
             let now = CACurrentMediaTime()
@@ -7047,7 +7047,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var numpadIMECommitDeduplicator = NumpadIMECommitDeduplicator()
     private var imeSuppressedKeyUpKeyCodes: Set<UInt16> = []
     private var textInputCommandSelectorDuringKeyDown: Selector?
-    private var zhuyinCandidateOpenRequested = false
+    private var bopomofoCandidateOpenRequested = false
     private struct SelectionSnapshot {
         let range: NSRange
         let string: String
@@ -7062,16 +7062,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     func setIMETransientStateForTesting(
         suppressedKeyUpKeyCodes: Set<UInt16>,
-        zhuyinCandidateOpenRequested: Bool
+        bopomofoCandidateOpenRequested: Bool
     ) {
         imeSuppressedKeyUpKeyCodes = suppressedKeyUpKeyCodes
-        self.zhuyinCandidateOpenRequested = zhuyinCandidateOpenRequested
+        self.bopomofoCandidateOpenRequested = bopomofoCandidateOpenRequested
     }
     var imeSuppressedKeyUpKeyCodesForTesting: Set<UInt16> {
         imeSuppressedKeyUpKeyCodes
     }
-    var zhuyinCandidateOpenRequestedForTesting: Bool {
-        zhuyinCandidateOpenRequested
+    var bopomofoCandidateOpenRequestedForTesting: Bool {
+        bopomofoCandidateOpenRequested
     }
     func shouldSuppressShiftSpaceFallbackTextForTesting(event: NSEvent, markedTextBefore: Bool) -> Bool {
         shouldSuppressShiftSpaceFallbackText(event: event, markedTextBefore: markedTextBefore)
@@ -7526,7 +7526,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         var accumulatedText = keyTextAccumulator ?? []
         var markedStateAfter = (markedText.string, markedSelectedRange)
-        if shouldOpenZhuyinCandidatesWithSyntheticSpace(
+        if shouldOpenBopomofoCandidatesWithSyntheticSpace(
             event: translationEvent,
             inputSourceId: keyboardIdBefore,
             markedTextBefore: markedTextBefore,
@@ -7534,23 +7534,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             after: markedStateAfter,
             accumulatedText: accumulatedText,
             commandSelector: textInputCommandSelectorDuringKeyDown,
-            candidateOpenAlreadyRequested: zhuyinCandidateOpenRequested
+            candidateOpenAlreadyRequested: bopomofoCandidateOpenRequested
         ) {
-            zhuyinCandidateOpenRequested = true
+            bopomofoCandidateOpenRequested = true
             textInputCommandSelectorDuringKeyDown = nil
-            _ = handleTextInputKeyEvent(zhuyinCandidateOpenSpaceEvent(from: translationEvent))
+            _ = handleTextInputKeyEvent(bopomofoCandidateOpenSpaceEvent(from: translationEvent))
             syncPreedit(clearIfNeeded: markedTextBefore)
             accumulatedText = keyTextAccumulator ?? []
             markedStateAfter = (markedText.string, markedSelectedRange)
-        } else if shouldRememberZhuyinCandidateInteraction(
+        } else if shouldRememberBopomofoCandidateInteraction(
             event: translationEvent,
             inputSourceId: keyboardIdBefore,
             markedTextBefore: markedTextBefore,
             accumulatedText: accumulatedText
         ) {
-            zhuyinCandidateOpenRequested = true
-        } else if markedTextBefore, isTraditionalZhuyinInputSource(keyboardIdBefore) {
-            zhuyinCandidateOpenRequested = false
+            bopomofoCandidateOpenRequested = true
+        } else if markedTextBefore, isBopomofoInputSource(keyboardIdBefore) {
+            bopomofoCandidateOpenRequested = false
         }
 
         if shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
@@ -7759,7 +7759,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return inputContext.handleEvent(event)
     }
 
-    private func zhuyinCandidateOpenSpaceEvent(from event: NSEvent) -> NSEvent {
+    private func bopomofoCandidateOpenSpaceEvent(from event: NSEvent) -> NSEvent {
         NSEvent.keyEvent(
             with: event.type,
             location: event.locationInWindow,
@@ -12860,7 +12860,7 @@ extension GhosttyNSView: NSTextInputClient {
 #endif
         markedText.mutableString.setString("")
         markedSelectedRange = NSRange(location: NSNotFound, length: 0)
-        zhuyinCandidateOpenRequested = false
+        bopomofoCandidateOpenRequested = false
 
         if hadMarkedText {
             syncPreedit()
