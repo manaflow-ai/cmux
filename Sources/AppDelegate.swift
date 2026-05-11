@@ -4790,8 +4790,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func refreshTerminalSurfacesAfterGhosttyConfigReload(source: String) {
         var refreshedCount = 0
         forEachTerminalPanel { terminalPanel in
-            terminalPanel.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
-            terminalPanel.surface.forceRefresh(reason: "appDelegate.refreshAfterGhosttyConfigReload")
+            let liveSurface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
+                reason: "appDelegate.refreshAfterGhosttyConfigReload"
+            )
+            GhosttySurfaceConfigurationRefresh.applyAfterAppConfigReload(
+                to: liveSurface,
+                source: source,
+                reloadSurfaceConfiguration: { surface, soft, source in
+                    GhosttyApp.shared.reloadSurfaceConfiguration(surface, soft: soft, source: source)
+                },
+                refreshHostBackground: {
+                    terminalPanel.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
+                },
+                forceRefresh: { reason in
+                    terminalPanel.surface.forceRefresh(reason: reason)
+                }
+            )
             refreshedCount += 1
         }
 #if DEBUG
