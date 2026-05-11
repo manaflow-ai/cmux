@@ -77,6 +77,22 @@ final class AuthManagerBrowserSignInTests: XCTestCase {
         return AuthSettingsStore(userDefaults: defaults)
     }
 
+    func testDefaultSignInUsesScopedWebAuthenticationSession() {
+        XCTAssertTrue(AuthManager.shouldUseSystemWebAuthenticationSession(environment: [:]))
+        XCTAssertTrue(AuthManager.shouldUseSystemWebAuthenticationSession(
+            environment: ["CMUX_AUTH_USE_ASWEB_AUTH_SESSION": "1"]
+        ))
+        XCTAssertTrue(AuthManager.shouldUseSystemWebAuthenticationSession(
+            environment: ["CMUX_AUTH_USE_ASWEB_AUTH_SESSION": " true "]
+        ))
+        XCTAssertFalse(AuthManager.shouldUseSystemWebAuthenticationSession(
+            environment: ["CMUX_AUTH_USE_ASWEB_AUTH_SESSION": "0"]
+        ))
+        XCTAssertFalse(AuthManager.shouldUseSystemWebAuthenticationSession(
+            environment: ["CMUX_AUTH_USE_ASWEB_AUTH_SESSION": "false"]
+        ))
+    }
+
     func testBeginSignInOpensExternalBrowserCallbackURL() async {
         let tokenStore = InMemoryAuthTokenStore()
         var openedURL: URL?

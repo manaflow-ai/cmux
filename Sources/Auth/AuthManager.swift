@@ -166,7 +166,7 @@ final class AuthManager: ObservableObject {
         self.client = client ?? Self.makeDefaultClient(tokenStore: tokenStore)
         self.urlOpener = urlOpener ?? Self.defaultURLOpener
         self.usesSystemWebAuthenticationSession = usesSystemWebAuthenticationSession ?? {
-            Self.shouldUseSystemWebAuthenticationSession
+            Self.shouldUseSystemWebAuthenticationSession()
         }
         let cachedUser = settingsStore.cachedUser()
         self.currentUser = cachedUser
@@ -214,11 +214,22 @@ final class AuthManager: ObservableObject {
         }
     }
 
-    private static var shouldUseSystemWebAuthenticationSession: Bool {
-        let value = ProcessInfo.processInfo.environment["CMUX_AUTH_USE_ASWEB_AUTH_SESSION"]?
+    static func shouldUseSystemWebAuthenticationSession(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        let value = environment["CMUX_AUTH_USE_ASWEB_AUTH_SESSION"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        return value == "1" || value == "true" || value == "yes"
+        switch value {
+        case "0", "false", "no":
+            return false
+        case "1", "true", "yes":
+            return true
+        default:
+            // ASWebAuthenticationSession scopes callbacks to the initiating
+            // session even when parallel debug apps share the same URL scheme.
+            return true
+        }
     }
 
     private func beginSystemWebAuthenticationSession() {
