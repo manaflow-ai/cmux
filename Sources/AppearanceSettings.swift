@@ -32,13 +32,13 @@ enum AppearanceSettings {
         let setApplicationAppearance: (NSAppearance?) -> Void
         let synchronizeTerminalThemeWithAppearance: (NSAppearance?, String) -> Void
         let systemAppearance: () -> NSAppearance?
-        let persistManagedTerminalAppearanceConfig: (AppearanceMode, NSAppearance?, UserDefaults, String) -> Void
+        let persistManagedTerminalAppearanceConfig: (AppearanceMode, NSAppearance?, UserDefaults, String) -> Task<Void, Never>?
 
         init(
             setApplicationAppearance: @escaping (NSAppearance?) -> Void,
             synchronizeTerminalThemeWithAppearance: @escaping (NSAppearance?, String) -> Void,
             systemAppearance: @escaping () -> NSAppearance?,
-            persistManagedTerminalAppearanceConfig: @escaping (AppearanceMode, NSAppearance?, UserDefaults, String) -> Void = { _, _, _, _ in }
+            persistManagedTerminalAppearanceConfig: @escaping (AppearanceMode, NSAppearance?, UserDefaults, String) -> Task<Void, Never>? = { _, _, _, _ in nil }
         ) {
             self.setApplicationAppearance = setApplicationAppearance
             self.synchronizeTerminalThemeWithAppearance = synchronizeTerminalThemeWithAppearance
@@ -52,7 +52,11 @@ enum AppearanceSettings {
                     NSApplication.shared.appearance = appearance
                 },
                 synchronizeTerminalThemeWithAppearance: { appearance, source in
-                    GhosttyApp.shared.synchronizeThemeWithAppearance(appearance, source: source)
+                    GhosttyApp.shared.synchronizeThemeWithAppearance(
+                        appearance,
+                        source: source,
+                        persistManagedTerminalAppearanceConfig: { _, _, _, _ in nil }
+                    )
                 },
                 systemAppearance: {
                     AppearanceSettings.systemNSAppearance()
@@ -81,6 +85,9 @@ enum AppearanceSettings {
     static let defaultMode: AppearanceMode = .system
     private static let appleInterfaceStyleKey = "AppleInterfaceStyle"
     private static let darkInterfaceStyleValue = "Dark"
+    private static let managedTerminalAppearanceWriteQueue = DispatchQueue(
+        label: "com.cmux.appearance.managedTerminalConfig"
+    )
 
     static func mode(for rawValue: String?) -> AppearanceMode {
         guard let rawValue, let mode = AppearanceMode(rawValue: rawValue) else {
@@ -186,23 +193,32 @@ enum AppearanceSettings {
             environment: environment
         )
         environment.setApplicationAppearance(appearance)
-        environment.persistManagedTerminalAppearanceConfig(
+        let persistenceTask = environment.persistManagedTerminalAppearanceConfig(
             normalized,
             appearance,
             defaults,
             source
         )
         if synchronizeTerminalTheme {
-            environment.synchronizeTerminalThemeWithAppearance(appearance, source)
+            synchronizeTerminalThemeWithAppearance(
+                appearance,
+                source: source,
+                persistenceTask: persistenceTask,
+                environment: environment
+            )
         }
         return normalized
     }
 
+#if compiler(>=6.2)
+    @concurrent
+#endif
+    nonisolated
     static func persistManagedTerminalAppearanceConfig(
         _ mode: AppearanceMode,
         appAppearance: NSAppearance?,
         defaults: UserDefaults = .standard,
-        source _: String,
+        source: String,
         environment: ConfigSourceEnvironment = .live()
     ) {
         let normalized = Self.mode(for: mode.rawValue)
@@ -216,6 +232,22 @@ enum AppearanceSettings {
             colorScheme: colorScheme
         )
 
+        persistManagedTerminalAppearanceBlock(
+            managedBlock,
+            source: source,
+            environment: environment
+        )
+    }
+
+#if compiler(>=6.2)
+    @concurrent
+#endif
+    nonisolated
+    static func persistManagedTerminalAppearanceBlock(
+        _ managedBlock: String,
+        source: String,
+        environment: ConfigSourceEnvironment = .live()
+    ) {
         do {
             let url = environment.cmuxConfigURL
             let existingContents = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
@@ -227,19 +259,55 @@ enum AppearanceSettings {
             try environment.writeCmuxConfigContents(updatedContents)
         } catch {
             #if DEBUG
-            cmuxDebugLog("appearance.ghosttyConfig.persist.failed error=\(error)")
+            cmuxDebugLog("appearance.ghosttyConfig.persist.failed source=\(source) error=\(error)")
             #endif
         }
     }
 
-    static var liveManagedTerminalAppearanceConfigPersistence: (AppearanceMode, NSAppearance?, UserDefaults, String) -> Void {
+    static var liveManagedTerminalAppearanceConfigPersistence: (AppearanceMode, NSAppearance?, UserDefaults, String) -> Task<Void, Never>? {
         { mode, appearance, defaults, source in
-            persistManagedTerminalAppearanceConfig(
-                mode,
+            let normalized = Self.mode(for: mode.rawValue)
+            let colorScheme = managedTerminalColorScheme(
+                for: normalized,
                 appAppearance: appearance,
-                defaults: defaults,
-                source: source
+                defaults: defaults
             )
+            let managedBlock = managedTerminalAppearanceBlock(
+                mode: normalized,
+                colorScheme: colorScheme
+            )
+
+            let completion = AsyncStream<Void> { continuation in
+                managedTerminalAppearanceWriteQueue.async {
+                    persistManagedTerminalAppearanceBlock(
+                        managedBlock,
+                        source: source
+                    )
+                    continuation.yield(())
+                    continuation.finish()
+                }
+            }
+
+            return Task(priority: .utility) {
+                for await _ in completion {}
+            }
+        }
+    }
+
+    private static func synchronizeTerminalThemeWithAppearance(
+        _ appearance: NSAppearance?,
+        source: String,
+        persistenceTask: Task<Void, Never>?,
+        environment: LiveApplyEnvironment
+    ) {
+        guard let persistenceTask else {
+            environment.synchronizeTerminalThemeWithAppearance(appearance, source)
+            return
+        }
+
+        Task { @MainActor in
+            await persistenceTask.value
+            environment.synchronizeTerminalThemeWithAppearance(appearance, source)
         }
     }
 

@@ -204,6 +204,7 @@ final class AppearanceSettingsTests: XCTestCase {
                             source: source,
                             environment: configEnvironment
                         )
+                        return nil
                     }
                 )
 

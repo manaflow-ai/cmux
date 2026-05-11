@@ -2885,7 +2885,7 @@ class GhosttyApp {
     func synchronizeThemeWithAppearance(
         _ appearance: NSAppearance?,
         source: String,
-        persistManagedTerminalAppearanceConfig: (AppearanceMode, NSAppearance?, UserDefaults, String) -> Void
+        persistManagedTerminalAppearanceConfig: (AppearanceMode, NSAppearance?, UserDefaults, String) -> Task<Void, Never>?
     ) {
         let currentColorScheme = GhosttyConfig.currentColorSchemePreference(
             appAppearance: appearance ?? NSApp?.effectiveAppearance
@@ -2911,16 +2911,26 @@ class GhosttyApp {
         }
         guard shouldReload else { return }
         lastAppearanceColorScheme = currentColorScheme
-        persistManagedTerminalAppearanceConfig(
+        let persistenceTask = persistManagedTerminalAppearanceConfig(
             AppearanceSettings.resolvedMode(),
             appearance ?? NSApp?.effectiveAppearance,
             .standard,
             "appearanceSync:\(source)"
         )
-        reloadConfiguration(
-            source: "appearanceSync:\(source)",
-            reloadSettingsFromFile: false
-        )
+        guard let persistenceTask else {
+            reloadConfiguration(
+                source: "appearanceSync:\(source)",
+                reloadSettingsFromFile: false
+            )
+            return
+        }
+        Task { @MainActor in
+            await persistenceTask.value
+            reloadConfiguration(
+                source: "appearanceSync:\(source)",
+                reloadSettingsFromFile: false
+            )
+        }
     }
 
     func openConfigurationInTextEdit() {
