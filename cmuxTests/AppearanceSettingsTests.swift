@@ -259,6 +259,34 @@ final class AppearanceSettingsTests: XCTestCase {
         }
     }
 
+    func testManagedGhosttyConfigReplacesOrphanedEndMarker() throws {
+        try withTemporaryHomeDirectory { homeDirectory in
+            let configEnvironment = ConfigSourceEnvironment(
+                homeDirectoryURL: homeDirectory,
+                currentBundleIdentifier: "com.cmuxterm.app"
+            )
+            try configEnvironment.writeCmuxConfigContents("""
+            font-size = 13
+            # cmux-managed-appearance: end
+            keybind = ctrl+shift+c=copy_to_clipboard
+            """)
+
+            ManagedGhosttyAppearanceConfigStore(environment: configEnvironment)
+                .persistManagedTerminalAppearanceConfig(
+                    mode: .light,
+                    appAppearance: NSAppearance(named: .aqua),
+                    source: "test.orphanedManagedEndMarker"
+                )
+
+            let contents = try String(contentsOf: configEnvironment.cmuxConfigURL, encoding: .utf8)
+            XCTAssertTrue(contents.contains("font-size = 13"))
+            XCTAssertTrue(contents.contains("keybind = ctrl+shift+c=copy_to_clipboard"))
+            XCTAssertEqual(occurrenceCount(of: "# cmux-managed-appearance: begin", in: contents), 1)
+            XCTAssertEqual(occurrenceCount(of: "# cmux-managed-appearance: end", in: contents), 1)
+            XCTAssertTrue(contents.contains("background = #feffff"))
+        }
+    }
+
     func testManagedGhosttyConfigDoesNotOverwriteUnreadableExistingConfig() throws {
         try withTemporaryHomeDirectory { homeDirectory in
             let configEnvironment = ConfigSourceEnvironment(

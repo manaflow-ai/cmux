@@ -173,6 +173,18 @@ struct ManagedGhosttyAppearanceConfigStore {
             return updated.hasSuffix("\n") ? updated : updated + "\n"
         }
 
+        if let orphanedEndRange = contents.range(of: managedTerminalAppearanceEndMarker) {
+            let replacementStart = contents[..<orphanedEndRange.lowerBound]
+                .lastIndex(of: "\n")
+                .map { contents.index(after: $0) } ?? contents.startIndex
+            let replacementEnd = contents[orphanedEndRange.upperBound...]
+                .firstIndex(of: "\n")
+                .map { contents.index(after: $0) } ?? contents.endIndex
+            var updated = contents
+            updated.replaceSubrange(replacementStart..<replacementEnd, with: managedBlock)
+            return updated.hasSuffix("\n") ? updated : updated + "\n"
+        }
+
         let separator = contents.hasSuffix("\n") ? "\n" : "\n\n"
         return contents + separator + managedBlock
     }
