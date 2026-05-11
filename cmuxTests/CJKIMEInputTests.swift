@@ -16,6 +16,13 @@ private var ghosttyPasteAsPlainTextActionSwizzled = false
 private var ghosttyPasteAsPlainTextActionHook: ((GhosttyNSView, Any?) -> Void)?
 
 private extension GhosttyNSView {
+    @objc func cmuxUnitTest_interpretKeyEvents(_ eventArray: [NSEvent]) {
+        if let hook = cjkIMEInterpretKeyEventsHook, hook(self, eventArray) {
+            return
+        }
+        cmuxUnitTest_interpretKeyEvents(eventArray)
+    }
+
     @objc func cmuxUnitTest_paste(_ sender: Any?) {
         ghosttyPasteActionHook?(self, sender)
         cmuxUnitTest_paste(sender)
@@ -30,12 +37,30 @@ private extension GhosttyNSView {
 func installCJKIMEInterpretKeyEventsSwizzle() {
     guard !cjkIMEInterpretKeyEventsSwizzled else { return }
 
-    GhosttyNSView.debugTextInputEventHandler = { candidateView, event in
-        if let hook = cjkIMEInterpretKeyEventsHook, hook(candidateView, [event]) {
-            return true
-        }
-        candidateView.interpretKeyEvents([event])
-        return false
+    let originalSelector = #selector(GhosttyNSView.interpretKeyEvents(_:))
+    let swizzledSelector = #selector(GhosttyNSView.cmuxUnitTest_interpretKeyEvents(_:))
+
+    guard let originalMethod = class_getInstanceMethod(GhosttyNSView.self, originalSelector),
+          let swizzledMethod = class_getInstanceMethod(GhosttyNSView.self, swizzledSelector) else {
+        fatalError("Unable to locate GhosttyNSView interpretKeyEvents methods for swizzling")
+    }
+
+    let didAddMethod = class_addMethod(
+        GhosttyNSView.self,
+        originalSelector,
+        method_getImplementation(swizzledMethod),
+        method_getTypeEncoding(swizzledMethod)
+    )
+
+    if didAddMethod {
+        class_replaceMethod(
+            GhosttyNSView.self,
+            swizzledSelector,
+            method_getImplementation(originalMethod),
+            method_getTypeEncoding(originalMethod)
+        )
+    } else {
+        method_exchangeImplementations(originalMethod, swizzledMethod)
     }
 
     cjkIMEInterpretKeyEventsSwizzled = true

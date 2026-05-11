@@ -7030,8 +7030,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if result {
             desiredFocus = false
             terminalSurface?.recordExternalFocusState(false)
-            imeSuppressedKeyUpKeyCodes.removeAll()
-            zhuyinCandidateOpenRequested = false
         }
         if result, let surface = surface {
             let now = CACurrentMediaTime()
@@ -7049,9 +7047,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastPerformKeyEvent: TimeInterval?
     private(set) var externalCommittedTextDepth = 0
     var numpadIMECommitDeduplicator = NumpadIMECommitDeduplicator()
-    private var imeSuppressedKeyUpKeyCodes: Set<UInt16> = []
-    private var textInputCommandSelectorDuringKeyDown: Selector?
-    private var zhuyinCandidateOpenRequested = false
     private struct SelectionSnapshot {
         let range: NSRange
         let string: String
@@ -7060,22 +7055,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
 #if DEBUG
     // Test-only accessors for keyTextAccumulator to verify CJK IME composition behavior.
-    func setKeyTextAccumulatorForTesting(_ value: [String]?) { keyTextAccumulator = value }
-    var keyTextAccumulatorForTesting: [String]? { keyTextAccumulator }
-    static var debugTextInputEventHandler: ((GhosttyNSView, NSEvent) -> Bool)?
-
-    func setIMETransientStateForTesting(
-        suppressedKeyUpKeyCodes: Set<UInt16>,
-        zhuyinCandidateOpenRequested: Bool
-    ) {
-        imeSuppressedKeyUpKeyCodes = suppressedKeyUpKeyCodes
-        self.zhuyinCandidateOpenRequested = zhuyinCandidateOpenRequested
+    func setKeyTextAccumulatorForTesting(_ value: [String]?) {
+        keyTextAccumulator = value
     }
-    var imeSuppressedKeyUpKeyCodesForTesting: Set<UInt16> {
-        imeSuppressedKeyUpKeyCodes
-    }
-    var zhuyinCandidateOpenRequestedForTesting: Bool {
-        zhuyinCandidateOpenRequested
+    var keyTextAccumulatorForTesting: [String]? {
+        keyTextAccumulator
     }
     func shouldSuppressShiftSpaceFallbackTextForTesting(event: NSEvent, markedTextBefore: Bool) -> Bool {
         shouldSuppressShiftSpaceFallbackText(event: event, markedTextBefore: markedTextBefore)
@@ -7095,15 +7079,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // Prevents NSBeep for unimplemented actions from interpretKeyEvents
     override func doCommand(by selector: Selector) {
-        textInputCommandSelectorDuringKeyDown = selector
-#if DEBUG
-        if hasMarkedText() {
-            cmuxDebugLog(
-                "ime.doCommand selector=\(NSStringFromSelector(selector)) " +
-                "markedLength=\(markedText.length)"
-            )
-        }
-#endif
         // Intentionally empty - prevents system beep on unhandled key commands
     }
 
@@ -7482,21 +7457,25 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Set up text accumulator for interpretKeyEvents
         keyTextAccumulator = []
         defer { keyTextAccumulator = nil }
-        textInputCommandSelectorDuringKeyDown = nil
 
         let markedTextBefore = markedText.length > 0
         let markedStateBefore = (markedText.string, markedSelectedRange)
 
         // Capture the keyboard layout ID before interpretation so we can
         // detect if an IME changed it (e.g. toggling input methods).
-        let keyboardIdBefore = KeyboardLayout.id
+        // We only check when not already in a preedit state.
+        let keyboardIdBefore: String? = if (!markedTextBefore) {
+            KeyboardLayout.id
+        } else {
+            nil
+        }
 
         // Let the input system handle the event (for IME, dead keys, etc.)
 #if DEBUG
         let interpretTimingStart = CmuxTypingTiming.start()
         let interpretPhaseStart = ProcessInfo.processInfo.systemUptime
 #endif
-        let textInputHandledEvent = handleTextInputKeyEvent(translationEvent)
+        interpretKeyEvents([translationEvent])
 #if DEBUG
         interpretMs = (ProcessInfo.processInfo.systemUptime - interpretPhaseStart) * 1000.0
         CmuxTypingTiming.logDuration(
@@ -7528,46 +7507,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         syncPreeditMs = (ProcessInfo.processInfo.systemUptime - syncPreeditStart) * 1000.0
 #endif
 
-        var accumulatedText = keyTextAccumulator ?? []
-        var markedStateAfter = (markedText.string, markedSelectedRange)
-        if shouldOpenZhuyinCandidatesWithSyntheticSpace(
-            event: translationEvent,
-            inputSourceId: keyboardIdBefore,
-            markedTextBefore: markedTextBefore,
-            before: markedStateBefore,
-            after: markedStateAfter,
-            accumulatedText: accumulatedText,
-            commandSelector: textInputCommandSelectorDuringKeyDown,
-            candidateOpenAlreadyRequested: zhuyinCandidateOpenRequested
-        ) {
-            zhuyinCandidateOpenRequested = true
-            textInputCommandSelectorDuringKeyDown = nil
-            _ = handleTextInputKeyEvent(zhuyinCandidateOpenSpaceEvent(from: translationEvent))
-            syncPreedit(clearIfNeeded: markedTextBefore)
-            accumulatedText = keyTextAccumulator ?? []
-            markedStateAfter = (markedText.string, markedSelectedRange)
-        } else if shouldRememberZhuyinCandidateInteraction(
-            event: translationEvent,
-            inputSourceId: keyboardIdBefore,
-            markedTextBefore: markedTextBefore,
-            accumulatedText: accumulatedText
-        ) {
-            zhuyinCandidateOpenRequested = true
-        } else if markedTextBefore, isTraditionalZhuyinInputSource(keyboardIdBefore) {
-            zhuyinCandidateOpenRequested = false
-        }
-
+        let accumulatedText = keyTextAccumulator ?? []
         if shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
-            before: markedStateBefore,
-            after: markedStateAfter,
-            accumulatedText: accumulatedText,
-            event: translationEvent,
-            textInputHandledEvent: textInputHandledEvent,
-            inputSourceId: keyboardIdBefore
-        ) {
-            imeSuppressedKeyUpKeyCodes.insert(event.keyCode)
-            return
-        }
+            before: markedStateBefore, after: (markedText.string, markedSelectedRange), accumulatedText: accumulatedText
+        ) { return }
 
         // Build the key event
         var keyEvent = ghostty_input_key_s()
@@ -7750,35 +7693,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     @discardableResult
-    private func handleTextInputKeyEvent(_ event: NSEvent) -> Bool {
-#if DEBUG
-        if let debugTextInputEventHandler = Self.debugTextInputEventHandler {
-            return debugTextInputEventHandler(self, event)
-        }
-#endif
-        guard let inputContext else {
-            interpretKeyEvents([event])
-            return false
-        }
-        return inputContext.handleEvent(event)
-    }
-
-    private func zhuyinCandidateOpenSpaceEvent(from event: NSEvent) -> NSEvent {
-        NSEvent.keyEvent(
-            with: event.type,
-            location: event.locationInWindow,
-            modifierFlags: event.modifierFlags.subtracting([.shift, .numericPad, .function]),
-            timestamp: event.timestamp,
-            windowNumber: event.windowNumber,
-            context: nil,
-            characters: " ",
-            charactersIgnoringModifiers: " ",
-            isARepeat: event.isARepeat,
-            keyCode: UInt16(kVK_Space)
-        ) ?? event
-    }
-
-    @discardableResult
     private func sendGhosttyKey(_ surface: ghostty_surface_t, _ keyEvent: ghostty_input_key_s) -> Bool {
 #if DEBUG
         Self.debugGhosttySurfaceKeyEventObserver?(keyEvent)
@@ -7810,10 +7724,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func keyUp(with event: NSEvent) {
-        if imeSuppressedKeyUpKeyCodes.remove(event.keyCode) != nil {
-            return
-        }
-
         guard let surface = ensureSurfaceReadyForInput() else {
             super.keyUp(with: event)
             return
@@ -12834,8 +12744,8 @@ extension GhosttyNSView: NSTextInputClient {
     }
 
     func unmarkText() {
-        let hadMarkedText = markedText.length > 0
 #if DEBUG
+        let hadMarkedText = markedText.length > 0
         let typingTimingStart = CmuxTypingTiming.start()
         defer {
             CmuxTypingTiming.logDuration(
@@ -12845,11 +12755,9 @@ extension GhosttyNSView: NSTextInputClient {
             )
         }
 #endif
-        markedText.mutableString.setString("")
-        markedSelectedRange = NSRange(location: NSNotFound, length: 0)
-        zhuyinCandidateOpenRequested = false
-
-        if hadMarkedText {
+        if markedText.length > 0 {
+            markedText.mutableString.setString("")
+            markedSelectedRange = NSRange(location: NSNotFound, length: 0)
             syncPreedit()
             invalidateTextInputCoordinates(selectionChanged: true)
         }
