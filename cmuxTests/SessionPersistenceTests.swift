@@ -98,7 +98,7 @@ final class SessionPersistenceTests: XCTestCase {
         snapshot.panels[panelIndex].terminalLocation = SessionTerminalLocationSnapshot(
             host: "devbox.example",
             path: "/home/george/cmux",
-            source: TerminalLocation.Source.osc7.rawValue
+            source: .osc7
         )
         snapshot.panels[panelIndex].listeningPorts = [3000, 4000]
 
@@ -107,6 +107,18 @@ final class SessionPersistenceTests: XCTestCase {
         let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
 
         XCTAssertNil(restored.surfaceListeningPorts[restoredPanelId])
+    }
+
+    func testTerminalLocationSnapshotDecodesUnknownSourceAsNil() throws {
+        let data = """
+        {"host":"devbox.example","path":"/home/george/cmux","source":"future-source"}
+        """.data(using: .utf8)!
+
+        let snapshot = try JSONDecoder().decode(SessionTerminalLocationSnapshot.self, from: data)
+
+        XCTAssertNil(snapshot.source)
+        XCTAssertEqual(snapshot.host, "devbox.example")
+        XCTAssertEqual(snapshot.path, "/home/george/cmux")
     }
 
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {
@@ -1116,6 +1128,24 @@ final class SessionPersistenceTests: XCTestCase {
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
 
+        XCTAssertNil(restored.terminalLocation(for: restoredPanelId))
+    }
+
+    @MainActor
+    func testSessionRestoreSkipsRemoteDisplayDirectoryWhenTerminalLocationIsOmitted() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try XCTUnwrap(snapshot.panels.firstIndex { $0.id == sourcePanelId })
+        snapshot.panels[panelIndex].directory = "devbox.example:/home/george/cmux"
+        snapshot.panels[panelIndex].terminal?.workingDirectory = "devbox.example:/home/george/cmux"
+        snapshot.panels[panelIndex].terminalLocation = nil
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+
+        XCTAssertNotEqual(restored.panelDirectories[restoredPanelId], "devbox.example:/home/george/cmux")
         XCTAssertNil(restored.terminalLocation(for: restoredPanelId))
     }
 

@@ -748,7 +748,9 @@ extension Workspace {
                 ?? snapshot.terminal?.agent?.workingDirectory
                 ?? snapshot.directory
                 ?? currentDirectory
-            let localWorkingDirectory = remoteTerminalStartupCommand() == nil ? workingDirectory : nil
+            let localWorkingDirectory = remoteTerminalStartupCommand() == nil
+                ? (Self.localRestorableDirectory(from: workingDirectory) ?? currentDirectory)
+                : nil
             let restorableAgent = snapshot.terminal?.agent
             let restorableTmuxStartCommand = restorableAgent == nil
                 ? Self.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
@@ -873,7 +875,7 @@ extension Workspace {
         let restoredTerminalLocation = snapshot.terminalLocation.flatMap(TerminalLocation.init(sessionSnapshot:))
         if let terminalLocation = restoredTerminalLocation {
             updatePanelLocation(panelId: panelId, location: terminalLocation)
-        } else if let directory = snapshot.directory?.trimmingCharacters(in: .whitespacesAndNewlines), !directory.isEmpty {
+        } else if let directory = Self.localRestorableDirectory(from: snapshot.directory) {
             updatePanelDirectory(panelId: panelId, directory: directory)
         }
 
@@ -912,6 +914,27 @@ extension Workspace {
                 _ = browserPanel.hideDeveloperTools()
             }
         }
+    }
+
+    private static func localRestorableDirectory(from directory: String?) -> String? {
+        let trimmed = directory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return nil }
+        if looksLikeRemoteDisplayDirectory(trimmed) {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func looksLikeRemoteDisplayDirectory(_ directory: String) -> Bool {
+        guard let colonIndex = directory.firstIndex(of: ":") else { return false }
+        let prefix = directory[..<colonIndex]
+        guard !prefix.isEmpty,
+              !prefix.contains("/"),
+              !prefix.contains("\\") else {
+            return false
+        }
+        let suffix = directory[directory.index(after: colonIndex)...]
+        return suffix.hasPrefix("/")
     }
 
     private func applySessionDividerPositions(

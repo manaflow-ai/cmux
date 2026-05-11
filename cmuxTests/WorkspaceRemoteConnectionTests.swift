@@ -115,6 +115,22 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         return result.stdout
     }
 
+    private func runIsolatedShell(script: String, shellPath: String = "/bin/bash", timeout: TimeInterval = 5) -> ProcessRunResult {
+        runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "-i",
+                "HOME=\(NSTemporaryDirectory())",
+                "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMPDIR=\(NSTemporaryDirectory())",
+                shellPath,
+                "-c",
+                script,
+            ],
+            timeout: timeout
+        )
+    }
+
     func testRemoteShellSnippetEmitsOSC7UnderBash() throws {
         let stdout = try runRemoteShellSnippetSmoke(shellPath: "/bin/bash")
 
@@ -210,11 +226,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         printf 'second=%s\\n' "${PROMPT_COMMAND[1]}"
         """
 
-        let result = runProcess(
-            executablePath: "/bin/bash",
-            arguments: ["-c", script],
-            timeout: 5
-        )
+        let result = runIsolatedShell(script: script)
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
@@ -233,6 +245,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let result = runProcess(
             executablePath: "/usr/bin/env",
             arguments: [
+                "-i",
+                "HOME=\(NSTemporaryDirectory())",
+                "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMPDIR=\(NSTemporaryDirectory())",
                 "CMUX_REMOTE_HOST=remote\u{1B}]0;bad\u{7}host",
                 "/bin/bash",
                 "-c",

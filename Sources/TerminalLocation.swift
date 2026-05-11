@@ -98,7 +98,7 @@ struct TerminalLocation: Equatable {
         let remote = host.flatMap { Self.isLocalHost($0) ? nil : $0 }
         let branchSignal = gitBranchSignal(from: components.queryItems ?? [], isRemote: remote != nil)
         return TerminalLocation(
-            host: host,
+            host: remote,
             path: path,
             source: source,
             gitBranchSignal: branchSignal
@@ -171,16 +171,32 @@ struct TerminalLocation: Equatable {
 extension TerminalLocation {
     init?(sessionSnapshot snapshot: SessionTerminalLocationSnapshot) {
         guard !snapshot.path.isEmpty else { return nil }
+        let restoredSource: Source = {
+            switch snapshot.source {
+            case .osc7:
+                return .osc7
+            case .plainPath, nil:
+                return .plainPath
+            }
+        }()
         self.init(
-            host: snapshot.host?.trimmingCharacters(in: .whitespacesAndNewlines),
+            host: Self.normalizedHost(snapshot.host).flatMap { Self.isLocalHost($0) ? nil : $0 },
             path: snapshot.path,
-            source: Source(rawValue: snapshot.source ?? "") ?? .plainPath,
+            source: restoredSource,
             gitBranchSignal: .unspecified
         )
     }
 
     var sessionSnapshot: SessionTerminalLocationSnapshot {
-        SessionTerminalLocationSnapshot(host: remoteHost, path: path, source: source.rawValue)
+        let snapshotSource: SessionTerminalLocationSource = {
+            switch source {
+            case .plainPath:
+                return .plainPath
+            case .osc7:
+                return .osc7
+            }
+        }()
+        return SessionTerminalLocationSnapshot(host: remoteHost, path: path, source: snapshotSource)
     }
 }
 

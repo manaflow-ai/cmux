@@ -221,10 +221,45 @@ struct SessionGitBranchSnapshot: Codable, Sendable {
     var isDirty: Bool
 }
 
+enum SessionTerminalLocationSource: String, Codable, Sendable {
+    case plainPath
+    case osc7
+}
+
 struct SessionTerminalLocationSnapshot: Codable, Sendable {
     var host: String?
     var path: String
-    var source: String?
+    var source: SessionTerminalLocationSource?
+
+    init(host: String?, path: String, source: SessionTerminalLocationSource?) {
+        self.host = host
+        self.path = path
+        self.source = source
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case host
+        case path
+        case source
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        host = try container.decodeIfPresent(String.self, forKey: .host)
+        path = try container.decode(String.self, forKey: .path)
+        if let rawSource = try container.decodeIfPresent(String.self, forKey: .source) {
+            source = SessionTerminalLocationSource(rawValue: rawSource)
+        } else {
+            source = nil
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(host, forKey: .host)
+        try container.encode(path, forKey: .path)
+        try container.encodeIfPresent(source?.rawValue, forKey: .source)
+    }
 }
 
 struct SessionTerminalPanelSnapshot: Codable, Sendable {

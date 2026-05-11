@@ -655,6 +655,11 @@ final class TerminalOSC7LocationTests: XCTestCase {
             TerminalLocation.parseReportedDirectory("file://localhost/Users/foo/work")
         )
 
+        let fileURLLocation = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("file:///Users/foo/work")
+        )
+
+        XCTAssertEqual(location, fileURLLocation)
         XCTAssertNil(location.sessionSnapshot.host)
     }
 
@@ -669,6 +674,25 @@ final class TerminalOSC7LocationTests: XCTestCase {
         XCTAssertEqual(location.remoteHost, "devbox.example")
         XCTAssertEqual(location.displayDirectory, "devbox.example:/home/george/cmux")
         XCTAssertEqual(location.gitBranch, SidebarGitBranchState(branch: "feature/kitty", isDirty: true))
+    }
+
+    func testKittyShellCwdLoopbackHostStaysLocal() throws {
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("kitty-shell-cwd://127.0.1.1/Users/foo/work")
+        )
+
+        XCTAssertFalse(location.isRemote)
+        XCTAssertNil(location.remoteHost)
+        XCTAssertEqual(location.displayDirectory, "/Users/foo/work")
+    }
+
+    func testKittyShellCwdPreservesDecodedPathWhitespace() throws {
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("kitty-shell-cwd://devbox.example/tmp/repo%20")
+        )
+
+        XCTAssertEqual(location.path, "/tmp/repo ")
+        XCTAssertEqual(location.displayDirectory, "devbox.example:/tmp/repo ")
     }
 
     @MainActor
