@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import UniformTypeIdentifiers
 
 enum TerminalImageTransferMode {
     case paste
@@ -18,6 +19,7 @@ enum TerminalImageTransferTarget: Equatable {
 
 enum TerminalImageTransferPlan: Equatable {
     case insertText(String)
+    case insertTextSegments([String], interSegmentDelay: TimeInterval)
     case uploadFiles([URL], TerminalRemoteUploadTarget)
     case reject
 }
@@ -162,7 +164,8 @@ enum TerminalImageTransferPlanner {
     ) -> TerminalImageTransferPlan {
         plan(
             preparedContent: prepare(pasteboard: pasteboard, mode: mode),
-            target: target
+            target: target,
+            mode: mode
         )
     }
 
@@ -174,9 +177,9 @@ enum TerminalImageTransferPlanner {
         let preparedContent = prepare(pasteboard: pasteboard, mode: mode)
         switch preparedContent {
         case .insertText, .reject:
-            return plan(preparedContent: preparedContent, target: .local)
+            return plan(preparedContent: preparedContent, target: .local, mode: mode)
         case .fileURLs:
-            return plan(preparedContent: preparedContent, target: resolveTarget())
+            return plan(preparedContent: preparedContent, target: resolveTarget(), mode: mode)
         }
     }
 
@@ -194,23 +197,36 @@ enum TerminalImageTransferPlanner {
 
     static func plan(
         preparedContent: TerminalImageTransferPreparedContent,
-        target: TerminalImageTransferTarget
+        target: TerminalImageTransferTarget,
+        mode: TerminalImageTransferMode = .paste
     ) -> TerminalImageTransferPlan {
         switch preparedContent {
         case .insertText(let text):
             return .insertText(text)
         case .fileURLs(let fileURLs):
-            return plan(fileURLs: fileURLs, target: target)
+            return plan(fileURLs: fileURLs, target: target, mode: mode)
         case .reject:
             return .reject
         }
     }
 
-    static func plan(fileURLs: [URL], target: TerminalImageTransferTarget) -> TerminalImageTransferPlan {
+    static func plan(
+        fileURLs: [URL],
+        target: TerminalImageTransferTarget,
+        mode: TerminalImageTransferMode = .paste
+    ) -> TerminalImageTransferPlan {
         guard !fileURLs.isEmpty else { return .reject }
 
         switch target {
         case .local:
+            if mode == .drop,
+               fileURLs.count > 1,
+               fileURLs.allSatisfy(isLocalImageFileURL) {
+                return .insertTextSegments(
+                    insertedTextSegments(forFileURLs: fileURLs),
+                    interSegmentDelay: 2.0
+                )
+            }
             return .insertText(insertedText(forFileURLs: fileURLs))
         case .remote(let remoteTarget):
             guard fileURLs.allSatisfy(isRemoteUploadableFileURL) else {
@@ -227,6 +243,9 @@ enum TerminalImageTransferPlanner {
         uploadWorkspaceRemote: ([URL], TerminalImageTransferOperation, @escaping (Result<[String], Error>) -> Void) -> Void,
         uploadDetectedSSH: (DetectedSSHSession, [URL], TerminalImageTransferOperation, @escaping (Result<[String], Error>) -> Void) -> Void,
         insertText: @escaping (String) -> Void,
+        scheduleAfter: @escaping (TimeInterval, @escaping () -> Void) -> Void = { delay, work in
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        },
         onFailure: @escaping (Error) -> Void
     ) -> TerminalImageTransferOperation? {
         execute(
@@ -235,6 +254,7 @@ enum TerminalImageTransferPlanner {
             uploadWorkspaceRemote: uploadWorkspaceRemote,
             uploadDetectedSSH: uploadDetectedSSH,
             insertText: insertText,
+            scheduleAfter: scheduleAfter,
             onFailure: onFailure
         )
     }
@@ -246,6 +266,9 @@ enum TerminalImageTransferPlanner {
         uploadWorkspaceRemote: ([URL], TerminalImageTransferOperation, @escaping (Result<[String], Error>) -> Void) -> Void,
         uploadDetectedSSH: (DetectedSSHSession, [URL], TerminalImageTransferOperation, @escaping (Result<[String], Error>) -> Void) -> Void,
         insertText: @escaping (String) -> Void,
+        scheduleAfter: @escaping (TimeInterval, @escaping () -> Void) -> Void = { delay, work in
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        },
         onFailure: @escaping (Error) -> Void
     ) -> TerminalImageTransferOperation? {
         switch plan {
@@ -254,6 +277,17 @@ enum TerminalImageTransferPlanner {
                 return operation
             }
             insertText(text)
+            return operation
+        case .insertTextSegments(let segments, let interSegmentDelay):
+            let operation = operation ?? TerminalImageTransferOperation()
+            sendTextSegments(
+                segments,
+                index: 0,
+                interSegmentDelay: interSegmentDelay,
+                operation: operation,
+                insertText: insertText,
+                scheduleAfter: scheduleAfter
+            )
             return operation
         case .uploadFiles(let fileURLs, .workspaceRemote):
             let operation = operation ?? TerminalImageTransferOperation()
@@ -286,6 +320,33 @@ enum TerminalImageTransferPlanner {
 
     static func insertedText(forFileURLs fileURLs: [URL]) -> String {
         insertedText(forPathStrings: fileURLs.map(\.path))
+    }
+
+    private static func insertedTextSegments(forFileURLs fileURLs: [URL]) -> [String] {
+        fileURLs
+            .map(\.path)
+            .map(escapeForShell)
+            .enumerated()
+            .map { index, text in
+                index == 0 ? text : " " + text
+            }
+    }
+
+    private static func isLocalImageFileURL(_ fileURL: URL) -> Bool {
+        let normalizedFileURL = fileURL.standardizedFileURL
+        guard normalizedFileURL.isFileURL,
+              let resourceValues = try? normalizedFileURL.resourceValues(forKeys: [.isRegularFileKey]),
+              resourceValues.isRegularFile == true else {
+            return false
+        }
+
+        let pathExtension = normalizedFileURL.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !pathExtension.isEmpty,
+              let type = UTType(filenameExtension: pathExtension),
+              type.conforms(to: .image) else {
+            return false
+        }
+        return true
     }
 
     private static func isRemoteUploadableFileURL(_ fileURL: URL) -> Bool {
@@ -355,10 +416,7 @@ enum TerminalImageTransferPlanner {
         if !urls.isEmpty {
             return urls
         }
-        if let imageURL = GhosttyPasteboardHelper.saveImageFileURLIfNeeded(from: pasteboard, assumeNoText: true) {
-            return [imageURL]
-        }
-        return []
+        return GhosttyPasteboardHelper.saveImageFileURLsIfNeeded(from: pasteboard, assumeNoText: true)
     }
 
     private static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
@@ -382,6 +440,43 @@ enum TerminalImageTransferPlanner {
             insertText(content)
         case .failure(let error):
             onFailure(error)
+        }
+    }
+
+    private static func sendTextSegments(
+        _ segments: [String],
+        index: Int,
+        interSegmentDelay: TimeInterval,
+        operation: TerminalImageTransferOperation,
+        insertText: @escaping (String) -> Void,
+        scheduleAfter: @escaping (TimeInterval, @escaping () -> Void) -> Void
+    ) {
+        guard !operation.isCancelled else { return }
+        guard index < segments.count else {
+            _ = operation.finish()
+            return
+        }
+
+        let segment = segments[index]
+        if !segment.isEmpty {
+            insertText(segment)
+        }
+
+        let nextIndex = index + 1
+        guard nextIndex < segments.count else {
+            _ = operation.finish()
+            return
+        }
+
+        scheduleAfter(interSegmentDelay) {
+            sendTextSegments(
+                segments,
+                index: nextIndex,
+                interSegmentDelay: interSegmentDelay,
+                operation: operation,
+                insertText: insertText,
+                scheduleAfter: scheduleAfter
+            )
         }
     }
 }

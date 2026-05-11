@@ -63,7 +63,7 @@ enum WorkspaceAutoReorderSettings {
 enum LastSurfaceCloseShortcutSettings {
     static let key = "closeWorkspaceOnLastSurfaceShortcut"
     // Keep the legacy stored meaning so existing values still map to the same
-    // behavior. The default is flipped to preserve current Cmd+W behavior.
+    // behavior. The default is flipped to preserve the current Close Tab shortcut behavior.
     static let defaultValue = true
 
     static func closesWorkspace(defaults: UserDefaults = .standard) -> Bool {
@@ -4552,7 +4552,7 @@ class TabManager: ObservableObject {
             return
         }
         if tabs.count <= 1 {
-            // Last workspace in this window: close the window (Cmd+Shift+W behavior).
+            // Last workspace in this window: match Close Workspace shortcut behavior.
             if let window {
                 window.performClose(nil)
             } else {
@@ -4620,8 +4620,9 @@ class TabManager: ObservableObject {
         )
 #endif
 
-        // The last-surface shortcut preference only affects Cmd+W. The tab close button
-        // continues to use Workspace's explicit-close path when it closes the last surface.
+        // The last-surface shortcut preference only affects the Close Tab shortcut path.
+        // The tab close button continues to use Workspace's explicit-close path when it
+        // closes the last surface.
         if closesWorkspaceOnLastSurfaceShortcut,
            let surfaceId = tab.surfaceIdFromPanelId(panelId) {
             tab.markExplicitClose(surfaceId: surfaceId)
@@ -6285,7 +6286,7 @@ class TabManager: ObservableObject {
 
                 DebugUIEventCounters.resetEmptyPanelAppearCount()
 
-                // Close the two right panes via the same path as Cmd+W.
+                // Close the two right panes via the same path as the Close Tab shortcut.
                 tab.focusPanel(topRight.id)
                 tab.closePanel(topRight.id, force: true)
                 tab.focusPanel(bottomRight.id)
