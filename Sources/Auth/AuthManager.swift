@@ -152,7 +152,7 @@ final class AuthManager: ObservableObject {
     /// `var` rather than `let` so the init body can reference `self` before it's
     /// assigned; the value is written exactly once, before init returns.
     private var bootstrapTask: Task<Void, Never>!
-    private static let defaultBrowserSignInTimeout: TimeInterval = 300
+    private nonisolated static let defaultBrowserSignInTimeout: TimeInterval = 300
 
     init(
         client: (any AuthClientProtocol)? = nil,
