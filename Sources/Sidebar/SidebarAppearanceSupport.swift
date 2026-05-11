@@ -4,21 +4,7 @@ import SwiftUI
 
 enum SidebarMatchTerminalBackgroundSettings {
     static let userDefaultsKey = "sidebarMatchTerminalBackground"
-    static let appliedSettingsFileDefaultKey = "cmux.settingsFile.sidebarMatchTerminalBackground.appliedDefault.v1"
-
-    static func isSettingsFileDefaultKey(_ key: String) -> Bool {
-        key == userDefaultsKey
-    }
-
-    static func shouldApplySettingsFileDefault(defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.object(forKey: userDefaultsKey) != nil else { return true }
-        guard let applied = defaults.object(forKey: appliedSettingsFileDefaultKey) as? Bool else { return false }
-        return applied == defaults.bool(forKey: userDefaultsKey)
-    }
-
-    static func recordSettingsFileDefault(_ value: Bool, defaults: UserDefaults = .standard) {
-        defaults.set(value, forKey: appliedSettingsFileDefaultKey)
-    }
+    static let legacyAppliedSettingsFileDefaultKey = "cmux.settingsFile.sidebarMatchTerminalBackground.appliedDefault.v1"
 }
 
 extension Color {
