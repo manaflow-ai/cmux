@@ -919,10 +919,23 @@ extension Workspace {
     private static func localRestorableDirectory(from directory: String?) -> String? {
         let trimmed = directory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !trimmed.isEmpty else { return nil }
+        if let reportedLocation = restorableReportedDirectoryLocation(from: trimmed) {
+            return reportedLocation.isRemote ? nil : reportedLocation.path
+        }
         if looksLikeRemoteDisplayDirectory(trimmed) {
             return nil
         }
         return trimmed
+    }
+
+    private static func restorableReportedDirectoryLocation(from directory: String) -> TerminalLocation? {
+        if let oscLocation = TerminalLocation.parseOSC7Sequence(directory) {
+            return oscLocation
+        }
+        guard directory.hasPrefix("file://") || directory.hasPrefix("kitty-shell-cwd://") else {
+            return nil
+        }
+        return TerminalLocation.parseReportedDirectory(directory)
     }
 
     private static func looksLikeRemoteDisplayDirectory(_ directory: String) -> Bool {
@@ -934,7 +947,7 @@ extension Workspace {
             return false
         }
         let suffix = directory[directory.index(after: colonIndex)...]
-        return suffix.hasPrefix("/")
+        return suffix.hasPrefix("/") && !suffix.hasPrefix("//")
     }
 
     private func applySessionDividerPositions(

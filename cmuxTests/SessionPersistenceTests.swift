@@ -1150,6 +1150,32 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testSessionRestorePreservesLocalFileURLDirectoryWhenTerminalLocationIsOmitted() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-session-file-url-restore-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try XCTUnwrap(snapshot.panels.firstIndex { $0.id == sourcePanelId })
+        snapshot.panels[panelIndex].directory = directoryURL.absoluteString
+        snapshot.panels[panelIndex].terminal?.workingDirectory = directoryURL.absoluteString
+        snapshot.panels[panelIndex].terminalLocation = nil
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+
+        XCTAssertEqual(restored.panelDirectories[restoredPanelId], directoryURL.path)
+        XCTAssertFalse(restored.terminalLocation(for: restoredPanelId)?.isRemote ?? false)
+    }
+
+    @MainActor
     func testSessionSnapshotRestoresManagedRemoteTerminalLocation() throws {
         let source = Workspace()
         let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
