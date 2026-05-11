@@ -222,6 +222,13 @@
           "default": false,
           "description": "Hide the Dock icon and app switcher entry while keeping cmux available from the menu bar."
         },
+        "uiScale": {
+          "type": "number",
+          "minimum": 0.7,
+          "maximum": 2,
+          "default": 1,
+          "description": "Global scale factor for cmux UI chrome such as sidebars, settings, markdown panels, and the file browser. Terminal font size and browser zoom are separate."
+        },
         "newWorkspacePlacement": {
           "type": "string",
           "enum": ["top", "afterCurrent", "end"],
@@ -772,6 +779,9 @@
               "browserZoomIn",
               "browserZoomOut",
               "browserZoomReset",
+              "uiScaleZoomIn",
+              "uiScaleZoomOut",
+              "uiScaleReset",
               "find",
               "findInDirectory",
               "findNext",

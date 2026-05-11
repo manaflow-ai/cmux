@@ -10,6 +10,7 @@ struct cmuxApp: App {
     @StateObject private var sidebarState = SidebarState()
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
+    @AppStorage(UIScaleSettings.userDefaultsKey) private var uiScaleRaw = UIScaleSettings.defaultValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
@@ -20,6 +21,10 @@ struct cmuxApp: App {
 
     private var browserToolbarAccessorySpacing: Int {
         BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw)
+    }
+
+    private var uiScaleFactor: Double {
+        UIScaleSettings.clamped(uiScaleRaw)
     }
 
     init() {
@@ -186,6 +191,7 @@ struct cmuxApp: App {
     var body: some Scene {
         WindowGroup {
             MainWindowBootstrapView()
+                .environment(\.uiScaleFactor, uiScaleFactor)
                 .cmuxAppearanceColorScheme(appearanceMode)
                 .onAppear {
                     SettingsWindowPresenter.configure(
@@ -610,6 +616,7 @@ struct cmuxApp: App {
 
         Window(String(localized: "settings.title", defaultValue: "Settings"), id: SettingsWindowPresenter.windowID) {
             SettingsRootView()
+                .environment(\.uiScaleFactor, uiScaleFactor)
                 .cmuxAppearanceColorScheme(appearanceMode)
                 .background(WindowAccessor { window in
                     SettingsWindowPresenter.configure(window: window)
@@ -623,6 +630,7 @@ struct cmuxApp: App {
 
         Window(String(localized: "settings.config.windowTitle", defaultValue: "Config"), id: ConfigSettingsView.windowID) {
             ConfigSettingsView()
+                .environment(\.uiScaleFactor, uiScaleFactor)
                 .cmuxAppearanceColorScheme(appearanceMode)
         }
     }
@@ -698,6 +706,22 @@ struct cmuxApp: App {
                     NSSound.beep()
                 }
             }
+
+            Divider()
+
+            splitCommandButton(title: String(localized: "menu.view.uiZoomIn", defaultValue: "UI Zoom In"), shortcut: menuShortcut(for: .uiScaleZoomIn)) {
+                UIScaleSettings.zoomIn()
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.uiZoomOut", defaultValue: "UI Zoom Out"), shortcut: menuShortcut(for: .uiScaleZoomOut)) {
+                UIScaleSettings.zoomOut()
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.uiZoomReset", defaultValue: "Reset UI Zoom"), shortcut: menuShortcut(for: .uiScaleReset)) {
+                UIScaleSettings.reset()
+            }
+
+            Divider()
 
             splitCommandButton(title: String(localized: "menu.view.zoomIn", defaultValue: "Zoom In"), shortcut: menuShortcut(for: .browserZoomIn)) {
                 _ = activeTabManager.zoomInFocusedBrowser()
@@ -4957,6 +4981,7 @@ struct SettingsView: View {
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage(AppIconSettings.modeKey) private var appIconMode = AppIconSettings.defaultMode.rawValue
+    @AppStorage(UIScaleSettings.userDefaultsKey) private var uiScale = UIScaleSettings.defaultValue
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
@@ -5072,6 +5097,23 @@ struct SettingsView: View {
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
+    }
+
+    private var uiScalePercentLabel: String {
+        "\(Int((UIScaleSettings.clamped(uiScale) * 100).rounded()))%"
+    }
+
+    private var uiScaleBinding: Binding<Double> {
+        Binding(
+            get: { UIScaleSettings.clamped(uiScale) },
+            set: { newValue in
+                guard !isResettingSettings else {
+                    uiScale = UIScaleSettings.clamped(newValue)
+                    return
+                }
+                uiScale = UIScaleSettings.set(newValue)
+            }
+        )
     }
 
     private var minimalModeEnabled: Bool {
@@ -5707,6 +5749,38 @@ struct SettingsView: View {
                                 AppIconSettings.applyIcon(mode)
                             }
                         )
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("app.uiScale"),
+                            String(localized: "settings.app.uiScale", defaultValue: "UI Scale"),
+                            subtitle: String(
+                                localized: "settings.app.uiScale.subtitle",
+                                defaultValue: "Scales cmux chrome such as sidebars, settings, markdown, and the file browser without changing terminal font or browser zoom."
+                            ),
+                            controlWidth: 260
+                        ) {
+                            HStack(spacing: 10) {
+                                Slider(
+                                    value: uiScaleBinding,
+                                    in: UIScaleSettings.minimum...UIScaleSettings.maximum,
+                                    step: 0.05
+                                )
+                                .frame(width: 180)
+                                .accessibilityIdentifier("SettingsUIScaleSlider")
+                                .accessibilityLabel(
+                                    String(localized: "settings.app.uiScale", defaultValue: "UI Scale")
+                                )
+
+                                Text(uiScalePercentLabel)
+                                    .cmuxFont(size: 12)
+                                    .monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 48, alignment: .trailing)
+                                    .accessibilityIdentifier("SettingsUIScalePercent")
+                            }
+                        }
 
                         SettingsCardDivider()
 
@@ -7193,6 +7267,7 @@ struct SettingsView: View {
         ).rawValue
         appIconMode = AppIconSettings.defaultMode.rawValue
         AppIconSettings.applyIcon(.automatic)
+        uiScale = UIScaleSettings.defaultValue
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
         customClaudePath = ""
@@ -7346,7 +7421,7 @@ struct SettingsSectionHeader: View {
 
     var body: some View {
         Text(title)
-            .font(.system(size: 13, weight: .semibold))
+            .cmuxFont(size: 13, weight: .semibold)
             .foregroundColor(.secondary)
             .padding(.leading, 2)
             .padding(.bottom, -2)
@@ -7360,10 +7435,10 @@ private struct AuthSettingsRow: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(titleText)
-                    .font(.system(size: 13, weight: .medium))
+                    .cmuxFont(size: 13, weight: .medium)
                 if let subtitle = subtitleText {
                     Text(subtitle)
-                        .font(.system(size: 11))
+                        .cmuxFont(size: 11)
                         .foregroundColor(.secondary)
                 }
             }
@@ -7484,10 +7559,10 @@ struct SettingsCardRow<Trailing: View>: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: subtitle == nil ? 0 : 3) {
                 Text(title)
-                    .font(.system(size: 13, weight: .medium))
+                    .cmuxFont(size: 13, weight: .medium)
                 if let subtitle {
                     Text(subtitle)
-                        .font(.caption)
+                        .cmuxFont(size: 12)
                         .foregroundColor(.secondary)
                         .lineLimit(2)
                 }
@@ -8094,21 +8169,25 @@ private struct SettingsRootView: View {
 }
 
 private struct SettingsSidebarEntryRow: View {
+    @Environment(\.uiScaleFactor) private var uiScaleFactor
+
     let entry: SettingsSearchEntry
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: entry.symbolName)
                 .foregroundStyle(.secondary)
-                .frame(width: 16)
+                .font(.system(size: UIScaleSettings.scaled(13, by: uiScaleFactor)))
+                .frame(width: UIScaleSettings.scaled(16, by: uiScaleFactor))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.title)
+                    .cmuxFont(size: 13)
                     .lineLimit(1)
 
                 if let subtitle = entry.subtitle {
                     Text(subtitle)
-                        .font(.caption)
+                        .cmuxFont(size: 12)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }

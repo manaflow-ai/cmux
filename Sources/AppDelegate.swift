@@ -10726,6 +10726,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        if handleUIScaleShortcut(event: event) {
+            return true
+        }
+
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
         let commandPaletteTargetWindow = commandPaletteWindowForShortcutEvent(event)
         let commandPaletteShortcutWindow = shouldHandleCommandPaletteShortcutEvent(
@@ -12351,8 +12355,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    /// Keep UI scale shortcuts app-global even when focused AppKit views bypass SwiftUI menus.
+    @discardableResult
+    func handleUIScaleKeyEquivalent(_ event: NSEvent) -> Bool {
+        handleUIScaleShortcut(event: event)
+    }
+
+    private func handleUIScaleShortcut(event: NSEvent) -> Bool {
+        if matchConfiguredShortcut(event: event, action: .uiScaleZoomIn) {
+            UIScaleSettings.zoomIn()
+            return true
+        }
+        if matchConfiguredShortcut(event: event, action: .uiScaleZoomOut) {
+            UIScaleSettings.zoomOut()
+            return true
+        }
+        if matchConfiguredShortcut(event: event, action: .uiScaleReset) {
+            UIScaleSettings.reset()
+            return true
+        }
+        return false
+    }
+
     /// Allow AppKit-backed browser surfaces (WKWebView) to route non-menu shortcuts
-    /// through the same app-level shortcut handler used by the local key monitor.
+    /// through the same app-level shortcut handler used by the local NSEvent monitor.
     @discardableResult
     func handleBrowserSurfaceKeyEquivalent(_ event: NSEvent) -> Bool {
         handleCustomShortcut(event: event)
@@ -14321,6 +14347,12 @@ private extension NSWindow {
                 focusFirstItem: true,
                 preferredWindow: self
             )
+            return true
+        }
+        if AppDelegate.shared?.handleUIScaleKeyEquivalent(event) == true {
+#if DEBUG
+            cmuxDebugLog("  → consumed by handleUIScaleKeyEquivalent")
+#endif
             return true
         }
         if AppDelegate.shared?.shouldSuppressStaleCmuxMenuShortcut(event: event) == true {

@@ -48,6 +48,24 @@ enum RightSidebarMode: String, CaseIterable {
     }
 }
 
+enum RightSidebarModeBarMetrics {
+    static let baseLabelFontSize: CGFloat = 11
+    static let baseBadgeFontSize: CGFloat = 10
+    static let baseCloseIconFontSize: CGFloat = 11
+
+    static func labelFontSize(uiScaleFactor: Double) -> CGFloat {
+        UIScaleSettings.scaled(baseLabelFontSize, by: uiScaleFactor)
+    }
+
+    static func badgeFontSize(uiScaleFactor: Double) -> CGFloat {
+        UIScaleSettings.scaled(baseBadgeFontSize, by: uiScaleFactor)
+    }
+
+    static func closeIconFontSize(uiScaleFactor: Double) -> CGFloat {
+        UIScaleSettings.scaled(baseCloseIconFontSize, by: uiScaleFactor)
+    }
+}
+
 extension RightSidebarMode {
     static func modeShortcut(for event: NSEvent) -> RightSidebarMode? {
         guard event.type == .keyDown else { return nil }
@@ -141,6 +159,8 @@ enum RightSidebarKeyboardNavigation {
 
 /// Right sidebar root view. Hosts a segmented mode picker plus the active panel.
 struct RightSidebarPanelView: View {
+    @Environment(\.uiScaleFactor) private var uiScaleFactor
+
     @ObservedObject var fileExplorerStore: FileExplorerStore
     @ObservedObject var fileExplorerState: FileExplorerState
     @ObservedObject var sessionIndexStore: SessionIndexStore
@@ -273,7 +293,7 @@ struct RightSidebarPanelView: View {
         return ZStack {
             Button(action: onClose) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: RightSidebarModeBarMetrics.closeIconFontSize(uiScaleFactor: uiScaleFactor), weight: .semibold))
                     .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
                     .contentShape(Rectangle())
             }
@@ -484,6 +504,8 @@ extension NSView {
 }
 
 private struct ModeBarButton: View {
+    @Environment(\.uiScaleFactor) private var uiScaleFactor
+
     let mode: RightSidebarMode
     let isSelected: Bool
     var badgeCount: Int = 0
@@ -497,9 +519,9 @@ private struct ModeBarButton: View {
         Button(action: action) {
             HStack(spacing: 4) {
                 Image(systemName: mode.symbolName)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: RightSidebarModeBarMetrics.labelFontSize(uiScaleFactor: uiScaleFactor), weight: .medium))
                 Text(mode.label)
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: RightSidebarModeBarMetrics.baseLabelFontSize, weight: .medium)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if badgeCount > 0 {
@@ -545,7 +567,7 @@ private struct ModeBarButton: View {
     private var pendingChip: some View {
         let countText = badgeCount > 9 ? "9+" : String(badgeCount)
         return Text(countText)
-            .font(.system(size: 10, weight: .bold).monospacedDigit())
+            .font(.system(size: RightSidebarModeBarMetrics.badgeFontSize(uiScaleFactor: uiScaleFactor), weight: .bold).monospacedDigit())
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: true)
             .foregroundColor(.orange)
@@ -559,3 +581,19 @@ private struct ModeBarButton: View {
             .layoutPriority(2)
     }
 }
+
+#if DEBUG
+struct RightSidebarUIScaleProbeView: View {
+    @Environment(\.uiScaleFactor) private var uiScaleFactor
+
+    let onResolve: (CGFloat) -> Void
+
+    var body: some View {
+        Color.clear
+            .frame(width: 1, height: 1)
+            .onAppear {
+                onResolve(RightSidebarModeBarMetrics.labelFontSize(uiScaleFactor: uiScaleFactor))
+            }
+    }
+}
+#endif

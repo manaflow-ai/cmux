@@ -70279,13 +70279,13 @@
             "en": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry"
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry zoom scale font size"
                 }
             },
             "ja": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry 一般 環境設定 設定 動作 外観 ドック メニューバー 通知 テレメトリ"
+                    "value": "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry zoom scale font size 一般 環境設定 設定 動作 外観 ドック メニューバー 通知 テレメトリ ズーム スケール フォント サイズ"
                 }
             },
             "ar": {
@@ -111174,6 +111174,69 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Process" } },
         "ja": { "stringUnit": { "state": "translated", "value": "プロセス" } }
+      }
+    },
+    "settings.app.uiScale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "UI Scale" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "UIスケール" } }
+      }
+    },
+    "settings.app.uiScale.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Scales cmux chrome such as sidebars, settings, markdown, and the file browser without changing terminal font or browser zoom." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルのフォントやブラウザのズームは変えずに、サイドバー、設定、Markdown、ファイルブラウザなどのcmux UIを拡大縮小します。" } }
+      }
+    },
+    "shortcut.uiScaleZoomIn.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "UI Zoom In" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "UIを拡大" } }
+      }
+    },
+    "shortcut.uiScaleZoomOut.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "UI Zoom Out" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "UIを縮小" } }
+      }
+    },
+    "shortcut.uiScaleReset.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reset UI Zoom" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "UIズームをリセット" } }
+      }
+    },
+    "menu.view.uiZoomIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "UI Zoom In" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "UIを拡大" } }
+      }
+    },
+    "menu.view.uiZoomOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "UI Zoom Out" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "UIを縮小" } }
+      }
+    },
+    "menu.view.uiZoomReset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reset UI Zoom" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "UIズームをリセット" } }
+      }
+    },
+    "settings.search.alias.setting.app.ui-scale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "app.uiScale ui scale zoom font size chrome sidebar file browser settings markdown task manager" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "app.uiScale UI スケール ズーム フォント サイズ サイドバー ファイルブラウザ 設定 Markdown タスクマネージャ" } }
       }
     }
   }

@@ -8,6 +8,8 @@ final class TaskManagerWindowController: NSWindowController, NSWindowDelegate {
     static let shared = TaskManagerWindowController()
 
     private let model = CmuxTaskManagerModel()
+    private let hostingView: NSHostingView<AnyView>
+    private var uiScaleObserver: NSObjectProtocol?
 
     private init() {
         let window = NSWindow(
@@ -20,10 +22,20 @@ final class TaskManagerWindowController: NSWindowController, NSWindowDelegate {
         window.identifier = NSUserInterfaceItemIdentifier("cmux.taskManager")
         window.title = String(localized: "taskManager.windowTitle", defaultValue: "Task Manager")
         window.center()
-        window.contentView = NSHostingView(rootView: CmuxTaskManagerView(model: model))
+        let hostingView = NSHostingView(rootView: Self.rootView(model: model))
+        self.hostingView = hostingView
+        window.contentView = hostingView
         AppDelegate.shared?.applyWindowDecorations(to: window)
         super.init(window: window)
         window.delegate = self
+        uiScaleObserver = NotificationCenter.default.addObserver(
+            forName: UIScaleSettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.hostingView.rootView = Self.rootView(model: self.model)
+        }
     }
 
     @available(*, unavailable)
@@ -44,6 +56,10 @@ final class TaskManagerWindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         model.stop()
+    }
+
+    private static func rootView(model: CmuxTaskManagerModel) -> AnyView {
+        AnyView(CmuxTaskManagerView(model: model).environment(\.uiScaleFactor, UIScaleSettings.resolved()))
     }
 }
 

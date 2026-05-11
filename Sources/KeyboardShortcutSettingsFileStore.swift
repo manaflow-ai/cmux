@@ -163,6 +163,30 @@ final class CmuxSettingsFileStore {
         (primaryPath as NSString).abbreviatingWithTildeInPath
     }
 
+    func persistAppUIScale(_ uiScale: Double) throws {
+        let fileURL = settingsFileURLForEditing()
+        let data = fileManager.contents(atPath: fileURL.path) ?? Data("{}".utf8)
+        let sanitized = try JSONCParser.preprocess(data: data)
+        let object = try JSONSerialization.jsonObject(with: sanitized, options: [])
+        var root = (object as? [String: Any]) ?? [:]
+        var appSection = (root["app"] as? [String: Any]) ?? [:]
+        appSection["uiScale"] = UIScaleSettings.roundedForPersistence(uiScale)
+        root["app"] = appSection
+        if root["schemaVersion"] == nil {
+            root["schemaVersion"] = Self.currentSchemaVersion
+        }
+        if root["$schema"] == nil {
+            root["$schema"] = Self.schemaURLString
+        }
+        let updated = try JSONSerialization.data(
+            withJSONObject: root,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try updated.write(to: fileURL, options: [.atomic])
+        try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+        reload()
+    }
+
     private func bootstrapPrimaryTemplateIfNeeded() {
         guard !fileManager.fileExists(atPath: primaryPath) else { return }
 
@@ -366,6 +390,11 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonBool(section["menuBarOnly"]) {
             snapshot.managedUserDefaults[MenuBarOnlySettings.menuBarOnlyKey] = .bool(value)
+        }
+        if let value = jsonDouble(section["uiScale"]) {
+            snapshot.managedUserDefaults[UIScaleSettings.userDefaultsKey] = .double(UIScaleSettings.clamped(value))
+        } else if section.keys.contains("uiScale") {
+            logInvalid("app.uiScale", sourcePath: sourcePath)
         }
         if let raw = jsonString(section["newWorkspacePlacement"]) {
             guard let placement = NewWorkspacePlacement(rawValue: raw) else {

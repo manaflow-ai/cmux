@@ -23,6 +23,7 @@ extension CmuxSettingsFileStore {
         "app.appearance",
         "app.appIcon",
         "app.menuBarOnly",
+        "app.uiScale",
         "app.newWorkspacePlacement",
         "app.minimalMode",
         "app.keepWorkspaceOpenWhenClosingLastSurface",

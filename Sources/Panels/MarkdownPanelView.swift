@@ -13,6 +13,7 @@ struct MarkdownPanelView: View {
     @State private var focusFlashOpacity: Double = 0.0
     @State private var focusFlashAnimationGeneration: Int = 0
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.uiScaleFactor) private var uiScaleFactor
 
     var body: some View {
         Group {
@@ -81,9 +82,9 @@ struct MarkdownPanelView: View {
         HStack(spacing: 6) {
             Image(systemName: "doc.richtext")
                 .foregroundColor(.secondary)
-                .font(.system(size: 12))
+                .font(.system(size: UIScaleSettings.scaled(12, by: uiScaleFactor)))
             Text(panel.filePath)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: UIScaleSettings.scaled(11, by: uiScaleFactor), design: .monospaced))
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -94,20 +95,20 @@ struct MarkdownPanelView: View {
     private var fileUnavailableView: some View {
         VStack(spacing: 12) {
             Image(systemName: "doc.questionmark")
-                .font(.system(size: 40))
+                .font(.system(size: UIScaleSettings.scaled(40, by: uiScaleFactor)))
                 .foregroundColor(.secondary)
             Text(String(localized: "markdown.fileUnavailable.title", defaultValue: "File unavailable"))
-                .font(.headline)
+                .cmuxFont(size: 13, weight: .semibold)
                 .foregroundColor(.primary)
             Text(panel.filePath)
-                .font(.system(size: 12, design: .monospaced))
+                .font(.system(size: UIScaleSettings.scaled(12, by: uiScaleFactor), design: .monospaced))
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 24)
             Text(String(localized: "markdown.fileUnavailable.message", defaultValue: "The file may have been moved or deleted."))
-                .font(.caption)
+                .cmuxFont(size: 12)
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -128,7 +129,7 @@ struct MarkdownPanelView: View {
             // Text
             .text {
                 ForegroundColor(isDark ? .white.opacity(0.9) : .primary)
-                FontSize(14)
+                FontSize(UIScaleSettings.scaled(14, by: uiScaleFactor))
             }
             // Headings
             .heading1 { configuration in
@@ -136,7 +137,7 @@ struct MarkdownPanelView: View {
                     configuration.label
                         .markdownTextStyle {
                             FontWeight(.bold)
-                            FontSize(28)
+                            FontSize(UIScaleSettings.scaled(28, by: uiScaleFactor))
                             ForegroundColor(isDark ? .white : .primary)
                         }
                     Divider()
@@ -148,7 +149,7 @@ struct MarkdownPanelView: View {
                     configuration.label
                         .markdownTextStyle {
                             FontWeight(.bold)
-                            FontSize(22)
+                            FontSize(UIScaleSettings.scaled(22, by: uiScaleFactor))
                             ForegroundColor(isDark ? .white : .primary)
                         }
                     Divider()
@@ -159,7 +160,7 @@ struct MarkdownPanelView: View {
                 configuration.label
                     .markdownTextStyle {
                         FontWeight(.semibold)
-                        FontSize(18)
+                        FontSize(UIScaleSettings.scaled(18, by: uiScaleFactor))
                         ForegroundColor(isDark ? .white : .primary)
                     }
                     .markdownMargin(top: 16, bottom: 8)
@@ -168,7 +169,7 @@ struct MarkdownPanelView: View {
                 configuration.label
                     .markdownTextStyle {
                         FontWeight(.semibold)
-                        FontSize(16)
+                        FontSize(UIScaleSettings.scaled(16, by: uiScaleFactor))
                         ForegroundColor(isDark ? .white : .primary)
                     }
                     .markdownMargin(top: 12, bottom: 6)
@@ -177,7 +178,7 @@ struct MarkdownPanelView: View {
                 configuration.label
                     .markdownTextStyle {
                         FontWeight(.medium)
-                        FontSize(14)
+                        FontSize(UIScaleSettings.scaled(14, by: uiScaleFactor))
                         ForegroundColor(isDark ? .white : .primary)
                     }
                     .markdownMargin(top: 10, bottom: 4)
@@ -186,7 +187,7 @@ struct MarkdownPanelView: View {
                 configuration.label
                     .markdownTextStyle {
                         FontWeight(.medium)
-                        FontSize(13)
+                        FontSize(UIScaleSettings.scaled(13, by: uiScaleFactor))
                         ForegroundColor(isDark ? .white.opacity(0.7) : .secondary)
                     }
                     .markdownMargin(top: 8, bottom: 4)
@@ -197,7 +198,7 @@ struct MarkdownPanelView: View {
                     configuration.label
                         .markdownTextStyle {
                             FontFamilyVariant(.monospaced)
-                            FontSize(13)
+                            FontSize(UIScaleSettings.scaled(13, by: uiScaleFactor))
                             ForegroundColor(isDark ? Color(red: 0.9, green: 0.9, blue: 0.9) : Color(red: 0.2, green: 0.2, blue: 0.2))
                         }
                         .padding(12)
@@ -211,7 +212,7 @@ struct MarkdownPanelView: View {
             // Inline code
             .code {
                 FontFamilyVariant(.monospaced)
-                FontSize(13)
+                FontSize(UIScaleSettings.scaled(13, by: uiScaleFactor))
                 ForegroundColor(isDark ? Color(red: 0.85, green: 0.6, blue: 0.95) : Color(red: 0.6, green: 0.2, blue: 0.7))
                 BackgroundColor(isDark
                     ? Color(nsColor: NSColor(white: 0.18, alpha: 1.0))
@@ -226,7 +227,7 @@ struct MarkdownPanelView: View {
                     configuration.label
                         .markdownTextStyle {
                             ForegroundColor(isDark ? .white.opacity(0.6) : .secondary)
-                            FontSize(14)
+                            FontSize(UIScaleSettings.scaled(14, by: uiScaleFactor))
                         }
                         .padding(.leading, 12)
                 }
