@@ -7822,7 +7822,7 @@ final class Workspace: Identifiable, ObservableObject {
     var surfaceIdToPanelId: [TabID: UUID] = [:]
 
     /// Tab IDs that are allowed to close even if they would normally require confirmation.
-    /// This is used by app-level confirmation prompts (e.g., Cmd+W "Close Tab?") so the
+    /// This is used by app-level confirmation prompts (for example, Close Tab) so the
     /// Bonsplit delegate doesn't block the close after the user already confirmed.
     private var forceCloseTabIds: Set<TabID> = []
 
@@ -7831,8 +7831,8 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingCloseConfirmTabIds: Set<TabID> = []
 
     /// Tab IDs whose next close attempt should be treated as an explicit
-    /// workspace-close gesture from the user (the tab-strip X button, or Cmd+W when
-    /// the shortcut preference is set to close the workspace on the last surface),
+    /// workspace-close gesture from the user (the tab-strip X button, or the Close Tab
+    /// shortcut when the shortcut preference is set to close the workspace on the last surface),
     /// rather than an internal close/move flow.
     private var explicitUserCloseTabIds: Set<TabID> = []
 

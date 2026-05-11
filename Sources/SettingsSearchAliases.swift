@@ -45,7 +45,7 @@ enum SettingsSearchAliasIndex {
         "app:app-icon": localized("settings.search.alias.setting.app.app-icon", defaultValue: "app.appIcon dock icon application icon app switcher alternate icon"),
         "app:new-workspace-placement": localized("settings.search.alias.setting.app.new-workspace-placement", defaultValue: "app.newWorkspacePlacement new tab insert position order top bottom end"),
         "app:minimal-mode": localized("settings.search.alias.setting.app.minimal-mode", defaultValue: "app.minimalMode minimal layout simple chrome compact titlebar controls"),
-        "app:keep-workspace-open": localized("settings.search.alias.setting.app.keep-workspace-open", defaultValue: "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace"),
+        "app:keep-workspace-open": localized("settings.search.alias.setting.app.keep-workspace-open", defaultValue: "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace"),
         "app:focus-pane-first-click": localized("settings.search.alias.setting.app.focus-pane-first-click", defaultValue: "app.focusPaneOnFirstClick click to focus focus follows mouse first click mouse activation"),
         "app:preferred-editor": localized("settings.search.alias.setting.app.preferred-editor", defaultValue: "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
         "app:terminal-config": localized("settings.search.alias.setting.app.terminal-config", defaultValue: "ghostty config configuration terminal settings preview merged file reload"),

@@ -519,10 +519,10 @@ struct cmuxApp: App {
                 Divider()
 
                 // Terminal semantics:
-                // Cmd+W closes the focused tab/surface (with confirmation if needed). By
-                // default, closing the last surface also closes the workspace and the window
-                // if it was also the last workspace. Users can opt into keeping the workspace
-                // open instead.
+                // The Close Tab shortcut closes the focused tab/surface with confirmation
+                // when needed. By default, closing the last surface also closes the
+                // workspace and the window if it was also the last workspace.
+                // Users can opt into keeping the workspace open instead.
                 splitCommandButton(title: String(localized: "menu.file.closeTab", defaultValue: "Close Tab"), shortcut: menuShortcut(for: .closeTab)) {
                     closePanelOrWindow()
                 }
@@ -532,8 +532,8 @@ struct cmuxApp: App {
                 }
                 .disabled(!activeTabManager.canCloseOtherTabsInFocusedPane())
 
-                // Cmd+Shift+W closes the current workspace (with confirmation if needed). If this
-                // is the last workspace, it closes the window.
+                // The Close Workspace shortcut closes the current workspace with confirmation
+                // when needed. If this is the last workspace, it closes the window.
                 splitCommandButton(title: String(localized: "menu.file.closeWorkspace", defaultValue: "Close Workspace"), shortcut: menuShortcut(for: .closeWorkspace)) {
                     closeTabOrWindow()
                 }
