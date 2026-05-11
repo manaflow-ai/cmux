@@ -981,7 +981,7 @@ func TestCLINoArgs(t *testing.T) {
 
 func TestParseFlagsRejectsMissingFlagValue(t *testing.T) {
 	_, err := parseFlags(
-		[]string{"--timeout-ms", "--url-contains", "/cloud"},
+		[]string{"--timeout-ms"},
 		[]string{"timeout-ms", "url-contains"},
 	)
 	if err == nil {
@@ -1005,6 +1005,22 @@ func TestParseFlagsAllowsSingleDashFlagValue(t *testing.T) {
 	}
 	if got := parsed.flags["command"]; got != "-lc echo hi" {
 		t.Fatalf("expected command -lc echo hi, got %q", got)
+	}
+}
+
+func TestParseFlagsAllowsDoubleDashFlagValue(t *testing.T) {
+	parsed, err := parseFlags(
+		[]string{"--text", "--some-content", "--body", "--flag-like text"},
+		[]string{"text", "body"},
+	)
+	if err != nil {
+		t.Fatalf("parseFlags should allow double-dash values: %v", err)
+	}
+	if got := parsed.flags["text"]; got != "--some-content" {
+		t.Fatalf("expected text --some-content, got %q", got)
+	}
+	if got := parsed.flags["body"]; got != "--flag-like text" {
+		t.Fatalf("expected body --flag-like text, got %q", got)
 	}
 }
 
