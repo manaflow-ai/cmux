@@ -2910,6 +2910,7 @@ class GhosttyApp {
         }
         guard shouldReload else { return }
         let reloadSource = "appearanceSync:\(source)"
+        lastAppearanceColorScheme = currentColorScheme
         reloadConfiguration(
             source: reloadSource,
             reloadSettingsFromFile: false
