@@ -1966,13 +1966,17 @@ class GhosttyApp {
         // Initialize Ghostty library first
         let result = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
         if result != GHOSTTY_SUCCESS {
+#if DEBUG
             print("Failed to initialize ghostty: \(result)")
+#endif
             return
         }
 
         // Load config
         guard let primaryConfig = ghostty_config_new() else {
+#if DEBUG
             print("Failed to create ghostty config")
+#endif
             return
         }
 
@@ -2094,7 +2098,9 @@ class GhosttyApp {
             ghostty_config_free(primaryConfig)
 
             guard let fallbackConfig = ghostty_config_new() else {
+#if DEBUG
                 print("Failed to create ghostty fallback config")
+#endif
                 return
             }
 
@@ -2127,7 +2133,9 @@ class GhosttyApp {
                 Self.initLog("ghostty_app_new(fallback) failed")
                 Self.dumpConfigDiagnostics(fallbackConfig, label: "fallback")
                 #endif
+#if DEBUG
                 print("Failed to create ghostty app")
+#endif
                 ghostty_config_free(fallbackConfig)
                 return
             }
@@ -4585,6 +4593,118 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return merged
     }
 
+#if DEBUG
+    struct DebugStartupPlan: Equatable {
+        let command: String?
+        let usesManualIO: Bool
+        let waitAfterCommand: Bool
+    }
+
+    private static func runtimeXCTestDetected() -> Bool {
+        if Bundle.allBundles.contains(where: { bundle in
+            let path = bundle.bundlePath
+            return path.hasSuffix(".xctest") || path.contains(".xctest/")
+        }) {
+            return true
+        }
+        return NSClassFromString("XCTestCase") != nil || NSClassFromString("XCTest.XCTestCase") != nil
+    }
+
+    private static func isRunningUnderXCTest(
+        _ environment: [String: String],
+        runtimeDetector: () -> Bool = runtimeXCTestDetected
+    ) -> Bool {
+        let indicators = [
+            "XCTestConfigurationFilePath",
+            "XCTestBundlePath",
+            "XCTestSessionIdentifier",
+            "XCInjectBundle",
+            "XCInjectBundleInto",
+        ]
+        if indicators.contains(where: { key in
+            guard let value = environment[key] else { return false }
+            return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) {
+            return true
+        }
+        if environment["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true {
+            return true
+        }
+        return runtimeDetector()
+    }
+
+    private static func isRunningUnderUITestHarness(_ environment: [String: String]) -> Bool {
+        environment.keys.contains { $0.hasPrefix("CMUX_UI_TEST_") }
+    }
+
+    private static func xctestTerminalCommandOverride(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        runtimeDetector: () -> Bool = runtimeXCTestDetected
+    ) -> String? {
+        guard !isRunningUnderUITestHarness(environment) else { return nil }
+        guard isRunningUnderXCTest(environment, runtimeDetector: runtimeDetector) else { return nil }
+        if environment["CMUX_XCTEST_DISABLE_TERMINAL_COMMAND_OVERRIDE"] == "1" {
+            return nil
+        }
+        let command = environment["CMUX_XCTEST_TERMINAL_COMMAND"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return command?.isEmpty == false ? command : "/usr/bin/true"
+    }
+
+    private static func resolvedStartupPlan(
+        initialCommand: String?,
+        configuredCommand: String?,
+        baseWaitAfterCommand: Bool,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        runtimeDetector: () -> Bool = runtimeXCTestDetected
+    ) -> DebugStartupPlan {
+        let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
+        let requestedConfiguredCommand = configuredCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedConfiguredCommand = (requestedConfiguredCommand?.isEmpty == false) ? requestedConfiguredCommand : nil
+        let xctestCommandOverride = Self.xctestTerminalCommandOverride(
+            environment: environment,
+            runtimeDetector: runtimeDetector
+        )
+        let shouldUseXCTestManualIO = xctestCommandOverride != nil
+            && resolvedInitialCommand == nil
+            && resolvedConfiguredCommand == nil
+        let command: String? = {
+            if shouldUseXCTestManualIO {
+                return nil
+            }
+            if let xctestCommandOverride {
+                return xctestCommandOverride
+            }
+            if let resolvedInitialCommand {
+                return resolvedInitialCommand
+            }
+            return resolvedConfiguredCommand
+        }()
+        return DebugStartupPlan(
+            command: command,
+            usesManualIO: shouldUseXCTestManualIO,
+            waitAfterCommand: baseWaitAfterCommand || xctestCommandOverride != nil
+        )
+    }
+
+    static func debugResolveStartupPlanForTesting(
+        initialCommand: String? = nil,
+        configuredCommand: String? = nil,
+        baseWaitAfterCommand: Bool = false,
+        environment: [String: String] = [:],
+        runtimeXCTestDetected: Bool = false
+    ) -> DebugStartupPlan {
+        resolvedStartupPlan(
+            initialCommand: initialCommand,
+            configuredCommand: configuredCommand,
+            baseWaitAfterCommand: baseWaitAfterCommand,
+            environment: environment,
+            runtimeDetector: { runtimeXCTestDetected }
+        )
+    }
+#endif
+
     func isAttached(to view: GhosttyNSView) -> Bool {
         attachedView === view && surface != nil
     }
@@ -5076,10 +5196,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         #endif
 
         guard let app = GhosttyApp.shared.app else {
+#if DEBUG
             print("Ghostty app not initialized")
-            #if DEBUG
             Self.surfaceLog("createSurface FAILED surface=\(id.uuidString): ghostty app not initialized")
-            #endif
+#endif
             return
         }
 
@@ -5276,12 +5396,29 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
             return baseConfig.workingDirectory
         }()
+        #if DEBUG
+        let startupPlan = Self.resolvedStartupPlan(
+            initialCommand: initialCommand,
+            configuredCommand: baseConfig.command,
+            baseWaitAfterCommand: baseConfig.waitAfterCommand
+        )
+        if startupPlan.usesManualIO {
+            surfaceConfig.io_mode = GHOSTTY_SURFACE_IO_MANUAL
+        }
+        surfaceConfig.wait_after_command = startupPlan.waitAfterCommand
+        let resolvedCommand = startupPlan.command
+        #else
+        let configuredCommand = baseConfig.command?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedCommand: String? = {
             if let initialCommand, !initialCommand.isEmpty {
                 return initialCommand
             }
-            return baseConfig.command
+            if let command = configuredCommand, !command.isEmpty {
+                return command
+            }
+            return nil
         }()
+        #endif
         let resolvedInitialInput: String? = {
             if let initialInput, !initialInput.isEmpty {
                 return initialInput
@@ -5313,8 +5450,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if surface == nil {
             surfaceCallbackContext?.release()
             surfaceCallbackContext = nil
+#if DEBUG
             print("Failed to create ghostty surface")
-            #if DEBUG
             Self.surfaceLog("createSurface FAILED surface=\(id.uuidString): ghostty_surface_new returned nil")
             if let cfg = GhosttyApp.shared.config {
                 let count = Int(ghostty_config_diagnostics_count(cfg))
@@ -5327,7 +5464,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             } else {
                 Self.surfaceLog("createSurface diagnostics: config=nil")
             }
-            #endif
+#endif
             return
         }
         guard let createdSurface = surface else { return }
@@ -6078,7 +6215,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate static func focusLog(_ message: String) {
         guard focusDebugEnabled else { return }
         FocusLogStore.shared.append(message)
+#if DEBUG
         NSLog("[FOCUSDBG] %@", message)
+#endif
     }
 
     weak var terminalSurface: TerminalSurface?
@@ -10822,6 +10961,19 @@ final class GhosttySurfaceScrollView: NSView {
         }
         return findEditableSearchField(in: overlay)
     }
+
+#if DEBUG
+    func debugMountedSearchFieldForTesting(surface: TerminalSurface? = nil) -> NSTextField? {
+        if let surface, surfaceView.terminalSurface !== surface {
+            return nil
+        }
+        return mountedSearchFieldIfAvailable()
+    }
+
+    func debugSearchOverlayReadyForTesting(surface: TerminalSurface? = nil) -> Bool {
+        debugMountedSearchFieldForTesting(surface: surface) != nil
+    }
+#endif
 
     private func mountedSearchFieldOwnsResponder(
         _ responder: NSResponder?,

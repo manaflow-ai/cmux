@@ -1922,7 +1922,8 @@ class TabManager: ObservableObject {
         selectedTerminalPanel?.hasSelection() == true
     }
 
-    func startSearch() {
+    @discardableResult
+    func startSearch() -> Bool {
         if let panel = selectedTerminalPanel {
             let hadExistingSearch = panel.searchState != nil
             panel.hostedView.preparePanelFocusIntentForActivation(.findField)
@@ -1942,9 +1943,13 @@ class TabManager: ObservableObject {
                 "firstResponder=\(String(describing: panel.surface.hostedView.window?.firstResponder))"
             )
 #endif
-            return
+            return handled
         }
-        focusedBrowserPanel?.startFind()
+        guard let browserPanel = focusedBrowserPanel else {
+            return false
+        }
+        browserPanel.startFind()
+        return true
     }
 
     func searchSelection() {
@@ -1952,7 +1957,9 @@ class TabManager: ObservableObject {
         if panel.searchState == nil {
             panel.searchState = TerminalSurface.SearchState()
         }
+#if DEBUG
         NSLog("Find: searchSelection workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
+#endif
         NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
         _ = panel.performBindingAction("search_selection")
     }
@@ -4160,6 +4167,25 @@ class TabManager: ObservableObject {
             }
         }
         publishCmuxWorkspaceClosed(workspace)
+    }
+
+    /// Tear down every workspace owned by this window before the window graph is
+    /// released. Relying on ARC alone can leave live Ghostty child processes in
+    /// long-running XCTest bundles while AppKit/SwiftUI still unwind views.
+    func teardownForMainWindowClose() {
+        let closingTabs = tabs
+        for workspace in closingTabs {
+            clearWorkspaceGitProbes(workspaceId: workspace.id)
+            clearWorkspacePullRequestTracking(workspaceId: workspace.id)
+            sidebarSelectedWorkspaceIds.remove(workspace.id)
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            unwireClosedBrowserTracking(for: workspace)
+            workspace.owningTabManager = nil
+        }
+        tabs.removeAll(keepingCapacity: false)
+        selectedTabId = nil
     }
 
     /// Detach a workspace from this window without closing its panels.

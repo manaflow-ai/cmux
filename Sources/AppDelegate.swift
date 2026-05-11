@@ -952,7 +952,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 do {
                     try await AuthManager.shared.handleCallbackURL(url)
                 } catch {
+#if DEBUG
                     NSLog("auth.callback failed: %@", "\(error)")
+#endif
                 }
             }
         }
@@ -4886,7 +4888,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         guard confirmCloseMainWindow(window) else { return true }
-        window.performClose(nil)
+        window.close()
         return true
     }
 
@@ -5261,7 +5263,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            let activeContext = liveMainWindowContext(for: activeManager) {
             return activeContext.tabManager
         }
-        return mainWindowContexts.values.first { context in
+        return Array(mainWindowContexts.values).first { context in
             resolvedWindow(for: context) != nil
         }?.tabManager
     }
@@ -5852,20 +5854,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "fr=\(beforeResponder)"
         )
 #endif
-        if let window {
-            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
-        }
-
         let target = context.keyboardFocusCoordinator.findShortcutTarget(
             currentResponder: window?.firstResponder
         )
         let result: Bool
         switch target {
         case .rightSidebarFileSearch:
+            if let window {
+                mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
+            }
             result = context.keyboardFocusCoordinator.focusFileSearch()
         case .mainPanelFind:
-            context.tabManager.startSearch()
-            result = context.tabManager.isFindVisible
+            result = context.tabManager.startSearch()
+            if let window, result {
+                mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
+            }
         case .none:
             result = false
         }
@@ -6007,7 +6010,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func hasVisibleMainTerminalWindow() -> Bool {
-        mainWindowContexts.values.contains { context in
+        Array(mainWindowContexts.values).contains { context in
             guard let window = resolvedWindow(for: context) else { return false }
             return window.isVisible && !window.isMiniaturized && window.alphaValue > 0.001
         }
@@ -6643,8 +6646,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
+        if let activeManager = tabManager,
+           let activeContext = liveMainWindowContext(for: activeManager) {
+            #if DEBUG
+            logWorkspaceCreationRouting(
+                phase: "choose",
+                source: debugSource,
+                reason: "active_manager",
+                event: event,
+                chosenContext: activeContext
+            )
+            #endif
+            return activeContext
+        }
+
         pruneWindowlessMainWindowContexts()
-        let fallback = mainWindowContexts.values.first(where: { resolvedWindow(for: $0) != nil })
+        let fallback = Array(mainWindowContexts.values).first(where: { resolvedWindow(for: $0) != nil })
         #if DEBUG
         logWorkspaceCreationRouting(
             phase: "choose",
@@ -6997,7 +7014,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self, let controller else { return }
             self.mainWindowControllers.removeAll(where: { $0 === controller })
         }
-        controller.shouldClose = { [weak self] in self?.handleMainTerminalWindowShouldClose() ?? true }
+        controller.shouldClose = { [weak self, weak window] in
+            self?.handleMainTerminalWindowShouldClose(window: window) ?? true
+        }
         window.delegate = controller
         mainWindowControllers.append(controller)
 
@@ -7784,7 +7803,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
 #endif
                 cleanupObservers()
+#if DEBUG
                 NSLog("Command send: surface not ready after 3.0s")
+#endif
             }
         }
     }
@@ -7945,6 +7966,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "pendingSurfaces=\(loadStats.pendingSurfaces) expectedSurfaces=\(expectedSurfaceCount)"
             )
 
+#if DEBUG
             NSLog(
                 "Debug stress workspaces: created=%d panesPerWorkspace=%d tabsPerPane=%d expectedSurfaces=%d layoutFailures=%d pendingSurfaces=%d createMs=%.2f loadMs=%.2f loadedPanels=%d failedPanels=%d totalMs=%.2f workspaceAvgMs=%.2f workspaceWorstMs=%.2f waitAttempts=%d",
                 self.debugStressWorkspaceCount,
@@ -7962,6 +7984,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 worstWorkspaceMs,
                 loadStats.attempts
             )
+#endif
         }
     }
 
@@ -11355,7 +11378,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .closeWindow) {
-            guard let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow else {
+            guard let targetWindow = resolvedShortcutEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow else {
                 NSSound.beep()
                 return true
             }
@@ -12407,6 +12430,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         handleCustomShortcut(event: event)
     }
 
+    func debugRefreshConfiguredShortcutChordActionsForTesting() {
+        refreshConfiguredShortcutChordActions()
+        clearConfiguredShortcutChordState()
+    }
+
     // Debug/test hook: mirrors local monitor routing (keyDown + keyUp lifecycle).
     func debugHandleShortcutMonitorEvent(event: NSEvent) -> Bool {
         if event.type == .systemDefined {
@@ -13120,7 +13148,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ])
 
             if registerStatus != noErr {
+#if DEBUG
                 NSLog("LaunchServices registration failed (status: \(registerStatus)) for \(normalizedURL.path)")
+#endif
             }
         }
     }
@@ -13437,10 +13467,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
-    private func handleMainTerminalWindowShouldClose() -> Bool {
+    private func handleMainTerminalWindowShouldClose(window: NSWindow?) -> Bool {
         // XCTest has no UI for the warn-before-quit dialog and would either block
         // on runModal or have NSApp.terminate kill the test process.
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return true }
+        if isRunningUnderXCTestCached { return true }
         guard !isTerminatingApp, mainWindowContexts.count <= 1 else { return true }
         _ = handleQuitShortcutWarning()
         return false
@@ -13471,6 +13501,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 store.clearNotifications(forTabId: tab.id)
             }
         }
+        removed.tabManager.teardownForMainWindowClose()
+        forgetRecoverableMainWindowRoute(windowId: removed.windowId)
 
         if tabManager === removed.tabManager {
             // Repoint "active" pointers to any remaining main terminal window.

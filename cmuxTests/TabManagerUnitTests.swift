@@ -279,6 +279,18 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
 
 @MainActor
+final class TabManagerFindTests: XCTestCase {
+    func testStartSearchReturnsFalseWithoutSearchTarget() {
+        let manager = TabManager()
+        manager.teardownForMainWindowClose()
+
+        XCTAssertFalse(manager.startSearch())
+        XCTAssertFalse(manager.isFindVisible)
+    }
+}
+
+
+@MainActor
 final class TabManagerWorkspaceOwnershipTests: XCTestCase {
     func testCloseWorkspaceIgnoresWorkspaceNotOwnedByManager() {
         let manager = TabManager()

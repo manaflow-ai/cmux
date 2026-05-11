@@ -8,6 +8,19 @@ import XCTest
 
 @MainActor
 final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
+    private var previousAppDelegate: AppDelegate?
+
+    override func setUp() {
+        super.setUp()
+        previousAppDelegate = AppDelegate.shared
+    }
+
+    override func tearDown() {
+        AppDelegate.shared = previousAppDelegate
+        previousAppDelegate = nil
+        super.tearDown()
+    }
+
     func testMoveSurfaceToNewWorkspaceCreatesSinglePanelWorkspaceFromPanelTitle() throws {
         let app = AppDelegate()
         let windowId = UUID()
