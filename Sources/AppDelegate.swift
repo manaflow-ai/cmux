@@ -14237,6 +14237,9 @@ private extension NSWindow {
         let firstResponderEmbeddedWebView = self.firstResponder.flatMap {
             Self.cmuxOwningEmbeddedWebView(for: $0)
         }
+        let browserKeyDownTarget: NSResponder? = firstResponderWebView
+            ?? firstResponderEmbeddedWebView
+            ?? self.firstResponder
         let firstResponderHasMarkedText = browserResponderHasMarkedText(self.firstResponder)
         let firstResponderIsCommandPaletteFieldEditor = Self.cmuxCommandPaletteOwnsFieldEditor(
             self.firstResponder as? NSTextView,
@@ -14340,7 +14343,7 @@ private extension NSWindow {
             // Forwarding keyDown can re-enter performKeyEquivalent in WebKit/AppKit internals.
             // On re-entry, consume the in-flight Return so AppKit does not treat the
             // already-submitted form key as an unhandled key equivalent and beep.
-            if cmuxBrowserReturnForwardingDepth > 0 {
+            if cmuxBrowserReturnForwardingDepth > 0, isBrowserReturnOrEnterKeyCode(event.keyCode) {
 #if DEBUG
                 cmuxDebugLog("  → browser Return/Enter reentry; consumed during forwarded keyDown")
 #endif
@@ -14349,9 +14352,9 @@ private extension NSWindow {
             cmuxBrowserReturnForwardingDepth += 1
             defer { cmuxBrowserReturnForwardingDepth = max(0, cmuxBrowserReturnForwardingDepth - 1) }
 #if DEBUG
-            cmuxDebugLog("  → browser Return/Enter routed to firstResponder.keyDown")
+            cmuxDebugLog("  → browser Return/Enter routed to browser keyDown target")
 #endif
-            self.firstResponder?.keyDown(with: event)
+            browserKeyDownTarget?.keyDown(with: event)
             return true
         }
 
@@ -14375,9 +14378,9 @@ private extension NSWindow {
             cmuxBrowserArrowForwardingDepth += 1
             defer { cmuxBrowserArrowForwardingDepth = max(0, cmuxBrowserArrowForwardingDepth - 1) }
 #if DEBUG
-            cmuxDebugLog("  → browser arrow routed to firstResponder.keyDown")
+            cmuxDebugLog("  → browser arrow routed to browser keyDown target")
 #endif
-            self.firstResponder?.keyDown(with: event)
+            browserKeyDownTarget?.keyDown(with: event)
             return true
         }
 

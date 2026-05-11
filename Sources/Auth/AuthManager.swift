@@ -604,6 +604,7 @@ final class AuthManager: ObservableObject {
     func signOut() async {
         webAuthSession?.cancel()
         webAuthSession = nil
+        isLoading = false
         try? await client.signOut()
         await tokenStore.clear()
         clearSessionState(clearSelectedTeam: true)

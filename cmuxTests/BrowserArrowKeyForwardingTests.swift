@@ -32,7 +32,7 @@ final class BrowserArrowKeyForwardingTests: XCTestCase {
 
 @MainActor
 final class BrowserReturnKeyForwardingTests: XCTestCase {
-    private final class RecordingWebSubview: NSView {
+    private final class RecordingWKWebView: WKWebView {
         var keyDownCallCount = 0
         var lastKeyCode: UInt16?
         var reentrantPerformKeyEquivalentEvent: NSEvent?
@@ -49,10 +49,16 @@ final class BrowserReturnKeyForwardingTests: XCTestCase {
         }
     }
 
+    private final class FocusableWebSubview: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
+
     private func makeKeyEvent(
         windowNumber: Int,
         keyCode: UInt16,
-        modifierFlags: NSEvent.ModifierFlags = []
+        modifierFlags: NSEvent.ModifierFlags = [],
+        characters: String = "\r",
+        charactersIgnoringModifiers: String = "\r"
     ) -> NSEvent {
         guard let event = NSEvent.keyEvent(
             with: .keyDown,
@@ -61,8 +67,8 @@ final class BrowserReturnKeyForwardingTests: XCTestCase {
             timestamp: ProcessInfo.processInfo.systemUptime,
             windowNumber: windowNumber,
             context: nil,
-            characters: "\r",
-            charactersIgnoringModifiers: "\r",
+            characters: characters,
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
             isARepeat: false,
             keyCode: keyCode
         ) else {
@@ -82,8 +88,8 @@ final class BrowserReturnKeyForwardingTests: XCTestCase {
         )
         defer { window.close() }
 
-        let webView = WKWebView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 320, height: 240))
-        let webSubview = RecordingWebSubview(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
+        let webView = RecordingWKWebView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 320, height: 240))
+        let webSubview = FocusableWebSubview(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
         webView.addSubview(webSubview)
         window.contentView = webView
 
@@ -91,8 +97,8 @@ final class BrowserReturnKeyForwardingTests: XCTestCase {
 
         let event = makeKeyEvent(windowNumber: window.windowNumber, keyCode: 36)
         XCTAssertTrue(window.performKeyEquivalent(with: event))
-        XCTAssertEqual(webSubview.keyDownCallCount, 1)
-        XCTAssertEqual(webSubview.lastKeyCode, 36)
+        XCTAssertEqual(webView.keyDownCallCount, 1)
+        XCTAssertEqual(webView.lastKeyCode, 36)
     }
 
     func testRoutesPlainArrowFromEmbeddedWKWebViewResponderToKeyDown() {
@@ -106,8 +112,8 @@ final class BrowserReturnKeyForwardingTests: XCTestCase {
         )
         defer { window.close() }
 
-        let webView = WKWebView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 320, height: 240))
-        let webSubview = RecordingWebSubview(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
+        let webView = RecordingWKWebView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 320, height: 240))
+        let webSubview = FocusableWebSubview(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
         webView.addSubview(webSubview)
         window.contentView = webView
 
@@ -115,8 +121,8 @@ final class BrowserReturnKeyForwardingTests: XCTestCase {
 
         let event = makeKeyEvent(windowNumber: window.windowNumber, keyCode: 123)
         XCTAssertTrue(window.performKeyEquivalent(with: event))
-        XCTAssertEqual(webSubview.keyDownCallCount, 1)
-        XCTAssertEqual(webSubview.lastKeyCode, 123)
+        XCTAssertEqual(webView.keyDownCallCount, 1)
+        XCTAssertEqual(webView.lastKeyCode, 123)
     }
 
     func testConsumesReentrantReturnDuringForwardedBrowserKeyDown() {
@@ -130,20 +136,51 @@ final class BrowserReturnKeyForwardingTests: XCTestCase {
         )
         defer { window.close() }
 
-        let webView = WKWebView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 320, height: 240))
-        let webSubview = RecordingWebSubview(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
+        let webView = RecordingWKWebView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 320, height: 240))
+        let webSubview = FocusableWebSubview(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
         webView.addSubview(webSubview)
         window.contentView = webView
 
         XCTAssertTrue(window.makeFirstResponder(webSubview))
 
         let event = makeKeyEvent(windowNumber: window.windowNumber, keyCode: 36)
-        webSubview.reentrantPerformKeyEquivalentEvent = event
+        webView.reentrantPerformKeyEquivalentEvent = event
 
         XCTAssertTrue(window.performKeyEquivalent(with: event))
-        XCTAssertEqual(webSubview.keyDownCallCount, 1)
-        XCTAssertEqual(webSubview.lastKeyCode, 36)
-        XCTAssertEqual(webSubview.reentrantPerformKeyEquivalentResult, true)
+        XCTAssertEqual(webView.keyDownCallCount, 1)
+        XCTAssertEqual(webView.lastKeyCode, 36)
+        XCTAssertEqual(webView.reentrantPerformKeyEquivalentResult, true)
+    }
+
+    func testDoesNotConsumeReentrantNonReturnDuringForwardedBrowserKeyDown() {
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+
+        let webView = RecordingWKWebView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 320, height: 240))
+        let webSubview = FocusableWebSubview(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
+        webView.addSubview(webSubview)
+        window.contentView = webView
+
+        XCTAssertTrue(window.makeFirstResponder(webSubview))
+
+        let returnEvent = makeKeyEvent(windowNumber: window.windowNumber, keyCode: 36)
+        webView.reentrantPerformKeyEquivalentEvent = makeKeyEvent(
+            windowNumber: window.windowNumber,
+            keyCode: 13,
+            characters: "w",
+            charactersIgnoringModifiers: "w"
+        )
+
+        XCTAssertTrue(window.performKeyEquivalent(with: returnEvent))
+        XCTAssertEqual(webView.keyDownCallCount, 1)
+        XCTAssertEqual(webView.reentrantPerformKeyEquivalentResult, false)
     }
 
     func testReturnForwardingKeepsShortcutAndIMECasesOutOfTheForcedPath() {
