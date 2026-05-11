@@ -2672,6 +2672,93 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertTrue(state.isHidden)
     }
 
+    func testScrollbarVisibilityToggleKeepsPTYColumnsReservedAndStable() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let cellSize = CGSize(width: 10, height: 10)
+        let surfaceView = GhosttyNSView(frame: contentView.bounds)
+        surfaceView.cellSize = cellSize
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        func currentPTYColumns(
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) -> Int? {
+            guard let pendingSurfaceSize = hostedView.debugPendingSurfaceSize() else {
+                XCTFail("Expected a pending terminal surface size", file: file, line: line)
+                return nil
+            }
+            return Int(floor(pendingSurfaceSize.width / cellSize.width))
+        }
+
+        let reservedScrollerWidth = NSScroller.scrollerWidth(
+            for: .regular,
+            scrollerStyle: .overlay
+        )
+        let expectedReservedColumns = Int(floor(
+            (contentView.bounds.width - reservedScrollerWidth) / cellSize.width
+        ))
+
+        let initialColumns = currentPTYColumns()
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        let visibleColumns = currentPTYColumns()
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 10, offset: 0, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        let hiddenColumns = currentPTYColumns()
+
+        XCTAssertEqual(
+            initialColumns,
+            expectedReservedColumns,
+            "Terminal columns should reserve overlay scroller width before any scrollbar packet arrives"
+        )
+        XCTAssertEqual(
+            visibleColumns,
+            expectedReservedColumns,
+            "Showing the scrollbar must not shrink the PTY from an unreserved width"
+        )
+        XCTAssertEqual(
+            hiddenColumns,
+            expectedReservedColumns,
+            "Hiding the scrollbar must not grow the PTY after a visible-scrollbar layout pass"
+        )
+        XCTAssertEqual(
+            visibleColumns,
+            hiddenColumns,
+            "Scrollbar visibility changes should not emit alternating PTY column counts"
+        )
+    }
+
     func testPreferredScrollerStyleChangeRestoresOverlayScrollbarWidth() {
         let surface = TerminalSurface(
             tabId: UUID(),
