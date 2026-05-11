@@ -9566,6 +9566,10 @@ final class GhosttySurfaceScrollView: NSView {
         NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay)
     }
 
+    private func reservedScrollerWidthForSizing() -> CGFloat {
+        terminalScrollBarAllowedBySettings() ? Self.reservedOverlayScrollerWidth() : 0
+    }
+
     private var isActive = true
     private var lastFocusRefreshAt: CFTimeInterval = 0
     private var lastRequestedPortalOcclusionVisible: Bool?
@@ -10197,8 +10201,9 @@ final class GhosttySurfaceScrollView: NSView {
         let previousSurfaceSize = surfaceView.frame.size
         _ = setFrameIfNeeded(backgroundView, to: bounds)
         _ = setFrameIfNeeded(scrollView, to: bounds)
+        let reservedScrollerWidth = reservedScrollerWidthForSizing()
         let targetSize = CGSize(
-            width: max(0, scrollView.bounds.width - Self.reservedOverlayScrollerWidth()),
+            width: max(0, scrollView.bounds.width - reservedScrollerWidth),
             height: scrollView.bounds.height
         )
 #if DEBUG
@@ -11242,6 +11247,10 @@ final class GhosttySurfaceScrollView: NSView {
 
     func debugPendingSurfaceSize() -> CGSize? {
         surfaceView.debugPendingSurfaceSize()
+    }
+
+    func debugSurfaceViewForTesting() -> GhosttyNSView {
+        surfaceView
     }
 
     func debugRegisteredDropTypes() -> [String] {
@@ -12568,9 +12577,9 @@ final class GhosttySurfaceScrollView: NSView {
         guard let scrollbar = surfaceView.scrollbar else { return nil }
         // Embedded Ghostty exposes alternate-screen TUIs to the wrapper as a
         // viewport with no additional scrollback (`total <= len`). Treat that
-        // as the signal to suppress the visible overlay scrollbar. The PTY
-        // width still reserves the overlay gutter permanently so scrollbar
-        // visibility cannot become part of the terminal column count.
+        // as the signal to suppress the visible overlay scrollbar. When
+        // terminal scrollbars are enabled, the PTY width still reserves the
+        // overlay gutter so visibility cannot become part of the column count.
         return scrollbar.total > scrollbar.len
     }
 

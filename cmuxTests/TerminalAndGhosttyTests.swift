@@ -2474,6 +2474,121 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
     }
 
+    private func makeTerminalSurface() -> TerminalSurface {
+        TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+    }
+
+    private func makeTerminalWindow(width: CGFloat = 360, height: CGFloat = 240) -> NSWindow {
+        NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+    }
+
+    private func mountedScrollView(
+        in hostedView: GhosttySurfaceScrollView,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> NSScrollView? {
+        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+            XCTFail("Expected hosted terminal scroll view", file: file, line: line)
+            return nil
+        }
+        return scrollView
+    }
+
+    private func mountTerminalSurface(
+        _ surface: TerminalSurface,
+        in contentView: NSView
+    ) -> GhosttySurfaceScrollView {
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+        return hostedView
+    }
+
+    private func flushTerminalLayout(
+        window: NSWindow,
+        contentView: NSView,
+        hostedView: GhosttySurfaceScrollView
+    ) {
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        _ = hostedView.reconcileGeometryNow()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    }
+
+    private func expectedTerminalWidth(in contentView: NSView, reservingScrollbar: Bool) -> CGFloat {
+        let reservedScrollerWidth: CGFloat
+        if reservingScrollbar {
+            reservedScrollerWidth = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay)
+        } else {
+            reservedScrollerWidth = 0
+        }
+        return contentView.bounds.width - reservedScrollerWidth
+    }
+
+    private func assertPendingSurfaceWidth(
+        _ hostedView: GhosttySurfaceScrollView,
+        equals expectedWidth: CGFloat,
+        _ message: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let pendingSurfaceWidth = hostedView.debugPendingSurfaceSize()?.width else {
+            XCTFail("Expected a pending terminal surface size", file: file, line: line)
+            return
+        }
+
+        XCTAssertEqual(
+            pendingSurfaceWidth,
+            expectedWidth,
+            accuracy: 0.5,
+            message,
+            file: file,
+            line: line
+        )
+    }
+
+    private func postScrollbarUpdate(
+        to surface: TerminalSurface,
+        total: UInt64,
+        offset: UInt64,
+        len: UInt64
+    ) {
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surface.hostedView.debugSurfaceViewForTesting(),
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: total, offset: offset, len: len)]
+        )
+    }
+
+    private func withTerminalScrollBarVisibility(_ visible: Bool, _ body: () -> Void) {
+        let defaults = UserDefaults.standard
+        let originalValue = defaults.object(forKey: TerminalScrollBarSettings.showScrollBarKey)
+        defaults.set(visible, forKey: TerminalScrollBarSettings.showScrollBarKey)
+        TerminalScrollBarSettings.notifyDidChange()
+        defer {
+            if let originalValue {
+                defaults.set(originalValue, forKey: TerminalScrollBarSettings.showScrollBarKey)
+            } else {
+                defaults.removeObject(forKey: TerminalScrollBarSettings.showScrollBarKey)
+            }
+            TerminalScrollBarSettings.notifyDidChange()
+        }
+        body()
+    }
+
     private func findEditableTextField(in view: NSView) -> NSTextField? {
         if let field = view as? NSTextField, field.isEditable {
             return field
@@ -2673,188 +2788,153 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     }
 
     func testScrollbarVisibilityToggleKeepsPTYColumnsReservedAndStable() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
+        withTerminalScrollBarVisibility(true) {
+            let surface = makeTerminalSurface()
+            defer { surface.releaseSurfaceForTesting() }
 
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+            let window = makeTerminalWindow()
+            defer { window.orderOut(nil) }
 
-        let cellSize = CGSize(width: 10, height: 10)
-        let surfaceView = GhosttyNSView(frame: contentView.bounds)
-        surfaceView.cellSize = cellSize
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        func currentPTYColumns(
-            file: StaticString = #filePath,
-            line: UInt = #line
-        ) -> Int? {
-            guard let pendingSurfaceSize = hostedView.debugPendingSurfaceSize() else {
-                XCTFail("Expected a pending terminal surface size", file: file, line: line)
-                return nil
-            }
-            return Int(floor(pendingSurfaceSize.width / cellSize.width))
-        }
-
-        let reservedScrollerWidth = NSScroller.scrollerWidth(
-            for: .regular,
-            scrollerStyle: .overlay
-        )
-        let expectedReservedColumns = Int(floor(
-            (contentView.bounds.width - reservedScrollerWidth) / cellSize.width
-        ))
-
-        let initialColumns = currentPTYColumns()
-
-        NotificationCenter.default.post(
-            name: .ghosttyDidUpdateScrollbar,
-            object: surfaceView,
-            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
-        )
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        let visibleColumns = currentPTYColumns()
-
-        NotificationCenter.default.post(
-            name: .ghosttyDidUpdateScrollbar,
-            object: surfaceView,
-            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 10, offset: 0, len: 10)]
-        )
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        let hiddenColumns = currentPTYColumns()
-
-        XCTAssertEqual(
-            initialColumns,
-            expectedReservedColumns,
-            "Terminal columns should reserve overlay scroller width before any scrollbar packet arrives"
-        )
-        XCTAssertEqual(
-            visibleColumns,
-            expectedReservedColumns,
-            "Showing the scrollbar must not shrink the PTY from an unreserved width"
-        )
-        XCTAssertEqual(
-            hiddenColumns,
-            expectedReservedColumns,
-            "Hiding the scrollbar must not grow the PTY after a visible-scrollbar layout pass"
-        )
-        XCTAssertEqual(
-            visibleColumns,
-            hiddenColumns,
-            "Scrollbar visibility changes should not emit alternating PTY column counts"
-        )
-    }
-
-    func testPreferredScrollerStyleChangeRestoresOverlayScrollbarWidth() {
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
-            XCTFail("Expected hosted terminal scroll view")
-            return
-        }
-        guard let initialSurfaceSize = hostedView.debugPendingSurfaceSize() else {
-            XCTFail("Expected an initial terminal surface size")
-            return
-        }
-
-        func assertPendingSurfaceWidth(
-            _ expectedWidth: CGFloat,
-            _ message: String,
-            file: StaticString = #filePath,
-            line: UInt = #line
-        ) {
-            guard let pendingSurfaceWidth = hostedView.debugPendingSurfaceSize()?.width else {
-                XCTFail("Expected a pending terminal surface size", file: file, line: line)
+            guard let contentView = window.contentView else {
+                XCTFail("Expected content view")
                 return
             }
 
+            let hostedView = mountTerminalSurface(surface, in: contentView)
+            guard let scrollView = mountedScrollView(in: hostedView) else { return }
+            flushTerminalLayout(window: window, contentView: contentView, hostedView: hostedView)
+
+            let expectedReservedWidth = expectedTerminalWidth(in: contentView, reservingScrollbar: true)
+            assertPendingSurfaceWidth(
+                hostedView,
+                equals: expectedReservedWidth,
+                "Terminal PTY width should reserve overlay scroller width before any scrollbar packet arrives"
+            )
+            XCTAssertTrue(scrollView.hasVerticalScroller)
+
+            postScrollbarUpdate(to: surface, total: 100, offset: 90, len: 10)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            assertPendingSurfaceWidth(
+                hostedView,
+                equals: expectedReservedWidth,
+                "Showing the scrollbar must not shrink the PTY from an unreserved width"
+            )
+            XCTAssertTrue(scrollView.hasVerticalScroller)
+
+            postScrollbarUpdate(to: surface, total: 10, offset: 0, len: 10)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            assertPendingSurfaceWidth(
+                hostedView,
+                equals: expectedReservedWidth,
+                "Hiding the scrollbar must not grow the PTY after a visible-scrollbar layout pass"
+            )
+            XCTAssertFalse(scrollView.hasVerticalScroller)
+        }
+    }
+
+    func testDisabledTerminalScrollbarUsesFullPTYWidthAndStaysStable() {
+        withTerminalScrollBarVisibility(false) {
+            let surface = makeTerminalSurface()
+            defer { surface.releaseSurfaceForTesting() }
+
+            let window = makeTerminalWindow()
+            defer { window.orderOut(nil) }
+
+            guard let contentView = window.contentView else {
+                XCTFail("Expected content view")
+                return
+            }
+
+            let hostedView = mountTerminalSurface(surface, in: contentView)
+            guard let scrollView = mountedScrollView(in: hostedView) else { return }
+            flushTerminalLayout(window: window, contentView: contentView, hostedView: hostedView)
+
+            let expectedFullWidth = expectedTerminalWidth(in: contentView, reservingScrollbar: false)
+            assertPendingSurfaceWidth(
+                hostedView,
+                equals: expectedFullWidth,
+                "Disabling terminal scrollbars should keep the PTY on the full content width"
+            )
+            XCTAssertFalse(scrollView.hasVerticalScroller)
+
+            postScrollbarUpdate(to: surface, total: 100, offset: 90, len: 10)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            assertPendingSurfaceWidth(
+                hostedView,
+                equals: expectedFullWidth,
+                "Hidden-by-setting scrollbars should not reserve a gutter or resize the PTY on scrollback packets"
+            )
+            XCTAssertFalse(scrollView.hasVerticalScroller)
+
+            postScrollbarUpdate(to: surface, total: 10, offset: 0, len: 10)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            assertPendingSurfaceWidth(
+                hostedView,
+                equals: expectedFullWidth,
+                "Hidden-by-setting scrollbars should keep full PTY width when scrollback disappears"
+            )
+            XCTAssertFalse(scrollView.hasVerticalScroller)
+        }
+    }
+
+    func testPreferredScrollerStyleChangeRestoresOverlayScrollbarWidth() {
+        withTerminalScrollBarVisibility(true) {
+            let surface = makeTerminalSurface()
+            defer { surface.releaseSurfaceForTesting() }
+            let hostedView = surface.hostedView
+
+            let window = makeTerminalWindow()
+            defer { window.orderOut(nil) }
+
+            guard let contentView = window.contentView else {
+                XCTFail("Expected content view")
+                return
+            }
+
+            _ = mountTerminalSurface(surface, in: contentView)
+            flushTerminalLayout(window: window, contentView: contentView, hostedView: hostedView)
+
+            guard let scrollView = mountedScrollView(in: hostedView) else { return }
+            guard let initialSurfaceSize = hostedView.debugPendingSurfaceSize() else {
+                XCTFail("Expected an initial terminal surface size")
+                return
+            }
+
+            let initialContentWidth = scrollView.contentSize.width
+            let reservedOverlayWidth = expectedTerminalWidth(in: contentView, reservingScrollbar: true)
+            XCTAssertEqual(initialSurfaceSize.width, reservedOverlayWidth, accuracy: 0.5)
+
+            scrollView.scrollerStyle = .legacy
+            scrollView.layoutSubtreeIfNeeded()
+            let legacyContentWidth = scrollView.contentSize.width
+            XCTAssertLessThan(
+                legacyContentWidth,
+                initialContentWidth,
+                "Legacy scrollbars should reserve width in the scroll view content area"
+            )
+            assertPendingSurfaceWidth(
+                hostedView,
+                equals: initialSurfaceSize.width,
+                "Changing the scroll view style alone should leave the terminal grid stale until the scroller-style observer runs"
+            )
+
+            NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+            let restoredContentWidth = scrollView.contentSize.width
+            XCTAssertEqual(scrollView.scrollerStyle, .overlay)
             XCTAssertEqual(
-                pendingSurfaceWidth,
-                expectedWidth,
+                restoredContentWidth,
+                initialContentWidth,
                 accuracy: 0.5,
-                message,
-                file: file,
-                line: line
+                "Preferred scroller style changes should restore Ghostty's overlay scrollbar behavior so terminal content is not occluded by a persistent gutter"
+            )
+            assertPendingSurfaceWidth(
+                hostedView,
+                equals: reservedOverlayWidth,
+                "Preferred scroller style changes should keep the PTY grid on the reserved overlay-scroller width"
             )
         }
-
-        let initialContentWidth = scrollView.contentSize.width
-        let reservedOverlayWidth = contentView.bounds.width - NSScroller.scrollerWidth(
-            for: .regular,
-            scrollerStyle: .overlay
-        )
-        XCTAssertEqual(initialSurfaceSize.width, reservedOverlayWidth, accuracy: 0.5)
-
-        scrollView.scrollerStyle = .legacy
-        scrollView.layoutSubtreeIfNeeded()
-        let legacyContentWidth = scrollView.contentSize.width
-        XCTAssertLessThan(
-            legacyContentWidth,
-            initialContentWidth,
-            "Legacy scrollbars should reserve width in the scroll view content area"
-        )
-        assertPendingSurfaceWidth(
-            initialSurfaceSize.width,
-            "Changing the scroll view style alone should leave the terminal grid stale until the scroller-style observer runs"
-        )
-
-        NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        let restoredContentWidth = scrollView.contentSize.width
-        XCTAssertEqual(scrollView.scrollerStyle, .overlay)
-        XCTAssertEqual(
-            restoredContentWidth,
-            initialContentWidth,
-            accuracy: 0.5,
-            "Preferred scroller style changes should restore Ghostty's overlay scrollbar behavior so terminal content is not occluded by a persistent gutter"
-        )
-        assertPendingSurfaceWidth(
-            reservedOverlayWidth,
-            "Preferred scroller style changes should keep the PTY grid on the permanently reserved overlay-scroller width"
-        )
     }
 
     func testWindowResignKeyClearsFocusedTerminalFirstResponder() {
