@@ -108,7 +108,7 @@ struct MarkdownPanelView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 24)
             Text(String(localized: "markdown.fileUnavailable.message", defaultValue: "The file may have been moved or deleted."))
-                .cmuxFont(size: 12)
+                .cmuxFont(size: 10)
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

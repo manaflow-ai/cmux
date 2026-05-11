@@ -97,7 +97,7 @@ struct ConfigSettingsView: View {
             HStack(spacing: 8) {
                 if !statusMessage.isEmpty {
                     Text(statusMessage)
-                        .cmuxFont(size: 12)
+                        .cmuxFont(size: 10)
                         .foregroundColor(statusIsError ? .red : .secondary)
                 }
 
