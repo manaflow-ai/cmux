@@ -82,7 +82,7 @@ final class UIScaleSettingsTests: XCTestCase {
 
         let data = try Data(contentsOf: settingsFileURL)
         let json = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: JSONCParser.preprocess(data)) as? [String: Any]
+            JSONSerialization.jsonObject(with: JSONCParser.preprocess(data: data)) as? [String: Any]
         )
         let appSection = try XCTUnwrap(json["app"] as? [String: Any])
         XCTAssertEqual(try XCTUnwrap(appSection["uiScale"] as? Double), 1.23, accuracy: 0.001)
@@ -172,10 +172,13 @@ final class UIScaleSettingsTests: XCTestCase {
     ) {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            if let persisted = try? persistedUIScale(in: settingsFileURL),
-               let value = persisted,
-               abs(value - expected) <= 0.001 {
-                return
+            do {
+                if let value = try persistedUIScale(in: settingsFileURL),
+                   abs(value - expected) <= 0.001 {
+                    return
+                }
+            } catch {
+                // The async writer may still be replacing the file.
             }
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
         } while Date() < deadline
@@ -186,7 +189,8 @@ final class UIScaleSettingsTests: XCTestCase {
 
     private func persistedUIScale(in settingsFileURL: URL) throws -> Double? {
         let data = try Data(contentsOf: settingsFileURL)
-        let json = try JSONSerialization.jsonObject(with: JSONCParser.preprocess(data)) as? [String: Any]
-        return (json?["app"] as? [String: Any])?["uiScale"] as? Double
+        let json = try JSONSerialization.jsonObject(with: JSONCParser.preprocess(data: data)) as? [String: Any]
+        guard let app = json?["app"] as? [String: Any] else { return nil }
+        return app["uiScale"] as? Double
     }
 }
