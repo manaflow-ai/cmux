@@ -7267,7 +7267,7 @@ struct SettingsView: View {
         ).rawValue
         appIconMode = AppIconSettings.defaultMode.rawValue
         AppIconSettings.applyIcon(.automatic)
-        uiScale = UIScaleSettings.defaultValue
+        uiScale = UIScaleSettings.set(UIScaleSettings.defaultValue)
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
         customClaudePath = ""

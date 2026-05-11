@@ -10726,7 +10726,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        if handleUIScaleShortcut(event: event) {
+        if !isCommandPaletteBlockingUIScaleShortcut(for: event),
+           handleUIScaleShortcut(event: event) {
             return true
         }
 
@@ -12358,6 +12359,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Keep UI scale shortcuts app-global even when focused AppKit views bypass SwiftUI menus.
     @discardableResult
     func handleUIScaleKeyEquivalent(_ event: NSEvent) -> Bool {
+        guard !isCommandPaletteBlockingUIScaleShortcut(for: event) else {
+            return false
+        }
         handleUIScaleShortcut(event: event)
     }
 

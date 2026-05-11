@@ -13478,24 +13478,14 @@ private struct TabItemView: View, Equatable {
 
         let status: SidebarPullRequestStatus
         let color: Color
-        private static let frameSize: CGFloat = 12
+        private static let frameSize: CGFloat = 13
 
         var body: some View {
             switch status {
             case .open:
-                PullRequestOpenIcon(color: color)
-                    .scaleEffect(uiScaleFactor)
-                    .frame(
-                        width: UIScaleSettings.scaled(Self.frameSize, by: uiScaleFactor),
-                        height: UIScaleSettings.scaled(Self.frameSize, by: uiScaleFactor)
-                    )
+                PullRequestOpenIcon(color: color, uiScaleFactor: uiScaleFactor)
             case .merged:
-                PullRequestMergedIcon(color: color)
-                    .scaleEffect(uiScaleFactor)
-                    .frame(
-                        width: UIScaleSettings.scaled(Self.frameSize, by: uiScaleFactor),
-                        height: UIScaleSettings.scaled(Self.frameSize, by: uiScaleFactor)
-                    )
+                PullRequestMergedIcon(color: color, uiScaleFactor: uiScaleFactor)
             case .closed:
                 Image(systemName: "xmark.circle")
                     .font(.system(size: UIScaleSettings.scaled(7, by: uiScaleFactor), weight: .regular))
@@ -13510,76 +13500,102 @@ private struct TabItemView: View, Equatable {
 
     private struct PullRequestOpenIcon: View {
         let color: Color
-        private static let stroke = StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round)
+        let uiScaleFactor: Double
+        private static let strokeLineWidth: CGFloat = 1.2
         private static let nodeDiameter: CGFloat = 3.0
         private static let frameSize: CGFloat = 13
+
+        private var stroke: StrokeStyle {
+            StrokeStyle(
+                lineWidth: UIScaleSettings.scaled(Self.strokeLineWidth, by: uiScaleFactor),
+                lineCap: .round,
+                lineJoin: .round
+            )
+        }
+
+        private func scaled(_ value: CGFloat) -> CGFloat {
+            UIScaleSettings.scaled(value, by: uiScaleFactor)
+        }
 
         var body: some View {
             ZStack {
                 Path { path in
-                    path.move(to: CGPoint(x: 3.0, y: 4.8))
-                    path.addLine(to: CGPoint(x: 3.0, y: 9.2))
+                    path.move(to: CGPoint(x: scaled(3.0), y: scaled(4.8)))
+                    path.addLine(to: CGPoint(x: scaled(3.0), y: scaled(9.2)))
 
-                    path.move(to: CGPoint(x: 4.8, y: 3.0))
-                    path.addLine(to: CGPoint(x: 9.4, y: 3.0))
-                    path.addLine(to: CGPoint(x: 11.0, y: 4.6))
-                    path.addLine(to: CGPoint(x: 11.0, y: 9.2))
+                    path.move(to: CGPoint(x: scaled(4.8), y: scaled(3.0)))
+                    path.addLine(to: CGPoint(x: scaled(9.4), y: scaled(3.0)))
+                    path.addLine(to: CGPoint(x: scaled(11.0), y: scaled(4.6)))
+                    path.addLine(to: CGPoint(x: scaled(11.0), y: scaled(9.2)))
                 }
-                .stroke(color, style: Self.stroke)
+                .stroke(color, style: stroke)
 
                 Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 3.0, y: 3.0)
+                    .stroke(color, lineWidth: scaled(Self.strokeLineWidth))
+                    .frame(width: scaled(Self.nodeDiameter), height: scaled(Self.nodeDiameter))
+                    .position(x: scaled(3.0), y: scaled(3.0))
 
                 Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 3.0, y: 11.0)
+                    .stroke(color, lineWidth: scaled(Self.strokeLineWidth))
+                    .frame(width: scaled(Self.nodeDiameter), height: scaled(Self.nodeDiameter))
+                    .position(x: scaled(3.0), y: scaled(11.0))
 
                 Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 11.0, y: 11.0)
+                    .stroke(color, lineWidth: scaled(Self.strokeLineWidth))
+                    .frame(width: scaled(Self.nodeDiameter), height: scaled(Self.nodeDiameter))
+                    .position(x: scaled(11.0), y: scaled(11.0))
             }
-            .frame(width: Self.frameSize, height: Self.frameSize)
+            .frame(width: scaled(Self.frameSize), height: scaled(Self.frameSize))
         }
     }
 
     private struct PullRequestMergedIcon: View {
         let color: Color
-        private static let stroke = StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round)
+        let uiScaleFactor: Double
+        private static let strokeLineWidth: CGFloat = 1.2
         private static let nodeDiameter: CGFloat = 3.0
         private static let frameSize: CGFloat = 13
+
+        private var stroke: StrokeStyle {
+            StrokeStyle(
+                lineWidth: UIScaleSettings.scaled(Self.strokeLineWidth, by: uiScaleFactor),
+                lineCap: .round,
+                lineJoin: .round
+            )
+        }
+
+        private func scaled(_ value: CGFloat) -> CGFloat {
+            UIScaleSettings.scaled(value, by: uiScaleFactor)
+        }
 
         var body: some View {
             ZStack {
                 Path { path in
-                    path.move(to: CGPoint(x: 4.6, y: 4.6))
-                    path.addLine(to: CGPoint(x: 7.1, y: 7.0))
-                    path.addLine(to: CGPoint(x: 9.2, y: 7.0))
+                    path.move(to: CGPoint(x: scaled(4.6), y: scaled(4.6)))
+                    path.addLine(to: CGPoint(x: scaled(7.1), y: scaled(7.0)))
+                    path.addLine(to: CGPoint(x: scaled(9.2), y: scaled(7.0)))
 
-                    path.move(to: CGPoint(x: 4.6, y: 9.4))
-                    path.addLine(to: CGPoint(x: 7.1, y: 7.0))
+                    path.move(to: CGPoint(x: scaled(4.6), y: scaled(9.4)))
+                    path.addLine(to: CGPoint(x: scaled(7.1), y: scaled(7.0)))
                 }
-                .stroke(color, style: Self.stroke)
+                .stroke(color, style: stroke)
 
                 Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 3.0, y: 3.0)
+                    .stroke(color, lineWidth: scaled(Self.strokeLineWidth))
+                    .frame(width: scaled(Self.nodeDiameter), height: scaled(Self.nodeDiameter))
+                    .position(x: scaled(3.0), y: scaled(3.0))
 
                 Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 3.0, y: 11.0)
+                    .stroke(color, lineWidth: scaled(Self.strokeLineWidth))
+                    .frame(width: scaled(Self.nodeDiameter), height: scaled(Self.nodeDiameter))
+                    .position(x: scaled(3.0), y: scaled(11.0))
 
                 Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 11.0, y: 7.0)
+                    .stroke(color, lineWidth: scaled(Self.strokeLineWidth))
+                    .frame(width: scaled(Self.nodeDiameter), height: scaled(Self.nodeDiameter))
+                    .position(x: scaled(11.0), y: scaled(7.0))
             }
-            .frame(width: Self.frameSize, height: Self.frameSize)
+            .frame(width: scaled(Self.frameSize), height: scaled(Self.frameSize))
         }
     }
 

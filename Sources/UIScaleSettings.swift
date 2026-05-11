@@ -12,6 +12,9 @@ enum UIScaleSettings {
     static let keyboardStep = 0.1
     private static let logger = Logger(subsystem: "ai.manaflow.cmux", category: "UIScaleSettings")
     private static let persistenceQueue = DispatchQueue(label: "ai.manaflow.cmux.ui-scale-settings")
+    private static let persistenceDebounceInterval: TimeInterval = 0.15
+    private static let persistenceStateLock = NSLock()
+    private static var pendingPersistenceWorkItem: DispatchWorkItem?
 
     static func clamped(_ value: Double) -> Double {
         min(max(value, minimum), maximum)
@@ -71,7 +74,7 @@ enum UIScaleSettings {
         _ value: Double,
         settingsFileStore: CmuxSettingsFileStore
     ) {
-        persistenceQueue.async {
+        let workItem = DispatchWorkItem {
             do {
                 try settingsFileStore.persistAppUIScale(value)
             } catch {
@@ -80,6 +83,11 @@ enum UIScaleSettings {
                 )
             }
         }
+        persistenceStateLock.lock()
+        pendingPersistenceWorkItem?.cancel()
+        pendingPersistenceWorkItem = workItem
+        persistenceStateLock.unlock()
+        persistenceQueue.asyncAfter(deadline: .now() + persistenceDebounceInterval, execute: workItem)
     }
 }
 
