@@ -1019,13 +1019,13 @@ final class SidebarAgentPIDFallbackTests: XCTestCase {
     }
 
     @MainActor
-    func testUnscopedPIDRefreshPreservesPanelOwnershipForSamePID() {
+    func testUnscopedPIDRefreshClearsPanelOwnership() {
         let workspace = Workspace()
         let panelId = UUID()
 
         workspace.setAgentPID(key: "codex", panelId: panelId, pid: 123, refreshPorts: false)
         workspace.setAgentPID(key: "codex", pid: 123, refreshPorts: false)
-        XCTAssertEqual(workspace.agentPIDPanelIdsByKey["codex"], panelId)
+        XCTAssertNil(workspace.agentPIDPanelIdsByKey["codex"])
 
         workspace.setAgentPID(key: "codex", pid: 456, refreshPorts: false)
         XCTAssertNil(workspace.agentPIDPanelIdsByKey["codex"])

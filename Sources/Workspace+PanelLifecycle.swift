@@ -98,12 +98,11 @@ extension Workspace {
             return
         }
 
-        let existingPID = agentPIDs[key]
         agentPIDs[key] = pid
         armAgentPIDExitWatcher(key: key, pid: pid)
         if let panelId {
             recordAgentPIDOwnership(key: key, panelId: panelId)
-        } else if existingPID != pid {
+        } else {
             removeAgentPIDOwnership(key: key)
         }
         if agentProcessStates[key]?.pid != pid || agentProcessStates[key]?.isAlive != true {
