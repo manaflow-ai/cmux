@@ -127,6 +127,7 @@ Environment:
 | `notify` | Send a notification to a workspace/surface. |
 | `list-notifications` | List queued notifications. |
 | `clear-notifications` | Clear queued notifications. |
+| `right-sidebar` | Control right sidebar visibility, mode, focus, and state reads. |
 | `set-status` | Set a sidebar status pill. |
 | `clear-status` | Remove a sidebar status pill. |
 | `list-status` | List sidebar status pills. |
@@ -273,6 +274,19 @@ Hook subcommands:
 | `hooks codex <event>` | Handle Codex hook events. `codex install-hooks` remains as the main-compatibility installer alias. |
 | `hooks feed --source <agent>` | Convert agent hook events into Feed context. |
 | `hooks <agent> <event>` | Generic hook surface for `opencode`, `pi`, `cursor`, `gemini`, `rovodev`, `copilot`, `codebuddy`, `factory`, and `qoder`. |
+
+Right sidebar commands:
+
+| Command | Contract |
+| --- | --- |
+| `right-sidebar toggle`, `right-sidebar show`, `right-sidebar hide` | Change right-sidebar visibility without printing on success. |
+| `right-sidebar focus` | Focus the current right-sidebar mode. |
+| `right-sidebar set <files\|find\|vault\|sessions\|feed\|dock>` | Show the right sidebar, switch mode, and focus it unless `--no-focus` is passed. |
+| `right-sidebar files`, `right-sidebar find`, `right-sidebar vault`, `right-sidebar sessions`, `right-sidebar feed`, `right-sidebar dock` | Short aliases for `right-sidebar set <mode>` with focus. |
+| `right-sidebar mode` | Print JSON with `visible` and `mode`. |
+| `--workspace <id\|ref\|index>` | Target the window containing a workspace. Refs and indexes resolve before the V1 socket command is sent. |
+| `--window <id\|ref\|index>` | Target a window. Refs and indexes resolve before the V1 socket command is sent. |
+| `--no-focus` | Only valid with `set`; switches mode without moving focus. |
 
 Docs topics:
 
@@ -446,6 +460,7 @@ the expected text without connecting to a cmux socket.
 - `cmux notify --help` -> `Usage: cmux notify`
 - `cmux list-notifications --help` -> `Usage: cmux list-notifications`
 - `cmux clear-notifications --help` -> `Usage: cmux clear-notifications`
+- `cmux right-sidebar --help` -> `Usage: cmux right-sidebar <command> [flags]`
 - `cmux set-status --help` -> `Usage: cmux set-status`
 - `cmux clear-status --help` -> `Usage: cmux clear-status`
 - `cmux list-status --help` -> `Usage: cmux list-status`

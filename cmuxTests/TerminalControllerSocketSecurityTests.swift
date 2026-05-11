@@ -270,6 +270,10 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
                 "right_sidebar mode",
                 RightSidebarRemoteRequest(command: .getState, target: RightSidebarRemoteTarget())
             ),
+            (
+                "right_sidebar state --workspace \(workspaceId.uuidString) --window \(windowId.uuidString)",
+                RightSidebarRemoteRequest(command: .getState, target: RightSidebarRemoteTarget(windowId: windowId, workspaceId: workspaceId))
+            ),
         ]
 
         for (line, expected) in cases {
@@ -277,15 +281,114 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             XCTAssertEqual(try result.get(), expected, line)
         }
 
-        switch TerminalController.shared.parseRightSidebarRemoteRequestForTesting("right_sidebar set unknown") {
-        case .success(let request):
-            XCTFail("Expected parser failure, got \(request)")
-        case .failure(let error):
-            XCTAssertTrue(error.message.contains("Unknown right sidebar mode"))
+        let invalidCases: [(String, String)] = [
+            ("right_sidebar", "Usage: right_sidebar"),
+            ("right_sidebar set", "Usage: right_sidebar set"),
+            ("right_sidebar set unknown", "Unknown right sidebar mode"),
+            ("right_sidebar show --no-focus", "Usage: right_sidebar show"),
+            ("right_sidebar files --no-focus", "--no-focus is only valid"),
+            ("right_sidebar --bad", "Unknown right sidebar option"),
+            ("right_sidebar show --tab not-a-uuid", "Invalid right sidebar --tab id"),
+            ("right_sidebar show --window", "--window requires an id"),
+        ]
+
+        for (line, expectedMessage) in invalidCases {
+            switch TerminalController.shared.parseRightSidebarRemoteRequestForTesting(line) {
+            case .success(let request):
+                XCTFail("Expected parser failure for \(line), got \(request)")
+            case .failure(let error):
+                XCTAssertTrue(
+                    error.message.contains(expectedMessage),
+                    "Expected \(line) to contain \(expectedMessage), got \(error.message)"
+                )
+            }
         }
 #else
         throw XCTSkip("Right sidebar parser helper is debug-only.")
 #endif
+    }
+
+    func testRightSidebarRemoteCommandsCanTargetRegisteredWindowOrWorkspaceWithoutFocus() throws {
+        let appDelegate = AppDelegate()
+        let windowAId = UUID()
+        let windowBId = UUID()
+        let managerA = TabManager()
+        let managerB = TabManager()
+        _ = managerA.addWorkspace(select: false, eagerLoadTerminal: false)
+        let workspaceB = managerB.addWorkspace(select: false, eagerLoadTerminal: false)
+        let stateA = FileExplorerState()
+        let stateB = FileExplorerState()
+
+        stateA.setVisible(false)
+        stateA.mode = .files
+        stateB.setVisible(false)
+        stateB.mode = .files
+
+        appDelegate.registerMainWindowContextForTesting(
+            windowId: windowAId,
+            tabManager: managerA,
+            fileExplorerState: stateA
+        )
+        appDelegate.registerMainWindowContextForTesting(
+            windowId: windowBId,
+            tabManager: managerB,
+            fileExplorerState: stateB
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowAId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowBId)
+        }
+
+        XCTAssertEqual(
+            appDelegate.applyRightSidebarRemoteCommand(
+                .setMode(.find, focus: false),
+                target: RightSidebarRemoteTarget(windowId: windowAId, workspaceId: nil)
+            ),
+            .ok
+        )
+        XCTAssertTrue(stateA.isVisible)
+        XCTAssertEqual(stateA.mode, .find)
+        XCTAssertFalse(stateB.isVisible)
+        XCTAssertEqual(stateB.mode, .files)
+
+        XCTAssertEqual(
+            appDelegate.applyRightSidebarRemoteCommand(
+                .setMode(.sessions, focus: false),
+                target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
+            ),
+            .ok
+        )
+        XCTAssertTrue(stateB.isVisible)
+        XCTAssertEqual(stateB.mode, .sessions)
+        XCTAssertEqual(stateA.mode, .find)
+
+        XCTAssertEqual(
+            appDelegate.applyRightSidebarRemoteCommand(
+                .hide,
+                target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
+            ),
+            .ok
+        )
+        XCTAssertFalse(stateB.isVisible)
+        XCTAssertTrue(stateA.isVisible)
+
+        XCTAssertEqual(
+            appDelegate.applyRightSidebarRemoteCommand(
+                .getState,
+                target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
+            ),
+            .state(.init(visible: false, mode: .sessions))
+        )
+
+        switch appDelegate.applyRightSidebarRemoteCommand(
+            .hide,
+            target: RightSidebarRemoteTarget(windowId: nil, workspaceId: UUID())
+        ) {
+        case .failure(let message):
+            XCTAssertTrue(message.contains("target not found"), message)
+        case .ok, .state:
+            XCTFail("Expected missing workspace target to fail")
+        }
     }
 
     func testNotificationCreateUsesExplicitSurfaceIDWhenProvided() async throws {

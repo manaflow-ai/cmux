@@ -76,6 +76,139 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
     }
 
+    func testRightSidebarCLIResolvesWindowAndWorkspaceHandlesBeforeForwarding() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("rs-target")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if let payload = self.jsonObject(line),
+               let id = payload["id"] as? String,
+               let method = payload["method"] as? String {
+                switch method {
+                case "window.list":
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "windows": [
+                                ["id": "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", "index": 1],
+                                ["id": windowId, "index": 3],
+                            ]
+                        ]
+                    )
+                case "workspace.list":
+                    let params = payload["params"] as? [String: Any] ?? [:]
+                    XCTAssertEqual(params["window_id"] as? String, windowId)
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "workspaces": [
+                                ["id": "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB", "index": 1],
+                                ["id": workspaceId, "index": 2],
+                            ]
+                        ]
+                    )
+                default:
+                    return self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                    )
+                }
+            }
+
+            XCTAssertEqual(line, "right_sidebar set find --tab=\(workspaceId) --window=\(windowId)")
+            return "OK"
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["right-sidebar", "set", "find", "--window", "window:3", "--workspace", "workspace:2"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.isEmpty, result.stdout)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["window.list", "workspace.list"]
+        )
+        XCTAssertEqual(state.commands.last, "right_sidebar set find --tab=\(workspaceId) --window=\(windowId)")
+    }
+
+    func testRightSidebarCLIRejectsUnresolvedWorkspaceHandleBeforeForwarding() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("rs-miss")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return "ERROR: Unexpected command \(line)"
+            }
+            XCTAssertEqual(method, "workspace.list")
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "workspaces": [
+                        ["id": "11111111-1111-1111-1111-111111111111", "index": 1]
+                    ]
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["right-sidebar", "show", "--workspace", "workspace:99"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stdout.isEmpty, result.stdout)
+        XCTAssertTrue(result.stderr.contains("Workspace ref not found"), result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.list"]
+        )
+        XCTAssertFalse(
+            state.commands.contains { $0.hasPrefix("right_sidebar ") },
+            "Expected no right_sidebar command after target resolution failed, saw \(state.commands)"
+        )
+    }
+
     @MainActor
     func testNotifyWithUUIDSurfaceKeepsCallerWorkspaceFallback() throws {
         let cliPath = try bundledCLIPath()
