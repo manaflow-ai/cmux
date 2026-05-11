@@ -41,6 +41,53 @@ private final class MockFileExplorerProvider: FileExplorerProvider {
     }
 }
 
+private final class MockSSHFileExplorerTransport: SSHFileExplorerTransport {
+    var homePath: Result<String, Error>
+    var listings: [String: Result<[FileExplorerEntry], Error>] = [:]
+    private(set) var resolvedHomeConnections: [SSHFileExplorerConnection] = []
+    private(set) var listedPaths: [String] = []
+
+    init(homePath: Result<String, Error> = .success("/home/dev")) {
+        self.homePath = homePath
+    }
+
+    func resolveHomePath(connection: SSHFileExplorerConnection) async throws -> String {
+        resolvedHomeConnections.append(connection)
+        return try homePath.get()
+    }
+
+    func listDirectory(
+        path: String,
+        connection: SSHFileExplorerConnection,
+        showHidden: Bool
+    ) async throws -> [FileExplorerEntry] {
+        listedPaths.append(path)
+        if let result = listings[path] {
+            return try result.get()
+        }
+        return []
+    }
+}
+
+private final class DeferredListFileExplorerProvider: FileExplorerProvider {
+    var homePath = "/home/dev"
+    var isAvailable = true
+    private(set) var listCallPaths: [String] = []
+    private var continuation: CheckedContinuation<[FileExplorerEntry], Error>?
+
+    func listDirectory(path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
+        listCallPaths.append(path)
+        return try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func resumeListing(returning entries: [FileExplorerEntry]) {
+        continuation?.resume(returning: entries)
+        continuation = nil
+    }
+}
+
 // MARK: - Store Tests
 
 /// The store's `@Published` state is driven by unstructured `Task { ... }` calls that
@@ -99,7 +146,7 @@ final class FileExplorerStoreTests: XCTestCase {
         ])
 
         let store = FileExplorerStore()
-        store.setProvider(provider)
+        store.setProviderForTesting(provider)
         store.setRootPath("/home/user/project")
 
         try await waitFor("root nodes loaded") { store.rootNodes.count == 2 }
@@ -114,9 +161,133 @@ final class FileExplorerStoreTests: XCTestCase {
     func testDisplayRootPathUsesTilde() {
         let provider = MockFileExplorerProvider(homePath: "/home/user")
         let store = FileExplorerStore()
-        store.setProvider(provider)
+        store.setProviderForTesting(provider)
         store.rootPath = "/home/user/project"
         XCTAssertEqual(store.displayRootPath, "~/project")
+    }
+
+    func testRemoteWorkspaceRootRequestResolvesSSHHomeInsteadOfKeepingLocalPath() async throws {
+        let transport = MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
+        transport.listings["/home/dev"] = .success([
+            FileExplorerEntry(name: "project", path: "/home/dev/project", isDirectory: true),
+        ])
+        let connection = SSHFileExplorerConnection(
+            destination: "dev@ubuntu-host",
+            port: 2222,
+            identityFile: "/Users/alice/.ssh/id_ed25519",
+            sshOptions: ["ControlPath /tmp/cmux-ssh-%C"]
+        )
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(LocalFileExplorerProvider())
+        store.setRootPath("/Users/alice")
+
+        store.applyWorkspaceRoot(
+            .remoteSSH(
+                workspaceId: UUID(),
+                connection: connection,
+                displayTarget: "dev@ubuntu-host:2222",
+                isAvailable: true,
+                unavailableDetail: nil
+            ),
+            sshTransport: transport
+        )
+
+        try await waitFor("remote home resolved and loaded") {
+            store.rootPath == "/home/dev" &&
+                store.rootNodes.map(\.name) == ["project"]
+        }
+
+        XCTAssertTrue(store.provider is SSHFileExplorerProvider)
+        XCTAssertEqual(store.rootPath, "/home/dev")
+        XCTAssertEqual(store.displayRootPath, "ssh://dev@ubuntu-host:2222:/home/dev")
+        XCTAssertEqual(transport.resolvedHomeConnections, [connection])
+        XCTAssertEqual(transport.listedPaths, ["/home/dev"])
+    }
+
+    func testSwitchingFromLocalToRemoteRepointsTreeToRemoteHome() async throws {
+        let transport = MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
+        transport.listings["/home/dev"] = .success([
+            FileExplorerEntry(name: ".ssh", path: "/home/dev/.ssh", isDirectory: true),
+        ])
+        let localProvider = MockFileExplorerProvider(homePath: "/Users/alice")
+        localProvider.listings["/Users/alice"] = .success([
+            FileExplorerEntry(name: "Desktop", path: "/Users/alice/Desktop", isDirectory: true),
+        ])
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(localProvider)
+        store.setRootPath("/Users/alice")
+        try await waitFor("local root loaded") {
+            store.rootPath == "/Users/alice" &&
+                store.rootNodes.map(\.name) == ["Desktop"]
+        }
+
+        store.applyWorkspaceRoot(
+            .remoteSSH(
+                workspaceId: UUID(),
+                connection: SSHFileExplorerConnection(
+                    destination: "dev@ubuntu-host",
+                    port: nil,
+                    identityFile: nil,
+                    sshOptions: []
+                ),
+                displayTarget: "dev@ubuntu-host",
+                isAvailable: true,
+                unavailableDetail: nil
+            ),
+            sshTransport: transport
+        )
+
+        try await waitFor("remote root replaces local root") {
+            store.rootPath == "/home/dev" &&
+                store.rootNodes.map(\.name) == [".ssh"]
+        }
+
+        XCTAssertTrue(store.provider is SSHFileExplorerProvider)
+        XCTAssertEqual(transport.resolvedHomeConnections.map(\.destination), ["dev@ubuntu-host"])
+    }
+
+    func testCancelledRootLoadDoesNotClearRemoteUnavailableStatus() async throws {
+        let provider = DeferredListFileExplorerProvider()
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath("/home/dev")
+
+        try await waitFor("root listing started") {
+            provider.listCallPaths == ["/home/dev"]
+        }
+
+        store.applyWorkspaceRoot(
+            .remoteSSH(
+                workspaceId: UUID(),
+                connection: SSHFileExplorerConnection(
+                    destination: "dev@ubuntu-host",
+                    port: nil,
+                    identityFile: nil,
+                    sshOptions: []
+                ),
+                displayTarget: "dev@ubuntu-host",
+                isAvailable: false,
+                unavailableDetail: nil
+            ),
+            sshTransport: MockSSHFileExplorerTransport()
+        )
+
+        let unavailableMessage = String(
+            localized: "fileExplorer.status.sshUnavailable",
+            defaultValue: "SSH files unavailable"
+        )
+        XCTAssertEqual(store.rootStatusMessage, unavailableMessage)
+
+        provider.resumeListing(returning: [
+            FileExplorerEntry(name: "stale", path: "/home/dev/stale", isDirectory: true),
+        ])
+
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        XCTAssertEqual(store.rootStatusMessage, unavailableMessage)
+        XCTAssertTrue(store.rootNodes.isEmpty)
     }
 
     // MARK: - Expansion state persistence
@@ -131,7 +302,7 @@ final class FileExplorerStoreTests: XCTestCase {
         ])
 
         let store = FileExplorerStore()
-        store.setProvider(provider1)
+        store.setProviderForTesting(provider1)
         store.setRootPath("/home/user/project")
         try await waitFor("root loaded") { store.rootNodes.contains { $0.name == "src" } }
 
@@ -150,7 +321,7 @@ final class FileExplorerStoreTests: XCTestCase {
             FileExplorerEntry(name: "main.swift", path: "/home/user/project/src/main.swift", isDirectory: false),
             FileExplorerEntry(name: "lib.swift", path: "/home/user/project/src/lib.swift", isDirectory: false),
         ])
-        store.setProvider(provider2)
+        store.setProviderForTesting(provider2)
 
         XCTAssertTrue(store.expandedPaths.contains("/home/user/project/src"))
 
@@ -168,7 +339,7 @@ final class FileExplorerStoreTests: XCTestCase {
         let provider = MockFileExplorerProvider(isAvailable: false)
 
         let store = FileExplorerStore()
-        store.setProvider(provider)
+        store.setProviderForTesting(provider)
         store.setRootPath("/home/user/project")
         // Wait for the initial load attempt to actually reach the provider,
         // not just for `isRootLoading` to drop (which may already be false
@@ -213,7 +384,7 @@ final class FileExplorerStoreTests: XCTestCase {
         ])
 
         let store = FileExplorerStore()
-        store.setProvider(provider)
+        store.setProviderForTesting(provider)
         store.setRootPath("/home/user/project")
         try await waitFor("root loaded") { store.rootNodes.contains { $0.name == "lib" } }
 
@@ -233,7 +404,7 @@ final class FileExplorerStoreTests: XCTestCase {
             FileExplorerEntry(name: "helpers.swift", path: "/home/user/project/lib/helpers.swift", isDirectory: false),
         ])
 
-        store.setProvider(newProvider)
+        store.setProviderForTesting(newProvider)
 
         XCTAssertTrue(store.expandedPaths.contains("/home/user/project/lib"))
         try await waitFor("lib re-hydrated with 2 children") {
@@ -253,7 +424,7 @@ final class FileExplorerStoreTests: XCTestCase {
         )
 
         let store = FileExplorerStore()
-        store.setProvider(provider)
+        store.setProviderForTesting(provider)
         store.setRootPath("/home/user/project")
         try await waitFor("root loaded") { store.rootNodes.contains { $0.name == "src" } }
 
@@ -271,6 +442,49 @@ final class FileExplorerStoreTests: XCTestCase {
 
         XCTAssertNil(srcNode.error)
         XCTAssertNotNil(srcNode.children)
+    }
+
+    // MARK: - Selection persistence
+
+    func testMultiSelectionKeepsAnchorAndSelectedPaths() {
+        let store = FileExplorerStore()
+        let readme = FileExplorerNode(name: "README.md", path: "/project/README.md", isDirectory: false)
+        let package = FileExplorerNode(name: "Package.swift", path: "/project/Package.swift", isDirectory: false)
+
+        store.select(nodes: [readme, package], anchor: package)
+
+        XCTAssertEqual(store.selectedPath, "/project/Package.swift")
+        XCTAssertEqual(store.selectedPaths, ["/project/README.md", "/project/Package.swift"])
+
+        store.select(node: readme)
+
+        XCTAssertEqual(store.selectedPath, "/project/README.md")
+        XCTAssertEqual(store.selectedPaths, ["/project/README.md"])
+
+        store.select(node: nil)
+
+        XCTAssertNil(store.selectedPath)
+        XCTAssertTrue(store.selectedPaths.isEmpty)
+    }
+
+    func testRestoredMultiSelectionScrollsToAnchorRow() {
+        let exactRows = IndexSet([2, 7, 11])
+
+        XCTAssertEqual(
+            FileExplorerSelectionRestoration.scrollRow(anchorRow: 7, exactRows: exactRows),
+            7
+        )
+        XCTAssertEqual(
+            FileExplorerSelectionRestoration.scrollRow(anchorRow: 4, exactRows: exactRows),
+            2
+        )
+        XCTAssertEqual(
+            FileExplorerSelectionRestoration.scrollRow(anchorRow: nil, exactRows: exactRows),
+            2
+        )
+        XCTAssertNil(
+            FileExplorerSelectionRestoration.scrollRow(anchorRow: nil, exactRows: [])
+        )
     }
 
     // MARK: - Collapse/Expand
@@ -406,6 +620,43 @@ final class FileSearchControllerTests: XCTestCase {
         XCTAssertEqual(refreshedSnapshot.results.map(\.relativePath), ["editable.txt"])
     }
 
+    func testTypingBurstDebouncesFindSearches() async throws {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let searchController = SpyFileSearchController()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .find,
+            searchController: searchController
+        )
+        store.provider = MockFileExplorerProvider(homePath: "/tmp")
+        store.setRootPath("/tmp/cmux-find-debounce-test")
+        container.updateHeader(store: store)
+        container.updatePresentation(.find)
+
+        let searchField = try XCTUnwrap(Self.findSearchField(in: container))
+        searchController.searchRequests.removeAll()
+
+        for query in ["p", "pr", "pri", "priv", "priva", "privat", "private"] {
+            searchField.stringValue = query
+            container.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: searchField))
+        }
+
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertLessThanOrEqual(
+            searchController.searchRequests.count,
+            1,
+            "A burst of typing should coalesce into one ripgrep search per debounce window."
+        )
+        XCTAssertEqual(searchController.searchRequests.last?.query, "private")
+    }
+
     private func waitForSettledSearchSnapshot(
         timeout: TimeInterval = 5,
         _ snapshot: @MainActor @escaping () -> FileSearchSnapshot?
@@ -434,5 +685,44 @@ final class FileSearchControllerTests: XCTestCase {
             }
         }
         return false
+    }
+
+    private static func findSearchField(in root: NSView) -> NSSearchField? {
+        if let field = root as? NSSearchField,
+           field.accessibilityIdentifier() == "FileExplorerSearchField" {
+            return field
+        }
+        for subview in root.subviews {
+            if let field = findSearchField(in: subview) {
+                return field
+            }
+        }
+        return nil
+    }
+
+    private final class SpyFileSearchController: FileSearchControlling {
+        struct SearchRequest: Equatable {
+            let query: String
+            let rootPath: String
+            let isLocal: Bool
+            let contentRevision: Int
+        }
+
+        var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
+        var searchRequests: [SearchRequest] = []
+        var cancelCount = 0
+
+        func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int) {
+            searchRequests.append(SearchRequest(
+                query: rawQuery,
+                rootPath: rootPath,
+                isLocal: isLocal,
+                contentRevision: contentRevision
+            ))
+        }
+
+        func cancel(clear: Bool) {
+            cancelCount += 1
+        }
     }
 }

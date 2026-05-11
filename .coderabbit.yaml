@@ -22,6 +22,9 @@ reviews:
     - path: "GhosttyTabs.xcodeproj/**"
       instructions: |
         Review project wiring against the cmux Swift lint rules. Flag project changes that enable app/runtime code paths which bypass Swift concurrency, logging, localization, or shared action-path expectations.
+    - path: "**/*.{ts,tsx,js,jsx,mjs,cjs,sh,zsh}"
+      instructions: |
+        Apply `.github/review-bot-rules/runtime-no-hacky-sleeps.md` during review. For production runtime, script, and build changes, flag fixed sleeps, timers, delayed dispatch, polling, or wall-clock waits used as synchronization. Pass for tests, pure presentation timing, dedicated cancellation-aware retry/timeout abstractions with tests, and existing delay code not worsened.
 
   pre_merge_checks:
     custom_checks:
@@ -33,6 +36,10 @@ reviews:
         mode: error
         instructions: |
           For production Swift changes, fail when the diff introduces or materially expands blocking or timing-based synchronization from `.github/review-bot-rules/swift-blocking-runtime.md`: semaphores, blocking waits, sleeps, delayed dispatch, polling, main-queue sync, or manual locks where an actor or explicit signal should own synchronization. Pass for deterministic test-only scaffolding and short user-visible UI animation delays that do not use `Task.sleep`.
+      - name: "cmux no hacky sleeps"
+        mode: error
+        instructions: |
+          For production non-Swift app/runtime changes in TypeScript, JavaScript, shell, or build/runtime scripts, fail when the diff violates `.github/review-bot-rules/runtime-no-hacky-sleeps.md`: fixed sleeps, delayed dispatch, timers, polling, or wall-clock waits used to paper over lifecycle, focus, rendering, socket, process, filesystem, network, teardown, startup, retry, or shared-state races. Swift sleeps are covered by `cmux Swift blocking runtime`. Pass for deterministic test-only scaffolding, purely presentation animation or progress timing, dedicated cancellation-aware retry/timeout abstractions with tests, and existing delay code not worsened.
       - name: "cmux Swift concurrency"
         mode: error
         instructions: |
@@ -57,3 +64,7 @@ reviews:
         mode: error
         instructions: |
           For Swift architecture changes, fail when the diff violates `.github/review-bot-rules/swift-architectural-rethink.md`: symptom patches using sleeps, delayed dispatch, polling, locks, observers, side channels, duplicate entrypoint wiring, or split UI lifecycle ownership that leaves bad state representable. Pass for small correctness fixes with clear owners and invariants, required platform bridges, and test-only synchronization.
+      - name: "cmux Swift auxiliary window close shortcuts"
+        mode: error
+        instructions: |
+          For Swift changes that add or materially change standalone cmux-owned windows, fail when the diff violates `.github/review-bot-rules/swift-auxiliary-window-close-shortcuts.md`: user-visible NSWindow, NSPanel, NSWindowController, SwiftUI Window, or WindowGroup code without a stable cmux.* identifier and shared close-shortcut ownership through cmuxAuxiliaryWindowIdentifiers. Pass for main workspace windows, terminal panes, tabs, sheets, popovers, menus, test-only fixtures, and existing unregistered windows not worsened by the PR. If the deterministic CI script already catches the literal assignment, mention scripts/lint_auxiliary_window_close_shortcuts.py; otherwise explain the broader review-only pattern.
