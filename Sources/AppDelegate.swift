@@ -5557,16 +5557,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         switch command {
         case .toggle:
-            if target.isActiveTarget || preferredWindow != nil {
-                guard toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindow) else {
-                    return .failure(String(localized: "rightSidebar.remote.error.unavailable", defaultValue: "ERROR: Right sidebar not available"))
-                }
-            } else {
-                let wasVisible = state.isVisible
-                state.toggle()
-                if wasVisible && !state.isVisible {
-                    _ = context?.keyboardFocusCoordinator.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded()
-                }
+            guard target.isActiveTarget || preferredWindow != nil else {
+                return .failure(String(localized: "rightSidebar.remote.error.targetNotFound", defaultValue: "ERROR: Right sidebar target not found"))
+            }
+            guard toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindow) else {
+                return .failure(String(localized: "rightSidebar.remote.error.unavailable", defaultValue: "ERROR: Right sidebar not available"))
             }
             return .ok
 

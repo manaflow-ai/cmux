@@ -384,6 +384,17 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertFalse(stateB.isVisible)
         XCTAssertTrue(stateA.isVisible)
 
+        switch appDelegate.applyRightSidebarRemoteCommand(
+            .toggle,
+            target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
+        ) {
+        case .failure(let message):
+            XCTAssertTrue(message.contains("target not found"), message)
+        case .ok, .state:
+            XCTFail("Expected targeted toggle without a window to fail")
+        }
+        XCTAssertFalse(stateB.isVisible)
+
         XCTAssertEqual(
             appDelegate.applyRightSidebarRemoteCommand(
                 .getState,
