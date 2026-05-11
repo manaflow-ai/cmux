@@ -2141,6 +2141,11 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         installCmuxUnitTestInspectorOverride()
     }
 
+    override func setUp() {
+        super.setUp()
+        setenv("NSZombieEnabled", "YES", 1)
+    }
+
     private func makePanelWithInspector(
         hideBehavior: FakeInspector.HideBehavior = .unsupported
     ) -> (BrowserPanel, FakeInspector) {
@@ -2148,6 +2153,15 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let inspector = FakeInspector(hideBehavior: hideBehavior)
         panel.webView.cmuxSetUnitTestInspector(inspector)
         return (panel, inspector)
+    }
+
+    private func spinRunLoopOneTick() {
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+    }
+
+    private func window(withId windowId: UUID) -> NSWindow? {
+        let identifier = "cmux.main.\(windowId.uuidString)"
+        return NSApp.windows.first(where: { $0.identifier?.rawValue == identifier })
     }
 
     private func findHostContainerView(in root: NSView) -> WebViewRepresentable.HostContainerView? {
@@ -2176,6 +2190,64 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             }
         }
         return nil
+    }
+
+    func testPaneCloseClosesVisibleInspectorSynchronouslyBeforeWebViewTeardown() {
+        let (panel, inspector) = makePanelWithInspector()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.closeCount, 0)
+
+        panel.close()
+        spinRunLoopOneTick()
+
+        XCTAssertEqual(inspector.closeCount, 1)
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+    }
+
+    func testWindowCloseClosesContainedBrowserInspectorBeforeWindowWillClose() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected main window with browser panel")
+            return
+        }
+
+        let inspector = FakeInspector()
+        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
+        if browserPanel.webView.superview == nil {
+            browserPanel.webView.frame = window.contentView?.bounds ?? .zero
+            window.contentView?.addSubview(browserPanel.webView)
+        }
+
+        XCTAssertTrue(browserPanel.showDeveloperTools())
+        XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
+
+        var closeCountObservedAtWillClose: Int?
+        let observer = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: nil
+        ) { _ in
+            closeCountObservedAtWillClose = inspector.closeCount
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        window.performClose(nil)
+        spinRunLoopOneTick()
+
+        XCTAssertEqual(closeCountObservedAtWillClose, 1)
+        XCTAssertEqual(inspector.closeCount, 1)
+        XCTAssertFalse(browserPanel.isDeveloperToolsVisible())
     }
 
     func testRestoreReopensInspectorAfterAttachWhenPreferredVisible() {
