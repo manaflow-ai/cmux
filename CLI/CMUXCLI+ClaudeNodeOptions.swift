@@ -11,6 +11,7 @@ extension CMUXCLI {
     }
     delete process.env.CMUX_ORIGINAL_NODE_OPTIONS;
     delete process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT;
+
     """
 
     private struct ClaudeNodeOptionsCachePathError: LocalizedError {
