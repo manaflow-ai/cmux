@@ -163,6 +163,25 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testSaveAndLoadRoundTripPreservesWorkspaceCustomIconImagePath() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
+        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        snapshot.windows[0].tabManager.workspaces[0].customIcon = .imagePath("/abs/path/x.png")
+
+        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+
+        let loaded = SessionPersistenceStore.load(fileURL: snapshotURL)
+        XCTAssertEqual(
+            loaded?.windows.first?.tabManager.workspaces.first?.customIcon,
+            .imagePath("/abs/path/x.png")
+        )
+    }
+
     func testSaveSkipsRewritingIdenticalSnapshotData() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)

@@ -49,6 +49,24 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertNil(config.commands[0].workspace)
     }
 
+    func testDecodeWorkspaceCommandIconUsesCmuxButtonIconShape() throws {
+        let json = """
+        {
+          "commands": [{
+            "name": "Launch",
+            "workspace": {
+              "name": "Launch",
+              "icon": { "type": "emoji", "value": "🚀" }
+            }
+          }]
+        }
+        """
+
+        let config = try decode(json)
+
+        XCTAssertEqual(config.commands.first?.workspace?.icon, .emoji("🚀", scale: 1.0))
+    }
+
     func testDecodeSimpleCommandWithAllFields() throws {
         let json = """
         {
