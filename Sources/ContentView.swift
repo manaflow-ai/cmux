@@ -848,27 +848,14 @@ struct MountedWorkspacePresentation: Equatable {
 enum MountedWorkspacePresentationPolicy {
     static func resolve(
         isSelectedWorkspace: Bool,
-        isRetiringWorkspace: Bool,
-        shouldPrimeInBackground: Bool
+        isRetiringWorkspace: Bool
     ) -> MountedWorkspacePresentation {
         let isRenderedVisible = isSelectedWorkspace || isRetiringWorkspace
-        let renderOpacity: Double = {
-            if isRenderedVisible {
-                return 1
-            }
-            if shouldPrimeInBackground {
-                // Keep the workspace mounted long enough to warm the terminal surface, but do
-                // not mark it panel-visible. Visible portal entries intentionally survive
-                // transient anchor loss during bonsplit drag/reparent churn.
-                return 0.001
-            }
-            return 0
-        }()
 
         return MountedWorkspacePresentation(
             isRenderedVisible: isRenderedVisible,
             isPanelVisible: isRenderedVisible,
-            renderOpacity: renderOpacity
+            renderOpacity: isRenderedVisible ? 1 : 0
         )
     }
 }
@@ -1083,6 +1070,7 @@ struct ContentView: View {
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
+    @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
     @State private var fileExplorerWidth: CGFloat = 220
     @State private var fileExplorerDragStartWidth: CGFloat?
     @State private var previousSelectedWorkspaceId: UUID?
@@ -2052,11 +2040,9 @@ struct ContentView: View {
                 ForEach(mountedWorkspaces) { tab in
                     let isSelectedWorkspace = selectedWorkspaceId == tab.id
                     let isRetiringWorkspace = retiringWorkspaceId == tab.id
-                    let shouldPrimeInBackground = tabManager.pendingBackgroundWorkspaceLoadIds.contains(tab.id)
                     let presentation = MountedWorkspacePresentationPolicy.resolve(
                         isSelectedWorkspace: isSelectedWorkspace,
-                        isRetiringWorkspace: isRetiringWorkspace,
-                        shouldPrimeInBackground: shouldPrimeInBackground
+                        isRetiringWorkspace: isRetiringWorkspace
                     )
                     // Keep the retiring workspace visible during handoff, but never input-active.
                     // Allowing both selected+retiring workspaces to be input-active lets the
@@ -2084,9 +2070,6 @@ struct ContentView: View {
                     .allowsHitTesting(isSelectedWorkspace)
                     .accessibilityHidden(!presentation.isRenderedVisible)
                     .zIndex(isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0))
-                    .task(id: shouldPrimeInBackground ? tab.id : nil) {
-                        await primeBackgroundWorkspaceIfNeeded(workspaceId: tab.id)
-                    }
                 }
             }
             .opacity(sidebarSelectionState.selection == .tabs ? 1 : 0)
@@ -2775,11 +2758,17 @@ struct ContentView: View {
             reconcileMountedWorkspaceIds()
         })
 
-        view = AnyView(view.onReceive(tabManager.$pendingBackgroundWorkspaceLoadIds) { _ in
-            reconcileMountedWorkspaceIds()
+        // Prime background workspaces off-screen. Rendering them just to run a task
+        // mounts every keepAllAlive tab view and can materialize hidden terminals.
+        view = AnyView(view.task(id: backgroundWorkspacePrimeCoordinator.taskKey(for: tabManager)) {
+            await backgroundWorkspacePrimeCoordinator.primePendingBackgroundWorkspaces(tabManager: tabManager)
         })
 
         view = AnyView(view.onReceive(tabManager.$debugPinnedWorkspaceLoadIds) { _ in
+            reconcileMountedWorkspaceIds()
+        })
+
+        view = AnyView(view.onReceive(tabManager.$mountedBackgroundWorkspaceLoadIds) { _ in
             reconcileMountedWorkspaceIds()
         })
 
@@ -3301,7 +3290,7 @@ struct ContentView: View {
         let effectiveSelectedId = selectedId ?? tabManager.selectedTabId
         let handoffPinnedIds = retiringWorkspaceId.map { Set([ $0 ]) } ?? []
         let pinnedIds = handoffPinnedIds
-            .union(tabManager.pendingBackgroundWorkspaceLoadIds)
+            .union(tabManager.mountedBackgroundWorkspaceLoadIds)
             .union(tabManager.debugPinnedWorkspaceLoadIds)
         let isCycleHot = tabManager.isWorkspaceCycleHot
         let shouldKeepHandoffPair = isCycleHot && !handoffPinnedIds.isEmpty
@@ -3346,175 +3335,6 @@ struct ContentView: View {
             }
         }
 #endif
-    }
-
-    private enum BackgroundWorkspacePrimeState {
-        case pending
-        case completed(reason: String)
-    }
-
-    private enum BackgroundWorkspacePrimePolicy {
-        static let timeoutSeconds: TimeInterval = 2.0
-    }
-
-    private func primeBackgroundWorkspaceIfNeeded(workspaceId: UUID) async {
-        let shouldPrime = await MainActor.run {
-            tabManager.pendingBackgroundWorkspaceLoadIds.contains(workspaceId)
-        }
-        guard shouldPrime else { return }
-
-#if DEBUG
-        let startedAt = ProcessInfo.processInfo.systemUptime
-        cmuxDebugLog("workspace.backgroundPrime.start workspace=\(workspaceId.uuidString.prefix(5))")
-#endif
-
-        let initialState = await MainActor.run {
-            stepBackgroundWorkspacePrime(workspaceId: workspaceId)
-        }
-        let completionReason: String
-        switch initialState {
-        case .completed(let reason):
-            completionReason = reason
-        case .pending:
-            completionReason = await waitForBackgroundWorkspacePrimeCompletion(
-                workspaceId: workspaceId,
-                timeoutSeconds: BackgroundWorkspacePrimePolicy.timeoutSeconds
-            )
-        }
-#if DEBUG
-        let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000
-        cmuxDebugLog(
-            "workspace.backgroundPrime.finish workspace=\(workspaceId.uuidString.prefix(5)) " +
-            "reason=\(completionReason) ms=\(String(format: "%.2f", elapsedMs))"
-        )
-#endif
-    }
-
-    @MainActor
-    private func stepBackgroundWorkspacePrime(workspaceId: UUID) -> BackgroundWorkspacePrimeState {
-        guard tabManager.pendingBackgroundWorkspaceLoadIds.contains(workspaceId) else {
-            return .completed(reason: "already_cleared")
-        }
-        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
-            tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
-            return .completed(reason: "workspace_removed")
-        }
-
-        workspace.requestBackgroundTerminalSurfaceStartIfNeeded()
-        guard workspace.hasLoadedTerminalSurface() else {
-            return .pending
-        }
-
-        tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
-        return .completed(reason: "surface_ready")
-    }
-
-    @MainActor
-    private func waitForBackgroundWorkspacePrimeCompletion(
-        workspaceId: UUID,
-        timeoutSeconds: TimeInterval
-    ) async -> String {
-        await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
-            var resolved = false
-            var workspacePanelsCancellable: AnyCancellable?
-            var pendingLoadsCancellable: AnyCancellable?
-            var tabsCancellable: AnyCancellable?
-            var readyObserver: NSObjectProtocol?
-            var hostedViewObserver: NSObjectProtocol?
-            var timeoutWorkItem: DispatchWorkItem?
-
-            @MainActor
-            func finish(_ reason: String) {
-                guard !resolved else { return }
-                resolved = true
-                workspacePanelsCancellable?.cancel()
-                pendingLoadsCancellable?.cancel()
-                tabsCancellable?.cancel()
-                if let readyObserver {
-                    NotificationCenter.default.removeObserver(readyObserver)
-                }
-                if let hostedViewObserver {
-                    NotificationCenter.default.removeObserver(hostedViewObserver)
-                }
-                timeoutWorkItem?.cancel()
-                continuation.resume(returning: reason)
-            }
-
-            @MainActor
-            func evaluate() {
-                switch stepBackgroundWorkspacePrime(workspaceId: workspaceId) {
-                case .pending:
-                    break
-                case .completed(let reason):
-                    finish(reason)
-                }
-            }
-
-            if let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) {
-                workspacePanelsCancellable = workspace.$panels
-                    .map { _ in () }
-                    .sink { _ in
-                        Task { @MainActor in
-                            evaluate()
-                        }
-                    }
-            }
-
-            pendingLoadsCancellable = tabManager.$pendingBackgroundWorkspaceLoadIds
-                .map { _ in () }
-                .sink { _ in
-                    Task { @MainActor in
-                        evaluate()
-                    }
-                }
-
-            tabsCancellable = tabManager.$tabs
-                .map { _ in () }
-                .sink { _ in
-                    Task { @MainActor in
-                        evaluate()
-                    }
-                }
-
-            readyObserver = NotificationCenter.default.addObserver(
-                forName: .terminalSurfaceDidBecomeReady,
-                object: nil,
-                queue: .main
-            ) { notification in
-                guard let readyWorkspaceId = notification.userInfo?["workspaceId"] as? UUID,
-                      readyWorkspaceId == workspaceId else { return }
-                Task { @MainActor in
-                    evaluate()
-                }
-            }
-
-            hostedViewObserver = NotificationCenter.default.addObserver(
-                forName: .terminalSurfaceHostedViewDidMoveToWindow,
-                object: nil,
-                queue: .main
-            ) { notification in
-                guard let hostedWorkspaceId = notification.userInfo?["workspaceId"] as? UUID,
-                      hostedWorkspaceId == workspaceId else { return }
-                Task { @MainActor in
-                    evaluate()
-                }
-            }
-
-            let timeoutWork = DispatchWorkItem {
-                Task { @MainActor in
-                    if tabManager.pendingBackgroundWorkspaceLoadIds.contains(workspaceId) {
-                        tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
-                    }
-                    finish("timeout")
-                }
-            }
-            timeoutWorkItem = timeoutWork
-            DispatchQueue.main.asyncAfter(deadline: .now() + timeoutSeconds, execute: timeoutWork)
-
-            Task { @MainActor in
-                evaluate()
-            }
-        }
     }
 
     private func addTab() {

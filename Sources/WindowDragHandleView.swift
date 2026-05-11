@@ -283,6 +283,24 @@ func isWindowDragSuppressed(window: NSWindow?) -> Bool {
 }
 
 @discardableResult
+func temporarilyDisableWindowDragging(window: NSWindow?) -> Bool? {
+    guard let window else { return nil }
+    let previousMovableState = window.isMovable
+    if previousMovableState {
+        window.isMovable = false
+    }
+    return previousMovableState
+}
+
+func restoreWindowDragging(window: NSWindow?, previousMovableState: Bool?) {
+    guard let window,
+          let previousMovableState else { return }
+    if window.isMovable != previousMovableState {
+        window.isMovable = previousMovableState
+    }
+}
+
+@discardableResult
 func clearWindowDragSuppression(window: NSWindow?) -> Int {
     guard let window else { return 0 }
     var depth = windowDragSuppressionDepth(window: window)
