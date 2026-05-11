@@ -12568,8 +12568,9 @@ final class GhosttySurfaceScrollView: NSView {
         guard let scrollbar = surfaceView.scrollbar else { return nil }
         // Embedded Ghostty exposes alternate-screen TUIs to the wrapper as a
         // viewport with no additional scrollback (`total <= len`). Treat that
-        // as the signal to suppress the overlay scrollbar so full-screen apps
-        // like nvim/htop do not pin it on top of the rightmost cell column.
+        // as the signal to suppress the visible overlay scrollbar. The PTY
+        // width still reserves the overlay gutter permanently so scrollbar
+        // visibility cannot become part of the terminal column count.
         return scrollbar.total > scrollbar.len
     }
 
