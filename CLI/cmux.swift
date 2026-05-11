@@ -9678,11 +9678,15 @@ struct CMUXCLI {
                     throw CLIError(message: "--json is not supported with --follow; use plain text output for streaming")
                 }
                 // Continuous streaming: poll surface, print only new content
-                let interval = Double(intervalArg ?? "0.5") ?? 0.5
-                guard interval > 0 else {
-                    throw CLIError(message: "--interval must be greater than 0")
+                guard let intervalValue = Double(intervalArg ?? "0.5"), intervalValue > 0 else {
+                    throw CLIError(message: "--interval must be a positive number")
                 }
+                let interval = intervalValue
                 var previousText = ""
+
+                // Follow mode always needs scrollback so the viewport doesn't
+                // shrink as the terminal scrolls, breaking the append heuristic.
+                params["scrollback"] = true
 
                 // Ignore SIGPIPE so writes return EPIPE instead of killing the process;
                 // we detect broken pipes via fflush(stdout) return value below
@@ -9706,11 +9710,11 @@ struct CMUXCLI {
                                 // Content changed completely (screen refresh) — print separator + all
                                 print("\n---\n\(currentText)", terminator: "")
                             }
-                            // Check for broken pipe (EPIPE) — reader disconnected
-                            if fflush(stdout) != 0 {
-                                break
-                            }
                             previousText = currentText
+                        }
+                        // Always flush to detect broken pipe (EPIPE), even when content unchanged
+                        if fflush(stdout) != 0 {
+                            break
                         }
                     } catch {
                         // Socket died — close and reconnect before retrying
