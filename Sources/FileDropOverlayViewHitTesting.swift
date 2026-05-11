@@ -96,20 +96,8 @@ extension FileDropOverlayView {
         // Sidebar / non-pane area: only show the copy cursor when the payload contains
         // at least one plain directory (not a package like .app/.xcworkspace). Files
         // and packages should not advertise copy here since they cannot open as a workspace.
-        if onDrop != nil, pasteboardContainsPlainDirectory(sender) { return .copy }
+        if onDrop != nil, draggingPayloadContainsPlainDirectory(sender) { return .copy }
         return []
-    }
-
-    private func pasteboardContainsPlainDirectory(_ sender: any NSDraggingInfo) -> Bool {
-        let urls = sender.draggingPasteboard.readObjects(
-            forClasses: [NSURL.self],
-            options: [.urlReadingFileURLsOnly: true]
-        ) as? [URL] ?? []
-        return urls.contains { url in
-            guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
-            else { return false }
-            return values.isDirectory == true && values.isPackage != true
-        }
     }
 
     private func fileDropPaneTargetsAreIdentical(

@@ -9936,9 +9936,12 @@ final class Workspace: Identifiable, ObservableObject {
                 // by the stale portal.
                 focusPanel(browserSourcePanel.id, previousHostedView: previousHostedView)
                 DispatchQueue.main.async { [weak self] in
+                    // Always clear suppression, even if Workspace was deallocated
+                    // in the meantime — otherwise the previous browser hosted view
+                    // is left permanently muted, blocking future onFocus delivery.
+                    defer { previousHostedView?.clearSuppressReparentFocus() }
                     guard let self else { return }
                     self.focusPanel(newPanel.id, previousHostedView: nil)
-                    previousHostedView?.clearSuppressReparentFocus()
                 }
             } else {
                 focusPanel(newPanel.id, previousHostedView: previousHostedView)
