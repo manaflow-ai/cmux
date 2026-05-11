@@ -48,6 +48,9 @@ class cmuxError(Exception):
 _APP_SUPPORT_DIR = os.path.expanduser("~/Library/Application Support/cmux")
 _STABLE_SOCKET_PATH = os.path.join(_APP_SUPPORT_DIR, "cmux.sock")
 _LEGACY_STABLE_SOCKET_PATH = "/tmp/cmux.sock"
+_STABLE_BUNDLE_ID = "com.cmuxterm.app"
+_NIGHTLY_BUNDLE_ID = "com.cmuxterm.app.nightly"
+_STAGING_BUNDLE_ID = "com.cmuxterm.app.staging"
 _DEFAULT_DEBUG_BUNDLE_ID = "com.cmuxterm.app.debug"
 
 
@@ -71,9 +74,21 @@ def _quote_option_value(value: str) -> str:
     return f"\"{escaped}\""
 
 
+def _is_known_cmux_bundle_id(bundle_id: str) -> bool:
+    return (
+        bundle_id == _STABLE_BUNDLE_ID
+        or bundle_id == _NIGHTLY_BUNDLE_ID
+        or bundle_id.startswith(f"{_NIGHTLY_BUNDLE_ID}.")
+        or bundle_id == _STAGING_BUNDLE_ID
+        or bundle_id.startswith(f"{_STAGING_BUNDLE_ID}.")
+        or bundle_id == _DEFAULT_DEBUG_BUNDLE_ID
+        or bundle_id.startswith(f"{_DEFAULT_DEBUG_BUNDLE_ID}.")
+    )
+
+
 def _default_bundle_id() -> str:
-    override = os.environ.get("CMUX_BUNDLE_ID")
-    if override:
+    override = (os.environ.get("CMUX_BUNDLE_ID") or "").strip()
+    if override and _is_known_cmux_bundle_id(override):
         return override
 
     tag = os.environ.get("CMUX_TAG")
@@ -86,15 +101,15 @@ def _default_bundle_id() -> str:
 
 def _socket_variant() -> Tuple[str, Optional[str]]:
     bundle_id = _default_bundle_id()
-    if bundle_id == "com.cmuxterm.app.nightly":
+    if bundle_id == _NIGHTLY_BUNDLE_ID:
         return ("nightly", None)
-    if bundle_id.startswith("com.cmuxterm.app.nightly."):
-        suffix = bundle_id.removeprefix("com.cmuxterm.app.nightly.")
+    if bundle_id.startswith(f"{_NIGHTLY_BUNDLE_ID}."):
+        suffix = bundle_id.removeprefix(f"{_NIGHTLY_BUNDLE_ID}.")
         return ("nightly", _sanitize_marker_slug(suffix))
-    if bundle_id == "com.cmuxterm.app.staging":
+    if bundle_id == _STAGING_BUNDLE_ID:
         return ("staging", None)
-    if bundle_id.startswith("com.cmuxterm.app.staging."):
-        suffix = bundle_id.removeprefix("com.cmuxterm.app.staging.")
+    if bundle_id.startswith(f"{_STAGING_BUNDLE_ID}."):
+        suffix = bundle_id.removeprefix(f"{_STAGING_BUNDLE_ID}.")
         return ("staging", _sanitize_marker_slug(suffix))
     if bundle_id == _DEFAULT_DEBUG_BUNDLE_ID:
         tag = os.environ.get("CMUX_TAG", "").strip()
