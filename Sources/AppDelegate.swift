@@ -13774,10 +13774,25 @@ private var cmuxFirstResponderGuardCurrentEventContext: NSEvent?
 private var cmuxFirstResponderGuardHitViewContext: NSView?
 private var cmuxFirstResponderGuardContextWindowNumber: Int?
 private var cmuxBrowserReturnForwardingDepth = 0
+private var cmuxBrowserForwardedReturnEvent: CmuxForwardedBrowserReturnEvent?
 private var cmuxBrowserArrowForwardingDepth = 0
 private var cmuxCommandPaletteArrowForwardingDepth = 0
 private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
+
+private struct CmuxForwardedBrowserReturnEvent: Equatable {
+    let keyCode: UInt16
+    let timestamp: TimeInterval
+    let windowNumber: Int
+    let charactersIgnoringModifiers: String?
+
+    init(_ event: NSEvent) {
+        keyCode = event.keyCode
+        timestamp = event.timestamp
+        windowNumber = event.windowNumber
+        charactersIgnoringModifiers = event.charactersIgnoringModifiers
+    }
+}
 
 @discardableResult
 func cmuxWithWindowFirstResponderBypass<T>(_ body: () -> T) -> T {
@@ -14358,16 +14373,27 @@ private extension NSWindow {
             flags: event.modifierFlags
         ) {
             // Forwarding keyDown can re-enter performKeyEquivalent in WebKit/AppKit internals.
-            // On re-entry, consume the in-flight Return so AppKit does not treat the
-            // already-submitted form key as an unhandled key equivalent and beep.
-            if cmuxBrowserReturnForwardingDepth > 0, isBrowserReturnOrEnterKeyCode(event.keyCode) {
+            // Consume only the exact forwarded Return/Enter event. A different nested
+            // Return should continue through normal dispatch so AppKit can keep its own
+            // invalid-input feedback.
+            let forwardedReturnEvent = CmuxForwardedBrowserReturnEvent(event)
+            if cmuxBrowserReturnForwardingDepth > 0 {
+                guard cmuxBrowserForwardedReturnEvent == forwardedReturnEvent else {
+                    return false
+                }
 #if DEBUG
                 cmuxDebugLog("  → browser Return/Enter reentry; consumed during forwarded keyDown")
 #endif
                 return true
             }
             cmuxBrowserReturnForwardingDepth += 1
-            defer { cmuxBrowserReturnForwardingDepth = max(0, cmuxBrowserReturnForwardingDepth - 1) }
+            cmuxBrowserForwardedReturnEvent = forwardedReturnEvent
+            defer {
+                cmuxBrowserReturnForwardingDepth = max(0, cmuxBrowserReturnForwardingDepth - 1)
+                if cmuxBrowserReturnForwardingDepth == 0 {
+                    cmuxBrowserForwardedReturnEvent = nil
+                }
+            }
 #if DEBUG
             cmuxDebugLog("  → browser Return/Enter routed to browser keyDown target")
 #endif
