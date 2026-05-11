@@ -8882,6 +8882,7 @@ final class Workspace: Identifiable, ObservableObject {
         let localPanelIds = panelIds.filter {
             !remoteDetectedSurfaceIds.contains($0)
                 && !isRemoteTerminalSurface($0)
+                && panelTerminalLocations[$0]?.isRemote != true
                 && !pendingRemoteTerminalChildExitSurfaceIds.contains($0)
         }
         return sidebarDirectoriesInDisplayOrder(orderedPanelIds: localPanelIds, includeFallback: panelIds.isEmpty || localPanelIds.count == panelIds.count).first

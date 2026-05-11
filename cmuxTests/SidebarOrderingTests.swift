@@ -766,6 +766,40 @@ final class TerminalOSC7LocationTests: XCTestCase {
     }
 
     @MainActor
+    func testSidebarFinderDirectorySkipsOSC7RemotePanels() throws {
+        let workspace = Workspace()
+        let remotePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: remotePanelId))
+        let localPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false))
+        let localDirectory = FileManager.default.temporaryDirectory.path
+
+        workspace.updatePanelLocation(
+            panelId: remotePanelId,
+            location: try XCTUnwrap(
+                TerminalLocation.parseReportedDirectory("file://devbox.example/home/george/project")
+            )
+        )
+        workspace.updatePanelDirectory(panelId: localPanel.id, directory: localDirectory)
+
+        XCTAssertEqual(workspace.sidebarFinderDirectory(), localDirectory)
+    }
+
+    @MainActor
+    func testSidebarFinderDirectoryReturnsNilWhenOnlyOSC7RemotePanelsRemain() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        workspace.updatePanelLocation(
+            panelId: panelId,
+            location: try XCTUnwrap(
+                TerminalLocation.parseReportedDirectory("file://devbox.example/home/george/project")
+            )
+        )
+
+        XCTAssertNil(workspace.sidebarFinderDirectory())
+    }
+
+    @MainActor
     func testRemoteOSC7BranchClearsStaleLocalPullRequestState() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.tabs.first)
