@@ -165,6 +165,16 @@ struct FileExplorerPanelView: NSViewRepresentable {
             }
         }
 
+        func reloadOutlineAfterUIScaleChange() {
+            guard let outlineView else { return }
+            withProgrammaticOutlineUpdate {
+                outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<outlineView.numberOfRows))
+                outlineView.reloadData()
+                restoreExpansionState(store.expandedPaths, in: outlineView)
+                applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
+            }
+        }
+
         // MARK: - NSOutlineViewDataSource
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
@@ -868,8 +878,7 @@ final class FileExplorerContainerView: NSView {
         searchFieldHeightConstraint?.constant = UIScaleSettings.scaled(24, by: next)
         updateSearchLayout()
         guard didChange else { return }
-        outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<outlineView.numberOfRows))
-        outlineView.reloadData()
+        coordinator.reloadOutlineAfterUIScaleChange()
         searchResultsView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<searchResultsView.numberOfRows))
         searchResultsView.reloadData()
     }
