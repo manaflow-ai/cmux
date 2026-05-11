@@ -340,7 +340,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let sessionEndCalls = recordedCalls
             .split(separator: "\n")
             .filter { $0.contains("ssh-session-end") }
-        XCTAssertTrue(sessionEndCalls.isEmpty, recordedCalls)
+        XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
     }
 
     func testSSHStartupPrintsFinalErrorBannerWhenStderrIsCaptured() throws {
