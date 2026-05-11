@@ -39,7 +39,8 @@ struct CmuxConfigExecutor {
                     command: command,
                     workspace: workspace,
                     tabManager: tabManager,
-                    baseCwd: baseCwd
+                    baseCwd: baseCwd,
+                    configSourcePath: configSourcePath
                 ) else { return }
                 onExecuted?()
             }
@@ -425,7 +426,8 @@ struct CmuxConfigExecutor {
         command: CmuxCommandDefinition,
         workspace wsDef: CmuxWorkspaceDefinition,
         tabManager: TabManager,
-        baseCwd: String
+        baseCwd: String,
+        configSourcePath: String?
     ) -> Bool {
         let workspaceName = wsDef.name ?? command.name
         let restart = command.restart ?? .new
@@ -472,6 +474,9 @@ struct CmuxConfigExecutor {
         newWorkspace.setCustomTitle(workspaceName)
         if let color = wsDef.color {
             newWorkspace.setCustomColor(color)
+        }
+        if let icon = wsDef.icon {
+            newWorkspace.setCustomIcon(icon.resolvingRelativeImagePath(relativeToConfig: configSourcePath))
         }
 
         if let existingWorkspaceToClose, existingWorkspaceToClose.id != newWorkspace.id {

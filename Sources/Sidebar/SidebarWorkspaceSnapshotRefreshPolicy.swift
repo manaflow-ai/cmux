@@ -4,6 +4,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let customDescription: String?
         let isPinned: Bool
         let customColorHex: String?
+        let customIcon: CmuxButtonIcon?
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {
@@ -11,7 +12,8 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             title: title,
             customDescription: customDescription,
             isPinned: isPinned,
-            customColorHex: customColorHex
+            customColorHex: customColorHex,
+            customIcon: customIcon
         )
     }
 
@@ -22,6 +24,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             customDescription: snapshot.customDescription,
             isPinned: snapshot.isPinned,
             customColorHex: snapshot.customColorHex,
+            customIcon: snapshot.customIcon,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,

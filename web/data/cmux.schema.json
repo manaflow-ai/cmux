@@ -36,7 +36,19 @@
       "type": "array",
       "items": {
         "type": "object",
-        "additionalProperties": true
+        "additionalProperties": true,
+        "properties": {
+          "workspace": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "icon": {
+                "$ref": "#/$defs/cmuxButtonIcon",
+                "description": "Workspace icon using the shared CmuxButtonIcon wire shape."
+              }
+            }
+          }
+        }
       }
     },
     "vault": {
@@ -786,6 +798,60 @@
     }
   },
   "$defs": {
+    "cmuxButtonIcon": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "name"],
+          "properties": {
+            "type": {
+              "const": "symbol"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "SF Symbol name, for example folder.fill."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "value"],
+          "properties": {
+            "type": {
+              "const": "emoji"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Emoji or short glyph."
+            },
+            "scale": {
+              "type": "number",
+              "default": 1,
+              "description": "Optional emoji scale multiplier."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "path"],
+          "properties": {
+            "type": {
+              "const": "image"
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Image path. Relative paths are resolved from the cmux.json file."
+            }
+          }
+        }
+      ]
+    },
     "colorHex": {
       "type": "string",
       "pattern": "^#[0-9A-Fa-f]{6}$",

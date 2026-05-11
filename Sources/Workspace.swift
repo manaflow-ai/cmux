@@ -219,6 +219,7 @@ extension Workspace {
             customTitle: customTitle,
             customDescription: customDescription,
             customColor: customColor,
+            customIcon: customIcon,
             isPinned: isPinned,
             terminalScrollBarHidden: terminalScrollBarHidden ? true : nil,
             currentDirectory: currentDirectory,
@@ -278,6 +279,7 @@ extension Workspace {
         setCustomTitle(snapshot.customTitle)
         setCustomDescription(snapshot.customDescription)
         setCustomColor(snapshot.customColor)
+        setCustomIcon(snapshot.customIcon)
         isPinned = snapshot.isPinned
         setTerminalScrollBarHidden(snapshot.terminalScrollBarHidden ?? false)
 
@@ -7020,6 +7022,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var customDescription: String?
     @Published var isPinned: Bool = false
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
+    @Published var customIcon: CmuxButtonIcon?
     @Published private(set) var terminalScrollBarHidden: Bool = false
     @Published var currentDirectory: String
     @Published private(set) var surfaceTabBarDirectory: String?
@@ -7191,6 +7194,7 @@ final class Workspace: Identifiable, ObservableObject {
             sidebarObservationSignal($customDescription),
             sidebarObservationSignal($isPinned),
             sidebarObservationSignal($customColor),
+            sidebarObservationSignal($customIcon),
             sidebarObservationSignal($terminalScrollBarHidden),
             sidebarObservationSignal($latestSubmittedMessage),
         ]
@@ -8366,6 +8370,10 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             customColor = nil
         }
+    }
+
+    func setCustomIcon(_ icon: CmuxButtonIcon?) {
+        customIcon = icon
     }
 
     func setTerminalScrollBarHidden(_ hidden: Bool) {
