@@ -1219,6 +1219,12 @@ struct BrowserPanelView: View {
                 onDeleteBackwardWithInlineSelection: {
                     handleInlineBackspace()
                 },
+                onClearTypedPrefixWithInlineSelection: {
+                    handleInlineClearTypedPrefix()
+                },
+                onDeleteWordBackwardWithInlineSelection: {
+                    handleInlineDeleteWordBackward()
+                },
                 onSelectionChanged: { selectionRange, hasMarkedText in
                     handleOmnibarSelectionChange(range: selectionRange, hasMarkedText: hasMarkedText)
                 },
@@ -1906,6 +1912,25 @@ struct BrowserPanelView: View {
         applyOmnibarEffects(effects)
         omnibarSelectionRange = NSRange(location: updated.utf16.count, length: 0)
         refreshInlineCompletion()
+    }
+
+    private func handleInlineClearTypedPrefix() {
+        guard inlineCompletion != nil else { return }
+        // Modified Backspace dismisses the current inline suggestion instead of
+        // refetching suggestions for the shorter prefix.
+        _ = omnibarReduce(state: &omnibarState, event: .bufferChanged(""))
+        omnibarSelectionRange = NSRange(location: 0, length: 0)
+        hideSuggestions()
+    }
+
+    private func handleInlineDeleteWordBackward() {
+        guard let completion = inlineCompletion else { return }
+        let updated = omnibarPrefixAfterDeletingTrailingWord(from: completion.typedText)
+        // Modified Backspace dismisses the current inline suggestion instead of
+        // refetching suggestions for the shorter prefix.
+        _ = omnibarReduce(state: &omnibarState, event: .bufferChanged(updated))
+        omnibarSelectionRange = NSRange(location: updated.utf16.count, length: 0)
+        hideSuggestions()
     }
 
     private func deleteSelectedSuggestionIfPossible() {
@@ -2821,6 +2846,17 @@ func omnibarInlineCompletionIfBufferMatchesTypedPrefix(
     return inlineCompletion
 }
 
+func omnibarPrefixAfterDeletingTrailingWord(from text: String) -> String {
+    let nsText = text as NSString
+    let fullRange = NSRange(location: 0, length: nsText.length)
+    var deletionStart = nsText.length
+    nsText.enumerateSubstrings(in: fullRange, options: [.byWords, .reverse]) { _, range, _, stop in
+        deletionStart = range.location
+        stop.pointee = true
+    }
+    return nsText.substring(to: deletionStart)
+}
+
 private func typedQueryHasExplicitPathOrQuery(_ typedQuery: String) -> Bool {
     var normalized = typedQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     if normalized.hasPrefix("https://") {
@@ -3213,7 +3249,7 @@ func browserOmnibarShouldReacquireFocusAfterEndEditing(
     desiredOmnibarFocus && !nextResponderIsOtherTextField
 }
 
-private final class OmnibarNativeTextField: NSTextField {
+final class OmnibarNativeTextField: NSTextField {
     var panelId: UUID?
     var onPointerDown: (() -> Void)?
     var onHandleKeyEvent: ((NSEvent, NSTextView?) -> Bool)?
@@ -3377,7 +3413,7 @@ private final class OmnibarNativeTextField: NSTextField {
     }
 }
 
-private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
+struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     let panelId: UUID
     @Binding var text: String
     @Binding var isFocused: Bool
@@ -3392,6 +3428,8 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     let onDeleteSelectedSuggestion: () -> Void
     let onAcceptInlineCompletion: () -> Void
     let onDeleteBackwardWithInlineSelection: () -> Void
+    let onClearTypedPrefixWithInlineSelection: () -> Void
+    let onDeleteWordBackwardWithInlineSelection: () -> Void
     let onSelectionChanged: (NSRange, Bool) -> Void
     let shouldSuppressWebViewFocus: () -> Bool
 
@@ -3699,6 +3737,25 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                     return true
                 }
                 return false
+            case #selector(NSResponder.deleteToBeginningOfLine(_:)),
+                 #selector(NSResponder.deleteToBeginningOfParagraph(_:)):
+                if inlineCompletionSelectionIsActive(textView, inline: parent.inlineCompletion) {
+                    parent.onClearTypedPrefixWithInlineSelection()
+#if DEBUG
+                    handled = true
+#endif
+                    return true
+                }
+                return false
+            case #selector(NSResponder.deleteWordBackward(_:)):
+                if inlineCompletionSelectionIsActive(textView, inline: parent.inlineCompletion) {
+                    parent.onDeleteWordBackwardWithInlineSelection()
+#if DEBUG
+                    handled = true
+#endif
+                    return true
+                }
+                return false
             default:
                 return false
             }
@@ -3778,18 +3835,22 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             }
         }
 
-    private func suffixSelectionMatchesInline(_ editor: NSTextView?, inline: OmnibarInlineCompletion?) -> Bool {
-        guard let editor, let inline else { return false }
-        let selected = editor.selectedRange()
-        return NSEqualRanges(selected, inline.suffixRange)
-    }
+        private func inlineCompletionSelectionIsActive(_ editor: NSTextView?, inline: OmnibarInlineCompletion?) -> Bool {
+            suffixSelectionMatchesInline(editor, inline: inline) || selectionIsTypedPrefixBoundary(editor, inline: inline)
+        }
 
-    private func selectionIsTypedPrefixBoundary(_ editor: NSTextView?, inline: OmnibarInlineCompletion?) -> Bool {
-        guard let editor, let inline else { return false }
-        let selected = editor.selectedRange()
-        let typedCount = inline.typedText.utf16.count
-        return selected.location == typedCount && selected.length == 0
-    }
+        private func suffixSelectionMatchesInline(_ editor: NSTextView?, inline: OmnibarInlineCompletion?) -> Bool {
+            guard let editor, let inline else { return false }
+            let selected = editor.selectedRange()
+            return NSEqualRanges(selected, inline.suffixRange)
+        }
+
+        private func selectionIsTypedPrefixBoundary(_ editor: NSTextView?, inline: OmnibarInlineCompletion?) -> Bool {
+            guard let editor, let inline else { return false }
+            let selected = editor.selectedRange()
+            let typedCount = inline.typedText.utf16.count
+            return selected.location == typedCount && selected.length == 0
+        }
 
         func handleKeyEvent(_ event: NSEvent, editor: NSTextView?) -> Bool {
 #if DEBUG
@@ -3880,8 +3941,11 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                     return true
                 }
             case 51: // Backspace
+                if modifiers.contains(.command) || modifiers.contains(.option) {
+                    return false
+                }
                 if let inline = parent.inlineCompletion,
-                   (suffixSelectionMatchesInline(editor, inline: inline) || selectionIsTypedPrefixBoundary(editor, inline: inline)) {
+                   inlineCompletionSelectionIsActive(editor, inline: inline) {
                     parent.onDeleteBackwardWithInlineSelection()
 #if DEBUG
                     handled = true
