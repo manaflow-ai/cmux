@@ -4621,7 +4621,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, 작업 공간 %2$lld / %3$lld"
+            "value": "%1$@, 워크스페이스 %2$lld / %3$lld"
           }
         },
         "de": {
@@ -5097,7 +5097,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용자 지정 작업 공간 색상"
+            "value": "사용자 지정 워크스페이스 색상"
           }
         },
         "de": {
@@ -5811,7 +5811,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 작업 공간의 사용자 지정 이름을 입력하세요."
+            "value": "이 워크스페이스의 사용자 지정 이름을 입력하세요."
           }
         },
         "de": {
@@ -5930,7 +5930,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름"
+            "value": "워크스페이스 이름"
           }
         },
         "de": {
@@ -6168,7 +6168,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름 변경"
+            "value": "워크스페이스 이름 변경"
           }
         },
         "de": {
@@ -17861,7 +17861,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름 지우기"
+            "value": "워크스페이스 이름 지우기"
           }
         },
         "de": {
@@ -18610,7 +18610,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간"
+            "value": "워크스페이스"
           }
         },
         "de": {
@@ -18729,7 +18729,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 닫기"
+            "value": "워크스페이스 닫기"
           }
         },
         "de": {
@@ -22595,7 +22595,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간"
+            "value": "워크스페이스"
           }
         },
         "de": {
@@ -22714,7 +22714,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 작업 공간"
+            "value": "새 워크스페이스"
           }
         },
         "de": {
@@ -23071,7 +23071,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 탐색"
+            "value": "워크스페이스 탐색"
           }
         },
         "de": {
@@ -23190,7 +23190,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다음 작업 공간"
+            "value": "다음 워크스페이스"
           }
         },
         "de": {
@@ -23309,7 +23309,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간"
+            "value": "워크스페이스"
           }
         },
         "de": {
@@ -23831,7 +23831,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 PR 링크 모두 열기"
+            "value": "워크스페이스 PR 링크 모두 열기"
           }
         },
         "de": {
@@ -24069,7 +24069,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 고정"
+            "value": "워크스페이스 고정"
           }
         },
         "de": {
@@ -24426,7 +24426,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 탐색"
+            "value": "워크스페이스 탐색"
           }
         },
         "de": {
@@ -24545,7 +24545,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이전 작업 공간"
+            "value": "이전 워크스페이스"
           }
         },
         "de": {
@@ -24783,7 +24783,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름 변경…"
+            "value": "워크스페이스 이름 변경…"
           }
         },
         "de": {
@@ -28387,7 +28387,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 고정 해제"
+            "value": "워크스페이스 고정 해제"
           }
         },
         "de": {
@@ -28831,7 +28831,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간"
+            "value": "워크스페이스"
           }
         },
         "de": {
@@ -29664,7 +29664,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enter를 눌러 작업 공간 이름을 적용하거나, Escape를 눌러 취소하세요."
+            "value": "Enter를 눌러 워크스페이스 이름을 적용하거나, Escape를 눌러 취소하세요."
           }
         },
         "de": {
@@ -29783,7 +29783,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용자 지정 작업 공간 이름을 선택하세요."
+            "value": "사용자 지정 워크스페이스 이름을 선택하세요."
           }
         },
         "de": {
@@ -29902,7 +29902,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름을 입력하세요. Enter로 이름 변경, Escape로 취소."
+            "value": "워크스페이스 이름을 입력하세요. Enter로 이름 변경, Escape로 취소."
           }
         },
         "de": {
@@ -30021,7 +30021,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름"
+            "value": "워크스페이스 이름"
           }
         },
         "de": {
@@ -30140,7 +30140,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름 변경"
+            "value": "워크스페이스 이름 변경"
           }
         },
         "de": {
@@ -30497,7 +30497,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "검색과 일치하는 작업 공간이 없습니다."
+            "value": "검색과 일치하는 워크스페이스가 없습니다."
           }
         },
         "de": {
@@ -30645,7 +30645,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 검색"
+            "value": "워크스페이스 검색"
           }
         },
         "de": {
@@ -31269,7 +31269,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간"
+            "value": "워크스페이스"
           }
         },
         "de": {
@@ -31388,7 +31388,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 • %@"
+            "value": "워크스페이스 • %@"
           }
         },
         "de": {
@@ -31626,7 +31626,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간"
+            "value": "워크스페이스"
           }
         },
         "de": {
@@ -33724,7 +33724,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다른 작업 공간 닫기"
+            "value": "다른 워크스페이스 닫기"
           }
         },
         "de": {
@@ -33843,7 +33843,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 닫기"
+            "value": "워크스페이스 닫기"
           }
         },
         "de": {
@@ -33962,7 +33962,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 닫기"
+            "value": "워크스페이스 닫기"
           }
         },
         "de": {
@@ -34081,7 +34081,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "위쪽 작업 공간 닫기"
+            "value": "위쪽 워크스페이스 닫기"
           }
         },
         "de": {
@@ -34200,7 +34200,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "아래쪽 작업 공간 닫기"
+            "value": "아래쪽 워크스페이스 닫기"
           }
         },
         "de": {
@@ -34319,7 +34319,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간을 읽음으로 표시"
+            "value": "워크스페이스를 읽음으로 표시"
           }
         },
         "de": {
@@ -34438,7 +34438,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간을 읽지 않음으로 표시"
+            "value": "워크스페이스를 읽지 않음으로 표시"
           }
         },
         "de": {
@@ -34557,7 +34557,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간을 읽음으로 표시"
+            "value": "워크스페이스를 읽음으로 표시"
           }
         },
         "de": {
@@ -34676,7 +34676,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간을 읽지 않음으로 표시"
+            "value": "워크스페이스를 읽지 않음으로 표시"
           }
         },
         "de": {
@@ -35343,7 +35343,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간을 윈도우로 이동"
+            "value": "워크스페이스를 윈도우로 이동"
           }
         },
         "de": {
@@ -35462,7 +35462,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간을 윈도우로 이동"
+            "value": "워크스페이스를 윈도우로 이동"
           }
         },
         "de": {
@@ -35700,7 +35700,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 고정"
+            "value": "워크스페이스 고정"
           }
         },
         "de": {
@@ -35819,7 +35819,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 고정"
+            "value": "워크스페이스 고정"
           }
         },
         "de": {
@@ -35938,7 +35938,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용자 지정 작업 공간 이름 제거"
+            "value": "사용자 지정 워크스페이스 이름 제거"
           }
         },
         "de": {
@@ -36057,7 +36057,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름 변경…"
+            "value": "워크스페이스 이름 변경…"
           }
         },
         "de": {
@@ -36176,7 +36176,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 고정 해제"
+            "value": "워크스페이스 고정 해제"
           }
         },
         "de": {
@@ -36295,7 +36295,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 고정 해제"
+            "value": "워크스페이스 고정 해제"
           }
         },
         "de": {
@@ -36414,7 +36414,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 색상"
+            "value": "워크스페이스 색상"
           }
         },
         "de": {
@@ -36652,7 +36652,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "마지막 탭이 닫히면 해당 작업 공간도 닫힙니다."
+            "value": "마지막 탭이 닫히면 해당 워크스페이스도 닫힙니다."
           }
         },
         "de": {
@@ -37746,7 +37746,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간과 모든 패널을 닫습니다."
+            "value": "워크스페이스와 모든 패널을 닫습니다."
           }
         },
         "de": {
@@ -37865,7 +37865,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간을 닫으시겠습니까?"
+            "value": "워크스페이스를 닫으시겠습니까?"
           }
         },
         "de": {
@@ -39055,7 +39055,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "현재 윈도우의 새 작업 공간"
+            "value": "현재 윈도우의 새 워크스페이스"
           }
         },
         "de": {
@@ -39174,7 +39174,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "선택한 작업 공간을 새 윈도우로"
+            "value": "선택한 워크스페이스를 새 윈도우로"
           }
         },
         "de": {
@@ -39412,7 +39412,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "모든 윈도우와 작업 공간을 닫습니다."
+            "value": "모든 윈도우와 워크스페이스를 닫습니다."
           }
         },
         "de": {
@@ -40126,7 +40126,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 작업 공간의 사용자 지정 이름을 입력하세요."
+            "value": "이 워크스페이스의 사용자 지정 이름을 입력하세요."
           }
         },
         "de": {
@@ -40245,7 +40245,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름"
+            "value": "워크스페이스 이름"
           }
         },
         "de": {
@@ -40364,7 +40364,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름 변경"
+            "value": "워크스페이스 이름 변경"
           }
         },
         "de": {
@@ -42104,7 +42104,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 닫기"
+            "value": "워크스페이스 닫기"
           }
         },
         "de": {
@@ -42342,7 +42342,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간으로 이동…"
+            "value": "워크스페이스로 이동…"
           }
         },
         "de": {
@@ -42580,7 +42580,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 작업 공간"
+            "value": "새 워크스페이스"
           }
         },
         "de": {
@@ -47501,7 +47501,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다음 작업 공간"
+            "value": "다음 워크스페이스"
           }
         },
         "de": {
@@ -47739,7 +47739,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이전 작업 공간"
+            "value": "이전 워크스페이스"
           }
         },
         "de": {
@@ -47977,7 +47977,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름 변경…"
+            "value": "워크스페이스 이름 변경…"
           }
         },
         "de": {
@@ -48964,7 +48964,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 %lld"
+            "value": "워크스페이스 %lld"
           }
         },
         "de": {
@@ -52400,7 +52400,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 작업 공간 위치"
+            "value": "새 워크스페이스 위치"
           }
         },
         "de": {
@@ -54649,7 +54649,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "알림을 받은 작업 공간을 맨 위로 이동합니다. 단축키 위치를 고정하려면 비활성화하세요."
+            "value": "알림을 받은 워크스페이스를 맨 위로 이동합니다. 단축키 위치를 고정하려면 비활성화하세요."
           }
         },
         "de": {
@@ -55717,7 +55717,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "활성 작업 공간에서 감지된 수신 대기 포트를 표시합니다."
+            "value": "활성 워크스페이스에서 감지된 수신 대기 포트를 표시합니다."
           }
         },
         "de": {
@@ -59966,7 +59966,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "각 작업 공간에 전용 포트 범위가 있는 CMUX_PORT 및 CMUX_PORT_END 환경 변수가 할당됩니다. 새 터미널은 이 값을 상속합니다."
+            "value": "각 워크스페이스에 전용 포트 범위가 있는 CMUX_PORT 및 CMUX_PORT_END 환경 변수가 할당됩니다. 새 터미널은 이 값을 상속합니다."
           }
         },
         "de": {
@@ -60442,7 +60442,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간당 포트 수."
+            "value": "워크스페이스당 포트 수."
           }
         },
         "de": {
@@ -69184,7 +69184,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 색상"
+            "value": "워크스페이스 색상"
           }
         },
         "de": {
@@ -71234,7 +71234,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "tab colors palette accent badge selected highlight 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 외관 테마 색 구성표 라이트 다크 시스템 모드 알림 읽지 않음 메시지 링 깜박임 소리 데스크탑 경고 • %@"
+                    "value": "tab colors palette accent badge selected highlight 워크스페이스 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 외관 테마 색 구성표 라이트 다크 시스템 모드 알림 읽지 않음 메시지 링 깜박임 소리 데스크탑 경고 • %@"
                 }
             },
             "nb": {
@@ -72067,7 +72067,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.newWorkspacePlacement new tab insert position order top bottom end 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 새 작업 공간 • %@ 위치 끝 맨 위"
+                    "value": "app.newWorkspacePlacement new tab insert position order top bottom end 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 워크스페이스 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 새 워크스페이스 • %@ 위치 끝 맨 위"
                 }
             },
             "nb": {
@@ -72305,7 +72305,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 편집기 파일 코드 열기 경로 닫기 작업 공간 • %@ 탭을 닫으시겠습니까? 공간을 열림"
+                    "value": "app.keepWorkspaceOpenWhenClosingLastSurface cmd-w command-w close last pane surface keep tab workspace 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 워크스페이스 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 편집기 파일 코드 열기 경로 닫기 워크스페이스 • %@ 탭을 닫으시겠습니까? 공간을 열림"
                 }
             },
             "nb": {
@@ -72900,7 +72900,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.reorderOnNotification notification reorder move workspace top unread sort 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 알림 읽지 않음 메시지 링 깜박임 소리 데스크탑 경고 작업 공간 • %@ 이동 않은 1개 맨 위"
+                    "value": "app.reorderOnNotification notification reorder move workspace top unread sort 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 워크스페이스 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 알림 읽지 않음 메시지 링 깜박임 소리 데스크탑 경고 워크스페이스 • %@ 이동 않은 1개 맨 위"
                 }
             },
             "nb": {
@@ -73019,7 +73019,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "notifications.dockBadge badge dock unread count icon notifications red bubble 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 알림 읽지 않음 메시지 링 깜박임 소리 데스크탑 경고 아이콘"
+                    "value": "notifications.dockBadge badge dock unread count icon notifications red bubble 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 워크스페이스 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 알림 읽지 않음 메시지 링 깜박임 소리 데스크탑 경고 아이콘"
                 }
             },
             "nb": {
@@ -73495,7 +73495,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "notifications.paneFlash flash blink highlight pane notification pulse 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 알림 읽지 않음 메시지 링 깜박임 소리 데스크탑 경고 패인 플래시"
+                    "value": "notifications.paneFlash flash blink highlight pane notification pulse 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 워크스페이스 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 알림 읽지 않음 메시지 링 깜박임 소리 데스크탑 경고 패인 플래시"
                 }
             },
             "nb": {
@@ -74209,7 +74209,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.renameSelectsExistingName rename select all existing title command palette workspace name 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 작업 공간 이름 변경 변경… • %@ 명령어 팔레트… 시 기존 선택 워크스페이스 1…9"
+                    "value": "app.renameSelectsExistingName rename select all existing title command palette workspace name 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 워크스페이스 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 워크스페이스 이름 변경 변경… • %@ 명령어 팔레트… 시 기존 선택 워크스페이스 1…9"
                 }
             },
             "nb": {
@@ -74328,7 +74328,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 터미널 셸 스크롤백 스크롤바 화면 브라우저 웹 웹뷰 주소 표시줄 링크 url 내장 페이지 탭 작업공간 색상 팔레트 배지 선택됨 강조 표시기 활성 점 검색 제안 자동완성 제공자 엔진 브라우저: %@ 마크다운 • 명령어 팔레트…"
+                    "value": "app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown 앱 일반 환경설정 동작 독 메뉴 막대 상태 사이드바 터미널 셸 스크롤백 스크롤바 화면 브라우저 웹 웹뷰 주소 표시줄 링크 url 내장 페이지 탭 워크스페이스 색상 팔레트 배지 선택됨 강조 표시기 활성 점 검색 제안 자동완성 제공자 엔진 브라우저: %@ 마크다운 • 명령어 팔레트…"
                 }
             },
             "nb": {
@@ -77541,7 +77541,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.enabled enable disable webview embedded browser tabs links 브라우저 웹 웹뷰 주소 표시줄 링크 url 내장 페이지 탭 작업공간 색상 팔레트 배지 선택됨 강조 표시기 활성 점 비밀번호 비밀 토큰 자격 증명 접근 허용 비활성화 활성화 권한 안전하지 않음 브라우저: %@ •"
+                    "value": "browser.enabled enable disable webview embedded browser tabs links 브라우저 웹 웹뷰 주소 표시줄 링크 url 내장 페이지 탭 워크스페이스 색상 팔레트 배지 선택됨 강조 표시기 활성 점 비밀번호 비밀 토큰 자격 증명 접근 허용 비활성화 활성화 권한 안전하지 않음 브라우저: %@ •"
                 }
             },
             "nb": {
@@ -78731,7 +78731,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "browser.showImportHintOnBlankTabs blank tab onboarding hint import prompt dismiss 브라우저 웹 웹뷰 주소 표시줄 링크 url 내장 페이지 탭 가져오기 마이그레이션 북마크 방문 기록 쿠키 프로필 작업공간 색상 팔레트 배지 선택됨 강조 표시기 활성 점 브라우저: %@ 가져오기… •"
+                    "value": "browser.showImportHintOnBlankTabs blank tab onboarding hint import prompt dismiss 브라우저 웹 웹뷰 주소 표시줄 링크 url 내장 페이지 탭 가져오기 마이그레이션 북마크 방문 기록 쿠키 프로필 워크스페이스 색상 팔레트 배지 선택됨 강조 표시기 활성 점 브라우저: %@ 가져오기… •"
                 }
             },
             "nb": {
@@ -79564,7 +79564,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 외관 테마 색 구성표 라이트 다크 시스템 모드 작업 공간 • %@"
+                    "value": "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot 워크스페이스 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 외관 테마 색 구성표 라이트 다크 시스템 모드 워크스페이스 • %@"
                 }
             },
             "nb": {
@@ -79683,7 +79683,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "workspaceColors.selectionColor selected workspace color highlight background active tab 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 외관 테마 색 구성표 라이트 다크 시스템 모드 작업 공간 • %@"
+                    "value": "workspaceColors.selectionColor selected workspace color highlight background active tab 워크스페이스 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 외관 테마 색 구성표 라이트 다크 시스템 모드 워크스페이스 • %@"
                 }
             },
             "nb": {
@@ -79802,7 +79802,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "workspaceColors.notificationBadgeColor unread notification badge color dot count 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 외관 테마 색 구성표 라이트 다크 시스템 모드 알림 읽지 않음 메시지 링 깜박임 소리 데스크탑 경고 않은 1개"
+                    "value": "workspaceColors.notificationBadgeColor unread notification badge color dot count 워크스페이스 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 외관 테마 색 구성표 라이트 다크 시스템 모드 알림 읽지 않음 메시지 링 깜박임 소리 데스크탑 경고 않은 1개"
                 }
             },
             "nb": {
@@ -79921,7 +79921,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "workspaceColors.colors workspace palette named colors custom color reset built-in 작업공간 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 재설정 초기화 기본값 복원 지우기 외관 테마 색 구성표 라이트 다크 시스템 모드 사용자 지정 작업 공간 정의: %@ •"
+                    "value": "workspaceColors.colors workspace palette named colors custom color reset built-in 워크스페이스 탭 색상 팔레트 배지 선택됨 강조 표시기 활성 점 재설정 초기화 기본값 복원 지우기 외관 테마 색 구성표 라이트 다크 시스템 모드 사용자 지정 워크스페이스 정의: %@ •"
                 }
             },
             "nb": {
@@ -80708,7 +80708,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 색상 표시기"
+            "value": "워크스페이스 색상 표시기"
           }
         },
         "de": {
@@ -80827,7 +80827,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용자 지정 색상: 아직 없습니다. 작업 공간 컨텍스트 메뉴에서 \"사용자 지정 색상 선택...\"을 사용하세요."
+            "value": "사용자 지정 색상: 아직 없습니다. 워크스페이스 컨텍스트 메뉴에서 \"사용자 지정 색상 선택...\"을 사용하세요."
           }
         },
         "de": {
@@ -80946,7 +80946,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바 > 작업 공간 색상에서 사용하는 작업 공간 색상 팔레트를 사용자 지정합니다. \"사용자 지정 색상 선택...\" 항목은 아래에 저장됩니다."
+            "value": "사이드바 > 워크스페이스 색상에서 사용하는 워크스페이스 색상 팔레트를 사용자 지정합니다. \"사용자 지정 색상 선택...\" 항목은 아래에 저장됩니다."
           }
         },
         "de": {
@@ -81683,7 +81683,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 닫기"
+            "value": "워크스페이스 닫기"
           }
         },
         "de": {
@@ -82754,7 +82754,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 작업 공간"
+            "value": "새 워크스페이스"
           }
         },
         "de": {
@@ -82992,7 +82992,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다음 작업 공간"
+            "value": "다음 워크스페이스"
           }
         },
         "de": {
@@ -84007,7 +84007,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이전 작업 공간"
+            "value": "이전 워크스페이스"
           }
         },
         "de": {
@@ -84364,7 +84364,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름 변경"
+            "value": "워크스페이스 이름 변경"
           }
         },
         "de": {
@@ -86402,7 +86402,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 닫기"
+            "value": "워크스페이스 닫기"
           }
         },
         "de": {
@@ -88036,7 +88036,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 작업 공간에 포커스하려면 활성화하세요. 드래그하여 순서를 변경하거나 위로 이동 및 아래로 이동 동작을 사용하세요."
+            "value": "이 워크스페이스에 포커스하려면 활성화하세요. 드래그하여 순서를 변경하거나 위로 이동 및 아래로 이동 동작을 사용하세요."
           }
         },
         "de": {
@@ -92007,7 +92007,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 작업 공간"
+            "value": "새 워크스페이스"
           }
         },
         "de": {
@@ -92126,7 +92126,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 작업 공간"
+            "value": "새 워크스페이스"
           }
         },
         "de": {
@@ -99861,7 +99861,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간"
+            "value": "워크스페이스"
           }
         },
         "de": {
@@ -100128,7 +100128,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "활성 작업 공간 바로 다음에 새 작업 공간을 삽입합니다."
+            "value": "활성 워크스페이스 바로 다음에 새 워크스페이스를 삽입합니다."
           }
         },
         "de": {
@@ -100366,7 +100366,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "목록 하단에 새 작업 공간을 추가합니다."
+            "value": "목록 하단에 새 워크스페이스를 추가합니다."
           }
         },
         "de": {
@@ -100604,7 +100604,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "목록 맨 위에 새 작업 공간을 삽입합니다."
+            "value": "목록 맨 위에 새 워크스페이스를 삽입합니다."
           }
         },
         "de": {
@@ -103974,7 +103974,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "현재 창에 새 작업 공간"
+            "value": "현재 창에 새 워크스페이스"
           }
         },
         "de": {
@@ -104087,7 +104087,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 창에서 선택한 작업 공간"
+            "value": "새 창에서 선택한 워크스페이스"
           }
         },
         "de": {
