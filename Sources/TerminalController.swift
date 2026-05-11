@@ -211,6 +211,23 @@ class TerminalController {
     private let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
     private var browserDownloadObserver: NSObjectProtocol?
 
+    func cleanupSurfaceState(surfaceIds: [UUID]) {
+        for surfaceId in Set(surfaceIds) {
+            v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
+            v2BrowserInitScriptsBySurface.removeValue(forKey: surfaceId)
+            v2BrowserInitStylesBySurface.removeValue(forKey: surfaceId)
+            v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
+            v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
+            v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
+            v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
+
+            if let surfaceRef = v2RefByUUID[.surface]?[surfaceId] {
+                v2UUIDByRef[.surface]?.removeValue(forKey: surfaceRef)
+            }
+            v2RefByUUID[.surface]?.removeValue(forKey: surfaceId)
+        }
+    }
+
     private init() {
         browserDownloadObserver = NotificationCenter.default.addObserver(
             forName: .browserDownloadEventDidArrive,

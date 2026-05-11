@@ -2,7 +2,7 @@ import CoreFoundation
 import Darwin
 import Foundation
 
-struct EventStreamLimitReached: Error {}
+private struct EventStreamLimitReached: Error {}
 
 extension CMUXCLI {
     private struct EventsCommandOptions {
