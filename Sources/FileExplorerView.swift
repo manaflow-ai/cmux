@@ -1185,7 +1185,7 @@ final class FileExplorerContainerView: NSView {
     private func statusText(for snapshot: FileSearchSnapshot) -> String {
         switch snapshot.status {
         case .idle:
-            return String(localized: "fileExplorer.search.empty", defaultValue: "Type to search")
+            return ""
         case .unsupported:
             return String(localized: "fileExplorer.search.unsupported", defaultValue: "Local folders only")
         case .searching:
