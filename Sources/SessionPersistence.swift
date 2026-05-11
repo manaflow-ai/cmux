@@ -242,7 +242,6 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var backHistoryURLStrings: [String]?
     var forwardHistoryURLStrings: [String]?
 }
-
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
@@ -355,6 +354,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var logEntries: [SessionLogEntrySnapshot]
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
+    var remote: SessionRemoteWorkspaceSnapshot?
 }
 
 struct SessionTabManagerSnapshot: Codable, Sendable {

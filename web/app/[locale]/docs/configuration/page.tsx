@@ -60,7 +60,8 @@ const settingsFileExample = `{
   // },
 
   // "terminal": {
-  //   "showScrollBar": false
+  //   "showScrollBar": false,
+  //   "autoResumeAgentSessions": true
   // },
 
   // "browser": {
@@ -79,6 +80,7 @@ const settingsFileExample = `{
   // "shortcuts": {
   //   "bindings": {
   //     "toggleSidebar": "cmd+b",
+  //     "toggleFileExplorer": "cmd+opt+b",
   //     "newTab": ["ctrl+b", "c"],
   //     "commandPalettePrevious": null
   //   }

@@ -2,6 +2,11 @@
   "sourceLanguage": "en",
   "version": "1.0",
   "strings": {
+    "command.toggleLeftSidebar.title": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"تبديل الشريط الجانبي الأيسر"}},"bs":{"stringUnit":{"state":"translated","value":"Prebaci lijevu bočnu traku"}},"da":{"stringUnit":{"state":"translated","value":"Slå venstre sidebjælke til/fra"}},"de":{"stringUnit":{"state":"translated","value":"Linke Seitenleiste ein-/ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Toggle Left Sidebar"}},"es":{"stringUnit":{"state":"translated","value":"Alternar barra lateral izquierda"}},"fr":{"stringUnit":{"state":"translated","value":"Afficher/masquer la barre latérale gauche"}},"it":{"stringUnit":{"state":"translated","value":"Attiva/Disattiva barra laterale sinistra"}},"ja":{"stringUnit":{"state":"translated","value":"左サイドバーを切り替え"}},"ko":{"stringUnit":{"state":"translated","value":"왼쪽 사이드바 전환"}},"nb":{"stringUnit":{"state":"translated","value":"Slå venstre sidepanel av/på"}},"pl":{"stringUnit":{"state":"translated","value":"Przełącz lewy pasek boczny"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Alternar barra lateral esquerda"}},"ru":{"stringUnit":{"state":"translated","value":"Переключить левую боковую панель"}},"th":{"stringUnit":{"state":"translated","value":"สลับแถบด้านข้างซ้าย"}},"tr":{"stringUnit":{"state":"translated","value":"Sol Kenar Çubuğunu Aç/Kapat"}},"uk":{"stringUnit":{"state":"translated","value":"Перемкнути ліву бічну панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"切换左侧边栏"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"切換左側邊欄"}}} },
+    "menu.view.toggleLeftSidebar": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"تبديل الشريط الجانبي الأيسر"}},"bs":{"stringUnit":{"state":"translated","value":"Prebaci lijevu bočnu traku"}},"da":{"stringUnit":{"state":"translated","value":"Slå venstre sidebjælke til/fra"}},"de":{"stringUnit":{"state":"translated","value":"Linke Seitenleiste ein-/ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Toggle Left Sidebar"}},"es":{"stringUnit":{"state":"translated","value":"Alternar barra lateral izquierda"}},"fr":{"stringUnit":{"state":"translated","value":"Afficher/masquer la barre latérale gauche"}},"it":{"stringUnit":{"state":"translated","value":"Attiva/Disattiva barra laterale sinistra"}},"ja":{"stringUnit":{"state":"translated","value":"左サイドバーを切り替え"}},"ko":{"stringUnit":{"state":"translated","value":"왼쪽 사이드바 전환"}},"nb":{"stringUnit":{"state":"translated","value":"Slå venstre sidepanel av/på"}},"pl":{"stringUnit":{"state":"translated","value":"Przełącz lewy pasek boczny"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Alternar barra lateral esquerda"}},"ru":{"stringUnit":{"state":"translated","value":"Переключить левую боковую панель"}},"th":{"stringUnit":{"state":"translated","value":"สลับแถบด้านข้างซ้าย"}},"tr":{"stringUnit":{"state":"translated","value":"Sol Kenar Çubuğunu Aç/Kapat"}},"uk":{"stringUnit":{"state":"translated","value":"Перемкнути ліву бічну панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"切换左侧边栏"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"切換左側邊欄"}}} },
+    "menu.view.toggleRightSidebar": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"تبديل الشريط الجانبي الأيمن"}},"bs":{"stringUnit":{"state":"translated","value":"Prebaci desnu bočnu traku"}},"da":{"stringUnit":{"state":"translated","value":"Slå højre sidebjælke til/fra"}},"de":{"stringUnit":{"state":"translated","value":"Rechte Seitenleiste ein-/ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Toggle Right Sidebar"}},"es":{"stringUnit":{"state":"translated","value":"Alternar barra lateral derecha"}},"fr":{"stringUnit":{"state":"translated","value":"Afficher/masquer la barre latérale droite"}},"it":{"stringUnit":{"state":"translated","value":"Attiva/Disattiva barra laterale destra"}},"ja":{"stringUnit":{"state":"translated","value":"右サイドバーを切り替え"}},"ko":{"stringUnit":{"state":"translated","value":"오른쪽 사이드바 전환"}},"nb":{"stringUnit":{"state":"translated","value":"Slå høyre sidepanel av/på"}},"pl":{"stringUnit":{"state":"translated","value":"Przełącz prawy pasek boczny"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Alternar barra lateral direita"}},"ru":{"stringUnit":{"state":"translated","value":"Переключить правую боковую панель"}},"th":{"stringUnit":{"state":"translated","value":"สลับแถบด้านข้างขวา"}},"tr":{"stringUnit":{"state":"translated","value":"Sağ Kenar Çubuğunu Aç/Kapat"}},"uk":{"stringUnit":{"state":"translated","value":"Перемкнути праву бічну панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"切换右侧边栏"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"切換右側邊欄"}}} },
+    "shortcut.toggleLeftSidebar.label": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"تبديل الشريط الجانبي الأيسر"}},"bs":{"stringUnit":{"state":"translated","value":"Prebaci lijevu bočnu traku"}},"da":{"stringUnit":{"state":"translated","value":"Slå venstre sidebjælke til/fra"}},"de":{"stringUnit":{"state":"translated","value":"Linke Seitenleiste ein-/ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Toggle Left Sidebar"}},"es":{"stringUnit":{"state":"translated","value":"Alternar barra lateral izquierda"}},"fr":{"stringUnit":{"state":"translated","value":"Afficher/masquer la barre latérale gauche"}},"it":{"stringUnit":{"state":"translated","value":"Attiva/Disattiva barra laterale sinistra"}},"ja":{"stringUnit":{"state":"translated","value":"左サイドバーを切り替え"}},"ko":{"stringUnit":{"state":"translated","value":"왼쪽 사이드바 전환"}},"nb":{"stringUnit":{"state":"translated","value":"Slå venstre sidepanel av/på"}},"pl":{"stringUnit":{"state":"translated","value":"Przełącz lewy pasek boczny"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Alternar barra lateral esquerda"}},"ru":{"stringUnit":{"state":"translated","value":"Переключить левую боковую панель"}},"th":{"stringUnit":{"state":"translated","value":"สลับแถบด้านข้างซ้าย"}},"tr":{"stringUnit":{"state":"translated","value":"Sol Kenar Çubuğunu Aç/Kapat"}},"uk":{"stringUnit":{"state":"translated","value":"Перемкнути ліву бічну панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"切换左侧边栏"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"切換左側邊欄"}}} },
+    "shortcut.toggleRightSidebar.label": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"تبديل الشريط الجانبي الأيمن"}},"bs":{"stringUnit":{"state":"translated","value":"Prebaci desnu bočnu traku"}},"da":{"stringUnit":{"state":"translated","value":"Slå højre sidebjælke til/fra"}},"de":{"stringUnit":{"state":"translated","value":"Rechte Seitenleiste ein-/ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Toggle Right Sidebar"}},"es":{"stringUnit":{"state":"translated","value":"Alternar barra lateral derecha"}},"fr":{"stringUnit":{"state":"translated","value":"Afficher/masquer la barre latérale droite"}},"it":{"stringUnit":{"state":"translated","value":"Attiva/Disattiva barra laterale destra"}},"ja":{"stringUnit":{"state":"translated","value":"右サイドバーを切り替え"}},"ko":{"stringUnit":{"state":"translated","value":"오른쪽 사이드바 전환"}},"nb":{"stringUnit":{"state":"translated","value":"Slå høyre sidepanel av/på"}},"pl":{"stringUnit":{"state":"translated","value":"Przełącz prawy pasek boczny"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Alternar barra lateral direita"}},"ru":{"stringUnit":{"state":"translated","value":"Переключить правую боковую панель"}},"th":{"stringUnit":{"state":"translated","value":"สลับแถบด้านข้างขวา"}},"tr":{"stringUnit":{"state":"translated","value":"Sağ Kenar Çubuğunu Aç/Kapat"}},"uk":{"stringUnit":{"state":"translated","value":"Перемкнути праву бічну панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"切换右侧边栏"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"切換右側邊欄"}}} },
     "shortcut.commandPaletteNext.label": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "ja": { "stringUnit": { "state": "translated", "value": "コマンドパレット: 次へ" } }, "zh-Hans": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "zh-Hant": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "ko": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "de": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "es": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "fr": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "it": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "da": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "pl": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "ru": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "bs": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "ar": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "nb": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "th": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "tr": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } }, "uk": { "stringUnit": { "state": "translated", "value": "Command Palette: Next" } } } },
     "shortcut.commandPalettePrevious.label": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "ja": { "stringUnit": { "state": "translated", "value": "コマンドパレット: 前へ" } }, "zh-Hans": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "zh-Hant": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "ko": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "de": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "es": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "fr": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "it": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "da": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "pl": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "ru": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "bs": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "ar": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "nb": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "th": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "tr": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } }, "uk": { "stringUnit": { "state": "translated", "value": "Command Palette: Previous" } } } },
     "settings.shortcuts.managedByFile": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "ja": { "stringUnit": { "state": "translated", "value": "cmux.json で管理" } }, "zh-Hans": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "zh-Hant": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "ko": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "de": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "es": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "fr": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "it": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "da": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "pl": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "ru": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "bs": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "ar": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "nb": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "pt-BR": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "th": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "tr": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } }, "uk": { "stringUnit": { "state": "translated", "value": "Managed in cmux.json" } } } },
@@ -11,6 +16,14 @@
     "detail.section": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Section" } }, "ja": { "stringUnit": { "state": "translated", "value": "セクション" } } } },
     "detail.slider": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Amount" } }, "ja": { "stringUnit": { "state": "translated", "value": "量" } } } },
     "detail.toggle": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Enable" } }, "ja": { "stringUnit": { "state": "translated", "value": "有効にする" } } } },
+    "fileDrop.holdShiftDropIntoEditor": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"اضغط Shift للإفلات في المحرر"}},"bs":{"stringUnit":{"state":"translated","value":"Držite Shift za ispuštanje u editor"}},"da":{"stringUnit":{"state":"translated","value":"Hold Skift nede for at slippe i editoren"}},"de":{"stringUnit":{"state":"translated","value":"Umschalt halten, um in den Editor abzulegen"}},"en":{"stringUnit":{"state":"translated","value":"Hold Shift to drop into editor"}},"es":{"stringUnit":{"state":"translated","value":"Mantén Shift para soltar en el editor"}},"fr":{"stringUnit":{"state":"translated","value":"Maintenez Maj pour déposer dans l’éditeur"}},"it":{"stringUnit":{"state":"translated","value":"Tieni premuto Maiuscole per rilasciare nell’editor"}},"ja":{"stringUnit":{"state":"translated","value":"Shift キーを押したままエディタにドロップ"}},"ko":{"stringUnit":{"state":"translated","value":"편집기에 드롭하려면 Shift를 누르세요"}},"nb":{"stringUnit":{"state":"translated","value":"Hold Skift for å slippe i redigereren"}},"pl":{"stringUnit":{"state":"translated","value":"Przytrzymaj Shift, aby upuścić w edytorze"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Segure Shift para soltar no editor"}},"ru":{"stringUnit":{"state":"translated","value":"Удерживайте Shift, чтобы перетащить в редактор"}},"th":{"stringUnit":{"state":"translated","value":"กด Shift ค้างไว้เพื่อวางในตัวแก้ไข"}},"tr":{"stringUnit":{"state":"translated","value":"Düzenleyiciye bırakmak için Shift tuşunu basılı tutun"}},"uk":{"stringUnit":{"state":"translated","value":"Утримуйте Shift, щоб скинути в редактор"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"按住 Shift 以拖放到编辑器"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"按住 Shift 以拖放到編輯器"}}} },
+    "fileDrop.holdShiftDropIntoTerminal": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"اضغط Shift للإفلات في الطرفية"}},"bs":{"stringUnit":{"state":"translated","value":"Držite Shift za ispuštanje u terminal"}},"da":{"stringUnit":{"state":"translated","value":"Hold Skift nede for at slippe i terminalen"}},"de":{"stringUnit":{"state":"translated","value":"Umschalt halten, um ins Terminal abzulegen"}},"en":{"stringUnit":{"state":"translated","value":"Hold Shift to drop into terminal"}},"es":{"stringUnit":{"state":"translated","value":"Mantén Shift para soltar en la terminal"}},"fr":{"stringUnit":{"state":"translated","value":"Maintenez Maj pour déposer dans le terminal"}},"it":{"stringUnit":{"state":"translated","value":"Tieni premuto Maiuscole per rilasciare nel terminale"}},"ja":{"stringUnit":{"state":"translated","value":"Shift キーを押したままターミナルにドロップ"}},"ko":{"stringUnit":{"state":"translated","value":"터미널에 드롭하려면 Shift를 누르세요"}},"nb":{"stringUnit":{"state":"translated","value":"Hold Skift for å slippe i terminalen"}},"pl":{"stringUnit":{"state":"translated","value":"Przytrzymaj Shift, aby upuścić w terminalu"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Segure Shift para soltar no terminal"}},"ru":{"stringUnit":{"state":"translated","value":"Удерживайте Shift, чтобы перетащить в терминал"}},"th":{"stringUnit":{"state":"translated","value":"กด Shift ค้างไว้เพื่อวางในเทอร์มินัล"}},"tr":{"stringUnit":{"state":"translated","value":"Terminale bırakmak için Shift tuşunu basılı tutun"}},"uk":{"stringUnit":{"state":"translated","value":"Утримуйте Shift, щоб скинути в термінал"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"按住 Shift 以拖放到终端"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"按住 Shift 以拖放到終端"}}} },
+    "fileDrop.holdShiftOpenAsSplit": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"اضغط Shift للفتح كتقسيم"}},"bs":{"stringUnit":{"state":"translated","value":"Držite Shift za otvaranje kao podjelu"}},"da":{"stringUnit":{"state":"translated","value":"Hold Skift nede for at åbne som split"}},"de":{"stringUnit":{"state":"translated","value":"Umschalt halten, um als Split zu öffnen"}},"en":{"stringUnit":{"state":"translated","value":"Hold Shift to open as split"}},"es":{"stringUnit":{"state":"translated","value":"Mantén Shift para abrir como división"}},"fr":{"stringUnit":{"state":"translated","value":"Maintenez Maj pour ouvrir en division"}},"it":{"stringUnit":{"state":"translated","value":"Tieni premuto Maiuscole per aprire come divisione"}},"ja":{"stringUnit":{"state":"translated","value":"Shift キーを押したまま分割で開く"}},"ko":{"stringUnit":{"state":"translated","value":"분할로 열려면 Shift를 누르세요"}},"nb":{"stringUnit":{"state":"translated","value":"Hold Skift for å åpne som delt visning"}},"pl":{"stringUnit":{"state":"translated","value":"Przytrzymaj Shift, aby otworzyć jako podział"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Segure Shift para abrir como divisão"}},"ru":{"stringUnit":{"state":"translated","value":"Удерживайте Shift, чтобы открыть как разделение"}},"th":{"stringUnit":{"state":"translated","value":"กด Shift ค้างไว้เพื่อเปิดแบบแบ่ง"}},"tr":{"stringUnit":{"state":"translated","value":"Bölünmüş görünüm olarak açmak için Shift tuşunu basılı tutun"}},"uk":{"stringUnit":{"state":"translated","value":"Утримуйте Shift, щоб відкрити як розділення"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"按住 Shift 以拆分打开"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"按住 Shift 以分割開啟"}}} },
+    "settings.app.fileDrop.defaultBehavior": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"إفلات الملفات"}},"bs":{"stringUnit":{"state":"translated","value":"Ispuštanje datoteka"}},"da":{"stringUnit":{"state":"translated","value":"Filslip"}},"de":{"stringUnit":{"state":"translated","value":"Dateiablagen"}},"en":{"stringUnit":{"state":"translated","value":"File Drops"}},"es":{"stringUnit":{"state":"translated","value":"Soltar archivos"}},"fr":{"stringUnit":{"state":"translated","value":"Dépôts de fichiers"}},"it":{"stringUnit":{"state":"translated","value":"Rilasci file"}},"ja":{"stringUnit":{"state":"translated","value":"ファイルドロップ"}},"ko":{"stringUnit":{"state":"translated","value":"파일 드롭"}},"nb":{"stringUnit":{"state":"translated","value":"Filslipp"}},"pl":{"stringUnit":{"state":"translated","value":"Upuszczanie plików"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Soltar arquivos"}},"ru":{"stringUnit":{"state":"translated","value":"Перетаскивание файлов"}},"th":{"stringUnit":{"state":"translated","value":"การวางไฟล์"}},"tr":{"stringUnit":{"state":"translated","value":"Dosya Bırakma"}},"uk":{"stringUnit":{"state":"translated","value":"Перетягування файлів"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"文件拖放"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"檔案拖放"}}} },
+    "settings.app.fileDrop.defaultBehavior.preview": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"فتح معاينة الملف"}},"bs":{"stringUnit":{"state":"translated","value":"Otvori pregled datoteke"}},"da":{"stringUnit":{"state":"translated","value":"Åbn filvisning"}},"de":{"stringUnit":{"state":"translated","value":"Dateivorschau öffnen"}},"en":{"stringUnit":{"state":"translated","value":"Open file preview"}},"es":{"stringUnit":{"state":"translated","value":"Abrir vista previa del archivo"}},"fr":{"stringUnit":{"state":"translated","value":"Ouvrir l’aperçu du fichier"}},"it":{"stringUnit":{"state":"translated","value":"Apri anteprima file"}},"ja":{"stringUnit":{"state":"translated","value":"ファイルプレビューを開く"}},"ko":{"stringUnit":{"state":"translated","value":"파일 미리보기 열기"}},"nb":{"stringUnit":{"state":"translated","value":"Åpne filforhåndsvisning"}},"pl":{"stringUnit":{"state":"translated","value":"Otwórz podgląd pliku"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Abrir pré-visualização do arquivo"}},"ru":{"stringUnit":{"state":"translated","value":"Открыть предпросмотр файла"}},"th":{"stringUnit":{"state":"translated","value":"เปิดตัวอย่างไฟล์"}},"tr":{"stringUnit":{"state":"translated","value":"Dosya önizlemesini aç"}},"uk":{"stringUnit":{"state":"translated","value":"Відкрити попередній перегляд файлу"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"打开文件预览"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"開啟檔案預覽"}}} },
+    "settings.app.fileDrop.defaultBehavior.preview.subtitle": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"يؤدي سحب الملفات إلى فتح المعاينات أو الأجزاء المقسمة. اضغط Shift فوق الطرفيات والمحررات لإدراج نص المسار."}},"bs":{"stringUnit":{"state":"translated","value":"Prevlačenje datoteka otvara preglede ili podijeljene panele. Držite Shift iznad terminala i editora za umetanje teksta putanje."}},"da":{"stringUnit":{"state":"translated","value":"Når filer trækkes ind, åbnes forhåndsvisninger eller splitpaneler. Hold Skift nede over terminaler og editorer for at indsætte stitekst."}},"de":{"stringUnit":{"state":"translated","value":"Gezogene Dateien öffnen Vorschauen oder Split-Bereiche. Halten Sie über Terminals und Editoren die Umschalttaste, um Pfadtext einzufügen."}},"en":{"stringUnit":{"state":"translated","value":"Dragging files opens previews or split panes. Hold Shift over terminals and editors to insert path text."}},"es":{"stringUnit":{"state":"translated","value":"Arrastrar archivos abre vistas previas o paneles divididos. Mantén Shift sobre terminales y editores para insertar texto de ruta."}},"fr":{"stringUnit":{"state":"translated","value":"Faire glisser des fichiers ouvre des aperçus ou des volets divisés. Maintenez Maj sur les terminaux et les éditeurs pour insérer le chemin sous forme de texte."}},"it":{"stringUnit":{"state":"translated","value":"Trascinare file apre anteprime o riquadri divisi. Tieni premuto Maiuscole sopra terminali ed editor per inserire il percorso come testo."}},"ja":{"stringUnit":{"state":"translated","value":"ファイルをドラッグするとプレビューまたは分割ペインで開きます。ターミナルやエディタ上で Shift キーを押したままにするとパス文字列を挿入します。"}},"ko":{"stringUnit":{"state":"translated","value":"파일을 드래그하면 미리보기 또는 분할 창이 열립니다. 터미널과 편집기 위에서 Shift를 누르면 경로 텍스트가 삽입됩니다."}},"nb":{"stringUnit":{"state":"translated","value":"Når filer dras inn, åpnes forhåndsvisninger eller delte ruter. Hold Skift over terminaler og redigerere for å sette inn stitekst."}},"pl":{"stringUnit":{"state":"translated","value":"Przeciąganie plików otwiera podglądy lub podzielone panele. Przytrzymaj Shift nad terminalami i edytorami, aby wstawić tekst ścieżki."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Arrastar arquivos abre pré-visualizações ou painéis divididos. Segure Shift sobre terminais e editores para inserir texto de caminho."}},"ru":{"stringUnit":{"state":"translated","value":"Перетаскивание файлов открывает предпросмотр или разделённые панели. Удерживайте Shift над терминалами и редакторами, чтобы вставить путь как текст."}},"th":{"stringUnit":{"state":"translated","value":"การลากไฟล์จะเปิดตัวอย่างหรือบานหน้าต่างแบบแบ่ง กด Shift ค้างไว้เหนือเทอร์มินัลและตัวแก้ไขเพื่อแทรกข้อความพาธ"}},"tr":{"stringUnit":{"state":"translated","value":"Dosyaları sürüklemek önizlemeleri veya bölünmüş bölmeleri açar. Yol metni eklemek için terminal ve düzenleyicilerin üzerinde Shift tuşunu basılı tutun."}},"uk":{"stringUnit":{"state":"translated","value":"Перетягування файлів відкриває попередній перегляд або розділені панелі. Утримуйте Shift над терміналами й редакторами, щоб вставити шлях як текст."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"拖入文件会打开预览或拆分窗格。在终端和编辑器上按住 Shift 可插入路径文本。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"拖入檔案會開啟預覽或分割窗格。在終端機和編輯器上按住 Shift 可插入路徑文字。"}}} },
+    "settings.app.fileDrop.defaultBehavior.text": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"إفلات نص المسار"}},"bs":{"stringUnit":{"state":"translated","value":"Ispusti tekst putanje"}},"da":{"stringUnit":{"state":"translated","value":"Slip stitekst"}},"de":{"stringUnit":{"state":"translated","value":"Pfadtext ablegen"}},"en":{"stringUnit":{"state":"translated","value":"Drop path text"}},"es":{"stringUnit":{"state":"translated","value":"Soltar texto de ruta"}},"fr":{"stringUnit":{"state":"translated","value":"Déposer le chemin en texte"}},"it":{"stringUnit":{"state":"translated","value":"Rilascia testo percorso"}},"ja":{"stringUnit":{"state":"translated","value":"パス文字列をドロップ"}},"ko":{"stringUnit":{"state":"translated","value":"경로 텍스트 드롭"}},"nb":{"stringUnit":{"state":"translated","value":"Slipp stitekst"}},"pl":{"stringUnit":{"state":"translated","value":"Upuść tekst ścieżki"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Soltar texto de caminho"}},"ru":{"stringUnit":{"state":"translated","value":"Перетащить путь как текст"}},"th":{"stringUnit":{"state":"translated","value":"วางข้อความพาธ"}},"tr":{"stringUnit":{"state":"translated","value":"Yol metnini bırak"}},"uk":{"stringUnit":{"state":"translated","value":"Скинути шлях як текст"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"拖放路径文本"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"拖放路徑文字"}}} },
+    "settings.app.fileDrop.defaultBehavior.text.subtitle": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"فوق الطرفيات والمحررات، يؤدي سحب الملفات إلى إدراج مسارات مهربة للصدفة. اضغط Shift لفتح معاينة ملف أو تقسيم."}},"bs":{"stringUnit":{"state":"translated","value":"Iznad terminala i editora, prevlačenje datoteka umeće shell-escapirane putanje. Držite Shift za otvaranje pregleda datoteke ili podjele."}},"da":{"stringUnit":{"state":"translated","value":"Over terminaler og editorer indsætter træk af filer shell-escaped stier. Hold Skift nede for at åbne en filvisning eller et split."}},"de":{"stringUnit":{"state":"translated","value":"Über Terminals und Editoren fügt das Ziehen von Dateien shell-escapte Pfade ein. Halten Sie Umschalt, um eine Dateivorschau oder einen Split zu öffnen."}},"en":{"stringUnit":{"state":"translated","value":"Over terminals and editors, dragging files inserts shell-escaped paths. Hold Shift to open a file preview or split."}},"es":{"stringUnit":{"state":"translated","value":"Sobre terminales y editores, arrastrar archivos inserta rutas escapadas para shell. Mantén Shift para abrir una vista previa del archivo o una división."}},"fr":{"stringUnit":{"state":"translated","value":"Sur les terminaux et les éditeurs, faire glisser des fichiers insère des chemins échappés pour le shell. Maintenez Maj pour ouvrir un aperçu de fichier ou une division."}},"it":{"stringUnit":{"state":"translated","value":"Sopra terminali ed editor, trascinare file inserisce percorsi con escape per la shell. Tieni premuto Maiuscole per aprire un’anteprima file o una divisione."}},"ja":{"stringUnit":{"state":"translated","value":"ターミナルやエディタ上では、ファイルをドラッグするとシェル用にエスケープされたパスを挿入します。Shift キーを押したままにするとファイルプレビューまたは分割で開きます。"}},"ko":{"stringUnit":{"state":"translated","value":"터미널과 편집기 위에서는 파일을 드래그하면 셸 이스케이프된 경로가 삽입됩니다. Shift를 누르면 파일 미리보기 또는 분할로 열립니다."}},"nb":{"stringUnit":{"state":"translated","value":"Over terminaler og redigerere setter dra-og-slipp av filer inn skall-escapede stier. Hold Skift for å åpne filforhåndsvisning eller delt visning."}},"pl":{"stringUnit":{"state":"translated","value":"Nad terminalami i edytorami przeciąganie plików wstawia ścieżki escapowane dla powłoki. Przytrzymaj Shift, aby otworzyć podgląd pliku lub podział."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Sobre terminais e editores, arrastar arquivos insere caminhos escapados para shell. Segure Shift para abrir uma pré-visualização do arquivo ou uma divisão."}},"ru":{"stringUnit":{"state":"translated","value":"Над терминалами и редакторами перетаскивание файлов вставляет пути с экранированием для shell. Удерживайте Shift, чтобы открыть предпросмотр файла или разделение."}},"th":{"stringUnit":{"state":"translated","value":"เหนือเทอร์มินัลและตัวแก้ไข การลากไฟล์จะแทรกพาธที่ escape สำหรับเชลล์ กด Shift ค้างไว้เพื่อเปิดตัวอย่างไฟล์หรือแบ่งหน้าต่าง"}},"tr":{"stringUnit":{"state":"translated","value":"Terminal ve düzenleyicilerin üzerinde dosya sürüklemek shell için kaçışlanmış yollar ekler. Dosya önizlemesi veya bölünmüş görünüm açmak için Shift tuşunu basılı tutun."}},"uk":{"stringUnit":{"state":"translated","value":"Над терміналами й редакторами перетягування файлів вставляє шляхи з екрануванням для shell. Утримуйте Shift, щоб відкрити попередній перегляд файлу або розділення."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"在终端和编辑器上拖入文件会插入经过 shell 转义的路径。按住 Shift 可打开文件预览或拆分。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"在終端機和編輯器上拖入檔案會插入經過 shell 跳脫的路徑。按住 Shift 可開啟檔案預覽或分割。"}}} },
     "debug.bonsplitTabBarDebug.actionLaneBorder": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Action Lane Border" } }, "ja": { "stringUnit": { "state": "translated", "value": "アクションレーンの境界線" } } } },
     "debug.bonsplitTabBarDebug.actionLaneGeometry": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Action Lane Geometry" } }, "ja": { "stringUnit": { "state": "translated", "value": "アクションレーンのジオメトリ" } } } },
     "debug.bonsplitTabBarDebug.contentFade": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Content fade" } }, "ja": { "stringUnit": { "state": "translated", "value": "コンテンツのフェード" } } } },
@@ -7407,6 +7420,193 @@
         }
       }
     },
+    "browser.profile.automation.error.ambiguousProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multiple cmux browser profiles match '%@'. Use the profile ID instead."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' に一致する cmux ブラウザープロファイルが複数あります。代わりにプロファイル ID を使用してください。"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.cannotDeleteDefaultProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The default browser profile cannot be deleted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトのブラウザープロファイルは削除できません"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.fallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser profile command failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルコマンドに失敗しました"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.missingName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing browser profile name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイル名がありません"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.missingProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing browser profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルがありません"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileClearFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to clear cmux browser profile '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイル '%@' を消去できませんでした"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileCreationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to create cmux browser profile '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイル '%@' を作成できませんでした"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileDeleteFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to delete cmux browser profile '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイル '%@' を削除できませんでした"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileInUse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot delete cmux browser profile '%@' while %d browser panel(s) are using it"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイル '%@' は %d 個のブラウザーパネルが使用中のため削除できません"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No cmux browser profile matches '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' に一致する cmux ブラウザープロファイルが見つかりません"
+          }
+        }
+      }
+    },
+    "browser.profile.automation.error.profileRenameFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to rename cmux browser profile to '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイルの名前を '%@' に変更できませんでした"
+          }
+        }
+      }
+    },
     "browser.profile.menu.title": {
       "extractionState": "manual",
       "localizations": {
@@ -8621,6 +8821,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "가져오기를 시작할 수 없습니다"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.browserNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No importable browser matches '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' に一致するインポート可能なブラウザーが見つかりません"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.destinationProfileCreationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to create cmux browser profile '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブラウザープロファイル '%@' を作成できませんでした"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.destinationProfileNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No cmux browser profile matches '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' に一致する cmux ブラウザープロファイルが見つかりません"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.fallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser import failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザーのインポートに失敗しました"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.noBrowsers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No importable browsers found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポート可能なブラウザーが見つかりません"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.noProfiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No source profiles found for %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のソースプロファイルが見つかりません"
+          }
+        }
+      }
+    },
+    "browser.import.automation.error.sourceProfileNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No source profile matches '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' に一致するソースプロファイルが見つかりません"
           }
         }
       }
@@ -18652,6 +18971,482 @@
         }
       }
     },
+    "dialog.sshURL.blocked.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.blocked.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux SSH Link Blocked"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux SSH リンクをブロックしました"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.launchFailed.exit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ssh exited with status %d."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ssh はステータス %d で終了しました。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.launchFailed.launch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ssh could not be launched."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ssh を起動できませんでした。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.launchFailed.missingCLI": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The bundled cmux CLI is missing from this app build."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリビルドに同梱されている cmux CLI が見つかりません。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.launchFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't Open SSH Link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH リンクを開けませんでした"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.checkbox": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I trust this SSH target and want cmux to connect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この SSH 接続先を信頼し、cmux で接続することに同意します。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.commandLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command preview:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドのプレビュー:"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.targetLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH target: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 接続先: %@"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.destinationContainsUnsafeCharacters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH host or user contains unsupported or hidden characters, so cmux refused to use it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ホストまたはユーザーに未対応の文字または隠れた文字が含まれているため、cmux は使用を拒否しました。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.destinationTooLong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH target is too long. The maximum length is %lld characters."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 接続先が長すぎます。最大長は %lld 文字です。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.missingDestination": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link did not include an SSH host."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクに SSH ホストが含まれていません。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.multipleLinks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only one SSH link can be opened at a time."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一度に開ける SSH リンクは 1 つだけです。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.titleContainsControlCharacters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The workspace title contains hidden control or formatting characters, so cmux refused to use it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名に隠れた制御文字または書式制御文字が含まれているため、cmux は使用を拒否しました。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.titleTooLong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The workspace title is too long. The maximum length is %lld characters."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名が長すぎます。最大長は %lld 文字です。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.invalidIntegerParameter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH link included an invalid integer value for parameter: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH リンクのパラメータに無効な整数値が含まれています: %@"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.invalidHostKeyPolicy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH link included an invalid host key policy for parameter: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH リンクのパラメータに無効なホストキー確認ポリシーが含まれています: %@"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.destinationStartsWithDash": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH host or user cannot start with a dash."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ホストまたはユーザーをダッシュで始めることはできません。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.conflictingDestinationParameters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link included conflicting SSH target fields."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクに競合する SSH 接続先フィールドが含まれています。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.conflictingTitleParameters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link included both title and name. Use only one workspace title field."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクに title と name の両方が含まれています。ワークスペース名のフィールドは 1 つだけ使用してください。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.duplicateParameter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH link repeated a parameter: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH リンクで同じパラメータが繰り返されています: %@"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.unsupportedParameter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH link included an unsupported parameter: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH リンクに未対応のパラメータが含まれています: %@"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.invalidPort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH port must be between 1 and 65535."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ポートは 1 から 65535 の範囲で指定してください。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.error.invalidBooleanParameter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH link included an invalid boolean value for parameter: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH リンクのパラメータに無効な真偽値が含まれています: %@"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A %@:// link is asking cmux to open an SSH workspace. cmux cannot verify which website or app opened this link.\n\nSSH may use your local SSH config, keys, agent settings, ProxyCommand, LocalCommand, and forwarding rules for this target. External links cannot supply arbitrary SSH options. Only continue if you trust this SSH target."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@:// リンクが SSH ワークスペースを開くよう cmux に要求しています。cmux は、このリンクを開いた Web サイトやアプリを確認できません。\n\nSSH はこの接続先に対して、ローカルの SSH 設定、鍵、エージェント設定、ProxyCommand、LocalCommand、ポート転送ルールを使用する場合があります。外部リンクは任意の SSH オプションを指定できません。この SSH 接続先を信頼している場合のみ続行してください。"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.run": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続"
+          }
+        }
+      }
+    },
+    "dialog.sshURL.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open an SSH Connection From an External Link?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外部リンクから SSH 接続を開きますか？"
+          }
+        }
+      }
+    },
     "dialog.cmuxConfig.confirmCommand.messageWithCommand": {
       "extractionState": "manual",
       "localizations": {
@@ -26759,125 +27554,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Макет"
-          }
-        }
-      }
-    },
-    "command.toggleSidebar.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle Sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーの切り替え"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切换侧边栏"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切換側邊欄"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바 전환"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seitenleiste ein-/ausblenden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar barra lateral"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher/masquer la barre latérale"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attiva/Disattiva barra laterale"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå sidebjælke til/fra"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przełącz pasek boczny"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Боковая панель"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prebaci bočnu traku"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تبديل الشريط الجانبي"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå sidepanelet av/på"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar Barra Lateral"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สลับแถบด้านข้าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kenar Çubuğunu Aç/Kapat"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перемкнути бічну панель"
           }
         }
       }
@@ -48292,125 +48968,6 @@
         }
       }
     },
-    "menu.view.toggleSidebar": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle Sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーの切り替え"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切换侧边栏"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切換側邊欄"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바 전환"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seitenleiste ein-/ausblenden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar barra lateral"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher/masquer la barre latérale"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attiva/Disattiva barra laterale"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå sidebjælke til/fra"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przełącz pasek boczny"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Боковая панель"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prebaci bočnu traku"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تبديل الشريط الجانبي"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå sidepanelet av/på"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar Barra Lateral"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สลับแถบด้านข้าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kenar Çubuğunu Aç/Kapat"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перемкнути бічну панель"
-          }
-        }
-      }
-    },
     "menu.view.workspace": {
       "extractionState": "manual",
       "localizations": {
@@ -64010,115 +64567,115 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me."
+            "value": "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "警告プロンプトなしでcmuxで開けるHTTP（非HTTPS）ホストを制御します。デフォルトにはlocalhost、127.0.0.1、::1、0.0.0.0、*.localtest.meが含まれます。"
+            "value": "警告プロンプトなしでcmuxで開けるHTTP（非HTTPS）ホストを制御します。デフォルトにはlocalhost、*.localhost、127.0.0.1、::1、0.0.0.0、*.localtest.meが含まれます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "控制哪些 HTTP（非 HTTPS）主机可以在 cmux 中打开而不显示警告提示。默认包括 localhost、127.0.0.1、::1、0.0.0.0 和 *.localtest.me。"
+            "value": "控制哪些 HTTP（非 HTTPS）主机可以在 cmux 中打开而不显示警告提示。默认包括 localhost、*.localhost、127.0.0.1、::1、0.0.0.0 和 *.localtest.me。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "控制哪些 HTTP（非 HTTPS）主機可以在 cmux 中開啟而不顯示警告提示。預設包含 localhost、127.0.0.1、::1、0.0.0.0 和 *.localtest.me。"
+            "value": "控制哪些 HTTP（非 HTTPS）主機可以在 cmux 中開啟而不顯示警告提示。預設包含 localhost、*.localhost、127.0.0.1、::1、0.0.0.0 和 *.localtest.me。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux에서 경고 없이 열 수 있는 HTTP(비HTTPS) 호스트를 제어합니다. 기본값에는 localhost, 127.0.0.1, ::1, 0.0.0.0 및 *.localtest.me가 포함됩니다."
+            "value": "cmux에서 경고 없이 열 수 있는 HTTP(비HTTPS) 호스트를 제어합니다. 기본값에는 localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 및 *.localtest.me가 포함됩니다."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Steuert, welche HTTP-Hosts (nicht HTTPS) ohne Warnhinweis in cmux geöffnet werden können. Standardmäßig enthalten: localhost, 127.0.0.1, ::1, 0.0.0.0 und *.localtest.me."
+            "value": "Steuert, welche HTTP-Hosts (nicht HTTPS) ohne Warnhinweis in cmux geöffnet werden können. Standardmäßig enthalten: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 und *.localtest.me."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controla qué hosts HTTP (no HTTPS) pueden abrirse en cmux sin un mensaje de advertencia. Los valores predeterminados incluyen localhost, 127.0.0.1, ::1, 0.0.0.0 y *.localtest.me."
+            "value": "Controla qué hosts HTTP (no HTTPS) pueden abrirse en cmux sin un mensaje de advertencia. Los valores predeterminados incluyen localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 y *.localtest.me."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Contrôle quels hôtes HTTP (non HTTPS) peuvent s'ouvrir dans cmux sans avertissement. Les valeurs par défaut incluent localhost, 127.0.0.1, ::1, 0.0.0.0 et *.localtest.me."
+            "value": "Contrôle quels hôtes HTTP (non HTTPS) peuvent s'ouvrir dans cmux sans avertissement. Les valeurs par défaut incluent localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 et *.localtest.me."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controlla quali host HTTP (non HTTPS) possono aprirsi in cmux senza un avviso. I valori predefiniti includono localhost, 127.0.0.1, ::1, 0.0.0.0 e *.localtest.me."
+            "value": "Controlla quali host HTTP (non HTTPS) possono aprirsi in cmux senza un avviso. I valori predefiniti includono localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 e *.localtest.me."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Styrer hvilke HTTP-værter (ikke-HTTPS) der kan åbnes i cmux uden advarselsmeddelelse. Standardindstillinger inkluderer localhost, 127.0.0.1, ::1, 0.0.0.0 og *.localtest.me."
+            "value": "Styrer hvilke HTTP-værter (ikke-HTTPS) der kan åbnes i cmux uden advarselsmeddelelse. Standardindstillinger inkluderer localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 og *.localtest.me."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Określa, które hosty HTTP (inne niż HTTPS) mogą być otwierane w cmux bez ostrzeżenia. Domyślnie uwzględniono localhost, 127.0.0.1, ::1, 0.0.0.0 i *.localtest.me."
+            "value": "Określa, które hosty HTTP (inne niż HTTPS) mogą być otwierane w cmux bez ostrzeżenia. Domyślnie uwzględniono localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 i *.localtest.me."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Определяет, какие HTTP (не HTTPS) хосты могут открываться в cmux без предупреждения. По умолчанию включены localhost, 127.0.0.1, ::1, 0.0.0.0 и *.localtest.me."
+            "value": "Определяет, какие HTTP (не HTTPS) хосты могут открываться в cmux без предупреждения. По умолчанию включены localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 и *.localtest.me."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kontroliše koji HTTP (ne-HTTPS) hostovi mogu biti otvoreni u cmux bez upozorenja. Podrazumijevani uključuju localhost, 127.0.0.1, ::1, 0.0.0.0 i *.localtest.me."
+            "value": "Kontroliše koji HTTP (ne-HTTPS) hostovi mogu biti otvoreni u cmux bez upozorenja. Podrazumijevani uključuju localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 i *.localtest.me."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتحكم في مضيفي HTTP (غير HTTPS) الذين يمكنهم الفتح في cmux بدون رسالة تحذير. الافتراضيات تشمل localhost و 127.0.0.1 و ::1 و 0.0.0.0 و *.localtest.me."
+            "value": "يتحكم في مضيفي HTTP (غير HTTPS) الذين يمكنهم الفتح في cmux بدون رسالة تحذير. الافتراضيات تشمل localhost و *.localhost و 127.0.0.1 و ::1 و 0.0.0.0 و *.localtest.me."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Styrer hvilke HTTP-verter (ikke HTTPS) som kan åpnes i cmux uten advarselsmelding. Standardverdier inkluderer localhost, 127.0.0.1, ::1, 0.0.0.0 og *.localtest.me."
+            "value": "Styrer hvilke HTTP-verter (ikke HTTPS) som kan åpnes i cmux uten advarselsmelding. Standardverdier inkluderer localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 og *.localtest.me."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controla quais hosts HTTP (não HTTPS) podem abrir no cmux sem um aviso. Os padrões incluem localhost, 127.0.0.1, ::1, 0.0.0.0 e *.localtest.me."
+            "value": "Controla quais hosts HTTP (não HTTPS) podem abrir no cmux sem um aviso. Os padrões incluem localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 e *.localtest.me."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ควบคุมว่าโฮสต์ HTTP (ไม่ใช่ HTTPS) ใดที่สามารถเปิดใน cmux โดยไม่ต้องแสดงคำเตือน ค่าเริ่มต้นรวมถึง localhost, 127.0.0.1, ::1, 0.0.0.0 และ *.localtest.me"
+            "value": "ควบคุมว่าโฮสต์ HTTP (ไม่ใช่ HTTPS) ใดที่สามารถเปิดใน cmux โดยไม่ต้องแสดงคำเตือน ค่าเริ่มต้นรวมถึง localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 และ *.localtest.me"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hangi HTTP (HTTPS olmayan) ana bilgisayarlarının cmux'ta uyarı istemi olmadan açılabileceğini kontrol eder. Varsayılanlar localhost, 127.0.0.1, ::1, 0.0.0.0 ve *.localtest.me içerir."
+            "value": "Hangi HTTP (HTTPS olmayan) ana bilgisayarlarının cmux'ta uyarı istemi olmadan açılabileceğini kontrol eder. Varsayılanlar localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 ve *.localtest.me içerir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Визначає, які HTTP (не HTTPS) хости можуть відкриватися в cmux без попередження. Типово включає localhost, 127.0.0.1, ::1, 0.0.0.0 та *.localtest.me."
+            "value": "Визначає, які HTTP (не HTTPS) хости можуть відкриватися в cmux без попередження. Типово включає localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 та *.localtest.me."
           }
         }
       }
@@ -64129,115 +64686,115 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "One host or wildcard per line (for example: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "One host or wildcard per line (for example: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1行に1つのホストまたはワイルドカード（例: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me）。"
+            "value": "1行に1つのホストまたはワイルドカード（例: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me）。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "每行一个主机或通配符（例如：localhost、127.0.0.1、::1、0.0.0.0、*.localtest.me）。"
+            "value": "每行一个主机或通配符（例如：localhost、*.localhost、127.0.0.1、::1、0.0.0.0、*.localtest.me）。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "每行一個主機或萬用字元（例如：localhost、127.0.0.1、::1、0.0.0.0、*.localtest.me）。"
+            "value": "每行一個主機或萬用字元（例如：localhost、*.localhost、127.0.0.1、::1、0.0.0.0、*.localtest.me）。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "한 줄에 하나의 호스트 또는 와일드카드 (예: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "한 줄에 하나의 호스트 또는 와일드카드 (예: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Host oder Platzhalter pro Zeile (zum Beispiel: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Ein Host oder Platzhalter pro Zeile (zum Beispiel: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un host o comodín por línea (por ejemplo: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Un host o comodín por línea (por ejemplo: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un hôte ou caractère générique par ligne (par exemple : localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Un hôte ou caractère générique par ligne (par exemple : localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un host o wildcard per riga (ad esempio: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Un host o wildcard per riga (ad esempio: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Én vært eller wildcard pr. linje (f.eks.: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Én vært eller wildcard pr. linje (f.eks.: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jeden host lub wzorzec na wiersz (na przykład: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Jeden host lub wzorzec na wiersz (na przykład: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Один хост или шаблон на строку (например: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Один хост или шаблон на строку (например: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jedan host ili zamjenski znak po redu (na primjer: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Jedan host ili zamjenski znak po redu (na primjer: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مضيف واحد أو حرف بدل لكل سطر (مثال: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "مضيف واحد أو حرف بدل لكل سطر (مثال: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Én vert eller jokertegn per linje (for eksempel: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Én vert eller jokertegn per linje (for eksempel: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Um host ou curinga por linha (por exemplo: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Um host ou curinga por linha (por exemplo: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "โฮสต์หรือ wildcard หนึ่งรายการต่อบรรทัด (ตัวอย่าง: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)"
+            "value": "โฮสต์หรือ wildcard หนึ่งรายการต่อบรรทัด (ตัวอย่าง: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Satır başına bir ana bilgisayar veya joker karakter (örneğin: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Satır başına bir ana bilgisayar veya joker karakter (örneğin: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Один хост або шаблон на рядок (наприклад: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Один хост або шаблон на рядок (наприклад: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         }
       }
@@ -69100,363 +69657,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux.json에서 tmux 스타일의 다단계 단축키를 추가할 수 있습니다. 예: [\"ctrl+b\", \"c\"]."
-          }
-        }
-      }
-    },
-    "settings.shortcuts.showHints": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Shortcut Hints While Holding Modifiers"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "修飾キー長押しでショートカットヒントを表示"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示 Cmd/Ctrl 长按快捷键提示"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示 Cmd/Ctrl 按住時的快速鍵提示"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd/Ctrl 누르고 있을 때 단축키 힌트 표시"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd/Ctrl-Gedrückthalten-Kurzbefehlhinweise anzeigen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar indicaciones de atajo al mantener Cmd/Ctrl"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher les indications de raccourcis avec Cmd/Ctrl enfoncé"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra suggerimenti scorciatoie Cmd/Ctrl"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis Cmd/Ctrl-hold genvejstip"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokaż podpowiedzi skrótów przy przytrzymaniu Cmd/Ctrl"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывать подсказки сочетаний при удержании Cmd/Ctrl"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži savjete za prečice pri držanju Cmd/Ctrl"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عرض تلميحات اختصارات Cmd/Ctrl عند الضغط المطول"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis Cmd/Ctrl-hold snarveihint"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar Dicas de Atalho ao Segurar Cmd/Ctrl"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงคำแนะนำทางลัด Cmd/Ctrl ค้าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd/Ctrl Basılı Tutma Kısayol İpuçlarını Göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показувати підказки комбінацій при утриманні модифікаторів"
-          }
-        }
-      }
-    },
-    "settings.shortcuts.showHints.subtitleOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Holding shortcut modifiers keeps shortcut hint pills hidden."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ショートカットの修飾キーを長押ししてもショートカットヒントピルは非表示のままです。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "长按 Cmd 或 Ctrl 时隐藏快捷键提示标签。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按住 Cmd 或 Ctrl 時不顯示快速鍵提示標籤。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd 또는 Ctrl을 누르고 있어도 단축키 힌트 표시가 숨겨집니다."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Das Gedrückthalten von Cmd oder Ctrl hält die Kurzbefehlhinweise ausgeblendet."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mantener Cmd o Ctrl mantiene ocultas las indicaciones de atajos."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maintenir Cmd ou Ctrl garde les pastilles d'indication de raccourcis masquées."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tenere premuto Cmd o Ctrl mantiene nascosti i suggerimenti delle scorciatoie."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "At holde Cmd eller Ctrl holder genvejstip skjulte."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przytrzymanie Cmd lub Ctrl nie pokazuje podpowiedzi skrótów."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удержание Cmd или Ctrl не показывает подсказки сочетаний."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Držanje Cmd ili Ctrl drži savjete za prečice skrivenim."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الضغط المطول على Cmd أو Ctrl يبقي كبسولات التلميح مخفية."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Å holde Cmd eller Ctrl holder snarveihintpillene skjult."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Segurar Cmd ou Ctrl mantém as pílulas de dica de atalho ocultas."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การกด Cmd หรือ Ctrl ค้างจะซ่อนป้ายคำแนะนำทางลัด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd veya Ctrl basılı tutulduğunda kısayol ipucu rozetleri gizli kalır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Утримання модифікаторів комбінацій не показує підказки."
-          }
-        }
-      }
-    },
-    "settings.shortcuts.showHints.subtitleOn": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Holding the configured shortcut modifiers shows shortcut hint pills."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "設定されたショートカットの修飾キーを長押しするとショートカットヒントピルが表示されます。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "长按 Cmd（侧边栏/标题栏）或 Ctrl/Cmd（面板标签页）时显示快捷键提示标签。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按住 Cmd（側邊欄/標題列）或 Ctrl/Cmd（面板標籤頁）時顯示快速鍵提示標籤。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd(사이드바/제목 표시줄) 또는 Ctrl/Cmd(패널 탭)를 누르고 있으면 단축키 힌트가 표시됩니다."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Das Gedrückthalten von Cmd (Seitenleiste/Titelleiste) oder Ctrl/Cmd (Bereichs-Tabs) zeigt Kurzbefehlhinweise an."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mantener Cmd (barra lateral/barra de título) o Ctrl/Cmd (pestañas del panel) muestra las indicaciones de atajos."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maintenir Cmd (barre latérale/barre de titre) ou Ctrl/Cmd (onglets de panneau) affiche les pastilles d'indication de raccourcis."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tenere premuto Cmd (barra laterale/barra del titolo) o Ctrl/Cmd (schede pannello) mostra i suggerimenti delle scorciatoie."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "At holde Cmd (sidebjælke/titellinje) eller Ctrl/Cmd (panelfaner) viser genvejstip."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przytrzymanie Cmd (pasek boczny/pasek tytułu) lub Ctrl/Cmd (karty panelu) pokazuje podpowiedzi skrótów."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удержание Cmd (боковая панель/заголовок) или Ctrl/Cmd (вкладки панели) показывает подсказки сочетаний."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Držanje Cmd (bočna traka/naslovna traka) ili Ctrl/Cmd (tabovi panela) prikazuje savjete za prečice."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الضغط المطول على Cmd (الشريط الجانبي/شريط العنوان) أو Ctrl/Cmd (ألسنة اللوحات) يعرض كبسولات التلميح."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Å holde Cmd (sidepanel/tittellinje) eller Ctrl/Cmd (panelfaner) viser snarveihintpiller."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Segurar Cmd (barra lateral/barra de título) ou Ctrl/Cmd (abas do painel) mostra pílulas de dica de atalho."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การกด Cmd ค้าง (แถบด้านข้าง/แถบชื่อ) หรือ Ctrl/Cmd (แท็บบานหน้าต่าง) จะแสดงป้ายคำแนะนำทางลัด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd (kenar çubuğu/başlık çubuğu) veya Ctrl/Cmd (bölme sekmeleri) basılı tutulduğunda kısayol ipucu rozetleri gösterilir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Утримання налаштованих модифікаторів показує підказки комбінацій."
           }
         }
       }
@@ -79219,125 +79419,6 @@
             }
         }
     },
-    "settings.search.alias.setting.keyboardShortcuts.show-hints": {
-        "extractionState": "manual",
-        "localizations": {
-            "en": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills"
-                }
-            },
-            "ja": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills コマンド長押し ctrl 長押し キーヒント 修飾キー オーバーレイ ピル"
-                }
-            },
-            "ar": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills لوحة مفاتيح اختصار اختصارات مفتاح سريع أوامر تسجيل"
-                }
-            },
-            "bs": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills tastatura prečica prečice hotkey komande tipke snimač"
-                }
-            },
-            "da": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills tastatur genvej genveje hotkey kommandoer taster optager"
-                }
-            },
-            "de": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills tastatur kurzbefehl tastenkürzel hotkey befehle tasten rekorder"
-                }
-            },
-            "es": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills teclado atajo atajos tecla rápida comandos teclas grabador"
-                }
-            },
-            "fr": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills clavier raccourci raccourcis touche globale commandes touches enregistreur"
-                }
-            },
-            "it": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills tastiera scorciatoia scorciatoie tasto rapido comandi tasti registratore"
-                }
-            },
-            "ko": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills 키보드 단축키 핫키 명령 키 기록기"
-                }
-            },
-            "nb": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills tastatur snarvei snarveier hurtigtast kommandoer taster opptaker"
-                }
-            },
-            "pl": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills klawiatura skrót skróty klawisz polecenia klawisze rejestrator"
-                }
-            },
-            "pt-BR": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills teclado atalho atalhos tecla rápida comandos teclas gravador"
-                }
-            },
-            "ru": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills клавиатура сочетание клавиш горячая клавиша команды клавиши запись"
-                }
-            },
-            "th": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills แป้นพิมพ์ ทางลัด ปุ่มลัด คำสั่ง คีย์ ตัวบันทึก"
-                }
-            },
-            "tr": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills klavye kısayol kısayollar tuşu komutlar tuşlar kaydedici"
-                }
-            },
-            "zh-Hans": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills 键盘 快捷键 热键 命令 按键 录制器"
-                }
-            },
-            "zh-Hant": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills 鍵盤 快捷鍵 熱鍵 命令 按鍵 錄製器"
-                }
-            },
-            "uk": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "shortcuts.showModifierHoldHints hold command ctrl key hints modifier overlay pills клавіатура скорочення гарячі клавіші команди записувач"
-                }
-            }
-        }
-    },
     "settings.search.alias.setting.keyboardShortcuts.shortcuts": {
         "extractionState": "manual",
         "localizations": {
@@ -85757,148 +85838,6 @@
         }
       }
     },
-    "shortcut.toggleSidebar.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle Sidebar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーを切替"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切换侧边栏"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "切換側邊欄"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바 전환"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seitenleiste ein-/ausblenden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar barra lateral"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher/masquer la barre latérale"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attiva/Disattiva barra laterale"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå sidebjælke til/fra"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przełącz pasek boczny"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Боковая панель"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prebaci bočnu traku"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تبديل الشريط الجانبي"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slå sidepanelet av/på"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alternar Barra Lateral"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สลับแถบด้านข้าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kenar Çubuğunu Aç/Kapat"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перемкнути бічну панель"
-          }
-        }
-      }
-    },
-    "shortcut.toggleFileExplorer.label": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle File Explorer"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイルエクスプローラーを切替"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "파일 탐색기 토글"
-          }
-        }
-      }
-    },
     "fileExplorer.empty": {
       "extractionState": "manual",
       "localizations": {
@@ -85952,6 +85891,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "相対パスをコピー"
+          }
+        }
+      }
+    },
+    "fileExplorer.contextMenu.insertPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insert Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスを挿入"
+          }
+        }
+      }
+    },
+    "fileExplorer.contextMenu.insertRelativePath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insert Relative Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相対パスを挿入"
           }
         }
       }
@@ -86026,6 +85999,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "파일 탐색기를 사용할 수 없습니다"
+          }
+        }
+      }
+    },
+    "fileExplorer.status.sshHomeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to resolve SSH home: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH のホームを解決できません: %@"
+          }
+        }
+      }
+    },
+    "fileExplorer.status.sshResolvingHome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolving remote home..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートのホームを解決中..."
+          }
+        }
+      }
+    },
+    "fileExplorer.status.sshUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH files unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ファイルを利用できません"
+          }
+        }
+      }
+    },
+    "fileExplorer.status.sshUnavailableWithDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH files unavailable: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ファイルを利用できません: %@"
           }
         }
       }
@@ -104870,19 +104911,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Focus Right Sidebar"
+            "value": "Toggle Right Sidebar Focus"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右サイドバーにフォーカス"
+            "value": "右サイドバーのフォーカスを切替"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오른쪽 사이드바에 포커스"
+            "value": "오른쪽 사이드바 포커스 전환"
           }
         }
       }
@@ -105002,19 +105043,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Focus Right Sidebar"
+            "value": "Toggle Right Sidebar Focus"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右サイドバーにフォーカス"
+            "value": "右サイドバーのフォーカスを切替"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오른쪽 사이드바에 포커스"
+            "value": "오른쪽 사이드바 포커스 전환"
           }
         }
       }
@@ -105180,6 +105221,23 @@
         }
       }
     },
+    "contextMenu.showWorkspaceInFinder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show in Finder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderで表示"
+          }
+        }
+      }
+    },
     "contextMenu.workspaceSettings": {
       "extractionState": "manual",
       "localizations": {
@@ -105278,6 +105336,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "シェルのスクロールバックでは右端のターミナルスクロールバーを表示します。cmux は代替画面系の TUI では自動的に隠し、ワークスペースごとにも無効化できます。"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentAutoResume": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume Agent Sessions on Reopen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再起動時にエージェントセッションを再開"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentAutoResume.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When cmux reopens after quit, restored agent terminals stay idle until you resume them manually."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux を終了後に再度開いたとき、復元されたエージェント端末は手動で再開するまで待機します。"
+          }
+        }
+      }
+    },
+    "settings.terminal.agentAutoResume.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When cmux reopens after quit, restored agent terminals automatically run their resume command."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux を終了後に再度開いたとき、復元されたエージェント端末で再開コマンドを自動実行します。"
           }
         }
       }
@@ -105400,6 +105509,40 @@
         }
       }
     },
+    "rightSidebar.close.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Right Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーを閉じる"
+          }
+        }
+      }
+    },
+    "rightSidebar.toggle.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle right sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーを切り替え"
+          }
+        }
+      }
+    },
     "rightSidebar.mode.files": {
       "extractionState": "manual",
       "localizations": {
@@ -105504,6 +105647,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "OpenCode"
+          }
+        }
+      }
+    },
+    "sessionIndex.agent.pi": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
           }
         }
       }
