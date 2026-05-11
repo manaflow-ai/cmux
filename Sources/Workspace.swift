@@ -8569,6 +8569,10 @@ final class Workspace: Identifiable, ObservableObject {
         panelTerminalLocations[panelId]
     }
 
+    func clearPanelLocation(panelId: UUID) {
+        panelTerminalLocations.removeValue(forKey: panelId)
+    }
+
     func updatePanelPullRequest(
         panelId: UUID,
         number: Int,
