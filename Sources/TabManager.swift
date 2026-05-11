@@ -3946,11 +3946,7 @@ class TabManager: ObservableObject {
     // MARK: - Surface Directory Updates (Backwards Compatibility)
 
     func updateSurfaceDirectory(tabId: UUID, surfaceId: UUID, directory: String) {
-        let trimmedForEmptyCheck = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedForEmptyCheck.isEmpty else { return }
-        let newlineTrimmedDirectory = directory.trimmingCharacters(in: .newlines)
-        let location = TerminalLocation.parseReportedDirectory(newlineTrimmedDirectory) ??
-            .local(path: newlineTrimmedDirectory)
+        guard let location = TerminalLocation.locationForDirectoryUpdate(directory) else { return }
         updateSurfaceLocation(tabId: tabId, surfaceId: surfaceId, location: location)
     }
 

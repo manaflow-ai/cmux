@@ -43,6 +43,13 @@ struct TerminalLocation: Equatable {
         TerminalLocation(host: nil, path: path, source: source, gitBranchSignal: .unspecified)
     }
 
+    static func locationForDirectoryUpdate(_ directory: String) -> TerminalLocation? {
+        let trimmedForEmptyCheck = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedForEmptyCheck.isEmpty else { return nil }
+        let newlineTrimmedDirectory = directory.trimmingCharacters(in: .newlines)
+        return parseReportedDirectory(newlineTrimmedDirectory) ?? .local(path: newlineTrimmedDirectory)
+    }
+
     static func parseOSC7Sequence(_ sequence: String) -> TerminalLocation? {
         let trimmed = sequence.trimmingCharacters(in: .whitespacesAndNewlines)
         let payload: String
