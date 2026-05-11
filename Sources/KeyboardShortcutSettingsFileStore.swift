@@ -367,6 +367,9 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["warnBeforeQuit"]) {
             snapshot.managedUserDefaults[QuitWarningSettings.warnBeforeQuitKey] = .bool(value)
         }
+        if let value = jsonBool(section["warnBeforeClosingTab"]) {
+            snapshot.managedUserDefaults[CloseTabWarningSettings.warnBeforeClosingTabKey] = .bool(value)
+        }
         if let value = jsonBool(section["renameSelectsExistingName"]) {
             snapshot.managedUserDefaults[CommandPaletteRenameSelectionSettings.selectAllOnFocusKey] = .bool(value)
         }
@@ -1213,6 +1216,7 @@ final class CmuxSettingsFileStore {
                     "iMessageMode": IMessageModeSettings.defaultValue,
                     "sendAnonymousTelemetry": TelemetrySettings.defaultSendAnonymousTelemetry,
                     "warnBeforeQuit": QuitWarningSettings.defaultWarnBeforeQuit,
+                    "warnBeforeClosingTab": CloseTabWarningSettings.defaultWarnBeforeClosingTab,
                     "renameSelectsExistingName": CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus,
                     "commandPaletteSearchesAllSurfaces": CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces,
                 ],

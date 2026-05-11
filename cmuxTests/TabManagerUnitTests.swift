@@ -889,6 +889,37 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
         XCTAssertEqual(manager.tabs.map(\.title), ["Alpha", "Beta"])
     }
 
+    func testCloseWorkspacesWithConfirmationHonorsWarnBeforeClosingTabDisabled() {
+        let defaults = UserDefaults.standard
+        let originalWarnBeforeClosingTab = defaults.object(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+        defaults.set(false, forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+        defer {
+            if let originalWarnBeforeClosingTab {
+                defaults.set(originalWarnBeforeClosingTab, forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+            } else {
+                defaults.removeObject(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+            }
+        }
+
+        let manager = TabManager()
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.setCustomTitle(tabId: manager.tabs[0].id, title: "Alpha")
+        manager.setCustomTitle(tabId: second.id, title: "Beta")
+        manager.setCustomTitle(tabId: third.id, title: "Gamma")
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return false
+        }
+
+        manager.closeWorkspacesWithConfirmation([manager.tabs[0].id, second.id], allowPinned: true)
+
+        XCTAssertEqual(promptCount, 0)
+        XCTAssertEqual(manager.tabs.map(\.title), ["Gamma"])
+    }
+
     func testCloseCurrentWorkspaceWithConfirmationUsesSidebarMultiSelection() {
         let manager = TabManager()
         let second = manager.addWorkspace()
@@ -996,6 +1027,48 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
 
 @MainActor
 final class TabManagerCloseCurrentPanelTests: XCTestCase {
+    private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
+
+    func testCloseCurrentPanelHonorsWarnBeforeClosingTabDisabledFromCmuxJSON() throws {
+        try assertCloseCurrentPanelConfirmation(
+            warnBeforeClosingTab: false,
+            expectedPromptCount: 0,
+            expectedPanelClosed: true
+        )
+    }
+
+    func testCloseCurrentPanelHonorsWarnBeforeClosingTabEnabledFromCmuxJSON() throws {
+        try assertCloseCurrentPanelConfirmation(
+            warnBeforeClosingTab: true,
+            expectedPromptCount: 1,
+            expectedPanelClosed: false
+        )
+    }
+
+    func testCloseCurrentPanelWarnBeforeClosingTabDefaultsToEnabledWhenUnset() throws {
+        try assertCloseCurrentPanelConfirmation(
+            warnBeforeClosingTab: nil,
+            expectedPromptCount: 1,
+            expectedPanelClosed: false
+        )
+    }
+
+    func testCloseCurrentPanelHonorsWarnBeforeClosingTabDisabledForPinnedWorkspaceLastSurface() throws {
+        try assertPinnedWorkspaceLastSurfaceConfirmation(
+            warnBeforeClosingTab: false,
+            expectedPromptCount: 0,
+            expectedWorkspaceClosed: true
+        )
+    }
+
+    func testCloseCurrentPanelHonorsWarnBeforeClosingTabEnabledForPinnedWorkspaceLastSurface() throws {
+        try assertPinnedWorkspaceLastSurfaceConfirmation(
+            warnBeforeClosingTab: true,
+            expectedPromptCount: 1,
+            expectedWorkspaceClosed: false
+        )
+    }
+
     func testRuntimeCloseSkipsConfirmationWhenShellReportsPromptIdle() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -1314,6 +1387,136 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         drainMainQueue()
 
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: initialPanelId))
+    }
+
+    private func assertCloseCurrentPanelConfirmation(
+        warnBeforeClosingTab: Bool?,
+        expectedPromptCount: Int,
+        expectedPanelClosed: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        try withWarnBeforeClosingTabConfig(warnBeforeClosingTab) {
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace,
+                  let paneId = workspace.bonsplitController.focusedPaneId,
+                  let initialPanelId = workspace.focusedPanelId,
+                  let initialTerminalPanel = workspace.terminalPanel(for: initialPanelId),
+                  workspace.newTerminalSurface(inPane: paneId, focus: false) != nil else {
+                XCTFail("Expected workspace with two terminal surfaces", file: file, line: line)
+                return
+            }
+            workspace.focusPanel(initialPanelId)
+            initialTerminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+
+            var promptCount = 0
+            manager.confirmCloseHandler = { _, _, _ in
+                promptCount += 1
+                return false
+            }
+
+            manager.closeCurrentPanelWithConfirmation()
+            drainMainQueue()
+            drainMainQueue()
+            drainMainQueue()
+
+            XCTAssertEqual(promptCount, expectedPromptCount, file: file, line: line)
+            if expectedPanelClosed {
+                XCTAssertNil(workspace.panels[initialPanelId], file: file, line: line)
+            } else {
+                XCTAssertNotNil(workspace.panels[initialPanelId], file: file, line: line)
+            }
+        }
+    }
+
+    private func assertPinnedWorkspaceLastSurfaceConfirmation(
+        warnBeforeClosingTab: Bool?,
+        expectedPromptCount: Int,
+        expectedWorkspaceClosed: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        try withWarnBeforeClosingTabConfig(warnBeforeClosingTab) {
+            let manager = TabManager()
+            let firstWorkspace = manager.tabs[0]
+            let pinnedWorkspace = manager.addWorkspace()
+            manager.setPinned(pinnedWorkspace, pinned: true)
+            manager.selectWorkspace(pinnedWorkspace)
+
+            guard let pinnedPanelId = pinnedWorkspace.focusedPanelId else {
+                XCTFail("Expected focused panel in pinned workspace", file: file, line: line)
+                return
+            }
+
+            var promptCount = 0
+            manager.confirmCloseHandler = { _, _, _ in
+                promptCount += 1
+                return false
+            }
+
+            manager.closeCurrentPanelWithConfirmation()
+            drainMainQueue()
+            drainMainQueue()
+            drainMainQueue()
+
+            XCTAssertEqual(promptCount, expectedPromptCount, file: file, line: line)
+            if expectedWorkspaceClosed {
+                XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id], file: file, line: line)
+                XCTAssertNil(pinnedWorkspace.panels[pinnedPanelId], file: file, line: line)
+            } else {
+                XCTAssertTrue(manager.tabs.contains(where: { $0.id == pinnedWorkspace.id }), file: file, line: line)
+                XCTAssertNotNil(pinnedWorkspace.panels[pinnedPanelId], file: file, line: line)
+            }
+        }
+    }
+
+    private func withWarnBeforeClosingTabConfig(
+        _ warnBeforeClosingTab: Bool?,
+        run: () throws -> Void
+    ) throws {
+        let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        let defaults = UserDefaults.standard
+        let originalWarnBeforeClosingTab = defaults.object(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+        let originalBackups = defaults.object(forKey: settingsFileBackupsDefaultsKey)
+        defaults.removeObject(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            if let originalWarnBeforeClosingTab {
+                defaults.set(originalWarnBeforeClosingTab, forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+            } else {
+                defaults.removeObject(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+            }
+            if let originalBackups {
+                defaults.set(originalBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "WarnBeforeClosingTabTests-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        let settingLine = warnBeforeClosingTab.map { #"    "warnBeforeClosingTab": \#($0)"# } ?? ""
+        let appBody = settingLine.isEmpty ? "" : "\n\(settingLine)\n  "
+        try """
+        {
+          "app": {\(appBody)}
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        try run()
     }
 }
 
