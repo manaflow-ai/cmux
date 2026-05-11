@@ -9676,30 +9676,37 @@ struct CMUXCLI {
             if followMode {
                 // Continuous streaming: poll surface, print only new content
                 let interval = Double(intervalArg ?? "0.5") ?? 0.5
+                guard interval > 0 else {
+                    throw CLIError(message: "--interval must be greater than 0")
+                }
                 var previousText = ""
 
                 // Ignore SIGPIPE so we exit cleanly when the reader disconnects
                 signal(SIGPIPE, SIG_IGN)
 
                 while true {
-                    let payload = try client.sendV2(method: "surface.read_text", params: params)
-                    let currentText = (payload["text"] as? String) ?? ""
+                    do {
+                        let payload = try client.sendV2(method: "surface.read_text", params: params)
+                        let currentText = (payload["text"] as? String) ?? ""
 
-                    if currentText != previousText {
-                        if previousText.isEmpty {
-                            // First read — print everything
-                            print(currentText, terminator: "")
-                        } else if currentText.count > previousText.count,
-                                  currentText.hasPrefix(String(previousText.prefix(100))) {
-                            // Text grew — print only the new part
-                            let newText = String(currentText.dropFirst(previousText.count))
-                            print(newText, terminator: "")
-                        } else {
-                            // Content changed completely (screen refresh) — print separator + all
-                            print("\n---\n\(currentText)", terminator: "")
+                        if currentText != previousText {
+                            if previousText.isEmpty {
+                                // First read — print everything
+                                print(currentText, terminator: "")
+                            } else if currentText.count > previousText.count,
+                                      currentText.hasPrefix(previousText) {
+                                // Text grew — print only the new part
+                                let newText = String(currentText.dropFirst(previousText.count))
+                                print(newText, terminator: "")
+                            } else {
+                                // Content changed completely (screen refresh) — print separator + all
+                                print("\n---\n\(currentText)", terminator: "")
+                            }
+                            fflush(stdout)
+                            previousText = currentText
                         }
-                        fflush(stdout)
-                        previousText = currentText
+                    } catch {
+                        // Transient error — retry after interval
                     }
 
                     Thread.sleep(forTimeInterval: interval)
