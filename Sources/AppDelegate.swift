@@ -12362,7 +12362,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !isCommandPaletteBlockingUIScaleShortcut(for: event) else {
             return false
         }
-        handleUIScaleShortcut(event: event)
+        return handleUIScaleShortcut(event: event)
     }
 
     private func handleUIScaleShortcut(event: NSEvent) -> Bool {
