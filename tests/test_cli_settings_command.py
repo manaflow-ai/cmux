@@ -76,7 +76,7 @@ SETTING_SAMPLE_VALUES: dict[str, tuple[str, Any]] = {
     "sidebar.showPullRequests": ("false", False),
     "sidebar.showSSH": ("false", False),
     "sidebarAppearance.darkModeTintColor": ("#aabbcc", "#AABBCC"),
-    "sidebarAppearance.lightModeTintColor": ("778899", "#778899"),
+    "sidebarAppearance.lightModeTintColor": ("#778899", "#778899"),
     "sidebarAppearance.matchTerminalBackground": ("true", True),
     "sidebarAppearance.tintColor": ("abc123", "#ABC123"),
     "sidebarAppearance.tintOpacity": ("0.42", 0.42),
@@ -87,7 +87,7 @@ SETTING_SAMPLE_VALUES: dict[str, tuple[str, Any]] = {
     "workspaceColors.indicatorStyle": ("solid-fill", "solidFill"),
     "workspaceColors.notificationBadgeColor": ("null", None),
     "workspaceColors.paletteOverrides": ('{"Focus":"#010203"}', {"Focus": "#010203"}),
-    "workspaceColors.selectionColor": ("445566", "#445566"),
+    "workspaceColors.selectionColor": ("#445566", "#445566"),
 }
 
 SENSITIVE_SETTING_KEYS = {"automation.socketPassword"}
