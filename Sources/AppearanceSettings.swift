@@ -85,9 +85,6 @@ enum AppearanceSettings {
     static let defaultMode: AppearanceMode = .system
     private static let appleInterfaceStyleKey = "AppleInterfaceStyle"
     private static let darkInterfaceStyleValue = "Dark"
-    private static let managedTerminalAppearanceWriteQueue = DispatchQueue(
-        label: "com.cmux.appearance.managedTerminalConfig"
-    )
 
     static func mode(for rawValue: String?) -> AppearanceMode {
         guard let rawValue, let mode = AppearanceMode(rawValue: rawValue) else {
@@ -210,87 +207,14 @@ enum AppearanceSettings {
         return normalized
     }
 
-#if compiler(>=6.2)
-    @concurrent
-#endif
-    nonisolated
-    static func persistManagedTerminalAppearanceConfig(
-        _ mode: AppearanceMode,
-        appAppearance: NSAppearance?,
-        defaults: UserDefaults = .standard,
-        source: String,
-        environment: ConfigSourceEnvironment = .live()
-    ) {
-        let normalized = Self.mode(for: mode.rawValue)
-        let colorScheme = managedTerminalColorScheme(
-            for: normalized,
-            appAppearance: appAppearance,
-            defaults: defaults
-        )
-        let managedBlock = managedTerminalAppearanceBlock(
-            mode: normalized,
-            colorScheme: colorScheme
-        )
-
-        persistManagedTerminalAppearanceBlock(
-            managedBlock,
-            source: source,
-            environment: environment
-        )
-    }
-
-#if compiler(>=6.2)
-    @concurrent
-#endif
-    nonisolated
-    static func persistManagedTerminalAppearanceBlock(
-        _ managedBlock: String,
-        source: String,
-        environment: ConfigSourceEnvironment = .live()
-    ) {
-        do {
-            let url = environment.cmuxConfigURL
-            let existingContents = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-            let updatedContents = replacingManagedTerminalAppearanceBlock(
-                in: existingContents,
-                with: managedBlock
-            )
-            guard updatedContents != existingContents else { return }
-            try environment.writeCmuxConfigContents(updatedContents)
-        } catch {
-            #if DEBUG
-            cmuxDebugLog("appearance.ghosttyConfig.persist.failed source=\(source) error=\(error)")
-            #endif
-        }
-    }
-
     static var liveManagedTerminalAppearanceConfigPersistence: (AppearanceMode, NSAppearance?, UserDefaults, String) -> Task<Void, Never>? {
         { mode, appearance, defaults, source in
-            let normalized = Self.mode(for: mode.rawValue)
-            let colorScheme = managedTerminalColorScheme(
-                for: normalized,
+            ManagedGhosttyAppearanceConfigStore.livePersistenceTask(
+                mode: mode,
                 appAppearance: appearance,
-                defaults: defaults
+                defaults: defaults,
+                source: source
             )
-            let managedBlock = managedTerminalAppearanceBlock(
-                mode: normalized,
-                colorScheme: colorScheme
-            )
-
-            let completion = AsyncStream<Void> { continuation in
-                managedTerminalAppearanceWriteQueue.async {
-                    persistManagedTerminalAppearanceBlock(
-                        managedBlock,
-                        source: source
-                    )
-                    continuation.yield(())
-                    continuation.finish()
-                }
-            }
-
-            return Task(priority: .utility) {
-                for await _ in completion {}
-            }
         }
     }
 
@@ -329,79 +253,6 @@ enum AppearanceSettings {
             await persistenceTask.value
             environment.synchronizeTerminalThemeWithAppearance(appearance, source)
         }
-    }
-
-    private static func managedTerminalColorScheme(
-        for mode: AppearanceMode,
-        appAppearance: NSAppearance?,
-        defaults: UserDefaults
-    ) -> GhosttyConfig.ColorSchemePreference {
-        switch mode {
-        case .light:
-            return .light
-        case .dark:
-            return .dark
-        case .system, .auto:
-            return GhosttyConfig.currentColorSchemePreference(
-                appAppearance: appAppearance ?? systemNSAppearance(defaults: defaults),
-                defaults: defaults
-            )
-        }
-    }
-
-    private static let managedTerminalAppearanceBeginMarker = "# cmux-managed-appearance: begin"
-    private static let managedTerminalAppearanceEndMarker = "# cmux-managed-appearance: end"
-
-    private static func managedTerminalAppearanceBlock(
-        mode: AppearanceMode,
-        colorScheme: GhosttyConfig.ColorSchemePreference
-    ) -> String {
-        let body = GhosttyConfig.cmuxDefaultThemeConfigContents(
-            preferredColorScheme: colorScheme
-        )
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        return """
-        \(managedTerminalAppearanceBeginMarker)
-        # Generated by cmux from the app appearance setting.
-        # mode = \(mode.rawValue)
-        \(body)
-        \(managedTerminalAppearanceEndMarker)
-
-        """
-    }
-
-    private static func replacingManagedTerminalAppearanceBlock(
-        in contents: String,
-        with managedBlock: String
-    ) -> String {
-        if contents.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return managedBlock
-        }
-
-        if let startRange = contents.range(of: managedTerminalAppearanceBeginMarker) {
-            let replacementStart = contents[..<startRange.lowerBound]
-                .lastIndex(of: "\n")
-                .map { contents.index(after: $0) } ?? contents.startIndex
-            guard let endRange = contents.range(
-                of: managedTerminalAppearanceEndMarker,
-                range: startRange.upperBound..<contents.endIndex
-            ) else {
-                var updated = contents
-                updated.replaceSubrange(replacementStart..<contents.endIndex, with: managedBlock)
-                return updated.hasSuffix("\n") ? updated : updated + "\n"
-            }
-
-            let replacementEnd = contents[endRange.upperBound...]
-                .firstIndex(of: "\n")
-                .map { contents.index(after: $0) } ?? contents.endIndex
-            var updated = contents
-            updated.replaceSubrange(replacementStart..<replacementEnd, with: managedBlock)
-            return updated.hasSuffix("\n") ? updated : updated + "\n"
-        }
-
-        let separator = contents.hasSuffix("\n") ? "\n" : "\n\n"
-        return contents + separator + managedBlock
     }
 
     private static func applicationAppearance(

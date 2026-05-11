@@ -197,12 +197,14 @@ final class AppearanceSettingsTests: XCTestCase {
                     },
                     persistManagedTerminalAppearanceConfig: { mode, appearance, callbackDefaults, source in
                         let resolvedAppearance = appearance ?? NSAppearance(named: scenario.systemAppearance)
-                        AppearanceSettings.persistManagedTerminalAppearanceConfig(
-                            mode,
+                        ManagedGhosttyAppearanceConfigStore(
+                            environment: configEnvironment,
+                            defaults: callbackDefaults
+                        )
+                        .persistManagedTerminalAppearanceConfig(
+                            mode: mode,
                             appAppearance: resolvedAppearance,
-                            defaults: callbackDefaults,
-                            source: source,
-                            environment: configEnvironment
+                            source: source
                         )
                         return nil
                     }
@@ -241,12 +243,12 @@ final class AppearanceSettingsTests: XCTestCase {
             background = #000000
             """)
 
-            AppearanceSettings.persistManagedTerminalAppearanceConfig(
-                .dark,
-                appAppearance: NSAppearance(named: .darkAqua),
-                source: "test.orphanedManagedBlock",
-                environment: configEnvironment
-            )
+            ManagedGhosttyAppearanceConfigStore(environment: configEnvironment)
+                .persistManagedTerminalAppearanceConfig(
+                    mode: .dark,
+                    appAppearance: NSAppearance(named: .darkAqua),
+                    source: "test.orphanedManagedBlock"
+                )
 
             let contents = try String(contentsOf: configEnvironment.cmuxConfigURL, encoding: .utf8)
             XCTAssertTrue(contents.contains("font-size = 13"))
@@ -254,6 +256,27 @@ final class AppearanceSettingsTests: XCTestCase {
             XCTAssertEqual(occurrenceCount(of: "# cmux-managed-appearance: end", in: contents), 1)
             XCTAssertTrue(contents.contains("background = #1e1e1e"))
             XCTAssertFalse(contents.contains("background = #000000"))
+        }
+    }
+
+    func testManagedGhosttyConfigDoesNotOverwriteUnreadableExistingConfig() throws {
+        try withTemporaryHomeDirectory { homeDirectory in
+            let configEnvironment = ConfigSourceEnvironment(
+                homeDirectoryURL: homeDirectory,
+                currentBundleIdentifier: "com.cmuxterm.app"
+            )
+            let configURL = try configEnvironment.materializeCmuxConfigFileIfNeeded()
+            let invalidUTF8 = Data([0xff, 0xfe, 0xfd])
+            try invalidUTF8.write(to: configURL)
+
+            ManagedGhosttyAppearanceConfigStore(environment: configEnvironment)
+                .persistManagedTerminalAppearanceConfig(
+                    mode: .dark,
+                    appAppearance: NSAppearance(named: .darkAqua),
+                    source: "test.unreadableExistingConfig"
+                )
+
+            XCTAssertEqual(try Data(contentsOf: configURL), invalidUTF8)
         }
     }
 
