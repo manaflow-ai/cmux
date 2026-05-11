@@ -1275,6 +1275,46 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         XCTAssertEqual(panel.webView.url?.host, "api.cmux-loopback.localtest.me")
     }
 
+    func testRemoteWorkspaceRuntimeBridgeAliasesMultipleLoopbackPortsFromSamePage() async throws {
+        let remoteWorkspaceId = UUID()
+        let panel = BrowserPanel(
+            workspaceId: remoteWorkspaceId,
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
+        )
+        let baseURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:3000/"))
+
+        panel.webView.loadHTMLString(
+            "<!doctype html><html><body>remote loopback bridge</body></html>",
+            baseURL: baseURL
+        )
+        try await waitForBrowserWebViewLoad(panel.webView)
+
+        let result = try await panel.evaluateJavaScript(
+            """
+            (() => {
+              const rewrite = window.__cmuxRewriteRemoteLoopbackURL;
+              if (typeof rewrite !== 'function') {
+                return 'missing bridge';
+              }
+              return JSON.stringify([
+                rewrite('http://localhost:3000/frontend'),
+                rewrite('http://localhost:8000/api'),
+                rewrite('http://api.localhost:8000/v1'),
+                rewrite('ws://localhost:5173/hmr'),
+                rewrite('wss://localhost:5173/hmr'),
+                rewrite('https://localhost:9443/secure')
+              ]);
+            })()
+            """
+        ) as? String
+
+        XCTAssertEqual(
+            result,
+            #"["http://cmux-loopback.localtest.me:3000/frontend","http://cmux-loopback.localtest.me:8000/api","http://api.cmux-loopback.localtest.me:8000/v1","ws://cmux-loopback.localtest.me:5173/hmr","wss://localhost:5173/hmr","https://localhost:9443/secure"]"#
+        )
+    }
+
     func testRemoteWorkspaceKeepsHTTPSLoopbackUnaliased() {
         let remoteWorkspaceId = UUID()
         let url = URL(string: "https://localhost:3443/demo")!
@@ -1295,6 +1335,17 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
 
         XCTAssertEqual(panel.preferredURLStringForOmnibar(), url.absoluteString)
         XCTAssertEqual(panel.webView.url?.host, "localhost")
+    }
+
+    private func waitForBrowserWebViewLoad(_ webView: WKWebView, timeout: TimeInterval = 2.0) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while webView.isLoading {
+            if Date() >= deadline {
+                XCTFail("Timed out waiting for browser web view to finish loading")
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
     }
 
     func testBrowserMoveIntoRemoteWorkspaceRebuildsWebsiteDataStoreScope() throws {
