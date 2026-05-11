@@ -1005,7 +1005,11 @@ class TabManager: ObservableObject {
         let tabId: UUID
         let panelId: UUID
     }
-    private var pendingPanelTitleUpdates: [PanelTitleUpdateKey: String] = [:]
+    private struct PendingPanelTitleUpdate {
+        var title: String
+        var sawAgentTitleRegistration: Bool
+    }
+    private var pendingPanelTitleUpdates: [PanelTitleUpdateKey: PendingPanelTitleUpdate] = [:]
     private var panelAgentTitleRegistrations: [PanelTitleUpdateKey: SidebarAgentTitleRegistration] = [:]
     private var panelAgentTitleRegistrationSeenAt: [PanelTitleUpdateKey: Date] = [:]
     private let panelTitleUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
@@ -5062,12 +5066,22 @@ class TabManager: ObservableObject {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
-        pendingPanelTitleUpdates[key] = trimmed
+        let priorSawAgentTitleRegistration = pendingPanelTitleUpdates[key]?.sawAgentTitleRegistration == true
         if let registration = SidebarAgentStatusService.titleRegistration(for: trimmed) {
+            pendingPanelTitleUpdates[key] = PendingPanelTitleUpdate(
+                title: trimmed,
+                sawAgentTitleRegistration: true
+            )
             panelAgentTitleRegistrations[key] = registration
             panelAgentTitleRegistrationSeenAt[key] = Date()
         } else {
-            clearPanelAgentTitleRegistration(for: key)
+            pendingPanelTitleUpdates[key] = PendingPanelTitleUpdate(
+                title: trimmed,
+                sawAgentTitleRegistration: priorSawAgentTitleRegistration
+            )
+            if !priorSawAgentTitleRegistration {
+                clearPanelAgentTitleRegistration(for: key)
+            }
         }
         panelTitleUpdateCoalescer.signal { [weak self] in
             self?.flushPendingPanelTitleUpdates()
@@ -5105,8 +5119,9 @@ class TabManager: ObservableObject {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.agentPIDDiscoveryInFlight = false
-                _ = self.registerAgentPIDsFromTerminalTitlesIfNeeded(processSnapshot: processSnapshot)
-                self.agentPIDDiscoveryLastStartedAt = Date()
+                if self.registerAgentPIDsFromTerminalTitlesIfNeeded(processSnapshot: processSnapshot) {
+                    self.agentPIDDiscoveryLastStartedAt = Date()
+                }
             }
         }
     }
@@ -5194,9 +5209,11 @@ class TabManager: ObservableObject {
         guard !pendingPanelTitleUpdates.isEmpty else { return }
         let updates = pendingPanelTitleUpdates
         pendingPanelTitleUpdates.removeAll(keepingCapacity: true)
-        let shouldDiscoverAgentPID = updates.keys.contains { panelAgentTitleRegistrations[$0] != nil }
-        for (key, title) in updates {
-            updatePanelTitle(tabId: key.tabId, panelId: key.panelId, title: title)
+        let shouldDiscoverAgentPID = updates.contains { key, update in
+            update.sawAgentTitleRegistration || panelAgentTitleRegistrations[key] != nil
+        }
+        for (key, update) in updates {
+            updatePanelTitle(tabId: key.tabId, panelId: key.panelId, title: update.title)
         }
         if shouldDiscoverAgentPID {
             scheduleAgentPIDDiscoveryFromTerminalTitlesIfNeeded()
