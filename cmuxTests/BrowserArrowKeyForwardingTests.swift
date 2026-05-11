@@ -293,7 +293,8 @@ final class AuthManagerBrowserSignInTests: XCTestCase {
             client: StubAuthClient(),
             tokenStore: tokenStore,
             settingsStore: makeIsolatedSettingsStore(),
-            urlOpener: { openedURL = $0 }
+            urlOpener: { openedURL = $0 },
+            usesSystemWebAuthenticationSession: { false }
         )
         await manager.awaitBootstrapped()
 
@@ -324,7 +325,8 @@ final class AuthManagerBrowserSignInTests: XCTestCase {
             client: StubAuthClient(),
             tokenStore: tokenStore,
             settingsStore: makeIsolatedSettingsStore(),
-            urlOpener: { openedURL = $0 }
+            urlOpener: { openedURL = $0 },
+            usesSystemWebAuthenticationSession: { false }
         )
         await manager.awaitBootstrapped()
 
@@ -365,7 +367,8 @@ final class AuthManagerBrowserSignInTests: XCTestCase {
             client: FailingRefreshAuthClient(),
             tokenStore: tokenStore,
             settingsStore: makeIsolatedSettingsStore(),
-            urlOpener: { _ in }
+            urlOpener: { _ in },
+            usesSystemWebAuthenticationSession: { false }
         )
         await manager.awaitBootstrapped()
 
@@ -382,6 +385,49 @@ final class AuthManagerBrowserSignInTests: XCTestCase {
             do {
                 _ = try await manager.getAccessToken()
                 XCTFail("Expected failed callback refresh to leave the fast cache empty")
+            } catch AuthManagerError.missingAccessToken {
+            } catch {
+                XCTFail("Unexpected access token error: \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected callback error: \(error)")
+        }
+    }
+
+    func testBrowserCallbackClearsPreviousFastAccessTokenWhenRefreshFails() async throws {
+        let tokenStore = InMemoryAuthTokenStore()
+        let manager = AuthManager(
+            client: FailingRefreshAuthClient(),
+            tokenStore: tokenStore,
+            settingsStore: makeIsolatedSettingsStore(),
+            urlOpener: { _ in },
+            usesSystemWebAuthenticationSession: { false }
+        )
+        await manager.awaitBootstrapped()
+
+        manager.applySignInResult(AuthManager.SignInResult(
+            accessToken: "old-access-token",
+            refreshToken: "old-refresh-token",
+            email: "old@example.com",
+            displayName: "Old User",
+            userId: "old_user",
+            selectedTeamId: nil,
+            teams: []
+        ))
+        let previousAccessToken = try await manager.getAccessToken()
+        XCTAssertEqual(previousAccessToken, "old-access-token")
+
+        let callbackURL = try XCTUnwrap(URL(
+            string: "\(AuthEnvironment.callbackScheme)://auth-callback?stack_refresh=refresh-token&stack_access=access-token"
+        ))
+
+        do {
+            try await manager.handleCallbackURL(callbackURL)
+            XCTFail("Expected refresh failure to propagate")
+        } catch AuthManagerError.invalidCallback {
+            do {
+                _ = try await manager.getAccessToken()
+                XCTFail("Expected failed callback refresh to clear the previous fast cache")
             } catch AuthManagerError.missingAccessToken {
             } catch {
                 XCTFail("Unexpected access token error: \(error)")

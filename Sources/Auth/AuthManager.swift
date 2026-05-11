@@ -145,6 +145,7 @@ final class AuthManager: ObservableObject {
     private let tokenStore: any StackAuthTokenStoreProtocol
     private let settingsStore: AuthSettingsStore
     private let urlOpener: (URL) -> Void
+    private let usesSystemWebAuthenticationSession: () -> Bool
 
     /// Resolves when the on-launch session restoration finishes (success or failure).
     /// Any probe that needs a definitive `isAuthenticated` value must `await` this
@@ -157,12 +158,16 @@ final class AuthManager: ObservableObject {
         client: (any AuthClientProtocol)? = nil,
         tokenStore: any StackAuthTokenStoreProtocol = KeychainStackTokenStore(),
         settingsStore: AuthSettingsStore = AuthSettingsStore(),
-        urlOpener: ((URL) -> Void)? = nil
+        urlOpener: ((URL) -> Void)? = nil,
+        usesSystemWebAuthenticationSession: (() -> Bool)? = nil
     ) {
         self.tokenStore = tokenStore
         self.settingsStore = settingsStore
         self.client = client ?? Self.makeDefaultClient(tokenStore: tokenStore)
         self.urlOpener = urlOpener ?? Self.defaultURLOpener
+        self.usesSystemWebAuthenticationSession = usesSystemWebAuthenticationSession ?? {
+            Self.shouldUseSystemWebAuthenticationSession
+        }
         let cachedUser = settingsStore.cachedUser()
         self.currentUser = cachedUser
         self.selectedTeamID = settingsStore.selectedTeamID
@@ -192,7 +197,7 @@ final class AuthManager: ObservableObject {
         webAuthSession?.cancel()
         webAuthSession = nil
 
-        if Self.shouldUseSystemWebAuthenticationSession {
+        if usesSystemWebAuthenticationSession() {
             isLoading = true
             beginSystemWebAuthenticationSession()
             return
@@ -432,6 +437,7 @@ final class AuthManager: ObservableObject {
         // so there is no active presentation to cancel on this shared callback path.
         // The external-browser path never creates an ASWebAuthenticationSession.
         webAuthSession = nil
+        lastKnownAccessToken = nil
         isLoading = true
         defer { isLoading = false }
 
