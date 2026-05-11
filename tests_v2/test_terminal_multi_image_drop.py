@@ -99,12 +99,13 @@ token = {token!r}
 fd = sys.stdin.fileno()
 old = termios.tcgetattr(fd)
 data = b""
+end_times = []
 last_data_at = 0.0
 try:
     sys.stdout.write("\\x1b[?2004hREADY-" + token + "\\r\\n")
     sys.stdout.flush()
     tty.setraw(fd)
-    deadline = time.time() + 8.0
+    deadline = time.time() + 15.0
     while time.time() < deadline:
         readable, _, _ = select.select([fd], [], [], 0.1)
         if readable:
@@ -113,11 +114,14 @@ try:
                 break
             data += chunk
             last_data_at = time.time()
+            while len(end_times) < data.count(b"\\x1b[201~"):
+                end_times.append(last_data_at)
         if data.count(b"\\x1b[201~") >= 2:
             break
-        if data and time.time() - last_data_at > 0.6:
+        if data and time.time() - last_data_at > 3.5:
             break
-    sys.stdout.write("\\r\\nPASTE-" + token + " " + data.hex() + "\\r\\n")
+    timings = ",".join(f"{{value:.3f}}" for value in end_times)
+    sys.stdout.write("\\r\\nPASTE-" + token + " " + data.hex() + " " + timings + "\\r\\n")
     sys.stdout.flush()
     time.sleep(2.0)
 finally:
@@ -130,7 +134,7 @@ finally:
     return script_path
 
 
-def _run_bracketed_paste_case(client: cmux, expected_paths: list[str], payload: str, temp_dir: Path) -> tuple[str, bytes]:
+def _run_bracketed_paste_case(client: cmux, expected_paths: list[str], payload: str, temp_dir: Path) -> tuple[str, bytes, list[float]]:
     token = f"{payload}-{secrets.token_hex(4)}"
     script_path = _write_bracketed_paste_capture_script(temp_dir, token)
     workspace_id = client.new_workspace()
@@ -150,9 +154,14 @@ def _run_bracketed_paste_case(client: cmux, expected_paths: list[str], payload: 
         lambda text: f"PASTE-{token} " in text,
         timeout=12.0,
     )
-    match = re.search(rf"PASTE-{re.escape(token)} ([0-9a-f]+)", terminal_text)
+    match = re.search(rf"PASTE-{re.escape(token)} ([0-9a-f]+) ([0-9.,]*)", terminal_text)
     _must(match is not None, f"missing paste capture line for {token}: {terminal_text[-1000:]!r}")
-    return workspace_id, bytes.fromhex(match.group(1))
+    timings = [
+        float(value)
+        for value in match.group(2).split(",")
+        if value
+    ]
+    return workspace_id, bytes.fromhex(match.group(1)), timings
 
 
 def main() -> int:
@@ -201,7 +210,7 @@ def main() -> int:
             _must("/clipboard-" not in terminal_text, f"file URL image drop inserted temp clipboard path: {terminal_text[-1000:]!r}")
 
             for payload in ["image_data", "file_urls"]:
-                workspace_id, raw_paste = _run_bracketed_paste_case(client, expected_paths, payload, temp_dir)
+                workspace_id, raw_paste, paste_end_times = _run_bracketed_paste_case(client, expected_paths, payload, temp_dir)
                 workspace_ids.append(workspace_id)
                 if payload == "file_urls":
                     for escaped_path in escaped_paths:
@@ -210,11 +219,15 @@ def main() -> int:
                 paste_starts = raw_paste.count(b"\x1b[200~")
                 paste_ends = raw_paste.count(b"\x1b[201~")
                 _must(
-                    paste_starts == 1 and paste_ends == 1,
-                    f"{payload} drop should arrive as one bracketed paste transaction; starts={paste_starts} ends={paste_ends} raw={raw_paste!r}",
+                    paste_starts >= 2 and paste_ends >= 2,
+                    f"{payload} drop should arrive as separate bracketed paste transactions; starts={paste_starts} ends={paste_ends} raw={raw_paste!r}",
+                )
+                _must(
+                    len(paste_end_times) >= 2 and paste_end_times[1] - paste_end_times[0] >= 1.8,
+                    f"{payload} paste transactions should be spaced for Claude image ingestion; timings={paste_end_times} raw={raw_paste!r}",
                 )
 
-        print(f"PASS: local image drop materialized {len(materialized_paths)} image_data images, preserved original file_urls, and used one paste transaction")
+        print(f"PASS: local image drop materialized {len(materialized_paths)} image_data images, preserved original file_urls, and used delayed paste transactions")
         return 0
     finally:
         if workspace_ids:
