@@ -330,6 +330,89 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(shortcut.control)
     }
 
+    func testRightSidebarAndFindShortcutDefaultsMatchSettingsSurface() {
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.focusRightSidebar.label,
+            String(localized: "shortcut.focusRightSidebar.label", defaultValue: "Toggle Right Sidebar Focus")
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.toggleRightSidebar.label,
+            String(localized: "shortcut.toggleRightSidebar.label", defaultValue: "Toggle Right Sidebar")
+        )
+
+        let toggleRightSidebar = KeyboardShortcutSettings.Action.toggleRightSidebar.defaultShortcut
+        XCTAssertEqual(toggleRightSidebar.key, "b")
+        XCTAssertTrue(toggleRightSidebar.command)
+        XCTAssertFalse(toggleRightSidebar.shift)
+        XCTAssertTrue(toggleRightSidebar.option)
+        XCTAssertFalse(toggleRightSidebar.control)
+
+        let focusRightSidebar = KeyboardShortcutSettings.Action.focusRightSidebar.defaultShortcut
+        XCTAssertEqual(focusRightSidebar.key, "e")
+        XCTAssertTrue(focusRightSidebar.command)
+        XCTAssertTrue(focusRightSidebar.shift)
+        XCTAssertFalse(focusRightSidebar.option)
+        XCTAssertFalse(focusRightSidebar.control)
+
+        let findInDirectory = KeyboardShortcutSettings.Action.findInDirectory.defaultShortcut
+        XCTAssertEqual(findInDirectory.key, "f")
+        XCTAssertTrue(findInDirectory.command)
+        XCTAssertTrue(findInDirectory.shift)
+        XCTAssertFalse(findInDirectory.option)
+        XCTAssertFalse(findInDirectory.control)
+    }
+
+    func testRightSidebarModeSwitchesHavePrivateControlDigitDefaults() {
+        let modeSwitchActions: [(KeyboardShortcutSettings.Action, String)] = [
+            (.switchRightSidebarToFiles, "1"),
+            (.switchRightSidebarToFind, "2"),
+            (.switchRightSidebarToSessions, "3"),
+            (.switchRightSidebarToFeed, "4"),
+            (.switchRightSidebarToDock, "5"),
+        ]
+
+        for (action, key) in modeSwitchActions {
+            XCTAssertEqual(action.defaultShortcut.key, key)
+            XCTAssertFalse(action.defaultShortcut.command)
+            XCTAssertFalse(action.defaultShortcut.shift)
+            XCTAssertFalse(action.defaultShortcut.option)
+            XCTAssertTrue(action.defaultShortcut.control)
+            XCTAssertFalse(action.isPublicShortcutAction)
+            XCTAssertFalse(KeyboardShortcutSettings.publicShortcutActions.contains(action))
+            XCTAssertFalse(KeyboardShortcutSettings.settingsVisibleActions.contains(action))
+        }
+    }
+
+    func testSettingsVisibleShortcutActionsIncludeRemappableExampleShortcuts() {
+        let visibleActions = Set(KeyboardShortcutSettings.settingsVisibleActions)
+
+        XCTAssertTrue(visibleActions.contains(.toggleRightSidebar))
+        XCTAssertTrue(visibleActions.contains(.focusRightSidebar))
+        XCTAssertTrue(visibleActions.contains(.findInDirectory))
+        XCTAssertFalse(visibleActions.contains(.showHideAllWindows))
+    }
+
+    func testSettingsVisibleShortcutActionsColocateRightSidebarFileExplorerAndFindShortcuts() {
+        let visibleActions = KeyboardShortcutSettings.settingsVisibleActions
+        let expectedActions: [KeyboardShortcutSettings.Action] = [
+            .focusRightSidebar,
+            .toggleRightSidebar,
+            .findInDirectory,
+        ]
+
+        guard let startIndex = visibleActions.firstIndex(of: .focusRightSidebar) else {
+            XCTFail("Toggle Right Sidebar Focus should be visible in keyboard shortcut settings")
+            return
+        }
+
+        let endIndex = startIndex + expectedActions.count
+        guard endIndex <= visibleActions.count else {
+            XCTFail("Expected shortcut settings to include the full right-sidebar shortcut run")
+            return
+        }
+        XCTAssertEqual(Array(visibleActions[startIndex..<endIndex]), expectedActions)
+    }
+
     func testMenuItemKeyEquivalentHandlesArrowAndTabKeys() {
         XCTAssertNotNil(StoredShortcut(key: "←", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
         XCTAssertNotNil(StoredShortcut(key: "→", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
@@ -3659,6 +3742,12 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
 
 @MainActor
 final class WorkspacePanelGitBranchTests: XCTestCase {
+    private final class RejectingCreateTabDelegate: BonsplitDelegate {
+        func splitTabBar(_ controller: BonsplitController, shouldCreateTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+            false
+        }
+    }
+
     private func drainMainQueue() {
         let expectation = expectation(description: "drain main queue")
         DispatchQueue.main.async {
@@ -3758,6 +3847,49 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         let restoredPanelId = workspace.attachDetachedSurface(detached, inPane: paneId, focus: false)
         XCTAssertEqual(restoredPanelId, panelId)
         XCTAssertEqual(workspace.panels.count, 1)
+    }
+
+    func testFailedAttachDoesNotRebindDetachedTerminalPanelToDestinationWorkspace() {
+        let source = Workspace()
+        guard let panelId = source.focusedPanelId,
+              let sourceTerminalPanel = source.panels[panelId] as? TerminalPanel else {
+            XCTFail("Expected initial terminal panel")
+            return
+        }
+
+        XCTAssertEqual(sourceTerminalPanel.workspaceId, source.id)
+
+        guard let detached = source.detachSurface(panelId: panelId),
+              let detachedTerminalPanel = detached.panel as? TerminalPanel else {
+            XCTFail("Expected terminal detach transfer")
+            return
+        }
+
+        XCTAssertEqual(detachedTerminalPanel.workspaceId, source.id)
+
+        let destination = Workspace()
+        guard let destinationPaneId = destination.bonsplitController.focusedPaneId else {
+            XCTFail("Expected destination pane")
+            return
+        }
+
+        let rejectingDelegate = RejectingCreateTabDelegate()
+        destination.bonsplitController.delegate = rejectingDelegate
+
+        let attachedPanelId = destination.attachDetachedSurface(
+            detached,
+            inPane: destinationPaneId,
+            focus: false
+        )
+
+        XCTAssertNil(attachedPanelId)
+        XCTAssertNil(destination.panels[panelId])
+        XCTAssertNil(destination.surfaceIdFromPanelId(panelId))
+        XCTAssertEqual(
+            detachedTerminalPanel.workspaceId,
+            source.id,
+            "A failed attach should leave the detached panel bound to its source workspace for retry"
+        )
     }
 
     func testDetachSurfaceWithRemainingPanelsSkipsDelayedFocusReconcile() {

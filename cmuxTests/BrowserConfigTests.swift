@@ -3383,6 +3383,18 @@ final class BrowserNavigableURLResolutionTests: XCTestCase {
         XCTAssertEqual(resolved.path, "/tmp/cmux-local-test.html")
     }
 
+    func testResolvesBareLocalhostSubdomainAsHTTPURL() throws {
+        let resolved = try XCTUnwrap(resolveBrowserNavigableURL("api.localhost:3000"))
+        XCTAssertEqual(resolved.scheme, "http")
+        XCTAssertEqual(resolved.host, "api.localhost")
+        XCTAssertEqual(resolved.port, 3000)
+
+        let nested = try XCTUnwrap(resolveBrowserNavigableURL("deep.api.localhost/path"))
+        XCTAssertEqual(nested.scheme, "http")
+        XCTAssertEqual(nested.host, "deep.api.localhost")
+        XCTAssertEqual(nested.path, "/path")
+    }
+
     func testRejectsNonWebNonFileScheme() {
         XCTAssertNil(resolveBrowserNavigableURL("mailto:test@example.com"))
         XCTAssertNil(resolveBrowserNavigableURL("ftp://example.com/file.html"))

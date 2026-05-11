@@ -375,6 +375,9 @@ struct CmuxTaskManagerSnapshot {
             if candidate.contains("opencode") {
                 return SessionAgent.opencode.assetName
             }
+            if candidate.contains("hermes") {
+                return SessionAgent.hermesAgent.assetName
+            }
             if candidate.contains("claude") {
                 return SessionAgent.claude.assetName
             }
