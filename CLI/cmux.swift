@@ -25,6 +25,67 @@ struct CLIError: Error, CustomStringConvertible {
     var description: String { message }
 }
 
+private struct CLIOutputClosed: Error {
+    let streamName: String
+}
+
+private struct CLISocketNotFound: Error, CustomStringConvertible {
+    let path: String
+
+    var description: String {
+        "Socket not found at \(path)"
+    }
+}
+
+private struct CLIOutputWriteError: Error, CustomStringConvertible {
+    let streamName: String
+    let errnoCode: Int32
+
+    var description: String {
+        "Failed to write \(streamName): \(String(cString: strerror(errnoCode)))"
+    }
+}
+
+private enum CLIOutput {
+    static func writeStdout(_ data: Data) throws {
+        try write(data, fd: STDOUT_FILENO, streamName: "stdout")
+    }
+
+    static func writeStderr(_ data: Data) throws {
+        try write(data, fd: STDERR_FILENO, streamName: "stderr")
+    }
+
+    static func writeStderrBestEffort(_ text: String) {
+        try? writeStderr(Data(text.utf8))
+    }
+
+    private static func write(_ data: Data, fd: Int32, streamName: String) throws {
+        guard !data.isEmpty else { return }
+
+        try data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return }
+            var offset = 0
+
+            while offset < data.count {
+                let written = Darwin.write(fd, baseAddress.advanced(by: offset), data.count - offset)
+                if written > 0 {
+                    offset += written
+                    continue
+                }
+
+                if written < 0, errno == EINTR {
+                    continue
+                }
+                if written < 0, errno == EPIPE {
+                    throw CLIOutputClosed(streamName: streamName)
+                }
+
+                throw CLIOutputWriteError(streamName: streamName, errnoCode: written < 0 ? errno : EIO)
+            }
+        }
+    }
+}
+
 private enum CLISocketEnvironment {
     static func socketPath(in environment: [String: String]) throws -> String? {
         let socketPath = normalized(environment["CMUX_SOCKET_PATH"])
@@ -1332,7 +1393,7 @@ final class SocketClient {
         // Verify socket is owned by the current user to prevent fake-socket attacks.
         var st = stat()
         guard stat(path, &st) == 0 else {
-            throw CLIError(message: "Socket not found at \(path)")
+            throw CLISocketNotFound(path: path)
         }
         guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
             throw CLIError(message: "Path exists at \(path) but is not a Unix socket")
@@ -1986,9 +2047,20 @@ struct CMUXCLI {
     private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
 
     private func captureSocketTransportError(telemetry: CLISocketSentryTelemetry, stage: String, error: Error, client: SocketClient) {
-        if client.hasUnfinishedOperationTelemetry() {
+        if shouldCaptureSocketTransportError(error, client: client) {
             telemetry.captureError(stage: stage, error: error, data: client.operationTelemetryContext())
         }
+    }
+
+    private func shouldCaptureSocketTransportError(_ error: Error, client: SocketClient) -> Bool {
+        guard !(error is CLIOutputClosed) else {
+            return false
+        }
+        return client.hasUnfinishedOperationTelemetry()
+    }
+
+    private func shouldCaptureSocketConnectError(_ error: Error) -> Bool {
+        !(error is CLISocketNotFound)
     }
 
     private struct VMCreateIdempotencyStore: Codable {
@@ -2688,7 +2760,9 @@ struct CMUXCLI {
             cliTelemetry.breadcrumb("socket.connect.success", data: ["path": resolvedSocketPath])
         } catch {
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
-            cliTelemetry.captureError(stage: "socket_connect", error: error)
+            if shouldCaptureSocketConnectError(error) {
+                cliTelemetry.captureError(stage: "socket_connect", error: error)
+            }
             throw error
         }
         defer { client.close() }
@@ -3001,11 +3075,16 @@ struct CMUXCLI {
                     }
                     break
                 }
-                if !stdout.isEmpty { print(stdout, terminator: stdout.hasSuffix("\n") ? "" : "\n") }
+                if !stdout.isEmpty {
+                    try CLIOutput.writeStdout(Data(stdout.utf8))
+                    if !stdout.hasSuffix("\n") {
+                        try CLIOutput.writeStdout(Data("\n".utf8))
+                    }
+                }
                 if !stderr.isEmpty {
-                    FileHandle.standardError.write(Data(stderr.utf8))
+                    try CLIOutput.writeStderr(Data(stderr.utf8))
                     if !stderr.hasSuffix("\n") {
-                        FileHandle.standardError.write(Data("\n".utf8))
+                        try CLIOutput.writeStderr(Data("\n".utf8))
                     }
                 }
                 if exitCode != 0 {
@@ -5468,7 +5547,7 @@ struct CMUXCLI {
                 _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
             } catch {
                 let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
-                FileHandle.standardError.write(Data(warning.utf8))
+                CLIOutput.writeStderrBestEffort(warning)
             }
             throw error
         }
@@ -6778,7 +6857,7 @@ struct CMUXCLI {
                 _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
             } catch {
                 let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
-                FileHandle.standardError.write(Data(warning.utf8))
+                CLIOutput.writeStderrBestEffort(warning)
             }
             throw error
         }
@@ -7054,7 +7133,7 @@ struct CMUXCLI {
             while let message = try receiveSync(delegate: delegate) {
                 switch message {
                 case .data(let data):
-                    FileHandle.standardOutput.write(data)
+                    try CLIOutput.writeStdout(data)
                 case .string:
                     continue
                 @unknown default:
@@ -14971,7 +15050,7 @@ struct CMUXCLI {
         if !fm.fileExists(atPath: pluginPackageDir.path) {
             let installDir = shadowDir
             if let bunPath = resolveExecutableInPath("bun") {
-                FileHandle.standardError.write("Installing oh-my-opencode plugin (this may take a minute on first run)...\n".data(using: .utf8)!)
+                CLIOutput.writeStderrBestEffort("Installing oh-my-opencode plugin (this may take a minute on first run)...\n")
                 let installArguments = ["add", Self.omoPluginName]
                 let firstAttemptStatus = try omoRunPackageInstall(
                     executablePath: bunPath,
@@ -14979,7 +15058,7 @@ struct CMUXCLI {
                     currentDirectoryURL: installDir
                 )
                 if firstAttemptStatus != 0 {
-                    FileHandle.standardError.write("Retrying oh-my-opencode install with a clean shadow package state...\n".data(using: .utf8)!)
+                    CLIOutput.writeStderrBestEffort("Retrying oh-my-opencode install with a clean shadow package state...\n")
                     try? fm.removeItem(at: shadowBunLockURL)
                     try? fm.removeItem(at: shadowNodeModules)
                     try omoEnsureShadowNodeModulesSymlink(shadowNodeModules: shadowNodeModules, userNodeModules: userNodeModules)
@@ -14993,7 +15072,7 @@ struct CMUXCLI {
                     }
                 }
             } else if let npmPath = resolveExecutableInPath("npm") {
-                FileHandle.standardError.write("Installing oh-my-opencode plugin (this may take a minute on first run)...\n".data(using: .utf8)!)
+                CLIOutput.writeStderrBestEffort("Installing oh-my-opencode plugin (this may take a minute on first run)...\n")
                 let status = try omoRunPackageInstall(
                     executablePath: npmPath,
                     arguments: ["install", Self.omoPluginName],
@@ -15005,7 +15084,7 @@ struct CMUXCLI {
             } else {
                 throw CLIError(message: "Neither bun nor npm found in PATH. Install oh-my-opencode manually: bunx oh-my-opencode install")
             }
-            FileHandle.standardError.write("oh-my-opencode plugin installed\n".data(using: .utf8)!)
+            CLIOutput.writeStderrBestEffort("oh-my-opencode plugin installed\n")
         }
 
         // Ensure tmux mode is enabled in oh-my-opencode config.
@@ -24296,32 +24375,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 #endif
 }
 
-private enum CMUXCLIOutput {
-    static func writeStandardError(_ message: String) {
-        write(Data(message.utf8), to: STDERR_FILENO)
-    }
-
-    private static func write(_ data: Data, to fd: Int32) {
-        data.withUnsafeBytes { rawBuffer in
-            guard let baseAddress = rawBuffer.baseAddress else {
-                return
-            }
-
-            var offset = 0
-            while offset < data.count {
-                let bytesWritten = Darwin.write(fd, baseAddress.advanced(by: offset), data.count - offset)
-                if bytesWritten > 0 {
-                    offset += bytesWritten
-                } else if bytesWritten == -1, errno == EINTR {
-                    continue
-                } else {
-                    return
-                }
-            }
-        }
-    }
-}
-
 @main
 struct CMUXTermMain {
     static func main() {
@@ -24330,8 +24383,10 @@ struct CMUXTermMain {
         let cli = CMUXCLI(args: CommandLine.arguments)
         do {
             try cli.run()
+        } catch let error as CLIOutputClosed {
+            exit(error.streamName == "stdout" ? 0 : 1)
         } catch {
-            CMUXCLIOutput.writeStandardError("Error: \(error)\n")
+            CLIOutput.writeStderrBestEffort("Error: \(error)\n")
             let exitCode = (error as? CLIError)?.exitCode ?? 1
             exit(exitCode)
         }
