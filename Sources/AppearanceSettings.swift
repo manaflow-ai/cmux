@@ -57,14 +57,7 @@ enum AppearanceSettings {
                 systemAppearance: {
                     AppearanceSettings.systemNSAppearance()
                 },
-                persistManagedTerminalAppearanceConfig: { mode, appearance, defaults, source in
-                    AppearanceSettings.persistManagedTerminalAppearanceConfig(
-                        mode,
-                        appAppearance: appearance,
-                        defaults: defaults,
-                        source: source
-                    )
-                }
+                persistManagedTerminalAppearanceConfig: AppearanceSettings.liveManagedTerminalAppearanceConfigPersistence
             )
         }
     }
@@ -239,6 +232,17 @@ enum AppearanceSettings {
         }
     }
 
+    static var liveManagedTerminalAppearanceConfigPersistence: (AppearanceMode, NSAppearance?, UserDefaults, String) -> Void {
+        { mode, appearance, defaults, source in
+            persistManagedTerminalAppearanceConfig(
+                mode,
+                appAppearance: appearance,
+                defaults: defaults,
+                source: source
+            )
+        }
+    }
+
     private static func managedTerminalColorScheme(
         for mode: AppearanceMode,
         appAppearance: NSAppearance?,
@@ -287,14 +291,19 @@ enum AppearanceSettings {
             return managedBlock
         }
 
-        if let startRange = contents.range(of: managedTerminalAppearanceBeginMarker),
-           let endRange = contents.range(
-            of: managedTerminalAppearanceEndMarker,
-            range: startRange.upperBound..<contents.endIndex
-           ) {
+        if let startRange = contents.range(of: managedTerminalAppearanceBeginMarker) {
             let replacementStart = contents[..<startRange.lowerBound]
                 .lastIndex(of: "\n")
                 .map { contents.index(after: $0) } ?? contents.startIndex
+            guard let endRange = contents.range(
+                of: managedTerminalAppearanceEndMarker,
+                range: startRange.upperBound..<contents.endIndex
+            ) else {
+                var updated = contents
+                updated.replaceSubrange(replacementStart..<contents.endIndex, with: managedBlock)
+                return updated.hasSuffix("\n") ? updated : updated + "\n"
+            }
+
             let replacementEnd = contents[endRange.upperBound...]
                 .firstIndex(of: "\n")
                 .map { contents.index(after: $0) } ?? contents.endIndex

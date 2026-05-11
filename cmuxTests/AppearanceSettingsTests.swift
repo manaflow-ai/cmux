@@ -228,6 +228,34 @@ final class AppearanceSettingsTests: XCTestCase {
         }
     }
 
+    func testManagedGhosttyConfigReplacesOrphanedManagedBlock() throws {
+        try withTemporaryHomeDirectory { homeDirectory in
+            let configEnvironment = ConfigSourceEnvironment(
+                homeDirectoryURL: homeDirectory,
+                currentBundleIdentifier: "com.cmuxterm.app"
+            )
+            try configEnvironment.writeCmuxConfigContents("""
+            font-size = 13
+            # cmux-managed-appearance: begin
+            background = #000000
+            """)
+
+            AppearanceSettings.persistManagedTerminalAppearanceConfig(
+                .dark,
+                appAppearance: NSAppearance(named: .darkAqua),
+                source: "test.orphanedManagedBlock",
+                environment: configEnvironment
+            )
+
+            let contents = try String(contentsOf: configEnvironment.cmuxConfigURL, encoding: .utf8)
+            XCTAssertTrue(contents.contains("font-size = 13"))
+            XCTAssertEqual(occurrenceCount(of: "# cmux-managed-appearance: begin", in: contents), 1)
+            XCTAssertEqual(occurrenceCount(of: "# cmux-managed-appearance: end", in: contents), 1)
+            XCTAssertTrue(contents.contains("background = #1e1e1e"))
+            XCTAssertFalse(contents.contains("background = #000000"))
+        }
+    }
+
     private func withTemporaryAppearanceDefaults(
         appearanceMode: String,
         appleInterfaceStyle: String?,
@@ -276,4 +304,7 @@ final class AppearanceSettingsTests: XCTestCase {
         try body(directory)
     }
 
+    private func occurrenceCount(of needle: String, in haystack: String) -> Int {
+        haystack.components(separatedBy: needle).count - 1
+    }
 }

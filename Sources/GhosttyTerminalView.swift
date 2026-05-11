@@ -2875,6 +2875,18 @@ class GhosttyApp {
     }
 
     func synchronizeThemeWithAppearance(_ appearance: NSAppearance?, source: String) {
+        synchronizeThemeWithAppearance(
+            appearance,
+            source: source,
+            persistManagedTerminalAppearanceConfig: AppearanceSettings.liveManagedTerminalAppearanceConfigPersistence
+        )
+    }
+
+    func synchronizeThemeWithAppearance(
+        _ appearance: NSAppearance?,
+        source: String,
+        persistManagedTerminalAppearanceConfig: (AppearanceMode, NSAppearance?, UserDefaults, String) -> Void
+    ) {
         let currentColorScheme = GhosttyConfig.currentColorSchemePreference(
             appAppearance: appearance ?? NSApp?.effectiveAppearance
         )
@@ -2899,10 +2911,11 @@ class GhosttyApp {
         }
         guard shouldReload else { return }
         lastAppearanceColorScheme = currentColorScheme
-        AppearanceSettings.persistManagedTerminalAppearanceConfig(
+        persistManagedTerminalAppearanceConfig(
             AppearanceSettings.resolvedMode(),
-            appAppearance: appearance ?? NSApp?.effectiveAppearance,
-            source: "appearanceSync:\(source)"
+            appearance ?? NSApp?.effectiveAppearance,
+            .standard,
+            "appearanceSync:\(source)"
         )
         reloadConfiguration(
             source: "appearanceSync:\(source)",
