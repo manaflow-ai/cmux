@@ -260,6 +260,20 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
 @available(macOS 15.4, *)
 @MainActor
 final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
+    func testExtensionBaseConfigurationUsesSafariUserAgentIdentity() async throws {
+        let configuration = WKWebViewConfiguration()
+        browserWebExtensionConfigureBaseWebViewConfiguration(
+            configuration,
+            defaultWebsiteDataStore: .nonPersistent()
+        )
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let value = try await webView.evaluateJavaScript("navigator.userAgent")
+        let userAgent = try XCTUnwrap(value as? String)
+
+        XCTAssertTrue(userAgent.contains("Version/"), userAgent)
+        XCTAssertTrue(userAgent.contains("Safari/"), userAgent)
+    }
+
     func testWebKitLoadsMinimalUnpackedExtension() async throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("cmux-webkit-extension-\(UUID().uuidString)", isDirectory: true)

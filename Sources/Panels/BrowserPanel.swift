@@ -1025,6 +1025,7 @@ enum BrowserUserAgentSettings {
     // and some installs may have legacy Chrome UA overrides. Both can cause Google to serve
     // fallback/old UIs or trigger bot checks.
     static let safariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.2 Safari/605.1.15"
+    static let safariApplicationNameForUserAgent = "Version/26.2 Safari/605.1.15"
 }
 
 func normalizedBrowserHistoryNamespace(bundleIdentifier: String) -> String {
@@ -1892,12 +1893,19 @@ final class BrowserPanel: Panel, ObservableObject {
       window.__cmuxHooksInstalled = true;
 
       window.__cmuxConsoleLog = window.__cmuxConsoleLog || [];
+      const __cmuxStringifyConsoleValue = (x) => {
+        if (typeof x === 'string') return x;
+        if (x && typeof x === 'object') {
+          const message = typeof x.message === 'string' ? x.message : '';
+          const stack = typeof x.stack === 'string' ? x.stack : '';
+          if (message || stack) return [message, stack].filter(Boolean).join('\\n');
+        }
+        try { return JSON.stringify(x); } catch (_) { return String(x); }
+      };
+
       const __pushConsole = (level, args) => {
         try {
-          const text = Array.from(args || []).map((x) => {
-            if (typeof x === 'string') return x;
-            try { return JSON.stringify(x); } catch (_) { return String(x); }
-          }).join(' ');
+          const text = Array.from(args || []).map(__cmuxStringifyConsoleValue).join(' ');
           window.__cmuxConsoleLog.push({ level, text, timestamp_ms: Date.now() });
           if (window.__cmuxConsoleLog.length > 512) {
             window.__cmuxConsoleLog.splice(0, window.__cmuxConsoleLog.length - 512);

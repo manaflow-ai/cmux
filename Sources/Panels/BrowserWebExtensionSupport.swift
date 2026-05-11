@@ -61,6 +61,16 @@ func browserWebExtensionActionPopupContentSize(
     return CGSize(width: width, height: height)
 }
 
+func browserWebExtensionConfigureBaseWebViewConfiguration(
+    _ configuration: WKWebViewConfiguration,
+    defaultWebsiteDataStore: WKWebsiteDataStore
+) {
+    configuration.websiteDataStore = defaultWebsiteDataStore
+    configuration.mediaTypesRequiringUserActionForPlayback = []
+    configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+    configuration.applicationNameForUserAgent = BrowserUserAgentSettings.safariApplicationNameForUserAgent
+}
+
 struct BrowserWebExtensionInstallResult: Equatable {
     let summary: BrowserWebExtensionInstalledSummary
     let parseErrors: [String]
@@ -603,6 +613,15 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
               let tab = tabAdaptersByPanelID[panel.id] else {
             return
         }
+
+        context.userGesturePerformed(in: tab)
+        if let action = context.action(for: tab),
+           action.isEnabled,
+           action.presentsPopup,
+           action.popupWebView != nil {
+            showActionPopup(action) { _ in }
+            return
+        }
         context.performAction(for: tab)
     }
 
@@ -684,9 +703,10 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         }
 
         let baseConfiguration = WKWebViewConfiguration()
-        baseConfiguration.websiteDataStore = defaultWebsiteDataStore
-        baseConfiguration.mediaTypesRequiringUserActionForPlayback = []
-        baseConfiguration.defaultWebpagePreferences.allowsContentJavaScript = true
+        browserWebExtensionConfigureBaseWebViewConfiguration(
+            baseConfiguration,
+            defaultWebsiteDataStore: defaultWebsiteDataStore
+        )
 
         let configuration = WKWebExtensionController.Configuration.default()
         configuration.webViewConfiguration = baseConfiguration
@@ -994,6 +1014,40 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         actionPopupPresentationsByID.removeAll()
     }
 
+    private func showActionPopup(
+        _ action: WKWebExtension.Action,
+        completionHandler: @escaping (Error?) -> Void
+    ) {
+        guard action.isEnabled,
+              action.presentsPopup,
+              let popupWebView = action.popupWebView,
+              let fallbackAnchorView = (action.associatedTab as? BrowserWebExtensionTabAdapter)?.panel?.webView
+                ?? activeTabAdapter()?.panel?.webView else {
+            completionHandler(nil)
+            return
+        }
+        let anchorView = actionPopupAnchorView(for: action) ?? fallbackAnchorView
+        closeAllActionPopups()
+        let rect = anchorView.bounds
+        let visibleFrame = anchorView.window?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? anchorView.visibleRect
+        let presentation = BrowserWebExtensionActionPopupPresentation(
+            action: action,
+            popupWebView: popupWebView,
+            contentSize: browserWebExtensionActionPopupContentSize(
+                requestedSize: popupWebView.frame.size,
+                visibleFrame: visibleFrame
+            ),
+            runtime: self
+        )
+        actionPopupPresentationsByID[presentation.id] = presentation
+        presentation.show(
+            relativeTo: rect,
+            of: anchorView,
+            preferredEdge: .maxY
+        )
+        completionHandler(nil)
+    }
+
     func webExtensionController(
         _ controller: WKWebExtensionController,
         promptForPermissions permissions: Set<WKWebExtension.Permission>,
@@ -1047,33 +1101,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         for context: WKWebExtensionContext,
         completionHandler: @escaping (Error?) -> Void
     ) {
-        guard action.presentsPopup,
-              let popupWebView = action.popupWebView,
-              let fallbackAnchorView = (action.associatedTab as? BrowserWebExtensionTabAdapter)?.panel?.webView
-                ?? activeTabAdapter()?.panel?.webView else {
-            completionHandler(nil)
-            return
-        }
-        let anchorView = actionPopupAnchorView(for: action) ?? fallbackAnchorView
-        closeAllActionPopups()
-        let rect = anchorView.bounds
-        let visibleFrame = anchorView.window?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? anchorView.visibleRect
-        let presentation = BrowserWebExtensionActionPopupPresentation(
-            action: action,
-            popupWebView: popupWebView,
-            contentSize: browserWebExtensionActionPopupContentSize(
-                requestedSize: popupWebView.frame.size,
-                visibleFrame: visibleFrame
-            ),
-            runtime: self
-        )
-        actionPopupPresentationsByID[presentation.id] = presentation
-        presentation.show(
-            relativeTo: rect,
-            of: anchorView,
-            preferredEdge: .maxY
-        )
-        completionHandler(nil)
+        showActionPopup(action, completionHandler: completionHandler)
     }
 
     private func actionPopupAnchorView(for action: WKWebExtension.Action) -> NSView? {
@@ -1175,7 +1203,11 @@ private final class BrowserWebExtensionActionPopupPresentation: NSObject, NSWind
 
         let containerView = BrowserWebExtensionActionPopupContainerView(contentSize: contentSize)
         popupWebView.removeFromSuperview()
+        popupWebView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         popupWebView.translatesAutoresizingMaskIntoConstraints = false
+#if DEBUG
+        popupWebView.isInspectable = true
+#endif
         containerView.addSubview(popupWebView)
         NSLayoutConstraint.activate([
             popupWebView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
@@ -1306,9 +1338,9 @@ private final class BrowserWebExtensionAuxiliaryWindowAdapter: NSObject, WKWebEx
 
         let webView = WKWebView(frame: .zero, configuration: webViewConfiguration)
         webView.allowsBackForwardNavigationGestures = true
-        if #available(macOS 13.3, *) {
-            webView.isInspectable = true
-        }
+#if DEBUG
+        webView.isInspectable = true
+#endif
         webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         self.webView = webView
