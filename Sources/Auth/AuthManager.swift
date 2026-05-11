@@ -152,7 +152,6 @@ final class AuthManager: ObservableObject {
     /// `var` rather than `let` so the init body can reference `self` before it's
     /// assigned; the value is written exactly once, before init returns.
     private var bootstrapTask: Task<Void, Never>!
-    private nonisolated static let defaultBrowserSignInTimeout: TimeInterval = 300
 
     init(
         client: (any AuthClientProtocol)? = nil,
@@ -183,16 +182,13 @@ final class AuthManager: ObservableObject {
         await bootstrapTask.value
     }
 
-    private var browserSignInTimeoutTimer: Timer?
     private var webAuthSession: ASWebAuthenticationSession?
 
-    func beginSignIn(timeout: TimeInterval = AuthManager.defaultBrowserSignInTimeout) {
-        beginSignIn(timeout: timeout, scheduleBrowserTimeout: true)
+    func beginSignIn() {
+        beginSignIn(keepLoadingForExternalBrowser: false)
     }
 
-    private func beginSignIn(timeout: TimeInterval, scheduleBrowserTimeout: Bool) {
-        browserSignInTimeoutTimer?.invalidate()
-        browserSignInTimeoutTimer = nil
+    private func beginSignIn(keepLoadingForExternalBrowser: Bool) {
         webAuthSession?.cancel()
         webAuthSession = nil
         isLoading = true
@@ -206,29 +202,8 @@ final class AuthManager: ObservableObject {
         authLog("beginSignIn: opening external browser url=\(signInURL.absoluteString)")
         urlOpener(signInURL)
 
-        if scheduleBrowserTimeout {
-            scheduleBrowserSignInTimeout(timeout)
-        }
-    }
-
-    private func scheduleBrowserSignInTimeout(_ timeout: TimeInterval) {
-        let maxSeconds: Double = 24 * 60 * 60
-        let clamped = max(0, min(timeout, maxSeconds))
-        guard clamped > 0 else {
-            if isLoading && !isAuthenticated {
-                isLoading = false
-            }
-            return
-        }
-
-        browserSignInTimeoutTimer = Timer.scheduledTimer(withTimeInterval: clamped, repeats: false) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if self.isLoading && !self.isAuthenticated {
-                    self.isLoading = false
-                }
-                self.browserSignInTimeoutTimer = nil
-            }
+        if !keepLoadingForExternalBrowser {
+            isLoading = false
         }
     }
 
@@ -283,7 +258,7 @@ final class AuthManager: ObservableObject {
     /// — the $isAuthenticated / $isLoading AsyncPublishers drive the wait.
     func beginSignInAndAwait(timeout: TimeInterval) async -> Bool {
         if isAuthenticated { return true }
-        beginSignIn(timeout: timeout, scheduleBrowserTimeout: false)
+        beginSignIn(keepLoadingForExternalBrowser: true)
         let signedIn = await waitForSignInSettled(timeout: timeout)
         if !signedIn && isLoading && !isAuthenticated {
             isLoading = false
@@ -451,8 +426,6 @@ final class AuthManager: ObservableObject {
             throw AuthManagerError.invalidCallback
         }
 
-        browserSignInTimeoutTimer?.invalidate()
-        browserSignInTimeoutTimer = nil
         webAuthSession = nil
         isLoading = true
         defer { isLoading = false }
@@ -629,8 +602,6 @@ final class AuthManager: ObservableObject {
     }
 
     func signOut() async {
-        browserSignInTimeoutTimer?.invalidate()
-        browserSignInTimeoutTimer = nil
         webAuthSession?.cancel()
         webAuthSession = nil
         try? await client.signOut()

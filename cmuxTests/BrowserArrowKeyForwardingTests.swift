@@ -249,7 +249,7 @@ final class AuthManagerBrowserSignInTests: XCTestCase {
         )
         await manager.awaitBootstrapped()
 
-        manager.beginSignIn(timeout: 60)
+        manager.beginSignIn()
 
         let url = openedURL
         XCTAssertEqual(url?.path, "/handler/sign-in")
@@ -258,7 +258,7 @@ final class AuthManagerBrowserSignInTests: XCTestCase {
         XCTAssertEqual(url?.scheme, AuthEnvironment.afterSignInOrigin.scheme)
         XCTAssertEqual(url?.host, AuthEnvironment.afterSignInOrigin.host)
         XCTAssertTrue(afterAuthReturnTo?.contains(AuthEnvironment.callbackURL.absoluteString) == true)
-        XCTAssertTrue(manager.isLoading)
+        XCTAssertFalse(manager.isLoading)
         await manager.signOut()
     }
 
@@ -273,9 +273,9 @@ final class AuthManagerBrowserSignInTests: XCTestCase {
         )
         await manager.awaitBootstrapped()
 
-        manager.beginSignIn(timeout: 60)
+        manager.beginSignIn()
         XCTAssertNotNil(openedURL)
-        XCTAssertTrue(manager.isLoading)
+        XCTAssertFalse(manager.isLoading)
 
         let callbackURL = try XCTUnwrap(URL(
             string: "\(AuthEnvironment.callbackScheme)://auth-callback?stack_refresh=refresh-token&stack_access=access-token"
