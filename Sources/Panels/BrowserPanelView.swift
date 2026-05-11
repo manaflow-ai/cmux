@@ -1219,6 +1219,8 @@ struct BrowserPanelView: View {
                 onDeleteBackwardWithInlineSelection: {
                     handleInlineBackspace()
                 },
+                onClearTypedPrefixWithInlineSelection: {},
+                onDeleteWordBackwardWithInlineSelection: {},
                 onSelectionChanged: { selectionRange, hasMarkedText in
                     handleOmnibarSelectionChange(range: selectionRange, hasMarkedText: hasMarkedText)
                 },
@@ -3213,7 +3215,7 @@ func browserOmnibarShouldReacquireFocusAfterEndEditing(
     desiredOmnibarFocus && !nextResponderIsOtherTextField
 }
 
-private final class OmnibarNativeTextField: NSTextField {
+final class OmnibarNativeTextField: NSTextField {
     var panelId: UUID?
     var onPointerDown: (() -> Void)?
     var onHandleKeyEvent: ((NSEvent, NSTextView?) -> Bool)?
@@ -3377,7 +3379,7 @@ private final class OmnibarNativeTextField: NSTextField {
     }
 }
 
-private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
+struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     let panelId: UUID
     @Binding var text: String
     @Binding var isFocused: Bool
@@ -3392,6 +3394,8 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     let onDeleteSelectedSuggestion: () -> Void
     let onAcceptInlineCompletion: () -> Void
     let onDeleteBackwardWithInlineSelection: () -> Void
+    let onClearTypedPrefixWithInlineSelection: () -> Void
+    let onDeleteWordBackwardWithInlineSelection: () -> Void
     let onSelectionChanged: (NSRange, Bool) -> Void
     let shouldSuppressWebViewFocus: () -> Bool
 
