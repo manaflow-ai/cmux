@@ -566,6 +566,7 @@ final class OmnibarStateMachineTests: XCTestCase {
 
         XCTAssertEqual(harness.state.buffer, "gmail account ")
         XCTAssertNil(harness.inlineCompletion)
+        XCTAssertTrue(harness.state.suggestions.isEmpty)
     }
 
     @MainActor
@@ -681,16 +682,13 @@ private final class OmnibarInlineDeletionHarness {
     }
 
     private func clearTypedPrefix() {
-        replaceTypedPrefix(with: "")
-        let effects = omnibarReduce(state: &state, event: .suggestionsUpdated([]))
-        XCTAssertFalse(effects.shouldRefreshSuggestions)
-        inlineCompletion = nil
+        replaceTypedPrefixAndDismissSuggestions(with: "")
     }
 
     private func deleteWordBeforeInlineCompletion() {
         guard let inlineCompletion else { return }
         let updated = omnibarPrefixAfterDeletingTrailingWord(from: inlineCompletion.typedText)
-        replaceTypedPrefix(with: updated)
+        replaceTypedPrefixAndDismissSuggestions(with: updated)
     }
 
     private func replaceTypedPrefix(with updated: String) {
@@ -703,6 +701,13 @@ private final class OmnibarInlineDeletionHarness {
             selectionRange: NSRange(location: updated.utf16.count, length: 0),
             hasMarkedText: false
         )
+    }
+
+    private func replaceTypedPrefixAndDismissSuggestions(with updated: String) {
+        _ = omnibarReduce(state: &state, event: .bufferChanged(updated))
+        let effects = omnibarReduce(state: &state, event: .suggestionsUpdated([]))
+        XCTAssertFalse(effects.shouldRefreshSuggestions)
+        inlineCompletion = nil
     }
 
 }

@@ -1916,6 +1916,8 @@ struct BrowserPanelView: View {
 
     private func handleInlineClearTypedPrefix() {
         guard inlineCompletion != nil else { return }
+        // Modified Backspace dismisses the current inline suggestion instead of
+        // refetching suggestions for the shorter prefix.
         _ = omnibarReduce(state: &omnibarState, event: .bufferChanged(""))
         omnibarSelectionRange = NSRange(location: 0, length: 0)
         hideSuggestions()
@@ -1924,10 +1926,11 @@ struct BrowserPanelView: View {
     private func handleInlineDeleteWordBackward() {
         guard let completion = inlineCompletion else { return }
         let updated = omnibarPrefixAfterDeletingTrailingWord(from: completion.typedText)
-        let effects = omnibarReduce(state: &omnibarState, event: .bufferChanged(updated))
-        applyOmnibarEffects(effects)
+        // Modified Backspace dismisses the current inline suggestion instead of
+        // refetching suggestions for the shorter prefix.
+        _ = omnibarReduce(state: &omnibarState, event: .bufferChanged(updated))
         omnibarSelectionRange = NSRange(location: updated.utf16.count, length: 0)
-        refreshInlineCompletion()
+        hideSuggestions()
     }
 
     private func deleteSelectedSuggestionIfPossible() {
