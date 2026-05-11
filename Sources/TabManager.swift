@@ -3956,6 +3956,7 @@ class TabManager: ObservableObject {
         let shouldClearLocalPullRequestState = !shouldProbeLocalGit
         let previousDirectory = shouldProbeLocalGit ? gitProbeDirectory(for: tab, panelId: surfaceId) : nil
         let probeKey = WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId)
+        let wasRemoteLocation = tab.terminalLocation(for: surfaceId)?.isRemote == true
         tab.updatePanelLocation(panelId: surfaceId, location: location)
         var shouldScheduleLocalBranchRefresh = false
 
@@ -3982,7 +3983,9 @@ class TabManager: ObservableObject {
         case .unspecified where location.isRemote:
             tab.clearPanelGitBranch(panelId: surfaceId)
         case .clear, .unspecified:
-            break
+            if wasRemoteLocation {
+                tab.clearPanelGitBranch(panelId: surfaceId)
+            }
         }
 
         let nextDirectory = shouldProbeLocalGit ? normalizedWorkingDirectory(location.path) : nil

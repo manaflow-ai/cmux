@@ -750,6 +750,58 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
     }
 
+    func testLocalDirectoryUpdateClearsRemoteBranchBeforeGitProbeFinishes() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-git-remote-to-local-clear-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            directory: "file://devbox.example/home/george/cmux?cmux_git_branch=feature%2Fremote&cmux_git_dirty=1"
+        )
+        XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "feature/remote")
+
+        let releaseProbe = DispatchSemaphore(value: 0)
+        TabManager.commandRunnerForTesting = { _, executable, _, _ in
+            if URL(fileURLWithPath: executable).lastPathComponent == "git" {
+                _ = releaseProbe.wait(timeout: .now() + 2)
+            }
+            return TabManager.CommandResult(
+                stdout: "",
+                stderr: "",
+                exitStatus: 1,
+                timedOut: false,
+                executionError: nil
+            )
+        }
+        defer {
+            releaseProbe.signal()
+            TabManager.commandRunnerForTesting = nil
+        }
+
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: directoryURL.path)
+
+        XCTAssertNil(workspace.panelGitBranches[panelId])
+        releaseProbe.signal()
+        XCTAssertTrue(
+            waitForCondition {
+                manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id).isEmpty
+            }
+        )
+    }
+
     func testRemoteSplitSkipsInitialGitMetadataProbe() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
