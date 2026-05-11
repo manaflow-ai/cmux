@@ -801,10 +801,226 @@ func TestCLIBrowserGetURLUsesCurrentMethodAndSurfaceEnv(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserSnapshotUsesSurfaceEnvAndForwardsOptions(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_SURFACE_ID", "env-sf")
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "snapshot",
+		"--selector", "main",
+		"--max-depth", "4",
+	})
+	if code != 0 {
+		t.Fatalf("browser snapshot should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.snapshot" {
+			t.Fatalf("expected browser.snapshot, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "env-sf" {
+			t.Fatalf("expected surface_id env-sf, got %v", got)
+		}
+		if got := params["selector"]; got != "main" {
+			t.Fatalf("expected selector main, got %v", got)
+		}
+		if got := params["max_depth"]; got != "4" {
+			t.Fatalf("expected max_depth 4, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser snapshot request")
+	}
+}
+
+func TestCLIBrowserWaitUsesSurfaceEnvAndForwardsOptions(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_SURFACE_ID", "env-sf")
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "wait",
+		"--timeout-ms", "1500",
+		"--url-contains", "/cloud",
+		"--load-state", "networkidle",
+	})
+	if code != 0 {
+		t.Fatalf("browser wait should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.wait" {
+			t.Fatalf("expected browser.wait, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "env-sf" {
+			t.Fatalf("expected surface_id env-sf, got %v", got)
+		}
+		if got := params["timeout_ms"]; got != "1500" {
+			t.Fatalf("expected timeout_ms 1500, got %v", got)
+		}
+		if got := params["url_contains"]; got != "/cloud" {
+			t.Fatalf("expected url_contains /cloud, got %v", got)
+		}
+		if got := params["load_state"]; got != "networkidle" {
+			t.Fatalf("expected load_state networkidle, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser wait request")
+	}
+}
+
+func TestCLIBrowserAutomationPositionals(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_SURFACE_ID", "env-sf")
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "fill",
+		"input[name=email]",
+		"dev@example.com",
+	})
+	if code != 0 {
+		t.Fatalf("browser fill should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.fill" {
+			t.Fatalf("expected browser.fill, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "env-sf" {
+			t.Fatalf("expected surface_id env-sf, got %v", got)
+		}
+		if got := params["selector"]; got != "input[name=email]" {
+			t.Fatalf("expected selector, got %v", got)
+		}
+		if got := params["text"]; got != "dev@example.com" {
+			t.Fatalf("expected text, got %v", got)
+		}
+		if _, ok := params["value"]; ok {
+			t.Fatalf("browser.fill should not send value param: %#v", params)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser fill request")
+	}
+}
+
+func TestCLIBrowserSelectDoesNotMirrorValueToText(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_SURFACE_ID", "env-sf")
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "select",
+		"select[name=plan]",
+		"free",
+	})
+	if code != 0 {
+		t.Fatalf("browser select should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.select" {
+			t.Fatalf("expected browser.select, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "env-sf" {
+			t.Fatalf("expected surface_id env-sf, got %v", got)
+		}
+		if got := params["selector"]; got != "select[name=plan]" {
+			t.Fatalf("expected selector, got %v", got)
+		}
+		if got := params["value"]; got != "free" {
+			t.Fatalf("expected value, got %v", got)
+		}
+		if _, ok := params["text"]; ok {
+			t.Fatalf("browser.select should not send text param: %#v", params)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser select request")
+	}
+}
+
+func TestCLIBrowserEvalUsesPositionalScript(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_SURFACE_ID", "env-sf")
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "eval",
+		"document.title",
+	})
+	if code != 0 {
+		t.Fatalf("browser eval should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.eval" {
+			t.Fatalf("expected browser.eval, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "env-sf" {
+			t.Fatalf("expected surface_id env-sf, got %v", got)
+		}
+		if got := params["script"]; got != "document.title" {
+			t.Fatalf("expected script, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser eval request")
+	}
+}
+
 func TestCLINoArgs(t *testing.T) {
 	code := runCLI([]string{})
 	if code != 2 {
 		t.Fatalf("no args should return 2, got %d", code)
+	}
+}
+
+func TestParseFlagsRejectsMissingFlagValue(t *testing.T) {
+	_, err := parseFlags(
+		[]string{"--timeout-ms"},
+		[]string{"timeout-ms", "url-contains"},
+	)
+	if err == nil {
+		t.Fatal("parseFlags should reject missing flag values")
+	}
+	if got, want := err.Error(), "flag --timeout-ms requires a value"; got != want {
+		t.Fatalf("unexpected parseFlags error %q, want %q", got, want)
+	}
+}
+
+func TestParseFlagsAllowsSingleDashFlagValue(t *testing.T) {
+	parsed, err := parseFlags(
+		[]string{"--text", "-n", "--command", "-lc echo hi"},
+		[]string{"text", "command"},
+	)
+	if err != nil {
+		t.Fatalf("parseFlags should allow single-dash values: %v", err)
+	}
+	if got := parsed.flags["text"]; got != "-n" {
+		t.Fatalf("expected text -n, got %q", got)
+	}
+	if got := parsed.flags["command"]; got != "-lc echo hi" {
+		t.Fatalf("expected command -lc echo hi, got %q", got)
+	}
+}
+
+func TestParseFlagsAllowsDoubleDashFlagValue(t *testing.T) {
+	parsed, err := parseFlags(
+		[]string{"--text", "--some-content", "--body", "--flag-like text"},
+		[]string{"text", "body"},
+	)
+	if err != nil {
+		t.Fatalf("parseFlags should allow double-dash values: %v", err)
+	}
+	if got := parsed.flags["text"]; got != "--some-content" {
+		t.Fatalf("expected text --some-content, got %q", got)
+	}
+	if got := parsed.flags["body"]; got != "--flag-like text" {
+		t.Fatalf("expected body --flag-like text, got %q", got)
 	}
 }
 
