@@ -280,6 +280,53 @@ final class AppearanceSettingsTests: XCTestCase {
         }
     }
 
+    func testTerminalThemeSyncIgnoresSupersededPersistenceCompletion() async throws {
+        let suiteName = "AppearanceSettingsTests.SupersededSync.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let blocker = AppearancePersistenceBlocker()
+        var synchronizedSources: [String] = []
+        let environment = AppearanceSettings.LiveApplyEnvironment(
+            setApplicationAppearance: { _ in },
+            synchronizeTerminalThemeWithAppearance: { _, source in
+                synchronizedSources.append(source)
+            },
+            systemAppearance: {
+                NSAppearance(named: .aqua)
+            },
+            persistManagedTerminalAppearanceConfig: { _, _, _, source in
+                blocker.task(for: source)
+            }
+        )
+
+        AppearanceSettings.synchronizeTerminalThemeWithManagedConfig(
+            appAppearance: NSAppearance(named: .aqua),
+            defaults: defaults,
+            source: "first",
+            environment: environment
+        )
+        AppearanceSettings.synchronizeTerminalThemeWithManagedConfig(
+            appAppearance: NSAppearance(named: .darkAqua),
+            defaults: defaults,
+            source: "second",
+            environment: environment
+        )
+
+        await blocker.waitUntilRegistered(count: 2)
+        await blocker.complete("appearanceSync:first")
+        for _ in 0..<3 {
+            await Task.yield()
+        }
+        XCTAssertEqual(synchronizedSources, [])
+
+        await blocker.complete("appearanceSync:second")
+        for _ in 0..<3 {
+            await Task.yield()
+        }
+        XCTAssertEqual(synchronizedSources, ["second"])
+    }
+
     private func withTemporaryAppearanceDefaults(
         appearanceMode: String,
         appleInterfaceStyle: String?,
@@ -330,5 +377,31 @@ final class AppearanceSettingsTests: XCTestCase {
 
     private func occurrenceCount(of needle: String, in haystack: String) -> Int {
         haystack.components(separatedBy: needle).count - 1
+    }
+}
+
+private actor AppearancePersistenceBlocker {
+    private var continuations: [String: CheckedContinuation<Void, Never>] = [:]
+
+    func task(for source: String) -> Task<Void, Never> {
+        Task {
+            await wait(for: source)
+        }
+    }
+
+    func waitUntilRegistered(count: Int) async {
+        while continuations.count < count {
+            await Task.yield()
+        }
+    }
+
+    func complete(_ source: String) {
+        continuations.removeValue(forKey: source)?.resume()
+    }
+
+    private func wait(for source: String) async {
+        await withCheckedContinuation { continuation in
+            continuations[source] = continuation
+        }
     }
 }

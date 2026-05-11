@@ -244,6 +244,7 @@ enum AppearanceSettings {
         persistenceTask: Task<Void, Never>?,
         environment: LiveApplyEnvironment
     ) {
+        let generation = AppearanceTerminalThemeSyncGate.shared.nextGeneration()
         guard let persistenceTask else {
             environment.synchronizeTerminalThemeWithAppearance(appearance, source)
             return
@@ -251,6 +252,7 @@ enum AppearanceSettings {
 
         Task { @MainActor in
             await persistenceTask.value
+            guard AppearanceTerminalThemeSyncGate.shared.isCurrent(generation) else { return }
             environment.synchronizeTerminalThemeWithAppearance(appearance, source)
         }
     }
@@ -270,6 +272,26 @@ enum AppearanceSettings {
         case .auto:
             return nil
         }
+    }
+}
+
+private final class AppearanceTerminalThemeSyncGate {
+    static let shared = AppearanceTerminalThemeSyncGate()
+
+    private let lock = NSLock()
+    private var generation: UInt64 = 0
+
+    func nextGeneration() -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        generation &+= 1
+        return generation
+    }
+
+    func isCurrent(_ candidate: UInt64) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return generation == candidate
     }
 }
 
