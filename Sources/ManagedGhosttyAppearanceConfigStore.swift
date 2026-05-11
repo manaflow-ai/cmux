@@ -53,25 +53,13 @@ struct ManagedGhosttyAppearanceConfigStore {
             colorScheme: colorScheme
         )
 
-        let completion = AsyncStream<Void> { continuation in
-            managedTerminalAppearanceWriteQueue.async {
-                persistManagedTerminalAppearanceBlock(
-                    managedBlock,
-                    source: source
-                )
-                continuation.yield(())
-                continuation.finish()
-            }
-        }
-
         return Task(priority: .utility) {
-            for await _ in completion {}
+            await ManagedGhosttyAppearanceConfigWriteActor.shared.persist(
+                managedBlock,
+                source: source
+            )
         }
     }
-
-    private static let managedTerminalAppearanceWriteQueue = DispatchQueue(
-        label: "com.cmux.appearance.managedTerminalConfig"
-    )
 
     private static func managedTerminalColorScheme(
         for mode: AppearanceMode,
@@ -113,10 +101,7 @@ struct ManagedGhosttyAppearanceConfigStore {
         """
     }
 
-#if compiler(>=6.2)
-    @concurrent
-#endif
-    private nonisolated static func persistManagedTerminalAppearanceBlock(
+    fileprivate nonisolated static func persistManagedTerminalAppearanceBlock(
         _ managedBlock: String,
         source: String,
         environment: ConfigSourceEnvironment = .live()
@@ -187,5 +172,19 @@ struct ManagedGhosttyAppearanceConfigStore {
 
         let separator = contents.hasSuffix("\n") ? "\n" : "\n\n"
         return contents + separator + managedBlock
+    }
+}
+
+private actor ManagedGhosttyAppearanceConfigWriteActor {
+    static let shared = ManagedGhosttyAppearanceConfigWriteActor()
+
+    func persist(
+        _ managedBlock: String,
+        source: String
+    ) {
+        ManagedGhosttyAppearanceConfigStore.persistManagedTerminalAppearanceBlock(
+            managedBlock,
+            source: source
+        )
     }
 }
