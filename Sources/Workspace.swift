@@ -929,7 +929,8 @@ extension Workspace {
     }
 
     private static func restorableReportedDirectoryLocation(from directory: String) -> TerminalLocation? {
-        if let oscLocation = TerminalLocation.parseOSC7Sequence(directory) {
+        if directory.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("\u{1B}]7;"),
+           let oscLocation = TerminalLocation.parseOSC7Sequence(directory) {
             return oscLocation
         }
         guard directory.hasPrefix("file://") || directory.hasPrefix("kitty-shell-cwd://") else {

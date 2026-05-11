@@ -1176,6 +1176,25 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testSessionRestorePreservesBareOSC7PrefixDirectoryAsLocalPath() throws {
+        let literalDirectory = "7;file://devbox.example/home/george/cmux"
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try XCTUnwrap(snapshot.panels.firstIndex { $0.id == sourcePanelId })
+        snapshot.panels[panelIndex].directory = literalDirectory
+        snapshot.panels[panelIndex].terminal?.workingDirectory = literalDirectory
+        snapshot.panels[panelIndex].terminalLocation = nil
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+
+        XCTAssertEqual(restored.panelDirectories[restoredPanelId], literalDirectory)
+        XCTAssertEqual(restored.terminalLocation(for: restoredPanelId)?.displayDirectory, literalDirectory)
+    }
+
+    @MainActor
     func testSessionSnapshotRestoresManagedRemoteTerminalLocation() throws {
         let source = Workspace()
         let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
