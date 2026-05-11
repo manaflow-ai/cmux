@@ -4073,7 +4073,9 @@ struct ContentView: View {
                 Spacer(minLength: 0)
 
                 Button {
-                    promptCommandPaletteWorkspaceSymbolIcon(workspaceId: target.workspaceId)
+                    WorkspaceIconPrompting.promptSymbol { icon in
+                        tabManager.setTabIcon(tabId: target.workspaceId, icon: icon)
+                    }
                 } label: {
                     Image(systemName: "sparkles")
                 }
@@ -4081,7 +4083,9 @@ struct ContentView: View {
                 .safeHelp(String(localized: "commandPalette.workspaceIcon.setSymbol.tooltip", defaultValue: "Set Symbol"))
 
                 Button {
-                    promptCommandPaletteWorkspaceEmojiIcon(workspaceId: target.workspaceId)
+                    WorkspaceIconPrompting.promptEmoji { icon in
+                        tabManager.setTabIcon(tabId: target.workspaceId, icon: icon)
+                    }
                 } label: {
                     Image(systemName: "face.smiling")
                 }
@@ -4089,7 +4093,9 @@ struct ContentView: View {
                 .safeHelp(String(localized: "commandPalette.workspaceIcon.setEmoji.tooltip", defaultValue: "Set Emoji"))
 
                 Button {
-                    promptCommandPaletteWorkspaceImageIcon(workspaceId: target.workspaceId)
+                    WorkspaceIconPrompting.promptImage { icon in
+                        tabManager.setTabIcon(tabId: target.workspaceId, icon: icon)
+                    }
                 } label: {
                     Image(systemName: "photo")
                 }
@@ -4140,86 +4146,6 @@ struct ContentView: View {
             )
 #endif
         }
-    }
-
-    private func promptCommandPaletteWorkspaceSymbolIcon(workspaceId: UUID) {
-        promptCommandPaletteWorkspaceIconText(
-            workspaceId: workspaceId,
-            title: String(localized: "alert.workspaceIcon.symbol.title", defaultValue: "Set Workspace Symbol"),
-            message: String(localized: "alert.workspaceIcon.symbol.message", defaultValue: "Enter an SF Symbol name."),
-            placeholder: "folder.fill"
-        ) { value in
-            .symbol(value)
-        }
-    }
-
-    private func promptCommandPaletteWorkspaceEmojiIcon(workspaceId: UUID) {
-        promptCommandPaletteWorkspaceIconText(
-            workspaceId: workspaceId,
-            title: String(localized: "alert.workspaceIcon.emoji.title", defaultValue: "Set Workspace Emoji"),
-            message: String(localized: "alert.workspaceIcon.emoji.message", defaultValue: "Enter an emoji or short glyph."),
-            placeholder: "🚀"
-        ) { value in
-            .emoji(value, scale: 1)
-        }
-    }
-
-    private func promptCommandPaletteWorkspaceIconText(
-        workspaceId: UUID,
-        title: String,
-        message: String,
-        placeholder: String,
-        makeIcon: (String) -> CmuxButtonIcon
-    ) {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
-        let input = NSTextField(string: "")
-        input.placeholderString = placeholder
-        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
-        alert.accessoryView = input
-        alert.addButton(withTitle: String(localized: "alert.workspaceIcon.apply", defaultValue: "Apply"))
-        alert.addButton(withTitle: String(localized: "alert.workspaceIcon.cancel", defaultValue: "Cancel"))
-
-        let alertWindow = alert.window
-        alertWindow.initialFirstResponder = input
-        DispatchQueue.main.async {
-            alertWindow.makeFirstResponder(input)
-            input.selectText(nil)
-        }
-
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let trimmed = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            showCommandPaletteInvalidWorkspaceIconAlert()
-            return
-        }
-        tabManager.setTabIcon(tabId: workspaceId, icon: makeIcon(trimmed))
-    }
-
-    private func promptCommandPaletteWorkspaceImageIcon(workspaceId: UUID) {
-        let panel = NSOpenPanel()
-        panel.title = String(localized: "panel.workspaceIcon.image.title", defaultValue: "Choose Workspace Icon")
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [
-            UTType.image,
-            UTType(filenameExtension: "svg"),
-            UTType(filenameExtension: "ico"),
-        ].compactMap { $0 }
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        tabManager.setTabIcon(tabId: workspaceId, icon: .imagePath(url.path))
-    }
-
-    private func showCommandPaletteInvalidWorkspaceIconAlert() {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = String(localized: "alert.workspaceIcon.invalid.title", defaultValue: "Invalid Workspace Icon")
-        alert.informativeText = String(localized: "alert.workspaceIcon.invalid.message", defaultValue: "Enter a non-empty symbol name, emoji, or image path.")
-        alert.addButton(withTitle: String(localized: "alert.workspaceIcon.invalid.ok", defaultValue: "OK"))
-        _ = alert.runModal()
     }
 
     private final class CommandPaletteNativeTextField: NSTextField {
@@ -11986,63 +11912,6 @@ enum SidebarTrailingAccessoryWidthPolicy {
     }
 }
 
-private enum SidebarWorkspaceIconImageCache {
-    private static let lock = NSLock()
-    private static var imagesByPath: [String: NSImage] = [:]
-
-    static func image(for path: String) -> NSImage? {
-        let expandedPath = (path as NSString).expandingTildeInPath
-        lock.lock()
-        if let cached = imagesByPath[expandedPath] {
-            lock.unlock()
-            return cached
-        }
-        lock.unlock()
-
-        guard let image = NSImage(contentsOfFile: expandedPath) else { return nil }
-
-        lock.lock()
-        imagesByPath[expandedPath] = image
-        lock.unlock()
-        return image
-    }
-}
-
-private struct SidebarWorkspaceIconView: View {
-    private static let frameSize: CGFloat = 14
-
-    let icon: CmuxButtonIcon
-    let foregroundColor: Color
-
-    var body: some View {
-        Group {
-            switch icon {
-            case .symbol(let name):
-                Image(systemName: name)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(foregroundColor)
-            case .emoji(let value, let scale):
-                Text(value)
-                    .font(.system(size: CGFloat(max(8, 12 * scale))))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.5)
-            case .imagePath(let path):
-                if let image = SidebarWorkspaceIconImageCache.image(for: path) {
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFit()
-                } else {
-                    Image(systemName: "questionmark.circle")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(foregroundColor)
-                }
-            }
-        }
-        .frame(width: Self.frameSize, height: Self.frameSize, alignment: .center)
-        .accessibilityHidden(true)
-    }
-}
-
 // PERF: TabItemView is Equatable so SwiftUI skips body re-evaluation when
 // the parent rebuilds with unchanged values. Without this, every TabManager
 // or NotificationStore publish causes ALL tab items to re-evaluate (~18% of
@@ -12998,19 +12867,25 @@ private struct TabItemView: View, Equatable {
 
         Menu(String(localized: "contextMenu.workspaceIcon", defaultValue: "Workspace Icon")) {
             Button {
-                promptWorkspaceSymbolIcon(targetIds: targetIds)
+                WorkspaceIconPrompting.promptSymbol { icon in
+                    applyWorkspaceIcon(icon, targetIds: targetIds)
+                }
             } label: {
                 Label(String(localized: "contextMenu.workspaceIcon.setSymbol", defaultValue: "Set Symbol…"), systemImage: "sparkles")
             }
 
             Button {
-                promptWorkspaceEmojiIcon(targetIds: targetIds)
+                WorkspaceIconPrompting.promptEmoji { icon in
+                    applyWorkspaceIcon(icon, targetIds: targetIds)
+                }
             } label: {
                 Label(String(localized: "contextMenu.workspaceIcon.setEmoji", defaultValue: "Set Emoji…"), systemImage: "face.smiling")
             }
 
             Button {
-                promptWorkspaceImageIcon(targetIds: targetIds)
+                WorkspaceIconPrompting.promptImage { icon in
+                    applyWorkspaceIcon(icon, targetIds: targetIds)
+                }
             } label: {
                 Label(String(localized: "contextMenu.workspaceIcon.setImage", defaultValue: "Set Image…"), systemImage: "photo")
             }
@@ -13783,88 +13658,6 @@ private struct TabItemView: View, Equatable {
         tabManager.applyWorkspaceIcon(icon, toWorkspaceIds: targetIds)
     }
 
-    private func promptWorkspaceSymbolIcon(targetIds: [UUID]) {
-        promptWorkspaceIconText(
-            targetIds: targetIds,
-            title: String(localized: "alert.workspaceIcon.symbol.title", defaultValue: "Set Workspace Symbol"),
-            message: String(localized: "alert.workspaceIcon.symbol.message", defaultValue: "Enter an SF Symbol name."),
-            placeholder: "folder.fill"
-        ) { value in
-            .symbol(value)
-        }
-    }
-
-    private func promptWorkspaceEmojiIcon(targetIds: [UUID]) {
-        promptWorkspaceIconText(
-            targetIds: targetIds,
-            title: String(localized: "alert.workspaceIcon.emoji.title", defaultValue: "Set Workspace Emoji"),
-            message: String(localized: "alert.workspaceIcon.emoji.message", defaultValue: "Enter an emoji or short glyph."),
-            placeholder: "🚀"
-        ) { value in
-            .emoji(value, scale: 1)
-        }
-    }
-
-    private func promptWorkspaceIconText(
-        targetIds: [UUID],
-        title: String,
-        message: String,
-        placeholder: String,
-        makeIcon: (String) -> CmuxButtonIcon
-    ) {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
-
-        let input = NSTextField(string: "")
-        input.placeholderString = placeholder
-        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
-        alert.accessoryView = input
-        alert.addButton(withTitle: String(localized: "alert.workspaceIcon.apply", defaultValue: "Apply"))
-        alert.addButton(withTitle: String(localized: "alert.workspaceIcon.cancel", defaultValue: "Cancel"))
-
-        let alertWindow = alert.window
-        alertWindow.initialFirstResponder = input
-        DispatchQueue.main.async {
-            alertWindow.makeFirstResponder(input)
-            input.selectText(nil)
-        }
-
-        let response = alert.runModal()
-        guard response == .alertFirstButtonReturn else { return }
-        let trimmed = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            showInvalidWorkspaceIconAlert()
-            return
-        }
-        applyWorkspaceIcon(makeIcon(trimmed), targetIds: targetIds)
-    }
-
-    private func promptWorkspaceImageIcon(targetIds: [UUID]) {
-        let panel = NSOpenPanel()
-        panel.title = String(localized: "panel.workspaceIcon.image.title", defaultValue: "Choose Workspace Icon")
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [
-            UTType.image,
-            UTType(filenameExtension: "svg"),
-            UTType(filenameExtension: "ico"),
-        ].compactMap { $0 }
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        applyWorkspaceIcon(.imagePath(url.path), targetIds: targetIds)
-    }
-
-    private func showInvalidWorkspaceIconAlert() {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = String(localized: "alert.workspaceIcon.invalid.title", defaultValue: "Invalid Workspace Icon")
-        alert.informativeText = String(localized: "alert.workspaceIcon.invalid.message", defaultValue: "Enter a non-empty symbol name, emoji, or image path.")
-        alert.addButton(withTitle: String(localized: "alert.workspaceIcon.invalid.ok", defaultValue: "OK"))
-        _ = alert.runModal()
-    }
-
     private func toggleWorkspaceTerminalScrollBarHidden(targetIds: [UUID]) {
         let currentlyHidden = !targetIds.isEmpty && targetIds.allSatisfy { targetId in
             tabManager.tabs.first(where: { $0.id == targetId })?.terminalScrollBarHidden == true
@@ -13963,11 +13756,17 @@ private struct TabItemView: View, Equatable {
         let targetIds = [tab.id]
         switch iconPopup.indexOfSelectedItem {
         case 1:
-            promptWorkspaceSymbolIcon(targetIds: targetIds)
+            WorkspaceIconPrompting.promptSymbol { icon in
+                applyWorkspaceIcon(icon, targetIds: targetIds)
+            }
         case 2:
-            promptWorkspaceEmojiIcon(targetIds: targetIds)
+            WorkspaceIconPrompting.promptEmoji { icon in
+                applyWorkspaceIcon(icon, targetIds: targetIds)
+            }
         case 3:
-            promptWorkspaceImageIcon(targetIds: targetIds)
+            WorkspaceIconPrompting.promptImage { icon in
+                applyWorkspaceIcon(icon, targetIds: targetIds)
+            }
         case 4:
             applyWorkspaceIcon(nil, targetIds: targetIds)
         default:

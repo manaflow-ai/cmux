@@ -2826,7 +2826,7 @@ struct CMUXCLI {
                 params["description"] = descriptionOpt
             }
             if let iconOpt {
-                params["icon"] = iconOpt
+                params["icon"] = try parseIconJSONOption(iconOpt, context: "new-workspace --icon")
             }
             if let layoutOpt {
                 guard let layoutData = layoutOpt.data(using: .utf8),
@@ -3150,7 +3150,7 @@ struct CMUXCLI {
             let wsId = try resolveWorkspaceId(workspaceArg, client: client)
             var params: [String: Any] = ["title": title, "workspace_id": wsId]
             if let iconOpt {
-                params["icon"] = iconOpt
+                params["icon"] = try parseIconJSONOption(iconOpt, context: "rename-workspace --icon")
             }
             let payload = try client.sendV2(method: "workspace.rename", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
@@ -4517,7 +4517,7 @@ struct CMUXCLI {
             params["color"] = color
         }
         if let icon, !icon.isEmpty {
-            params["icon"] = icon
+            params["icon"] = try parseIconJSONOption(icon, context: "workspace-action set-icon")
         }
         if let description, !description.isEmpty {
             params["description"] = description
@@ -10218,6 +10218,23 @@ struct CMUXCLI {
             remaining.append(arg)
         }
         return (value, remaining)
+    }
+
+    private func parseIconJSONOption(_ raw: String, context: String) throws -> [String: Any] {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let data = trimmed.data(using: .utf8) else {
+            throw CLIError(message: "\(context) must be a valid CmuxButtonIcon JSON object")
+        }
+        let object: Any
+        do {
+            object = try JSONSerialization.jsonObject(with: data, options: [])
+        } catch {
+            throw CLIError(message: "\(context) must be a valid CmuxButtonIcon JSON object")
+        }
+        guard let icon = object as? [String: Any], JSONSerialization.isValidJSONObject(icon) else {
+            throw CLIError(message: "\(context) must be a valid CmuxButtonIcon JSON object")
+        }
+        return icon
     }
 
     private func parseRepeatedOption(_ args: [String], name: String) -> ([String], [String]) {

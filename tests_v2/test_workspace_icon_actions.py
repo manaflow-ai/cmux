@@ -65,7 +65,9 @@ def _workspace_icon(c: cmux, workspace_id: str) -> Dict[str, Any] | None:
     for row in rows:
         if str(row.get("id") or "") == workspace_id:
             icon = row.get("custom_icon")
-            return icon if isinstance(icon, dict) else None
+            if icon is None or isinstance(icon, dict):
+                return icon
+            raise cmuxError(f"workspace.list returned invalid custom_icon payload for {workspace_id}: {icon!r}")
     raise cmuxError(f"workspace.list did not include workspace {workspace_id}")
 
 
