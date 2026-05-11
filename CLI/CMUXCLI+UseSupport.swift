@@ -41,8 +41,8 @@ nonisolated enum CmuxUseSupport {
             throw CLIError(message: "cmux use requires a GitHub repository")
         }
 
-        if trimmed.hasPrefix("git@github.com:") {
-            return try parseGitHubPath(String(trimmed.dropFirst("git@github.com:".count)))
+        if let scpStylePath = gitHubSCPStylePath(trimmed) {
+            return try parseGitHubPath(scpStylePath)
         }
 
         let candidate: String = {
@@ -242,6 +242,17 @@ nonisolated enum CmuxUseSupport {
         }
 
         return CmuxUseRepository(owner: owner, name: name)
+    }
+
+    private static func gitHubSCPStylePath(_ raw: String) -> String? {
+        guard let separator = raw.firstIndex(of: ":") else {
+            return nil
+        }
+        let endpoint = String(raw[..<separator])
+        guard endpoint.caseInsensitiveCompare("git@github.com") == .orderedSame else {
+            return nil
+        }
+        return String(raw[raw.index(after: separator)...])
     }
 
     private static func isValidGitHubPathComponent(_ value: String) -> Bool {
