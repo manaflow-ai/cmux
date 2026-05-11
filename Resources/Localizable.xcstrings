@@ -88280,6 +88280,35 @@
         }
       }
     },
+    "remote.status.reconnecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnecting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続中"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повторне підключення"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 연결 중"
+          }
+        }
+      }
+    },
     "remote.status.disconnected": {
       "extractionState": "manual",
       "localizations": {
@@ -88450,6 +88479,35 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@에 SSH 연결 중"
+          }
+        }
+      }
+    },
+    "sidebar.remote.help.reconnecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH reconnecting to %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH は %@ に再接続中"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH повторно підключається до %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 SSH 다시 연결 중"
           }
         }
       }

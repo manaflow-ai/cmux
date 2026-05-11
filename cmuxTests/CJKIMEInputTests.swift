@@ -8,7 +8,6 @@ import ObjectiveC.runtime
 @testable import cmux
 #endif
 
-private var cjkIMEInterpretKeyEventsSwizzled = false
 var cjkIMEInterpretKeyEventsHook: ((GhosttyNSView, [NSEvent]) -> Bool)?
 private var ghosttyPasteActionSwizzled = false
 private var ghosttyPasteActionHook: ((GhosttyNSView, Any?) -> Void)?
@@ -27,9 +26,8 @@ private extension GhosttyNSView {
     }
 }
 
+@MainActor
 func installCJKIMEInterpretKeyEventsSwizzle() {
-    guard !cjkIMEInterpretKeyEventsSwizzled else { return }
-
     GhosttyNSView.debugTextInputEventHandler = { candidateView, event in
         if let hook = cjkIMEInterpretKeyEventsHook, hook(candidateView, [event]) {
             return true
@@ -37,8 +35,6 @@ func installCJKIMEInterpretKeyEventsSwizzle() {
         candidateView.interpretKeyEvents([event])
         return false
     }
-
-    cjkIMEInterpretKeyEventsSwizzled = true
 }
 
 private func installGhosttyPasteActionSwizzle() {
