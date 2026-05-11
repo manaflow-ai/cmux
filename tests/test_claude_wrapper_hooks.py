@@ -416,6 +416,17 @@ def test_plain_claude_launch_argv_has_no_empty_argument(failures: list[str]) -> 
     expect(argv[0].endswith("/real-bin/claude"), f"plain claude: expected real claude executable, got {argv}", failures)
 
 
+def test_agents_subcommand_bypasses_hook_injection(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["agents"],
+    )
+    expect(code == 0, f"agents passthrough: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv == ["agents"], f"agents passthrough: expected raw argv, got {real_argv}", failures)
+    expect("--settings" not in real_argv, f"agents passthrough: expected no --settings injection, got {real_argv}", failures)
+    expect("--session-id" not in real_argv, f"agents passthrough: expected no --session-id injection, got {real_argv}", failures)
+
+
 def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures: list[str]) -> None:
     inherited = {
         "CLAUDE_CONFIG_DIR": "/tmp/claude-config",
@@ -658,6 +669,7 @@ def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
+    test_agents_subcommand_bypasses_hook_injection(failures)
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
