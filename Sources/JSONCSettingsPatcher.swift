@@ -184,7 +184,7 @@ private struct Scanner {
             }
 
             let nameEnd = try stringEnd(from: cursor)
-            let name = String(source[source.index(after: cursor)..<source.index(before: nameEnd)])
+            let name = try decodedString(from: cursor..<nameEnd)
             var colon = skipTrivia(from: nameEnd, limit: object.close)
             guard colon < object.close, source[colon] == ":" else {
                 throw CocoaError(.fileReadCorruptFile)
@@ -202,6 +202,14 @@ private struct Scanner {
                 cursor = source.index(after: cursor)
             }
         }
+    }
+
+    private func decodedString(from range: Range<String.Index>) throws -> String {
+        let data = Data(source[range].utf8)
+        guard let string = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? String else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        return string
     }
 
     private func propertySummary(in open: String.Index, close: String.Index) throws -> (hasProperties: Bool, hasTrailingComma: Bool, lastValueEnd: String.Index?) {

@@ -14,6 +14,10 @@ private final class ShortcutSettingsLookupRecorder: @unchecked Sendable {
     var actions: [String] = []
 }
 
+private enum SocketPasswordLoadError: Error {
+    case failed
+}
+
 final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
     func testBootstrapMigratesLegacySettingsIntoCanonicalConfig() throws {
         let directoryURL = try makeTemporaryDirectory()
@@ -313,6 +317,49 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         withExtendedLifetime(store) {}
     }
 
+    func testSocketPasswordReadErrorDoesNotClearManagedAutomationPassword() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "automation": {
+                "socketPassword": "old-secret"
+              }
+            }
+            """,
+            to: primaryURL
+        )
+
+        var storedPassword: String?
+        var shouldFailPasswordLoad = false
+        let notificationCenter = NotificationCenter()
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: nil,
+            notificationCenter: notificationCenter,
+            loadSocketPassword: {
+                if shouldFailPasswordLoad {
+                    throw SocketPasswordLoadError.failed
+                }
+                return storedPassword
+            },
+            saveSocketPassword: { storedPassword = $0 },
+            clearSocketPassword: { storedPassword = nil },
+            startWatching: true
+        )
+        XCTAssertEqual(storedPassword, "old-secret")
+
+        storedPassword = "new-secret"
+        shouldFailPasswordLoad = true
+        notificationCenter.post(name: SocketControlPasswordStore.didChangeNotification, object: nil)
+        try assertAutomationSocketPassword("old-secret", remainsIn: primaryURL)
+
+        withExtendedLifetime(store) {}
+    }
+
     func testSettingsUIChangeInsertsIntoSectionWithTrailingComma() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -395,6 +442,24 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         XCTAssertTrue(updatedContents.contains("false, // keep this comment with the original value"))
 
         withExtendedLifetime(store) {}
+    }
+
+    func testJSONCSettingsPatcherUpdatesEscapedEffectiveKey() throws {
+        let source = """
+        {
+          "sidebarAppearance": {
+            "tint\\u0043olor": "#escaped"
+          }
+        }
+        """
+
+        let patched = try JSONCSettingsPatcher.setting(
+            "sidebarAppearance.tintColor",
+            to: "#new",
+            in: source
+        )
+
+        XCTAssertEqual(try sidebarAppearanceString("tintColor", in: patched), "#new")
     }
 
     func testUnsupportedManagedCollectionReappliesInsteadOfDrifting() throws {
@@ -488,20 +553,46 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
     private func waitForAutomationSocketPassword(_ expectedValue: String?, in url: URL) throws {
         let deadline = Date().addingTimeInterval(2)
         while Date() < deadline {
-            let sanitized = try JSONCParser.preprocess(data: Data(contentsOf: url))
-            if let root = try JSONSerialization.jsonObject(with: sanitized) as? [String: Any],
-               let automation = root["automation"] as? [String: Any] {
-                let actual = automation["socketPassword"]
-                if let expectedValue, actual as? String == expectedValue {
-                    return
-                }
-                if expectedValue == nil, actual is NSNull {
-                    return
-                }
+            let actual = try automationSocketPassword(in: url)
+            if let expectedValue, actual as? String == expectedValue {
+                return
+            }
+            if expectedValue == nil, actual is NSNull {
+                return
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.02))
         }
         XCTFail("Timed out waiting for automation.socketPassword to persist")
+    }
+
+    private func assertAutomationSocketPassword(
+        _ expectedValue: String,
+        remainsIn url: URL,
+        duration: TimeInterval = 1.0
+    ) throws {
+        let deadline = Date().addingTimeInterval(duration)
+        while Date() < deadline {
+            let actual = try automationSocketPassword(in: url)
+            guard actual as? String == expectedValue else {
+                XCTFail("Expected automation.socketPassword to remain \(expectedValue), got \(String(describing: actual))")
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+    }
+
+    private func automationSocketPassword(in url: URL) throws -> Any? {
+        let sanitized = try JSONCParser.preprocess(data: Data(contentsOf: url))
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: sanitized) as? [String: Any])
+        let automation = try XCTUnwrap(root["automation"] as? [String: Any])
+        return automation["socketPassword"]
+    }
+
+    private func sidebarAppearanceString(_ key: String, in source: String) throws -> String? {
+        let sanitized = try JSONCParser.preprocess(data: Data(source.utf8))
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: sanitized) as? [String: Any])
+        let sidebarAppearance = try XCTUnwrap(root["sidebarAppearance"] as? [String: Any])
+        return sidebarAppearance[key] as? String
     }
 
     private func waitForDefaultString(_ expectedValue: String, key: String, defaults: UserDefaults) throws {

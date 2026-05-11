@@ -191,8 +191,7 @@ final class CmuxSettingsFileStore {
                 attributes: [.posixPermissions: 0o755]
             )
             let contents = legacySettingsDataForBootstrap() ?? Data(Self.defaultTemplate().utf8)
-            try contents.write(to: fileURL, options: [.atomic])
-            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+            try CmuxSettingsJSONPersistence.writePrivateSettingsData(contents, to: fileURL, fileManager: fileManager)
         } catch {
             NSLog("[CmuxSettingsFileStore] failed to bootstrap %@: %@", primaryPath, String(describing: error))
         }
@@ -258,8 +257,14 @@ final class CmuxSettingsFileStore {
         }
         guard isManaged else { return }
 
-        let currentValues = currentSettingsJSONValues()
-        guard let currentValue = currentValues["automation.socketPassword"] else { return }
+        let currentValue: ManagedSettingsValue
+        do {
+            currentValue = try currentSocketPasswordSettingsJSONValue()
+        } catch {
+            NSLog("[CmuxSettingsFileStore] failed to read socket password for Settings UI change: %@", String(describing: error))
+            reapplyManagedSettingsIfNeeded()
+            return
+        }
         let changedValues: [String: ManagedSettingsValue] = synchronized {
             guard lastPersistedSettingsValues["automation.socketPassword"] != currentValue else {
                 return [:]
@@ -1267,9 +1272,17 @@ final class CmuxSettingsFileStore {
         guard includingManagedCustomSettings else { return values }
         let customSettings = managedCustomSettings ?? synchronized { activeManagedCustomSettings }
         if customSettings.socketPassword != nil {
-            values["automation.socketPassword"] = .nullableString((try? loadSocketPassword()) ?? nil)
+            do {
+                values["automation.socketPassword"] = try currentSocketPasswordSettingsJSONValue()
+            } catch {
+                NSLog("[CmuxSettingsFileStore] failed to read socket password for settings snapshot: %@", String(describing: error))
+            }
         }
         return values
+    }
+
+    private func currentSocketPasswordSettingsJSONValue() throws -> ManagedSettingsValue {
+        .nullableString(try loadSocketPassword())
     }
 
     private func jsonString(_ rawValue: Any?) -> String? {

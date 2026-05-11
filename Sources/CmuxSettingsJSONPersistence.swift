@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 nonisolated enum CmuxSettingsJSONPersistence {
@@ -290,8 +291,7 @@ nonisolated enum CmuxSettingsJSONPersistence {
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o755]
         )
-        try Data(patchedSource.utf8).write(to: fileURL, options: [.atomic])
-        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+        try writePrivateSettingsData(Data(patchedSource.utf8), to: fileURL, fileManager: fileManager)
     }
 
     private static func boolValue(_ key: String, defaultValue: Bool, defaults: UserDefaults) -> Bool {
@@ -342,6 +342,54 @@ nonisolated enum CmuxSettingsJSONPersistence {
         let object = try JSONSerialization.jsonObject(with: sanitized, options: [])
         guard object is [String: Any] else {
             throw CocoaError(.fileReadCorruptFile)
+        }
+    }
+
+    static func writePrivateSettingsData(
+        _ data: Data,
+        to fileURL: URL,
+        fileManager: FileManager
+    ) throws {
+        let directoryURL = fileURL.deletingLastPathComponent()
+        let temporaryURL = directoryURL.appendingPathComponent(
+            ".\(fileURL.lastPathComponent).tmp.\(UUID().uuidString)",
+            isDirectory: false
+        )
+        var shouldRemoveTemporaryFile = false
+        defer {
+            if shouldRemoveTemporaryFile {
+                try? fileManager.removeItem(at: temporaryURL)
+            }
+        }
+
+        guard fileManager.createFile(
+            atPath: temporaryURL.path,
+            contents: nil,
+            attributes: [.posixPermissions: 0o600]
+        ) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        shouldRemoveTemporaryFile = true
+
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporaryURL.path)
+        try data.write(to: temporaryURL, options: [])
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporaryURL.path)
+        try replaceItem(at: fileURL, withPrivateTemporaryItemAt: temporaryURL)
+        shouldRemoveTemporaryFile = false
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+    }
+
+    private static func replaceItem(
+        at destinationURL: URL,
+        withPrivateTemporaryItemAt temporaryURL: URL
+    ) throws {
+        let result = temporaryURL.path.withCString { temporaryPath in
+            destinationURL.path.withCString { destinationPath in
+                Darwin.rename(temporaryPath, destinationPath)
+            }
+        }
+        guard result == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
     }
 }
