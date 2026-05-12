@@ -6,36 +6,30 @@ import UserNotifications
 // MARK: - Native notification banner
 
 enum FeedNotificationDispatcher {
-    struct ActiveTerminalTarget: Equatable {
+    struct ActiveTerminalTarget: Equatable, Sendable {
         let workspaceId: UUID
         let surfaceId: UUID
     }
 
-    struct FrontmostContext {
+    struct FrontmostContext: Sendable {
         let isAppFrontmost: Bool
         let activeTerminalTarget: ActiveTerminalTarget?
     }
 
     static func post(
         event: WorkstreamEvent,
-        requestId: String,
-        enqueue: @escaping (@MainActor @escaping () -> Void) -> Void = { work in
-            Task { @MainActor in work() }
-        },
-        frontmostContext: @MainActor @escaping () -> FrontmostContext = currentFrontmostContext,
-        lookupTarget: @escaping (String, String) -> FeedJumpResolver.Target? = FeedJumpResolver.lookup,
-        deliverRequest: @escaping (UNNotificationRequest) -> Void = deliver
+        requestId: String
     ) {
-        let notificationTarget = resolvedTarget(for: event, lookupTarget: lookupTarget)
-        enqueue {
-            guard !shouldSuppress(
-                notificationTarget: notificationTarget,
-                frontmostContext: frontmostContext()
-            ) else {
-                return
-            }
-            guard let request = request(for: event, requestId: requestId) else { return }
-            deliverRequest(request)
+        // Hook threads block waiting for the user decision; resolve the
+        // notification target off-thread so disk-backed session lookup
+        // does not add latency before that wait begins.
+        Task.detached(priority: .utility) {
+            let notificationTarget = resolvedTarget(for: event)
+            await deliverIfNeeded(
+                event: event,
+                requestId: requestId,
+                notificationTarget: notificationTarget
+            )
         }
     }
 
@@ -49,6 +43,24 @@ enum FeedNotificationDispatcher {
             return false
         }
         return activeTerminalTarget == notificationTarget
+    }
+
+    @MainActor
+    static func deliverIfNeeded(
+        event: WorkstreamEvent,
+        requestId: String,
+        notificationTarget: ActiveTerminalTarget?,
+        frontmostContext: FrontmostContext = currentFrontmostContext(),
+        deliverRequest: (UNNotificationRequest) -> Void = deliver
+    ) {
+        guard !shouldSuppress(
+            notificationTarget: notificationTarget,
+            frontmostContext: frontmostContext
+        ) else {
+            return
+        }
+        guard let request = request(for: event, requestId: requestId) else { return }
+        deliverRequest(request)
     }
 
     static func request(
@@ -138,9 +150,9 @@ enum FeedNotificationDispatcher {
         }
     }
 
-    private static func resolvedTarget(
+    static func resolvedTarget(
         for event: WorkstreamEvent,
-        lookupTarget: (String, String) -> FeedJumpResolver.Target?
+        lookupTarget: (String, String) -> FeedJumpResolver.Target? = FeedJumpResolver.lookup
     ) -> ActiveTerminalTarget? {
         guard let parsed = FeedJumpResolver.parse(event.sessionId),
               let target = lookupTarget(parsed.agent, parsed.sessionId),

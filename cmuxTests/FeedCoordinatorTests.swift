@@ -30,6 +30,34 @@ final class FeedCoordinatorTests: XCTestCase {
         XCTAssertEqual(parsed?.sessionId, "session-with-dashes")
     }
 
+    func testFeedNotificationDispatcherResolvesParsedWorkstreamTarget() {
+        let target = FeedNotificationDispatcher.ActiveTerminalTarget(
+            workspaceId: UUID(),
+            surfaceId: UUID()
+        )
+        let event = WorkstreamEvent(
+            sessionId: "claude-notif-target",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            toolName: "Bash",
+            requestId: "notif-target-request"
+        )
+
+        let notificationTarget = FeedNotificationDispatcher.resolvedTarget(
+            for: event,
+            lookupTarget: { agent, sessionId in
+                XCTAssertEqual(agent, "claude")
+                XCTAssertEqual(sessionId, "notif-target")
+                return FeedJumpResolver.Target(
+                    workspaceId: target.workspaceId.uuidString,
+                    surfaceId: target.surfaceId.uuidString
+                )
+            }
+        )
+
+        XCTAssertEqual(notificationTarget, target)
+    }
+
     func testBlockingIngestExpiresItemWhenHookTimesOut() async {
         await MainActor.run {
             let store = WorkstreamStore(ringCapacity: 10)
@@ -89,24 +117,14 @@ final class FeedCoordinatorTests: XCTestCase {
 
         var deliveredRequests: [UNNotificationRequest] = []
 
-        FeedNotificationDispatcher.post(
+        FeedNotificationDispatcher.deliverIfNeeded(
             event: event,
             requestId: "notif-match-request",
-            enqueue: { work in work() },
-            frontmostContext: {
-                FeedNotificationDispatcher.FrontmostContext(
-                    isAppFrontmost: true,
-                    activeTerminalTarget: target
-                )
-            },
-            lookupTarget: { agent, sessionId in
-                XCTAssertEqual(agent, "claude")
-                XCTAssertEqual(sessionId, "notif-match")
-                return FeedJumpResolver.Target(
-                    workspaceId: target.workspaceId.uuidString,
-                    surfaceId: target.surfaceId.uuidString
-                )
-            },
+            notificationTarget: target,
+            frontmostContext: FeedNotificationDispatcher.FrontmostContext(
+                isAppFrontmost: true,
+                activeTerminalTarget: target
+            ),
             deliverRequest: { deliveredRequests.append($0) }
         )
 
@@ -133,22 +151,14 @@ final class FeedCoordinatorTests: XCTestCase {
 
         var deliveredRequests: [UNNotificationRequest] = []
 
-        FeedNotificationDispatcher.post(
+        FeedNotificationDispatcher.deliverIfNeeded(
             event: event,
             requestId: "notif-different-request",
-            enqueue: { work in work() },
-            frontmostContext: {
-                FeedNotificationDispatcher.FrontmostContext(
-                    isAppFrontmost: true,
-                    activeTerminalTarget: activeTarget
-                )
-            },
-            lookupTarget: { _, _ in
-                FeedJumpResolver.Target(
-                    workspaceId: eventTarget.workspaceId.uuidString,
-                    surfaceId: eventTarget.surfaceId.uuidString
-                )
-            },
+            notificationTarget: eventTarget,
+            frontmostContext: FeedNotificationDispatcher.FrontmostContext(
+                isAppFrontmost: true,
+                activeTerminalTarget: activeTarget
+            ),
             deliverRequest: { deliveredRequests.append($0) }
         )
 
@@ -173,22 +183,14 @@ final class FeedCoordinatorTests: XCTestCase {
 
         var deliveredRequests: [UNNotificationRequest] = []
 
-        FeedNotificationDispatcher.post(
+        FeedNotificationDispatcher.deliverIfNeeded(
             event: event,
             requestId: "notif-background-request",
-            enqueue: { work in work() },
-            frontmostContext: {
-                FeedNotificationDispatcher.FrontmostContext(
-                    isAppFrontmost: false,
-                    activeTerminalTarget: target
-                )
-            },
-            lookupTarget: { _, _ in
-                FeedJumpResolver.Target(
-                    workspaceId: target.workspaceId.uuidString,
-                    surfaceId: target.surfaceId.uuidString
-                )
-            },
+            notificationTarget: target,
+            frontmostContext: FeedNotificationDispatcher.FrontmostContext(
+                isAppFrontmost: false,
+                activeTerminalTarget: target
+            ),
             deliverRequest: { deliveredRequests.append($0) }
         )
 
@@ -196,47 +198,6 @@ final class FeedCoordinatorTests: XCTestCase {
         XCTAssertEqual(deliveredRequests.first?.identifier, "feed.notif-background-request")
     }
 
-    @MainActor
-    func testPermissionRequestNotificationResolvesTargetBeforeMainEnqueue() {
-        let target = FeedNotificationDispatcher.ActiveTerminalTarget(
-            workspaceId: UUID(),
-            surfaceId: UUID()
-        )
-        let event = WorkstreamEvent(
-            sessionId: "claude-notif-order",
-            hookEventName: .permissionRequest,
-            source: "claude",
-            toolName: "Bash",
-            requestId: "notif-order-request"
-        )
-
-        var didLookupBeforeEnqueue = false
-
-        FeedNotificationDispatcher.post(
-            event: event,
-            requestId: "notif-order-request",
-            enqueue: { work in
-                XCTAssertTrue(didLookupBeforeEnqueue)
-                work()
-            },
-            frontmostContext: {
-                FeedNotificationDispatcher.FrontmostContext(
-                    isAppFrontmost: true,
-                    activeTerminalTarget: target
-                )
-            },
-            lookupTarget: { _, _ in
-                didLookupBeforeEnqueue = true
-                return FeedJumpResolver.Target(
-                    workspaceId: target.workspaceId.uuidString,
-                    surfaceId: target.surfaceId.uuidString
-                )
-            },
-            deliverRequest: { _ in
-                XCTFail("matching focused terminal should suppress delivery")
-            }
-        )
-    }
 }
 
 private final class IngestResultBox: @unchecked Sendable {
