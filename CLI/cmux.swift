@@ -1954,6 +1954,45 @@ struct CMUXCLI {
         let stderr: String
     }
 
+    private func makeUnlinkedHotPathCaptureFile(prefix: String) throws -> Int32 {
+        var template = "\(NSTemporaryDirectory())\(prefix)-XXXXXX".utf8CString
+        var createdPath = ""
+        let fd = template.withUnsafeMutableBufferPointer { buffer -> Int32 in
+            guard let baseAddress = buffer.baseAddress else { return -1 }
+            let fd = mkstemp(baseAddress)
+            if fd >= 0 {
+                createdPath = String(cString: baseAddress)
+            }
+            return fd
+        }
+        guard fd >= 0 else {
+            throw CLIError(message: "Failed to open temporary capture file")
+        }
+        guard unlink(createdPath) == 0 else {
+            let code = errno
+            Darwin.close(fd)
+            throw CLIError(message: "Failed to unlink temporary capture file: \(String(cString: strerror(code)))")
+        }
+        return fd
+    }
+
+    private func readCaptureFileDescriptor(_ fd: Int32) -> Data {
+        guard lseek(fd, 0, SEEK_SET) >= 0 else { return Data() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 8192)
+        while true {
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            if count < 0, errno == EINTR {
+                continue
+            }
+            if count <= 0 {
+                break
+            }
+            data.append(buffer, count: count)
+        }
+        return data
+    }
+
     private func hotPathEnvironmentSnapshot(from environment: [String: String]) -> [String: String] {
         let prefixes = [
             "CMUX_",
@@ -2009,26 +2048,13 @@ struct CMUXCLI {
     }
 
     private func capturePrintedOutput(_ body: () throws -> Void) throws -> CapturedPrintedOutput {
-        let captureId = UUID().uuidString
-        let stdoutURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-hot-path-stdout-\(captureId).log")
-        let stderrURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-hot-path-stderr-\(captureId).log")
-        let stdoutFD = open(stdoutURL.path, O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR)
-        guard stdoutFD >= 0 else {
-            throw CLIError(message: "Failed to open stdout capture for hot-path capture")
-        }
+        let stdoutFD = try makeUnlinkedHotPathCaptureFile(prefix: "cmux-hot-path-stdout")
         defer {
             Darwin.close(stdoutFD)
-            try? FileManager.default.removeItem(at: stdoutURL)
         }
-        let stderrFD = open(stderrURL.path, O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR)
-        guard stderrFD >= 0 else {
-            throw CLIError(message: "Failed to open stderr capture for hot-path capture")
-        }
+        let stderrFD = try makeUnlinkedHotPathCaptureFile(prefix: "cmux-hot-path-stderr")
         defer {
             Darwin.close(stderrFD)
-            try? FileManager.default.removeItem(at: stderrURL)
         }
 
         let savedStdout = dup(STDOUT_FILENO)
@@ -2069,8 +2095,8 @@ struct CMUXCLI {
         _ = dup2(savedStderr, STDERR_FILENO)
         Darwin.close(savedStdout)
         Darwin.close(savedStderr)
-        let stdoutData = (try? Data(contentsOf: stdoutURL)) ?? Data()
-        let stderrData = (try? Data(contentsOf: stderrURL)) ?? Data()
+        let stdoutData = readCaptureFileDescriptor(stdoutFD)
+        let stderrData = readCaptureFileDescriptor(stderrFD)
         let output = CapturedPrintedOutput(
             stdout: String(data: stdoutData, encoding: .utf8) ?? "",
             stderr: String(data: stderrData, encoding: .utf8) ?? ""

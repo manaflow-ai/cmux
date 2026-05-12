@@ -5204,12 +5204,10 @@ class TerminalController {
             guard let tab = self.tabForSidebarMutation(id: workspaceId) else {
                 return
             }
-            let validSurfaceIds = Set(tab.panels.keys)
-            var retainedSurfaceIds = validSurfaceIds
-            if tab.isRemoteWorkspace, let requestedSurfaceId {
-                retainedSurfaceIds.insert(requestedSurfaceId)
-            }
-            tab.pruneSurfaceMetadata(validSurfaceIds: retainedSurfaceIds)
+            let validSurfaceIds = self.retainAndPruneSurfaces(
+                for: tab,
+                requestedSurfaceId: requestedSurfaceId
+            )
 
             let surfaceId = self.resolveReportedSurfaceId(
                 in: tab,
@@ -5317,12 +5315,10 @@ class TerminalController {
             guard let tab = self.tabForSidebarMutation(id: workspaceId) else {
                 return
             }
-            let validSurfaceIds = Set(tab.panels.keys)
-            var retainedSurfaceIds = validSurfaceIds
-            if tab.isRemoteWorkspace, let requestedSurfaceId {
-                retainedSurfaceIds.insert(requestedSurfaceId)
-            }
-            tab.pruneSurfaceMetadata(validSurfaceIds: retainedSurfaceIds)
+            let validSurfaceIds = self.retainAndPruneSurfaces(
+                for: tab,
+                requestedSurfaceId: requestedSurfaceId
+            )
 
             let surfaceId = self.resolveReportedSurfaceId(
                 in: tab,
@@ -5422,12 +5418,10 @@ class TerminalController {
             guard let tab = self.tabForSidebarMutation(id: workspaceId) else {
                 return
             }
-            let validSurfaceIds = Set(tab.panels.keys)
-            var retainedSurfaceIds = validSurfaceIds
-            if tab.isRemoteWorkspace, let requestedSurfaceId {
-                retainedSurfaceIds.insert(requestedSurfaceId)
-            }
-            tab.pruneSurfaceMetadata(validSurfaceIds: retainedSurfaceIds)
+            let validSurfaceIds = self.retainAndPruneSurfaces(
+                for: tab,
+                requestedSurfaceId: requestedSurfaceId
+            )
 
             let surfaceId = self.resolveReportedSurfaceId(
                 in: tab,
@@ -5492,12 +5486,10 @@ class TerminalController {
             guard let tab = self.tabForSidebarMutation(id: workspaceId) else {
                 return
             }
-            let validSurfaceIds = Set(tab.panels.keys)
-            var retainedSurfaceIds = validSurfaceIds
-            if tab.isRemoteWorkspace, let requestedSurfaceId {
-                retainedSurfaceIds.insert(requestedSurfaceId)
-            }
-            tab.pruneSurfaceMetadata(validSurfaceIds: retainedSurfaceIds)
+            let validSurfaceIds = self.retainAndPruneSurfaces(
+                for: tab,
+                requestedSurfaceId: requestedSurfaceId
+            )
 
             let surfaceId = self.resolveReportedSurfaceId(
                 in: tab,
@@ -5549,6 +5541,20 @@ class TerminalController {
         }
 
         return result
+    }
+
+    @MainActor
+    private func retainAndPruneSurfaces(
+        for workspace: Workspace,
+        requestedSurfaceId: UUID?
+    ) -> Set<UUID> {
+        let validSurfaceIds = Set(workspace.panels.keys)
+        var retainedSurfaceIds = validSurfaceIds
+        if workspace.isRemoteWorkspace, let requestedSurfaceId {
+            retainedSurfaceIds.insert(requestedSurfaceId)
+        }
+        workspace.pruneSurfaceMetadata(validSurfaceIds: retainedSurfaceIds)
+        return validSurfaceIds
     }
 
     @MainActor
@@ -11220,19 +11226,22 @@ class TerminalController {
             let text = v2String(params, "text") ?? v2String(params, "prompt_text")
 
             if let nativeDialog = v2BrowserPopDialog(surfaceId: surfaceId) {
+                let workspaceRef = v2LookupRef(kind: .workspace, uuid: ws.id)
+                let surfaceRef = v2LookupRef(kind: .surface, uuid: surfaceId)
+                let remaining = (v2BrowserDialogQueueBySurface[surfaceId] ?? []).count
                 nativeDialog.responder(accept, text)
                 return .ok([
                     "workspace_id": ws.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                    "workspace_ref": workspaceRef,
                     "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                    "surface_ref": surfaceRef,
                     "accepted": accept,
                     "dialog": [
                         "type": nativeDialog.type,
                         "message": nativeDialog.message,
                         "default_text": v2OrNull(nativeDialog.defaultText)
                     ],
-                    "remaining": (v2BrowserDialogQueueBySurface[surfaceId] ?? []).count
+                    "remaining": remaining
                 ])
             }
 
