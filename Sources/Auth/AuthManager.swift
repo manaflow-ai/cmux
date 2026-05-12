@@ -469,7 +469,8 @@ final class AuthManager: ObservableObject {
         )
         guard await keepAuthMutationIfCurrent(
             mutationGeneration,
-            accessToken: payload.accessToken
+            accessToken: payload.accessToken,
+            refreshToken: payload.refreshToken
         ) else {
             return
         }
@@ -479,13 +480,15 @@ final class AuthManager: ObservableObject {
         } catch AuthManagerError.invalidCallback where !isCurrentAuthMutation(mutationGeneration) {
             _ = await keepAuthMutationIfCurrent(
                 mutationGeneration,
-                accessToken: payload.accessToken
+                accessToken: payload.accessToken,
+                refreshToken: payload.refreshToken
             )
             return
         }
         guard await keepAuthMutationIfCurrent(
             mutationGeneration,
-            accessToken: payload.accessToken
+            accessToken: payload.accessToken,
+            refreshToken: payload.refreshToken
         ) else {
             return
         }
@@ -872,17 +875,18 @@ final class AuthManager: ObservableObject {
 
     private func keepAuthMutationIfCurrent(
         _ generation: UInt64,
-        accessToken: String
+        accessToken: String,
+        refreshToken: String? = nil
     ) async -> Bool {
         guard !isCurrentAuthMutation(generation) else {
             return true
         }
         let cachedMatches = lastKnownAccessToken == accessToken
-        let storedMatches = await tokenStore.currentAccessToken() == accessToken
-        if storedMatches {
-            await tokenStore.clear()
-        }
-        if cachedMatches || storedMatches || currentAuthMutationKind == .signOut {
+        let storedCleared = await tokenStore.clearTokensIfCurrent(
+            accessToken: accessToken,
+            refreshToken: refreshToken
+        )
+        if cachedMatches || storedCleared || currentAuthMutationKind == .signOut {
             clearSessionState(clearSelectedTeam: true)
         }
         return false
