@@ -228,6 +228,7 @@ final class CmuxSettingsFileStore {
 
     @MainActor
     private func reapplyManagedSettingsIfNeeded() {
+        let primaryConfigExists = fileManager.fileExists(atPath: primaryPath)
         let managedState: (snapshot: ResolvedSettingsSnapshot, importedManagedDefaults: [String: ManagedSettingsValue])? = synchronized {
             guard !isApplyingManagedSettings else { return nil }
             var snapshot = ResolvedSettingsSnapshot(
@@ -239,7 +240,7 @@ final class CmuxSettingsFileStore {
                 managedCustomSettings: activeManagedCustomSettings,
                 managedCustomSettingSources: activeManagedCustomSettingSources
             )
-            if fileManager.fileExists(atPath: primaryPath) {
+            if primaryConfigExists {
                 snapshot.assignEditableWriteBackSources(Self.userDefaultWriteBackTargets, sourcePath: primaryPath, captureStoredValues: false)
             }
             guard !snapshot.managedUserDefaults.isEmpty ||
