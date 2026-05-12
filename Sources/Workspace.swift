@@ -9571,7 +9571,6 @@ final class Workspace: Identifiable, ObservableObject {
            configuredRelayPort != relayPort {
             return
         }
-        guard remoteConfiguration == nil || !activeRemoteTerminalSurfaceIds.contains(surfaceId) else { return }
         pendingRemoteTerminalConnectedRelayPortsBySurfaceId[surfaceId] = relayPort
     }
 

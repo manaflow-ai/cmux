@@ -82,6 +82,21 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(workspace.remoteDaemonStatus.state, expectedState, file: file, line: line)
     }
 
+    @MainActor
+    private func waitForRemoteConnectionState(
+        _ expectedState: WorkspaceRemoteConnectionState,
+        in workspace: Workspace,
+        timeout: TimeInterval = 1.0,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while workspace.remoteConnectionState != expectedState && Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
+        XCTAssertEqual(workspace.remoteConnectionState, expectedState, file: file, line: line)
+    }
+
     private func runRelayZshHistfile(
         configureUserHome: (URL) throws -> URL
     ) throws -> String {
@@ -571,6 +586,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(workspace.remoteConnectionState, .connected)
         XCTAssertEqual(workspace.remoteStatusPayload()["state"] as? String, "connected")
         XCTAssertEqual(workspace.remoteConnectionDetail, "Connected to cmux@gateway.freestyle.sh:2222 (VM, proxy disabled)")
+        workspace.disconnectRemoteConnection(clearConfiguration: true)
     }
 
     @MainActor
@@ -625,12 +641,44 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
         waitForRemoteDaemonState(.ready, in: workspace)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        waitForRemoteConnectionState(.connecting, in: workspace)
 
         XCTAssertEqual(workspace.remoteConnectionState, .connecting)
         XCTAssertEqual(workspace.remoteStatusPayload()["state"] as? String, "connecting")
         XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
         XCTAssertEqual(workspace.remoteConnectionDetail, "Connecting to cmux@gateway.freestyle.sh:2222")
+        workspace.disconnectRemoteConnection(clearConfiguration: true)
+    }
+
+    @MainActor
+    func testTrackedRemoteTerminalConnectedEventReplaysWhenConnectionStarts() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux@gateway.freestyle.sh",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: ["ControlMaster=no"],
+            localProxyPort: nil,
+            relayPort: 64045,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux@gateway.freestyle.sh",
+            skipDaemonBootstrap: true
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(panelID))
+
+        workspace.markRemoteTerminalSessionConnected(surfaceId: panelID, relayPort: 64045)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+
+        workspace.configureRemoteConnection(config, autoConnect: true)
+
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["state"] as? String, "connected")
+        XCTAssertEqual(workspace.remoteConnectionDetail, "Connected to cmux@gateway.freestyle.sh:2222 (VM, proxy disabled)")
         workspace.disconnectRemoteConnection(clearConfiguration: true)
     }
 

@@ -5075,6 +5075,9 @@ class TerminalController {
               limit > 0 else {
             return .err(code: "invalid_params", message: "Missing or invalid limit", data: nil)
         }
+        guard attempt <= limit else {
+            return .err(code: "invalid_params", message: "Missing or invalid attempt", data: nil)
+        }
         guard let exitStatus = v2StrictInt(params, "exit_status"),
               exitStatus >= 0,
               exitStatus <= 255 else {
