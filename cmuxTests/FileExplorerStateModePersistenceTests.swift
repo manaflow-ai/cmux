@@ -50,6 +50,7 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "find"), .find)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "vault"), .sessions)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "sessions"), .sessions)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "goals"), .goals)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "feed"), .feed)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "dock"), .dock)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: " Vault "), .sessions)
