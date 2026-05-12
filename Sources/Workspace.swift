@@ -9631,20 +9631,25 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func resolvedTerminalInheritanceFontPoints(
-        for terminalPanel: TerminalPanel,
-        inheritedConfig: CmuxSurfaceConfigTemplate
+        for terminalPanel: TerminalPanel
     ) -> Float? {
         if let rooted = terminalInheritanceFontPointsByPanelId[terminalPanel.id], rooted > 0 {
             return rooted
         }
-        if inheritedConfig.fontSize > 0 {
-            return inheritedConfig.fontSize
+        if let cached = terminalPanel.surface.lastKnownFontPointsForConfigInheritance, cached > 0 {
+            return cached
         }
         return lastTerminalConfigInheritanceFontPoints
     }
 
     private func rememberTerminalConfigInheritanceSource(_ terminalPanel: TerminalPanel) {
         lastTerminalConfigInheritancePanelId = terminalPanel.id
+        if let cachedPoints = terminalPanel.surface.lastKnownFontPointsForConfigInheritance,
+           cachedPoints > 0 {
+            terminalInheritanceFontPointsByPanelId[terminalPanel.id] = cachedPoints
+            lastTerminalConfigInheritanceFontPoints = cachedPoints
+            return
+        }
         if let sourceSurface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
             reason: "terminal.config.remember"
         ),
@@ -9748,8 +9753,7 @@ final class Workspace: Identifiable, ObservableObject {
         ) {
             var config = CmuxSurfaceConfigTemplate()
             if let rootedFontPoints = resolvedTerminalInheritanceFontPoints(
-                for: terminalPanel,
-                inheritedConfig: config
+                for: terminalPanel
             ), rootedFontPoints > 0 {
                 config.fontSize = rootedFontPoints
                 terminalInheritanceFontPointsByPanelId[terminalPanel.id] = rootedFontPoints

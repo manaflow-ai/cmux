@@ -4425,6 +4425,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }()
     private let surfaceContext: ghostty_surface_context_e
     private let configTemplate: CmuxSurfaceConfigTemplate?
+    private(set) var lastKnownFontPointsForConfigInheritance: Float?
     private let workingDirectory: String?
     let initialCommand: String?
     let tmuxStartCommand: String?
@@ -4539,6 +4540,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.tabId = tabId
         self.surfaceContext = context
         self.configTemplate = configTemplate
+        self.lastKnownFontPointsForConfigInheritance =
+            Self.validFontPoints(configTemplate?.fontSize) ??
+            Self.validFontPoints(Float(GhosttyConfig.load().fontSize))
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.initialCommand = (trimmedCommand?.isEmpty == false) ? trimmedCommand : nil
@@ -5333,6 +5337,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard let createdSurface = surface else { return }
         TerminalSurfaceRegistry.shared.registerRuntimeSurface(createdSurface, ownerId: id)
         recordRuntimeSurfaceCreation()
+        rememberCurrentFontPointsForConfigInheritance(
+            from: createdSurface,
+            fallback: baseConfig.fontSize
+        )
 
         // Session scrollback replay must be one-shot. Reusing it on a later runtime
         // surface recreation would inject stale restored output into a live shell.
@@ -5887,9 +5895,36 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     func performBindingAction(_ action: String) -> Bool {
         guard let surface = surface else { return false }
-        return action.withCString { cString in
+        let handled = action.withCString { cString in
             ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
         }
+        if handled {
+            rememberCurrentFontPointsForConfigInheritanceAfterAction(action)
+        }
+        return handled
+    }
+
+    private static func validFontPoints(_ points: Float?) -> Float? {
+        guard let points, points > 0 else { return nil }
+        return points
+    }
+
+    private func rememberCurrentFontPointsForConfigInheritance(
+        from surface: ghostty_surface_t,
+        fallback: Float
+    ) {
+        lastKnownFontPointsForConfigInheritance =
+            Self.validFontPoints(cmuxCurrentSurfaceFontSizePoints(surface)) ??
+            Self.validFontPoints(fallback) ??
+            lastKnownFontPointsForConfigInheritance
+    }
+
+    func rememberCurrentFontPointsForConfigInheritanceAfterAction(_ action: String) {
+        guard action.localizedCaseInsensitiveContains("font"),
+              let surface else {
+            return
+        }
+        rememberCurrentFontPointsForConfigInheritance(from: surface, fallback: 0)
     }
 
     @discardableResult
@@ -6818,9 +6853,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     func performBindingAction(_ action: String) -> Bool {
         guard let surface = surface else { return false }
-        return action.withCString { cString in
+        let handled = action.withCString { cString in
             ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
         }
+        if handled {
+            terminalSurface?.rememberCurrentFontPointsForConfigInheritanceAfterAction(action)
+        }
+        return handled
     }
 
     @discardableResult
