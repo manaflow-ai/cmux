@@ -563,6 +563,7 @@ _cmux_ports_kick_for_command() {
         return 0
     fi
 
+    _CMUX_PORTS_LAST_RUN="$now"
     _cmux_ports_kick command
 }
 
