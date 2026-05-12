@@ -657,7 +657,7 @@ func omoEnsurePlugin(searchPath string, requestedModel string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(shadowJsonPath, output, 0644); err != nil {
+	if err := writeFileAtomic(shadowJsonPath, output, 0644); err != nil {
 		return err
 	}
 
@@ -765,7 +765,9 @@ func omoEnsurePlugin(searchPath string, requestedModel string) error {
 		os.Remove(omoConfigPath)
 	}
 	data, _ := json.MarshalIndent(omoConfig, "", "  ")
-	os.WriteFile(omoConfigPath, data, 0644)
+	if err := writeFileAtomic(omoConfigPath, data, 0644); err != nil {
+		return err
+	}
 
 	os.Setenv("OPENCODE_CONFIG_DIR", shadowDir)
 	return nil
@@ -779,6 +781,29 @@ func fileExists(path string) bool {
 func dirExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
+}
+
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 // --- Node script resolution ---
