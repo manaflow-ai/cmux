@@ -111,6 +111,54 @@ final class WindowGlassEffectTests: XCTestCase {
         XCTAssertEqual(Self.nativeGlassStyleRawValue(nativeGlassView), 1)
     }
 
+    func testWindowBackdropControllerAppliesRegularGlassAtWindowRoot() throws {
+        guard WindowGlassEffect.isAvailable else {
+            throw XCTSkip("NSGlassEffectView is unavailable on this macOS version")
+        }
+        _ = NSApplication.shared
+
+        let originalContentView = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
+        let window = NSWindow(
+            contentRect: originalContentView.bounds,
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = originalContentView
+        defer { window.close() }
+
+        let plan = WindowBackdropPlan(
+            hostingPhase: .windowGlass,
+            windowBackgroundColor: cmuxTransparentWindowBaseColor(),
+            windowIsOpaque: false,
+            rootPolicy: .clear,
+            glass: WindowBackdropGlassPlan(
+                tintColor: NSColor.black.withAlphaComponent(0.25),
+                style: .regular
+            ),
+            shouldApplyGhosttyCompositorBlur: false
+        )
+
+        let result = WindowBackdropController.apply(plan: plan, to: window)
+
+        XCTAssertTrue(result.didChangeGlassRoot)
+        XCTAssertTrue(result.usesWindowGlass)
+        XCTAssertFalse(window.isOpaque)
+        XCTAssertEqual(
+            window.backgroundColor?.alphaComponent ?? -1,
+            cmuxTransparentWindowBaseColor().alphaComponent,
+            accuracy: 0.0001
+        )
+        XCTAssertFalse(window.contentView === originalContentView)
+        XCTAssertTrue(WindowGlassEffect.originalContentView(for: window) === originalContentView)
+        XCTAssertTrue(originalContentView.superview === WindowGlassEffect.foregroundContainer(for: window))
+        guard let nativeGlassView = Self.nativeGlassEffectView(in: window.contentView) else {
+            XCTFail("Expected native NSGlassEffectView")
+            return
+        }
+        XCTAssertEqual(Self.nativeGlassStyleRawValue(nativeGlassView), 0)
+    }
+
     private static func windowContainsGlassBackground(_ window: NSWindow) -> Bool {
         guard let contentView = window.contentView else { return false }
         let root = contentView.superview ?? contentView
