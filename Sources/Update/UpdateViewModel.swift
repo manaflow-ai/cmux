@@ -39,6 +39,24 @@ class UpdateViewModel: ObservableObject {
         detectedUpdateVersion = nil
     }
 
+    func dismissDetectedAvailableUpdate() {
+        clearDetectedUpdate()
+
+        var didDismissUpdate = false
+        if case .updateAvailable(let update) = state {
+            update.reply(.dismiss)
+            didDismissUpdate = true
+            state = .idle
+        }
+
+        if let overrideState, case .updateAvailable(let update) = overrideState {
+            if !didDismissUpdate {
+                update.reply(.dismiss)
+            }
+            self.overrideState = nil
+        }
+    }
+
     var text: String {
         #if DEBUG
         if let debugOverrideText { return debugOverrideText }
