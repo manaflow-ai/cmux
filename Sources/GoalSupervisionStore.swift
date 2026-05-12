@@ -102,10 +102,11 @@ final class GoalSupervisionStore {
 
     func updateStatus(for id: UUID, status: GoalSupervisionStatus) {
         updateGoal(id: id) { goal, now in
-            guard goal.status != status else { return }
+            guard goal.status != status else { return false }
             goal.accumulateActiveTime(endingAt: now)
             goal.status = status
             goal.activeSince = status == .active ? now : nil
+            return true
         }
     }
 
@@ -117,6 +118,7 @@ final class GoalSupervisionStore {
                 GoalSupervisionNote(id: UUID(), body: normalizedBody, createdAt: now),
                 at: 0
             )
+            return true
         }
     }
 
@@ -138,12 +140,13 @@ final class GoalSupervisionStore {
 
     private func updateGoal(
         id: UUID,
-        _ mutate: (inout GoalSupervisionRecord, Date) -> Void
+        _ mutate: (inout GoalSupervisionRecord, Date) -> Bool
     ) {
         guard let index = goals.firstIndex(where: { $0.id == id }) else { return }
         var goal = goals[index]
         let now = Date.now
-        mutate(&goal, now)
+        let didMutate = mutate(&goal, now)
+        guard didMutate else { return }
         goal.updatedAt = now
         goals[index] = goal
         goals.sort { lhs, rhs in

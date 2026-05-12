@@ -52,7 +52,12 @@ enum RightSidebarMode: String, CaseIterable {
     }
 
     var commandPaletteTitle: String {
-        shortcutAction?.label ?? String(localized: "command.showRightSidebarGoals.label", defaultValue: "Show Sidebar Goals")
+        switch self {
+        case .goals:
+            return String(localized: "command.showRightSidebarGoals.label", defaultValue: "Show Sidebar Goals")
+        case .files, .find, .sessions, .feed, .dock:
+            return shortcutAction?.label ?? label
+        }
     }
 }
 
