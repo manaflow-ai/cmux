@@ -285,6 +285,9 @@ struct WorkspaceContentView: View {
         .onAppear {
             syncBonsplitNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
+            if isWorkspaceVisible || isWorkspaceInputActive {
+                workspace.schedulePresentationReconcile(reason: "workspaceView.appear")
+            }
         }
         .onChange(of: isWorkspaceVisible) { _, isVisible in
             guard isVisible else { return }
@@ -295,6 +298,14 @@ struct WorkspaceContentView: View {
         }
         .onChange(of: workspace.manualUnreadPanelIds) { _, _ in
             syncBonsplitNotificationBadges()
+        }
+        .onChange(of: isWorkspaceVisible) { _, visible in
+            guard visible else { return }
+            workspace.schedulePresentationReconcile(reason: "workspaceView.visible")
+        }
+        .onChange(of: isWorkspaceInputActive) { _, inputActive in
+            guard inputActive else { return }
+            workspace.schedulePresentationReconcile(reason: "workspaceView.inputActive")
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             refreshGhosttyAppearanceConfig(reason: "ghosttyConfigDidReload")

@@ -4927,6 +4927,7 @@ class TabManager: ObservableObject {
         // Route workspace reactivation through the normal focus machinery so panel-local
         // activation intents like browser find-field focus are restored on return.
         tab.focusPanel(panelId)
+        tab.schedulePresentationReconcile(reason: "workspace.selected")
     }
 
     func completePendingWorkspaceUnfocus(reason: String) {

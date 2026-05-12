@@ -12178,6 +12178,24 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
+    func schedulePresentationReconcile(reason: String, includeGeometry: Bool = true) {
+        let focusedBrowserPanelId = focusedPanelId.flatMap { panelId in
+            browserPanel(for: panelId) != nil ? panelId : nil
+        }
+        let focusedTerminalPanelId = focusedPanelId.flatMap { panelId in
+            terminalPanel(for: panelId) != nil ? panelId : nil
+        }
+
+        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+        reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: reason)
+        beginEventDrivenLayoutFollowUp(
+            reason: reason,
+            browserPanelId: focusedBrowserPanelId,
+            terminalFocusPanelId: focusedTerminalPanelId,
+            includeGeometry: includeGeometry
+        )
+    }
+
     private func renderedVisiblePanelIdsForCurrentLayout() -> Set<UUID> {
         guard portalRenderingEnabled else { return [] }
         let renderedPaneIds = bonsplitController.zoomedPaneId.map { [$0] } ?? bonsplitController.allPaneIds
