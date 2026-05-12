@@ -9967,11 +9967,10 @@ final class GhosttySurfaceScrollView: NSView {
 
         super.init(frame: .zero)
         wantsLayer = true
-        layerUsesCoreImageFilters = true
         layer?.masksToBounds = true
 
         sharedBackdropCutoutView.wantsLayer = true
-        sharedBackdropCutoutView.layerUsesCoreImageFilters = true
+        sharedBackdropCutoutView.layerUsesCoreImageFilters = false
         sharedBackdropCutoutView.compositingFilter = sharedBackdropCutoutFilter
         sharedBackdropCutoutView.layer?.backgroundColor = NSColor.white.cgColor
         sharedBackdropCutoutView.layer?.isOpaque = true
@@ -10636,9 +10635,11 @@ final class GhosttySurfaceScrollView: NSView {
 
     func setBackgroundColor(_ color: NSColor, clearsSharedWindowBackdrop: Bool) {
         guard let layer = backgroundView.layer else { return }
+        let showsSharedBackdropCutout = clearsSharedWindowBackdrop && sharedBackdropCutoutAvailable
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        sharedBackdropCutoutView.isHidden = !(clearsSharedWindowBackdrop && sharedBackdropCutoutAvailable)
+        sharedBackdropCutoutView.layerUsesCoreImageFilters = showsSharedBackdropCutout
+        sharedBackdropCutoutView.isHidden = !showsSharedBackdropCutout
         layer.backgroundColor = color.cgColor
         layer.isOpaque = color.alphaComponent >= 1.0
         CATransaction.commit()
