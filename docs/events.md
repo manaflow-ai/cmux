@@ -15,6 +15,7 @@ cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
 cmux events --category window --category workspace --category pane --category surface
 cmux events --category notification
 cmux events --category feed --category agent --no-heartbeat
+cmux events --category agent --name agent.hook.PermissionRequest --name agent.hook.PreToolUse
 ```
 
 Every event has a monotonically increasing process-local `seq` and a `boot_id`.
@@ -206,6 +207,115 @@ Options:
 | `--limit <n>` | Exit after printing `n` event frames. |
 | `--no-ack` | Hide the initial ack frame. |
 | `--no-heartbeat` | Hide heartbeat frames. |
+
+### Shell consumer template
+
+For side-effecting shell consumers, own the cursor write in the script instead
+of using `--cursor-file`. That lets the script persist a sequence only after the
+side effect succeeds:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+cursor_file="${XDG_CACHE_HOME:-$HOME/.cache}/cmux/events.seq"
+mkdir -p "$(dirname "$cursor_file")"
+after_seq="$(cat "$cursor_file" 2>/dev/null || true)"
+
+args=(events --reconnect --no-heartbeat)
+if [[ "$after_seq" =~ ^[0-9]+$ ]]; then
+  args+=(--after "$after_seq")
+fi
+
+cmux "${args[@]}" --category notification --category agent |
+while IFS= read -r line; do
+  frame_type="$(jq -r '.type // empty' <<<"$line")"
+
+  if [[ "$frame_type" == "ack" ]]; then
+    if jq -e '.resume.gap == true' >/dev/null <<<"$line"; then
+      cmux tree --all >/dev/null
+      cmux list-notifications >/dev/null
+    fi
+    continue
+  fi
+
+  [[ "$frame_type" == "event" ]] || continue
+
+  event_id="$(jq -r '.id' <<<"$line")"
+  event_name="$(jq -r '.name' <<<"$line")"
+  seq="$(jq -r '.seq' <<<"$line")"
+
+  # Replace this with your idempotent side effect. Store event_id in your
+  # consumer state if duplicate delivery would otherwise matter.
+  printf 'processed %s %s\n' "$event_name" "$event_id"
+
+  tmp="${cursor_file}.$$"
+  printf '%s\n' "$seq" >"$tmp"
+  mv "$tmp" "$cursor_file"
+done
+```
+
+Use `cmux events --cursor-file <path>` when stdout delivery itself is the
+processing boundary, such as appending the JSONL stream to a file. For webhooks,
+database writes, or notification fan-out, prefer the explicit script pattern
+above so a failed side effect does not advance the cursor.
+
+### Common subscriptions
+
+Notification consumers usually start with store events and clear/read changes:
+
+```bash
+cmux events --category notification \
+  --name notification.created \
+  --name notification.read \
+  --name notification.cleared \
+  --reconnect
+```
+
+Lifecycle consumers can subscribe to the model-level window, workspace, pane,
+and surface groups. Pane events are the split lifecycle surface; for example,
+`pane.created`, `pane.resized`, `pane.swapped`, `pane.broken`, and
+`pane.joined` describe split changes.
+
+```bash
+cmux events --category window --category workspace --category pane --category surface \
+  --reconnect
+```
+
+Claude Code, Codex, and other agent-hook consumers should subscribe to both Feed
+and agent categories when they need the request and the eventual decision:
+
+```bash
+cmux events --category feed --category agent \
+  --name feed.item.received \
+  --name feed.item.completed \
+  --name agent.hook.PermissionRequest \
+  --name agent.hook.PreToolUse \
+  --reconnect --no-heartbeat
+```
+
+### Typed consumer behavior
+
+Typed consumers should mirror the helper used by the Swift `cmux events`
+command:
+
+- Decode the first frame as an `ack` and require `protocol: "cmux-events"` and
+  `version: 1`.
+- Read `ack.resume`. If `resume.gap` is true, treat replay as partial and
+  refresh snapshots before applying new side effects.
+- Validate every event `seq` as a non-negative integer and require it to
+  increase within the current stream. If a resume gap indicates a cmux restart,
+  reset the local high-water sequence before accepting the new process-local
+  sequence range.
+- Persist the cursor only after the consumer's side effect succeeds.
+- Reconnect with exponential backoff. Resume with the latest persisted `seq`,
+  not merely the latest line read.
+
+Exactly-once delivery is not guaranteed. Design consumers to be
+duplicate-tolerant by deduping on `id` within a cmux process and making the side
+effect idempotent. After `resume.gap`, use snapshot commands such as
+`cmux tree --all`, `cmux list-workspaces`, and `cmux list-notifications` to
+recover durable state, then continue from the new stream.
 
 ## Event catalog
 
