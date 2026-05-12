@@ -5133,7 +5133,7 @@ class TerminalController {
 
     private func v2ApplyWorkspaceRemoteTerminalLifecycle(
         identity: RemoteTerminalLifecycleIdentity,
-        apply: (Workspace) -> Void
+        apply: @MainActor (Workspace) -> Void
     ) -> V2CallResult {
         var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: [
             "workspace_id": identity.workspaceId.uuidString,
