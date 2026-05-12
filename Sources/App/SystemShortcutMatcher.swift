@@ -1,12 +1,20 @@
 import AppKit
 import Foundation
 
+@MainActor
 enum CmuxSystemShortcutMatcher {
     private static let appleSymbolicHotKeysDomain = "com.apple.symbolichotkeys"
     private static let appleSymbolicHotKeysKey = "AppleSymbolicHotKeys"
+    private static var cachedAppleSymbolicHotKeys: [String: Any]?
+    private static var hasLoadedAppleSymbolicHotKeys = false
+    private static var appleSymbolicHotKeysObserver: NSObjectProtocol?
 
 #if DEBUG
-    static var debugAppleSymbolicHotKeysProvider: (() -> [String: Any]?)?
+    static var debugAppleSymbolicHotKeysProvider: (() -> [String: Any]?)? {
+        didSet {
+            invalidateAppleSymbolicHotKeysCache()
+        }
+    }
 #endif
 
     static func shouldYieldTerminalCommandEquivalentToSystem(event: NSEvent) -> Bool {
@@ -19,7 +27,7 @@ enum CmuxSystemShortcutMatcher {
         )
     }
 
-    static func matchesEnabledAppleSymbolicHotKey(
+    private static func matchesEnabledAppleSymbolicHotKey(
         event: NSEvent,
         symbolicHotKeys: [String: Any]?
     ) -> Bool {
@@ -49,15 +57,53 @@ enum CmuxSystemShortcutMatcher {
     }
 
     private static func appleSymbolicHotKeys() -> [String: Any]? {
+        installAppleSymbolicHotKeysInvalidationObserverIfNeeded()
+        guard !hasLoadedAppleSymbolicHotKeys else {
+            return cachedAppleSymbolicHotKeys
+        }
+
 #if DEBUG
         if let debugAppleSymbolicHotKeysProvider {
-            return debugAppleSymbolicHotKeysProvider()
+            cachedAppleSymbolicHotKeys = debugAppleSymbolicHotKeysProvider()
+        } else {
+            cachedAppleSymbolicHotKeys = copyAppleSymbolicHotKeys()
         }
+#else
+        cachedAppleSymbolicHotKeys = copyAppleSymbolicHotKeys()
 #endif
+        hasLoadedAppleSymbolicHotKeys = true
+        return cachedAppleSymbolicHotKeys
+    }
+
+    private static func copyAppleSymbolicHotKeys() -> [String: Any]? {
         return CFPreferencesCopyAppValue(
             appleSymbolicHotKeysKey as CFString,
             appleSymbolicHotKeysDomain as CFString
         ) as? [String: Any]
+    }
+
+    private static func installAppleSymbolicHotKeysInvalidationObserverIfNeeded() {
+        guard appleSymbolicHotKeysObserver == nil else { return }
+        appleSymbolicHotKeysObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    invalidateAppleSymbolicHotKeysCache()
+                }
+            } else {
+                Task { @MainActor in
+                    invalidateAppleSymbolicHotKeysCache()
+                }
+            }
+        }
+    }
+
+    private static func invalidateAppleSymbolicHotKeysCache() {
+        cachedAppleSymbolicHotKeys = nil
+        hasLoadedAppleSymbolicHotKeys = false
     }
 
     private static func normalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
