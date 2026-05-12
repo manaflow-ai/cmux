@@ -59,7 +59,7 @@ extension Workspace {
             return panelNeedsConfirmClose(panelId: panelId)
         }
 
-        if needsConfirmation {
+        if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: needsConfirmation) {
             guard let confirmationManager else { return }
             let prompt = CloseOtherTabsConfirmationPrompt(
                 titles: candidates.map { candidate in

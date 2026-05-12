@@ -183,17 +183,23 @@ def _focused_surface_id(client: cmux) -> str:
     return surface_id
 
 
-def _wait_for_remote_drop_path(client: cmux, surface_id: str, timeout: float = 20.0) -> str:
+def _wait_for_remote_drop_paths(client: cmux, surface_id: str, expected_count: int, timeout: float = 20.0) -> list[str]:
     pattern = re.compile(r"/tmp/cmux-drop-[0-9a-f-]+\.png")
     deadline = time.time() + timeout
     last = ""
     while time.time() < deadline:
         last = client.read_terminal_text(surface_id)
-        match = pattern.search(last)
-        if match:
-            return match.group(0)
+        search_text = last.replace("\r", "").replace("\n", "")
+        remote_paths: list[str] = []
+        for match in pattern.findall(search_text):
+            if match not in remote_paths:
+                remote_paths.append(match)
+        if len(remote_paths) >= expected_count:
+            return remote_paths[:expected_count]
         time.sleep(0.25)
-    raise cmuxError(f"Timed out waiting for remote drop path in terminal text: {last[-1000:]!r}")
+    raise cmuxError(
+        f"Timed out waiting for {expected_count} remote drop paths in terminal text: {last[-1000:]!r}"
+    )
 
 
 def main() -> int:
@@ -248,27 +254,42 @@ def main() -> int:
             _wait_remote_ready(client, workspace_id)
             client.select_workspace(workspace_id)
 
-            image_path = temp_dir / "dragged-image.png"
-            image_path.write_bytes(base64.b64decode(
+            first_image_path = temp_dir / "dragged-image-one.png"
+            second_image_path = temp_dir / "dragged-image-two.png"
+            first_image_path.write_bytes(base64.b64decode(
                 "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lS2cWQAAAABJRU5ErkJggg=="
             ))
-            local_sha = hashlib.sha256(image_path.read_bytes()).hexdigest()
+            second_image_path.write_bytes(base64.b64decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+            ))
+            local_shas = [
+                hashlib.sha256(first_image_path.read_bytes()).hexdigest(),
+                hashlib.sha256(second_image_path.read_bytes()).hexdigest(),
+            ]
 
             surface_id = _focused_surface_id(client)
-            client.simulate_terminal_file_drop(surface_id, [str(image_path)], route="text_destination")
-            remote_path = _wait_for_remote_drop_path(client, surface_id)
+            client.simulate_terminal_file_drop(
+                surface_id,
+                [str(first_image_path), str(second_image_path)],
+                route="terminal",
+                payload="image_data",
+            )
+            remote_paths = _wait_for_remote_drop_paths(client, surface_id, expected_count=2)
 
-        remote_sha = _ssh_run(
-            host,
-            host_ssh_port,
-            key_path,
-            f"sha256sum {_shell_single_quote(remote_path)}",
-        ).stdout.split()[0]
+        remote_shas = [
+            _ssh_run(
+                host,
+                host_ssh_port,
+                key_path,
+                f"sha256sum {_shell_single_quote(remote_path)}",
+            ).stdout.split()[0]
+            for remote_path in remote_paths
+        ]
         _must(
-            remote_sha == local_sha,
-            f"Uploaded file hash mismatch local={local_sha} remote={remote_sha} path={remote_path}",
+            sorted(remote_shas) == sorted(local_shas),
+            f"Uploaded file hashes mismatch local={sorted(local_shas)} remote={sorted(remote_shas)} paths={remote_paths}",
         )
-        print(f"PASS: ssh image drop uploaded {remote_path}")
+        print(f"PASS: ssh image drop uploaded {len(remote_paths)} files: {', '.join(remote_paths)}")
         return 0
     finally:
         if workspace_id:

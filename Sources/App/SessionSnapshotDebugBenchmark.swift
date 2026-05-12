@@ -7,8 +7,7 @@ enum SessionSnapshotDebugBenchmark {
         includeScrollback: Bool,
         persist: Bool,
         buildSnapshot: (Bool) -> AppSessionSnapshot?,
-        persistedGeometryData: (AppSessionSnapshot?) -> Data?,
-        persistSnapshot: (AppSessionSnapshot?, Data?) -> Void
+        persistSnapshot: (AppSessionSnapshot?) -> Void
     ) -> [String: Any] {
         let buildStart = ProcessInfo.processInfo.systemUptime
         let snapshot = buildSnapshot(includeScrollback)
@@ -16,9 +15,8 @@ enum SessionSnapshotDebugBenchmark {
 
         var persistMs: Double?
         if persist {
-            let geometryData = persistedGeometryData(snapshot)
             let persistStart = ProcessInfo.processInfo.systemUptime
-            persistSnapshot(snapshot, geometryData)
+            persistSnapshot(snapshot)
             persistMs = elapsedMs(since: persistStart)
         }
 
