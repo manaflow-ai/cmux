@@ -169,8 +169,15 @@ final class MarkdownPanel: Panel, ObservableObject {
 
         source.setEventHandler { [weak self] in
             guard let self else { return }
+            let flags = source.data
             DispatchQueue.main.async {
                 guard !self.isClosed else { return }
+                if flags.contains(.delete) || flags.contains(.rename) {
+                    // The watched directory inode changed. Drop the stale file
+                    // descriptor before reattaching, even if the replacement is
+                    // created at the same path string.
+                    self.stopDirectoryWatcher()
+                }
                 self.loadFileContent()
                 if !self.isFileUnavailable {
                     self.startFileWatcher()

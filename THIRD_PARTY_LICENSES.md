@@ -195,14 +195,14 @@ viewer has no runtime CDN dependency.
 - **Version:** 13.0.3
 - **License:** MIT License
 - **Copyright:** Copyright (c) 2011-2024, Christopher Jeffrey
-- **Source:** https://github.com/markedjs/marked
+- **Source:** https://github.com/markedjs/marked/releases/tag/v13.0.3
 
 ### highlight.js
 
 - **Version:** 11.10.0
 - **License:** BSD 3-Clause License
 - **Copyright:** Copyright (c) 2006-2024 Josh Goebel and other contributors
-- **Source:** https://github.com/highlightjs/highlight.js
+- **Source:** https://github.com/highlightjs/highlight.js/releases/tag/11.10.0
 
 ### github-markdown-css
 
@@ -223,21 +223,21 @@ viewer has no runtime CDN dependency.
 - **Version:** 5.30.0
 - **License:** BSD 3-Clause License
 - **Copyright:** Copyright (c) 2015-2024 University of Washington Interactive Data Lab and contributors
-- **Source:** https://github.com/vega/vega
+- **Source:** https://github.com/vega/vega/releases/tag/v5.30.0
 
 ### Vega-Lite
 
 - **Version:** 5.21.0
 - **License:** BSD 3-Clause License
 - **Copyright:** Copyright (c) 2015-2024 University of Washington Interactive Data Lab and contributors
-- **Source:** https://github.com/vega/vega-lite
+- **Source:** https://github.com/vega/vega-lite/releases/tag/v5.21.0
 
 ### Vega-Embed
 
 - **Version:** 6.26.0
 - **License:** BSD 3-Clause License
 - **Copyright:** Copyright (c) 2015-2024 University of Washington Interactive Data Lab and contributors
-- **Source:** https://github.com/vega/vega-embed
+- **Source:** https://github.com/vega/vega-embed/releases/tag/v6.26.0
 
 BSD 3-Clause License:
 

@@ -267,8 +267,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         private func handleLibRequest(_ lib: String) {
             guard let webView else { return }
-            // Load each library at most once per WebView lifetime. If the
-            // shell is reloaded (theme switch), state is reset alongside.
+            // Load each library at most once per WebView lifetime. State is
+            // reset only when the shell is reloaded via loadShell(); theme
+            // switches reuse the already-loaded libs.
             if requestedLibs.contains(lib) { return }
             requestedLibs.insert(lib)
 
@@ -288,10 +289,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 return
             }
 
-            // Inject each source as its own script tag via document.head so
-            // that thrown errors get reported through the page console
-            // rather than as a single opaque evaluateJavaScript failure.
-            // Then notify the page that the lib is ready.
+            // Concatenate the bundled sources into a single evaluateJavaScript
+            // call, then notify the page that the lib is ready. Any parse or
+            // throw in the bundle surfaces through the completion handler.
             var injection = ""
             for src in sources where !src.isEmpty {
                 injection += src
