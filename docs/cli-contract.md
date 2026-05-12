@@ -156,6 +156,17 @@ Environment:
 | `ssh-session-end` | Internal helper that clears remote SSH session state. |
 | `__tmux-compat` | Internal tmux compatibility dispatcher. |
 
+## Agent Launcher Commands
+
+`cmux omo [opencode-args...]` forwards all arguments to `opencode` after
+preparing the cmux tmux-compatible environment. When the forwarded arguments
+include `--model <value>`, `--model=<value>`, `-m <value>`, or `-m=<value>`,
+cmux must also apply that model to the generated oh-my-opencode shadow config
+for the managed agent and category entries. The forwarded `--` terminator stops
+cmux-side model parsing, and a model override is per invocation: a later
+`cmux omo` without `--model` rebuilds the shadow config from the user's source
+config instead of reusing a previous override.
+
 ## Command Families
 
 Auth subcommands:
