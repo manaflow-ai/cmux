@@ -166,6 +166,21 @@ struct TerminalRegexHighlightRun: Equatable {
     let backgroundHex: String
 }
 
+struct TerminalRegexHighlightCompiledRule {
+    let pattern: String
+    let backgroundHex: String
+    let expression: NSRegularExpression
+
+    init?(rule: TerminalRegexHighlightRule) {
+        guard let expression = try? NSRegularExpression(pattern: rule.pattern) else {
+            return nil
+        }
+        self.pattern = rule.pattern
+        self.backgroundHex = rule.backgroundHex
+        self.expression = expression
+    }
+}
+
 enum TerminalRegexHighlightSettings {
     static let highlightsKey = "terminal.regexHighlights"
     static let defaultHighlights = ""
@@ -248,18 +263,18 @@ enum TerminalRegexHighlightSettings {
 enum TerminalRegexHighlightMatcher {
     static let maxRuns = 512
 
+    static func compiledRules(
+        from rules: [TerminalRegexHighlightRule]
+    ) -> [TerminalRegexHighlightCompiledRule] {
+        rules.compactMap(TerminalRegexHighlightCompiledRule.init(rule:))
+    }
+
     static func runs(
         in lines: [String],
-        rules: [TerminalRegexHighlightRule],
+        compiledRules: [TerminalRegexHighlightCompiledRule],
         rowOffset: Int = 0,
         maxColumnCount: Int? = nil
     ) -> [TerminalRegexHighlightRun] {
-        let compiledRules = rules.compactMap { rule -> (TerminalRegexHighlightRule, NSRegularExpression)? in
-            guard let expression = try? NSRegularExpression(pattern: rule.pattern) else {
-                return nil
-            }
-            return (rule, expression)
-        }
         guard !compiledRules.isEmpty else { return [] }
 
         var runs: [TerminalRegexHighlightRun] = []
@@ -268,8 +283,8 @@ enum TerminalRegexHighlightMatcher {
         for (lineIndex, line) in lines.enumerated() {
             guard !line.isEmpty else { continue }
             let searchRange = NSRange(line.startIndex..<line.endIndex, in: line)
-            for (rule, expression) in compiledRules {
-                for match in expression.matches(in: line, range: searchRange) {
+            for compiledRule in compiledRules {
+                for match in compiledRule.expression.matches(in: line, range: searchRange) {
                     guard match.range.length > 0,
                           let range = Range(match.range, in: line) else {
                         continue
@@ -291,7 +306,7 @@ enum TerminalRegexHighlightMatcher {
                         row: rowOffset + lineIndex,
                         column: column,
                         length: clippedLength,
-                        backgroundHex: rule.backgroundHex
+                        backgroundHex: compiledRule.backgroundHex
                     ))
                     if runs.count >= maxRuns {
                         return runs

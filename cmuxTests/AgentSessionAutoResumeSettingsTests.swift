@@ -206,7 +206,7 @@ final class TerminalRegexHighlightSettingsTests: XCTestCase {
                 "ok",
                 "ERR12 WARN ERR345",
             ],
-            rules: rules,
+            compiledRules: TerminalRegexHighlightMatcher.compiledRules(from: rules),
             rowOffset: 3,
             maxColumnCount: 12
         )
