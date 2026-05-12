@@ -470,6 +470,9 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             defaults.removeObject(forKey: key)
             defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
             defaults.removeObject(forKey: importedManagedDefaultsKey)
+            // Warm FileExplorerGitStatusColorPalette.shared through
+            // FileExplorerStyle.highDensity.gitColor(for: .modified); the
+            // assertions below verify the managed override reloads the cache.
             _ = FileExplorerStyle.highDensity.gitColor(for: .modified)
 
             let directoryURL = try makeTemporaryDirectory()
