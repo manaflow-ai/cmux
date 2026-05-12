@@ -8840,6 +8840,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let hideSidebar = env["CMUX_UI_TEST_TERMINAL_VIEWPORT_HIDE_SIDEBAR"] == "1"
         let hideRightSidebar = env["CMUX_UI_TEST_TERMINAL_VIEWPORT_HIDE_RIGHT_SIDEBAR"] == "1"
         let deadline = Date().addingTimeInterval(20)
+        var didRecordReadyGeometry = false
 
         terminalViewportUITestRecorder?.cancel()
         terminalViewportUITestRecorder = nil
@@ -8849,9 +8850,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             guard Date() < deadline else {
-                self.writeTerminalViewportUITestData(["terminalViewportSetupError": "Timed out waiting for terminal viewport"])
-                self.terminalViewportUITestRecorder?.cancel()
-                self.terminalViewportUITestRecorder = nil
+                if !didRecordReadyGeometry {
+                    self.writeTerminalViewportUITestData(["terminalViewportSetupError": "Timed out waiting for terminal viewport"])
+                    self.terminalViewportUITestRecorder?.cancel()
+                    self.terminalViewportUITestRecorder = nil
+                }
                 return
             }
             guard let (window, context, terminalPanel) = self.terminalViewportUITestContext() else {
@@ -8874,9 +8877,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             window.contentView?.layoutSubtreeIfNeeded()
+            TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
             terminalPanel.hostedView.superview?.layoutSubtreeIfNeeded()
             terminalPanel.hostedView.layoutSubtreeIfNeeded()
             terminalPanel.surface.forceRefresh(reason: "uiTest.terminalViewport")
+            didRecordReadyGeometry = true
 
             self.writeTerminalViewportUITestData([
                 "terminalViewportReady": "1",

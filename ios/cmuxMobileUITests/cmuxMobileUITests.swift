@@ -316,7 +316,6 @@ final class cmuxMobileUITests: XCTestCase {
         let windowFrame = window.exists ? window.frame : app.frame
         let workspaceList = app.otherElements["MobileWorkspaceList"]
         guard workspaceList.exists,
-              workspaceList.isHittable,
               workspaceList.frame.width > 180,
               workspaceList.frame.maxX < windowFrame.maxX - 180 else {
             return windowFrame

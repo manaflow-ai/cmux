@@ -1563,7 +1563,7 @@ struct WorkspaceDetailView: View {
         TerminalPreviewSurface(terminal: selectedTerminal)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(TerminalPalette.background)
-            .ignoresSafeArea(edges: .bottom)
+            .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
             .navigationTitle(workspace.name)
             .mobileTerminalNavigationChrome()
             .toolbar {
@@ -1681,10 +1681,7 @@ struct TerminalPreviewSurface: View {
                             )
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .containerRelativeFrame(.horizontal)
-                    .frame(minHeight: proxy.size.height, alignment: .topLeading)
+                    .frame(minWidth: proxy.size.width, minHeight: proxy.size.height, alignment: .topLeading)
                 }
             }
         }

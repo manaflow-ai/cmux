@@ -147,7 +147,7 @@ final class TerminalViewportUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_PATH"] = dataPath
-        app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_WINDOW_SIZE"] = "640x420"
+        app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_WINDOW_SIZE"] = "900x620"
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_HIDE_SIDEBAR"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_HIDE_RIGHT_SIDEBAR"] = "1"
         app.launchArguments += ["-workspacePresentationMode", "minimal"]
@@ -174,10 +174,10 @@ final class TerminalViewportUITests: XCTestCase {
         }
         assertTerminalViewportFillsAvailableSpace(small)
 
-        writeViewportResizeRequest("980x680", atPath: dataPath)
+        writeViewportResizeRequest("1180x780", atPath: dataPath)
 
         guard let large = waitForViewportGeometry(atPath: dataPath, timeout: 10, matching: { geometry in
-            geometry.requestedWindowSize == "980x680" &&
+            geometry.requestedWindowSize == "1180x780" &&
                 geometry.windowWidth > small.windowWidth + 180 &&
                 geometry.windowHeight > small.windowHeight + 120 &&
                 geometry.panelWidth > small.panelWidth + 180 &&
