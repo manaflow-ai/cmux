@@ -1,6 +1,8 @@
 import Foundation
 
 public enum CmuxSettingsRegistry {
+    // Safe because every registry-provided defaultValue is immutable and validated
+    // against ValueKind before it crosses the package boundary.
     public struct SettingDefinition: @unchecked Sendable {
         public let key: String
         public let kind: ValueKind

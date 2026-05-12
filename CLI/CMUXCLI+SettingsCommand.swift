@@ -876,7 +876,14 @@ extension CMUXCLI {
             if raw.hasPrefix("[") || raw.hasPrefix("{") {
                 guard let data = raw.data(using: .utf8),
                       let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
-                    throw CLIError(message: "Invalid TOML JSON literal: \(raw)")
+                    if raw.hasPrefix("{"), raw.contains("=") {
+                        throw CLIError(
+                            message: "Unsupported TOML inline table literal: \(raw). Use dotted TOML keys or --format json."
+                        )
+                    }
+                    throw CLIError(
+                        message: "Invalid TOML array/object literal: \(raw). Use JSON-style arrays/objects or --format json."
+                    )
                 }
                 return value
             }

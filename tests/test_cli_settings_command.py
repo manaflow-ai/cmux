@@ -615,6 +615,16 @@ def main() -> int:
         bad_escape = run_cli(cli_path, ["settings", "import", str(bad_escape_path)], home)
         assert_fails(failures, "settings import unsupported TOML escape", bad_escape, r"Unsupported TOML string escape: \t")
 
+        bad_inline_table_path = home / "bad-inline-table.toml"
+        bad_inline_table_path.write_text('appearance = { theme = "dark" }\n', encoding="utf-8")
+        bad_inline_table = run_cli(cli_path, ["settings", "import", str(bad_inline_table_path)], home)
+        assert_fails(
+            failures,
+            "settings import rejects TOML inline table",
+            bad_inline_table,
+            "Unsupported TOML inline table literal",
+        )
+
         before_bad_intermediate_import = read_config(home)
         bad_intermediate_toml_path = home / "bad-intermediate.toml"
         bad_intermediate_toml_path.write_text('app = "foo"\n', encoding="utf-8")
