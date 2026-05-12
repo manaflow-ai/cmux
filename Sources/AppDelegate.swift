@@ -8899,7 +8899,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "terminalViewportWindowHeight": String(format: "%.3f", Double(window.frame.height)),
                 "terminalViewportSidebarVisible": context.sidebarState.isVisible ? "1" : "0",
                 "terminalViewportRightSidebarVisible": context.fileExplorerState?.isVisible == true ? "1" : "0",
-                "terminalViewportRequestedWindowSize": requestedWindowSize.map { "\(Int($0.width))x\(Int($0.height))" } ?? "",
                 "terminalViewportWorkspaceId": terminalPanel.workspaceId.uuidString,
             ]) { _, newValue in newValue }
             self.writeTerminalViewportUITestData(viewportData)
