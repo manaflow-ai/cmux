@@ -72,6 +72,72 @@ Build Windows as a sibling native host around a stable cmux protocol boundary.
    local terminal, show an attention notification, and execute a small browser
    automation flow.
 
+## Portability Boundary
+
+The portable product surface should be the protocol, not the current macOS
+controller implementation.
+
+1. Treat the v2 JSON-RPC method set as the cross-platform source of truth. The
+   canonical references are `docs/v2-api-migration.md`, `docs/cli-contract.md`,
+   and `docs/agent-browser-port-spec.md`.
+2. Treat `Sources/TerminalController.swift` as the current macOS server for that
+   contract, not as code to port wholesale. It currently owns Unix-socket
+   transport, request dispatch, security checks, AppKit focus policy, and calls
+   into workspace, terminal, browser, notification, Feed, and VM adapters.
+3. Before writing a Windows UI, extract protocol fixtures and compatibility
+   tests that can run against any endpoint. The same tests should be able to
+   target the macOS Unix socket, a Windows named-pipe or TCP endpoint, and a
+   narrow in-process harness.
+4. Keep host adapters behind explicit boundaries:
+   - macOS: AppKit/SwiftUI, `NSView` terminal hosting, `WKWebView`,
+     `NSUserNotification`/UserNotifications, Unix sockets, Sparkle, DMG.
+   - Windows: WinUI/WPF/Win32, ConPTY, WebView2, Windows notifications, named
+     pipes or loopback TCP, MSIX/winget/installer.
+5. Keep shared state transitions value-oriented and protocol-shaped. Do not let
+   Windows and macOS grow separate command semantics for workspace selection,
+   surface movement, focus intent, browser automation, notifications, or Feed
+   decisions.
+
+## macOS Extraction Rules
+
+Any preparatory Swift work should make the bad port shape unrepresentable
+instead of adding compatibility branches throughout the app.
+
+1. Keep one `@MainActor` owner for UI lifecycle facts. Cross-platform protocol
+   work should call that owner through a small action surface instead of
+   duplicating focus, selection, or window state.
+2. Prefer `async`/`await` boundaries over new `DispatchQueue` or semaphore glue
+   when lifting protocol operations away from AppKit. Existing socket hot paths
+   can remain until they are deliberately migrated.
+3. Use immutable request/response value types and explicit phase enums for new
+   portable seams. Avoid adding platform booleans that let Windows and macOS
+   silently diverge.
+4. Keep timing repairs out of the portability layer. No sleeps, retry loops, or
+   notification waits should be required for the shared contract to be correct.
+5. Rows, tabs, and other SwiftUI list subtrees should continue to receive value
+   snapshots plus action closures only. Portability work must not reintroduce
+   store references below those snapshot boundaries.
+
+## Minimum Viable Windows Definition
+
+A Windows build should not be called supported until it satisfies the same
+agent-facing contract that scripts and hooks depend on today.
+
+1. `cmux ping`, `cmux capabilities`, `cmux identify`, workspace list/create,
+   surface list/create/focus, and terminal send-key/send-text work through the
+   Windows endpoint.
+2. A local ConPTY terminal pane receives the same `CMUX_WORKSPACE_ID`,
+   `CMUX_SURFACE_ID`, and socket/endpoint environment semantics as macOS panes.
+3. Browser automation covers the P0 command subset from
+   `docs/agent-browser-port-spec.md` through WebView2 with documented
+   `not_supported` errors for WebView2 gaps.
+4. Notifications and Feed events use the same v2 payloads and produce native
+   Windows attention behavior.
+5. CLI transport selection is automatic or explicit, and scripts do not need to
+   know whether the target host is using a Unix socket, named pipe, or TCP.
+6. CI builds signed or unsigned Windows artifacts and runs the transport-agnostic
+   protocol compatibility suite against the Windows host or harness.
+
 ## First Milestones
 
 1. Create a platform inventory that classifies source areas as shared protocol,
