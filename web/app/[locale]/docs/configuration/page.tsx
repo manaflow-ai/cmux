@@ -56,6 +56,7 @@ const settingsFileExample = `{
   //   "appearance": "dark",
   //   "menuBarOnly": false,
   //   "newWorkspacePlacement": "afterCurrent",
+  //   "workspace-inherit-working-directory": true,
   //   "iMessageMode": true
   // },
 

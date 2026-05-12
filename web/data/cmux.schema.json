@@ -228,6 +228,11 @@
           "default": "afterCurrent",
           "description": "Where new workspaces are inserted in the sidebar."
         },
+        "workspace-inherit-working-directory": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, new workspaces inherit the current workspace working directory. When false, new workspaces leave the working directory unset so Ghostty's working-directory setting can provide the default."
+        },
         "minimalMode": {
           "type": "boolean",
           "default": false,

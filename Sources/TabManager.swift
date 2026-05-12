@@ -247,6 +247,18 @@ enum WorkspacePlacementSettings {
     }
 }
 
+enum WorkspaceWorkingDirectoryInheritanceSettings {
+    static let key = "workspaceInheritWorkingDirectory"
+    static let defaultValue = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: key) != nil else {
+            return defaultValue
+        }
+        return defaults.bool(forKey: key)
+    }
+}
+
 struct WorkspaceTabColorEntry: Equatable, Identifiable {
     let name: String
     let hex: String
@@ -2087,7 +2099,9 @@ class TabManager: ObservableObject {
         // entire creation path. Release ARC can otherwise drop retains early across the
         // helper/insertion chain, which reintroduces use-after-free crashes in optimized builds.
         return withExtendedLifetime((capturedTabs, sourceWorkspace)) {
-            let dir = preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
+            let dir = WorkspaceWorkingDirectoryInheritanceSettings.isEnabled()
+                ? preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
+                : nil
             let font = inheritedTerminalFontPointsForNewWorkspace(workspace: sourceWorkspace)
             let snapshot = workspaceCreationSnapshotLite(
                 currentTabs: capturedTabs,
