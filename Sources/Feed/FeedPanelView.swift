@@ -164,6 +164,8 @@ private struct FeedListView: View {
 
     var body: some View {
         let snapshots = visibleSnapshots(items)
+        let activityGroups = filter == .activity ? activitySnapshotGroups(snapshots) : nil
+        let focusSnapshots = activityGroups?.ordered ?? snapshots
         let rowActions = FeedRowActions.bound()
         ScrollViewReader { proxy in
             Group {
@@ -172,6 +174,7 @@ private struct FeedListView: View {
                 } else {
                     contentBody(
                         snapshots: snapshots,
+                        activityGroups: activityGroups,
                         actions: rowActions
                     )
                 }
@@ -190,13 +193,13 @@ private struct FeedListView: View {
                         syncFeedFocusSnapshot(window: window)
                     },
                     onMoveSelection: { delta in
-                        moveSelection(in: snapshots, delta: delta)
+                        moveSelection(in: focusSnapshots, delta: delta)
                     },
                     onActivateSelection: {
-                        activateSelection(in: snapshots, actions: rowActions)
+                        activateSelection(in: focusSnapshots, actions: rowActions)
                     },
                     onFocusFirstItemRequested: {
-                        focusFirstVisibleItem(in: snapshots, focusHost: false)
+                        focusFirstVisibleItem(in: focusSnapshots, focusHost: false)
                     },
                     onFocusChanged: { focused in
                         let window = activeFeedWindow()
@@ -217,6 +220,7 @@ private struct FeedListView: View {
     @ViewBuilder
     private func contentBody(
         snapshots: [FeedItemSnapshot],
+        activityGroups: ActivitySnapshotGroups?,
         actions: FeedRowActions
     ) -> some View {
         switch filter {
@@ -227,7 +231,7 @@ private struct FeedListView: View {
             )
         case .activity:
             activityScrollSurface(
-                snapshots: snapshots,
+                groups: activityGroups ?? activitySnapshotGroups(snapshots),
                 actions: actions,
                 showsLoadMore: hasMorePersistedItems
             )
@@ -255,12 +259,11 @@ private struct FeedListView: View {
     }
 
     private func activityScrollSurface(
-        snapshots: [FeedItemSnapshot],
+        groups: ActivitySnapshotGroups,
         actions: FeedRowActions,
         showsLoadMore: Bool
     ) -> some View {
-        let groups = activitySnapshotGroups(snapshots)
-        return List {
+        List {
             ForEach(Array(groups.stable.enumerated()), id: \.element.id) { idx, snapshot in
                 rowSurface(
                     snapshot: snapshot,
@@ -273,6 +276,7 @@ private struct FeedListView: View {
             }
             if !groups.stable.isEmpty && (!groups.history.isEmpty || showsLoadMore) {
                 rowSeparator
+                    .id("feed.activity.separator")
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
@@ -304,9 +308,13 @@ private struct FeedListView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func activitySnapshotGroups(
-        _ snapshots: [FeedItemSnapshot]
-    ) -> (stable: [FeedItemSnapshot], history: [FeedItemSnapshot]) {
+    private struct ActivitySnapshotGroups {
+        let stable: [FeedItemSnapshot]
+        let history: [FeedItemSnapshot]
+        let ordered: [FeedItemSnapshot]
+    }
+
+    private func activitySnapshotGroups(_ snapshots: [FeedItemSnapshot]) -> ActivitySnapshotGroups {
         var stable: [FeedItemSnapshot] = []
         var history: [FeedItemSnapshot] = []
         stable.reserveCapacity(snapshots.count)
@@ -318,7 +326,7 @@ private struct FeedListView: View {
                 history.append(snapshot)
             }
         }
-        return (stable, history)
+        return ActivitySnapshotGroups(stable: stable, history: history, ordered: stable + history)
     }
 
     private func rowSurface(
@@ -3112,7 +3120,7 @@ private final class FeedInlineNativeTextView: NSTextView, FeedKeyboardFocusRespo
         let normalizedFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let shouldSubmit = (event.keyCode == 36 || event.keyCode == 76)
             && normalizedFlags.intersection([.shift, .option, .command, .control]).isEmpty
-        if shouldSubmit, let onSubmit {
+        if shouldSubmit, !hasMarkedText(), let onSubmit {
             onSubmit()
             return
         }
@@ -3283,8 +3291,11 @@ private final class FeedInlineTextEditorView: NSView {
         )
         layoutManager.ensureLayout(for: textContainer)
         let usedRect = layoutManager.usedRect(for: textContainer)
+        let extraLineHeight = layoutManager.extraLineFragmentTextContainer == textContainer
+            ? layoutManager.extraLineFragmentRect.height
+            : 0
         let lineHeight = ceil(currentFont.ascender - currentFont.descender + currentFont.leading)
-        let contentHeight = max(lineHeight, ceil(usedRect.height))
+        let contentHeight = max(lineHeight, ceil(usedRect.height + extraLineHeight))
         return max(
             Self.minimumHeight(for: currentFont),
             ceil(contentHeight + Self.textInset.height * 2)
@@ -3427,15 +3438,26 @@ private struct FeedInlineTextField: NSViewRepresentable {
         let isFirstResponder = window.firstResponder === nsView.textView
         if let focusRequest,
            focusRequest != context.coordinator.lastAppliedFocusRequest {
-            guard isEnabled else {
-                context.coordinator.lastAppliedFocusRequest = focusRequest
-                return
-            }
             context.coordinator.lastAppliedFocusRequest = focusRequest
-            nsView.focusIfNeeded()
+            if isEnabled {
+                nsView.focusIfNeeded()
+            } else if isFirstResponder {
+                moveFocusToFeedHost(in: window)
+            }
         } else if !isEnabled, isFirstResponder {
-            window.makeFirstResponder(nil)
+            moveFocusToFeedHost(in: window)
         }
+    }
+
+    private func moveFocusToFeedHost(in window: NSWindow) {
+        if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+            mode: .feed,
+            focusFirstItem: false,
+            preferredWindow: window
+        ) == true {
+            return
+        }
+        window.makeFirstResponder(nil)
     }
 
     private func configure(_ view: FeedInlineTextEditorView) {
