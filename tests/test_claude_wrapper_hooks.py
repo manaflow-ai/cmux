@@ -416,6 +416,42 @@ def test_plain_claude_launch_argv_has_no_empty_argument(failures: list[str]) -> 
     expect(argv[0].endswith("/real-bin/claude"), f"plain claude: expected real claude executable, got {argv}", failures)
 
 
+def test_missing_real_claude_reports_actionable_diagnostics(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-missing-real-") as td:
+        tmp = Path(td)
+        wrapper_dir = tmp / "wrapper-bin"
+        searched_dir = tmp / "searched-bin"
+        wrapper_dir.mkdir(parents=True, exist_ok=True)
+        searched_dir.mkdir(parents=True, exist_ok=True)
+
+        wrapper = wrapper_dir / "claude"
+        shutil.copy2(SOURCE_WRAPPER, wrapper)
+        wrapper.chmod(0o755)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{wrapper_dir}:{searched_dir}:/usr/bin:/bin"
+        env.pop("CMUX_CUSTOM_CLAUDE_PATH", None)
+
+        proc = subprocess.run(
+            ["claude", "--version"],
+            cwd=tmp,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    stderr = proc.stderr.strip()
+    expect(proc.returncode == 127, f"missing real claude: expected exit 127, got {proc.returncode}: {stderr}", failures)
+    expect("cmux claude wrapper could not find the real Claude Code executable" in stderr, f"missing real claude: expected wrapper-specific summary, got {stderr!r}", failures)
+    expect(str(wrapper) in stderr, f"missing real claude: expected skipped wrapper path {wrapper}, got {stderr!r}", failures)
+    expect(str(searched_dir / "claude") in stderr, f"missing real claude: expected searched PATH entry, got {stderr!r}", failures)
+    expect("/opt/homebrew/bin/claude" in stderr, f"missing real claude: expected Apple Silicon npm path diagnostic, got {stderr!r}", failures)
+    expect("/usr/local/bin/claude" in stderr, f"missing real claude: expected Intel/Homebrew npm path diagnostic, got {stderr!r}", failures)
+    expect("npm install --global @anthropic-ai/claude-code" in stderr, f"missing real claude: expected npm repair guidance, got {stderr!r}", failures)
+    expect("CMUX_CUSTOM_CLAUDE_PATH" in stderr, f"missing real claude: expected custom path guidance, got {stderr!r}", failures)
+
+
 def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures: list[str]) -> None:
     inherited = {
         "CLAUDE_CONFIG_DIR": "/tmp/claude-config",
@@ -658,6 +694,7 @@ def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
+    test_missing_real_claude_reports_actionable_diagnostics(failures)
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
