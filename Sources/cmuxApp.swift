@@ -4743,6 +4743,24 @@ enum CmdClickMarkdownRouteSettings {
 enum PreferredEditorSettings {
     static let key = "preferredEditorCommand"
 
+    private struct OpenTarget: Sendable {
+        let path: String
+        let line: Int?
+        let column: Int?
+
+        var fileURL: URL {
+            URL(fileURLWithPath: path)
+        }
+
+        func commandArgument(includeLineReference: Bool) -> String {
+            guard includeLineReference, let line else { return path }
+            if let column {
+                return "\(path):\(line):\(column)"
+            }
+            return "\(path):\(line)"
+        }
+    }
+
     /// Returns the configured editor command, or nil to use system default.
     static func resolvedCommand(defaults: UserDefaults = .standard) -> String? {
         guard let stored = defaults.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -4754,21 +4772,24 @@ enum PreferredEditorSettings {
 
     /// Open a file path with the user's preferred editor, falling back to system default.
     static func open(_ url: URL) {
+        let target = openTarget(from: url)
         if CmuxUITestCapture.appendLineIfConfigured(
             envKey: "CMUX_UI_TEST_CAPTURE_OPEN_PATH",
-            line: url.path
+            line: target.path
         ) {
             return
         }
 
         guard let command = resolvedCommand() else {
-            NSWorkspace.shared.open(url)
+            NSWorkspace.shared.open(target.fileURL)
             return
         }
-        let path = url.path
+        let includeLineReference = !commandUsesMacOpen(command)
+        let gotoFlag = commandNeedsGotoFlag(command) && target.line != nil ? " -g" : ""
+        let argument = target.commandArgument(includeLineReference: includeLineReference)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "\(command) \(shellQuote(path))"]
+        process.arguments = ["-c", "\(command)\(gotoFlag) \(shellQuote(argument))"]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do {
@@ -4778,12 +4799,104 @@ enum PreferredEditorSettings {
             DispatchQueue.global(qos: .userInitiated).async {
                 process.waitUntilExit()
                 if process.terminationStatus != 0 {
-                    DispatchQueue.main.async { NSWorkspace.shared.open(url) }
+                    DispatchQueue.main.async { NSWorkspace.shared.open(target.fileURL) }
                 }
             }
         } catch {
-            NSWorkspace.shared.open(url)
+            NSWorkspace.shared.open(target.fileURL)
         }
+    }
+
+    private static func openTarget(from url: URL) -> OpenTarget {
+        let lineColumn = lineColumn(fromFragment: url.fragment)
+        return OpenTarget(
+            path: url.path,
+            line: lineColumn?.line,
+            column: lineColumn?.column
+        )
+    }
+
+    private static func lineColumn(fromFragment fragment: String?) -> (line: Int, column: Int?)? {
+        guard var raw = fragment?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else {
+            return nil
+        }
+        if raw.first == "L" || raw.first == "l" {
+            raw.removeFirst()
+        }
+
+        let parts = raw.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        guard let linePart = parts.first,
+              !linePart.isEmpty,
+              let line = Int(String(linePart)),
+              line > 0 else {
+            return nil
+        }
+        if parts.count == 2 {
+            let columnPart = parts[1]
+            guard !columnPart.isEmpty,
+                  let column = Int(String(columnPart)),
+                  column > 0 else {
+                return (line, nil)
+            }
+            return (line, column)
+        }
+        return (line, nil)
+    }
+
+    private static func commandNeedsGotoFlag(_ command: String) -> Bool {
+        guard let commandName = normalizedCommandName(command) else { return false }
+        guard ["code", "code-insiders", "cursor", "cursor-insiders", "windsurf"].contains(commandName) else {
+            return false
+        }
+        let tokens = command.split(whereSeparator: \.isWhitespace).map(String.init)
+        return !tokens.contains("-g") && !tokens.contains("--goto")
+    }
+
+    private static func commandUsesMacOpen(_ command: String) -> Bool {
+        normalizedCommandName(command) == "open"
+    }
+
+    private static func normalizedCommandName(_ command: String) -> String? {
+        guard let firstWord = firstShellWord(command) else { return nil }
+        return URL(fileURLWithPath: firstWord).lastPathComponent.lowercased()
+    }
+
+    private static func firstShellWord(_ command: String) -> String? {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        var output = ""
+        var quote: Character?
+        var escaping = false
+        for character in trimmed {
+            if escaping {
+                output.append(character)
+                escaping = false
+                continue
+            }
+            if character == "\\" {
+                escaping = true
+                continue
+            }
+            if let activeQuote = quote {
+                if character == activeQuote {
+                    quote = nil
+                } else {
+                    output.append(character)
+                }
+                continue
+            }
+            if character == "'" || character == "\"" {
+                quote = character
+                continue
+            }
+            if character.isWhitespace {
+                break
+            }
+            output.append(character)
+        }
+        return output.isEmpty ? nil : output
     }
 
     private static func shellQuote(_ s: String) -> String {

@@ -1246,6 +1246,133 @@ private func cmuxResolveVisibleLinePath(
     return nil
 }
 
+private struct TerminalLocalFileReference: Equatable {
+    let path: String
+    let line: Int?
+    let column: Int?
+}
+
+private func cmuxSplitTerminalPathLineSuffix(_ token: String) -> TerminalLocalFileReference? {
+    guard let lastColon = token.lastIndex(of: ":") else { return nil }
+    let lastSuffixStart = token.index(after: lastColon)
+    let lastSuffix = token[lastSuffixStart...]
+    guard !lastSuffix.isEmpty,
+          lastSuffix.allSatisfy(\.isNumber),
+          let lastNumber = Int(String(lastSuffix)),
+          lastNumber > 0 else {
+        return nil
+    }
+
+    let beforeLastColon = token[..<lastColon]
+    if let lineColon = beforeLastColon.lastIndex(of: ":") {
+        let lineStart = beforeLastColon.index(after: lineColon)
+        let lineSuffix = beforeLastColon[lineStart...]
+        if !lineSuffix.isEmpty,
+           lineSuffix.allSatisfy(\.isNumber),
+           let lineNumber = Int(String(lineSuffix)),
+           lineNumber > 0 {
+            let path = String(beforeLastColon[..<lineColon])
+            guard !path.isEmpty else { return nil }
+            return TerminalLocalFileReference(path: path, line: lineNumber, column: lastNumber)
+        }
+    }
+
+    let path = String(beforeLastColon)
+    guard !path.isEmpty else { return nil }
+    return TerminalLocalFileReference(path: path, line: lastNumber, column: nil)
+}
+
+private func cmuxTerminalLocalFileReferenceCandidates(from token: String) -> [TerminalLocalFileReference] {
+    var candidates = [
+        TerminalLocalFileReference(path: token, line: nil, column: nil)
+    ]
+    if let lineReference = cmuxSplitTerminalPathLineSuffix(token),
+       !candidates.contains(lineReference) {
+        candidates.append(lineReference)
+    }
+    return candidates
+}
+
+private func cmuxLooksLikeTerminalPath(_ path: String) -> Bool {
+    guard !path.isEmpty else { return false }
+    if NSString(string: path).isAbsolutePath ||
+        path.hasPrefix("~/") ||
+        path.hasPrefix("./") ||
+        path.hasPrefix("../") ||
+        path.contains("/") {
+        return true
+    }
+    return !(path as NSString).pathExtension.isEmpty
+}
+
+private func cmuxStandardizedTerminalPath(_ path: String, cwd: String?) -> String? {
+    let expanded = (path as NSString).expandingTildeInPath
+    let candidatePath: String
+    if NSString(string: expanded).isAbsolutePath {
+        candidatePath = expanded
+    } else {
+        guard let cwd, !cwd.isEmpty else { return nil }
+        candidatePath = (cwd as NSString).appendingPathComponent(expanded)
+    }
+    return (candidatePath as NSString).standardizingPath
+}
+
+private func cmuxTerminalFileURL(path: String, line: Int?, column: Int?) -> URL {
+    let url = URL(fileURLWithPath: path)
+    guard let line else { return url }
+
+    var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    if let column {
+        components?.fragment = "L\(line):\(column)"
+    } else {
+        components?.fragment = "L\(line)"
+    }
+    return components?.url ?? url
+}
+
+private func cmuxResolveTerminalLocalFileURL(
+    _ rawValue: String,
+    cwd: String?,
+    fileExists: (String) -> Bool
+) -> URL? {
+    var seenPaths = Set<String>()
+    for token in cmuxQuicklookPathCandidates(from: rawValue) {
+        for reference in cmuxTerminalLocalFileReferenceCandidates(from: token) {
+            guard cmuxLooksLikeTerminalPath(reference.path),
+                  let path = cmuxStandardizedTerminalPath(reference.path, cwd: cwd),
+                  seenPaths.insert(path).inserted,
+                  fileExists(path) else {
+                continue
+            }
+            return cmuxTerminalFileURL(path: path, line: reference.line, column: reference.column)
+        }
+    }
+    return nil
+}
+
+private func cmuxIsLocalFileURL(_ url: URL) -> Bool {
+    guard url.isFileURL, !url.path.isEmpty else { return false }
+    let host = url.host
+    return host == nil || host?.isEmpty == true || host == "localhost"
+}
+
+private func cmuxResolvedTerminalWorkingDirectory(
+    workspace: Workspace,
+    terminalSurface: TerminalSurface
+) -> String? {
+    if let dir = workspace.panelDirectories[terminalSurface.id]?.trimmingCharacters(in: .whitespacesAndNewlines),
+       !dir.isEmpty {
+        return dir
+    }
+    if let dir = workspace.terminalPanel(for: terminalSurface.id)?
+        .requestedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+       !dir.isEmpty {
+        return dir
+    }
+    let dir = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+    return dir.isEmpty ? nil : dir
+}
+
 enum TerminalOpenURLTarget: Equatable {
     case embeddedBrowser(URL)
     case external(URL)
@@ -1258,7 +1385,11 @@ enum TerminalOpenURLTarget: Equatable {
     }
 }
 
-func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? {
+func resolveTerminalOpenURLTarget(
+    _ rawValue: String,
+    cwd: String? = FileManager.default.currentDirectoryPath,
+    fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+) -> TerminalOpenURLTarget? {
     let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
     #if DEBUG
     cmuxDebugLog("link.resolve input=\(trimmed)")
@@ -1270,15 +1401,20 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
         return nil
     }
 
-    if NSString(string: trimmed).isAbsolutePath {
-        #if DEBUG
-        cmuxDebugLog("link.resolve result=external(absolutePath) url=\(trimmed)")
-        #endif
-        return .external(URL(fileURLWithPath: trimmed))
-    }
-
     if let parsed = URL(string: trimmed),
        let scheme = parsed.scheme?.lowercased() {
+        if scheme == "file", cmuxIsLocalFileURL(parsed) {
+            if let fileURL = cmuxResolveTerminalLocalFileURL(parsed.path, cwd: nil, fileExists: fileExists) {
+                #if DEBUG
+                cmuxDebugLog("link.resolve result=external(fileURLLocalPath) url=\(fileURL)")
+                #endif
+                return .external(fileURL)
+            }
+            #if DEBUG
+            cmuxDebugLog("link.resolve result=external(fileURL) url=\(parsed)")
+            #endif
+            return .external(parsed)
+        }
         if scheme == "http" || scheme == "https" {
             guard BrowserInsecureHTTPSettings.normalizeHost(parsed.host ?? "") != nil else {
                 #if DEBUG
@@ -1295,6 +1431,20 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
         cmuxDebugLog("link.resolve result=external(scheme=\(scheme)) url=\(parsed)")
         #endif
         return .external(parsed)
+    }
+
+    if let fileURL = cmuxResolveTerminalLocalFileURL(trimmed, cwd: cwd, fileExists: fileExists) {
+        #if DEBUG
+        cmuxDebugLog("link.resolve result=external(localPath) url=\(fileURL)")
+        #endif
+        return .external(fileURL)
+    }
+
+    if NSString(string: trimmed).isAbsolutePath {
+        #if DEBUG
+        cmuxDebugLog("link.resolve result=external(absolutePath) url=\(trimmed)")
+        #endif
+        return .external(URL(fileURLWithPath: trimmed))
     }
 
     if let webURL = resolveBrowserNavigableURL(trimmed) {
@@ -4020,7 +4170,28 @@ class GhosttyApp {
             #if DEBUG
             cmuxDebugLog("link.openURL raw=\(urlString)")
             #endif
-            guard let target = resolveTerminalOpenURLTarget(urlString) else {
+            let localFileResolutionContext: (cwd: String?, enabled: Bool) = performOnMain {
+                guard let termSurface = surfaceView.terminalSurface,
+                      let workspace = termSurface.owningWorkspace(),
+                      !workspace.isRemoteTerminalSurface(termSurface.id) else {
+                    return (nil, false)
+                }
+                return (
+                    cmuxResolvedTerminalWorkingDirectory(workspace: workspace, terminalSurface: termSurface),
+                    true
+                )
+            }
+            let localFileExists: (String) -> Bool
+            if localFileResolutionContext.enabled {
+                localFileExists = { FileManager.default.fileExists(atPath: $0) }
+            } else {
+                localFileExists = { _ in false }
+            }
+            guard let target = resolveTerminalOpenURLTarget(
+                urlString,
+                cwd: localFileResolutionContext.cwd,
+                fileExists: localFileExists
+            ) else {
                 #if DEBUG
                 cmuxDebugLog("link.openURL resolve failed, returning false")
                 #endif
@@ -4034,10 +4205,8 @@ class GhosttyApp {
             // unreadable file, split creation failure) falls through to the
             // existing NSWorkspace path below so the default-off behavior and
             // URL semantics are preserved.
-            let fileURLHost = target.url.host
             if CmdClickMarkdownRouteSettings.isEnabled(),
-               target.url.isFileURL,
-               fileURLHost == nil || fileURLHost?.isEmpty == true || fileURLHost == "localhost",
+               cmuxIsLocalFileURL(target.url),
                CmdClickMarkdownRouteSettings.isMarkdownPath(target.url.path) {
                 let fileURL = target.url
                 let routed: Bool = performOnMain {
@@ -4105,6 +4274,15 @@ class GhosttyApp {
                     return true
                 }
                 // Fall through to the existing NSWorkspace path below.
+            }
+
+            if cmuxIsLocalFileURL(target.url) {
+                #if DEBUG
+                cmuxDebugLog("link.openURL target=localFile, opening in preferred editor url=\(target.url)")
+                #endif
+                return performOnMain {
+                    PreferredEditorSettings.open(target.url)
+                }
             }
 
             if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
@@ -8591,17 +8769,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         workspace: Workspace,
         terminalSurface: TerminalSurface
     ) -> String? {
-        if let dir = workspace.panelDirectories[terminalSurface.id]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !dir.isEmpty {
-            return dir
-        }
-        if let dir = workspace.terminalPanel(for: terminalSurface.id)?
-            .requestedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !dir.isEmpty {
-            return dir
-        }
-        let dir = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        return dir.isEmpty ? nil : dir
+        cmuxResolvedTerminalWorkingDirectory(workspace: workspace, terminalSurface: terminalSurface)
     }
 
     private func pointIsUsableForWordResolution(_ point: NSPoint) -> Bool {
