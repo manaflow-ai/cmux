@@ -19,7 +19,7 @@ enum FeedNotificationDispatcher {
     static func post(
         event: WorkstreamEvent,
         requestId: String,
-        enqueue: @escaping (@escaping () -> Void) -> Void = { work in
+        enqueue: @escaping (@MainActor @escaping () -> Void) -> Void = { work in
             Task { @MainActor in work() }
         },
         frontmostContext: @MainActor @escaping () -> FrontmostContext = currentFrontmostContext,
@@ -30,7 +30,7 @@ enum FeedNotificationDispatcher {
         enqueue {
             guard !shouldSuppress(
                 notificationTarget: notificationTarget,
-                frontmostContext: MainActor.assumeIsolated { frontmostContext() }
+                frontmostContext: frontmostContext()
             ) else {
                 return
             }
