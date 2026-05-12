@@ -2920,6 +2920,17 @@ final class BrowserPanel: Panel, ObservableObject {
         browserUIDelegate.openPopup = { [weak self] configuration, windowFeatures in
             self?.createFloatingPopup(configuration: configuration, windowFeatures: windowFeatures)
         }
+        browserUIDelegate.enqueueJavaScriptDialog = { [weak self] type, message, defaultText, responder in
+            guard let self else { return false }
+            TerminalController.shared.enqueueBrowserDialog(
+                surfaceId: self.id,
+                type: type,
+                message: message,
+                defaultText: defaultText,
+                responder: responder
+            )
+            return true
+        }
         self.uiDelegate = browserUIDelegate
 
         bindWebView(webView)
@@ -6807,6 +6818,12 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     var openPopup: ((WKWebViewConfiguration, WKWindowFeatures) -> WKWebView?)?
+    var enqueueJavaScriptDialog: ((
+        _ type: String,
+        _ message: String,
+        _ defaultText: String?,
+        _ responder: @escaping (_ accept: Bool, _ text: String?) -> Void
+    ) -> Bool)?
 
     private func javaScriptDialogTitle(for webView: WKWebView) -> String {
         if let absolute = webView.url?.absoluteString, !absolute.isEmpty {
@@ -6981,6 +6998,9 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         alert.messageText = javaScriptDialogTitle(for: webView)
         alert.informativeText = message
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        if enqueueJavaScriptDialog?("alert", message, nil, { _, _ in completionHandler() }) == true {
+            return
+        }
         presentDialog(alert, for: webView) { _ in completionHandler() }
     }
 
@@ -6996,6 +7016,9 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         alert.informativeText = message
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+        if enqueueJavaScriptDialog?("confirm", message, nil, { accept, _ in completionHandler(accept) }) == true {
+            return
+        }
         presentDialog(alert, for: webView) { response in
             completionHandler(response == .alertFirstButtonReturn)
         }
@@ -7019,6 +7042,11 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         field.stringValue = defaultText ?? ""
         alert.accessoryView = field
 
+        if enqueueJavaScriptDialog?("prompt", prompt, defaultText, { accept, text in
+            completionHandler(accept ? (text ?? defaultText ?? "") : nil)
+        }) == true {
+            return
+        }
         presentDialog(alert, for: webView) { response in
             if response == .alertFirstButtonReturn {
                 completionHandler(field.stringValue)

@@ -217,7 +217,11 @@ class TerminalController {
             v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
             v2BrowserInitScriptsBySurface.removeValue(forKey: surfaceId)
             v2BrowserInitStylesBySurface.removeValue(forKey: surfaceId)
-            v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
+            if let dialogs = v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId) {
+                for dialog in dialogs {
+                    dialog.responder(false, nil)
+                }
+            }
             v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
             v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
             v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
@@ -8960,9 +8964,10 @@ class TerminalController {
     ) {
         var queue = v2BrowserDialogQueueBySurface[surfaceId] ?? []
         queue.append(V2BrowserPendingDialog(type: type, message: message, defaultText: defaultText, responder: responder))
-        if queue.count > 16 {
+        while queue.count > 16 {
             // Keep bounded memory while preserving FIFO semantics for newest entries.
-            queue.removeFirst(queue.count - 16)
+            let dropped = queue.removeFirst()
+            dropped.responder(false, nil)
         }
         v2BrowserDialogQueueBySurface[surfaceId] = queue
     }
@@ -11158,6 +11163,24 @@ class TerminalController {
             v2BrowserEnsureTelemetryHooks(surfaceId: surfaceId, browserPanel: browserPanel)
             v2BrowserEnsureDialogHooks(browserPanel: browserPanel)
             let text = v2String(params, "text") ?? v2String(params, "prompt_text")
+
+            if let nativeDialog = v2BrowserPopDialog(surfaceId: surfaceId) {
+                nativeDialog.responder(accept, text)
+                return .ok([
+                    "workspace_id": ws.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                    "surface_id": surfaceId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                    "accepted": accept,
+                    "dialog": [
+                        "type": nativeDialog.type,
+                        "message": nativeDialog.message,
+                        "default_text": v2OrNull(nativeDialog.defaultText)
+                    ],
+                    "remaining": (v2BrowserDialogQueueBySurface[surfaceId] ?? []).count
+                ])
+            }
+
             let acceptLiteral = accept ? "true" : "false"
             let textLiteral = text.map(v2JSONLiteral) ?? "null"
             let script = """
