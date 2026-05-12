@@ -433,6 +433,7 @@
 		A39310000000000000000005 /* GoalSupervisionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A39310000000000000000006 /* GoalSupervisionStore.swift */; };
 		A39310000000000000000007 /* GoalSupervisionDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A39310000000000000000008 /* GoalSupervisionDetailView.swift */; };
 		A39310000000000000000009 /* GoalSupervisionNewGoalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3931000000000000000000A /* GoalSupervisionNewGoalView.swift */; };
+		A3931000000000000000000B /* GoalSupervisionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3931000000000000000000C /* GoalSupervisionStoreTests.swift */; };
 		FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003004 /* SessionIndexStore+CodexSQL.swift */; };
 		FE003105 /* RovoDevIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003005 /* RovoDevIndex.swift */; };
 		FE003106 /* SessionAgentPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003006 /* SessionAgentPresentation.swift */; };
@@ -930,6 +931,7 @@
 		A39310000000000000000006 /* GoalSupervisionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalSupervisionStore.swift; sourceTree = "<group>"; };
 		A39310000000000000000008 /* GoalSupervisionDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalSupervisionDetailView.swift; sourceTree = "<group>"; };
 		A3931000000000000000000A /* GoalSupervisionNewGoalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalSupervisionNewGoalView.swift; sourceTree = "<group>"; };
+		A3931000000000000000000C /* GoalSupervisionStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalSupervisionStoreTests.swift; sourceTree = "<group>"; };
 		FE003004 /* SessionIndexStore+CodexSQL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionIndexStore+CodexSQL.swift"; sourceTree = "<group>"; };
 		FE003005 /* RovoDevIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevIndex.swift; sourceTree = "<group>"; };
 		FE003006 /* SessionAgentPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentPresentation.swift; sourceTree = "<group>"; };
@@ -1458,6 +1460,7 @@
 				A11EAA000000000000000001 /* AppearanceSettingsTests.swift */,
 				6083A7DAD962E287FC2FFE94 /* ShortcutAndCommandPaletteTests.swift */,
 				C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */,
+				A3931000000000000000000C /* GoalSupervisionStoreTests.swift */,
 				B37A0000000000000000000C /* FileExplorerStateModePersistenceTests.swift */,
 				BC39DE4B96D1931C52AF7D68 /* SidebarOrderingTests.swift */,
 				B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */,
@@ -2141,6 +2144,7 @@
 				A11EAA000000000000000000 /* AppearanceSettingsTests.swift in Sources */,
 				1521D55DC63D5E5FC4955E31 /* ShortcutAndCommandPaletteTests.swift in Sources */,
 				C3408A000000000000000003 /* RightSidebarCommandPaletteTests.swift in Sources */,
+				A3931000000000000000000B /* GoalSupervisionStoreTests.swift in Sources */,
 				B37A0000000000000000000B /* FileExplorerStateModePersistenceTests.swift in Sources */,
 				CB23911D7E131E8FBC9B82B6 /* SidebarOrderingTests.swift in Sources */,
 					4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */,

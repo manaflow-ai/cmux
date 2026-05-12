@@ -3,8 +3,8 @@ import SwiftUI
 
 struct GoalSupervisionPanelView: View {
     let currentWorkspacePath: String?
+    private let store = GoalSupervisionStore.shared
 
-    @State private var store = GoalSupervisionStore.shared
     @State private var selectedGoalID: UUID?
     @State private var showingNewGoalPopover = false
 

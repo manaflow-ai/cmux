@@ -11,16 +11,19 @@ actor GoalSupervisionPersistence {
     }
 
     func load() throws -> [GoalSupervisionRecord] {
+        try Task.checkCancellation()
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             return []
         }
         let data = try Data(contentsOf: fileURL)
+        try Task.checkCancellation()
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode([GoalSupervisionRecord].self, from: data)
     }
 
     func save(_ goals: [GoalSupervisionRecord]) throws {
+        try Task.checkCancellation()
         try FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -29,6 +32,7 @@ actor GoalSupervisionPersistence {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(goals)
+        try Task.checkCancellation()
         try data.write(to: fileURL, options: .atomic)
     }
 
@@ -54,6 +58,7 @@ final class GoalSupervisionStore {
     private(set) var lastError: String?
 
     @ObservationIgnored private let persistence: GoalSupervisionPersistence
+    @ObservationIgnored private var loadTask: Task<Void, Never>?
     @ObservationIgnored private var persistTask: Task<Void, Never>?
     @ObservationIgnored private var mutationRevision: UInt64 = 0
     @ObservationIgnored private var deletedGoalIDs: Set<UUID> = []
@@ -61,7 +66,7 @@ final class GoalSupervisionStore {
 
     init(persistence: GoalSupervisionPersistence = .live) {
         self.persistence = persistence
-        Task { await load() }
+        loadTask = Task { await load() }
     }
 
     func snapshots() -> [GoalSupervisionSnapshot] {
@@ -79,6 +84,16 @@ final class GoalSupervisionStore {
                 notes: goal.notes
             )
         }
+    }
+
+    func waitForInitialLoad() async {
+        guard let loadTask else { return }
+        await loadTask.value
+    }
+
+    func waitForPendingSave() async {
+        guard let persistTask else { return }
+        await persistTask.value
     }
 
     func createGoal(title: String, acceptanceCriteria: String, workspacePath: String?) -> UUID? {
@@ -138,7 +153,9 @@ final class GoalSupervisionStore {
     private func load() async {
         let revisionAtStart = mutationRevision
         do {
+            try Task.checkCancellation()
             let loadedGoals = Self.sortedGoals(try await persistence.load())
+            try Task.checkCancellation()
             if mutationRevision == revisionAtStart {
                 goals = loadedGoals
             } else {
@@ -150,7 +167,11 @@ final class GoalSupervisionStore {
                 persistCurrentGoals()
             }
             hasLoaded = true
-            lastError = nil
+            if lastError != nil {
+                lastError = nil
+            }
+        } catch is CancellationError {
+            return
         } catch {
             if mutationRevision == revisionAtStart {
                 goals = []
@@ -219,7 +240,9 @@ final class GoalSupervisionStore {
                     if self.hasLoaded {
                         self.deletedGoalIDs.removeAll()
                     }
-                    self.lastError = nil
+                    if self.lastError != nil {
+                        self.lastError = nil
+                    }
                 }
             } catch is CancellationError {
                 return

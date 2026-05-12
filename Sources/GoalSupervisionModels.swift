@@ -1,6 +1,6 @@
 import Foundation
 
-enum GoalSupervisionStatus: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
+nonisolated enum GoalSupervisionStatus: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
     case pending
     case active
     case paused
@@ -39,13 +39,13 @@ enum GoalSupervisionStatus: String, CaseIterable, Codable, Hashable, Identifiabl
     }
 }
 
-struct GoalSupervisionNote: Codable, Hashable, Identifiable, Sendable {
+nonisolated struct GoalSupervisionNote: Codable, Hashable, Identifiable, Sendable {
     let id: UUID
     var body: String
     var createdAt: Date
 }
 
-struct GoalSupervisionRecord: Codable, Hashable, Identifiable, Sendable {
+nonisolated struct GoalSupervisionRecord: Codable, Hashable, Identifiable, Sendable {
     let id: UUID
     var title: String
     var acceptanceCriteria: String
@@ -65,7 +65,7 @@ struct GoalSupervisionRecord: Codable, Hashable, Identifiable, Sendable {
 
 }
 
-struct GoalSupervisionSnapshot: Equatable, Identifiable, Sendable {
+nonisolated struct GoalSupervisionSnapshot: Equatable, Identifiable, Sendable {
     let id: UUID
     let title: String
     let acceptanceCriteria: String
