@@ -33,9 +33,12 @@ final class SessionIndexCoreTests: XCTestCase {
     }
 
     func testFileContainsNeedleScansAcrossChunksCaseInsensitively() throws {
-        let prefix = String(repeating: "a", count: 70 * 1024)
+        let needle = "Needle Across Large File"
+        let chunkSize = 64 * 1024
+        // Place the needle across the chunk boundary used by fileContainsNeedle.
+        let prefix = String(repeating: "a", count: chunkSize - needle.utf8.count / 2)
         let suffix = String(repeating: "b", count: 70 * 1024)
-        let fixture = try makeTempFile(contents: prefix + "Needle Across Large File" + suffix)
+        let fixture = try makeTempFile(contents: prefix + needle + suffix)
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
 
         XCTAssertTrue(SessionIndexCore.fileContainsNeedle(url: fixture.file, needle: "needle across"))
