@@ -239,14 +239,14 @@ struct CmuxCLIPathInstaller {
     private static func installWithAdministratorPrivileges(sourceURL: URL, destinationURL: URL) throws {
         let destinationPath = destinationURL.path
         let parentPath = destinationURL.deletingLastPathComponent().path
-        let command = "/bin/mkdir -p \(shellQuoted(parentPath)) && " +
-            "/bin/rm -f \(shellQuoted(destinationPath)) && " +
-            "/bin/ln -s \(shellQuoted(sourceURL.path)) \(shellQuoted(destinationPath))"
+        let command = "/bin/mkdir -p \(ShellCommandQuoting.singleQuoted(parentPath)) && " +
+            "/bin/rm -f \(ShellCommandQuoting.singleQuoted(destinationPath)) && " +
+            "/bin/ln -s \(ShellCommandQuoting.singleQuoted(sourceURL.path)) \(ShellCommandQuoting.singleQuoted(destinationPath))"
         try runPrivilegedShellCommand(command)
     }
 
     private static func uninstallWithAdministratorPrivileges(destinationURL: URL) throws {
-        let command = "/bin/rm -f \(shellQuoted(destinationURL.path))"
+        let command = "/bin/rm -f \(ShellCommandQuoting.singleQuoted(destinationURL.path))"
         try runPrivilegedShellCommand(command)
     }
 
@@ -304,10 +304,6 @@ struct CmuxCLIPathInstaller {
         }
     }
 
-    private static func shellQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
     private static func isPermissionDenied(_ error: Error) -> Bool {
         isPermissionDenied(error as NSError)
     }
@@ -333,6 +329,12 @@ struct CmuxCLIPathInstaller {
         }
 
         return false
+    }
+}
+
+enum ShellCommandQuoting {
+    static func singleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 

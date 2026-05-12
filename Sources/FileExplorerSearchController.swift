@@ -498,7 +498,7 @@ final class FileSearchController: FileSearchControlling {
             )
         case .remoteSSH(let connection):
             let remoteCommand = (["rg"] + ripgrepArguments(query: query, rootPath: rootPath))
-                .map(shellQuoted)
+                .map(ShellCommandQuoting.singleQuoted)
                 .joined(separator: " ")
             return SearchProcessCommand(
                 executableURL: URL(fileURLWithPath: "/usr/bin/ssh"),
@@ -523,10 +523,6 @@ final class FileSearchController: FileSearchControlling {
             query,
             rootPath,
         ]
-    }
-
-    static func shellQuoted(_ value: String) -> String {
-        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 
     func cancel(clear: Bool) {
