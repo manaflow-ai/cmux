@@ -3,7 +3,7 @@ import MarkdownUI
 import SwiftUI
 import WebKit
 
-enum MarkdownCodeBlockLanguage {
+nonisolated enum MarkdownCodeBlockLanguage {
     static func isMermaid(_ language: String?) -> Bool {
         guard let firstToken = language?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -345,7 +345,7 @@ nonisolated enum MarkdownMermaidScriptEvent: Equatable, Sendable {
     }
 }
 
-enum MarkdownMermaidHTMLDocument {
+nonisolated enum MarkdownMermaidHTMLDocument {
     static let handlerName = "cmuxMermaid"
     static let scriptFileName = "mermaid.min.js"
 
