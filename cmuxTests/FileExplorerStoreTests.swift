@@ -779,6 +779,34 @@ final class FileSearchControllerTests: XCTestCase {
         XCTAssertEqual(searchController.searchRequests.last?.contentRevision, store.contentRevision)
     }
 
+    func testRipgrepResolverPrefersConfiguredBinaryPath() {
+        let configuredPath = "/nix/store/custom-ripgrep/bin/rg"
+        let fallbackPath = "/usr/local/bin/rg"
+
+        let executable = RipgrepExecutableResolver.resolve(
+            configuredPath: configuredPath,
+            environment: ["PATH": ""],
+            userName: "nixuser",
+            isExecutable: { $0 == configuredPath || $0 == fallbackPath }
+        )
+
+        XCTAssertEqual(executable?.url.path, configuredPath)
+    }
+
+    func testRipgrepResolverChecksNixProfilePathsBeforePATHFallback() {
+        let nixProfilePath = "/etc/profiles/per-user/nixuser/bin/rg"
+        let pathFallback = "/tmp/bin/rg"
+
+        let executable = RipgrepExecutableResolver.resolve(
+            configuredPath: nil,
+            environment: ["PATH": "/tmp/bin"],
+            userName: "nixuser",
+            isExecutable: { $0 == nixProfilePath || $0 == pathFallback }
+        )
+
+        XCTAssertEqual(executable?.url.path, nixProfilePath)
+    }
+
     private static func searchResult(relativePath: String) -> FileSearchResult {
         FileSearchResult(
             path: "/tmp/cmux-find-content-revision-test/\(relativePath)",

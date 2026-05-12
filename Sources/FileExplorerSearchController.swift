@@ -66,6 +66,46 @@ struct FileSearchSnapshot: Equatable, Sendable {
     static let empty = FileSearchSnapshot(query: "", results: [], status: .idle, isSearching: false)
 }
 
+enum RipgrepIntegrationSettings {
+    static let customRipgrepPathKey = "ripgrepCustomBinaryPath"
+}
+
+struct FileSearchRipgrepExecutable: Equatable, Sendable {
+    let url: URL
+    let prefixArguments: [String]
+}
+
+enum RipgrepExecutableResolver {
+    static func resolve(
+        configuredPath: String? = UserDefaults.standard.string(forKey: RipgrepIntegrationSettings.customRipgrepPathKey),
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        userName: String = NSUserName(),
+        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+    ) -> FileSearchRipgrepExecutable? {
+        _ = configuredPath
+        _ = userName
+
+        for path in defaultSearchPaths where isExecutable(path) {
+            return FileSearchRipgrepExecutable(url: URL(fileURLWithPath: path), prefixArguments: [])
+        }
+
+        let pathValue = environment["PATH"] ?? ""
+        for directory in pathValue.split(separator: ":", omittingEmptySubsequences: true) {
+            let path = URL(fileURLWithPath: String(directory)).appendingPathComponent("rg").path
+            if isExecutable(path) {
+                return FileSearchRipgrepExecutable(url: URL(fileURLWithPath: path), prefixArguments: [])
+            }
+        }
+        return nil
+    }
+
+    private static let defaultSearchPaths = [
+        "/opt/homebrew/bin/rg",
+        "/usr/local/bin/rg",
+        "/usr/bin/rg",
+    ]
+}
+
 @MainActor
 protocol FileSearchControlling: AnyObject {
     var onSnapshotChanged: ((FileSearchSnapshot) -> Void)? { get set }
@@ -312,11 +352,6 @@ final class FileSearchController: FileSearchControlling {
         let contentRevision: Int
     }
 
-    private struct RipgrepExecutable {
-        let url: URL
-        let prefixArguments: [String]
-    }
-
     var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
 
     private let maxResults = 500
@@ -368,7 +403,7 @@ final class FileSearchController: FileSearchControlling {
             emit(status: .noMatches, isSearching: false)
             return
         }
-        guard let executable = Self.ripgrepExecutable() else {
+        guard let executable = RipgrepExecutableResolver.resolve() else {
             emit(
                 status: .failed(String(localized: "fileExplorer.search.rgNotInstalled", defaultValue: "ripgrep (rg) is not installed or is not on PATH.")),
                 isSearching: false
@@ -558,18 +593,4 @@ final class FileSearchController: FileSearchControlling {
         }
     }
 
-    private static func ripgrepExecutable() -> RipgrepExecutable? {
-        let fileManager = FileManager.default
-        for path in ["/opt/homebrew/bin/rg", "/usr/local/bin/rg", "/usr/bin/rg"] where fileManager.isExecutableFile(atPath: path) {
-            return RipgrepExecutable(url: URL(fileURLWithPath: path), prefixArguments: [])
-        }
-        let pathValue = ProcessInfo.processInfo.environment["PATH"] ?? ""
-        for directory in pathValue.split(separator: ":", omittingEmptySubsequences: true) {
-            let path = URL(fileURLWithPath: String(directory)).appendingPathComponent("rg").path
-            if fileManager.isExecutableFile(atPath: path) {
-                return RipgrepExecutable(url: URL(fileURLWithPath: path), prefixArguments: [])
-            }
-        }
-        return nil
-    }
 }
