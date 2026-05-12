@@ -690,6 +690,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
+    private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
     private struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
         let windowNumber: Int?
@@ -1573,6 +1574,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if TelemetrySettings.enabledForCurrentLaunch {
             PostHogAnalytics.shared.flush()
         }
+        ghosttyCrashBreadcrumbTask?.cancel()
+        ghosttyCrashBreadcrumbTask = nil
         notificationStore?.clearAll()
         GhosttyCrashBreadcrumb.markCleanExit()
         enableSuddenTerminationIfNeeded()
@@ -1618,7 +1621,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !didScheduleGhosttyCrashBreadcrumbCheck else { return }
         didScheduleGhosttyCrashBreadcrumbCheck = true
 
-        Task { [weak notificationStore] in
+        ghosttyCrashBreadcrumbTask = Task { [weak self, weak notificationStore] in
+            defer { self?.ghosttyCrashBreadcrumbTask = nil }
             guard let pendingCrash = await GhosttyCrashBreadcrumb.pendingCrashFromDefaultStorage(),
                   !Task.isCancelled,
                   let notificationStore else { return }
