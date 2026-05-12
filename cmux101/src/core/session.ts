@@ -72,6 +72,17 @@ export class Session implements SessionHandle {
     });
   }
 
+  async replaceMessages(messages: Message[]): Promise<void> {
+    const previousCount = this._messages.length;
+    this._messages = [...messages];
+    await this._transcript.append({
+      kind: "custom",
+      name: "compaction",
+      data: { previousCount, newCount: messages.length },
+      ts: new Date().toISOString(),
+    });
+  }
+
   /** Expose transcript path for tests and subagent results. */
   get transcriptPath(): string {
     return this._transcript.path;

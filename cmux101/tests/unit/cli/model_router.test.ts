@@ -55,6 +55,31 @@ describe("resolveModel — built-in alias lookup", () => {
     const r = resolveModel("gpt5", makeConfig());
     expect(r).toEqual({ providerId: "openai", modelId: "gpt-5" });
   });
+
+  test("grok resolves to xai/grok-3", () => {
+    const r = resolveModel("grok", makeConfig());
+    expect(r).toEqual({ providerId: "xai", modelId: "grok-3" });
+  });
+
+  test("grok-mini resolves to xai/grok-3-mini", () => {
+    const r = resolveModel("grok-mini", makeConfig());
+    expect(r).toEqual({ providerId: "xai", modelId: "grok-3-mini" });
+  });
+
+  test("qwen resolves to dashscope/qwen-plus", () => {
+    const r = resolveModel("qwen", makeConfig());
+    expect(r).toEqual({ providerId: "dashscope", modelId: "qwen-plus" });
+  });
+
+  test("qwen-max resolves to dashscope/qwen-max", () => {
+    const r = resolveModel("qwen-max", makeConfig());
+    expect(r).toEqual({ providerId: "dashscope", modelId: "qwen-max" });
+  });
+
+  test("qwen-coder resolves to dashscope/qwen3-coder", () => {
+    const r = resolveModel("qwen-coder", makeConfig());
+    expect(r).toEqual({ providerId: "dashscope", modelId: "qwen3-coder" });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -142,9 +167,9 @@ describe("resolveModel — prefix routing", () => {
     expect(r).toEqual({ providerId: "gemini", modelId: "gemini-1.5-pro" });
   });
 
-  test("grok-* routes to openrouter", () => {
+  test("grok-* routes to xai", () => {
     const r = resolveModel("grok-2", makeConfig());
-    expect(r).toEqual({ providerId: "openrouter", modelId: "grok-2" });
+    expect(r).toEqual({ providerId: "xai", modelId: "grok-2" });
   });
 
   test("llama* routes to ollama", () => {
@@ -152,9 +177,9 @@ describe("resolveModel — prefix routing", () => {
     expect(r).toEqual({ providerId: "ollama", modelId: "llama3.1-8b" });
   });
 
-  test("qwen* routes to ollama", () => {
+  test("qwen* routes to dashscope", () => {
     const r = resolveModel("qwen2.5-72b", makeConfig());
-    expect(r).toEqual({ providerId: "ollama", modelId: "qwen2.5-72b" });
+    expect(r).toEqual({ providerId: "dashscope", modelId: "qwen2.5-72b" });
   });
 
   test("mistral* routes to ollama", () => {

@@ -252,6 +252,12 @@ export interface SessionHandle {
   append(message: Message): Promise<void>;
   /** Record an arbitrary event (telemetry, hook firing, etc). */
   recordEvent(event: { kind: string; data: unknown }): Promise<void>;
+  /**
+   * Replace the in-memory message list with a compacted set.
+   * Appends a compaction event to the transcript for audit.
+   * Optional — not every session implementation supports compaction.
+   */
+  replaceMessages?(messages: Message[]): Promise<void>;
 }
 
 // ----------------------------------------------------------------------------

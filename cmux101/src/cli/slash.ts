@@ -10,6 +10,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import type { SessionHandle, ToolRegistry, Permissions } from "../core/types.js";
 import { listSessions } from "../core/session.js";
+import { createPowerCommands } from "./power_commands.js";
 
 // ---------------------------------------------------------------------------
 // Interfaces
@@ -35,6 +36,11 @@ export interface SlashResult {
    * When false, the input was not recognised and should be forwarded normally.
    */
   consumed: boolean;
+  /**
+   * When set, the TUI sends THIS text to the model instead of the original
+   * user input. Only meaningful when consumed is true.
+   */
+  transformedPrompt?: string;
 }
 
 export interface SlashCommand {
@@ -549,12 +555,67 @@ const doctorCommand: SlashCommand = {
   },
 };
 
+/** Build a short programmatic summary of messages (no model call). */
+function buildConversationSummary(messages: ReadonlyArray<import("../core/types.js").Message>): string {
+  const parts: string[] = [];
+  for (const msg of messages) {
+    const role = msg.role;
+    for (const block of msg.content) {
+      if (block.type === "text" && block.text.trim()) {
+        const snippet = block.text.trim().slice(0, 120).replace(/\n+/g, " ");
+        parts.push(`[${role}] ${snippet}`);
+      } else if (block.type === "tool_use") {
+        parts.push(`[tool_call] ${block.name}`);
+      } else if (block.type === "tool_result") {
+        const content = typeof block.content === "string" ? block.content : "(image/multi)";
+        const snippet = content.trim().slice(0, 60).replace(/\n+/g, " ");
+        parts.push(`[tool_result:${block.tool_use_id?.slice(0, 8) ?? "?"}] ${snippet}`);
+      }
+    }
+  }
+  const joined = parts.join("\n");
+  return joined.length > 2000 ? joined.slice(0, 1997) + "..." : joined;
+}
+
 const compactCommand: SlashCommand = {
   name: "compact",
   description: "Compact the conversation to reduce context size.",
-  async run(_ctx: SlashContext, _args: string): Promise<SlashResult> {
+  async run(ctx: SlashContext, _args: string): Promise<SlashResult> {
+    const messages = ctx.session.messages;
+    const originalCount = messages.length;
+
+    if (originalCount === 0) {
+      return { display: "Nothing to compact — conversation is empty.", consumed: true };
+    }
+
+    // Keep the last 5 messages verbatim; summarize everything before.
+    const KEEP = 5;
+    const toSummarize = originalCount > KEEP ? messages.slice(0, originalCount - KEEP) : [];
+    const tail = originalCount > KEEP ? [...messages.slice(originalCount - KEEP)] : [...messages];
+
+    const newMessages: import("../core/types.js").Message[] = [];
+
+    if (toSummarize.length > 0) {
+      const summary = buildConversationSummary(toSummarize);
+      newMessages.push({
+        role: "user",
+        content: [{ type: "text", text: `[compacted conversation summary]\n${summary}` }],
+      });
+    }
+
+    newMessages.push(...tail);
+
+    if (!ctx.session.replaceMessages) {
+      return {
+        display: "This session does not support compaction.",
+        consumed: true,
+      };
+    }
+    await ctx.session.replaceMessages(newMessages);
+
+    const newCount = ctx.session.messages.length;
     return {
-      display: "(compaction not yet implemented — coming soon)",
+      display: `Compacted conversation. ${originalCount} messages → ${newCount} messages.`,
       consumed: true,
     };
   },
@@ -636,6 +697,11 @@ export function createDefaultSlashRegistry(): SlashRegistry {
   const commands = createBuiltinSlashCommands();
 
   for (const cmd of commands) {
+    registry.register(cmd);
+  }
+
+  // Register power commands
+  for (const cmd of createPowerCommands()) {
     registry.register(cmd);
   }
 

@@ -115,6 +115,8 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
     "./bedrock.js",
     "./vertex.js",
     "./local.js",
+    "./xai.js",
+    "./dashscope.js",
   ];
 
   const imports = await Promise.all(

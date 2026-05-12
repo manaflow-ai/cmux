@@ -32,13 +32,18 @@ export interface ResolvedModel {
  * collides.
  */
 export const BUILTIN_ALIASES: Record<string, string> = {
-  opus:   "anthropic/claude-opus-4-7",
-  sonnet: "anthropic/claude-sonnet-4-5",
-  haiku:  "anthropic/claude-haiku-4-5",
-  gpt5:   "openai/gpt-5",
-  gpt4o:  "openai/gpt-4o",
-  flash:  "gemini/gemini-2.5-flash",
-  pro:    "gemini/gemini-2.5-pro",
+  opus:        "anthropic/claude-opus-4-7",
+  sonnet:      "anthropic/claude-sonnet-4-5",
+  haiku:       "anthropic/claude-haiku-4-5",
+  gpt5:        "openai/gpt-5",
+  gpt4o:       "openai/gpt-4o",
+  flash:       "gemini/gemini-2.5-flash",
+  pro:         "gemini/gemini-2.5-pro",
+  grok:        "xai/grok-3",
+  "grok-mini": "xai/grok-3-mini",
+  qwen:        "dashscope/qwen-plus",
+  "qwen-max":  "dashscope/qwen-max",
+  "qwen-coder": "dashscope/qwen3-coder",
 };
 
 // ---------------------------------------------------------------------------
@@ -71,15 +76,19 @@ function routeByPrefix(input: string): string | null {
     return "gemini";
   }
 
-  // grok-* → openrouter (no dedicated xai provider yet)
+  // grok-* → xai
   if (input.startsWith("grok-")) {
-    return "openrouter";
+    return "xai";
   }
 
-  // llama*, qwen*, mistral* → ollama
+  // qwen* → dashscope (use ollama/qwen2.5 explicitly for Ollama)
+  if (input.startsWith("qwen")) {
+    return "dashscope";
+  }
+
+  // llama*, mistral* → ollama
   if (
     input.startsWith("llama") ||
-    input.startsWith("qwen") ||
     input.startsWith("mistral")
   ) {
     return "ollama";

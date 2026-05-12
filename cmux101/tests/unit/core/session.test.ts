@@ -96,6 +96,46 @@ describe("createSession", () => {
     const resumed = await resumeSession(session.meta.id, { home: tmpHome });
     expect(resumed.messages).toHaveLength(0);
   });
+
+  it("replaceMessages replaces in-memory messages", async () => {
+    const session = await createSession({
+      cwd: "/proj",
+      providerId: "anthropic",
+      model: "claude-3-5-haiku",
+      home: tmpHome,
+    });
+
+    const msg1: Message = { role: "user", content: [{ type: "text", text: "Hello" }] };
+    const msg2: Message = { role: "assistant", content: [{ type: "text", text: "Hi" }] };
+    await session.append(msg1);
+    await session.append(msg2);
+    expect(session.messages).toHaveLength(2);
+
+    const compacted: Message = {
+      role: "user",
+      content: [{ type: "text", text: "[compacted conversation summary]\nHello / Hi" }],
+    };
+    await session.replaceMessages([compacted]);
+
+    // In-memory messages replaced
+    expect(session.messages).toHaveLength(1);
+    expect(session.messages[0]).toEqual(compacted);
+  });
+
+  it("replaceMessages with empty array clears messages", async () => {
+    const session = await createSession({
+      cwd: "/proj",
+      providerId: "openai",
+      model: "gpt-4o",
+      home: tmpHome,
+    });
+    const msg: Message = { role: "user", content: [{ type: "text", text: "test" }] };
+    await session.append(msg);
+    expect(session.messages).toHaveLength(1);
+
+    await session.replaceMessages([]);
+    expect(session.messages).toHaveLength(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

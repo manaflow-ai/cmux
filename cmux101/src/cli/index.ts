@@ -25,6 +25,7 @@ import { loadHooksFromConfig } from "../hooks/index.ts";
 import type { Provider, PermissionLevel, Message, Tool } from "../core/types.ts";
 import { runDoctor, renderDoctorReport } from "./doctor.ts";
 import { emit } from "./output.ts";
+import { runState, formatStateHuman } from "./state.ts";
 
 // ---------------------------------------------------------------------------
 // Usage text
@@ -280,6 +281,17 @@ async function buildSessionInfra(parsed: ReturnType<typeof parseArgs>) {
   const toolRegistry = await createDefaultToolRegistry({ includeCmux: cmuxOk });
   for (const t of subagentTools) toolRegistry.register(t);
 
+  // --allowedTools: filter registry to only the named tools.
+  if (parsed.allowedTools && parsed.allowedTools.length > 0) {
+    const allowed = new Set(parsed.allowedTools);
+    const allTools = toolRegistry.list();
+    for (const t of allTools) {
+      if (!allowed.has(t.name)) {
+        (toolRegistry as any).unregister?.(t.name);
+      }
+    }
+  }
+
   // Build a tool-name -> default permission map for the resolver.
   const defaults = new Map<string, PermissionLevel>();
   for (const t of toolRegistry.list()) {
@@ -402,8 +414,13 @@ async function runHeadless(parsed: ReturnType<typeof parseArgs>): Promise<void> 
 async function runInteractive(parsed: ReturnType<typeof parseArgs>): Promise<void> {
   const infra = await buildSessionInfra(parsed);
 
-  // Lazy-load the TUI to avoid pulling React when not needed.
-  const { runTui } = await import("../tui/index.ts");
+  // Lazy-load the TUI + slash registry to avoid pulling React when not needed.
+  const [{ runTui }, slashMod] = await Promise.all([
+    import("../tui/index.ts"),
+    import("./slash.ts"),
+  ]);
+  type SlashContextType = import("./slash.ts").SlashContext;
+  const slashRegistry = slashMod.createDefaultSlashRegistry();
 
   let runner: Runner | null = null;
   const abortController = new AbortController();
@@ -447,12 +464,30 @@ async function runInteractive(parsed: ReturnType<typeof parseArgs>): Promise<voi
     }
   };
 
+  const slashContext: SlashContextType = {
+    session: infra.session,
+    toolRegistry: infra.toolRegistry,
+    permissions: infra.permissions,
+    cwd: infra.cwd,
+    abort: () => abortController.abort(),
+    exit: () => process.exit(0),
+    appendSystemMessage: async (text: string) => {
+      tui.handle.onMessageAppended({ role: "assistant", content: [{ type: "text", text }] });
+    },
+    refreshSession: async () => {
+      tui.handle.onMessageAppended({ role: "assistant", content: [{ type: "text", text: "(session refresh requires restarting cmux101)" }] });
+    },
+    getMemoryStore: () => null,
+  };
+
   const tui = runTui({
     session: infra.session,
     send,
     abort: () => abortController.abort(),
     showThinking: parsed.showThinking,
     greeting: parsed.prompt,
+    slashRegistry,
+    slashContext,
   });
 
   // If an initial prompt was passed, kick it off.
@@ -532,6 +567,16 @@ export async function bootstrapCli(argv: string[]): Promise<void> {
       const cwd = parsed.cwd ?? process.cwd();
       const doctorResult = await runDoctor({ cwd });
       emit(parsed, doctorResult, (d) => renderDoctorReport(d as typeof doctorResult) + "\n");
+      break;
+    }
+    case "state": {
+      const cwd = parsed.cwd ?? process.cwd();
+      const stateResult = await runState(cwd);
+      if (!stateResult.ok) {
+        process.stderr.write(stateResult.error! + "\n");
+        process.exit(1);
+      }
+      emit(parsed, stateResult.data, (d) => formatStateHuman(d));
       break;
     }
     case "print": {

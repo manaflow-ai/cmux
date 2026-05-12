@@ -9,7 +9,7 @@
  */
 
 export interface ParsedArgs {
-  mode: "tui" | "print" | "auth" | "models" | "version" | "help" | "init" | "doctor" | "sessions";
+  mode: "tui" | "print" | "auth" | "models" | "version" | "help" | "init" | "doctor" | "sessions" | "state";
   prompt?: string;
   model?: string;
   provider?: string;
@@ -20,6 +20,7 @@ export interface ParsedArgs {
   showCost?: boolean;
   authSubcommand?: { provider: string; key?: string; action: "login" | "logout" };
   extraTools?: string[];
+  allowedTools?: string[];
   print?: boolean;
   quiet?: boolean;
   outputFormat?: "text" | "json";
@@ -124,6 +125,13 @@ export function parseArgs(argv: string[]): ParsedArgs {
         }
         break;
 
+      case "--allowedTools":
+        {
+          const raw = nextToken(arg);
+          result.allowedTools = raw.split(",").map((s) => s.trim()).filter(Boolean);
+        }
+        break;
+
       default:
         if (arg.startsWith("-")) {
           throw new Error(`Unknown flag: ${arg}`);
@@ -179,6 +187,11 @@ export function parseArgs(argv: string[]): ParsedArgs {
 
   if (first === "sessions") {
     result.mode = "sessions";
+    return result;
+  }
+
+  if (first === "state") {
+    result.mode = "state";
     return result;
   }
 

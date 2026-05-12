@@ -157,4 +157,37 @@ describe("parseArgs", () => {
     expect(r.mode).toBe("sessions");
     expect(r.outputFormat).toBe("json");
   });
+
+  // --allowedTools
+  test('--allowedTools "file_read,glob" parses to ["file_read", "glob"]', () => {
+    const r = parseArgs(["--allowedTools", "file_read,glob"]);
+    expect(r.allowedTools).toEqual(["file_read", "glob"]);
+  });
+
+  test("--allowedTools with spaces around commas is trimmed", () => {
+    const r = parseArgs(["--allowedTools", "file_read , glob , grep"]);
+    expect(r.allowedTools).toEqual(["file_read", "glob", "grep"]);
+  });
+
+  test("--allowedTools single tool", () => {
+    const r = parseArgs(["--allowedTools", "bash"]);
+    expect(r.allowedTools).toEqual(["bash"]);
+  });
+
+  test("allowedTools defaults to undefined when not passed", () => {
+    const r = parseArgs([]);
+    expect(r.allowedTools).toBeUndefined();
+  });
+
+  // state subcommand
+  test("state subcommand sets mode to state", () => {
+    const r = parseArgs(["state"]);
+    expect(r.mode).toBe("state");
+  });
+
+  test("state with --output-format json", () => {
+    const r = parseArgs(["state", "--output-format", "json"]);
+    expect(r.mode).toBe("state");
+    expect(r.outputFormat).toBe("json");
+  });
 });

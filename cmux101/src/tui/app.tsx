@@ -230,6 +230,19 @@ export function App({
           if (result.display) {
             appendSystemMessage(result.display);
           }
+          if (result.transformedPrompt) {
+            // Send the transformed prompt to the model instead of the original text
+            const transformed = result.transformedPrompt;
+            setInputDisabled(true);
+            const userMsg: Message = { role: "user", content: [{ type: "text", text: transformed }] };
+            setMessages((prev) => [...prev, userMsg]);
+            try {
+              await send(transformed);
+            } catch {
+              setInputDisabled(false);
+              setStreaming(null);
+            }
+          }
           return;
         }
         // consumed=false means unknown command — fall through to model

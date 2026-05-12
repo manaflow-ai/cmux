@@ -17,8 +17,9 @@ import * as path from "node:path";
 // Minimal mocks
 // ---------------------------------------------------------------------------
 
-function makeMockSession(overrides?: Partial<SessionHandle["meta"]>): SessionHandle {
-  return {
+function makeMockSession(overrides?: Partial<SessionHandle["meta"]>): SessionHandle & { messages: any[]; replaceMessages: ReturnType<typeof mock> } {
+  const holder = { messages: [] as any[] };
+  const session: SessionHandle & { messages: any[]; replaceMessages: ReturnType<typeof mock> } = {
     meta: {
       id: "test-session-id-1234",
       cwd: "/test/cwd",
@@ -27,10 +28,13 @@ function makeMockSession(overrides?: Partial<SessionHandle["meta"]>): SessionHan
       model: "claude-3-5-sonnet-20241022",
       ...overrides,
     },
-    messages: [],
+    get messages() { return holder.messages; },
+    set messages(v: any[]) { holder.messages = v; },
     append: mock(async () => {}),
     recordEvent: mock(async () => {}),
-  };
+    replaceMessages: mock(async (msgs: any[]) => { holder.messages = msgs; }),
+  } as any;
+  return session;
 }
 
 function makeMockTool(name: string, description: string): Tool {
@@ -459,12 +463,57 @@ describe("/cost", () => {
 // ---------------------------------------------------------------------------
 
 describe("/compact", () => {
-  it("displays not-implemented message", async () => {
+  it("returns empty message when no messages", async () => {
     const ctx = makeCtx();
     const reg = createDefaultSlashRegistry();
     const result = await reg.dispatch("/compact", ctx);
     expect(result.consumed).toBe(true);
-    expect(result.display).toContain("not yet implemented");
+    expect(result.display).toContain("empty");
+  });
+
+  it("reduces message count and produces a summary for a long conversation", async () => {
+    const session = makeMockSession();
+    // Add 10 messages: 5 to be summarized + 5 to be kept
+    const makeMsg = (i: number) => ({
+      role: "user" as const,
+      content: [{ type: "text" as const, text: `Message number ${i}` }],
+    });
+    for (let i = 0; i < 10; i++) {
+      session.messages.push(makeMsg(i));
+    }
+
+    const ctx = makeCtx({ session });
+    const reg = createDefaultSlashRegistry();
+    const result = await reg.dispatch("/compact", ctx);
+
+    expect(result.consumed).toBe(true);
+    expect(result.display).toContain("10 messages");
+    // After compaction: 1 summary + 5 kept = 6
+    expect(result.display).toContain("6 messages");
+    // replaceMessages was called
+    expect((session.replaceMessages as ReturnType<typeof mock>).mock.calls.length).toBe(1);
+    // The resulting messages array is 6 items
+    expect(session.messages.length).toBe(6);
+    // First message is the summary
+    expect(session.messages[0].content[0].text).toContain("[compacted conversation summary]");
+  });
+
+  it("does not add a summary message when all messages fit in keep window", async () => {
+    const session = makeMockSession();
+    // Add only 3 messages (less than KEEP=5)
+    for (let i = 0; i < 3; i++) {
+      session.messages.push({
+        role: "user" as const,
+        content: [{ type: "text" as const, text: `msg ${i}` }],
+      });
+    }
+    const ctx = makeCtx({ session });
+    const reg = createDefaultSlashRegistry();
+    const result = await reg.dispatch("/compact", ctx);
+
+    expect(result.consumed).toBe(true);
+    // All 3 messages are kept, no summary prepended
+    expect(session.messages.length).toBe(3);
   });
 });
 
