@@ -2845,7 +2845,8 @@ private struct QuestionActionArea: View {
             isEnabled: status.isPending,
             font: font,
             onFocus: onFocus,
-            onBlur: onBlur
+            onBlur: onBlur,
+            onSubmit: nil
         )
         .frame(
             maxWidth: .infinity,
@@ -3043,6 +3044,7 @@ private final class FeedInlineNativeTextView: NSTextView, FeedKeyboardFocusRespo
 
     var onActivate: (() -> Void)?
     var onEscape: (() -> Void)?
+    var onSubmit: (() -> Void)?
 
     static func blurActiveEditor() {
         guard let activeEditor else { return }
@@ -3081,6 +3083,17 @@ private final class FeedInlineNativeTextView: NSTextView, FeedKeyboardFocusRespo
             return true
         }
         return super.performKeyEquivalent(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let normalizedFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let shouldSubmit = (event.keyCode == 36 || event.keyCode == 76)
+            && normalizedFlags.intersection([.shift, .option, .command, .control]).isEmpty
+        if shouldSubmit, let onSubmit {
+            onSubmit()
+            return
+        }
+        super.keyDown(with: event)
     }
 
     override func resetCursorRects() {
@@ -3283,6 +3296,7 @@ private struct FeedInlineTextField: NSViewRepresentable {
     let font: NSFont
     let onFocus: () -> Void
     let onBlur: () -> Void
+    let onSubmit: (() -> Void)?
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: FeedInlineTextField
@@ -3370,6 +3384,7 @@ private struct FeedInlineTextField: NSViewRepresentable {
         view.textView.onEscape = { [weak coordinator = context.coordinator] in
             coordinator?.blurField()
         }
+        view.textView.onSubmit = onSubmit
         configure(view)
         context.coordinator.view = view
         return view
@@ -3384,6 +3399,7 @@ private struct FeedInlineTextField: NSViewRepresentable {
         nsView.textView.onEscape = { [weak coordinator = context.coordinator] in
             coordinator?.blurField()
         }
+        nsView.textView.onSubmit = onSubmit
         configure(nsView)
 
         if nsView.textView.string != text, !nsView.textView.hasMarkedText() {
@@ -3439,6 +3455,7 @@ private struct FeedInlineTextField: NSViewRepresentable {
         nsView.textView.delegate = nil
         nsView.textView.onActivate = nil
         nsView.textView.onEscape = nil
+        nsView.textView.onSubmit = nil
     }
 }
 
@@ -3553,12 +3570,13 @@ private struct StopActionArea: View {
     let onSend: (String) -> Void
 
     @State private var reply: String = ""
-    @FocusState private var replyFocused: Bool
+    @State private var replyFocused: Bool = false
 
     private var trimmed: String {
         reply.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     private var canSend: Bool { !trimmed.isEmpty }
+    private var replyFont: NSFont { NSFont.systemFont(ofSize: 12) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -3570,23 +3588,23 @@ private struct StopActionArea: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.secondary)
             }
-            TextField(
-                String(localized: "feed.stop.placeholder", defaultValue: "Reply to Claude…"),
+            FeedInlineTextField(
                 text: $reply,
-                axis: .vertical
+                isFocused: $replyFocused,
+                placeholder: String(localized: "feed.stop.placeholder", defaultValue: "Reply to Claude…"),
+                isEnabled: true,
+                font: replyFont,
+                onFocus: onFocusRow,
+                onBlur: onBlurRow,
+                onSubmit: sendReply
             )
-            .textFieldStyle(.plain)
-            .font(.system(size: 12))
-            .focused($replyFocused)
-            .onChange(of: replyFocused) { _, focused in
-                if focused {
-                    onFocusRow()
-                } else {
-                    onBlurRow()
-                }
-            }
-            .lineLimit(1...5)
-            .padding(10)
+            .frame(
+                maxWidth: .infinity,
+                minHeight: FeedInlineTextEditorView.minimumHeight(for: replyFont),
+                alignment: .leading
+            )
+            .padding(.horizontal, 10)
+            .padding(.vertical, 9)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(Color.primary.opacity(0.06))
@@ -3595,11 +3613,11 @@ private struct StopActionArea: View {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .stroke(Color.primary.opacity(canSend ? 0.25 : 0.10), lineWidth: 1)
             )
-            .onSubmit {
-                if canSend {
-                    onSend(trimmed)
-                    reply = ""
-                }
+            .contentShape(Rectangle())
+            .feedIBeamCursorOnHover(enabled: true)
+            .onTapGesture {
+                onFocusRow()
+                replyFocused = true
             }
             FeedButton(
                 label: String(localized: "feed.stop.send", defaultValue: "Send to Claude"),
@@ -3609,9 +3627,9 @@ private struct StopActionArea: View {
                 fullWidth: true,
                 dimmed: !canSend
             ) {
+                guard canSend else { return }
                 onFocusRow()
-                onSend(trimmed)
-                reply = ""
+                sendReply()
             }
         }
         .onChange(of: isRowSelected) { _, selected in
@@ -3619,6 +3637,12 @@ private struct StopActionArea: View {
                 replyFocused = false
             }
         }
+    }
+
+    private func sendReply() {
+        guard canSend else { return }
+        onSend(trimmed)
+        reply = ""
     }
 }
 
