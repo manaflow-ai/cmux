@@ -160,6 +160,26 @@ final class WorkspaceCustomLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testResolvedCustomLayoutInvalidSplitShapeFailsInsteadOfSucceedingWithPartialLayout() {
+        let layout = CmuxLayoutNode.split(CmuxSplitDefinition(
+            direction: .horizontal,
+            children: [
+                .pane(CmuxPaneDefinition(surfaces: [
+                    CmuxSurfaceDefinition(type: .terminal, name: "shell")
+                ]))
+            ]
+        ))
+        let workspace = Workspace()
+        let initialPanelIds = Set(workspace.panels.keys)
+
+        let applyResult = workspace.applyResolvedCustomLayout(layout, baseCwd: NSTemporaryDirectory())
+
+        XCTAssertFalse(applyResult.isSuccess)
+        XCTAssertEqual(Set(workspace.panels.keys), initialPanelIds)
+        XCTAssertTrue(workspace.panels.values.allSatisfy { $0 is TerminalPanel })
+    }
+
+    @MainActor
     func testNewWorkspaceLayoutBaseCwdInheritsSelectedWorkspaceDirectoryWhenCwdOmitted() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-layout-markdown-inherited-\(UUID().uuidString)", isDirectory: true)
