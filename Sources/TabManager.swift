@@ -1936,7 +1936,12 @@ class TabManager: ObservableObject {
         if panel.searchState == nil {
             panel.searchState = TerminalSurface.SearchState()
         }
-        NSLog("Find: searchSelection workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
+#if DEBUG
+        cmuxDebugLog(
+            "find.searchSelection workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
+            "panel=\(panel.id.uuidString.prefix(5))"
+        )
+#endif
         NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
         _ = panel.performBindingAction("search_selection")
     }
@@ -5134,19 +5139,6 @@ class TabManager: ObservableObject {
             object: nil,
             userInfo: [GhosttyNotificationKey.tabId: tabId]
         )
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            NSApp.activate(ignoringOtherApps: true)
-            NSApp.unhide(nil)
-            if let app = AppDelegate.shared,
-               let windowId = app.windowId(for: self),
-               let window = app.mainWindow(for: windowId) {
-                window.makeKeyAndOrderFront(nil)
-            } else if let window = NSApp.keyWindow ?? NSApp.windows.first {
-                window.makeKeyAndOrderFront(nil)
-            }
-        }
 
         if let surfaceId {
             if !suppressFlash {
