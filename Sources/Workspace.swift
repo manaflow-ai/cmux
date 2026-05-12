@@ -10209,7 +10209,11 @@ final class Workspace: Identifiable, ObservableObject {
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         initialDividerPosition: CGFloat? = nil
     ) -> BrowserPanel? {
-        let resolvedPanelType: PanelType = panelType == .codeEditor ? .codeEditor : .browser
+        precondition(
+            panelType == .browser || panelType == .codeEditor,
+            "Browser splits only support .browser and .codeEditor panel types"
+        )
+        let resolvedPanelType = panelType
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard resolvedPanelType == .codeEditor || browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
             if let url {
