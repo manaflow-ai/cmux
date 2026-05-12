@@ -4983,6 +4983,10 @@ struct SettingsView: View {
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
     @AppStorage(ReactGrabSettings.versionKey) private var reactGrabVersion = ReactGrabSettings.defaultVersion
     @AppStorage(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) private var openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
+    @AppStorage(BrowserLinkOpenSettings.terminalLinkDefaultBrowserModifierKey)
+    private var terminalLinkDefaultBrowserModifier = BrowserLinkOpenSettings.defaultTerminalLinkDefaultBrowserModifier
+    @AppStorage(BrowserLinkOpenSettings.terminalLinkCmuxBrowserModifierKey)
+    private var terminalLinkCmuxBrowserModifier = BrowserLinkOpenSettings.defaultTerminalLinkCmuxBrowserModifier
     @AppStorage(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
     private var interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue()
     @AppStorage(BrowserLinkOpenSettings.browserHostWhitelistKey) private var browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
@@ -5219,6 +5223,40 @@ struct SettingsView: View {
                 browserThemeMode = BrowserThemeSettings.mode(for: newValue).rawValue
             }
         )
+    }
+
+    private var terminalLinkDefaultBrowserModifierSelection: Binding<String> {
+        terminalLinkModifierSelection(
+            storedValue: $terminalLinkDefaultBrowserModifier,
+            defaultValue: BrowserLinkOpenSettings.defaultTerminalLinkDefaultBrowserModifier
+        )
+    }
+
+    private var terminalLinkCmuxBrowserModifierSelection: Binding<String> {
+        terminalLinkModifierSelection(
+            storedValue: $terminalLinkCmuxBrowserModifier,
+            defaultValue: BrowserLinkOpenSettings.defaultTerminalLinkCmuxBrowserModifier
+        )
+    }
+
+    private func terminalLinkModifierSelection(
+        storedValue: Binding<String>,
+        defaultValue: String
+    ) -> Binding<String> {
+        Binding(
+            get: {
+                TerminalLinkClickModifierBinding.parse(storedValue.wrappedValue)?.configString
+                    ?? defaultValue
+            },
+            set: { newValue in
+                storedValue.wrappedValue = TerminalLinkClickModifierBinding.parse(newValue)?.configString
+                    ?? defaultValue
+            }
+        )
+    }
+
+    private var explicitCmuxBrowserTerminalLinkModifierEnabled: Bool {
+        !(TerminalLinkClickModifierBinding.parse(terminalLinkCmuxBrowserModifier)?.isDisabled ?? false)
     }
 
     private var browserEnabledBinding: Binding<Bool> {
@@ -6535,11 +6573,39 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .json("browser.openTerminalLinksInCmuxBrowser"),
                             String(localized: "settings.browser.openTerminalLinks", defaultValue: "Open Terminal Links in cmux Browser"),
-                            subtitle: String(localized: "settings.browser.openTerminalLinks.subtitle", defaultValue: "When off, links clicked in terminal output open in your default browser.")
+                            subtitle: String(localized: "settings.browser.openTerminalLinks.subtitleConfigured", defaultValue: "Controls terminal link clicks that do not match a specific modifier below.")
                         ) {
                             Toggle("", isOn: $openTerminalLinksInCmuxBrowser)
                                 .labelsHidden()
                                 .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsPickerRow(
+                            configurationReview: .json("browser.terminalLinkDefaultBrowserModifier"),
+                            String(localized: "settings.browser.terminalLinkDefaultBrowserModifier", defaultValue: "Default Browser Link Click Modifier"),
+                            subtitle: String(localized: "settings.browser.terminalLinkDefaultBrowserModifier.subtitle", defaultValue: "Matching terminal link clicks open in your system default browser."),
+                            controlWidth: pickerColumnWidth,
+                            selection: terminalLinkDefaultBrowserModifierSelection
+                        ) {
+                            ForEach(TerminalLinkClickModifierBinding.commonBindings) { binding in
+                                Text(binding.displayName).tag(binding.configString)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsPickerRow(
+                            configurationReview: .json("browser.terminalLinkCmuxBrowserModifier"),
+                            String(localized: "settings.browser.terminalLinkCmuxBrowserModifier", defaultValue: "cmux Browser Link Click Modifier"),
+                            subtitle: String(localized: "settings.browser.terminalLinkCmuxBrowserModifier.subtitle", defaultValue: "Matching terminal link clicks open in a cmux browser pane."),
+                            controlWidth: pickerColumnWidth,
+                            selection: terminalLinkCmuxBrowserModifierSelection
+                        ) {
+                            ForEach(TerminalLinkClickModifierBinding.commonBindings) { binding in
+                                Text(binding.displayName).tag(binding.configString)
+                            }
                         }
 
                         SettingsCardDivider()
@@ -6554,14 +6620,16 @@ struct SettingsView: View {
                                 .controlSize(.small)
                         }
 
-                        if openTerminalLinksInCmuxBrowser || interceptTerminalOpenCommandInCmuxBrowser {
+                        if openTerminalLinksInCmuxBrowser ||
+                            interceptTerminalOpenCommandInCmuxBrowser ||
+                            explicitCmuxBrowserTerminalLinkModifierEnabled {
                             SettingsCardDivider()
 
                             VStack(alignment: .leading, spacing: 6) {
                                 SettingsCardRow(
                                     configurationReview: .json("browser.hostsToOpenInEmbeddedBrowser"),
                                     String(localized: "settings.browser.hostWhitelist", defaultValue: "Hosts to Open in Embedded Browser"),
-                                    subtitle: String(localized: "settings.browser.hostWhitelist.subtitle", defaultValue: "Applies to terminal link clicks and intercepted `open https://...` calls. Only these hosts open in cmux. Others open in your default browser. One host or wildcard per line (for example: example.com, *.internal.example). Leave empty to open all hosts in cmux.")
+                                    subtitle: String(localized: "settings.browser.hostWhitelist.subtitleConfigured", defaultValue: "Applies to unmatched terminal link clicks and intercepted `open https://...` calls. Explicit cmux browser modifier clicks bypass this host list. One host or wildcard per line (for example: example.com, *.internal.example). Leave empty to open all hosts in cmux.")
                                 ) {
                                     EmptyView()
                                 }

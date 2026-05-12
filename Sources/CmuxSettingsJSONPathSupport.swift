@@ -81,12 +81,16 @@ extension CmuxSettingsFileStore {
         "browser.showSearchSuggestions",
         "browser.theme",
         "browser.openTerminalLinksInCmuxBrowser",
+        "browser.terminalLinkDefaultBrowserModifier",
+        "browser.terminalLinkCmuxBrowserModifier",
         "browser.interceptTerminalOpenCommandInCmuxBrowser",
         "browser.hostsToOpenInEmbeddedBrowser",
         "browser.urlsToAlwaysOpenExternally",
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
         "browser.showImportHintOnBlankTabs",
         "browser.reactGrabVersion",
+        "link.click.defaultBrowser",
+        "link.click.builtInBrowser",
         "shortcuts.bindings",
     ]
 }

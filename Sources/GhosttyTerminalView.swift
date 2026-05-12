@@ -1258,6 +1258,11 @@ enum TerminalOpenURLTarget: Equatable {
     }
 }
 
+enum TerminalOpenURLRoute: Equatable {
+    case embeddedBrowser(URL, host: String)
+    case external(URL)
+}
+
 func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? {
     let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
     #if DEBUG
@@ -1320,6 +1325,42 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
     cmuxDebugLog("link.resolve result=external(fallback) url=\(fallback)")
     #endif
     return .external(fallback)
+}
+
+func resolveTerminalOpenURLRoute(
+    _ target: TerminalOpenURLTarget,
+    modifierFlags: NSEvent.ModifierFlags?,
+    defaults: UserDefaults = .standard
+) -> TerminalOpenURLRoute {
+    switch target {
+    case let .external(url):
+        return .external(url)
+    case let .embeddedBrowser(url):
+        if BrowserLinkOpenSettings.shouldOpenExternally(url, defaults: defaults) {
+            return .external(url)
+        }
+
+        switch BrowserLinkOpenSettings.terminalLinkClickPreference(for: modifierFlags, defaults: defaults) {
+        case .defaultBrowser:
+            return .external(url)
+        case .cmuxBrowser:
+            guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
+                return .external(url)
+            }
+            return .embeddedBrowser(url, host: host)
+        case .automatic:
+            guard BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults) else {
+                return .external(url)
+            }
+            guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
+                return .external(url)
+            }
+            guard BrowserLinkOpenSettings.hostMatchesWhitelist(host, defaults: defaults) else {
+                return .external(url)
+            }
+            return .embeddedBrowser(url, host: host)
+        }
+    }
 }
 
 enum TerminalKeyboardCopyModeSelectionMove: String, Equatable {
@@ -4107,15 +4148,10 @@ class GhosttyApp {
                 // Fall through to the existing NSWorkspace path below.
             }
 
-            if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
-                #if DEBUG
-                cmuxDebugLog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
-                #endif
-                return performOnMain {
-                    NSWorkspace.shared.open(target.url)
-                }
-            }
-            switch target {
+            switch resolveTerminalOpenURLRoute(
+                target,
+                modifierFlags: surfaceView.currentTerminalOpenURLModifierFlags
+            ) {
             case let .external(url):
                 #if DEBUG
                 cmuxDebugLog("link.openURL target=external, opening externally url=\(url)")
@@ -4123,33 +4159,7 @@ class GhosttyApp {
                 return performOnMain {
                     NSWorkspace.shared.open(url)
                 }
-            case let .embeddedBrowser(url):
-                if BrowserLinkOpenSettings.shouldOpenExternally(url) {
-                    #if DEBUG
-                    cmuxDebugLog("link.openURL target=embedded but shouldOpenExternally=true url=\(url)")
-                    #endif
-                    return performOnMain {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-                guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
-                    #if DEBUG
-                    cmuxDebugLog("link.openURL target=embedded but normalizeHost=nil host=\(url.host ?? "nil") url=\(url)")
-                    #endif
-                    return performOnMain {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-
-                // If a host whitelist is configured and this host isn't in it, open externally.
-                if !BrowserLinkOpenSettings.hostMatchesWhitelist(host) {
-                    #if DEBUG
-                    cmuxDebugLog("link.openURL target=embedded but hostWhitelist miss host=\(host) url=\(url)")
-                    #endif
-                    return performOnMain {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
+            case let .embeddedBrowser(url, host):
                 let sourceWorkspaceId = callbackTabId ?? surfaceView.tabId
                 let sourcePanelId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
                 guard let sourceWorkspaceId,
@@ -6106,6 +6116,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private let _scrollbarLock = NSLock()
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
+    fileprivate var currentTerminalOpenURLModifierFlags: NSEvent.ModifierFlags?
 
     /// Coalesce high-frequency scrollbar updates into a single main-thread
     /// dispatch.  The action callback (which may fire thousands of times per
@@ -8121,7 +8132,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
         }
 #endif
-        return modsFromFlags(effectiveFlags)
+        return linkAwareMouseModsFromFlags(effectiveFlags)
+    }
+
+    private func linkAwareMouseModsFromFlags(_ flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
+        let canonicalFlags = TerminalLinkClickModifierBinding.canonicalFlags(flags)
+        if BrowserLinkOpenSettings.terminalLinkClickShouldUseGhosttyLinkTrigger(for: canonicalFlags) {
+            return GHOSTTY_MODS_SUPER
+        }
+        if canonicalFlags.contains(.command) {
+            return modsFromFlags(canonicalFlags.subtracting(.command))
+        }
+        return modsFromFlags(canonicalFlags)
     }
 
     private func modsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {
@@ -8387,10 +8409,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         trackMousePointIfUsable(eventPoint)
         // Only update mouse position on the first click to prevent unwanted cursor
         // movement during double-click selection (issue #1698)
+        let linkAwareMods = linkAwareMouseModsFromFlags(event.modifierFlags)
         if event.clickCount == 1 {
-            ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, modsFromEvent(event))
+            ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, linkAwareMods)
         }
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+        currentTerminalOpenURLModifierFlags = event.modifierFlags
+        defer { currentTerminalOpenURLModifierFlags = nil }
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, linkAwareMods)
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -8399,7 +8424,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         #endif
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
-        let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+        currentTerminalOpenURLModifierFlags = event.modifierFlags
+        defer { currentTerminalOpenURLModifierFlags = nil }
+        let consumed = ghostty_surface_mouse_button(
+            surface,
+            GHOSTTY_MOUSE_RELEASE,
+            GHOSTTY_MOUSE_LEFT,
+            linkAwareMouseModsFromFlags(event.modifierFlags)
+        )
         _ = handleCommandClickRelease(at: point, modifierFlags: event.modifierFlags, ghosttyConsumed: consumed)
     }
 

@@ -461,6 +461,54 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: key) as? Bool, false)
     }
 
+    func testSettingsFileStoreParsesTerminalLinkClickModifiers() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "link.click.defaultBrowser": "shift + click",
+              "browser": {
+                "terminalLinkCmuxBrowserModifier": "⌥ + click"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        try preservingDefaults(
+            keys: [
+                BrowserLinkOpenSettings.terminalLinkDefaultBrowserModifierKey,
+                BrowserLinkOpenSettings.terminalLinkCmuxBrowserModifierKey,
+                settingsFileBackupsDefaultsKey,
+                importedManagedDefaultsKey,
+            ]
+        ) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: BrowserLinkOpenSettings.terminalLinkDefaultBrowserModifierKey)
+            defaults.removeObject(forKey: BrowserLinkOpenSettings.terminalLinkCmuxBrowserModifierKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                startWatching: false
+            )
+
+            XCTAssertEqual(
+                defaults.string(forKey: BrowserLinkOpenSettings.terminalLinkDefaultBrowserModifierKey),
+                "shift+click"
+            )
+            XCTAssertEqual(
+                defaults.string(forKey: BrowserLinkOpenSettings.terminalLinkCmuxBrowserModifierKey),
+                "opt+click"
+            )
+        }
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-settings-startup-\(UUID().uuidString)",

@@ -3350,6 +3350,87 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
         XCTAssertTrue(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults))
     }
+
+    func testTerminalLinkClickModifiersDefaultToCommandAndOption() {
+        XCTAssertEqual(
+            BrowserLinkOpenSettings.terminalLinkDefaultBrowserModifier(defaults: defaults).configString,
+            "cmd+click"
+        )
+        XCTAssertEqual(
+            BrowserLinkOpenSettings.terminalLinkCmuxBrowserModifier(defaults: defaults).configString,
+            "opt+click"
+        )
+        XCTAssertEqual(
+            BrowserLinkOpenSettings.terminalLinkClickPreference(for: [.command], defaults: defaults),
+            .defaultBrowser
+        )
+        XCTAssertEqual(
+            BrowserLinkOpenSettings.terminalLinkClickPreference(for: [.option], defaults: defaults),
+            .cmuxBrowser
+        )
+        XCTAssertEqual(
+            BrowserLinkOpenSettings.terminalLinkClickPreference(for: [.shift], defaults: defaults),
+            .automatic
+        )
+    }
+
+    func testTerminalLinkClickModifierParserAcceptsSymbolsAndText() throws {
+        XCTAssertEqual(
+            try XCTUnwrap(TerminalLinkClickModifierBinding.parse("⌘ + Click")).configString,
+            "cmd+click"
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(TerminalLinkClickModifierBinding.parse("option+click")).configString,
+            "opt+click"
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(TerminalLinkClickModifierBinding.parse("shift + control + click")).configString,
+            "shift+ctrl+click"
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(TerminalLinkClickModifierBinding.parse("none")).configString,
+            "none"
+        )
+        XCTAssertNil(TerminalLinkClickModifierBinding.parse("click"))
+    }
+
+    func testTerminalLinkClickModifiersUseStoredValuesAndFallbackForInvalidValues() {
+        defaults.set("shift+click", forKey: BrowserLinkOpenSettings.terminalLinkDefaultBrowserModifierKey)
+        defaults.set("ctrl+click", forKey: BrowserLinkOpenSettings.terminalLinkCmuxBrowserModifierKey)
+
+        XCTAssertEqual(
+            BrowserLinkOpenSettings.terminalLinkClickPreference(for: [.shift], defaults: defaults),
+            .defaultBrowser
+        )
+        XCTAssertEqual(
+            BrowserLinkOpenSettings.terminalLinkClickPreference(for: [.control], defaults: defaults),
+            .cmuxBrowser
+        )
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.terminalLinkClickShouldUseGhosttyLinkTrigger(
+                for: [.shift],
+                defaults: defaults
+            )
+        )
+        XCTAssertFalse(
+            BrowserLinkOpenSettings.terminalLinkClickShouldUseGhosttyLinkTrigger(
+                for: [.command],
+                defaults: defaults
+            )
+        )
+
+        defaults.set("bogus", forKey: BrowserLinkOpenSettings.terminalLinkDefaultBrowserModifierKey)
+        defaults.set("bogus", forKey: BrowserLinkOpenSettings.terminalLinkCmuxBrowserModifierKey)
+        XCTAssertEqual(
+            BrowserLinkOpenSettings.terminalLinkDefaultBrowserModifier(defaults: defaults).configString,
+            "cmd+click"
+        )
+        XCTAssertEqual(
+            BrowserLinkOpenSettings.terminalLinkCmuxBrowserModifier(defaults: defaults).configString,
+            "opt+click"
+        )
+    }
+
     func testSidebarPullRequestLinksDefaultToCmuxBrowser() {
         XCTAssertTrue(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(defaults: defaults))
     }

@@ -4222,6 +4222,95 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 }
 
+final class TerminalOpenURLRouteTests: XCTestCase {
+    private var suiteName: String!
+    private var defaults: UserDefaults!
+
+    override func setUp() {
+        super.setUp()
+        suiteName = "TerminalOpenURLRouteTests.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suiteName)
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults = nil
+        suiteName = nil
+        super.tearDown()
+    }
+
+    func testDefaultCommandClickRoutesWebURLExternally() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/docs"))
+        XCTAssertEqual(
+            resolveTerminalOpenURLRoute(
+                .embeddedBrowser(url),
+                modifierFlags: [.command],
+                defaults: defaults
+            ),
+            .external(url)
+        )
+    }
+
+    func testDefaultOptionClickRoutesWebURLToCmuxBrowser() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/docs"))
+        XCTAssertEqual(
+            resolveTerminalOpenURLRoute(
+                .embeddedBrowser(url),
+                modifierFlags: [.option],
+                defaults: defaults
+            ),
+            .embeddedBrowser(url, host: "example.com")
+        )
+    }
+
+    func testAutomaticRouteHonorsTerminalLinkToggle() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/docs"))
+        defaults.set(false, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+
+        XCTAssertEqual(
+            resolveTerminalOpenURLRoute(
+                .embeddedBrowser(url),
+                modifierFlags: [.shift],
+                defaults: defaults
+            ),
+            .external(url)
+        )
+        XCTAssertEqual(
+            resolveTerminalOpenURLRoute(
+                .embeddedBrowser(url),
+                modifierFlags: [.option],
+                defaults: defaults
+            ),
+            .embeddedBrowser(url, host: "example.com")
+        )
+    }
+
+    func testExplicitCmuxModifierBypassesHostWhitelistButNotExternalPatterns() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/docs"))
+        defaults.set("internal.example", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
+
+        XCTAssertEqual(
+            resolveTerminalOpenURLRoute(
+                .embeddedBrowser(url),
+                modifierFlags: [.option],
+                defaults: defaults
+            ),
+            .embeddedBrowser(url, host: "example.com")
+        )
+
+        defaults.set("example.com/docs", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertEqual(
+            resolveTerminalOpenURLRoute(
+                .embeddedBrowser(url),
+                modifierFlags: [.option],
+                defaults: defaults
+            ),
+            .external(url)
+        )
+    }
+}
+
 final class TerminalCmdClickPathPunctuationTrimmingTests: XCTestCase {
     func testTrimsTrailingPeriodAfterMarkdownFile() {
         XCTAssertEqual(

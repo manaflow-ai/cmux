@@ -64,8 +64,13 @@ const settingsFileExample = `{
   //   "autoResumeAgentSessions": true
   // },
 
+  // "link.click.defaultBrowser": "cmd+click",
+  // "link.click.builtInBrowser": "opt+click",
+
   // "browser": {
   //   "openTerminalLinksInCmuxBrowser": true,
+  //   "terminalLinkDefaultBrowserModifier": "cmd+click",
+  //   "terminalLinkCmuxBrowserModifier": "opt+click",
   //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"]
   // },
 

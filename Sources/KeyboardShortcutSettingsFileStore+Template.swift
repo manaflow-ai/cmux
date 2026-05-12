@@ -146,6 +146,8 @@ extension CmuxSettingsFileStore {
                     "showSearchSuggestions": BrowserSearchSettings.defaultSearchSuggestionsEnabled,
                     "theme": BrowserThemeSettings.defaultMode.rawValue,
                     "openTerminalLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser,
+                    "terminalLinkDefaultBrowserModifier": BrowserLinkOpenSettings.defaultTerminalLinkDefaultBrowserModifier,
+                    "terminalLinkCmuxBrowserModifier": BrowserLinkOpenSettings.defaultTerminalLinkCmuxBrowserModifier,
                     "interceptTerminalOpenCommandInCmuxBrowser": BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser,
                     "hostsToOpenInEmbeddedBrowser": [String](),
                     "urlsToAlwaysOpenExternally": [String](),

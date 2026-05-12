@@ -326,6 +326,24 @@ final class CmuxSettingsFileStore {
         if let automationSection = root["automation"] as? [String: Any] {
             parseAutomationSection(automationSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let raw = jsonString(root["link.click.defaultBrowser"]) {
+            if let binding = TerminalLinkClickModifierBinding.parse(raw) {
+                snapshot.managedUserDefaults[BrowserLinkOpenSettings.terminalLinkDefaultBrowserModifierKey] = .string(
+                    binding.configString
+                )
+            } else {
+                logInvalid("link.click.defaultBrowser", sourcePath: sourcePath)
+            }
+        }
+        if let raw = jsonString(root["link.click.builtInBrowser"]) {
+            if let binding = TerminalLinkClickModifierBinding.parse(raw) {
+                snapshot.managedUserDefaults[BrowserLinkOpenSettings.terminalLinkCmuxBrowserModifierKey] = .string(
+                    binding.configString
+                )
+            } else {
+                logInvalid("link.click.builtInBrowser", sourcePath: sourcePath)
+            }
+        }
         if let browserSection = root["browser"] as? [String: Any] {
             parseBrowserSection(browserSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -729,6 +747,24 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonBool(section["openTerminalLinksInCmuxBrowser"]) {
             snapshot.managedUserDefaults[BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey] = .bool(value)
+        }
+        if let raw = jsonString(section["terminalLinkDefaultBrowserModifier"]) {
+            guard let binding = TerminalLinkClickModifierBinding.parse(raw) else {
+                logInvalid("browser.terminalLinkDefaultBrowserModifier", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[BrowserLinkOpenSettings.terminalLinkDefaultBrowserModifierKey] = .string(
+                binding.configString
+            )
+        }
+        if let raw = jsonString(section["terminalLinkCmuxBrowserModifier"]) {
+            guard let binding = TerminalLinkClickModifierBinding.parse(raw) else {
+                logInvalid("browser.terminalLinkCmuxBrowserModifier", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[BrowserLinkOpenSettings.terminalLinkCmuxBrowserModifierKey] = .string(
+                binding.configString
+            )
         }
         if let value = jsonBool(section["interceptTerminalOpenCommandInCmuxBrowser"]) {
             snapshot.managedUserDefaults[BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey] = .bool(value)

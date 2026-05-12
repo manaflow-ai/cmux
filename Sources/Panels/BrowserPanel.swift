@@ -601,9 +601,166 @@ final class BrowserProfileStore: ObservableObject {
     }
 }
 
+enum TerminalLinkClickPreference: Equatable {
+    case automatic
+    case defaultBrowser
+    case cmuxBrowser
+}
+
+struct TerminalLinkClickModifierBinding: Equatable, Identifiable {
+    let flags: NSEvent.ModifierFlags
+    let configString: String
+    let isDisabled: Bool
+
+    var id: String { configString }
+    var displayName: String {
+        if isDisabled {
+            return String(localized: "terminalLinkClickModifier.none", defaultValue: "None")
+        }
+
+        var displayParts: [String] = []
+        if flags.contains(.command) {
+            displayParts.append(String(localized: "terminalLinkClickModifier.command", defaultValue: "Command"))
+        }
+        if flags.contains(.shift) {
+            displayParts.append(String(localized: "terminalLinkClickModifier.shift", defaultValue: "Shift"))
+        }
+        if flags.contains(.option) {
+            displayParts.append(String(localized: "terminalLinkClickModifier.option", defaultValue: "Option"))
+        }
+        if flags.contains(.control) {
+            displayParts.append(String(localized: "terminalLinkClickModifier.control", defaultValue: "Control"))
+        }
+        displayParts.append(String(localized: "terminalLinkClickModifier.click", defaultValue: "Click"))
+        return displayParts.joined(separator: " + ")
+    }
+
+    func matches(_ modifierFlags: NSEvent.ModifierFlags?) -> Bool {
+        guard !isDisabled, let modifierFlags else { return false }
+        return Self.canonicalFlags(modifierFlags) == flags
+    }
+
+    static let disabled = TerminalLinkClickModifierBinding(
+        flags: [],
+        configString: "none",
+        isDisabled: true
+    )
+
+    static let command = make([.command])
+    static let option = make([.option])
+    static let shift = make([.shift])
+    static let control = make([.control])
+    static let commandShift = make([.command, .shift])
+    static let commandOption = make([.command, .option])
+    static let optionShift = make([.option, .shift])
+    static let commandControl = make([.command, .control])
+    static let optionControl = make([.option, .control])
+    static let shiftControl = make([.shift, .control])
+
+    static let commonBindings: [TerminalLinkClickModifierBinding] = [
+        .command,
+        .option,
+        .shift,
+        .control,
+        .commandShift,
+        .commandOption,
+        .optionShift,
+        .commandControl,
+        .optionControl,
+        .shiftControl,
+        .disabled,
+    ]
+
+    static func parse(_ rawValue: String) -> TerminalLinkClickModifierBinding? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let symbolExpanded = trimmed
+            .replacingOccurrences(of: "⌘", with: " command ")
+            .replacingOccurrences(of: "⇧", with: " shift ")
+            .replacingOccurrences(of: "⌥", with: " option ")
+            .replacingOccurrences(of: "⌃", with: " control ")
+        let tokens = symbolExpanded
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        guard !tokens.isEmpty else { return nil }
+        if tokens.count == 1, let token = tokens.first, disabledTokens.contains(token) {
+            return .disabled
+        }
+
+        var flags: NSEvent.ModifierFlags = []
+        var sawModifier = false
+        for token in tokens {
+            switch token {
+            case "click", "left", "mouse":
+                continue
+            case "cmd", "command", "super", "meta":
+                flags.insert(.command)
+                sawModifier = true
+            case "opt", "option", "alt":
+                flags.insert(.option)
+                sawModifier = true
+            case "shift":
+                flags.insert(.shift)
+                sawModifier = true
+            case "ctrl", "control", "ctl":
+                flags.insert(.control)
+                sawModifier = true
+            default:
+                return nil
+            }
+        }
+
+        guard sawModifier else { return nil }
+        return make(flags)
+    }
+
+    static func canonicalFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
+        var canonical: NSEvent.ModifierFlags = []
+        if flags.contains(.command) { canonical.insert(.command) }
+        if flags.contains(.shift) { canonical.insert(.shift) }
+        if flags.contains(.option) { canonical.insert(.option) }
+        if flags.contains(.control) { canonical.insert(.control) }
+        return canonical
+    }
+
+    private static let disabledTokens: Set<String> = ["none", "off", "disabled", "disable", "unbound"]
+
+    private static func make(_ flags: NSEvent.ModifierFlags) -> TerminalLinkClickModifierBinding {
+        let canonical = canonicalFlags(flags)
+        var configParts: [String] = []
+        if canonical.contains(.command) {
+            configParts.append("cmd")
+        }
+        if canonical.contains(.shift) {
+            configParts.append("shift")
+        }
+        if canonical.contains(.option) {
+            configParts.append("opt")
+        }
+        if canonical.contains(.control) {
+            configParts.append("ctrl")
+        }
+
+        return TerminalLinkClickModifierBinding(
+            flags: canonical,
+            configString: (configParts + ["click"]).joined(separator: "+"),
+            isDisabled: false
+        )
+    }
+}
+
 enum BrowserLinkOpenSettings {
     static let openTerminalLinksInCmuxBrowserKey = "browserOpenTerminalLinksInCmuxBrowser"
     static let defaultOpenTerminalLinksInCmuxBrowser: Bool = true
+
+    static let terminalLinkDefaultBrowserModifierKey = "browserTerminalLinkDefaultBrowserModifier"
+    static let defaultTerminalLinkDefaultBrowserModifier = TerminalLinkClickModifierBinding.command.configString
+    static let terminalLinkCmuxBrowserModifierKey = "browserTerminalLinkCmuxBrowserModifier"
+    static let defaultTerminalLinkCmuxBrowserModifier = TerminalLinkClickModifierBinding.option.configString
 
     static let openSidebarPullRequestLinksInCmuxBrowserKey = "browserOpenSidebarPullRequestLinksInCmuxBrowser"
     static let defaultOpenSidebarPullRequestLinksInCmuxBrowser: Bool = true
@@ -625,6 +782,48 @@ enum BrowserLinkOpenSettings {
             return defaultOpenTerminalLinksInCmuxBrowser
         }
         return defaults.bool(forKey: openTerminalLinksInCmuxBrowserKey)
+    }
+
+    static func terminalLinkDefaultBrowserModifier(
+        defaults: UserDefaults = .standard
+    ) -> TerminalLinkClickModifierBinding {
+        let raw = defaults.string(forKey: terminalLinkDefaultBrowserModifierKey)
+            ?? defaultTerminalLinkDefaultBrowserModifier
+        return TerminalLinkClickModifierBinding.parse(raw)
+            ?? TerminalLinkClickModifierBinding.parse(defaultTerminalLinkDefaultBrowserModifier)
+            ?? .command
+    }
+
+    static func terminalLinkCmuxBrowserModifier(
+        defaults: UserDefaults = .standard
+    ) -> TerminalLinkClickModifierBinding {
+        let raw = defaults.string(forKey: terminalLinkCmuxBrowserModifierKey)
+            ?? defaultTerminalLinkCmuxBrowserModifier
+        return TerminalLinkClickModifierBinding.parse(raw)
+            ?? TerminalLinkClickModifierBinding.parse(defaultTerminalLinkCmuxBrowserModifier)
+            ?? .option
+    }
+
+    static func terminalLinkClickPreference(
+        for modifierFlags: NSEvent.ModifierFlags?,
+        defaults: UserDefaults = .standard
+    ) -> TerminalLinkClickPreference {
+        if terminalLinkDefaultBrowserModifier(defaults: defaults).matches(modifierFlags) {
+            return .defaultBrowser
+        }
+        if terminalLinkCmuxBrowserModifier(defaults: defaults).matches(modifierFlags) {
+            return .cmuxBrowser
+        }
+        return .automatic
+    }
+
+    static func terminalLinkClickShouldUseGhosttyLinkTrigger(
+        for modifierFlags: NSEvent.ModifierFlags,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        let canonicalFlags = TerminalLinkClickModifierBinding.canonicalFlags(modifierFlags)
+        return terminalLinkDefaultBrowserModifier(defaults: defaults).matches(canonicalFlags)
+            || terminalLinkCmuxBrowserModifier(defaults: defaults).matches(canonicalFlags)
     }
 
     static func openSidebarPullRequestLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
