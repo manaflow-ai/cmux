@@ -186,6 +186,36 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(window.frame.height, savedFrame.height, accuracy: 1)
     }
 
+    func testCreateMainWindowRegistersAppKitFrameAutosaveNames() throws {
+        let previousShared = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousShared }
+
+        let firstWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
+        let secondWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
+        defer {
+            closeWindow(withId: secondWindowId)
+            closeWindow(withId: firstWindowId)
+        }
+
+        let firstWindow = try XCTUnwrap(window(withId: firstWindowId))
+        let secondWindow = try XCTUnwrap(window(withId: secondWindowId))
+
+        XCTAssertFalse(
+            firstWindow.frameAutosaveName.isEmpty,
+            "Main windows must opt in to AppKit frame autosave so macOS owns screen topology restoration."
+        )
+        XCTAssertFalse(
+            secondWindow.frameAutosaveName.isEmpty,
+            "Additional main windows also need autosave names so monitor wake restores do not fall back to cmux-only geometry."
+        )
+        XCTAssertNotEqual(
+            firstWindow.frameAutosaveName,
+            secondWindow.frameAutosaveName,
+            "Each live main window needs a distinct AppKit frame autosave name."
+        )
+    }
+
     private func makeKeyDownEvent(
         key: String,
         keyCode: UInt16,
