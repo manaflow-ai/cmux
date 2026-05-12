@@ -2045,16 +2045,6 @@ class TerminalController {
         }
     }
 
-    private nonisolated func performPostResponseActionSynchronously(_ action: SocketLinePostResponseAction?) {
-        guard let action else { return }
-        switch action {
-        case .reloadConfiguration(let source):
-            v2MainSync {
-                Self.performSocketReloadConfiguration(source: source)
-            }
-        }
-    }
-
     private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String {
         if Thread.isMainThread,
            let request = parseV2SocketRequest(command),
@@ -2087,7 +2077,7 @@ class TerminalController {
     /// its auth/policy wrappers.
     nonisolated func handleSocketLine(_ line: String) -> String {
         let response = processCommandUsingSocketExecutionPolicy(line)
-        performPostResponseActionSynchronously(postResponseAction(for: line, response: response))
+        schedulePostResponseAction(postResponseAction(for: line, response: response))
         return response
     }
 
