@@ -591,7 +591,7 @@ function installClaudeChildHookPropagation() {
       actualArgs = [];
     }
     const patched = patchClaudeChild(file, actualArgs, actualOptions);
-    if (!Array.isArray(args) && !patched.patched) {
+    if (!patched.patched) {
       if (originalArgCount <= 1) {
         return originalExecFile.call(this, file);
       }
@@ -812,12 +812,13 @@ encode_launch_argv() {
 claude_option_consumes_value() {
     case "$1" in
         --add-dir|--agent|--agents|--allowedTools|--allowed-tools|\
-        --append-system-prompt|--betas|--debug-file|--disallowedTools|\
-        --disallowed-tools|--effort|--fallback-model|--file|\
+        --append-system-prompt|--betas|--dangerously-load-development-channels|\
+        --debug-file|--disallowedTools|--disallowed-tools|--effort|--fallback-model|--file|\
+        --fork-session|\
         --input-format|--json-schema|--max-budget-usd|--mcp-config|\
         --model|-m|-n|--name|--output-format|--permission-mode|--plugin-dir|\
         --plugin-url|--remote-control-session-name-prefix|--setting-sources|\
-        --settings|--system-prompt|--tools)
+        --settings|--system-prompt|--teammate-mode|--tmux|--tools)
             return 0
             ;;
     esac
