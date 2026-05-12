@@ -838,34 +838,15 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: browserPanel.id)
             return browserPanel.id
         case .extensionPane:
-            let bundlePath = snapshot.extensionPanel?.bundlePath
-            let initialState: BlockedExtensionPanel.State
-            if bundlePath == nil {
-                initialState = .blocked(String(localized: "extensionPanel.restore.blocked.missingBundle", defaultValue: "The extension surface is missing a bundle path."))
-            } else {
-                initialState = .verifying
-            }
-            guard let blockedPanel = newBlockedExtensionSurface(
+            guard let blockedPanel = newRestoringExtensionSurface(
                 inPane: paneId,
-                bundlePath: bundlePath ?? "",
-                state: initialState,
-                focus: false
+                bundlePath: snapshot.extensionPanel?.bundlePath,
+                focus: false,
+                allowedRoots: extensionBundleAllowedRoots(baseCwd: currentDirectory)
             ) else {
                 return nil
             }
             applySessionPanelMetadata(snapshot, toPanelId: blockedPanel.id)
-            if let bundlePath {
-                var allowedRoots = ExtensionBundleDescriptor.defaultAllowedRootPaths()
-                let workspaceRoot = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !workspaceRoot.isEmpty {
-                    allowedRoots.append(workspaceRoot)
-                }
-                scheduleExtensionBundleRestore(
-                    panelId: blockedPanel.id,
-                    bundlePath: bundlePath,
-                    allowedRoots: allowedRoots
-                )
-            }
             return blockedPanel.id
         case .markdown:
             guard let filePath = snapshot.markdown?.filePath,
@@ -1155,30 +1136,17 @@ extension Workspace {
             }
         case .extensionPane:
             let bundlePath = resolveExtensionBundlePath(surface: surface, baseCwd: baseCwd)
-            let initialState: BlockedExtensionPanel.State
-            if bundlePath == nil {
-                initialState = .blocked(String(localized: "extensionPanel.restore.blocked.missingBundle", defaultValue: "The extension surface is missing a bundle path."))
-            } else {
-                initialState = .verifying
-            }
-            guard let panel = newBlockedExtensionSurface(
+            guard let panel = newRestoringExtensionSurface(
                 inPane: paneId,
-                bundlePath: bundlePath ?? "",
-                state: initialState,
-                focus: false
+                bundlePath: bundlePath,
+                focus: false,
+                allowedRoots: extensionBundleAllowedRoots(baseCwd: baseCwd)
             ) else {
                 return
             }
             _ = closePanel(panelId, force: true)
             if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
             if surface.focus == true { focusPanelId = panel.id }
-            if let bundlePath {
-                scheduleExtensionBundleRestore(
-                    panelId: panel.id,
-                    bundlePath: bundlePath,
-                    allowedRoots: extensionBundleAllowedRoots(baseCwd: baseCwd)
-                )
-            }
         }
     }
 
@@ -1215,30 +1183,52 @@ extension Workspace {
             }
         case .extensionPane:
             let bundlePath = resolveExtensionBundlePath(surface: surface, baseCwd: baseCwd)
-            let initialState: BlockedExtensionPanel.State
-            if bundlePath == nil {
-                initialState = .blocked(String(localized: "extensionPanel.restore.blocked.missingBundle", defaultValue: "The extension surface is missing a bundle path."))
-            } else {
-                initialState = .verifying
-            }
-            guard let panel = newBlockedExtensionSurface(
+            guard let panel = newRestoringExtensionSurface(
                 inPane: paneId,
-                bundlePath: bundlePath ?? "",
-                state: initialState,
-                focus: false
+                bundlePath: bundlePath,
+                focus: false,
+                allowedRoots: extensionBundleAllowedRoots(baseCwd: baseCwd)
             ) else {
                 return
             }
             if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
             if surface.focus == true { focusPanelId = panel.id }
-            if let bundlePath {
-                scheduleExtensionBundleRestore(
-                    panelId: panel.id,
-                    bundlePath: bundlePath,
-                    allowedRoots: extensionBundleAllowedRoots(baseCwd: baseCwd)
-                )
-            }
         }
+    }
+
+    @discardableResult
+    private func newRestoringExtensionSurface(
+        inPane paneId: PaneID,
+        bundlePath: String?,
+        focus: Bool?,
+        targetIndex: Int? = nil,
+        allowedRoots: [String]
+    ) -> BlockedExtensionPanel? {
+        let initialState: BlockedExtensionPanel.State
+        if bundlePath == nil {
+            initialState = .blocked(String(localized: "extensionPanel.restore.blocked.missingBundle", defaultValue: "The extension surface is missing a bundle path."))
+        } else {
+            initialState = .verifying
+        }
+
+        guard let panel = newBlockedExtensionSurface(
+            inPane: paneId,
+            bundlePath: bundlePath ?? "",
+            state: initialState,
+            focus: focus,
+            targetIndex: targetIndex
+        ) else {
+            return nil
+        }
+
+        if let bundlePath {
+            scheduleExtensionBundleRestore(
+                panelId: panel.id,
+                bundlePath: bundlePath,
+                allowedRoots: allowedRoots
+            )
+        }
+        return panel
     }
 
     private func resolveExtensionBundlePath(
