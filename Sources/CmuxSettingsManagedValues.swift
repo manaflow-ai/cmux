@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let cmuxSettingsLog = Logger(subsystem: "com.cmuxterm.app", category: "SettingsFile")
+nonisolated private let cmuxSettingsLog = Logger(subsystem: "com.cmuxterm.app", category: "SettingsFile")
 
 func logManagedSettingsWriteBackFailure(_ error: Error) {
     cmuxSettingsLog.error("Failed to write Settings edit to cmux.json: \(String(describing: error), privacy: .public)")
