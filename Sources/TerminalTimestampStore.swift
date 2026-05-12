@@ -70,7 +70,8 @@ final class TerminalTimestampStore {
             if scrollbar.total < previous.total {
                 pruneRows(atOrAbove: scrollbar.total)
             } else if scrollbar.total > previous.total {
-                for row in previous.total..<scrollbar.total {
+                let firstRetainedNewRow = max(previous.total, scrollbar.total - maxRetainedRows)
+                for row in firstRetainedNewRow..<scrollbar.total {
                     recordTimestamp(for: row, at: date)
                 }
             }
