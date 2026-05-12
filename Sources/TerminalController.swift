@@ -8091,7 +8091,7 @@ class TerminalController {
         if hasSurfaceSelector, tabId == nil {
             return .err(
                 code: "invalid_params",
-                message: String(localized: "socket.notification.surfaceIdInvalid", defaultValue: "Missing or invalid surface_id"),
+                message: String(localized: "socket.notification.surfaceIdRequiresWorkspace", defaultValue: "surface_id requires tab_id or workspace_id"),
                 data: nil
             )
         }
