@@ -411,6 +411,14 @@ enum GhosttyPasteboardHelper {
             return richText
         }
 
+        if let plainText,
+           PasteboardTextFidelity.shouldInspectRichTextForPlainTextLoss(plainText),
+           types.contains(where: isRichTextType),
+           let richText = richTextContents(from: pasteboard),
+           PasteboardTextFidelity.shouldPreferRichText(richText, overPlainText: plainText) {
+            return richText
+        }
+
         // Match upstream Ghostty's fast plain-text path for normal text paste.
         // Large clipboard payloads often also advertise HTML/RTF variants, and
         // eagerly rendering those rich-text flavors makes Cmd-V much slower than
@@ -531,6 +539,10 @@ enum GhosttyPasteboardHelper {
               let utType = UTType(type.rawValue) else { return false }
 
         return utType.conforms(to: .plainText)
+    }
+
+    private static func isRichTextType(_ type: NSPasteboard.PasteboardType) -> Bool {
+        type == .html || type == .rtf || type == .rtfd
     }
 
     private static func attributedString(
@@ -7341,6 +7353,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             if let displayID = window?.screen?.displayID, displayID != 0 {
                 ghostty_surface_set_display_id(surface, displayID)
             }
+            terminalSurface?.forceRefresh(reason: "focus.firstResponder")
         }
         return result
     }
