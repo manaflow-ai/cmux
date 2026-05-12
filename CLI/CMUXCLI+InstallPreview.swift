@@ -108,7 +108,7 @@ extension CMUXCLI {
             outputLock.unlock()
         }
         do {
-            try process.run()
+            try cliRunProcess(process)
         } catch { return nil }
         process.waitUntilExit()
         pipe.fileHandleForReading.readabilityHandler = nil

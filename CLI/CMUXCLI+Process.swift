@@ -1,6 +1,106 @@
 import Darwin
 import Foundation
 
+let cliStdioDispositionLock = NSLock()
+
+func currentCLINoSIGPIPEValue(for fd: Int32) -> Int32? {
+    let value = fcntl(fd, F_GETNOSIGPIPE, 0)
+    guard value >= 0 else { return nil }
+    return value
+}
+
+private func setCLINoSIGPIPE(_ enabled: Bool, for fd: Int32) {
+    _ = fcntl(fd, F_SETNOSIGPIPE, enabled ? 1 : 0)
+}
+
+func configureCLIWriteFDNoSIGPIPE(_ fd: Int32) {
+    guard fd >= 0 else { return }
+    setCLINoSIGPIPE(true, for: fd)
+}
+
+@discardableResult
+func cliWriteIgnoringBrokenPipe(_ data: Data, to handle: FileHandle) -> Bool {
+    guard !data.isEmpty else { return true }
+    configureCLIWriteFDNoSIGPIPE(handle.fileDescriptor)
+
+    return data.withUnsafeBytes { rawBuffer in
+        guard let baseAddress = rawBuffer.baseAddress else { return true }
+        var offset = 0
+        while offset < rawBuffer.count {
+            cliStdioDispositionLock.lock()
+            let bytesWritten = Darwin.write(
+                handle.fileDescriptor,
+                baseAddress.advanced(by: offset),
+                rawBuffer.count - offset
+            )
+            let writeErrno = bytesWritten < 0 ? errno : 0
+            cliStdioDispositionLock.unlock()
+
+            if bytesWritten > 0 {
+                offset += bytesWritten
+            } else if bytesWritten == -1, writeErrno == EINTR {
+                continue
+            } else {
+                return false
+            }
+        }
+        return true
+    }
+}
+
+private func inheritedCLIWriteFDs(for childEndpoint: Any?, defaultFD: Int32) -> Set<Int32> {
+    if childEndpoint == nil {
+        return [defaultFD]
+    }
+    guard let handle = childEndpoint as? FileHandle else {
+        return []
+    }
+
+    switch handle.fileDescriptor {
+    case STDOUT_FILENO, STDERR_FILENO:
+        return [handle.fileDescriptor]
+    default:
+        return []
+    }
+}
+
+private func childInheritedCLINoSIGPIPEFDs(for process: Process) -> [Int32] {
+    let outputFDs = inheritedCLIWriteFDs(for: process.standardOutput, defaultFD: STDOUT_FILENO)
+    let errorFDs = inheritedCLIWriteFDs(for: process.standardError, defaultFD: STDERR_FILENO)
+    return Array(outputFDs.union(errorFDs)).sorted()
+}
+
+func withCLIDefaultSIGPIPEForChildLaunch<T>(
+    inheritedNoSIGPIPEFDs: [Int32] = [STDOUT_FILENO, STDERR_FILENO],
+    body: () throws -> T
+) rethrows -> T {
+    cliStdioDispositionLock.lock()
+    defer { cliStdioDispositionLock.unlock() }
+
+    let previousValues = inheritedNoSIGPIPEFDs.compactMap { fd -> (fd: Int32, value: Int32)? in
+        guard let value = currentCLINoSIGPIPEValue(for: fd) else { return nil }
+        if value != 0 {
+            setCLINoSIGPIPE(false, for: fd)
+        }
+        return (fd, value)
+    }
+    defer {
+        for entry in previousValues where entry.value != 0 {
+            setCLINoSIGPIPE(true, for: entry.fd)
+        }
+    }
+
+    return try body()
+}
+
+func cliRunProcess(_ process: Process) throws {
+    try withCLIDefaultSIGPIPEForChildLaunch(
+        inheritedNoSIGPIPEFDs: childInheritedCLINoSIGPIPEFDs(for: process)
+    ) {
+        try process.run()
+    }
+}
+
 struct CLIProcessResult {
     let status: Int32
     let stdout: String
@@ -39,14 +139,14 @@ enum CLIProcessRunner {
         }
 
         do {
-            try process.run()
+            try cliRunProcess(process)
         } catch {
             return CLIProcessResult(status: 1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
 
         if let stdinText, let stdinPipe {
             if let data = stdinText.data(using: .utf8) {
-                stdinPipe.fileHandleForWriting.write(data)
+                cliWriteIgnoringBrokenPipe(data, to: stdinPipe.fileHandleForWriting)
             }
             stdinPipe.fileHandleForWriting.closeFile()
         }

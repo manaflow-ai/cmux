@@ -2328,7 +2328,7 @@ struct CMUXCLI {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        try process.run()
+        try cliRunProcess(process)
 
         let brokerClient = try SocketClient.waitForConnectableSocket(path: brokerSocketPath, timeout: 5.0)
         brokerClient.close()
@@ -4594,7 +4594,7 @@ struct CMUXCLI {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = ["-a", "cmux"]
-        try process.run()
+        try cliRunProcess(process)
         process.waitUntilExit()
     }
 
@@ -4602,7 +4602,7 @@ struct CMUXCLI {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = ["-a", "cmux"]
-        try process.run()
+        try cliRunProcess(process)
         process.waitUntilExit()
     }
 
@@ -13063,7 +13063,7 @@ struct CMUXCLI {
         process.arguments = arguments
         process.standardOutput = FileHandle.standardError
         process.standardError = FileHandle.standardError
-        try process.run()
+        try cliRunProcess(process)
         process.waitUntilExit()
         return process.terminationStatus
     }
@@ -13359,7 +13359,7 @@ struct CMUXCLI {
             checkProcess.arguments = ["opencode"]
             checkProcess.standardOutput = Pipe()
             checkProcess.standardError = Pipe()
-            try? checkProcess.run()
+            try? cliRunProcess(checkProcess)
             checkProcess.waitUntilExit()
             if checkProcess.terminationStatus != 0 {
                 throw CLIError(message: "opencode is not installed. Install it first:\n  npm install -g opencode-ai\n  # or\n  bun install -g opencode-ai\n\nThen run: cmux omo")
@@ -13516,7 +13516,7 @@ struct CMUXCLI {
             checkProcess.arguments = ["omx"]
             checkProcess.standardOutput = Pipe()
             checkProcess.standardError = Pipe()
-            try? checkProcess.run()
+            try? cliRunProcess(checkProcess)
             checkProcess.waitUntilExit()
             if checkProcess.terminationStatus != 0 {
                 throw CLIError(message: "omx is not installed. Install it first:\n  npm install -g oh-my-codex\n\nThen run: cmux omx")
@@ -13645,7 +13645,7 @@ struct CMUXCLI {
             checkProcess.arguments = ["omc"]
             checkProcess.standardOutput = Pipe()
             checkProcess.standardError = Pipe()
-            try? checkProcess.run()
+            try? cliRunProcess(checkProcess)
             checkProcess.waitUntilExit()
             if checkProcess.terminationStatus != 0 {
                 throw CLIError(message: "omc is not installed. Install it first:\n  npm install -g oh-my-claude-sisyphus\n\nThen run: cmux omc")
@@ -14450,9 +14450,9 @@ struct CMUXCLI {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
-        try process.run()
+        try cliRunProcess(process)
         if let data = stdinText.data(using: .utf8) {
-            stdinPipe.fileHandleForWriting.write(data)
+            cliWriteIgnoringBrokenPipe(data, to: stdinPipe.fileHandleForWriting)
         }
         stdinPipe.fileHandleForWriting.closeFile()
         process.waitUntilExit()
@@ -16489,7 +16489,7 @@ struct CMUXCLI {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do {
-            try process.run()
+            try cliRunProcess(process)
             telemetry.breadcrumb("codex-hook.monitor.started", data: monitorTelemetry)
         } catch {
             telemetry.captureError(stage: "codex-monitor-start", error: error, data: monitorTelemetry)
@@ -19019,7 +19019,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         let originalForegroundProcessGroup = tcgetpgrp(STDIN_FILENO)
         var didForegroundChild = false
-        try process.run()
+        try cliRunProcess(process)
         if originalForegroundProcessGroup > 0 {
             let childProcessGroup = getpgid(process.processIdentifier)
             if childProcessGroup > 0 && childProcessGroup != originalForegroundProcessGroup {
@@ -19172,7 +19172,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             drainGroup.leave()
         }
 
-        try process.run()
+        try cliRunProcess(process)
         process.waitUntilExit()
         drainGroup.wait()
         guard process.terminationStatus == 0 else {
@@ -20961,7 +20961,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         process.launchPath = "/bin/sh"
         process.arguments = ["-c", "command -v \(name) >/dev/null 2>&1"]
         do {
-            try process.run()
+            try cliRunProcess(process)
             process.waitUntilExit()
             return process.terminationStatus == 0
         } catch {
@@ -21190,7 +21190,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         process.standardError = Pipe()
 
         do {
-            try process.run()
+            try cliRunProcess(process)
         } catch {
             return nil
         }
@@ -21528,8 +21528,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
 enum CMUXCLIOutput {
     static func configureStandardHandlesForCLIPipes() {
-        configureNoSigPipe(STDOUT_FILENO)
-        configureNoSigPipe(STDERR_FILENO)
+        configureCLIWriteFDNoSIGPIPE(STDOUT_FILENO)
+        configureCLIWriteFDNoSIGPIPE(STDERR_FILENO)
         _ = signal(SIGPIPE, SIG_DFL)
     }
 
@@ -21549,11 +21549,6 @@ enum CMUXCLIOutput {
         write(data, to: STDERR_FILENO)
     }
 
-    private static func configureNoSigPipe(_ fd: Int32) {
-        guard fd >= 0 else { return }
-        _ = fcntl(fd, F_SETNOSIGPIPE, 1)
-    }
-
     private static func write(_ data: Data, to fd: Int32) {
         data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress else {
@@ -21562,10 +21557,13 @@ enum CMUXCLIOutput {
 
             var offset = 0
             while offset < data.count {
+                cliStdioDispositionLock.lock()
                 let bytesWritten = Darwin.write(fd, baseAddress.advanced(by: offset), data.count - offset)
+                let writeErrno = bytesWritten < 0 ? errno : 0
+                cliStdioDispositionLock.unlock()
                 if bytesWritten > 0 {
                     offset += bytesWritten
-                } else if bytesWritten == -1, errno == EINTR {
+                } else if bytesWritten == -1, writeErrno == EINTR {
                     continue
                 } else {
                     return
