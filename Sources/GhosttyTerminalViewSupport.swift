@@ -417,6 +417,7 @@ final class TerminalStatusBarCommandController {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_WORKSPACE_ID"] = context.workspaceId.uuidString
         environment["CMUX_SURFACE_ID"] = context.surfaceId.uuidString
+        environment.removeValue(forKey: "CMUX_PANEL_ID")
         environment["PWD"] = context.workingDirectory
         return environment
     }
