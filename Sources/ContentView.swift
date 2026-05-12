@@ -5843,6 +5843,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.terminal", defaultValue: "Terminal")
         case .browser:
             return String(localized: "commandPalette.kind.browser", defaultValue: "Browser")
+        case .extensionPane:
+            return String(localized: "commandPalette.kind.extension", defaultValue: "Extension")
         case .markdown:
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
         case .filePreview:
@@ -5856,6 +5858,8 @@ struct ContentView: View {
             return ["terminal", "shell", "console"]
         case .browser:
             return ["browser", "web", "page"]
+        case .extensionPane:
+            return ["extension", "plugin", "webview"]
         case .markdown:
             return ["markdown", "note", "preview"]
         case .filePreview:

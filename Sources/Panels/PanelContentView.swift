@@ -54,6 +54,16 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .extensionPane:
+            if let extensionPanel = panel as? ExtensionPanel {
+                ExtensionPanelView(
+                    panel: extensionPanel,
+                    paneId: paneId,
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         case .markdown:
             if let markdownPanel = panel as? MarkdownPanel {
                 MarkdownPanelView(
@@ -94,7 +104,7 @@ struct PanelContentView: View {
         switch panel.panelType {
         case .markdown, .filePreview:
             return true
-        case .terminal, .browser:
+        case .terminal, .browser, .extensionPane:
             return false
         }
     }

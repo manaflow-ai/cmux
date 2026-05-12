@@ -99,7 +99,7 @@ Environment:
 | `list-pane-surfaces` | List surfaces in a pane. |
 | `tree` | Print a window, workspace, pane, and surface tree. |
 | `focus-pane` | Focus a pane. |
-| `new-pane` | Create a pane with terminal or browser content. |
+| `new-pane` | Create a pane with terminal, browser, or extension content. |
 | `new-surface` | Create a surface inside a pane. |
 | `close-surface` | Close a surface. |
 | `move-surface` | Move a surface to another pane, workspace, window, or index. |

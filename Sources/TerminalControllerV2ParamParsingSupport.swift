@@ -176,4 +176,27 @@ extension TerminalController {
             .lowercased()
         return PanelType(rawValue: normalized)
     }
+
+    func v2ExtensionBundle(
+        params: [String: Any],
+        panelType: PanelType
+    ) -> (bundle: ExtensionBundleDescriptor?, error: V2CallResult?) {
+        guard panelType == .extensionPane else { return (nil, nil) }
+        guard let bundlePath = v2OptionalTrimmedRawString(params, "bundle")
+            ?? v2OptionalTrimmedRawString(params, "bundle_path") else {
+            return (
+                nil,
+                .err(code: "invalid_params", message: "Missing bundle path for extension surface", data: nil)
+            )
+        }
+
+        do {
+            return (try ExtensionBundleDescriptor.resolve(path: bundlePath), nil)
+        } catch {
+            return (
+                nil,
+                .err(code: "invalid_params", message: error.localizedDescription, data: ["bundle": bundlePath])
+            )
+        }
+    }
 }

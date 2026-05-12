@@ -239,7 +239,7 @@ Surface and pane:
 
 | Name | Trigger |
 | --- | --- |
-| `surface.created` | Terminal, browser, markdown, or file preview surface created in a pane. |
+| `surface.created` | Terminal, browser, extension, markdown, or file preview surface created in a pane. |
 | `surface.selected` | Selected surface changed inside a pane. Fires for horizontal tab selection and programmatic selection convergence. |
 | `surface.focused` | Focused surface changed for a workspace. This is the surface that should receive keyboard/input commands. |
 | `surface.closed` | Surface closed. |

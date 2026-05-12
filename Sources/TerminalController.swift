@@ -3098,8 +3098,154 @@ class TerminalController {
             "version": 2,
             "socket_path": socketPath,
             "access_mode": accessMode.rawValue,
+            "surface_types": ["browser", "extension", "filepreview", "markdown", "terminal"],
             "methods": methods.sorted()
         ]
+    }
+
+    func performExtensionBridgeRPC(
+        method: String,
+        params: [String: Any],
+        workspaceId: UUID,
+        surfaceId: UUID,
+        paneId: UUID?
+    ) -> [String: Any] {
+        let allowedMethods: Set<String> = [
+            "system.capabilities",
+            "system.tree",
+            "workspace.list",
+            "workspace.current",
+            "pane.list",
+            "pane.surfaces",
+            "pane.create",
+            "surface.list",
+            "surface.current",
+            "surface.focus",
+            "surface.create",
+            "surface.split",
+            "surface.close",
+            "surface.send_text",
+            "surface.send_key"
+        ]
+        guard allowedMethods.contains(method) else {
+            return extensionBridgeEnvelope(.err(
+                code: "method_not_allowed",
+                message: "Extension bridge method is not allowed: \(method)",
+                data: nil
+            ))
+        }
+
+        let scopedParams = extensionBridgeScopedParams(
+            method: method,
+            params: params,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            paneId: paneId
+        )
+        v2MainSync { self.v2RefreshKnownRefs() }
+        return withSocketCommandPolicy(commandKey: method, isV2: true, params: scopedParams) {
+            let result: V2CallResult
+            switch method {
+            case "system.capabilities":
+                result = .ok(v2Capabilities())
+            case "system.tree":
+                result = v2SystemTree(params: scopedParams)
+            case "workspace.list":
+                result = v2WorkspaceList(params: scopedParams)
+            case "workspace.current":
+                result = v2WorkspaceCurrent(params: scopedParams)
+            case "pane.list":
+                result = v2PaneList(params: scopedParams)
+            case "pane.surfaces":
+                result = v2PaneSurfaces(params: scopedParams)
+            case "pane.create":
+                result = v2PaneCreate(params: scopedParams)
+            case "surface.list":
+                result = v2SurfaceList(params: scopedParams)
+            case "surface.current":
+                result = v2SurfaceCurrent(params: scopedParams)
+            case "surface.focus":
+                result = v2SurfaceFocus(params: scopedParams)
+            case "surface.create":
+                result = v2SurfaceCreate(params: scopedParams)
+            case "surface.split":
+                result = v2SurfaceSplit(params: scopedParams)
+            case "surface.close":
+                result = v2SurfaceClose(params: scopedParams)
+            case "surface.send_text":
+                result = v2SurfaceSendText(params: scopedParams)
+            case "surface.send_key":
+                result = v2SurfaceSendKey(params: scopedParams)
+            default:
+                result = .err(
+                    code: "method_not_allowed",
+                    message: "Extension bridge method is not allowed: \(method)",
+                    data: nil
+                )
+            }
+            return extensionBridgeEnvelope(result)
+        }
+    }
+
+    private func extensionBridgeScopedParams(
+        method: String,
+        params: [String: Any],
+        workspaceId: UUID,
+        surfaceId: UUID,
+        paneId: UUID?
+    ) -> [String: Any] {
+        var scopedParams = params
+        if scopedParams["workspace_id"] == nil {
+            scopedParams["workspace_id"] = (scopedParams["workspace"] as? String) ?? workspaceId.uuidString
+        }
+        scopedParams.removeValue(forKey: "workspace")
+
+        if scopedParams["surface_id"] == nil,
+           let rawSurface = scopedParams["surface"] as? String {
+            scopedParams["surface_id"] = rawSurface
+        }
+        scopedParams.removeValue(forKey: "surface")
+
+        if scopedParams["pane_id"] == nil,
+           let rawPane = scopedParams["pane"] as? String {
+            scopedParams["pane_id"] = rawPane
+        }
+        scopedParams.removeValue(forKey: "pane")
+
+        switch method {
+        case "pane.create", "surface.split", "surface.close", "surface.focus", "surface.send_text", "surface.send_key":
+            if scopedParams["surface_id"] == nil {
+                scopedParams["surface_id"] = surfaceId.uuidString
+            }
+        case "pane.surfaces", "surface.create":
+            if scopedParams["pane_id"] == nil, let paneId {
+                scopedParams["pane_id"] = paneId.uuidString
+            }
+        default:
+            break
+        }
+
+        return scopedParams
+    }
+
+    private func extensionBridgeEnvelope(_ result: V2CallResult) -> [String: Any] {
+        switch result {
+        case .ok(let payload):
+            return [
+                "ok": true,
+                "result": payload
+            ]
+        case .err(let code, let message, let data):
+            var error: [String: Any] = [
+                "code": code,
+                "message": message
+            ]
+            error["data"] = data ?? NSNull()
+            return [
+                "ok": false,
+                "error": error
+            ]
+        }
     }
 
     private func v2Identify(params: [String: Any]) -> [String: Any] {
@@ -6012,6 +6158,10 @@ class TerminalController {
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
+        let extensionBundle = v2ExtensionBundle(params: params, panelType: panelType)
+        if let error = extensionBundle.error {
+            return error
+        }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create split", data: nil)
         v2MainSync {
@@ -6048,6 +6198,15 @@ class TerminalController {
                     orientation: orientation,
                     insertFirst: insertFirst,
                     url: url,
+                    focus: focus,
+                    initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
+                )?.id
+            } else if panelType == .extensionPane, let bundle = extensionBundle.bundle {
+                newId = ws.newExtensionSplit(
+                    from: targetSurfaceId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    bundle: bundle,
                     focus: focus,
                     initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
                 )?.id
@@ -6098,6 +6257,10 @@ class TerminalController {
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
+        let extensionBundle = v2ExtensionBundle(params: params, panelType: panelType)
+        if let error = extensionBundle.error {
+            return error
+        }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create surface", data: nil)
         v2MainSync {
@@ -6125,6 +6288,8 @@ class TerminalController {
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             if panelType == .browser {
                 newPanelId = ws.newBrowserSurface(inPane: paneId, url: url, focus: focus)?.id
+            } else if panelType == .extensionPane, let bundle = extensionBundle.bundle {
+                newPanelId = ws.newExtensionSurface(inPane: paneId, bundle: bundle, focus: focus)?.id
             } else {
                 newPanelId = ws.newTerminalSurface(
                     inPane: paneId,
@@ -7389,6 +7554,10 @@ class TerminalController {
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
+        let extensionBundle = v2ExtensionBundle(params: params, panelType: panelType)
+        if let error = extensionBundle.error {
+            return error
+        }
 
         let orientation = direction.orientation
         let insertFirst = direction.insertFirst
@@ -7421,6 +7590,15 @@ class TerminalController {
                     orientation: orientation,
                     insertFirst: insertFirst,
                     url: url,
+                    focus: focus,
+                    initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
+                )?.id
+            } else if panelType == .extensionPane, let bundle = extensionBundle.bundle {
+                newPanelId = ws.newExtensionSplit(
+                    from: sourcePanelId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    bundle: bundle,
                     focus: focus,
                     initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
                 )?.id
@@ -15846,14 +16024,36 @@ class TerminalController {
 	        return result
 	    }
 	
+    private func panelTypeForSocketArgument(_ rawType: String) -> PanelType {
+        let normalized = rawType
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .lowercased()
+        return PanelType(rawValue: normalized) ?? .terminal
+    }
+
+    private func resolveSocketExtensionBundle(panelType: PanelType, bundlePath: String?) -> Result<ExtensionBundleDescriptor, String>? {
+        guard panelType == .extensionPane else { return nil }
+        guard let rawBundlePath = bundlePath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawBundlePath.isEmpty else {
+            return .failure("--bundle is required for extension panes")
+        }
+        do {
+            return .success(try ExtensionBundleDescriptor.resolve(path: rawBundlePath))
+        } catch {
+            return .failure(error.localizedDescription)
+        }
+    }
+
     private func newPane(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
-        // Parse arguments: --type=terminal|browser --direction=left|right|up|down --url=...
+        // Parse arguments: --type=terminal|browser|extension --direction=left|right|up|down --url=... --bundle=...
         var panelType: PanelType = .terminal
         var direction: SplitDirection = .right
         var urlRaw: String? = nil
         var url: URL? = nil
+        var bundleRaw: String? = nil
         var invalidDirection = false
 
         let parts = args.split(separator: " ")
@@ -15861,7 +16061,7 @@ class TerminalController {
             let partStr = String(part)
             if partStr.hasPrefix("--type=") {
                 let typeStr = String(partStr.dropFirst(7))
-                panelType = typeStr == "browser" ? .browser : .terminal
+                panelType = panelTypeForSocketArgument(typeStr)
             } else if partStr.hasPrefix("--direction=") {
                 let dirStr = String(partStr.dropFirst(12))
                 if let parsed = parseSplitDirection(dirStr) {
@@ -15873,6 +16073,9 @@ class TerminalController {
                 let urlStr = String(partStr.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines)
                 urlRaw = urlStr.isEmpty ? nil : urlStr
                 url = urlRaw.flatMap { URL(string: $0) }
+            } else if partStr.hasPrefix("--bundle=") {
+                let bundleStr = String(partStr.dropFirst(9)).trimmingCharacters(in: .whitespacesAndNewlines)
+                bundleRaw = bundleStr.isEmpty ? nil : bundleStr
             }
         }
 
@@ -15881,6 +16084,17 @@ class TerminalController {
         }
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return openExternallyWhenBrowserDisabled(rawURL: urlRaw, url: url)
+        }
+        let extensionBundle: ExtensionBundleDescriptor?
+        if let bundleResult = resolveSocketExtensionBundle(panelType: panelType, bundlePath: bundleRaw) {
+            switch bundleResult {
+            case .success(let bundle):
+                extensionBundle = bundle
+            case .failure(let message):
+                return "ERROR: \(message)"
+            }
+        } else {
+            extensionBundle = nil
         }
 
         let orientation = direction.orientation
@@ -15902,6 +16116,14 @@ class TerminalController {
                     orientation: orientation,
                     insertFirst: insertFirst,
                     url: url,
+                    focus: focus
+                )?.id
+            } else if panelType == .extensionPane, let extensionBundle {
+                newPanelId = tab.newExtensionSplit(
+                    from: focusedPanelId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    bundle: extensionBundle,
                     focus: focus
                 )?.id
             } else {
@@ -17422,28 +17644,43 @@ class TerminalController {
     private func newSurface(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
-        // Parse arguments: --type=terminal|browser --pane=<pane_id> --url=...
+        // Parse arguments: --type=terminal|browser|extension --pane=<pane_id> --url=... --bundle=...
         var panelType: PanelType = .terminal
         var paneArg: String? = nil
         var urlRaw: String? = nil
         var url: URL? = nil
+        var bundleRaw: String? = nil
 
         let parts = args.split(separator: " ")
         for part in parts {
             let partStr = String(part)
             if partStr.hasPrefix("--type=") {
                 let typeStr = String(partStr.dropFirst(7))
-                panelType = typeStr == "browser" ? .browser : .terminal
+                panelType = panelTypeForSocketArgument(typeStr)
             } else if partStr.hasPrefix("--pane=") {
                 paneArg = String(partStr.dropFirst(7))
             } else if partStr.hasPrefix("--url=") {
                 let urlStr = String(partStr.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines)
                 urlRaw = urlStr.isEmpty ? nil : urlStr
                 url = urlRaw.flatMap { URL(string: $0) }
+            } else if partStr.hasPrefix("--bundle=") {
+                let bundleStr = String(partStr.dropFirst(9)).trimmingCharacters(in: .whitespacesAndNewlines)
+                bundleRaw = bundleStr.isEmpty ? nil : bundleStr
             }
         }
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return openExternallyWhenBrowserDisabled(rawURL: urlRaw, url: url)
+        }
+        let extensionBundle: ExtensionBundleDescriptor?
+        if let bundleResult = resolveSocketExtensionBundle(panelType: panelType, bundlePath: bundleRaw) {
+            switch bundleResult {
+            case .success(let bundle):
+                extensionBundle = bundle
+            case .failure(let message):
+                return "ERROR: \(message)"
+            }
+        } else {
+            extensionBundle = nil
         }
 
         var result = "ERROR: Failed to create tab"
@@ -17477,6 +17714,8 @@ class TerminalController {
             let newPanelId: UUID?
             if panelType == .browser {
                 newPanelId = tab.newBrowserSurface(inPane: targetPaneId, url: url, focus: focus)?.id
+            } else if panelType == .extensionPane, let extensionBundle {
+                newPanelId = tab.newExtensionSurface(inPane: targetPaneId, bundle: extensionBundle, focus: focus)?.id
             } else {
                 newPanelId = tab.newTerminalSurface(inPane: targetPaneId, focus: focus)?.id
             }

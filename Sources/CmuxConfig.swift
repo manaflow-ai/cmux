@@ -1625,12 +1625,14 @@ struct CmuxSurfaceDefinition: Codable, Sendable {
     var cwd: String?
     var env: [String: String]?
     var url: String?
+    var bundle: String?
     var focus: Bool?
 }
 
 enum CmuxSurfaceType: String, Codable, Sendable {
     case terminal
     case browser
+    case extensionPane = "extension"
 }
 
 struct CmuxResolvedCommand: Sendable {

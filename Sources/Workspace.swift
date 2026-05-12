@@ -422,6 +422,7 @@ extension Workspace {
 
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
+        let extensionSnapshot: SessionExtensionPanelSnapshot?
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
         let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
         switch panel.panelType {
@@ -462,6 +463,7 @@ extension Workspace {
                 tmuxStartCommand: restorableTmuxStartCommand
             )
             browserSnapshot = nil
+            extensionSnapshot = nil
             markdownSnapshot = nil
             filePreviewSnapshot = nil
         case .browser:
@@ -477,18 +479,28 @@ extension Workspace {
                 backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
                 forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings
             )
+            extensionSnapshot = nil
+            markdownSnapshot = nil
+            filePreviewSnapshot = nil
+        case .extensionPane:
+            guard let extensionPanel = panel as? ExtensionPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            extensionSnapshot = SessionExtensionPanelSnapshot(bundlePath: extensionPanel.bundle.bundlePath)
             markdownSnapshot = nil
             filePreviewSnapshot = nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
+            extensionSnapshot = nil
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
             filePreviewSnapshot = nil
         case .filePreview:
             guard let filePreviewPanel = panel as? FilePreviewPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
+            extensionSnapshot = nil
             markdownSnapshot = nil
             filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
         }
@@ -506,6 +518,7 @@ extension Workspace {
             ttyName: ttyName,
             terminal: terminalSnapshot,
             browser: browserSnapshot,
+            extensionPanel: extensionSnapshot,
             markdown: markdownSnapshot,
             filePreview: filePreviewSnapshot
         )
@@ -817,6 +830,18 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: browserPanel.id)
             return browserPanel.id
+        case .extensionPane:
+            guard let bundlePath = snapshot.extensionPanel?.bundlePath,
+                  let descriptor = try? ExtensionBundleDescriptor.resolve(path: bundlePath),
+                  let extensionPanel = newExtensionSurface(
+                    inPane: paneId,
+                    bundle: descriptor,
+                    focus: false
+                  ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: extensionPanel.id)
+            return extensionPanel.id
         case .markdown:
             guard let filePath = snapshot.markdown?.filePath,
                   let markdownPanel = newMarkdownSurface(
@@ -1057,6 +1082,14 @@ extension Workspace {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
             }
+        case .extensionPane:
+            guard let bundle = resolveExtensionBundle(surface: surface, baseCwd: baseCwd),
+                  let panel = newExtensionSurface(inPane: paneId, bundle: bundle, focus: false) else {
+                return
+            }
+            _ = closePanel(panelId, force: true)
+            if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+            if surface.focus == true { focusPanelId = panel.id }
         }
     }
 
@@ -1091,7 +1124,37 @@ extension Workspace {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
             }
+        case .extensionPane:
+            guard let bundle = resolveExtensionBundle(surface: surface, baseCwd: baseCwd),
+                  let panel = newExtensionSurface(inPane: paneId, bundle: bundle, focus: false) else {
+                return
+            }
+            if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+            if surface.focus == true { focusPanelId = panel.id }
         }
+    }
+
+    private func resolveExtensionBundle(
+        surface: CmuxSurfaceDefinition,
+        baseCwd: String
+    ) -> ExtensionBundleDescriptor? {
+        guard let rawBundlePath = surface.bundle?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawBundlePath.isEmpty else {
+            return nil
+        }
+        let expanded = (rawBundlePath as NSString).expandingTildeInPath
+        let resolvedPath: String
+        if expanded.hasPrefix("/") {
+            resolvedPath = expanded
+        } else {
+            let base = baseCwd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? currentDirectory
+                : baseCwd
+            resolvedPath = URL(fileURLWithPath: base)
+                .appendingPathComponent(expanded, isDirectory: false)
+                .path
+        }
+        return try? ExtensionBundleDescriptor.resolve(path: resolvedPath)
     }
 
     private func applyCustomDividerPositions(
@@ -7281,6 +7344,7 @@ final class Workspace: Identifiable, ObservableObject {
     enum SurfaceKind {
         static let terminal = "terminal"
         static let browser = "browser"
+        static let extensionPane = "extension"
         static let markdown = "markdown"
         static let filePreview = "filePreview"
     }
@@ -7973,6 +8037,35 @@ final class Workspace: Identifiable, ObservableObject {
         setPreferredBrowserProfileID(browserPanel.profileID)
     }
 
+    private func installExtensionPanelSubscription(_ extensionPanel: ExtensionPanel) {
+        let subscription = Publishers.CombineLatest(
+            extensionPanel.$pageTitle.removeDuplicates(),
+            extensionPanel.$isLoading.removeDuplicates()
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self, weak extensionPanel] _, isLoading in
+            guard let self,
+                  let extensionPanel,
+                  let tabId = self.surfaceIdFromPanelId(extensionPanel.id) else { return }
+            guard let existing = self.bonsplitController.tab(tabId) else { return }
+            let nextTitle = extensionPanel.displayTitle
+            if self.panelTitles[extensionPanel.id] != nextTitle {
+                self.panelTitles[extensionPanel.id] = nextTitle
+            }
+            let resolvedTitle = self.resolvedPanelTitle(panelId: extensionPanel.id, fallback: nextTitle)
+            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
+            let loadingUpdate: Bool? = existing.isLoading == isLoading ? nil : isLoading
+            guard titleUpdate != nil || loadingUpdate != nil else { return }
+            self.bonsplitController.updateTab(
+                tabId,
+                title: titleUpdate,
+                hasCustomTitle: self.panelCustomTitles[extensionPanel.id] != nil,
+                isLoading: loadingUpdate
+            )
+        }
+        panelSubscriptions[extensionPanel.id] = subscription
+    }
+
     func setPreferredBrowserProfileID(_ profileID: UUID?) {
         guard let profileID else {
             preferredBrowserProfileID = nil
@@ -8095,6 +8188,10 @@ final class Workspace: Identifiable, ObservableObject {
         panels[panelId] as? BrowserPanel
     }
 
+    func extensionPanel(for panelId: UUID) -> ExtensionPanel? {
+        panels[panelId] as? ExtensionPanel
+    }
+
     func markdownPanel(for panelId: UUID) -> MarkdownPanel? {
         panels[panelId] as? MarkdownPanel
     }
@@ -8109,6 +8206,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.terminal
         case .browser:
             return SurfaceKind.browser
+        case .extensionPane:
+            return SurfaceKind.extensionPane
         case .markdown:
             return SurfaceKind.markdown
         case .filePreview:
@@ -10247,6 +10346,139 @@ final class Workspace: Identifiable, ObservableObject {
         return browserPanel
     }
 
+    /// Create a new extension panel split.
+    @discardableResult
+    func newExtensionSplit(
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool = false,
+        bundle: ExtensionBundleDescriptor,
+        focus: Bool = true,
+        initialDividerPosition: CGFloat? = nil
+    ) -> ExtensionPanel? {
+        guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
+        var sourcePaneId: PaneID?
+        for paneId in bonsplitController.allPaneIds {
+            let tabs = bonsplitController.tabs(inPane: paneId)
+            if tabs.contains(where: { $0.id == sourceTabId }) {
+                sourcePaneId = paneId
+                break
+            }
+        }
+
+        guard let paneId = sourcePaneId else { return nil }
+
+        let extensionPanel = ExtensionPanel(
+            workspaceId: id,
+            paneId: nil,
+            bundle: bundle,
+            autoLoad: false
+        )
+        panels[extensionPanel.id] = extensionPanel
+        panelTitles[extensionPanel.id] = extensionPanel.displayTitle
+
+        let newTab = Bonsplit.Tab(
+            title: extensionPanel.displayTitle,
+            icon: extensionPanel.displayIcon,
+            kind: SurfaceKind.extensionPane,
+            isDirty: extensionPanel.isDirty,
+            isLoading: extensionPanel.isLoading,
+            isPinned: false
+        )
+        surfaceIdToPanelId[newTab.id] = extensionPanel.id
+        let previousFocusedPanelId = focusedPanelId
+
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
+            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            panels.removeValue(forKey: extensionPanel.id)
+            panelTitles.removeValue(forKey: extensionPanel.id)
+            return nil
+        }
+        applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
+        extensionPanel.updatePaneId(newPaneId.id)
+        extensionPanel.loadBundleIfNeeded()
+        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: extensionPanel.id, kind: "extension", origin: "extension_split", focused: focus)
+
+        let previousHostedView = focusedTerminalPanel?.hostedView
+        if focus {
+            previousHostedView?.suppressReparentFocus()
+            focusPanel(extensionPanel.id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                previousHostedView?.clearSuppressReparentFocus()
+            }
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: extensionPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        installExtensionPanelSubscription(extensionPanel)
+        return extensionPanel
+    }
+
+    /// Create a new extension surface in the specified pane.
+    /// - Parameter focus: nil = focus only if the target pane is already focused (default UI behavior),
+    ///                    true = force focus/selection of the new surface,
+    ///                    false = never focus.
+    @discardableResult
+    func newExtensionSurface(
+        inPane paneId: PaneID,
+        bundle: ExtensionBundleDescriptor,
+        focus: Bool? = nil,
+        targetIndex: Int? = nil
+    ) -> ExtensionPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let extensionPanel = ExtensionPanel(
+            workspaceId: id,
+            paneId: paneId.id,
+            bundle: bundle
+        )
+        panels[extensionPanel.id] = extensionPanel
+        panelTitles[extensionPanel.id] = extensionPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: extensionPanel.displayTitle,
+            icon: extensionPanel.displayIcon,
+            kind: SurfaceKind.extensionPane,
+            isDirty: extensionPanel.isDirty,
+            isLoading: extensionPanel.isLoading,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: extensionPanel.id)
+            panelTitles.removeValue(forKey: extensionPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = extensionPanel.id
+        if let targetIndex {
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
+        publishCmuxSurfaceCreated(extensionPanel.id, paneId: paneId, kind: "extension", origin: "extension_tab", focused: shouldFocusNewTab)
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            extensionPanel.focus()
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: extensionPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        installExtensionPanelSubscription(extensionPanel)
+        return extensionPanel
+    }
+
     /// Open the markdown viewer for `filePath`, reusing an existing
     /// `MarkdownPanel` in this workspace that already shows the same file.
     /// Paths are compared after symlink resolution so `./README.md` and a
@@ -11107,6 +11339,10 @@ final class Workspace: Identifiable, ObservableObject {
                 remoteStatus: browserRemoteWorkspaceStatusSnapshot()
             )
             installBrowserPanelSubscription(browserPanel)
+        } else if let extensionPanel = detached.panel as? ExtensionPanel {
+            extensionPanel.updateWorkspaceId(id)
+            extensionPanel.updatePaneId(paneId.id)
+            installExtensionPanelSubscription(extensionPanel)
         }
         AppDelegate.shared?.notificationStore?.rebindSurfaceNotifications(
             fromTabId: detached.sourceWorkspaceId,
@@ -11132,6 +11368,10 @@ final class Workspace: Identifiable, ObservableObject {
         if let filePreviewPanel = detached.panel as? FilePreviewPanel,
            panelSubscriptions[filePreviewPanel.id] == nil {
             installFilePreviewPanelSubscription(filePreviewPanel)
+        }
+        if let extensionPanel = detached.panel as? ExtensionPanel,
+           panelSubscriptions[extensionPanel.id] == nil {
+            installExtensionPanelSubscription(extensionPanel)
         }
         let didAdoptWorkspaceRemoteTracking =
             detached.isRemoteTerminal

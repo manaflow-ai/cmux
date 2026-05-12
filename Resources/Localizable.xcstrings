@@ -28743,6 +28743,7 @@
         }
       }
     },
+    "commandPalette.kind.extension": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"translated","value":"امتداد"}},"bs":{"stringUnit":{"state":"translated","value":"Ekstenzija"}},"da":{"stringUnit":{"state":"translated","value":"Udvidelse"}},"de":{"stringUnit":{"state":"translated","value":"Erweiterung"}},"en":{"stringUnit":{"state":"translated","value":"Extension"}},"es":{"stringUnit":{"state":"translated","value":"Extensión"}},"fr":{"stringUnit":{"state":"translated","value":"Extension"}},"it":{"stringUnit":{"state":"translated","value":"Estensione"}},"ja":{"stringUnit":{"state":"translated","value":"拡張"}},"ko":{"stringUnit":{"state":"translated","value":"확장"}},"nb":{"stringUnit":{"state":"translated","value":"Utvidelse"}},"pl":{"stringUnit":{"state":"translated","value":"Rozszerzenie"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Extensão"}},"ru":{"stringUnit":{"state":"translated","value":"Расширение"}},"th":{"stringUnit":{"state":"translated","value":"ส่วนขยาย"}},"tr":{"stringUnit":{"state":"translated","value":"Uzantı"}},"uk":{"stringUnit":{"state":"translated","value":"Розширення"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"扩展"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"擴充功能"}}} },
     "commandPalette.kind.markdown": {
       "extractionState": "manual",
       "localizations": {
@@ -28801,6 +28802,7 @@
         }
       }
     },
+    "extensionPanel.defaultTitle": { "extractionState": "manual", "localizations": {"ar":{"stringUnit":{"state":"translated","value":"امتداد"}},"bs":{"stringUnit":{"state":"translated","value":"Ekstenzija"}},"da":{"stringUnit":{"state":"translated","value":"Udvidelse"}},"de":{"stringUnit":{"state":"translated","value":"Erweiterung"}},"en":{"stringUnit":{"state":"translated","value":"Extension"}},"es":{"stringUnit":{"state":"translated","value":"Extensión"}},"fr":{"stringUnit":{"state":"translated","value":"Extension"}},"it":{"stringUnit":{"state":"translated","value":"Estensione"}},"ja":{"stringUnit":{"state":"translated","value":"拡張"}},"ko":{"stringUnit":{"state":"translated","value":"확장"}},"nb":{"stringUnit":{"state":"translated","value":"Utvidelse"}},"pl":{"stringUnit":{"state":"translated","value":"Rozszerzenie"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Extensão"}},"ru":{"stringUnit":{"state":"translated","value":"Расширение"}},"th":{"stringUnit":{"state":"translated","value":"ส่วนขยาย"}},"tr":{"stringUnit":{"state":"translated","value":"Uzantı"}},"uk":{"stringUnit":{"state":"translated","value":"Розширення"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"扩展"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"擴充功能"}}} },
     "commandPalette.kind.workspace": {
       "extractionState": "manual",
       "localizations": {
