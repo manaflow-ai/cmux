@@ -189,8 +189,8 @@ final class TerminalViewportUITests: XCTestCase {
                 geometry.panelHeight > small.panelHeight + 120 &&
                 geometry.fillsAvailableViewport
         }, beforeEachPoll: {
-            writeViewportResizeRequest("1180x780", atPath: commandPath)
-            writeViewportResizeRequest("1180x780", atPath: dataPath)
+            self.writeViewportResizeRequest("1180x780", atPath: commandPath)
+            self.writeViewportResizeRequest("1180x780", atPath: dataPath)
         }) else {
             XCTFail("Timed out waiting for resized terminal viewport geometry. data=\(loadJSON(atPath: dataPath) ?? [:])")
             return
