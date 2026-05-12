@@ -17077,22 +17077,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 let existingContent: String = fm.fileExists(atPath: configPath)
                     ? ((try? String(contentsOfFile: configPath, encoding: .utf8)) ?? "")
                     : ""
-                let newContent: String
-                if existingContent.contains("codex_hooks") {
-                    // Replace existing value (might be false) with true
-                    newContent = existingContent.replacingOccurrences(
-                        of: "codex_hooks\\s*=\\s*\\w+",
-                        with: "codex_hooks = true",
-                        options: .regularExpression
-                    )
-                } else if existingContent.contains("[features]") {
-                    newContent = existingContent.replacingOccurrences(
-                        of: "[features]",
-                        with: "[features]\ncodex_hooks = true"
-                    )
-                } else {
-                    newContent = existingContent + "\n[features]\ncodex_hooks = true\n"
-                }
+                let newContent = Self.codexConfigTomlInstallingHooksFeature(in: existingContent)
                 if newContent != existingContent {
                     if !skipConfirm {
                         Self.printInstallPreview(
@@ -17108,7 +17093,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         }
                     }
                     try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
-                    print("Enabled codex_hooks in \(configPath)")
+                    print("Enabled hooks in \(configPath)")
                 }
             }
         }
@@ -17189,20 +17174,105 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             case .codexConfigToml:
                 let configPath = "\(configDir)/config.toml"
                 guard fm.fileExists(atPath: configPath),
-                      let content = try? String(contentsOfFile: configPath, encoding: .utf8),
-                      content.contains("codex_hooks") else { return }
-                // Remove the codex_hooks line
-                let newContent = content.replacingOccurrences(
-                    of: "\\n?codex_hooks\\s*=\\s*\\w+",
-                    with: "",
-                    options: .regularExpression
-                )
+                      let content = try? String(contentsOfFile: configPath, encoding: .utf8) else { return }
+                let newContent = Self.codexConfigTomlUninstallingHooksFeature(from: content)
                 if newContent != content {
                     try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
-                    print("Removed codex_hooks from \(configPath)")
+                    print("Removed hooks from \(configPath)")
                 }
             }
         }
+    }
+
+    private static func codexConfigTomlInstallingHooksFeature(in existingContent: String) -> String {
+        var lines = tomlLines(from: existingContent)
+        lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
+
+        if let featuresStart = lines.firstIndex(where: { tomlLineIsTable("features", line: $0) }) {
+            let featuresEnd = tomlTableEndIndex(in: lines, after: featuresStart)
+            if featuresStart + 1 < featuresEnd,
+               let hooksIndex = (featuresStart + 1..<featuresEnd)
+                .first(where: { tomlLineDefinesKey("hooks", line: lines[$0]) })
+            {
+                lines[hooksIndex] = "hooks = true"
+            } else {
+                lines.insert("hooks = true", at: featuresStart + 1)
+            }
+        } else {
+            if !lines.isEmpty, lines.last?.isEmpty == false {
+                lines.append("")
+            }
+            lines.append("[features]")
+            lines.append("hooks = true")
+        }
+
+        return tomlContent(from: lines)
+    }
+
+    private static func codexConfigTomlUninstallingHooksFeature(from existingContent: String) -> String {
+        var lines = tomlLines(from: existingContent)
+        lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
+
+        if let featuresStart = lines.firstIndex(where: { tomlLineIsTable("features", line: $0) }) {
+            let featuresEnd = tomlTableEndIndex(in: lines, after: featuresStart)
+            if featuresStart + 1 < featuresEnd {
+                for index in (featuresStart + 1..<featuresEnd).reversed()
+                    where tomlLineDefinesKey("hooks", line: lines[index])
+                {
+                    lines.remove(at: index)
+                }
+            }
+        }
+
+        return tomlContent(from: lines)
+    }
+
+    private static func tomlLines(from content: String) -> [String] {
+        guard !content.isEmpty else { return [] }
+        var lines = content.components(separatedBy: "\n")
+        if content.hasSuffix("\n"), lines.last == "" {
+            lines.removeLast()
+        }
+        return lines
+    }
+
+    private static func tomlContent(from lines: [String]) -> String {
+        guard !lines.isEmpty else { return "" }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private static func tomlLineDefinesKey(_ key: String, line: String) -> Bool {
+        let escapedKey = NSRegularExpression.escapedPattern(for: key)
+        return line.range(
+            of: #"^\s*"# + escapedKey + #"\s*="#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private static func tomlLineIsTable(_ name: String, line: String) -> Bool {
+        let escapedName = NSRegularExpression.escapedPattern(for: name)
+        return line.range(
+            of: #"^\s*\[\s*"# + escapedName + #"\s*\]\s*(#.*)?$"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private static func tomlLineIsAnyTableHeader(_ line: String) -> Bool {
+        line.range(
+            of: #"^\s*\[+[^]]+\]+\s*(#.*)?$"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private static func tomlTableEndIndex(in lines: [String], after tableStart: Int) -> Int {
+        var index = tableStart + 1
+        while index < lines.count {
+            if tomlLineIsAnyTableHeader(lines[index]) {
+                return index
+            }
+            index += 1
+        }
+        return lines.count
     }
 
     // MARK: Generic hook handler

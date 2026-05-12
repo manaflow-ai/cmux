@@ -524,8 +524,42 @@ def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -
             raise AssertionError(f"wrong {event_name} timeout: {groups[-1]!r}")
 
     config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
-    if "codex_hooks = true" not in config_toml:
-        raise AssertionError(f"codex_hooks feature was not enabled: {config_toml!r}")
+    if "hooks = true" not in config_toml:
+        raise AssertionError(f"hooks feature was not enabled: {config_toml!r}")
+    if "codex_hooks" in config_toml:
+        raise AssertionError(f"deprecated codex_hooks feature was written: {config_toml!r}")
+
+
+def test_install_migrates_legacy_codex_hooks_feature(cli_path: str, root: Path) -> None:
+    codex_home = root / "codex-home-legacy"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text(
+        "[features]\napps = true\ncodex_hooks = false\nhooks = false\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "install", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex install failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
+    if "codex_hooks" in config_toml:
+        raise AssertionError(f"deprecated codex_hooks feature was preserved: {config_toml!r}")
+    if "hooks = true" not in config_toml:
+        raise AssertionError(f"hooks feature was not enabled: {config_toml!r}")
+    if "apps = true" not in config_toml:
+        raise AssertionError(f"existing feature setting was not preserved: {config_toml!r}")
 
 
 def test_permission_reply_uses_codex_permission_request_schema(cli_path: str, root: Path) -> None:
