@@ -144,7 +144,7 @@ mkdir -p "node_modules/$package"
             return 1
 
         if run.returncode != 0:
-            print("FAIL: cmux omo wrote shadow config but did not reach fake opencode")
+            print("FAIL: cmux omo reached fake opencode but returned non-zero")
             print(f"exit={run.returncode}")
             print(f"stdout={run.stdout.strip()}")
             print(f"stderr={run.stderr.strip()}")
