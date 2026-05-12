@@ -4849,7 +4849,7 @@ enum PreferredEditorSettings {
         guard ["code", "code-insiders", "cursor", "cursor-insiders", "windsurf"].contains(commandName) else {
             return false
         }
-        let tokens = command.split(whereSeparator: \.isWhitespace).map(String.init)
+        let tokens = shellWords(command)
         return !tokens.contains("-g") && !tokens.contains("--goto")
     }
 
@@ -4863,20 +4863,28 @@ enum PreferredEditorSettings {
     }
 
     private static func firstShellWord(_ command: String) -> String? {
-        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+        shellWords(command).first
+    }
 
+    private static func shellWords(_ command: String) -> [String] {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        var words: [String] = []
         var output = ""
         var quote: Character?
         var escaping = false
+        var hasCurrentWord = false
         for character in trimmed {
             if escaping {
                 output.append(character)
                 escaping = false
+                hasCurrentWord = true
                 continue
             }
-            if character == "\\" {
+            if character == "\\", quote != "'" {
                 escaping = true
+                hasCurrentWord = true
                 continue
             }
             if let activeQuote = quote {
@@ -4885,18 +4893,32 @@ enum PreferredEditorSettings {
                 } else {
                     output.append(character)
                 }
+                hasCurrentWord = true
                 continue
             }
             if character == "'" || character == "\"" {
                 quote = character
+                hasCurrentWord = true
                 continue
             }
             if character.isWhitespace {
-                break
+                if hasCurrentWord {
+                    words.append(output)
+                    output = ""
+                    hasCurrentWord = false
+                }
+                continue
             }
             output.append(character)
+            hasCurrentWord = true
         }
-        return output.isEmpty ? nil : output
+        if escaping {
+            output.append("\\")
+        }
+        if hasCurrentWord {
+            words.append(output)
+        }
+        return words
     }
 
     private static func shellQuote(_ s: String) -> String {

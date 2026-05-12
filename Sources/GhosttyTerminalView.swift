@@ -1399,7 +1399,15 @@ private func cmuxResolvedTerminalWorkingDirectory(
     return dir.isEmpty ? nil : dir
 }
 
-enum TerminalOpenURLTarget: Equatable {
+private struct TerminalOpenURLActionContext: Sendable {
+    let urlString: String
+    let cwd: String?
+    let canResolveLocalFiles: Bool
+    let sourceWorkspaceId: UUID?
+    let sourcePanelId: UUID?
+}
+
+enum TerminalOpenURLTarget: Equatable, Sendable {
     case embeddedBrowser(URL)
     case external(URL)
 
@@ -4219,28 +4227,58 @@ class GhosttyApp {
         callbackTabId: UUID?,
         callbackSurfaceId: UUID?
     ) -> Bool {
-        let localFileResolutionContext: (cwd: String?, enabled: Bool) = {
+        let context: TerminalOpenURLActionContext = {
             guard let termSurface = surfaceView.terminalSurface,
-                  let workspace = termSurface.owningWorkspace(),
-                  !workspace.isRemoteTerminalSurface(termSurface.id) else {
-                return (nil, false)
+                  let workspace = termSurface.owningWorkspace() else {
+                return TerminalOpenURLActionContext(
+                    urlString: urlString,
+                    cwd: nil,
+                    canResolveLocalFiles: false,
+                    sourceWorkspaceId: callbackTabId ?? surfaceView.tabId,
+                    sourcePanelId: callbackSurfaceId ?? surfaceView.terminalSurface?.id
+                )
             }
-            return (
-                cmuxResolvedTerminalWorkingDirectory(workspace: workspace, terminalSurface: termSurface),
-                true
+            let canResolveLocalFiles = !workspace.isRemoteTerminalSurface(termSurface.id)
+            return TerminalOpenURLActionContext(
+                urlString: urlString,
+                cwd: canResolveLocalFiles
+                    ? cmuxResolvedTerminalWorkingDirectory(workspace: workspace, terminalSurface: termSurface)
+                    : nil,
+                canResolveLocalFiles: canResolveLocalFiles,
+                sourceWorkspaceId: callbackTabId ?? surfaceView.tabId,
+                sourcePanelId: callbackSurfaceId ?? termSurface.id
             )
         }()
+
+        Task.detached(priority: .userInitiated) { [context] in
+            let target = Self.resolveOpenURLActionTarget(context)
+            await MainActor.run {
+                _ = GhosttyApp.shared.handleResolvedOpenURLTarget(target, context: context)
+            }
+        }
+        return true
+    }
+
+    private static func resolveOpenURLActionTarget(_ context: TerminalOpenURLActionContext) -> TerminalOpenURLTarget? {
         let localFileExists: (String) -> Bool
-        if localFileResolutionContext.enabled {
+        if context.canResolveLocalFiles {
             localFileExists = { FileManager.default.fileExists(atPath: $0) }
         } else {
             localFileExists = { _ in false }
         }
-        guard let target = resolveTerminalOpenURLTarget(
-            urlString,
-            cwd: localFileResolutionContext.cwd,
+        return resolveTerminalOpenURLTarget(
+            context.urlString,
+            cwd: context.cwd,
             fileExists: localFileExists
-        ) else {
+        )
+    }
+
+    @MainActor
+    private func handleResolvedOpenURLTarget(
+        _ target: TerminalOpenURLTarget?,
+        context: TerminalOpenURLActionContext
+    ) -> Bool {
+        guard let target else {
             #if DEBUG
             cmuxDebugLog("link.openURL resolve failed")
             #endif
@@ -4261,9 +4299,12 @@ class GhosttyApp {
             let fileURL = target.url
             // Remote-surface guard runs before shouldRoute so we never stat a
             // local path for a remote workspace.
-            if let termSurface = surfaceView.terminalSurface,
-               let workspace = termSurface.owningWorkspace(),
-               !workspace.isRemoteTerminalSurface(termSurface.id),
+            if let sourcePanelId = context.sourcePanelId,
+               let workspace = AppDelegate.shared?.workspaceContainingPanel(
+                    panelId: sourcePanelId,
+                    preferredWorkspaceId: context.sourceWorkspaceId
+               )?.workspace,
+               !workspace.isRemoteTerminalSurface(sourcePanelId),
                CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path) {
                 // Defer the split creation. Ghostty's Surface.openUrl holds
                 // an internal os_unfair_lock when it dispatches into this
@@ -4283,8 +4324,8 @@ class GhosttyApp {
                 // asynchronously from C so the lock is always released before
                 // any Swift runs — tracked in #3560. Until that lands, do NOT
                 // remove this DispatchQueue.main.async.
-                let preferredWorkspaceId = workspace.id
-                let surfaceId = termSurface.id
+                let preferredWorkspaceId = context.sourceWorkspaceId ?? workspace.id
+                let surfaceId = sourcePanelId
                 DispatchQueue.main.async {
                     // Re-resolve workspace at dispatch time: tabs can move
                     // between workspaces in the runloop gap, so the captured
@@ -4361,8 +4402,8 @@ class GhosttyApp {
                 #endif
                 return NSWorkspace.shared.open(url)
             }
-            let sourceWorkspaceId = callbackTabId ?? surfaceView.tabId
-            let sourcePanelId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
+            let sourceWorkspaceId = context.sourceWorkspaceId
+            let sourcePanelId = context.sourcePanelId
             guard let sourceWorkspaceId,
                   let sourcePanelId else {
                 #if DEBUG
