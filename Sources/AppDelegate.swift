@@ -1141,6 +1141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installBrowserAddressBarFocusObservers()
         installShortcutMonitor()
         installShortcutDefaultsObserver()
+        GlobalSearchCoordinator.shared.start()
         SystemWideHotkeyController.shared.start()
         NSApp.servicesProvider = self
 
@@ -7170,6 +7171,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let store = TerminalNotificationStore.shared
         menuBarExtraController = MenuBarExtraController(
             notificationStore: store,
+            onShowGlobalSearch: { button in
+                GlobalSearchCoordinator.shared.togglePalette(anchor: button)
+            },
             onShowMainWindow: { [weak self] in
                 self?.showMainWindowFromMenuBar()
             },
@@ -7199,6 +7203,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 NSApp.terminate(nil)
             }
         )
+    }
+
+    func toggleGlobalSearchPaletteFromGlobalHotkey() {
+        guard let menuBarExtraController else {
+            NSSound.beep()
+            return
+        }
+        menuBarExtraController.toggleGlobalSearchPalette()
     }
 
     private func installMenuBarVisibilityObserver() {
@@ -10399,13 +10411,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func refreshConfiguredShortcutChordActions() {
         configuredShortcutChordActions = KeyboardShortcutSettings.Action.allCases.filter { action in
-            // showHideAllWindows is dispatched via Carbon RegisterEventHotKey
-            // (SystemWideHotkeyController) and never routed through AppKit's
-            // local key handler. If a managed cmux.json entry happened to
-            // store it as a chord, arming the prefix here would swallow the
-            // first stroke and leave the second one orphaned, breaking that
-            // keystroke for the focused terminal/browser input.
-            guard action != .showHideAllWindows else { return false }
+            // System-wide hotkeys are dispatched via Carbon RegisterEventHotKey
+            // and never routed through AppKit's local key handler. If a managed
+            // cmux.json entry somehow stores one as a chord, arming the prefix
+            // here would swallow the first stroke and leave the second one
+            // orphaned, breaking that keystroke for the focused terminal/browser
+            // input.
+            guard action != .showHideAllWindows && action != .globalSearch else { return false }
             return KeyboardShortcutSettings.shortcut(for: action).hasChord
         }
     }

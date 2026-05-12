@@ -72,6 +72,7 @@ final class MarkdownPanel: Panel, ObservableObject {
 
     func close() {
         isClosed = true
+        GlobalSearchCoordinator.shared.purgePanel(id: id)
         stopFileWatcher()
     }
 
@@ -88,6 +89,7 @@ final class MarkdownPanel: Panel, ObservableObject {
             let newContent = try String(contentsOfFile: filePath, encoding: .utf8)
             content = newContent
             isFileUnavailable = false
+            GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
         } catch {
             // Fallback: try ISO Latin-1, which accepts all 256 byte values,
             // covering legacy encodings like Windows-1252.
@@ -95,8 +97,10 @@ final class MarkdownPanel: Panel, ObservableObject {
                let decoded = String(data: data, encoding: .isoLatin1) {
                 content = decoded
                 isFileUnavailable = false
+                GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
             } else {
                 isFileUnavailable = true
+                GlobalSearchCoordinator.shared.purgePanel(id: id)
             }
         }
     }
