@@ -20,6 +20,7 @@ struct TerminalPanelView: View {
     let onTriggerFlash: () -> Void
     @State private var containerSize: CGSize = .zero
     @State private var sidekickResizeStartRatio: Double?
+    @State private var sidekickResizePreviewRatio: Double?
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -37,13 +38,14 @@ struct TerminalPanelView: View {
     @ViewBuilder
     private var content: some View {
         if panel.sidekickState.isOpen, let sidekickPanel = panel.sidekickBrowserPanel {
+            let splitRatio = sidekickResizePreviewRatio ?? panel.sidekickState.splitRatio
             let terminalWidth = TerminalSidekickLayout.terminalWidth(
                 totalWidth: containerSize.width,
-                splitRatio: panel.sidekickState.splitRatio
+                splitRatio: splitRatio
             )
             let sidekickWidth = TerminalSidekickLayout.sidekickWidth(
                 totalWidth: containerSize.width,
-                splitRatio: panel.sidekickState.splitRatio
+                splitRatio: splitRatio
             )
 
             HStack(spacing: 0) {
@@ -78,8 +80,26 @@ struct TerminalPanelView: View {
     }
 
     private func resizeSidekick(translationWidth: CGFloat) {
+        guard let resizedSplitRatio = resizedSidekickSplitRatio(translationWidth: translationWidth) else {
+            return
+        }
+        sidekickResizePreviewRatio = resizedSplitRatio
+    }
+
+    private func finishSidekickResize(translationWidth: CGFloat) {
+        if sidekickResizePreviewRatio == nil {
+            resizeSidekick(translationWidth: translationWidth)
+        }
+        if let sidekickResizePreviewRatio {
+            panel.setSidekickSplitRatio(sidekickResizePreviewRatio)
+        }
+        sidekickResizeStartRatio = nil
+        sidekickResizePreviewRatio = nil
+    }
+
+    private func resizedSidekickSplitRatio(translationWidth: CGFloat) -> Double? {
         let availableWidth = max(0, containerSize.width - TerminalSidekickLayout.dividerWidth)
-        guard availableWidth > 0 else { return }
+        guard availableWidth > 0 else { return nil }
 
         let startRatio = sidekickResizeStartRatio ?? panel.sidekickState.splitRatio
         if sidekickResizeStartRatio == nil {
@@ -88,11 +108,7 @@ struct TerminalPanelView: View {
 
         let startWidth = availableWidth * CGFloat(startRatio)
         let resizedWidth = startWidth - translationWidth
-        panel.setSidekickSplitRatio(Double(resizedWidth / availableWidth))
-    }
-
-    private func finishSidekickResize() {
-        sidekickResizeStartRatio = nil
+        return TerminalSidekickState.clampedSplitRatio(Double(resizedWidth / availableWidth))
     }
 
     private var terminalSurface: some View {
@@ -149,7 +165,7 @@ private enum TerminalSidekickLayout {
 private struct TerminalSidekickDivider: View {
     let color: Color
     let onDrag: (CGFloat) -> Void
-    let onEndDrag: () -> Void
+    let onEndDrag: (CGFloat) -> Void
 
     var body: some View {
         ZStack {
@@ -167,8 +183,8 @@ private struct TerminalSidekickDivider: View {
                 .onChanged { value in
                     onDrag(value.translation.width)
                 }
-                .onEnded { _ in
-                    onEndDrag()
+                .onEnded { value in
+                    onEndDrag(value.translation.width)
                 }
         )
         .accessibilityIdentifier("TerminalSidekickResizeDivider")
