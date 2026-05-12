@@ -14,6 +14,11 @@ struct SharedWindowGeometryHint: Codable, Sendable {
     let display: SessionDisplaySnapshot?
 }
 
+enum SharedWindowGeometryHintPersistence {
+    case update(fileURL: URL?)
+    case skipForIsolatedSnapshot
+}
+
 enum SharedWindowGeometryHintStore {
     static let schemaVersion = 1
     private static let defaultBundleIdentifier = "com.cmuxterm.app"

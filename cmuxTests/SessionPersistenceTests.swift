@@ -81,7 +81,13 @@ final class SessionPersistenceTests: XCTestCase {
         let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
         let snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
 
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        XCTAssertTrue(
+            SessionPersistenceStore.save(
+                snapshot,
+                fileURL: snapshotURL,
+                sharedWindowGeometryHint: .skipForIsolatedSnapshot
+            )
+        )
 
         let loaded = SessionPersistenceStore.load(fileURL: snapshotURL)
         XCTAssertNotNil(loaded)
@@ -121,7 +127,8 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(
             SessionPersistenceStore.save(
                 makeSnapshot(version: SessionSnapshotSchema.currentVersion),
-                fileURL: activeSnapshotURL
+                fileURL: activeSnapshotURL,
+                sharedWindowGeometryHint: .skipForIsolatedSnapshot
             )
         )
         XCTAssertNil(
@@ -133,7 +140,13 @@ final class SessionPersistenceTests: XCTestCase {
 
         var previousSnapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
         previousSnapshot.windows[0].sidebar.width = 321
-        XCTAssertTrue(SessionPersistenceStore.save(previousSnapshot, fileURL: previousSnapshotURL))
+        XCTAssertTrue(
+            SessionPersistenceStore.save(
+                previousSnapshot,
+                fileURL: previousSnapshotURL,
+                sharedWindowGeometryHint: .skipForIsolatedSnapshot
+            )
+        )
 
         let loaded = try XCTUnwrap(
             SessionPersistenceStore.loadReopenSessionSnapshot(
@@ -154,7 +167,13 @@ final class SessionPersistenceTests: XCTestCase {
         var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
         snapshot.windows[0].tabManager.workspaces[0].customColor = "#C0392B"
 
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        XCTAssertTrue(
+            SessionPersistenceStore.save(
+                snapshot,
+                fileURL: snapshotURL,
+                sharedWindowGeometryHint: .skipForIsolatedSnapshot
+            )
+        )
 
         let loaded = SessionPersistenceStore.load(fileURL: snapshotURL)
         XCTAssertEqual(
@@ -172,10 +191,22 @@ final class SessionPersistenceTests: XCTestCase {
         let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
         let snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
 
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        XCTAssertTrue(
+            SessionPersistenceStore.save(
+                snapshot,
+                fileURL: snapshotURL,
+                sharedWindowGeometryHint: .skipForIsolatedSnapshot
+            )
+        )
         let firstFileNumber = try fileNumber(for: snapshotURL)
 
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        XCTAssertTrue(
+            SessionPersistenceStore.save(
+                snapshot,
+                fileURL: snapshotURL,
+                sharedWindowGeometryHint: .skipForIsolatedSnapshot
+            )
+        )
         let secondFileNumber = try fileNumber(for: snapshotURL)
 
         XCTAssertEqual(
@@ -205,7 +236,13 @@ final class SessionPersistenceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
-        XCTAssertTrue(SessionPersistenceStore.save(makeSnapshot(version: SessionSnapshotSchema.currentVersion + 1), fileURL: snapshotURL))
+        XCTAssertTrue(
+            SessionPersistenceStore.save(
+                makeSnapshot(version: SessionSnapshotSchema.currentVersion + 1),
+                fileURL: snapshotURL,
+                sharedWindowGeometryHint: .skipForIsolatedSnapshot
+            )
+        )
 
         XCTAssertNil(SessionPersistenceStore.load(fileURL: snapshotURL))
     }

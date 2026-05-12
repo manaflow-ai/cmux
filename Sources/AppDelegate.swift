@@ -3264,7 +3264,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if let snapshot {
                 _ = SessionPersistenceStore.save(
                     snapshot,
-                    sharedWindowGeometryHintFileURL: SharedWindowGeometryHintStore.defaultFileURL(),
+                    sharedWindowGeometryHint: .update(fileURL: SharedWindowGeometryHintStore.defaultFileURL()),
                     writerBundleIdentifier: Bundle.main.bundleIdentifier
                 )
             } else if removeWhenEmpty {

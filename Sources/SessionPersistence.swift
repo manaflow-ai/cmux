@@ -334,7 +334,7 @@ enum SessionPersistenceStore {
     static func save(
         _ snapshot: AppSessionSnapshot,
         fileURL: URL? = nil,
-        sharedWindowGeometryHintFileURL: URL? = nil,
+        sharedWindowGeometryHint: SharedWindowGeometryHintPersistence,
         writerBundleIdentifier: String? = Bundle.main.bundleIdentifier
     ) -> Bool {
         guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return false }
@@ -343,26 +343,39 @@ enum SessionPersistenceStore {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
             let data = try encodedSnapshotData(snapshot)
             if let existingData = try? Data(contentsOf: fileURL), existingData == data {
-                if let sharedWindowGeometryHintFileURL {
-                    _ = SharedWindowGeometryHintStore.save(
-                        from: snapshot,
-                        fileURL: sharedWindowGeometryHintFileURL,
-                        writerBundleIdentifier: writerBundleIdentifier
-                    )
-                }
+                persistSharedWindowGeometryHint(
+                    from: snapshot,
+                    using: sharedWindowGeometryHint,
+                    writerBundleIdentifier: writerBundleIdentifier
+                )
                 return true
             }
             try data.write(to: fileURL, options: .atomic)
-            if let sharedWindowGeometryHintFileURL {
-                _ = SharedWindowGeometryHintStore.save(
-                    from: snapshot,
-                    fileURL: sharedWindowGeometryHintFileURL,
-                    writerBundleIdentifier: writerBundleIdentifier
-                )
-            }
+            persistSharedWindowGeometryHint(
+                from: snapshot,
+                using: sharedWindowGeometryHint,
+                writerBundleIdentifier: writerBundleIdentifier
+            )
             return true
         } catch {
             return false
+        }
+    }
+
+    private static func persistSharedWindowGeometryHint(
+        from snapshot: AppSessionSnapshot,
+        using persistence: SharedWindowGeometryHintPersistence,
+        writerBundleIdentifier: String?
+    ) {
+        switch persistence {
+        case .update(let fileURL):
+            _ = SharedWindowGeometryHintStore.save(
+                from: snapshot,
+                fileURL: fileURL,
+                writerBundleIdentifier: writerBundleIdentifier
+            )
+        case .skipForIsolatedSnapshot:
+            break
         }
     }
 

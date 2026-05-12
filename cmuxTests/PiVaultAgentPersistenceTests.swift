@@ -313,7 +313,13 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         ]
 
         let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        XCTAssertTrue(
+            SessionPersistenceStore.save(
+                snapshot,
+                fileURL: snapshotURL,
+                sharedWindowGeometryHint: .skipForIsolatedSnapshot
+            )
+        )
         let loadedAgent = try XCTUnwrap(
             SessionPersistenceStore.load(fileURL: snapshotURL)?.windows.first?
                 .tabManager.workspaces.first?.panels.first?.terminal?.agent

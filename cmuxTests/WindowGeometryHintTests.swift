@@ -223,7 +223,7 @@ final class WindowGeometryHintTests: XCTestCase {
             SessionPersistenceStore.save(
                 snapshot,
                 fileURL: snapshotURL,
-                sharedWindowGeometryHintFileURL: hintURL,
+                sharedWindowGeometryHint: .update(fileURL: hintURL),
                 writerBundleIdentifier: "com.cmuxterm.app.debug.writer"
             )
         )
