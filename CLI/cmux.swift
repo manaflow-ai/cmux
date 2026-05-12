@@ -366,6 +366,7 @@ struct NotificationInfo {
 }
 
 private struct ClaudeHookParsedInput {
+    let rawObject: [String: Any]?
     let object: [String: Any]?
     let rawFallback: String?
     let sessionId: String?
@@ -14416,8 +14417,10 @@ struct CMUXCLI {
 
         case "cron-create-guard":
             telemetry.breadcrumb("claude-hook.cron-create-guard")
-            didSendFeedTelemetry = true
-            print(claudeCronCreateGuardResponse(parsedInput.object))
+            let guardResponse = claudeCronCreateGuardResponse(parsedInput.rawObject)
+            didSendFeedTelemetry = guardResponse == "{}"
+            print(guardResponse)
+            fflush(stdout)
 
         case "pre-tool-use":
             telemetry.breadcrumb("claude-hook.pre-tool-use")
@@ -14836,7 +14839,7 @@ struct CMUXCLI {
                 normalizedSingleLine(redactClaudeSensitiveSpans(trimmed)),
                 maxLength: 180
             )
-            return ClaudeHookParsedInput(object: nil, rawFallback: fallback, sessionId: nil, turnId: nil, cwd: nil, transcriptPath: nil)
+            return ClaudeHookParsedInput(rawObject: nil, object: nil, rawFallback: fallback, sessionId: nil, turnId: nil, cwd: nil, transcriptPath: nil)
         }
 
         let sessionId = extractClaudeHookSessionId(from: object)
@@ -14845,6 +14848,7 @@ struct CMUXCLI {
         let transcriptPath = firstString(in: object, keys: ["transcript_path", "transcriptPath"])
         let compactObject = compactClaudeHookObject(object)
         return ClaudeHookParsedInput(
+            rawObject: object,
             object: compactObject,
             rawFallback: nil,
             sessionId: sessionId,
@@ -17975,7 +17979,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         switch sub {
         case "session-start", "active": return "SessionStart"
         case "prompt-submit": return "UserPromptSubmit"
-        case "pre-tool-use": return "PreToolUse"
+        case "pre-tool-use", "cron-create-guard": return "PreToolUse"
         case "post-tool-use": return "PostToolUse"
         case "stop", "idle": return "Stop"
         case "session-end": return "SessionEnd"
