@@ -98,6 +98,7 @@ Environment:
 | `list-panes` | List panes in a workspace. |
 | `list-pane-surfaces` | List surfaces in a pane. |
 | `tree` | Print a window, workspace, pane, and surface tree. |
+| `agent` | Low-latency Bash-callable JSON surface for agent pane reads, sends, lists, and batches. |
 | `focus-pane` | Focus a pane. |
 | `new-pane` | Create a pane with terminal or browser content. |
 | `new-surface` | Create a surface inside a pane. |
@@ -408,6 +409,7 @@ the expected text without connecting to a cmux socket.
 - `cmux reload-config --help` -> `Usage: cmux reload-config`
 - `cmux surface-health --help` -> `Usage: cmux surface-health`
 - `cmux debug-terminals --help` -> `Usage: cmux debug-terminals`
+- `cmux agent --help` -> `Usage: cmux agent`
 - `cmux trigger-flash --help` -> `Usage: cmux trigger-flash`
 - `cmux list-panels --help` -> `Usage: cmux list-panels`
 - `cmux focus-panel --help` -> `Usage: cmux focus-panel`
