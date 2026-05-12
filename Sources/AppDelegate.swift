@@ -6775,6 +6775,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return "\(Self.mainWindowFrameAutosaveNamePrefix).\(windowId.uuidString)"
     }
 
+    private func removeEphemeralMainWindowFrameAutosaveNameIfNeeded(_ window: NSWindow) {
+        let autosaveName = window.frameAutosaveName
+        guard !autosaveName.isEmpty,
+              autosaveName != Self.primaryMainWindowFrameAutosaveName,
+              autosaveName.hasPrefix("\(Self.mainWindowFrameAutosaveNamePrefix).") else {
+            return
+        }
+        NSWindow.removeFrame(usingName: autosaveName)
+    }
+
     @discardableResult
     func createMainWindow(
         initialWorkspaceTitle: String? = nil,
@@ -6902,7 +6912,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // a movable/resizable window. Empty titlebar drags are routed through
         // WindowDragHandleView instead of background dragging.
         window.isMovable = true
-        let appKitSavedFrameApplied = window.setFrameAutosaveName(frameAutosaveName)
+        let didRegisterFrameAutosaveName = window.setFrameAutosaveName(frameAutosaveName)
+        let appKitSavedFrameApplied = didRegisterFrameAutosaveName
             && restoredFrame == nil
             && sourceWindow == nil
             && window.setFrameUsingName(frameAutosaveName, force: true)
@@ -13390,6 +13401,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // window's position, matching upstream Ghostty behavior.
         let frame = window.frame
         lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
+
+        removeEphemeralMainWindowFrameAutosaveNameIfNeeded(window)
 
         guard let removed = unregisterMainWindowContext(for: window) else { return }
         publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")

@@ -242,6 +242,55 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testClosingSecondaryMainWindowRemovesEphemeralFrameAutosaveName() throws {
+        let previousShared = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousShared }
+        let defaults = UserDefaults.standard
+        let primaryFrameAutosaveName = AppDelegate.debugPrimaryMainWindowFrameAutosaveName
+        let primaryFrameAutosaveKey = appKitFrameAutosaveDefaultsKey(primaryFrameAutosaveName)
+        let previousPrimaryFrameAutosave = defaults.object(forKey: primaryFrameAutosaveKey)
+        NSWindow.removeFrame(usingName: primaryFrameAutosaveName)
+
+        let firstWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
+        let secondWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
+        defer {
+            closeWindow(withId: secondWindowId)
+            closeWindow(withId: firstWindowId)
+            restoreDefaultsValue(
+                previousPrimaryFrameAutosave,
+                forKey: primaryFrameAutosaveKey,
+                defaults: defaults
+            )
+        }
+
+        let secondWindow = try XCTUnwrap(window(withId: secondWindowId))
+        let secondaryFrameAutosaveName = secondWindow.frameAutosaveName
+        let secondaryFrameAutosaveKey = appKitFrameAutosaveDefaultsKey(secondaryFrameAutosaveName)
+        let previousSecondaryFrameAutosave = defaults.object(forKey: secondaryFrameAutosaveKey)
+        defer {
+            restoreDefaultsValue(
+                previousSecondaryFrameAutosave,
+                forKey: secondaryFrameAutosaveKey,
+                defaults: defaults
+            )
+        }
+
+        XCTAssertFalse(secondaryFrameAutosaveName.isEmpty)
+        XCTAssertNotEqual(secondaryFrameAutosaveName, primaryFrameAutosaveName)
+
+        NSWindow.removeFrame(usingName: secondaryFrameAutosaveName)
+        secondWindow.saveFrame(usingName: secondaryFrameAutosaveName)
+        XCTAssertNotNil(defaults.object(forKey: secondaryFrameAutosaveKey))
+
+        closeWindow(withId: secondWindowId)
+
+        XCTAssertNil(
+            defaults.object(forKey: secondaryFrameAutosaveKey),
+            "UUID-scoped autosave names are per-window and must be removed when the window closes."
+        )
+    }
+
     private func makeKeyDownEvent(
         key: String,
         keyCode: UInt16,
