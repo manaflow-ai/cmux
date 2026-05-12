@@ -411,7 +411,7 @@ class CmuxEventsStress:
                         except StressFailure:
                             if self.publisher_done.is_set():
                                 raise
-                            continue
+                            break
                         stats.line_count += 1
                         frame_type = frame.get("type")
                         if frame_type == "event":
