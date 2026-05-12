@@ -403,11 +403,13 @@ enum WindowGeometryResolver {
     private static func rectApproximatelyEqual(
         _ lhs: CGRect,
         _ rhs: CGRect,
-        tolerance: CGFloat = 0.5
+        tolerance: CGFloat = 1
     ) -> Bool {
-        abs(lhs.origin.x - rhs.origin.x) <= tolerance
-            && abs(lhs.origin.y - rhs.origin.y) <= tolerance
-            && abs(lhs.size.width - rhs.size.width) <= tolerance
-            && abs(lhs.size.height - rhs.size.height) <= tolerance
+        let lhsStd = lhs.standardized
+        let rhsStd = rhs.standardized
+        return abs(lhsStd.origin.x - rhsStd.origin.x) <= tolerance
+            && abs(lhsStd.origin.y - rhsStd.origin.y) <= tolerance
+            && abs(lhsStd.size.width - rhsStd.size.width) <= tolerance
+            && abs(lhsStd.size.height - rhsStd.size.height) <= tolerance
     }
 }
