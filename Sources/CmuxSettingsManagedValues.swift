@@ -32,13 +32,6 @@ struct ResolvedSettingsSnapshot: @unchecked Sendable {
             managedUserDefaults[key] = value
             managedUserDefaultSources[key] = fallback.managedUserDefaultSources[key]
         }
-        for (key, value) in fallback.editableUserDefaults where editableUserDefaults[key] == nil {
-            editableUserDefaults[key] = value
-            editableUserDefaultSources[key] = fallback.editableUserDefaultSources[key]
-        }
-        for (key, source) in fallback.editableUserDefaultSources where editableUserDefaultSources[key] == nil {
-            editableUserDefaultSources[key] = source
-        }
         if managedCustomSettings.socketPassword == nil,
            fallback.managedCustomSettings.socketPassword != nil {
             managedCustomSettingSources[CmuxSettingsFileStore.socketPasswordWriteBackIdentifier] =
@@ -243,7 +236,7 @@ struct ManagedCustomSettings: Equatable {
     }
 }
 
-enum ManagedSettingsValue: Equatable {
+enum ManagedSettingsValue: Codable, Equatable {
     case bool(Bool)
     case int(Int)
     case double(Double)

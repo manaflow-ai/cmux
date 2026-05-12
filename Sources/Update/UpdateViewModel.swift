@@ -29,14 +29,50 @@ class UpdateViewModel: ObservableObject {
     }
 
     func recordDetectedUpdate(_ item: SUAppcastItem) {
-        let version = Self.normalizedDetectedUpdateVersion(from: item.displayVersionString)
-        detectedUpdateItem = version == nil ? nil : item
-        detectedUpdateVersion = version
+        recordDetectedUpdateMetadata(item)
+    }
+
+    func recordAvailableUpdate(_ update: UpdateState.UpdateAvailable) {
+        recordDetectedUpdateMetadata(update.appcastItem)
+        state = .updateAvailable(update)
+        if let overrideState, case .updateAvailable = overrideState {
+            self.overrideState = .updateAvailable(update)
+        }
     }
 
     func clearDetectedUpdate() {
         detectedUpdateItem = nil
         detectedUpdateVersion = nil
+    }
+
+    func cancelActiveStateForNewCheck() {
+        state.cancel()
+        state = .idle
+        overrideState = nil
+    }
+
+    func dismissDetectedAvailableUpdate() {
+        clearDetectedUpdate()
+
+        var didDismissUpdate = false
+        if case .updateAvailable(let update) = state {
+            update.reply(.dismiss)
+            didDismissUpdate = true
+            state = .idle
+        }
+
+        if let overrideState, case .updateAvailable(let update) = overrideState {
+            if !didDismissUpdate {
+                update.reply(.dismiss)
+            }
+            self.overrideState = nil
+        }
+    }
+
+    private func recordDetectedUpdateMetadata(_ item: SUAppcastItem) {
+        let version = Self.normalizedDetectedUpdateVersion(from: item.displayVersionString)
+        detectedUpdateItem = version == nil ? nil : item
+        detectedUpdateVersion = version
     }
 
     var text: String {

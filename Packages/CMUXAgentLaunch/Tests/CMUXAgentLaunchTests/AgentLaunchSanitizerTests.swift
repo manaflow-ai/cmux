@@ -42,7 +42,7 @@ struct AgentLaunchSanitizerTests {
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [
                     "pi", "--session", "old-session", "--model", "anthropic/claude-sonnet-4-5",
-                    "--thinking", "high", "--api-key", "secret", "implement this"
+                    "--thinking", "high", "--api-key", "secret", "implement this",
                 ],
                 launcher: "pi",
                 fallbackKind: "pi"
@@ -56,13 +56,13 @@ struct AgentLaunchSanitizerTests {
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [
                     "pi", "--extension", "a.ts", "--extension", "b.ts",
-                    "--skill", "review", "--skill", "swift", "initial prompt"
+                    "--skill", "review", "--skill", "swift", "initial prompt",
                 ],
                 launcher: "pi",
                 fallbackKind: "pi"
             ) == [
                 "pi", "--extension", "a.ts", "--extension", "b.ts",
-                "--skill", "review", "--skill", "swift"
+                "--skill", "review", "--skill", "swift",
             ]
         )
     }
@@ -82,6 +82,92 @@ struct AgentLaunchSanitizerTests {
                 launcher: "pi",
                 fallbackKind: "pi"
             ) == nil
+        )
+    }
+
+    @Test("Preserves Hermes inherited flags without replaying startup-only input")
+    func preservesHermesInheritedFlagsWithoutReplayingStartupOnlyInput() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "hermes",
+                    "--profile",
+                    "work",
+                    "--tui",
+                    "--skills",
+                    "github-auth",
+                    "-s",
+                    "hermes-agent-dev",
+                    "--api-key",
+                    "secret",
+                    "--image",
+                    "/tmp/cat.png",
+                    "--worktree",
+                    "--resume",
+                    "old-session",
+                    "--source",
+                    "cli",
+                    "initial prompt should not replay",
+                ],
+                launcher: "hermes-agent",
+                fallbackKind: "hermes-agent"
+            ) == [
+                "hermes",
+                "--profile",
+                "work",
+                "--tui",
+                "--skills",
+                "github-auth",
+                "-s",
+                "hermes-agent-dev",
+            ]
+        )
+    }
+
+    @Test("Drops Hermes worktree value before preserving later options")
+    func dropsHermesWorktreeValueBeforePreservingLaterOptions() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["hermes", "--worktree", "/tmp/repo", "--model", "anthropic/claude-sonnet-4.6"],
+                launcher: "hermes-agent",
+                fallbackKind: "hermes-agent"
+            ) == ["hermes", "--model", "anthropic/claude-sonnet-4.6"]
+        )
+    }
+
+    @Test("Allows only Hermes chat or default session launch")
+    func allowsOnlyHermesChatOrDefaultSessionLaunch() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["hermes", "chat", "--tui", "--model", "anthropic/claude-sonnet-4.6", "initial prompt"],
+                launcher: "hermes-agent",
+                fallbackKind: "hermes-agent"
+            ) == ["hermes", "--tui", "--model", "anthropic/claude-sonnet-4.6"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["hermes", "fallback", "list"],
+                launcher: "hermes-agent",
+                fallbackKind: "hermes-agent"
+            ) == nil
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["hermes", "slack", "send"],
+                launcher: "hermes-agent",
+                fallbackKind: "hermes-agent"
+            ) == nil
+        )
+    }
+
+    @Test("Treats Hermes skills as single value options")
+    func treatsHermesSkillsAsSingleValueOptions() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["hermes", "--skills", "skill1", "skill2", "--model", "anthropic/claude-sonnet-4.6"],
+                launcher: "hermes-agent",
+                fallbackKind: "hermes-agent"
+            ) == ["hermes", "--skills", "skill1"]
         )
     }
 }

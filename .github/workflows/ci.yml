@@ -51,11 +51,20 @@ jobs:
       - name: Validate Swift file length budget guard
         run: ./tests/test_ci_swift_file_length_budget.sh
 
+      - name: Validate auxiliary window close shortcut lint
+        run: ./tests/test_ci_auxiliary_window_close_shortcuts.sh
+
       - name: Validate CircleCI auto approval
         run: python3 tests/test_circleci_auto_approve.py
 
-      - name: Validate Swift file length budget
-        run: python3 scripts/swift_file_length_budget.py --budget .github/swift-file-length-budget.tsv
+      # Paused: stale-base merge races (two PRs each fitting the budget can
+      # overshoot when merged back-to-back without rebasing). CodeRabbit and
+      # Greptile already flag large-file growth on PRs. Re-enable by uncommenting
+      # this step (and refresh the budget tsv first):
+      #   python3 scripts/swift_file_length_budget.py \
+      #     --budget .github/swift-file-length-budget.tsv --write-budget
+      # - name: Validate Swift file length budget
+      #   run: python3 scripts/swift_file_length_budget.py --budget .github/swift-file-length-budget.tsv
 
   remote-daemon-tests:
     runs-on: ubuntu-latest
