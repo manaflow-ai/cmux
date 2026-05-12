@@ -75,12 +75,17 @@ final class CmuxMainWindow: NSWindow {
     // the sidebar. AppKit's native proxy icon is positioned in the standard titlebar instead.
     override var representedURL: URL? {
         get { nil }
-        set { super.representedURL = nil }
+        set { clearNativeTitlebarProxyIcon() }
     }
 
     override var representedFilename: String {
         get { "" }
-        set { super.representedFilename = "" }
+        set { clearNativeTitlebarProxyIcon() }
+    }
+
+    private func clearNativeTitlebarProxyIcon() {
+        super.representedURL = nil
+        super.representedFilename = ""
     }
 
     func setSoftHiddenForVisibilityController(_ isSoftHidden: Bool) {
