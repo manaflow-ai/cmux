@@ -5341,10 +5341,10 @@ struct CMUXCLI {
             options.sshOptions,
             remoteRelayPort: options.remoteRelayPort
         )
-        let controlMaster = sshOptionValue(named: "ControlMaster", in: effectiveOptions)?
+        guard let controlMaster = sshOptionValue(named: "ControlMaster", in: effectiveOptions)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased() ?? "auto"
-        guard !["no", "false", "off"].contains(controlMaster),
+            .lowercased(),
+              !["no", "false", "off"].contains(controlMaster),
               let controlPath = sshOptionValue(named: "ControlPath", in: effectiveOptions)?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
               !controlPath.isEmpty,
@@ -5837,7 +5837,7 @@ struct CMUXCLI {
             "trap 'cmux_ssh_signal_exit 143' TERM",
             "while :; do",
         ]
-        if trimmedControlPathPreflight?.isEmpty == false {
+        if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
             scriptLines.append("  cmux_ssh_preflight_control_path")
         }
         if isShellSnippet {
