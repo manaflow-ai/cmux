@@ -17,6 +17,11 @@ extension Notification.Name {
 nonisolated private struct SocketLineProcessingResult: Sendable {
     let response: String
     let authenticated: Bool
+    let postResponseAction: SocketLinePostResponseAction?
+}
+
+nonisolated private enum SocketLinePostResponseAction: Sendable {
+    case reloadConfiguration(source: String)
 }
 
 /// Unix socket-based controller for programmatic terminal control
@@ -1990,10 +1995,11 @@ class TerminalController {
                 let result = processSocketLine(trimmed, authenticated: authenticated)
                 authenticated = result.authenticated
                 let didWriteResponse = writeSocketResponse(result.response, to: socket)
-                publishSocketEvents(command: trimmed, response: result.response)
                 guard didWriteResponse else {
                     return
                 }
+                publishSocketEvents(command: trimmed, response: result.response)
+                performPostResponseAction(result.postResponseAction)
             }
         }
     }
@@ -2006,15 +2012,37 @@ class TerminalController {
         if let response = authResponseIfNeeded(for: command, authenticated: &nextAuthenticated) {
             return SocketLineProcessingResult(
                 response: response,
-                authenticated: nextAuthenticated
+                authenticated: nextAuthenticated,
+                postResponseAction: nil
             )
         }
 
         let response = processCommandUsingSocketExecutionPolicy(command)
         return SocketLineProcessingResult(
             response: response,
-            authenticated: nextAuthenticated
+            authenticated: nextAuthenticated,
+            postResponseAction: postResponseAction(for: command, response: response)
         )
+    }
+
+    private nonisolated func postResponseAction(
+        for command: String,
+        response: String
+    ) -> SocketLinePostResponseAction? {
+        guard response.hasPrefix("OK") else { return nil }
+        let normalized = command.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard normalized == "reload_config" else { return nil }
+        return .reloadConfiguration(source: "socket.reload_config")
+    }
+
+    private nonisolated func performPostResponseAction(_ action: SocketLinePostResponseAction?) {
+        guard let action else { return }
+        switch action {
+        case .reloadConfiguration(let source):
+            v2MainSync {
+                Self.performSocketReloadConfiguration(source: source)
+            }
+        }
     }
 
     private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String {
@@ -2048,7 +2076,9 @@ class TerminalController {
     /// request) can reuse the full V1/V2 dispatcher without duplicating
     /// its auth/policy wrappers.
     nonisolated func handleSocketLine(_ line: String) -> String {
-        return processCommandUsingSocketExecutionPolicy(line)
+        let response = processCommandUsingSocketExecutionPolicy(line)
+        performPostResponseAction(postResponseAction(for: line, response: response))
+        return response
     }
 
     private func processCommand(_ command: String) -> String {
@@ -17382,9 +17412,6 @@ class TerminalController {
             return "ERROR: Usage: reload_config"
         }
 
-        v2MainSync {
-            Self.performSocketReloadConfiguration(source: "socket.reload_config")
-        }
         return "OK Reloaded config"
     }
 
