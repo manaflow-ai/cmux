@@ -511,7 +511,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertEqual(TerminalTermSettings.configuredTerm(defaults: defaults), "xterm-ghostty")
+        XCTAssertEqual(TerminalTermSettings.rawConfiguredTerm(defaults: defaults), "xterm-ghostty")
         XCTAssertEqual(defaults.object(forKey: key) as? String, "xterm-ghostty")
     }
 

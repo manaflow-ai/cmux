@@ -112,8 +112,8 @@ enum TerminalScrollBarSettings {
 enum TerminalTermSettings {
     static let termKey = "terminal.term"
 
-    static func configuredTerm(defaults: UserDefaults = .standard) -> String? {
-        TerminalSurface.normalizedTerminalType(defaults.string(forKey: termKey))
+    static func rawConfiguredTerm(defaults: UserDefaults = .standard) -> String? {
+        defaults.string(forKey: termKey)
     }
 }
 

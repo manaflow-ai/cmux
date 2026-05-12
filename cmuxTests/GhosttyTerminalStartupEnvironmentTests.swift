@@ -32,7 +32,7 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
 
     func testApplyManagedTerminalIdentityEnvironmentHonorsConfiguredTerminalType() {
         var environment = [
-            "TERM": "xterm-ghostty"
+            "TERM": TerminalSurface.managedTerminalType
         ]
         var protectedKeys: Set<String> = []
 
