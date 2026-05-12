@@ -132,6 +132,40 @@ final class WindowAccessorTests: XCTestCase {
 }
 
 @MainActor
+final class CmuxMainWindowTitlebarProxyIconTests: XCTestCase {
+    func testMainWindowSuppressesNativeRepresentedURLProxyIcon() {
+        _ = NSApplication.shared
+        let window = CmuxMainWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+
+        let workspaceDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        window.representedURL = workspaceDirectory
+
+        XCTAssertNil(
+            window.representedURL,
+            "cmux main windows render the workspace folder icon inside the custom titlebar, so AppKit must not keep a native proxy icon at an independent titlebar position."
+        )
+        XCTAssertTrue(
+            window.representedFilename.isEmpty,
+            "Clearing the native proxy URL should also leave the legacy represented filename empty."
+        )
+
+        window.representedFilename = workspaceDirectory.path
+
+        XCTAssertTrue(
+            window.representedFilename.isEmpty,
+            "cmux main windows must also reject the legacy represented filename proxy icon path."
+        )
+        XCTAssertNil(window.representedURL)
+    }
+}
+
+@MainActor
 final class MainWindowFocusRedrawTests: XCTestCase {
     func testKeyRegainInvalidatesContentWhenPointerIsOverSidebarDivider() {
         _ = NSApplication.shared
