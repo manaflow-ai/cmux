@@ -6943,7 +6943,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let startX = min(1, xMax)
         let endX = xMax
 
-        let mods = ghostty_input_mods_e(rawValue: GHOSTTY_MODS_NONE.rawValue) ?? GHOSTTY_MODS_NONE
+        let mods = GHOSTTY_MODS_NONE
         ghostty_surface_mouse_pos(surface, startX, startY, mods)
         guard ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods) else {
             return false
@@ -7086,7 +7086,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let resetX = clickX > max(cellSize.width * 2, 2) ? 0 : max(bounds.width - 1, 0)
         let resetY = clickY > max(cellSize.height * 2, 2) ? 0 : max(bounds.height - 1, 0)
 
-        let mods = ghostty_input_mods_e(rawValue: GHOSTTY_MODS_NONE.rawValue) ?? GHOSTTY_MODS_NONE
+        let mods = GHOSTTY_MODS_NONE
         _ = ghostty_surface_clear_selection_compat(surface)
 
         // Force Ghostty's multi-click state to restart before issuing the triple
