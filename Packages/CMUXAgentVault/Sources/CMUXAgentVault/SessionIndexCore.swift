@@ -126,6 +126,7 @@ public enum SessionIndexCore {
     /// under `root`, restricted to `fileGlob` (for example, `*.jsonl`). Returns
     /// matched file URLs, or nil if rg is unavailable or failed so callers can
     /// fall back to Foundation scanning.
+    @concurrent
     public static func ripgrepMatchingPaths(
         needle: String,
         root: String,
