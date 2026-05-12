@@ -1802,7 +1802,7 @@ private final class FilePreviewPDFChromeNotificationFlag: @unchecked Sendable {
 @MainActor
 final class FilePreviewPDFChromeTests: XCTestCase {
     func testChromeHostsAcceptFirstMouse() {
-        let settingsKey = "paneFirstClickFocus.enabled"
+        let settingsKey = PaneFirstClickFocusSettings.enabledKey
         let previousValue = UserDefaults.standard.object(forKey: settingsKey)
         defer {
             if let previousValue {
