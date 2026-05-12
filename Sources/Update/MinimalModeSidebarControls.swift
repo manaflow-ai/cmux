@@ -143,7 +143,7 @@ final class MinimalModeSidebarControlActionView: NSView {
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        true
+        PaneFirstClickFocusSettings.isEnabled()
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
