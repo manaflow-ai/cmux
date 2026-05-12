@@ -387,6 +387,12 @@
           "default": "vertical",
           "description": "Show git branch details stacked vertically or inline."
         },
+        "position": {
+          "type": "string",
+          "enum": ["left", "right"],
+          "default": "left",
+          "description": "Place the workspace sidebar on the left or right side of the window."
+        },
         "showNotificationMessage": {
           "type": "boolean",
           "default": true,

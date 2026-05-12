@@ -1574,6 +1574,54 @@ struct ContentView: View {
     private static let maximumRightSidebarWidth: CGFloat = 1200
     private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
 
+    static func workspaceSidebarResizeEdge(for position: WorkspaceSidebarPosition) -> SidebarResizeInteraction.Edge {
+        switch position {
+        case .left:
+            return .leading
+        case .right:
+            return .trailing
+        }
+    }
+
+    static func workspaceSidebarWidthDelta(translation: CGFloat, position: WorkspaceSidebarPosition) -> CGFloat {
+        switch position {
+        case .left:
+            return translation
+        case .right:
+            return -translation
+        }
+    }
+
+    static func workspaceSidebarDividerX(
+        totalWidth: CGFloat,
+        sidebarWidth: CGFloat,
+        position: WorkspaceSidebarPosition
+    ) -> CGFloat {
+        let sanitizedTotalWidth = max(0, totalWidth.isFinite ? totalWidth : 0)
+        let sanitizedSidebarWidth = min(max(0, sidebarWidth.isFinite ? sidebarWidth : 0), sanitizedTotalWidth)
+        switch position {
+        case .left:
+            return sanitizedSidebarWidth
+        case .right:
+            return sanitizedTotalWidth - sanitizedSidebarWidth
+        }
+    }
+
+    static func rightSidebarDividerX(
+        totalWidth: CGFloat,
+        rightSidebarWidth: CGFloat,
+        workspaceSidebarWidth: CGFloat,
+        workspaceSidebarVisible: Bool,
+        workspaceSidebarPosition: WorkspaceSidebarPosition
+    ) -> CGFloat {
+        let sanitizedTotalWidth = max(0, totalWidth.isFinite ? totalWidth : 0)
+        let sanitizedRightSidebarWidth = max(0, rightSidebarWidth.isFinite ? rightSidebarWidth : 0)
+        let reservedWorkspaceSidebarWidth = workspaceSidebarVisible && workspaceSidebarPosition == .right
+            ? max(0, workspaceSidebarWidth.isFinite ? workspaceSidebarWidth : 0)
+            : 0
+        return max(0, sanitizedTotalWidth - reservedWorkspaceSidebarWidth - sanitizedRightSidebarWidth)
+    }
+
     private enum SidebarResizerHandle: Hashable {
         case divider
         case explorerDivider
@@ -1593,8 +1641,12 @@ struct ContentView: View {
                 captureStart: { sidebarDragStartWidth = sidebarWidth },
                 updateWidth: { translation in
                     let startWidth = sidebarDragStartWidth ?? sidebarWidth
+                    let widthDelta = Self.workspaceSidebarWidthDelta(
+                        translation: translation,
+                        position: workspaceSidebarPosition
+                    )
                     let nextWidth = Self.clampedSidebarWidth(
-                        startWidth + translation,
+                        startWidth + widthDelta,
                         maximumWidth: maxSidebarWidth(availableWidth: availableWidth)
                     )
                     withTransaction(Transaction(animation: nil)) {
@@ -1751,12 +1803,27 @@ struct ContentView: View {
 
     private func dividerBandContains(pointInContent point: NSPoint, contentBounds: NSRect) -> Bool {
         guard point.y >= contentBounds.minY, point.y <= contentBounds.maxY else { return false }
-        if sidebarState.isVisible,
-           SidebarResizeInteraction.Edge.leading.hitRange(dividerX: sidebarWidth).contains(point.x) {
-            return true
+        let totalWidth = max(0, contentBounds.width)
+        if sidebarState.isVisible {
+            let workspaceDividerX = contentBounds.minX + Self.workspaceSidebarDividerX(
+                totalWidth: totalWidth,
+                sidebarWidth: sidebarWidth,
+                position: workspaceSidebarPosition
+            )
+            if Self.workspaceSidebarResizeEdge(for: workspaceSidebarPosition)
+                .hitRange(dividerX: workspaceDividerX)
+                .contains(point.x) {
+                return true
+            }
         }
 
-        let rightDividerX = contentBounds.maxX - rightSidebarWidth
+        let rightDividerX = contentBounds.minX + Self.rightSidebarDividerX(
+            totalWidth: totalWidth,
+            rightSidebarWidth: rightSidebarWidth,
+            workspaceSidebarWidth: sidebarWidth,
+            workspaceSidebarVisible: sidebarState.isVisible,
+            workspaceSidebarPosition: workspaceSidebarPosition
+        )
         return rightSidebarVisible &&
             SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: rightDividerX).contains(point.x)
     }
@@ -1959,20 +2026,36 @@ struct ContentView: View {
     }
 
     private var sidebarResizerOverlay: some View {
+        let position = workspaceSidebarPosition
         placedSidebarResizerOverlay(
             handle: .divider,
-            edge: .leading,
+            edge: Self.workspaceSidebarResizeEdge(for: position),
             accessibilityIdentifier: "SidebarResizer",
-            dividerX: { totalWidth in min(max(sidebarWidth, 0), totalWidth) }
+            dividerX: { totalWidth in
+                Self.workspaceSidebarDividerX(
+                    totalWidth: totalWidth,
+                    sidebarWidth: sidebarWidth,
+                    position: position
+                )
+            }
         )
     }
 
     private var rightSidebarResizerOverlay: some View {
+        let position = workspaceSidebarPosition
         placedSidebarResizerOverlay(
             handle: .explorerDivider,
             edge: .trailing,
             accessibilityIdentifier: "RightSidebarResizer",
-            dividerX: { totalWidth in totalWidth - rightSidebarWidth }
+            dividerX: { totalWidth in
+                Self.rightSidebarDividerX(
+                    totalWidth: totalWidth,
+                    rightSidebarWidth: rightSidebarWidth,
+                    workspaceSidebarWidth: sidebarWidth,
+                    workspaceSidebarVisible: sidebarState.isVisible,
+                    workspaceSidebarPosition: position
+                )
+            }
         )
     }
 
@@ -1990,7 +2073,8 @@ struct ContentView: View {
             },
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds,
-            lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+            workspaceSidebarPosition: workspaceSidebarPosition
         )
         .frame(width: sidebarWidth)
         .frame(maxHeight: .infinity, alignment: .topLeading)
@@ -2145,7 +2229,9 @@ struct ContentView: View {
     }
 
     private func sidebarPanelWithBackdrop(appearance: WindowAppearanceSnapshot) -> some View {
-        sidebarPanelContainer(width: sidebarWidth, alignment: .leading, role: .leftSidebar, appearance: appearance) {
+        let alignment: Alignment = workspaceSidebarPosition == .right ? .trailing : .leading
+        let role: WindowBackdropRole = workspaceSidebarPosition == .right ? .rightSidebar : .leftSidebar
+        return sidebarPanelContainer(width: sidebarWidth, alignment: alignment, role: role, appearance: appearance) {
             sidebarView
         }
     }
@@ -2219,6 +2305,8 @@ struct ContentView: View {
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
     @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.sidebar.rawValue
     @AppStorage("sidebarState") private var sidebarStateSetting = SidebarStateOption.followWindow.rawValue
+    @AppStorage(WorkspaceSidebarPositionSettings.key)
+    private var workspaceSidebarPositionRaw = WorkspaceSidebarPositionSettings.defaultPosition.rawValue
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
     @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
 
@@ -2228,6 +2316,27 @@ struct ContentView: View {
     @AppStorage("bgGlassEnabled") private var bgGlassEnabled = false
     @State private var titlebarLeadingInset: CGFloat = 12
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
+
+    private var workspaceSidebarPosition: WorkspaceSidebarPosition {
+        WorkspaceSidebarPositionSettings.position(for: workspaceSidebarPositionRaw)
+    }
+
+    private var workspaceSidebarIsOnLeadingEdge: Bool {
+        sidebarState.isVisible && workspaceSidebarPosition == .left
+    }
+
+    private var workspaceSidebarOverlayAlignment: Alignment {
+        workspaceSidebarPosition == .right ? .trailing : .leading
+    }
+
+    private var workspaceSidebarTopAlignment: Alignment {
+        workspaceSidebarPosition == .right ? .topTrailing : .topLeading
+    }
+
+    private var workspaceSidebarEdge: Edge.Set {
+        workspaceSidebarPosition == .right ? .trailing : .leading
+    }
+
     private var windowAppearanceSnapshot: WindowAppearanceSnapshot {
         _ = titlebarThemeGeneration
         return WindowAppearanceSnapshot.current(
@@ -2316,7 +2425,7 @@ struct ContentView: View {
             }
             .frame(height: titlebarContentHeight)
             .padding(.top, 2)
-            .padding(.leading, (isFullScreen && !sidebarState.isVisible) ? 8 : (sidebarState.isVisible ? 12 : titlebarLeadingInset))
+            .padding(.leading, (isFullScreen && !sidebarState.isVisible) ? 8 : (workspaceSidebarIsOnLeadingEdge ? 12 : titlebarLeadingInset))
             .padding(.trailing, 8)
         }
         .frame(height: WindowChromeMetrics.appTitlebarHeight)
@@ -2329,7 +2438,7 @@ struct ContentView: View {
     }
 
     private func syncTrafficLightInset() {
-        let inset: CGFloat = (isMinimalMode && !sidebarState.isVisible && !isFullScreen)
+        let inset: CGFloat = (isMinimalMode && !workspaceSidebarIsOnLeadingEdge && !isFullScreen)
             ? MinimalModeTitlebarDebugSettings.trafficLightTabBarLeadingInset()
             : 0
         tabManager.syncWorkspaceTabBarLeadingInset(inset)
@@ -2562,24 +2671,34 @@ struct ContentView: View {
 
     private func contentAndSidebarLayout(appearance: WindowAppearanceSnapshot) -> AnyView {
         let layout: AnyView
+        let sidebarIsVisible = sidebarState.isVisible
+        let sidebarPosition = workspaceSidebarPosition
         // When matching terminal background, use HStack so both sidebar and terminal
         // sit directly on the window background with no intermediate layers.
         let useWithinWindow = sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue
             && !sidebarMatchTerminalBackground
         if useWithinWindow {
-            // Overlay mode keeps the left sidebar on top, but the right
-            // sidebar stays in an HStack so terminal rows are clipped before
-            // the sidebar backdrop samples the window.
+            // Overlay mode keeps the workspace sidebar on top, but reserves its
+            // edge so portal-hosted terminal rows are never rendered underneath it.
             layout = AnyView(
-                ZStack(alignment: .leading) {
+                ZStack(alignment: workspaceSidebarOverlayAlignment) {
                     HStack(spacing: 0) {
+                        if sidebarIsVisible && sidebarPosition == .left {
+                            Color.clear
+                                .frame(width: sidebarWidth)
+                                .allowsHitTesting(false)
+                        }
                         terminalContentWithSidebarDropOverlay(appearance: appearance)
-                            .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .layoutPriority(1)
                         rightSidebarPanelWithBackdrop(appearance: appearance)
+                        if sidebarIsVisible && sidebarPosition == .right {
+                            Color.clear
+                                .frame(width: sidebarWidth)
+                                .allowsHitTesting(false)
+                        }
                     }
-                    if sidebarState.isVisible {
+                    if sidebarIsVisible {
                         sidebarPanelWithBackdrop(appearance: appearance)
                     }
                 }
@@ -2588,10 +2707,13 @@ struct ContentView: View {
             // Standard HStack mode for behindWindow blur
             layout = AnyView(
                 HStack(spacing: 0) {
-                    if sidebarState.isVisible {
+                    if sidebarIsVisible && sidebarPosition == .left {
                         sidebarPanelWithBackdrop(appearance: appearance)
                     }
                     terminalContentWithRightSidebarPanel(appearance: appearance)
+                    if sidebarIsVisible && sidebarPosition == .right {
+                        sidebarPanelWithBackdrop(appearance: appearance)
+                    }
                 }
             )
         }
@@ -2599,7 +2721,7 @@ struct ContentView: View {
         return AnyView(
             layout
                 .overlay(alignment: .leading) {
-                    if sidebarState.isVisible {
+                    if sidebarIsVisible {
                         sidebarResizerOverlay
                             .zIndex(1000)
                     }
@@ -2624,10 +2746,10 @@ struct ContentView: View {
                 contentAndSidebarLayout(appearance: appearance)
             }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .overlay(alignment: .topLeading) {
+                .overlay(alignment: workspaceSidebarTopAlignment) {
                     if isFullScreen && sidebarState.isVisible && !isMinimalMode {
                         fullscreenControls
-                            .padding(.leading, 10)
+                            .padding(workspaceSidebarEdge, 10)
                             .padding(.top, 4)
                     }
                 }
@@ -3137,6 +3259,15 @@ struct ContentView: View {
 
         view = AnyView(view.onChange(of: sidebarState.isVisible) { isVisible in
             setMinimalModeSidebarTitlebarControlsAvailable(isVisible, in: observedWindow)
+            if let observedWindow {
+                AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
+            }
+            schedulePortalGeometrySynchronize()
+            updateSidebarResizerBandState()
+            syncTrafficLightInset()
+        })
+
+        view = AnyView(view.onChange(of: workspaceSidebarPositionRaw) { _ in
             if let observedWindow {
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
             }
@@ -9034,6 +9165,7 @@ struct VerticalTabsSidebar: View {
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
+    var workspaceSidebarPosition = WorkspaceSidebarPositionSettings.defaultPosition
     @State private var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject private var dragAutoScrollController = SidebarDragAutoScrollController()
     @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
@@ -9177,7 +9309,7 @@ struct VerticalTabsSidebar: View {
         }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
-        .overlay(alignment: .trailing) {
+        .overlay(alignment: workspaceSidebarPosition == .right ? .leading : .trailing) {
             SidebarTrailingBorder()
         }
         .background(

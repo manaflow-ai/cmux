@@ -86,6 +86,54 @@ enum SidebarBranchLayoutSettings {
     }
 }
 
+enum WorkspaceSidebarPosition: String, CaseIterable, Identifiable {
+    case left
+    case right
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .left:
+            return String(localized: "settings.app.sidebarPosition.left", defaultValue: "Left")
+        case .right:
+            return String(localized: "settings.app.sidebarPosition.right", defaultValue: "Right")
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .left:
+            return String(
+                localized: "settings.app.sidebarPosition.subtitleLeft",
+                defaultValue: "Workspace tabs stay on the left side of the window."
+            )
+        case .right:
+            return String(
+                localized: "settings.app.sidebarPosition.subtitleRight",
+                defaultValue: "Workspace tabs move to the right side of the window."
+            )
+        }
+    }
+}
+
+enum WorkspaceSidebarPositionSettings {
+    static let key = "workspaceSidebarPosition"
+    static let defaultPosition: WorkspaceSidebarPosition = .left
+
+    static func position(for rawValue: String?) -> WorkspaceSidebarPosition {
+        guard let rawValue,
+              let position = WorkspaceSidebarPosition(rawValue: rawValue) else {
+            return defaultPosition
+        }
+        return position
+    }
+
+    static func current(defaults: UserDefaults = .standard) -> WorkspaceSidebarPosition {
+        position(for: defaults.string(forKey: key))
+    }
+}
+
 enum SidebarWorkspaceDetailSettings {
     static let hideAllDetailsKey = "sidebarHideAllDetails"
     static let showNotificationMessageKey = "sidebarShowNotificationMessage"

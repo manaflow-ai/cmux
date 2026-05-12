@@ -5022,6 +5022,8 @@ struct SettingsView: View {
     @AppStorage(SidebarWorkspaceDetailSettings.showNotificationMessageKey)
     private var sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
+    @AppStorage(WorkspaceSidebarPositionSettings.key)
+    private var workspaceSidebarPositionRaw = WorkspaceSidebarPositionSettings.defaultPosition.rawValue
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
     @AppStorage("sidebarSelectionColorHex") private var sidebarSelectionColorHex: String?
@@ -5167,10 +5169,21 @@ struct SettingsView: View {
         SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
     }
 
+    private var selectedWorkspaceSidebarPosition: WorkspaceSidebarPosition {
+        WorkspaceSidebarPositionSettings.position(for: workspaceSidebarPositionRaw)
+    }
+
     private var sidebarIndicatorStyleSelection: Binding<String> {
         Binding(
             get: { selectedSidebarActiveTabIndicatorStyle.rawValue },
             set: { sidebarActiveTabIndicatorStyle = $0 }
+        )
+    }
+
+    private var workspaceSidebarPositionSelection: Binding<String> {
+        Binding(
+            get: { selectedWorkspaceSidebarPosition.rawValue },
+            set: { workspaceSidebarPositionRaw = WorkspaceSidebarPositionSettings.position(for: $0).rawValue }
         )
     }
 
@@ -6166,6 +6179,20 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .toggleStyle(.switch)
                                 .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsPickerRow(
+                            configurationReview: .json("sidebar.position"),
+                            String(localized: "settings.app.sidebarPosition", defaultValue: "Sidebar Position"),
+                            subtitle: selectedWorkspaceSidebarPosition.description,
+                            controlWidth: pickerColumnWidth,
+                            selection: workspaceSidebarPositionSelection
+                        ) {
+                            ForEach(WorkspaceSidebarPosition.allCases) { position in
+                                Text(position.displayName).tag(position.rawValue)
+                            }
                         }
 
                         SettingsCardDivider()
@@ -7258,6 +7285,7 @@ struct SettingsView: View {
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
+        workspaceSidebarPositionRaw = WorkspaceSidebarPositionSettings.defaultPosition.rawValue
         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
         sidebarSelectionColorHex = nil
         sidebarNotificationBadgeColorHex = nil

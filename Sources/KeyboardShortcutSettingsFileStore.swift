@@ -482,6 +482,13 @@ final class CmuxSettingsFileStore {
                 logInvalid("sidebar.branchLayout", sourcePath: sourcePath)
             }
         }
+        if let raw = jsonString(section["position"]) {
+            if let position = WorkspaceSidebarPosition(rawValue: raw) {
+                snapshot.managedUserDefaults[WorkspaceSidebarPositionSettings.key] = .string(position.rawValue)
+            } else {
+                logInvalid("sidebar.position", sourcePath: sourcePath)
+            }
+        }
         if let value = jsonBool(section["showNotificationMessage"]) {
             snapshot.managedUserDefaults[SidebarWorkspaceDetailSettings.showNotificationMessageKey] = .bool(value)
         }

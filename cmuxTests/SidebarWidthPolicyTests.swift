@@ -62,6 +62,65 @@ final class SidebarWidthPolicyTests: XCTestCase {
         XCTAssertFalse(range.contains(675.9))
         XCTAssertFalse(range.contains(686.1))
     }
+
+    func testWorkspaceSidebarResizeEdgeTracksPosition() {
+        XCTAssertEqual(ContentView.workspaceSidebarResizeEdge(for: .left), .leading)
+        XCTAssertEqual(ContentView.workspaceSidebarResizeEdge(for: .right), .trailing)
+    }
+
+    func testWorkspaceSidebarWidthDeltaTracksPosition() {
+        XCTAssertEqual(ContentView.workspaceSidebarWidthDelta(translation: 24, position: .left), 24, accuracy: 0.001)
+        XCTAssertEqual(ContentView.workspaceSidebarWidthDelta(translation: 24, position: .right), -24, accuracy: 0.001)
+    }
+
+    func testWorkspaceSidebarDividerTracksPosition() {
+        XCTAssertEqual(
+            ContentView.workspaceSidebarDividerX(totalWidth: 1000, sidebarWidth: 200, position: .left),
+            200,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            ContentView.workspaceSidebarDividerX(totalWidth: 1000, sidebarWidth: 200, position: .right),
+            800,
+            accuracy: 0.001
+        )
+    }
+
+    func testRightSidebarDividerAccountsForRightWorkspaceSidebar() {
+        XCTAssertEqual(
+            ContentView.rightSidebarDividerX(
+                totalWidth: 1200,
+                rightSidebarWidth: 300,
+                workspaceSidebarWidth: 200,
+                workspaceSidebarVisible: true,
+                workspaceSidebarPosition: .left
+            ),
+            900,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            ContentView.rightSidebarDividerX(
+                totalWidth: 1200,
+                rightSidebarWidth: 300,
+                workspaceSidebarWidth: 200,
+                workspaceSidebarVisible: true,
+                workspaceSidebarPosition: .right
+            ),
+            700,
+            accuracy: 0.001
+        )
+    }
+}
+
+final class WorkspaceSidebarPositionSettingsTests: XCTestCase {
+    func testDefaultsToLeftWhenUnsetOrInvalid() {
+        XCTAssertEqual(WorkspaceSidebarPositionSettings.position(for: nil), .left)
+        XCTAssertEqual(WorkspaceSidebarPositionSettings.position(for: "top"), .left)
+    }
+
+    func testParsesRightPosition() {
+        XCTAssertEqual(WorkspaceSidebarPositionSettings.position(for: "right"), .right)
+    }
 }
 
 final class SidebarWorkspaceSelectionColorTests: XCTestCase {
