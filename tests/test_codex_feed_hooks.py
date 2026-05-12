@@ -124,7 +124,10 @@ def monitor_pids_for_session(session_id: str) -> list[int]:
             continue
         pid_text, _, command = stripped.partition(" ")
         if (
-            " hooks codex monitor " in f" {command} "
+            (
+                " hooks codex monitor " in f" {command} "
+                or " __hot-path hook codex monitor " in f" {command} "
+            )
             and f"--session {session_id}" in command
         ):
             pids.append(int(pid_text))
@@ -377,11 +380,57 @@ def test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path: str, root:
             raise AssertionError("monitor stayed alive after surface.list returned no owners") from exc
         if result.returncode != 0:
             raise AssertionError(
-                f"hooks codex monitor failed exit={result.returncode}\n"
+                f"__hot-path hook codex monitor failed exit={result.returncode}\n"
                 f"stdout={result.stdout}\nstderr={result.stderr}"
             )
         if not any(frame.get("method") == "surface.list" for frame in fake.frames):
             raise AssertionError(f"monitor did not query owner surfaces: {fake.frames!r}")
+
+
+def test_codex_monitor_exits_when_owner_process_is_gone(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-monitor-dead-owner.sock"
+    transcript_path = root / "codex-session-dead-owner.jsonl"
+    transcript_path.write_text("", encoding="utf-8")
+
+    session_id = f"codex-monitor-dead-owner-session-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_WORKSPACE_ID"] = "workspace-codex-feed-test"
+
+    with FakeCmuxSocket(socket_path, None) as fake:
+        try:
+            result = subprocess.run(
+                [
+                    cli_path,
+                    "--socket",
+                    str(socket_path),
+                    "hooks",
+                    "codex",
+                    "monitor",
+                    "--workspace",
+                    "workspace-codex-feed-test",
+                    "--session",
+                    session_id,
+                    "--owner-pid",
+                    "999999",
+                    "--transcript",
+                    str(transcript_path),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=3,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise AssertionError("monitor stayed alive after owner process disappeared") from exc
+        if result.returncode != 0:
+            raise AssertionError(
+                f"hooks codex monitor failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+        if fake.frames:
+            raise AssertionError(f"monitor should exit before socket owner polling: {fake.frames!r}")
 
 
 def test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path: str, root: Path) -> None:
@@ -429,7 +478,7 @@ def test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path: str, root:
         )
         if result.returncode != 0:
             raise AssertionError(
-                f"hooks codex monitor failed exit={result.returncode}\n"
+                f"__hot-path hook codex monitor failed exit={result.returncode}\n"
                 f"stdout={result.stdout}\nstderr={result.stderr}"
             )
         if not fake._dropped_surface_list:
@@ -518,7 +567,7 @@ def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -
         if not groups:
             raise AssertionError(f"missing {event_name} hook group: {hooks!r}")
         command = groups[-1]["hooks"][0]["command"]
-        if f"cmux hooks feed --source codex --event {event_name}" not in command:
+        if f"cmux __hot-path hook feed --source codex --event {event_name}" not in command:
             raise AssertionError(f"wrong {event_name} feed command: {command!r}")
         if groups[-1]["hooks"][0].get("timeout") != 120_000:
             raise AssertionError(f"wrong {event_name} timeout: {groups[-1]!r}")

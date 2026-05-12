@@ -379,7 +379,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     }.items():
         hook_command = hooks.get(hook_name, [{}])[0].get("hooks", [{}])[0].get("command", "")
         expect(
-            hook_command == f'"${{CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}}" hooks claude {expected_subcommand}',
+            hook_command == f'"${{CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}}" __hot-path hook claude {expected_subcommand}',
             f"{hook_name} hook should pin bundled cmux, got {hook_command!r}",
             failures,
         )
@@ -392,7 +392,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     )
     permission_request_hooks = hooks.get("PermissionRequest", [{}])[0].get("hooks", [{}])
     expect(
-        any(h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude' for h in permission_request_hooks),
+        any(h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" __hot-path hook feed --source claude' for h in permission_request_hooks),
         f"PermissionRequest hook should call hooks feed, got {permission_request_hooks}",
         failures,
     )

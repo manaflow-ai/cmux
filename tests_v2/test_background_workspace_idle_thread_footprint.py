@@ -15,7 +15,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
+SOCKET_PATH = (
+    os.environ.get("CMUX_SOCKET_PATH")
+    or os.environ.get("CMUX_SOCKET")
+    or "/tmp/cmux-debug.sock"
+)
 WORKSPACE_COUNT = 10
 SURFACES_PER_WORKSPACE = 4
 SETTLE_SECONDS = 2.0

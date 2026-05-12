@@ -218,10 +218,10 @@ await hooks.event({
         args_log = fake_args_log.read_text(encoding="utf-8") if fake_args_log.exists() else ""
         stdin_log = fake_stdin_log.read_text(encoding="utf-8") if fake_stdin_log.exists() else ""
         env_log = fake_env_log.read_text(encoding="utf-8") if fake_env_log.exists() else ""
-        if "hooks opencode session-start" not in args_log:
-            print(f"FAIL: plugin did not invoke hooks opencode session-start, got {args_log!r}")
+        if "__hot-path hook opencode session-start" not in args_log:
+            print(f"FAIL: plugin did not invoke __hot-path hook opencode session-start, got {args_log!r}")
             return 1
-        if args_log.count("hooks opencode session-start") != 1:
+        if args_log.count("__hot-path hook opencode session-start") != 1:
             print(f"FAIL: plugin invoked duplicate session-start hooks, got {args_log!r}")
             return 1
         if '"session_id":"opencode-session-test"' not in stdin_log or '"/tmp/opencode-project"' not in stdin_log:

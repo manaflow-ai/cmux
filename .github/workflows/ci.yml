@@ -318,6 +318,9 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_layout_focus_contract.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_closed_standard_handles.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_hot_path_parallel_pool.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_hot_path_tmux_pool.py
           python3 tests/test_claude_wrapper_hooks.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_stop_last_assistant.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
@@ -496,6 +499,9 @@ jobs:
           CMUX_LAG_MAX_CHURN_P95_MS=35 \
           CMUX_LAG_KEY_EVENTS=180 \
           python3 tests/test_workspace_churn_up_arrow_lag.py
+
+          CMUX_SOCKET_PATH="$SOCK" \
+          python3 tests_v2/test_background_workspace_idle_thread_footprint.py
 
       - name: Cleanup virtual display
         if: always()
