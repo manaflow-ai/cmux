@@ -353,6 +353,30 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    func enqueueJavaScriptDialog(
+        type: String,
+        message: String,
+        defaultText: String?,
+        responder: @escaping (_ accept: Bool, _ text: String?) -> Void
+    ) -> Bool {
+        if let openerPanel {
+            TerminalController.shared.enqueueBrowserDialog(
+                surfaceId: openerPanel.id,
+                type: type,
+                message: message,
+                defaultText: defaultText,
+                responder: responder
+            )
+            return true
+        }
+        return parentPopupController?.enqueueJavaScriptDialog(
+            type: type,
+            message: message,
+            defaultText: defaultText,
+            responder: responder
+        ) ?? false
+    }
+
     // MARK: - Insecure HTTP prompt (parity with main browser)
 
     /// Shows the same 3-button insecure HTTP alert as the main browser.
@@ -482,6 +506,14 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         alert.messageText = javaScriptDialogTitle(for: webView)
         alert.informativeText = message
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        if controller?.enqueueJavaScriptDialog(
+            type: "alert",
+            message: message,
+            defaultText: nil,
+            responder: { _, _ in completionHandler() }
+        ) == true {
+            return
+        }
         presentDialog(alert, for: webView) { _ in completionHandler() }
     }
 
@@ -497,6 +529,14 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         alert.informativeText = message
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+        if controller?.enqueueJavaScriptDialog(
+            type: "confirm",
+            message: message,
+            defaultText: nil,
+            responder: { accept, _ in completionHandler(accept) }
+        ) == true {
+            return
+        }
         presentDialog(alert, for: webView) { response in
             completionHandler(response == .alertFirstButtonReturn)
         }
@@ -520,6 +560,16 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         field.stringValue = defaultText ?? ""
         alert.accessoryView = field
 
+        if controller?.enqueueJavaScriptDialog(
+            type: "prompt",
+            message: prompt,
+            defaultText: defaultText,
+            responder: { accept, text in
+                completionHandler(accept ? (text ?? defaultText ?? "") : nil)
+            }
+        ) == true {
+            return
+        }
         presentDialog(alert, for: webView) { response in
             if response == .alertFirstButtonReturn {
                 completionHandler(field.stringValue)
