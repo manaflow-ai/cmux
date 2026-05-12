@@ -336,6 +336,12 @@ final class CmuxEventBus: @unchecked Sendable {
     #endif
 
     static func defaultEventLogURL() -> URL {
+        if let override = ProcessInfo.processInfo.environment["CMUX_EVENT_LOG_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            return URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
+        }
+
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("events.jsonl")
