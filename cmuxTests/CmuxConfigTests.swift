@@ -135,6 +135,41 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(snippet.text, "\nKeep the prompt spacing.\n")
     }
 
+    func testPromptSnippetCommandPaletteCommandIDEscapesConfiguredID() {
+        let snippet = CmuxResolvedPromptSnippet(
+            definition: CmuxPromptSnippetDefinition(
+                id: "review template\n100%/日本語",
+                title: "Prompt",
+                text: "Prompt text"
+            ),
+            sourcePath: nil
+        )
+        let slashSnippet = CmuxResolvedPromptSnippet(
+            definition: CmuxPromptSnippetDefinition(
+                id: "review/template",
+                title: "Slash",
+                text: "Prompt text"
+            ),
+            sourcePath: nil
+        )
+        let encodedSlashSnippet = CmuxResolvedPromptSnippet(
+            definition: CmuxPromptSnippetDefinition(
+                id: "review%2Ftemplate",
+                title: "Encoded Slash",
+                text: "Prompt text"
+            ),
+            sourcePath: nil
+        )
+
+        XCTAssertEqual(
+            snippet.commandPaletteCommandID,
+            "palette.promptSnippet.review%20template%0A100%25%2F%E6%97%A5%E6%9C%AC%E8%AA%9E"
+        )
+        XCTAssertEqual(slashSnippet.commandPaletteCommandID, "palette.promptSnippet.review%2Ftemplate")
+        XCTAssertEqual(encodedSlashSnippet.commandPaletteCommandID, "palette.promptSnippet.review%252Ftemplate")
+        XCTAssertNotEqual(slashSnippet.commandPaletteCommandID, encodedSlashSnippet.commandPaletteCommandID)
+    }
+
     @MainActor
     func testPromptSnippetsMergeLocalBeforeGlobalById() throws {
         let root = FileManager.default.temporaryDirectory

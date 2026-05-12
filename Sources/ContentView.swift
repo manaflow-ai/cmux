@@ -7008,7 +7008,7 @@ struct ContentView: View {
     }
 
     private func commandPalettePromptSnippetCommandID(_ snippet: CmuxResolvedPromptSnippet) -> String {
-        "palette.promptSnippet.\(snippet.id)"
+        snippet.commandPaletteCommandID
     }
 
     private func commandPalettePromptSnippetTitle(_ snippet: CmuxResolvedPromptSnippet) -> String {

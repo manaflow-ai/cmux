@@ -219,6 +219,10 @@ struct CmuxResolvedPromptSnippet: Identifiable, Sendable, Hashable {
     var keywords: [String]
     var sourcePath: String?
 
+    var commandPaletteCommandID: String {
+        "palette.promptSnippet.\(Self.commandPaletteCommandIDToken(for: id))"
+    }
+
     init(definition: CmuxPromptSnippetDefinition, sourcePath: String?) {
         id = definition.id
         title = definition.title
@@ -226,5 +230,18 @@ struct CmuxResolvedPromptSnippet: Identifiable, Sendable, Hashable {
         description = definition.description
         keywords = definition.keywords
         self.sourcePath = sourcePath
+    }
+
+    private static func commandPaletteCommandIDToken(for id: String) -> String {
+        var encoded = ""
+        for byte in id.utf8 {
+            switch byte {
+            case 45, 46, 48...57, 65...90, 95, 97...122:
+                encoded.append(String(UnicodeScalar(UInt32(byte))!))
+            default:
+                encoded.append(String(format: "%%%02X", byte))
+            }
+        }
+        return encoded.isEmpty ? "prompt-snippet" : encoded
     }
 }
