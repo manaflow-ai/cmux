@@ -16956,16 +16956,39 @@ export default CMUXSessionRestore;
     }
 
     private static func openCodePluginListNormalizingOMOPlugin(_ plugins: [Any]) -> [Any] {
+        let hasCurrentOMOPlugin = plugins.contains { entry in
+            guard let name = openCodePluginEntryName(entry) else { return false }
+            return openCodePluginSpecIsPackage(name, packageName: omoPluginName)
+        }
         var sawOMOPlugin = false
         var normalized: [Any] = []
         for entry in plugins {
+            guard let name = openCodePluginEntryName(entry) else {
+                normalized.append(entry)
+                continue
+            }
+
+            if openCodePluginSpecIsPackage(name, packageName: omoPluginName) {
+                if sawOMOPlugin {
+                    continue
+                }
+                sawOMOPlugin = true
+                normalized.append(entry)
+                continue
+            }
+
+            if hasCurrentOMOPlugin,
+               openCodePluginSpecIsPackage(name, packageName: legacyOmoPluginName) {
+                continue
+            }
+
             let normalizedEntry = openCodePluginEntryReplacingPackage(
                 entry,
                 packageName: legacyOmoPluginName,
                 replacementPackageName: omoPluginName
             )
-            if let name = openCodePluginEntryName(normalizedEntry),
-               openCodePluginSpecIsPackage(name, packageName: omoPluginName) {
+            if let normalizedName = openCodePluginEntryName(normalizedEntry),
+               openCodePluginSpecIsPackage(normalizedName, packageName: omoPluginName) {
                 if sawOMOPlugin {
                     continue
                 }

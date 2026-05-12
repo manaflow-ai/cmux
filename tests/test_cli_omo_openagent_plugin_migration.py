@@ -2,7 +2,7 @@
 """
 Regression test: cmux omo must not re-add the legacy oh-my-opencode plugin
 when the user's OpenCode config already contains the renamed oh-my-openagent
-package.
+package, including mixed current/legacy configs left by prior migrations.
 """
 
 from __future__ import annotations
@@ -52,7 +52,13 @@ def main() -> int:
         user_config_dir.mkdir(parents=True)
         user_config_json = user_config_dir / "opencode.json"
         user_config_json.write_text(
-            json.dumps({"plugin": ["oh-my-openagent@3.17.5"]}),
+            json.dumps({
+                "plugin": [
+                    "oh-my-opencode@2.0.0",
+                    "oh-my-openagent@3.17.5",
+                    ["oh-my-opencode", "1.0.0"],
+                ]
+            }),
             encoding="utf-8",
         )
 
@@ -105,8 +111,15 @@ mkdir -p "node_modules/$package"
             print(f"FAIL: cmux omo re-added legacy plugin name: {plugins!r}")
             return 1
         specs = [plugin_spec(entry) for entry in plugins]
-        if "oh-my-openagent@3.17.5" not in specs:
-            print(f"FAIL: cmux omo did not preserve renamed plugin entry: {plugins!r}")
+        openagent_specs = [
+            spec for entry, spec in zip(plugins, specs)
+            if plugin_package_name(entry) == "oh-my-openagent"
+        ]
+        if openagent_specs != ["oh-my-openagent@3.17.5"]:
+            print(
+                "FAIL: cmux omo did not prefer the existing renamed plugin entry; "
+                f"got {plugins!r}"
+            )
             return 1
 
         opencode_log = root / "opencode-config-dir.log"
