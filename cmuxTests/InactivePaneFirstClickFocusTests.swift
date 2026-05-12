@@ -11,7 +11,7 @@ import WebKit
 
 @MainActor
 final class InactivePaneFirstClickFocusTests: XCTestCase {
-    private let settingsKey = "paneFirstClickFocus.enabled"
+    private let settingsKey = PaneFirstClickFocusSettings.enabledKey
 
     override func setUp() {
         super.setUp()
