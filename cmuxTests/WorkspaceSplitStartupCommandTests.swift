@@ -36,6 +36,57 @@ private func firstWorkspaceDescendant<ViewType: NSView>(
 }
 
 @MainActor
+private func waitForWorkspaceSplitView(
+    in hostingView: NSView,
+    contentView: NSView,
+    expectedDividerPosition: Double,
+    accuracy: Double,
+    timeout: TimeInterval = 2.0,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) throws -> NSSplitView {
+    let deadline = Date.now.addingTimeInterval(timeout)
+    var lastRenderedDividerPosition: Double?
+
+    repeat {
+        contentView.layoutSubtreeIfNeeded()
+
+        if let splitView = firstWorkspaceDescendant(ofType: NSSplitView.self, in: hostingView),
+           splitView.arrangedSubviews.count == 2 {
+            splitView.layoutSubtreeIfNeeded()
+
+            let availableWidth = splitView.bounds.width - splitView.dividerThickness
+            if availableWidth > 0 {
+                let renderedDividerPosition = splitView.arrangedSubviews[0].frame.width / availableWidth
+                lastRenderedDividerPosition = Double(renderedDividerPosition)
+
+                if abs(Double(renderedDividerPosition) - expectedDividerPosition) <= accuracy {
+                    return splitView
+                }
+            }
+        }
+
+        _ = RunLoop.current.run(
+            mode: .default,
+            before: min(Date.now.addingTimeInterval(0.01), deadline)
+        )
+    } while Date.now < deadline
+
+    let lastRatioDescription = lastRenderedDividerPosition.map { String(describing: $0) } ?? "nil"
+    XCTFail(
+        "Timed out waiting for rendered cmux.json split ratio \(expectedDividerPosition); last ratio: \(lastRatioDescription)",
+        file: file,
+        line: line
+    )
+    return try XCTUnwrap(
+        firstWorkspaceDescendant(ofType: NSSplitView.self, in: hostingView),
+        "Expected rendered Bonsplit NSSplitView",
+        file: file,
+        line: line
+    )
+}
+
+@MainActor
 final class WorkspaceSplitStartupCommandTests: XCTestCase {
     func testCustomLayoutSplitRatioSurvivesInitialBonsplitViewLayout() throws {
         let workspace = Workspace()
@@ -85,10 +136,12 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
 
         window.makeKeyAndOrderFront(nil)
         contentView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date.now.addingTimeInterval(0.05))
-        contentView.layoutSubtreeIfNeeded()
-
-        let splitView = try XCTUnwrap(firstWorkspaceDescendant(ofType: NSSplitView.self, in: hostingView))
+        let splitView = try waitForWorkspaceSplitView(
+            in: hostingView,
+            contentView: contentView,
+            expectedDividerPosition: expectedDividerPosition,
+            accuracy: 0.03
+        )
         XCTAssertEqual(splitView.arrangedSubviews.count, 2)
 
         let availableWidth = splitView.bounds.width - splitView.dividerThickness
