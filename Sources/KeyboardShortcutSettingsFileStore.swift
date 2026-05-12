@@ -1234,12 +1234,13 @@ final class CmuxSettingsFileStore {
         let shouldApplyAppearance = defaultsKey == AppearanceSettings.appearanceModeKey
         let appearanceRawValue = shouldApplyAppearance ? UserDefaults.standard.string(forKey: defaultsKey) : nil
         let appIconMode = defaultsKey == AppIconSettings.modeKey ? AppIconSettings.resolvedMode() : nil
-        let notifyFileExplorerAppearance = defaultsKey == FileExplorerGitStatusColorSettings.userDefaultsKey
+        let notifyFileExplorerGitStatusColors = defaultsKey == FileExplorerGitStatusColorSettings.userDefaultsKey
         let apply = {
             if notifyScrollBar {
                 TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
             }
-            if notifyFileExplorerAppearance {
+            if notifyFileExplorerGitStatusColors {
+                FileExplorerGitStatusColorSettings.reloadSharedPaletteOnMainThread()
                 notificationCenter.post(name: .fileExplorerStyleDidChange, object: nil)
             }
 

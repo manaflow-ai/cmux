@@ -465,7 +465,10 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
     func testSettingsFileStoreAppliesFileExplorerGitStatusColors() throws {
         let defaults = UserDefaults.standard
         let key = FileExplorerGitStatusColorSettings.userDefaultsKey
-        defer { NotificationCenter.default.post(name: .fileExplorerStyleDidChange, object: nil) }
+        defer {
+            FileExplorerGitStatusColorSettings.reloadSharedPaletteOnMainThread()
+            NotificationCenter.default.post(name: .fileExplorerStyleDidChange, object: nil)
+        }
 
         try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
             defaults.removeObject(forKey: key)

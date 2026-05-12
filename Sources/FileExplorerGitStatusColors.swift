@@ -18,6 +18,16 @@ enum FileExplorerGitStatusColorSettings {
     ) -> NSColor {
         FileExplorerGitStatusColorPalette.shared.color(for: status, fallback: fallback, defaults: defaults)
     }
+
+    // Settings file application mutates UserDefaults synchronously, then refreshes this
+    // cache before row-reload observers consume the shared File Explorer repaint signal.
+    // The palette intentionally does not observe that broad UI notification itself.
+    static func reloadSharedPaletteOnMainThread() {
+        precondition(Thread.isMainThread, "File Explorer git status color palette reload must run on the main thread")
+        MainActor.assumeIsolated {
+            FileExplorerGitStatusColorPalette.shared.reload()
+        }
+    }
 }
 
 @MainActor
@@ -25,38 +35,11 @@ private final class FileExplorerGitStatusColorPalette {
     static let shared = FileExplorerGitStatusColorPalette()
 
     private let defaults: UserDefaults
-    private let notificationCenter: NotificationCenter
     private var colorsByStatus: [String: NSColor] = [:]
-    private var styleObserver: NSObjectProtocol?
 
-    init(
-        defaults: UserDefaults = .standard,
-        notificationCenter: NotificationCenter = .default
-    ) {
+    init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        self.notificationCenter = notificationCenter
         reload()
-        styleObserver = notificationCenter.addObserver(
-            forName: .fileExplorerStyleDidChange,
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
-            if Thread.isMainThread {
-                MainActor.assumeIsolated {
-                    self?.reload()
-                }
-            } else {
-                Task { @MainActor [weak self] in
-                    self?.reload()
-                }
-            }
-        }
-    }
-
-    deinit {
-        if let styleObserver {
-            notificationCenter.removeObserver(styleObserver)
-        }
     }
 
     func color(
@@ -71,7 +54,7 @@ private final class FileExplorerGitStatusColorPalette {
         return color ?? fallback
     }
 
-    private func reload() {
+    func reload() {
         let colors = Self.loadedColors(from: defaults)
         colorsByStatus = colors
     }
