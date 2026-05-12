@@ -14,6 +14,12 @@
         "ja": { "stringUnit": { "state": "translated", "value": "中央" } }
       }
     },
+    "button.detachPane": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Detach" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "解除" } }
+      }
+    },
     "button.fill": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Fill" } },
@@ -60,6 +66,12 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Restart Stream" } },
         "ja": { "stringUnit": { "state": "translated", "value": "ストリーム再起動" } }
+      }
+    },
+    "button.syncPane": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sync Into Pane" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペインに同期" } }
       }
     },
     "capture.error.windowUnavailable": {
@@ -218,6 +230,12 @@
         "ja": { "stringUnit": { "state": "translated", "value": "ライブプレビュー" } }
       }
     },
+    "section.workspace": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux Pane Prototype" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmuxペイン試作" } }
+      }
+    },
     "sidebar.search": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Search windows" } },
@@ -278,6 +296,18 @@
         "ja": { "stringUnit": { "state": "translated", "value": "ライブキャプチャを開始しました" } }
       }
     },
+    "status.paneDetached": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pane detached" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペインの同期を解除しました" } }
+      }
+    },
+    "status.paneSynced": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pane synced to %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペインを%@に同期しました" } }
+      }
+    },
     "status.relaunchFailed": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Relaunch failed: %@" } },
@@ -300,6 +330,54 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Window unavailable" } },
         "ja": { "stringUnit": { "state": "translated", "value": "ウィンドウを利用できません" } }
+      }
+    },
+    "workspace.synced.status": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Synced" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "同期中" } }
+      }
+    },
+    "workspace.synced.subtitle": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ - window %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ - ウィンドウ%@" } }
+      }
+    },
+    "workspace.terminal.line1": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "$ cmux run agent" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "$ cmux run agent" } }
+      }
+    },
+    "workspace.terminal.line2": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "watching workspace..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを監視中..." } }
+      }
+    },
+    "workspace.terminal.line3": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "right pane can become another app" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "右ペインを別のアプリに変換できます" } }
+      }
+    },
+    "workspace.terminal.subtitle": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local zsh" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ローカルzsh" } }
+      }
+    },
+    "workspace.terminal.title": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナル" } }
+      }
+    },
+    "workspace.unsynced.status": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Preview" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プレビュー" } }
       }
     },
     "window.frame.compact": {

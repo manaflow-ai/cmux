@@ -22,6 +22,7 @@ final class NativeWindowDockNSView: NSView {
     private var lastFrame: NativeWindowSlotFrame?
     private var windowMoveObserver: NSObjectProtocol?
     private var windowResizeObserver: NSObjectProtocol?
+    private var scrollBoundsObserver: NSObjectProtocol?
 
     override var isFlipped: Bool {
         true
@@ -41,12 +42,20 @@ final class NativeWindowDockNSView: NSView {
         super.viewDidMoveToWindow()
         window?.acceptsMouseMovedEvents = true
         installWindowObservers()
+        installScrollObserver()
+        reportFrame()
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        installScrollObserver()
         reportFrame()
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow == nil {
             removeWindowObservers()
+            removeScrollObserver()
         }
         super.viewWillMove(toWindow: newWindow)
     }
@@ -116,6 +125,24 @@ final class NativeWindowDockNSView: NSView {
         }
     }
 
+    private func installScrollObserver() {
+        removeScrollObserver()
+        guard let clipView = enclosingScrollView?.contentView else {
+            return
+        }
+
+        clipView.postsBoundsChangedNotifications = true
+        scrollBoundsObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: clipView,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.reportFrame()
+            }
+        }
+    }
+
     private func removeWindowObservers() {
         let center = NotificationCenter.default
         if let windowMoveObserver {
@@ -126,6 +153,13 @@ final class NativeWindowDockNSView: NSView {
         }
         windowMoveObserver = nil
         windowResizeObserver = nil
+    }
+
+    private func removeScrollObserver() {
+        if let scrollBoundsObserver {
+            NotificationCenter.default.removeObserver(scrollBoundsObserver)
+        }
+        scrollBoundsObserver = nil
     }
 
     private func quartzFrame(fromCocoaFrame frame: CGRect) -> CGRect {

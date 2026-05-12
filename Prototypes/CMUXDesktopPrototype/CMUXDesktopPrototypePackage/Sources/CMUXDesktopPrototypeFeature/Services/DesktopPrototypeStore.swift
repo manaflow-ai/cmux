@@ -27,6 +27,7 @@ final class DesktopPrototypeStore {
     var selectedWindowID: CGWindowID?
     var liveFrame: CGImage?
     var isLiveCaptureRunning = false
+    var isPaneSynced = false
     var renderMode: DesktopRenderMode = .video
     var permissions = PermissionState()
     var status: StatusBanner?
@@ -92,15 +93,43 @@ final class DesktopPrototypeStore {
         renderMode = mode
         switch mode {
         case .video:
+            isPaneSynced = false
             nativeProjectionController.stop()
             restartLiveCapture()
         case .native:
+            isPaneSynced = true
             restartLiveCapture()
             if let selectedWindow {
                 nativeProjectionController.start(window: selectedWindow)
                 placeNativeWindowIfPossible(reportFailures: true)
             }
         }
+    }
+
+    func syncSelectedWindowIntoPane() {
+        guard let selectedWindow else {
+            return
+        }
+
+        isPaneSynced = true
+        renderMode = .native
+        restartLiveCapture()
+        nativeProjectionController.start(window: selectedWindow)
+        placeNativeWindowIfPossible(reportFailures: true)
+
+        let format = String(localized: "status.paneSynced", defaultValue: "Pane synced to %@", bundle: .module)
+        status = StatusBanner(kind: .success, message: String(format: format, selectedWindow.ownerName))
+    }
+
+    func detachSyncedWindow() {
+        isPaneSynced = false
+        renderMode = .video
+        nativeProjectionController.stop()
+        restartLiveCapture()
+        status = StatusBanner(
+            kind: .info,
+            message: String(localized: "status.paneDetached", defaultValue: "Pane detached", bundle: .module)
+        )
     }
 
     func updateNativeSlotFrame(_ slotFrame: NativeWindowSlotFrame) {

@@ -6,13 +6,14 @@ struct WindowDetailView: View {
     let window: HostWindow?
     let liveFrame: CGImage?
     let isLiveCaptureRunning: Bool
-    let renderMode: DesktopRenderMode
+    let isPaneSynced: Bool
     let permissions: PermissionState
     let status: StatusBanner?
     let onRefreshWindows: () -> Void
     let onRestartLiveCapture: () -> Void
-    let onRenderModeChange: (DesktopRenderMode) -> Void
     let onNativeSlotFrameChange: (NativeWindowSlotFrame) -> Void
+    let onSyncPane: () -> Void
+    let onDetachPane: () -> Void
     let onRequestAccessibility: () -> Void
     let onRequestScreenCapture: () -> Void
     let onRelaunchApp: () -> Void
@@ -36,9 +37,10 @@ struct WindowDetailView: View {
                         image: liveFrame,
                         window: window,
                         isRunning: isLiveCaptureRunning,
-                        renderMode: renderMode,
-                        onRenderModeChange: onRenderModeChange,
+                        isPaneSynced: isPaneSynced,
                         onNativeSlotFrameChange: onNativeSlotFrameChange,
+                        onSyncPane: onSyncPane,
+                        onDetachPane: onDetachPane,
                         onMouseInput: onMouseInput,
                         onScrollInput: onScrollInput,
                         onKeyInput: onKeyInput
@@ -110,15 +112,16 @@ private struct HeaderView: View {
 }
 
 private struct LivePreviewView: View {
-    private let previewPadding: CGFloat = 12
-    private let maxPreviewHeight: CGFloat = 760
+    private let paneSpacing: CGFloat = 12
+    private let workspaceHeight: CGFloat = 620
 
     let image: CGImage?
     let window: HostWindow
     let isRunning: Bool
-    let renderMode: DesktopRenderMode
-    let onRenderModeChange: (DesktopRenderMode) -> Void
+    let isPaneSynced: Bool
     let onNativeSlotFrameChange: (NativeWindowSlotFrame) -> Void
+    let onSyncPane: () -> Void
+    let onDetachPane: () -> Void
     let onMouseInput: (WindowMouseInput) -> Void
     let onScrollInput: (WindowScrollInput) -> Void
     let onKeyInput: (WindowKeyInput) -> Void
@@ -130,93 +133,56 @@ private struct LivePreviewView: View {
         )
     }
 
-    private var reservedPreviewHeight: CGFloat {
-        min(previewSize.height, maxPreviewHeight) + previewPadding * 2
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Text(String(localized: "section.livePreview", defaultValue: "Live Preview", bundle: .module))
+                Text(String(localized: "section.workspace", defaultValue: "cmux Pane Prototype", bundle: .module))
                     .font(.headline)
                 Image(systemName: isRunning ? "record.circle.fill" : "record.circle")
                     .foregroundStyle(isRunning ? .red : .secondary)
                 Spacer()
+                Label(
+                    isPaneSynced
+                        ? String(localized: "workspace.synced.status", defaultValue: "Synced", bundle: .module)
+                        : String(localized: "workspace.unsynced.status", defaultValue: "Preview", bundle: .module),
+                    systemImage: isPaneSynced ? "link.circle.fill" : "rectangle.split.2x1"
+                )
+                .font(.caption.weight(.medium))
+                .foregroundStyle(isPaneSynced ? .green : .secondary)
                 Text(sizeString)
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
-                Picker(
-                    String(localized: "preview.mode", defaultValue: "Mode", bundle: .module),
-                    selection: Binding(
-                        get: { renderMode },
-                        set: { newValue in
-                            onRenderModeChange(newValue)
-                        }
-                    )
-                ) {
-                    Text(String(localized: "preview.mode.video", defaultValue: "Video", bundle: .module))
-                        .tag(DesktopRenderMode.video)
-                    Text(String(localized: "preview.mode.native", defaultValue: "Native Window", bundle: .module))
-                        .tag(DesktopRenderMode.native)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 240)
             }
-                .font(.headline)
 
             GeometryReader { proxy in
-                let fittedSize = fittedPreviewSize(
-                    in: CGSize(
-                        width: max(proxy.size.width - previewPadding * 2, 1),
-                        height: max(proxy.size.height - previewPadding * 2, 1)
-                    )
+                let paneWidth = max((proxy.size.width - paneSpacing) / 2, 280)
+                let paneSize = CGSize(width: paneWidth, height: proxy.size.height)
+                let syncedContentSize = fittedPreviewSize(
+                    in: CGSize(width: max(paneSize.width - 24, 1), height: max(paneSize.height - 64, 1))
                 )
 
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color(nsColor: .controlBackgroundColor))
-                        .frame(width: fittedSize.width + previewPadding * 2, height: fittedSize.height + previewPadding * 2)
+                HStack(alignment: .top, spacing: paneSpacing) {
+                    TerminalPaneMockView()
+                        .frame(width: paneWidth, height: paneSize.height)
 
-                    switch renderMode {
-                    case .video:
-                        if let image {
-                            InteractiveWindowPreview(
-                                image: image,
-                                window: window,
-                                onMouse: onMouseInput,
-                                onScroll: onScrollInput,
-                                onKey: onKeyInput
-                            )
-                            .frame(width: fittedSize.width, height: fittedSize.height)
-                        } else {
-                            ContentUnavailableView(
-                                String(localized: "detail.livePreview.waiting", defaultValue: "Waiting for live video", bundle: .module),
-                                systemImage: "video.slash"
-                            )
-                            .frame(width: fittedSize.width, height: fittedSize.height)
-                        }
-                    case .native:
-                        if let image {
-                            StaticWindowPreview(image: image)
-                                .frame(width: fittedSize.width, height: fittedSize.height)
-                        } else {
-                            ContentUnavailableView(
-                                String(localized: "detail.livePreview.waiting", defaultValue: "Waiting for live video", bundle: .module),
-                                systemImage: "video.slash"
-                            )
-                            .frame(width: fittedSize.width, height: fittedSize.height)
-                        }
-                        NativeWindowDockView(onFrameChange: onNativeSlotFrameChange)
-                            .frame(width: fittedSize.width, height: fittedSize.height)
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .strokeBorder(Color.accentColor.opacity(0.45), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
-                            .frame(width: fittedSize.width, height: fittedSize.height)
-                    }
+                    SyncedWindowPaneView(
+                        image: image,
+                        window: window,
+                        contentSize: syncedContentSize,
+                        isPaneSynced: isPaneSynced,
+                        onNativeSlotFrameChange: onNativeSlotFrameChange,
+                        onSyncPane: onSyncPane,
+                        onDetachPane: onDetachPane,
+                        onMouseInput: onMouseInput,
+                        onScrollInput: onScrollInput,
+                        onKeyInput: onKeyInput
+                    )
+                    .frame(width: paneWidth, height: paneSize.height)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: reservedPreviewHeight)
+            .frame(height: workspaceHeight)
         }
     }
 
@@ -239,6 +205,161 @@ private struct LivePreviewView: View {
     private var sizeString: String {
         let format = String(localized: "window.frame.compact", defaultValue: "%.0f x %.0f", bundle: .module)
         return String(format: format, previewSize.width, previewSize.height)
+    }
+}
+
+private struct TerminalPaneMockView: View {
+    private var lines: [String] {
+        [
+            String(localized: "workspace.terminal.line1", defaultValue: "$ cmux run agent", bundle: .module),
+            String(localized: "workspace.terminal.line2", defaultValue: "watching workspace...", bundle: .module),
+            String(localized: "workspace.terminal.line3", defaultValue: "right pane can become another app", bundle: .module),
+        ]
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            PaneTitleBarView(
+                title: String(localized: "workspace.terminal.title", defaultValue: "Terminal", bundle: .module),
+                subtitle: String(localized: "workspace.terminal.subtitle", defaultValue: "local zsh", bundle: .module)
+            )
+
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(lines.indices, id: \.self) { index in
+                    Text(lines[index])
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundStyle(index == 0 ? .primary : .secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Color(nsColor: .textBackgroundColor))
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color(nsColor: .separatorColor))
+        }
+    }
+}
+
+private struct SyncedWindowPaneView: View {
+    let image: CGImage?
+    let window: HostWindow
+    let contentSize: CGSize
+    let isPaneSynced: Bool
+    let onNativeSlotFrameChange: (NativeWindowSlotFrame) -> Void
+    let onSyncPane: () -> Void
+    let onDetachPane: () -> Void
+    let onMouseInput: (WindowMouseInput) -> Void
+    let onScrollInput: (WindowScrollInput) -> Void
+    let onKeyInput: (WindowKeyInput) -> Void
+
+    private var title: String {
+        window.hasTitle
+            ? window.title
+            : String(localized: "window.untitled", defaultValue: "Untitled", bundle: .module)
+    }
+
+    private var subtitle: String {
+        let format = String(localized: "workspace.synced.subtitle", defaultValue: "%@ - window %@", bundle: .module)
+        return String(format: format, window.ownerName, String(window.id))
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            PaneTitleBarView(title: title, subtitle: subtitle) {
+                Button(action: isPaneSynced ? onDetachPane : onSyncPane) {
+                    Label(
+                        isPaneSynced
+                            ? String(localized: "button.detachPane", defaultValue: "Detach", bundle: .module)
+                            : String(localized: "button.syncPane", defaultValue: "Sync Into Pane", bundle: .module),
+                        systemImage: isPaneSynced ? "rectangle.portrait.and.arrow.right" : "link"
+                    )
+                }
+            }
+
+            ZStack {
+                Color(nsColor: .controlBackgroundColor)
+
+                if let image {
+                    if isPaneSynced {
+                        StaticWindowPreview(image: image)
+                            .frame(width: contentSize.width, height: contentSize.height)
+                    } else {
+                        InteractiveWindowPreview(
+                            image: image,
+                            window: window,
+                            onMouse: onMouseInput,
+                            onScroll: onScrollInput,
+                            onKey: onKeyInput
+                        )
+                        .frame(width: contentSize.width, height: contentSize.height)
+                    }
+                } else {
+                    ContentUnavailableView(
+                        String(localized: "detail.livePreview.waiting", defaultValue: "Waiting for live video", bundle: .module),
+                        systemImage: "video.slash"
+                    )
+                    .frame(width: contentSize.width, height: contentSize.height)
+                }
+
+                if isPaneSynced {
+                    NativeWindowDockView(onFrameChange: onNativeSlotFrameChange)
+                        .frame(width: contentSize.width, height: contentSize.height)
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .strokeBorder(Color.accentColor.opacity(0.55), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
+                        .frame(width: contentSize.width, height: contentSize.height)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(isPaneSynced ? Color.accentColor.opacity(0.65) : Color(nsColor: .separatorColor))
+        }
+    }
+}
+
+private struct PaneTitleBarView<Accessory: View>: View {
+    let title: String
+    let subtitle: String
+    @ViewBuilder var accessory: () -> Accessory
+
+    init(title: String, subtitle: String, @ViewBuilder accessory: @escaping () -> Accessory) {
+        self.title = title
+        self.subtitle = subtitle
+        self.accessory = accessory
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            accessory()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+        .background(.bar)
+    }
+}
+
+private extension PaneTitleBarView where Accessory == EmptyView {
+    init(title: String, subtitle: String) {
+        self.title = title
+        self.subtitle = subtitle
+        self.accessory = { EmptyView() }
     }
 }
 
