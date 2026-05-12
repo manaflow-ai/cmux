@@ -64,8 +64,99 @@ final class FeedCoordinatorTests: XCTestCase {
             return
         }
     }
+
+    func testBlockingIngestSkipsNotificationWhenPermissionResolvesBeforeDisplay() async {
+        let requestId = "auto-allow-request"
+        let notifications = NotificationRequestRecorder()
+
+        await MainActor.run {
+            let store = WorkstreamStore(ringCapacity: 10)
+            FeedCoordinator.shared.install(store: store)
+            FeedCoordinatorTestHooks.afterBlockingEventIngested = { _, ingestedRequestId in
+                guard ingestedRequestId == requestId else { return }
+                FeedCoordinator.shared.deliverReply(
+                    requestId: ingestedRequestId,
+                    decision: .permission(.once)
+                )
+            }
+            FeedCoordinatorTestHooks.notificationPostObserver = { _, postedRequestId in
+                notifications.record(postedRequestId)
+            }
+        }
+
+        let event = WorkstreamEvent(
+            sessionId: "claude-auto-allow-test",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            cwd: "/tmp",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"true"}"#,
+            requestId: requestId
+        )
+
+        let done = DispatchSemaphore(value: 0)
+        let resultBox = IngestResultBox()
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            resultBox.value = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 1
+            )
+            done.signal()
+        }
+
+        XCTAssertEqual(done.wait(timeout: .now() + 2), .success)
+
+        let mainQueueDrained = DispatchSemaphore(value: 0)
+        DispatchQueue.main.async {
+            mainQueueDrained.signal()
+        }
+        XCTAssertEqual(mainQueueDrained.wait(timeout: .now() + 2), .success)
+
+        if case .resolved(_, .permission(.once)) = resultBox.value {
+            // ok
+        } else {
+            XCTFail("expected auto-allowed permission request to resolve")
+        }
+
+        let status = await MainActor.run {
+            FeedCoordinator.shared.store.items.first?.status
+        }
+        if case .resolved(.permission(.once), _) = status {
+            // ok
+        } else {
+            XCTFail("auto-allowed hook item should be resolved")
+        }
+
+        XCTAssertTrue(
+            notifications.requestIds.isEmpty,
+            "auto-allowed permission requests should not post native notifications"
+        )
+
+        await MainActor.run {
+            FeedCoordinatorTestHooks.afterBlockingEventIngested = nil
+            FeedCoordinatorTestHooks.notificationPostObserver = nil
+        }
+    }
 }
 
 private final class IngestResultBox: @unchecked Sendable {
     var value: FeedCoordinator.IngestBlockingResult?
+}
+
+private final class NotificationRequestRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedRequestIds: [String] = []
+
+    var requestIds: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedRequestIds
+    }
+
+    func record(_ requestId: String) {
+        lock.lock()
+        recordedRequestIds.append(requestId)
+        lock.unlock()
+    }
 }

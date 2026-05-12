@@ -118,6 +118,9 @@ final class FeedCoordinator: @unchecked Sendable {
                 if let ppid = event.ppid, ppid > 0 {
                     FeedCoordinator.shared.armPidWatcher(ppid: ppid)
                 }
+                #if DEBUG
+                FeedCoordinatorTestHooks.afterBlockingEventIngested?(event, requestId)
+                #endif
             }
         }
 
@@ -230,6 +233,14 @@ private final class UnsafeItemIdSlot: @unchecked Sendable {
 private final class SnapshotSlot: @unchecked Sendable {
     var value: [WorkstreamItem] = []
 }
+
+#if DEBUG
+@MainActor
+enum FeedCoordinatorTestHooks {
+    static var afterBlockingEventIngested: (@Sendable (WorkstreamEvent, String) -> Void)?
+    static var notificationPostObserver: (@Sendable (WorkstreamEvent, String) -> Void)?
+}
+#endif
 
 // MARK: - Socket-layer helpers
 
@@ -389,6 +400,13 @@ extension Notification.Name {
 /// focused so the user isn't double-notified.
 private func postFeedNotification(event: WorkstreamEvent, requestId: String) {
     DispatchQueue.main.async {
+        #if DEBUG
+        if let observer = FeedCoordinatorTestHooks.notificationPostObserver {
+            observer(event, requestId)
+            return
+        }
+        #endif
+
         // Don't pester users while the app is already up front.
         if NSApp.isActive {
             return
