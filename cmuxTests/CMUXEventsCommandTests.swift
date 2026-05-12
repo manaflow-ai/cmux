@@ -84,6 +84,39 @@ final class CMUXEventsCommandTests: XCTestCase {
         XCTAssertEqual(requestLog.methods, ["events.stream"])
     }
 
+    func testEventsCommandRejectsMalformedHeartbeatFrameWhenSuppressed() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("events-heartbeat")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let requestLog = EventStreamRequestLog()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startEventStreamServer(
+            listenerFD: listenerFD,
+            requestLog: requestLog,
+            frames: [
+                validAckFrame(),
+                #"{"type":"heartbeat","protocol":"other-events","version":1,"boot_id":"boot","subscription_id":"subscription","latest_seq":0,"occurred_at":"2026-05-06T19:18:18.421Z"}"#
+            ]
+        )
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["events", "--no-ack", "--no-heartbeat"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stderr.contains("Invalid event stream frame: protocol must be cmux-events"), result.stderr)
+        XCTAssertEqual(result.stdout, "")
+        XCTAssertEqual(requestLog.methods, ["events.stream"])
+    }
+
     func testEventsCommandRejectsMalformedCursorFileBeforeConnecting() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory

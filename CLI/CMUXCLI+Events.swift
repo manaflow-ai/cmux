@@ -86,6 +86,7 @@ nonisolated struct CmuxEventsClientHelper {
             highWaterSequence = seq
             return CmuxEventsClientFrame(kind: .event(seq: seq), object: object)
         case "heartbeat":
+            try Self.validateProtocol(object)
             return CmuxEventsClientFrame(kind: .heartbeat, object: object)
         default:
             throw CLIError(message: "Invalid event stream frame: unknown type \(type)")
@@ -321,7 +322,7 @@ extension CMUXCLI {
         }
     }
 
-    func isTransientEventStreamError(_ error: Error) -> Bool {
+    private func isTransientEventStreamError(_ error: Error) -> Bool {
         if let cliError = error as? CLIError {
             let message = cliError.message.lowercased()
             let transientMarkers = [
@@ -354,14 +355,7 @@ extension CMUXCLI {
 
     private func waitBeforeReconnectingEventStream(seconds: TimeInterval) {
         guard seconds.isFinite, seconds > 0 else { return }
-        let deadline = Date(timeIntervalSinceNow: seconds)
-        var didFire = false
-        let timer = Timer(timeInterval: seconds, repeats: false) { _ in
-            didFire = true
-        }
-        RunLoop.current.add(timer, forMode: .default)
-        while !didFire, RunLoop.current.run(mode: .default, before: deadline) {}
-        timer.invalidate()
+        Thread.sleep(forTimeInterval: seconds)
     }
 
     private func printEventResumeGapGuidance(_ resume: CmuxEventsResume) {

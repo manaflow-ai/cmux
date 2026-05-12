@@ -307,6 +307,8 @@ command:
   increase within the current stream. If a resume gap indicates a cmux restart,
   reset the local high-water sequence before accepting the new process-local
   sequence range.
+- Validate heartbeat frames too. They do not carry `seq`, but they still must
+  match the same `protocol` and `version`.
 - Persist the cursor only after the consumer's side effect succeeds.
 - Reconnect with exponential backoff. Resume with the latest persisted `seq`,
   not merely the latest line read.
