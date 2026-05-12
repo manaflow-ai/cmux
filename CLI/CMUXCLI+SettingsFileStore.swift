@@ -447,6 +447,40 @@ extension CMUXCLI {
 
         private func unescapeTomlString(_ raw: String) throws -> String {
             var output = ""
+
+            func hexValue(_ character: Character) -> UInt32? {
+                guard character.unicodeScalars.count == 1, let scalar = character.unicodeScalars.first else {
+                    return nil
+                }
+                switch scalar.value {
+                case 48...57:
+                    return scalar.value - 48
+                case 65...70:
+                    return scalar.value - 65 + 10
+                case 97...102:
+                    return scalar.value - 97 + 10
+                default:
+                    return nil
+                }
+            }
+
+            func appendUnicodeEscape(length: Int, after markerIndex: String.Index) throws -> String.Index {
+                var value: UInt32 = 0
+                var digitIndex = raw.index(after: markerIndex)
+                for _ in 0..<length {
+                    guard digitIndex < raw.endIndex, let digit = hexValue(raw[digitIndex]) else {
+                        throw CLIError(message: "Invalid TOML unicode escape")
+                    }
+                    value = (value * 16) + digit
+                    digitIndex = raw.index(after: digitIndex)
+                }
+                guard let scalar = UnicodeScalar(value) else {
+                    throw CLIError(message: "Invalid TOML unicode scalar")
+                }
+                output.append(String(scalar))
+                return digitIndex
+            }
+
             var index = raw.startIndex
             while index < raw.endIndex {
                 let character = raw[index]
@@ -460,12 +494,26 @@ extension CMUXCLI {
                     throw CLIError(message: "Invalid TOML string escape")
                 }
                 switch raw[escapeIndex] {
+                case "b":
+                    output.append("\u{08}")
+                case "t":
+                    output.append("\t")
                 case "n":
                     output.append("\n")
+                case "f":
+                    output.append("\u{0C}")
+                case "r":
+                    output.append("\r")
                 case "\"":
                     output.append("\"")
                 case "\\":
                     output.append("\\")
+                case "u":
+                    index = try appendUnicodeEscape(length: 4, after: escapeIndex)
+                    continue
+                case "U":
+                    index = try appendUnicodeEscape(length: 8, after: escapeIndex)
+                    continue
                 default:
                     throw CLIError(message: "Unsupported TOML string escape: \\\(raw[escapeIndex])")
                 }

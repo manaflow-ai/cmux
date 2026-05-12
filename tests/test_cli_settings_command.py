@@ -615,10 +615,20 @@ def main() -> int:
         if get_backslash_n.stdout.strip() != backslash_n_command:
             failures.append(f"TOML roundtrip corrupted literal backslash-n: {get_backslash_n.stdout!r}")
 
+        valid_escape_path = home / "valid-escapes.toml"
+        valid_escape_path.write_text('notifications.command = "tab\\tcr\\rbs\\bff\\funicode\\u0021"\n', encoding="utf-8")
+        valid_escape = run_cli(cli_path, ["settings", "import", str(valid_escape_path)], home)
+        assert_ok(failures, "settings import standard TOML escapes", valid_escape)
+        valid_escape_get = run_cli(cli_path, ["settings", "get", "notifications.command"], home)
+        assert_ok(failures, "settings get standard TOML escapes", valid_escape_get)
+        expected_escaped_command = "tab\tcr\rbs\bff\funicode!"
+        if valid_escape_get.stdout.strip() != expected_escaped_command:
+            failures.append(f"standard TOML escapes did not import correctly: {valid_escape_get.stdout!r}")
+
         bad_escape_path = home / "bad-escape.toml"
-        bad_escape_path.write_text('notifications.command = "bad\\t"\n', encoding="utf-8")
+        bad_escape_path.write_text('notifications.command = "bad\\q"\n', encoding="utf-8")
         bad_escape = run_cli(cli_path, ["settings", "import", str(bad_escape_path)], home)
-        assert_fails(failures, "settings import unsupported TOML escape", bad_escape, r"Unsupported TOML string escape: \t")
+        assert_fails(failures, "settings import unsupported TOML escape", bad_escape, r"Unsupported TOML string escape: \\q")
 
         bad_inline_table_path = home / "bad-inline-table.toml"
         bad_inline_table_path.write_text('appearance = { theme = "dark" }\n', encoding="utf-8")
