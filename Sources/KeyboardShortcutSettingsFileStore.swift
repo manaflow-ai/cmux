@@ -810,15 +810,6 @@ final class CmuxSettingsFileStore {
             }
             return
         }
-        if let feed = beta["feed"] as? [String: Any] {
-            if let value = jsonBool(feed["enabled"]) {
-                snapshot.managedUserDefaults[RightSidebarBetaFeatureSettings.feedEnabledKey] = .bool(value)
-            } else if feed.keys.contains("enabled") {
-                logInvalid("rightSidebar.beta.feed.enabled", sourcePath: sourcePath)
-            }
-        } else if beta.keys.contains("feed") {
-            logInvalid("rightSidebar.beta.feed", sourcePath: sourcePath)
-        }
         if let dock = beta["dock"] as? [String: Any] {
             if let value = jsonBool(dock["enabled"]) {
                 snapshot.managedUserDefaults[RightSidebarBetaFeatureSettings.dockEnabledKey] = .bool(value)

@@ -62,7 +62,6 @@ SETTING_SAMPLE_VALUES: dict[str, tuple[str, Any]] = {
     "notifications.sound": ("Ping", "Ping"),
     "notifications.unreadPaneRing": ("false", False),
     "rightSidebar.beta.dock.enabled": ("true", True),
-    "rightSidebar.beta.feed.enabled": ("true", True),
     "sidebar.branchLayout": ("inline", "inline"),
     "sidebar.hideAllDetails": ("true", True),
     "sidebar.makePullRequestsClickable": ("false", False),
@@ -453,7 +452,7 @@ def main() -> int:
             "app.fileDropDefaultBehavior",
             "browser.enabled",
             "globalHotkey.enabled",
-            "rightSidebar.beta.feed.enabled",
+            "rightSidebar.beta.dock.enabled",
         ]:
             if required not in keys:
                 failures.append(f"settings list --keys omitted {required}")
@@ -666,7 +665,7 @@ appearance = "dark"
 [notifications]
 command = "section import"
 
-[rightSidebar.beta.feed]
+[rightSidebar.beta.dock]
 enabled = true
 
 [shortcuts.bindings]
@@ -679,8 +678,8 @@ openSettings = "cmd+option+,"
         sectioned_config = read_config(home)
         if sectioned_config.get("app", {}).get("appearance") != "dark":
             failures.append(f"sectioned TOML did not import app.appearance: {sectioned_config}")
-        if sectioned_config.get("rightSidebar", {}).get("beta", {}).get("feed", {}).get("enabled") is not True:
-            failures.append(f"sectioned TOML did not import rightSidebar.beta.feed.enabled: {sectioned_config}")
+        if sectioned_config.get("rightSidebar", {}).get("beta", {}).get("dock", {}).get("enabled") is not True:
+            failures.append(f"sectioned TOML did not import rightSidebar.beta.dock.enabled: {sectioned_config}")
         if sectioned_config.get("shortcuts", {}).get("bindings", {}).get("openSettings") != "cmd+option+,":
             failures.append(f"sectioned TOML did not import shortcut binding: {sectioned_config}")
 

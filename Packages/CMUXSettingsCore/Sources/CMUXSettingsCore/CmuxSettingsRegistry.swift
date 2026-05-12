@@ -201,7 +201,6 @@ public enum CmuxSettingsRegistry {
         SettingDefinition(key: "browser.showImportHintOnBlankTabs", kind: .bool, defaultValue: true),
         SettingDefinition(key: "browser.reactGrabVersion", kind: .enumValue(["0.1.29"]), defaultValue: "0.1.29"),
         SettingDefinition(key: "globalHotkey.enabled", kind: .bool, defaultValue: false),
-        SettingDefinition(key: "rightSidebar.beta.feed.enabled", kind: .bool, defaultValue: false),
         SettingDefinition(key: "rightSidebar.beta.dock.enabled", kind: .bool, defaultValue: false),
     ]
 
