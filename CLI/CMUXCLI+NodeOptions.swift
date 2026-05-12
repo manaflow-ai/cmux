@@ -5,8 +5,7 @@ extension CMUXCLI {
     func mergedNodeOptions(existing: String?, restoreModulePath: String) -> String {
         let requireOption = "--require=\(NodeOptionsSupport.requirePath(restoreModulePath))"
         let memoryOption = "--max-old-space-size=4096"
-        let cleanedExisting = cleanedNodeOptions(existing)
-        guard !cleanedExisting.isEmpty else {
+        guard let cleanedExisting = NodeOptionsSupport.sanitizedNodeOptions(existing) else {
             return "\(requireOption) \(memoryOption)"
         }
         return "\(requireOption) \(memoryOption) \(cleanedExisting)"
@@ -33,11 +32,4 @@ extension CMUXCLI {
         return NodeOptionsSupport.joinedTokens(normalized)
     }
 
-    private func cleanedNodeOptions(_ existing: String?) -> String {
-        let tokens = NodeOptionsSupport.tokens(existing)
-        let strippedTokens = NodeOptionsSupport.tokensRemovingCmuxRestoreEntries(tokens)
-        guard !strippedTokens.isEmpty else { return "" }
-
-        return NodeOptionsSupport.joinedTokens(strippedTokens)
-    }
 }

@@ -75,6 +75,14 @@ final class ClaudeWrapperNodeOptionsRestoreModuleTests: XCTestCase {
             NodeOptionsSupport.tokensRemovingCmuxRestoreEntries(tokens),
             ["--trace-warnings", "--max-old-space-size=8192"]
         )
+        XCTAssertEqual(
+            NodeOptionsSupport.sanitizedNodeOptions(
+                """
+                --trace-warnings --require="/Users/example/Library/Application Support/cmux/node-options/restore-node-options.cjs" --max-old-space-size=4096 --max-old-space-size=8192
+                """
+            ),
+            "--trace-warnings --max-old-space-size=8192"
+        )
     }
 
     func testRestoreModuleIsRecreatedUnderApplicationSupportAfterDeletion() throws {

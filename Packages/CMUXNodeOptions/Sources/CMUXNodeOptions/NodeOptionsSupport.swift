@@ -81,6 +81,15 @@ public enum NodeOptionsSupport {
         tokens.map(quoteTokenIfNeeded).joined(separator: " ")
     }
 
+    public static func sanitizedNodeOptions(_ rawValue: String?) -> String? {
+        let strippedTokens = tokensRemovingCmuxRestoreEntries(tokens(rawValue))
+        guard !strippedTokens.isEmpty else { return nil }
+
+        let joined = joinedTokens(strippedTokens)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return joined.isEmpty ? nil : joined
+    }
+
     public static func tokensRemovingCmuxRestoreEntries(_ tokens: [String]) -> [String] {
         var filtered: [String] = []
         var index = 0

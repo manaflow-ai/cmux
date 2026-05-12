@@ -82,7 +82,7 @@ public enum AgentLaunchEnvironmentPolicy {
         case "CLAUDE_CONFIG_DIR":
             return value.map { ClaudeConfigDirectoryPath.preferredPath($0) }
         case "NODE_OPTIONS":
-            return sanitizedNodeOptions(value)
+            return NodeOptionsSupport.sanitizedNodeOptions(value)
         default:
             return value
         }
@@ -91,22 +91,12 @@ public enum AgentLaunchEnvironmentPolicy {
     private static func selectedNodeOptions(from env: [String: String]) -> String? {
         switch normalizedValue(env["CMUX_ORIGINAL_NODE_OPTIONS_PRESENT"]) {
         case "1":
-            return sanitizedNodeOptions(env["CMUX_ORIGINAL_NODE_OPTIONS"])
+            return NodeOptionsSupport.sanitizedNodeOptions(env["CMUX_ORIGINAL_NODE_OPTIONS"])
         case "0":
             return nil
         default:
-            return sanitizedNodeOptions(env["NODE_OPTIONS"])
+            return NodeOptionsSupport.sanitizedNodeOptions(env["NODE_OPTIONS"])
         }
-    }
-
-    private static func sanitizedNodeOptions(_ rawValue: String?) -> String? {
-        let tokens = NodeOptionsSupport.tokens(rawValue)
-        let strippedTokens = NodeOptionsSupport.tokensRemovingCmuxRestoreEntries(tokens)
-        guard !strippedTokens.isEmpty else { return nil }
-
-        let joined = NodeOptionsSupport.joinedTokens(strippedTokens)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return joined.isEmpty ? nil : joined
     }
 
     private static func normalizedValue(_ value: String?) -> String? {
