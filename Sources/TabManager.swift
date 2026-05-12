@@ -1952,7 +1952,12 @@ class TabManager: ObservableObject {
         if panel.searchState == nil {
             panel.searchState = TerminalSurface.SearchState()
         }
-        NSLog("Find: searchSelection workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
+#if DEBUG
+        cmuxDebugLog(
+            "find.searchSelection workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
+            "panel=\(panel.id.uuidString.prefix(5))"
+        )
+#endif
         NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
         _ = panel.performBindingAction("search_selection")
     }
