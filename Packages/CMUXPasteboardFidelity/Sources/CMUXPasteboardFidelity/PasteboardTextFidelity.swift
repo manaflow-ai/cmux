@@ -23,7 +23,7 @@ public enum PasteboardTextFidelity {
 
     public static func shouldInspectRichTextForPlainTextLoss(_ plainText: String) -> Bool {
         let metrics = textFidelityMetrics(plainText)
-        return metrics.questionMarks > 0 || metrics.replacementCharacters > 0
+        return metrics.replacementCharacters > 0 || metrics.questionMarks >= 2
     }
 
     public static func shouldPreferRichText(

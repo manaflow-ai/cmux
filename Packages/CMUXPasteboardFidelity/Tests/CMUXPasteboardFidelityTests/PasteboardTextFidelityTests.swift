@@ -60,6 +60,7 @@ final class PasteboardTextFidelityTests: XCTestCase {
         XCTAssertTrue(PasteboardTextFidelity.shouldInspectRichTextForPlainTextLoss("??~"))
         XCTAssertTrue(PasteboardTextFidelity.shouldInspectRichTextForPlainTextLoss("\u{FFFD}~"))
         XCTAssertFalse(PasteboardTextFidelity.shouldInspectRichTextForPlainTextLoss("您好~"))
+        XCTAssertFalse(PasteboardTextFidelity.shouldInspectRichTextForPlainTextLoss("Is this right?"))
     }
 
     func testPrefersRichTextWhenPlainTextReplacesNonASCIIWithQuestionMarks() {
