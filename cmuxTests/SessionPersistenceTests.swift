@@ -414,13 +414,57 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
-    func testTruncatedScrollbackAvoidsLeadingPartialANSICSISequence() {
-        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+    func testScrollbackPersistenceLimitsDefaultToCompiledCaps() throws {
+        let defaults = try makeIsolatedDefaults()
+
+        XCTAssertEqual(
+            SessionPersistencePolicy.resolvedMaxScrollbackLinesPerTerminal(defaults: defaults),
+            SessionPersistencePolicy.defaultMaxScrollbackLinesPerTerminal
+        )
+        XCTAssertEqual(
+            SessionPersistencePolicy.resolvedMaxScrollbackCharactersPerTerminal(defaults: defaults),
+            SessionPersistencePolicy.defaultMaxScrollbackCharactersPerTerminal
+        )
+    }
+
+    func testScrollbackPersistenceLimitsReadPositiveUserDefaults() throws {
+        let defaults = try makeIsolatedDefaults()
+        defaults.set(12, forKey: SessionPersistencePolicy.maxScrollbackLinesPerTerminalKey)
+        defaults.set(5, forKey: SessionPersistencePolicy.maxScrollbackCharactersPerTerminalKey)
+
+        XCTAssertEqual(
+            SessionPersistencePolicy.resolvedMaxScrollbackLinesPerTerminal(defaults: defaults),
+            12
+        )
+        XCTAssertEqual(
+            SessionPersistencePolicy.truncatedScrollback("0123456789", defaults: defaults),
+            "56789"
+        )
+    }
+
+    func testScrollbackPersistenceLimitsIgnoreNonPositiveUserDefaults() throws {
+        let defaults = try makeIsolatedDefaults()
+        defaults.set(0, forKey: SessionPersistencePolicy.maxScrollbackLinesPerTerminalKey)
+        defaults.set(-1, forKey: SessionPersistencePolicy.maxScrollbackCharactersPerTerminalKey)
+
+        XCTAssertEqual(
+            SessionPersistencePolicy.resolvedMaxScrollbackLinesPerTerminal(defaults: defaults),
+            SessionPersistencePolicy.defaultMaxScrollbackLinesPerTerminal
+        )
+        XCTAssertEqual(
+            SessionPersistencePolicy.resolvedMaxScrollbackCharactersPerTerminal(defaults: defaults),
+            SessionPersistencePolicy.defaultMaxScrollbackCharactersPerTerminal
+        )
+    }
+
+    func testTruncatedScrollbackAvoidsLeadingPartialANSICSISequence() throws {
+        let defaults = try makeIsolatedDefaults()
+        let maxChars = SessionPersistencePolicy.defaultMaxScrollbackCharactersPerTerminal
         let source = "\u{001B}[31m"
             + String(repeating: "X", count: maxChars - 7)
             + "\u{001B}[0m"
 
-        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source, defaults: defaults) else {
             XCTFail("Expected truncated scrollback")
             return
         }
@@ -963,20 +1007,35 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(resolved, "fallback-value")
     }
 
-    func testResolvedSnapshotTerminalScrollbackTruncatesFallback() {
+    func testResolvedSnapshotTerminalScrollbackTruncatesFallback() throws {
+        let defaults = try makeIsolatedDefaults()
         let oversizedFallback = String(
             repeating: "x",
-            count: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal + 37
+            count: SessionPersistencePolicy.defaultMaxScrollbackCharactersPerTerminal + 37
         )
         let resolved = Workspace.resolvedSnapshotTerminalScrollback(
             capturedScrollback: nil,
-            fallbackScrollback: oversizedFallback
+            fallbackScrollback: oversizedFallback,
+            defaults: defaults
         )
 
         XCTAssertEqual(
             resolved?.count,
-            SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+            SessionPersistencePolicy.defaultMaxScrollbackCharactersPerTerminal
         )
+    }
+
+    func testResolvedSnapshotTerminalScrollbackUsesConfiguredCharacterLimit() throws {
+        let defaults = try makeIsolatedDefaults()
+        defaults.set(6, forKey: SessionPersistencePolicy.maxScrollbackCharactersPerTerminalKey)
+
+        let resolved = Workspace.resolvedSnapshotTerminalScrollback(
+            capturedScrollback: nil,
+            fallbackScrollback: "0123456789",
+            defaults: defaults
+        )
+
+        XCTAssertEqual(resolved, "456789")
     }
 
     func testResolvedSnapshotTerminalScrollbackSkipsFallbackWhenRestoreIsUnsafe() {
@@ -1446,6 +1505,16 @@ final class SessionPersistenceTests: XCTestCase {
     private func fileNumber(for fileURL: URL) throws -> Int {
         let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
         return try XCTUnwrap(attributes[.systemFileNumber] as? Int)
+    }
+
+    private func makeIsolatedDefaults() throws -> UserDefaults {
+        let suiteName = "cmux.session-persistence-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        addTeardownBlock {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        return defaults
     }
 }
 

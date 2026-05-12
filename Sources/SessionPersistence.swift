@@ -16,8 +16,34 @@ enum SessionPersistencePolicy {
     static let maxWindowsPerSnapshot: Int = 12
     static let maxWorkspacesPerWindow: Int = 128
     static let maxPanelsPerWorkspace: Int = 512
-    static let maxScrollbackLinesPerTerminal: Int = 4000
-    static let maxScrollbackCharactersPerTerminal: Int = 400_000
+    static let maxScrollbackLinesPerTerminalKey = "maxScrollbackLinesPerTerminal"
+    static let maxScrollbackCharactersPerTerminalKey = "maxScrollbackCharactersPerTerminal"
+    static let defaultMaxScrollbackLinesPerTerminal: Int = 4000
+    static let defaultMaxScrollbackCharactersPerTerminal: Int = 400_000
+
+    static var maxScrollbackLinesPerTerminal: Int {
+        resolvedMaxScrollbackLinesPerTerminal()
+    }
+
+    static var maxScrollbackCharactersPerTerminal: Int {
+        resolvedMaxScrollbackCharactersPerTerminal()
+    }
+
+    static func resolvedMaxScrollbackLinesPerTerminal(defaults: UserDefaults = .standard) -> Int {
+        positiveInteger(
+            forKey: maxScrollbackLinesPerTerminalKey,
+            defaultValue: defaultMaxScrollbackLinesPerTerminal,
+            defaults: defaults
+        )
+    }
+
+    static func resolvedMaxScrollbackCharactersPerTerminal(defaults: UserDefaults = .standard) -> Int {
+        positiveInteger(
+            forKey: maxScrollbackCharactersPerTerminalKey,
+            defaultValue: defaultMaxScrollbackCharactersPerTerminal,
+            defaults: defaults
+        )
+    }
 
     static func sanitizedSidebarWidth(_ candidate: Double?) -> Double {
         let fallback = defaultSidebarWidth
@@ -25,14 +51,24 @@ enum SessionPersistencePolicy {
         return min(max(candidate, minimumSidebarWidth), maximumSidebarWidth)
     }
 
-    static func truncatedScrollback(_ text: String?) -> String? {
+    static func truncatedScrollback(_ text: String?, defaults: UserDefaults = .standard) -> String? {
         guard let text, !text.isEmpty else { return nil }
-        if text.count <= maxScrollbackCharactersPerTerminal {
+        let maxCharacters = resolvedMaxScrollbackCharactersPerTerminal(defaults: defaults)
+        if text.count <= maxCharacters {
             return text
         }
-        let initialStart = text.index(text.endIndex, offsetBy: -maxScrollbackCharactersPerTerminal)
+        let initialStart = text.index(text.endIndex, offsetBy: -maxCharacters)
         let safeStart = ansiSafeTruncationStart(in: text, initialStart: initialStart)
         return String(text[safeStart...])
+    }
+
+    private static func positiveInteger(
+        forKey key: String,
+        defaultValue: Int,
+        defaults: UserDefaults
+    ) -> Int {
+        let configured = defaults.integer(forKey: key)
+        return configured > 0 ? configured : defaultValue
     }
 
     /// If truncation starts in the middle of an ANSI CSI escape sequence, advance

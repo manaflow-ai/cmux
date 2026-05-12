@@ -514,13 +514,14 @@ extension Workspace {
     nonisolated static func resolvedSnapshotTerminalScrollback(
         capturedScrollback: String?,
         fallbackScrollback: String?,
-        allowFallbackScrollback: Bool = true
+        allowFallbackScrollback: Bool = true,
+        defaults: UserDefaults = .standard
     ) -> String? {
-        if let captured = SessionPersistencePolicy.truncatedScrollback(capturedScrollback) {
+        if let captured = SessionPersistencePolicy.truncatedScrollback(capturedScrollback, defaults: defaults) {
             return captured
         }
         guard allowFallbackScrollback else { return nil }
-        return SessionPersistencePolicy.truncatedScrollback(fallbackScrollback)
+        return SessionPersistencePolicy.truncatedScrollback(fallbackScrollback, defaults: defaults)
     }
 
     nonisolated static func shouldReplaySessionScrollback(
