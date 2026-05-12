@@ -211,12 +211,16 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         let primaryFrameAutosaveKey = appKitFrameAutosaveDefaultsKey(primaryFrameAutosaveName)
         let previousPrimaryFrameAutosave = defaults.object(forKey: primaryFrameAutosaveKey)
         NSWindow.removeFrame(usingName: primaryFrameAutosaveName)
+        var secondaryFrameAutosaveName: NSWindow.FrameAutosaveName?
 
         let firstWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
         let secondWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
         defer {
             closeWindow(withId: secondWindowId)
             closeWindow(withId: firstWindowId)
+            if let secondaryFrameAutosaveName {
+                NSWindow.removeFrame(usingName: secondaryFrameAutosaveName)
+            }
             restoreDefaultsValue(
                 previousPrimaryFrameAutosave,
                 forKey: primaryFrameAutosaveKey,
@@ -226,6 +230,7 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
 
         let firstWindow = try XCTUnwrap(window(withId: firstWindowId))
         let secondWindow = try XCTUnwrap(window(withId: secondWindowId))
+        secondaryFrameAutosaveName = secondWindow.frameAutosaveName
 
         XCTAssertFalse(
             firstWindow.frameAutosaveName.isEmpty,
