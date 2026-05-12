@@ -122,6 +122,39 @@ struct WorkstreamAgentGraphTests {
         #expect(child?.workstreamId == "claude-child")
     }
 
+    @Test("Parent child metadata prunes matching pending spawn")
+    func parentChildMetadataPrunesMatchingPendingSpawn() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-parent",
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: "workspace-1"
+        ))
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-parent",
+            hookEventName: .preToolUse,
+            source: "claude",
+            workspaceId: "workspace-1",
+            toolName: "Task",
+            toolInputJSON: #"{"description":"Explore settings","subagent_type":"explorer","prompt":"Map settings code paths"}"#
+        ))
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-parent",
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: "workspace-1",
+            extraFieldsJSON: #"{"child_workstream_id":"claude-child","subagent_type":"explorer"}"#
+        ))
+
+        let graph = WorkstreamAgentGraphBuilder.snapshot(from: store.items)
+        #expect(graph.nodeCount == 2)
+        #expect(graph.edgeCount == 1)
+        let child = graph.roots.first?.children.first
+        #expect(child?.kind == .session)
+        #expect(child?.workstreamId == "claude-child")
+    }
+
     @Test("Explicit child without a unique metadata match keeps pending spawns")
     func explicitChildWithoutUniqueMetadataMatchKeepsPendingSpawns() {
         let store = WorkstreamStore(ringCapacity: 10)
