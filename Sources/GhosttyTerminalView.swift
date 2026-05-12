@@ -5607,7 +5607,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return }
         guard let surface = surface else {
             enqueuePendingSocketInput(.text(data))
-            requestBackgroundSurfaceStartIfNeeded()
+            requestBackgroundSurfaceStartIfNeeded(allowDetachedView: true)
             return
         }
         guard runtimeSurfaceCanAcceptInput(surface, reason: "sendText") else { return }
@@ -5622,7 +5622,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
         } else {
             enqueuePendingSocketInput(.key(event))
-            requestBackgroundSurfaceStartIfNeeded()
+            requestBackgroundSurfaceStartIfNeeded(allowDetachedView: true)
         }
         return true
     }
@@ -5695,10 +5695,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         _ = ghostty_surface_key(surface, keyEvent)
     }
 
-    func requestBackgroundSurfaceStartIfNeeded() {
+    func requestBackgroundSurfaceStartIfNeeded(allowDetachedView: Bool = false) {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
-                self?.requestBackgroundSurfaceStartIfNeeded()
+                self?.requestBackgroundSurfaceStartIfNeeded(allowDetachedView: allowDetachedView)
             }
             return
         }
@@ -5713,7 +5713,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             self.backgroundSurfaceStartQueued = false
             guard self.allowsRuntimeSurfaceCreation() else { return }
             guard self.surface == nil, let view = self.attachedView else { return }
-            guard view.window != nil else {
+            guard allowDetachedView || view.window != nil else {
                 #if DEBUG
                 cmuxDebugLog(
                     "surface.background_start.defer surface=\(self.id.uuidString.prefix(8)) reason=noWindow"
