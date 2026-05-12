@@ -23,6 +23,13 @@ final class FeedCoordinatorTests: XCTestCase {
         XCTAssertFalse(FeedPermissionActionPolicy.supportsBypassPermissions(source: .hermesAgent))
     }
 
+    func testFeedJumpResolverParsesHyphenatedAgentSource() {
+        let parsed = FeedJumpResolver.parse("hermes-agent-session-with-dashes")
+
+        XCTAssertEqual(parsed?.agent, "hermes-agent")
+        XCTAssertEqual(parsed?.sessionId, "session-with-dashes")
+    }
+
     func testBlockingIngestExpiresItemWhenHookTimesOut() async {
         await MainActor.run {
             let store = WorkstreamStore(ringCapacity: 10)
@@ -72,7 +79,7 @@ final class FeedCoordinatorTests: XCTestCase {
             surfaceId: UUID()
         )
         let event = WorkstreamEvent(
-            sessionId: "notif-match",
+            sessionId: "claude-notif-match",
             hookEventName: .permissionRequest,
             source: "claude",
             toolName: "Bash",
@@ -91,7 +98,9 @@ final class FeedCoordinatorTests: XCTestCase {
                     activeTerminalTarget: target
                 )
             },
-            lookupTarget: { _, _ in
+            lookupTarget: { agent, sessionId in
+                XCTAssertEqual(agent, "claude")
+                XCTAssertEqual(sessionId, "notif-match")
                 FeedJumpResolver.Target(
                     workspaceId: target.workspaceId.uuidString,
                     surfaceId: target.surfaceId.uuidString
@@ -113,7 +122,7 @@ final class FeedCoordinatorTests: XCTestCase {
             surfaceId: UUID()
         )
         let event = WorkstreamEvent(
-            sessionId: "notif-different",
+            sessionId: "claude-notif-different",
             hookEventName: .permissionRequest,
             source: "claude",
             toolName: "Bash",
@@ -144,6 +153,44 @@ final class FeedCoordinatorTests: XCTestCase {
         XCTAssertEqual(deliveredRequests.count, 1)
         XCTAssertEqual(deliveredRequests.first?.identifier, "feed.notif-different-request")
         XCTAssertEqual(deliveredRequests.first?.content.categoryIdentifier, "CMUXFeedPermission")
+    }
+
+    func testPermissionRequestNotificationStillPostsWhenAppIsNotFrontmost() {
+        let target = FeedNotificationDispatcher.ActiveTerminalTarget(
+            workspaceId: UUID(),
+            surfaceId: UUID()
+        )
+        let event = WorkstreamEvent(
+            sessionId: "claude-notif-background",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            toolName: "Bash",
+            requestId: "notif-background-request"
+        )
+
+        var deliveredRequests: [UNNotificationRequest] = []
+
+        FeedNotificationDispatcher.post(
+            event: event,
+            requestId: "notif-background-request",
+            enqueue: { work in work() },
+            frontmostContext: {
+                FeedNotificationDispatcher.FrontmostContext(
+                    isAppFrontmost: false,
+                    activeTerminalTarget: target
+                )
+            },
+            lookupTarget: { _, _ in
+                FeedJumpResolver.Target(
+                    workspaceId: target.workspaceId.uuidString,
+                    surfaceId: target.surfaceId.uuidString
+                )
+            },
+            deliverRequest: { deliveredRequests.append($0) }
+        )
+
+        XCTAssertEqual(deliveredRequests.count, 1)
+        XCTAssertEqual(deliveredRequests.first?.identifier, "feed.notif-background-request")
     }
 }
 
