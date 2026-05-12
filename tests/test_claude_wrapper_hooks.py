@@ -553,18 +553,27 @@ def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures
 
 
 def test_live_socket_preserves_vertex_auth_env_for_shell_configured_launch(failures: list[str]) -> None:
-    inherited = {
+    expected_preserved = {
         "ANTHROPIC_VERTEX_PROJECT_ID": "vertex-project-123",
         "CLAUDE_CODE_USE_VERTEX": "1",
         "CLOUD_ML_REGION": "us-central1",
+    }
+    inherited = {
+        **expected_preserved,
+        "ANTHROPIC_API_KEY": "anthropic-key-must-be-scrubbed-on-vertex",
     }
     code, auth_env, real_argv, stderr = run_wrapper_auth_env(
         argv=["--print", "hello"],
         inherited_env=inherited,
     )
     expect(code == 0, f"vertex auth env: wrapper exited {code}: {stderr}", failures)
-    for key, value in inherited.items():
+    for key, value in expected_preserved.items():
         expect(auth_env.get(key) == value, f"vertex auth env: expected {key}={value!r}, got {auth_env.get(key)!r}", failures)
+    expect(
+        auth_env.get("ANTHROPIC_API_KEY") == "__UNSET__",
+        f"vertex auth env: expected ANTHROPIC_API_KEY scrubbed in Vertex mode, got {auth_env.get('ANTHROPIC_API_KEY')!r}",
+        failures,
+    )
     expect("--session-id" in real_argv, f"vertex auth env: expected session injection, got {real_argv}", failures)
 
 
@@ -682,8 +691,8 @@ def test_live_socket_auto_preserves_vertex_auth_when_truthy(failures: list[str])
         failures,
     )
     expect(
-        "--session-id" in real_argv,
-        f"vertex auto-preserve: expected session injection, got {real_argv}",
+        "--session-id" not in real_argv,
+        f"vertex auto-preserve: expected passthrough without session injection, got {real_argv}",
         failures,
     )
 
@@ -740,8 +749,8 @@ def test_live_socket_auto_preserves_bedrock_auth_when_truthy(failures: list[str]
         failures,
     )
     expect(
-        "--session-id" in real_argv,
-        f"bedrock auto-preserve: expected session injection, got {real_argv}",
+        "--session-id" not in real_argv,
+        f"bedrock auto-preserve: expected passthrough without session injection, got {real_argv}",
         failures,
     )
 
