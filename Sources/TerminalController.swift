@@ -2025,7 +2025,7 @@ class TerminalController {
         guard !trimmed.isEmpty else { return "ERROR: Empty command" }
 
         // v2 protocol: newline-delimited JSON.
-        if trimmed.hasPrefix("{") {
+        if trimmed.hasPrefix("{") || trimmed.hasPrefix("[") {
             return processV2Command(trimmed)
         }
 

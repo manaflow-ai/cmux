@@ -49,10 +49,13 @@ public enum CMUXSocketProtocol {
     }
 
     public static func malformedRequestUsesJSONRPC(_ command: String) -> Bool {
-        command.range(
+        if command.range(
             of: #""jsonrpc"\s*:\s*"2\.0""#,
             options: .regularExpression
-        ) != nil
+        ) != nil {
+            return true
+        }
+        return command.contains(#""jsonrpc""#) && command.contains(#""2.0""#)
     }
 
     public static func malformedRequestError(command: String, code: String, message: String) -> String {
