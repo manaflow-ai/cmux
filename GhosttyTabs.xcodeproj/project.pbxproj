@@ -334,6 +334,8 @@
 		B9000048A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000049A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift */; };
 		B9000050A1B2C3D4E5F60719 /* CMUXCLI+Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000051A1B2C3D4E5F60719 /* CMUXCLI+Config.swift */; };
 		D38060010000000000000003 /* CMUXCLI+SettingsCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = D38060010000000000000005 /* CMUXCLI+SettingsCommand.swift */; };
+		D38060010000000000000006 /* CMUXCLI+SettingsFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D38060010000000000000007 /* CMUXCLI+SettingsFileStore.swift */; };
+		D38060010000000000000008 /* CMUXCLI+SettingsShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D38060010000000000000009 /* CMUXCLI+SettingsShortcuts.swift */; };
 		B9000052A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000053A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift */; };
 		B9000061A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000060A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift */; };
 		B9000063A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000062A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift */; };
@@ -827,6 +829,8 @@
 		B9000049A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatHUDSupport.swift"; sourceTree = "<group>"; };
 		B9000051A1B2C3D4E5F60719 /* CMUXCLI+Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Config.swift"; sourceTree = "<group>"; };
 		D38060010000000000000005 /* CMUXCLI+SettingsCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SettingsCommand.swift"; sourceTree = "<group>"; };
+		D38060010000000000000007 /* CMUXCLI+SettingsFileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SettingsFileStore.swift"; sourceTree = "<group>"; };
+		D38060010000000000000009 /* CMUXCLI+SettingsShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SettingsShortcuts.swift"; sourceTree = "<group>"; };
 		B9000053A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+InstallPreview.swift"; sourceTree = "<group>"; };
 		B9000060A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+HermesAgentHooks.swift"; sourceTree = "<group>"; };
 		B9000062A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentHookDefinitions.swift"; sourceTree = "<group>"; };
@@ -1354,6 +1358,8 @@
 						B9000049A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift */,
 						B9000051A1B2C3D4E5F60719 /* CMUXCLI+Config.swift */,
 						D38060010000000000000005 /* CMUXCLI+SettingsCommand.swift */,
+						D38060010000000000000007 /* CMUXCLI+SettingsFileStore.swift */,
+						D38060010000000000000009 /* CMUXCLI+SettingsShortcuts.swift */,
 						B9000053A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift */,
 						B9000060A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift */,
 						B9000062A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift */,
@@ -1995,6 +2001,8 @@
 					B9000048A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift in Sources */,
 					B9000050A1B2C3D4E5F60719 /* CMUXCLI+Config.swift in Sources */,
 					D38060010000000000000003 /* CMUXCLI+SettingsCommand.swift in Sources */,
+					D38060010000000000000006 /* CMUXCLI+SettingsFileStore.swift in Sources */,
+					D38060010000000000000008 /* CMUXCLI+SettingsShortcuts.swift in Sources */,
 					B9000052A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift in Sources */,
 					B9000061A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift in Sources */,
 					B9000063A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift in Sources */,
