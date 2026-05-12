@@ -313,7 +313,7 @@ extension CMUXCLI {
         return "custom"
     }
 
-    private static func currentSIGPIPEInspectionPayload() -> [String: Any] {
+    static func currentSIGPIPEInspectionPayload() -> [String: Any] {
         [
             "signal": currentSIGPIPEDispositionName(),
             "stdout_nosigpipe": Int(currentCLINoSIGPIPEValue(for: STDOUT_FILENO) ?? -1),
@@ -347,7 +347,8 @@ extension CMUXCLI {
             throw CLIError(message: "Unknown SIGPIPE inspect arguments. Expected no args or --out <path>.")
         }
 
-        let output = jsonString(Self.currentSIGPIPEInspectionPayload())
+        let payload = initialSIGPIPEInspectionPayload ?? Self.currentSIGPIPEInspectionPayload()
+        let output = jsonString(payload)
         if let outputPath {
             try output.write(toFile: outputPath, atomically: true, encoding: .utf8)
         } else {

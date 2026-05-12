@@ -1727,6 +1727,7 @@ final class SocketClient {
 
 struct CMUXCLI {
     let args: [String]
+    let initialSIGPIPEInspectionPayload: [String: Any]? = nil
 
     private static let debugLastSocketHintPath = "/tmp/cmux-last-socket-path"
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
@@ -20748,8 +20749,12 @@ private enum CMUXCLIOutput {
 struct CMUXTermMain {
     static func main() {
         _ = signal(SIGPIPE, SIG_DFL)
+        let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
         configureCLIStdioNoSIGPIPE()
-        let cli = CMUXCLI(args: CommandLine.arguments)
+        let cli = CMUXCLI(
+            args: CommandLine.arguments,
+            initialSIGPIPEInspectionPayload: initialSIGPIPEInspectionPayload
+        )
         do {
             try cli.run()
         } catch {
