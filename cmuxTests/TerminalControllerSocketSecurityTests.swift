@@ -159,6 +159,28 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertNotNil(followUpResponse["result"], "Unexpected v2 response: \(followUpResponse)")
     }
 
+    func testJSONRPCEventStreamNotificationDoesNotWriteAckResponse() async throws {
+        let socketPath = makeSocketPath("jsonrpc-events-notification")
+        let tabManager = TabManager()
+
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let explicitNullIDResponse = try await runJSONRPCEventStreamNotificationSocketSequence(to: socketPath)
+
+        XCTAssertEqual(explicitNullIDResponse["jsonrpc"] as? String, "2.0", "Unexpected events.stream response: \(explicitNullIDResponse)")
+        XCTAssertTrue(explicitNullIDResponse["id"] is NSNull, "Unexpected events.stream response: \(explicitNullIDResponse)")
+        let result = try XCTUnwrap(explicitNullIDResponse["result"] as? [String: Any], "Expected events.stream ack result")
+        XCTAssertEqual(result["type"] as? String, "ack", "Unexpected events.stream ack: \(result)")
+    }
+
     private func runJSONRPCNotificationSocketSequence(
         to socketPath: String
     ) async throws -> (explicitNullIDResponse: [String: Any], followUpResponse: [String: Any]) {
@@ -289,6 +311,60 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         let followUpResponse = try readJSONObjectLine(from: fd)
 
         return (explicitNullIDResponse, followUpResponse)
+    }
+
+    private func runJSONRPCEventStreamNotificationSocketSequence(
+        to socketPath: String
+    ) async throws -> [String: Any] {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let response = try self.runJSONRPCEventStreamNotificationSocketSequenceSync(to: socketPath)
+                    continuation.resume(returning: response)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private nonisolated func runJSONRPCEventStreamNotificationSocketSequenceSync(
+        to socketPath: String
+    ) throws -> [String: Any] {
+        let afterSequence = CmuxEventBus.shared.latestSequence
+
+        do {
+            let fd = try connect(to: socketPath)
+            defer { Darwin.close(fd) }
+
+            let notification: [String: Any] = [
+                "jsonrpc": "2.0",
+                "method": "events.stream",
+                "params": [
+                    "after_seq": NSNumber(value: afterSequence),
+                    "include_heartbeats": false
+                ]
+            ]
+            try writeJSONLine(notification, to: fd)
+
+            XCTAssertNil(try readLineIfAvailable(from: fd, timeoutMilliseconds: 250))
+        }
+
+        let explicitNullIDFD = try connect(to: socketPath)
+        defer { Darwin.close(explicitNullIDFD) }
+
+        let explicitNullID: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": NSNull(),
+            "method": "events.stream",
+            "params": [
+                "after_seq": NSNumber(value: afterSequence),
+                "include_heartbeats": false
+            ]
+        ]
+        try writeJSONLine(explicitNullID, to: explicitNullIDFD)
+
+        return try readJSONObjectLine(from: explicitNullIDFD)
     }
 
     func testSocketCommandPolicyDistinguishesFocusIntent() throws {
