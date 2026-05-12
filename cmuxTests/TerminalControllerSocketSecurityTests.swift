@@ -140,6 +140,36 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 #endif
     }
 
+    func testRemoteTerminalReconnectingRejectsAttemptAboveLimit() async throws {
+        let socketPath = makeSocketPath("ssh-reconnecting-limit")
+        let tabManager = TabManager()
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try await sendV2RequestAsync(
+            method: "workspace.remote.terminal_reconnecting",
+            params: [
+                "workspace_id": "11111111-1111-1111-1111-111111111111",
+                "surface_id": "22222222-2222-2222-2222-222222222222",
+                "relay_port": 64041,
+                "attempt": 3,
+                "limit": 2,
+                "exit_status": 255,
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "invalid_params")
+        XCTAssertEqual(error["message"] as? String, "Missing or invalid attempt")
+    }
+
     func testRemoteStatusPayloadOmitsSensitiveSSHConfiguration() {
         let tabManager = TabManager()
         let workspace = tabManager.addWorkspace(select: false, eagerLoadTerminal: false)

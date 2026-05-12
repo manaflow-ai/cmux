@@ -2525,6 +2525,10 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceRemoteDisconnect(params: params))
         case "workspace.remote.status":
             return v2Result(id: id, self.v2WorkspaceRemoteStatus(params: params))
+        case "workspace.remote.terminal_reconnecting":
+            return v2Result(id: id, self.v2WorkspaceRemoteTerminalReconnecting(params: params))
+        case "workspace.remote.terminal_connected":
+            return v2Result(id: id, self.v2WorkspaceRemoteTerminalConnected(params: params))
         case "workspace.remote.terminal_session_end":
             return v2Result(id: id, self.v2WorkspaceRemoteTerminalSessionEnd(params: params))
         case "session.restore_previous":
@@ -2933,6 +2937,8 @@ class TerminalController {
             "workspace.remote.reconnect",
             "workspace.remote.disconnect",
             "workspace.remote.status",
+            "workspace.remote.terminal_reconnecting",
+            "workspace.remote.terminal_connected",
             "workspace.remote.terminal_session_end",
             "session.restore_previous",
             "settings.open",
@@ -5053,42 +5059,121 @@ class TerminalController {
         return result
     }
 
+    private func v2WorkspaceRemoteTerminalReconnecting(params: [String: Any]) -> V2CallResult {
+        guard let identity = v2WorkspaceRemoteTerminalLifecycleIdentity(params: params) else {
+            return .err(
+                code: "invalid_params",
+                message: "Missing or invalid workspace_id, surface_id, or relay_port",
+                data: nil
+            )
+        }
+        guard let attempt = v2StrictInt(params, "attempt"),
+              attempt > 0 else {
+            return .err(code: "invalid_params", message: "Missing or invalid attempt", data: nil)
+        }
+        guard let limit = v2StrictInt(params, "limit"),
+              limit > 0 else {
+            return .err(code: "invalid_params", message: "Missing or invalid limit", data: nil)
+        }
+        guard attempt <= limit else {
+            return .err(code: "invalid_params", message: "Missing or invalid attempt", data: nil)
+        }
+        guard let exitStatus = v2StrictInt(params, "exit_status"),
+              exitStatus >= 0,
+              exitStatus <= 255 else {
+            return .err(code: "invalid_params", message: "Missing or invalid exit_status", data: nil)
+        }
+
+        return v2ApplyWorkspaceRemoteTerminalLifecycle(identity: identity) { workspace in
+            workspace.markRemoteTerminalSessionReconnecting(
+                surfaceId: identity.surfaceId,
+                relayPort: identity.relayPort,
+                attempt: attempt,
+                limit: limit,
+                exitStatus: exitStatus
+            )
+        }
+    }
+
+    private func v2WorkspaceRemoteTerminalConnected(params: [String: Any]) -> V2CallResult {
+        guard let identity = v2WorkspaceRemoteTerminalLifecycleIdentity(params: params) else {
+            return .err(
+                code: "invalid_params",
+                message: "Missing or invalid workspace_id, surface_id, or relay_port",
+                data: nil
+            )
+        }
+
+        return v2ApplyWorkspaceRemoteTerminalLifecycle(identity: identity) { workspace in
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: identity.surfaceId,
+                relayPort: identity.relayPort
+            )
+        }
+    }
+
     private func v2WorkspaceRemoteTerminalSessionEnd(params: [String: Any]) -> V2CallResult {
+        guard let identity = v2WorkspaceRemoteTerminalLifecycleIdentity(params: params) else {
+            return .err(
+                code: "invalid_params",
+                message: "Missing or invalid workspace_id, surface_id, or relay_port",
+                data: nil
+            )
+        }
+
+        return v2ApplyWorkspaceRemoteTerminalLifecycle(identity: identity) { workspace in
+            workspace.markRemoteTerminalSessionEnded(surfaceId: identity.surfaceId, relayPort: identity.relayPort)
+        }
+    }
+
+    private struct RemoteTerminalLifecycleIdentity {
+        let workspaceId: UUID
+        let surfaceId: UUID
+        let relayPort: Int
+    }
+
+    private func v2WorkspaceRemoteTerminalLifecycleIdentity(params: [String: Any]) -> RemoteTerminalLifecycleIdentity? {
         guard let workspaceId = v2UUID(params, "workspace_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+            return nil
         }
         guard let surfaceId = v2UUID(params, "surface_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+            return nil
         }
         guard let relayPort = v2StrictInt(params, "relay_port"),
               relayPort > 0,
               relayPort <= 65535 else {
-            return .err(code: "invalid_params", message: "Missing or invalid relay_port", data: nil)
+            return nil
         }
+        return RemoteTerminalLifecycleIdentity(workspaceId: workspaceId, surfaceId: surfaceId, relayPort: relayPort)
+    }
 
+    private func v2ApplyWorkspaceRemoteTerminalLifecycle(
+        identity: RemoteTerminalLifecycleIdentity,
+        apply: (Workspace) -> Void
+    ) -> V2CallResult {
         var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: [
-            "workspace_id": workspaceId.uuidString,
-            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
-            "surface_id": surfaceId.uuidString,
-            "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-            "relay_port": relayPort,
+            "workspace_id": identity.workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: identity.workspaceId),
+            "surface_id": identity.surfaceId.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: identity.surfaceId),
+            "relay_port": identity.relayPort,
         ])
 
         v2MainSync {
-            guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
-                  let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
+            guard let owner = AppDelegate.shared?.tabManagerFor(tabId: identity.workspaceId),
+                  let workspace = owner.tabs.first(where: { $0.id == identity.workspaceId }) else {
                 return
             }
-            workspace.markRemoteTerminalSessionEnded(surfaceId: surfaceId, relayPort: relayPort)
+            apply(workspace)
             let windowId = v2ResolveWindowId(tabManager: owner)
             result = .ok([
                 "window_id": v2OrNull(windowId?.uuidString),
                 "window_ref": v2Ref(kind: .window, uuid: windowId),
                 "workspace_id": workspace.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "relay_port": relayPort,
+                "surface_id": identity.surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: identity.surfaceId),
+                "relay_port": identity.relayPort,
                 "remote": workspace.remoteStatusPayload(),
             ])
         }
