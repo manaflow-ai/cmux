@@ -5609,6 +5609,8 @@ class TabManager: ObservableObject {
         guard tab.bonsplitController.setDividerPosition(clamped, forSplit: candidate.splitId, fromExternal: true) else {
             return false
         }
+        // Keep layout snapshots and terminal geometry reconciliation in sync
+        // for every resize entrypoint, including Ghostty resize-split actions.
         tab.didProgrammaticallyChangeSplitGeometry()
         return true
     }

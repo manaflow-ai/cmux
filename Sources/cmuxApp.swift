@@ -6837,7 +6837,7 @@ struct SettingsView: View {
                                 Text(
                                     String(
                                         format: String(localized: "settings.shortcuts.paneResizeStep.value", defaultValue: "%d px"),
-                                        paneResizeStepPixels
+                                        PaneResizeStepSettings.normalizedPixels(paneResizeStepPixels)
                                     )
                                 )
                                 .monospacedDigit()
