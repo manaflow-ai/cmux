@@ -11,10 +11,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -537,7 +539,9 @@ func buildBrowserRelayRequest(args []string) (browserCommandSpec, map[string]any
 	}
 
 	applyBrowserPositionals(params, parsed.positional, spec)
-	applyBrowserSpecialParams(params, spec)
+	if err := applyBrowserSpecialParams(params, spec); err != nil {
+		return browserCommandSpec{}, nil, browserParsedArgs{}, err
+	}
 	if spec.useWorkspaceEnv {
 		applyWorkspaceEnvFallback(params)
 	}
@@ -712,39 +716,47 @@ func applyBrowserPositionals(params map[string]any, positionals []string, spec b
 		return
 	}
 
+	positionalIndex := 0
 	for idx, key := range spec.positionalKeys {
 		if _, ok := params[key]; ok {
 			continue
 		}
-		if idx >= len(positionals) {
+		if positionalIndex >= len(positionals) {
 			continue
 		}
-		value := positionals[idx]
+		value := positionals[positionalIndex]
 		if spec.joinLast && idx == len(spec.positionalKeys)-1 {
-			value = strings.Join(positionals[idx:], " ")
+			value = strings.Join(positionals[positionalIndex:], " ")
 		}
 		params[key] = value
+		positionalIndex++
 	}
 }
 
-func applyBrowserSpecialParams(params map[string]any, spec browserCommandSpec) {
+func applyBrowserSpecialParams(params map[string]any, spec browserCommandSpec) error {
 	if spec.special == browserSpecialWait {
 		if timeout, ok := params["timeout"]; ok {
+			seconds, parsed := parseNumberishString(timeout)
+			if !parsed {
+				return fmt.Errorf("--timeout must be a number of seconds")
+			}
 			if _, hasTimeoutMs := params["timeout_ms"]; !hasTimeoutMs {
-				if seconds, ok := parseNumberishString(timeout); ok {
-					params["timeout_ms"] = fmt.Sprintf("%d", maxInt(1, int(seconds*1000)))
-				}
+				params["timeout_ms"] = fmt.Sprintf("%d", maxInt(1, int(seconds*1000)))
 			}
 			delete(params, "timeout")
 		}
 	}
+	return nil
 }
 
 func parseNumberishString(value any) (float64, bool) {
 	switch typed := value.(type) {
 	case string:
-		var parsed float64
-		if _, err := fmt.Sscanf(strings.TrimSpace(typed), "%f", &parsed); err == nil {
+		trimmed := strings.TrimSpace(typed)
+		if trimmed == "" {
+			return 0, false
+		}
+		if parsed, err := strconv.ParseFloat(trimmed, 64); err == nil && !math.IsNaN(parsed) && !math.IsInf(parsed, 0) {
 			return parsed, true
 		}
 	case int:
