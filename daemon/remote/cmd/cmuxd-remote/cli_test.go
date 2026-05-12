@@ -1060,6 +1060,36 @@ func TestCLIBrowserGenericAdvertisedMethodDispatch(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserTabBareSignTargetDoesNotBecomeIndex(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "surface:2", "tab", "-",
+	})
+	if code != 0 {
+		t.Fatalf("browser tab bare sign target should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.tab.switch" {
+			t.Fatalf("expected browser.tab.switch, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "surface:2" {
+			t.Fatalf("expected surface_id surface:2, got %v", got)
+		}
+		if got := params["target_surface_id"]; got != "-" {
+			t.Fatalf("expected target_surface_id -, got %v", got)
+		}
+		if _, ok := params["index"]; ok {
+			t.Fatalf("bare sign should not be sent as index: %#v", params)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser tab switch request")
+	}
+}
+
 func TestCLIBrowserScreenshotOutDecodesPNG(t *testing.T) {
 	png := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
 	sockPath := startMockV2TCPSocketWithResult(t, map[string]any{
