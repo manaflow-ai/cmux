@@ -102,6 +102,22 @@ final class UpdateViewModelLatestEmissionTests: XCTestCase {
         XCTAssertEqual(reply.count, 1)
     }
 
+    func testCancelActiveStateForNewCheckPreventsQueuedDismissFromReplyingAgain() throws {
+        let model = UpdateViewModel()
+        let reply = UpdateChoiceRecorder()
+        let update = try Self.updateAvailable(displayVersion: "9.9.0", recorder: reply)
+
+        model.recordAvailableUpdate(update)
+        model.overrideState = .updateAvailable(update)
+
+        model.cancelActiveStateForNewCheck()
+        model.dismissDetectedAvailableUpdate()
+
+        XCTAssertEqual(model.state, .idle)
+        XCTAssertNil(model.overrideState)
+        XCTAssertEqual(reply.count, 1)
+    }
+
     private static func visibleUpdateVersion(in model: UpdateViewModel) -> String? {
         switch model.effectiveState {
         case .idle:

@@ -45,6 +45,12 @@ class UpdateViewModel: ObservableObject {
         detectedUpdateVersion = nil
     }
 
+    func cancelActiveStateForNewCheck() {
+        state.cancel()
+        state = .idle
+        overrideState = nil
+    }
+
     func dismissDetectedAvailableUpdate() {
         clearDetectedUpdate()
 
