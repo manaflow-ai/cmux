@@ -219,7 +219,12 @@ actor SearchIndex {
 
         return try withStatement(sql) { statement in
             try bind(matchQuery, at: 1, in: statement)
-            sqlite3_bind_int(statement, 2, Int32(limit))
+            let limitBindResult = sqlite3_bind_int64(statement, 2, sqlite3_int64(limit))
+            guard limitBindResult == SQLITE_OK else {
+                throw SearchIndexError.bindFailed(
+                    Self.sqliteMessage(database) ?? "bind failed with code \(limitBindResult)"
+                )
+            }
 
             var hits: [SearchIndexHit] = []
             while true {

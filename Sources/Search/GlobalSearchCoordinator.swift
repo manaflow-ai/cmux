@@ -451,21 +451,84 @@ extension AppDelegate {
         forPanelID panelID: UUID,
         preferredWorkspaceID: UUID?
     ) -> GlobalSearchPanelContext? {
-        let contexts = globalSearchPanelContexts()
-        return contexts.first { context in
-            context.panelID == panelID &&
-                (preferredWorkspaceID == nil || context.workspaceID == preferredWorkspaceID)
-        } ?? contexts.first { $0.panelID == panelID }
+        var fallback: GlobalSearchPanelContext?
+        var seenWindowIDs = Set<UUID>()
+        var windowOrdinal = 1
+
+        func inspect(windowID: UUID, tabManager: TabManager, window: NSWindow?) -> GlobalSearchPanelContext? {
+            _ = seenWindowIDs.insert(windowID)
+            let fallbackWindowTitle = String(localized: "menu.windowNumber", defaultValue: "Window \(windowOrdinal)")
+            windowOrdinal += 1
+            let windowTitle = {
+                let trimmed = window?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return trimmed.isEmpty ? fallbackWindowTitle : trimmed
+            }()
+
+            for workspace in tabManager.tabs {
+                guard let panel = workspace.panels[panelID] else { continue }
+                let workspaceTitle = {
+                    let trimmed = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return trimmed.isEmpty
+                        ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace")
+                        : trimmed
+                }()
+                let panelTitle = panel.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                let context = GlobalSearchPanelContext(
+                    windowID: windowID,
+                    windowTitle: windowTitle,
+                    workspaceID: workspace.id,
+                    workspaceTitle: workspaceTitle,
+                    panelID: panel.id,
+                    panelTitle: panelTitle.isEmpty ? workspaceTitle : panelTitle,
+                    panel: panel
+                )
+
+                if preferredWorkspaceID == nil || workspace.id == preferredWorkspaceID {
+                    return context
+                }
+                fallback = fallback ?? context
+            }
+
+            return nil
+        }
+
+        for context in mainWindowContexts.values {
+            if let result = inspect(
+                windowID: context.windowId,
+                tabManager: context.tabManager,
+                window: context.window ?? windowForMainWindowId(context.windowId)
+            ) {
+                return result
+            }
+        }
+
+        for route in recoverableMainWindowRoutes() {
+            guard !seenWindowIDs.contains(route.windowId),
+                  let tabManager = route.tabManager else {
+                continue
+            }
+            if let result = inspect(windowID: route.windowId, tabManager: tabManager, window: route.window) {
+                return result
+            }
+        }
+
+        return fallback
     }
 
     func openGlobalSearchHit(_ hit: SearchIndexHit, query: String) {
-        guard let tabManager = tabManagerFor(windowId: hit.windowID),
-              let workspace = tabManager.tabs.first(where: { $0.id == hit.workspaceID }) else {
+        let resolvedContext = hit.panelID.flatMap {
+            globalSearchContext(forPanelID: $0, preferredWorkspaceID: hit.workspaceID)
+        }
+        let windowID = resolvedContext?.windowID ?? hit.windowID
+        let workspaceID = resolvedContext?.workspaceID ?? hit.workspaceID
+
+        guard let tabManager = tabManagerFor(windowId: windowID),
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
             NSSound.beep()
             return
         }
 
-        _ = focusMainWindow(windowId: hit.windowID)
+        _ = focusMainWindow(windowId: windowID)
         tabManager.selectTab(workspace)
         TerminalController.shared.setActiveTabManager(tabManager)
 

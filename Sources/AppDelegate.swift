@@ -7250,6 +7250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func setupMenuBarExtra() {
         guard menuBarExtraController == nil else { return }
+        removeTransientGlobalSearchMenuBarExtraController()
         menuBarExtraController = makeMenuBarExtraController()
     }
 
@@ -7334,6 +7335,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    private func removeTransientGlobalSearchMenuBarExtraController() {
+        transientGlobalSearchMenuBarExtraController?.removeFromMenuBar()
+        transientGlobalSearchMenuBarExtraController = nil
+    }
+
     private func transientGlobalSearchDismissalHandler(
         for controller: MenuBarExtraController
     ) -> () -> Void {
@@ -7378,6 +7384,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         menuBarExtraController?.removeFromMenuBar()
         menuBarExtraController = nil
+        removeTransientGlobalSearchMenuBarExtraController()
     }
 
     @MainActor
@@ -12930,19 +12937,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .subtracting([.numericPad, .function, .capsLock])
         guard flags.contains(.command) else { return false }
 
-        for action in KeyboardShortcutSettings.Action.allCases where action != .showHideAllWindows {
+        for action in KeyboardShortcutSettings.Action.allCases where isMenuBackedShortcutAction(action) {
             let currentShortcut = KeyboardShortcutSettings.shortcut(for: action)
             if matchesKeyboardShortcutEvent(event, action: action, shortcut: currentShortcut) {
                 return false
             }
         }
 
-        for action in KeyboardShortcutSettings.Action.allCases where action != .showHideAllWindows {
+        for action in KeyboardShortcutSettings.Action.allCases where isMenuBackedShortcutAction(action) {
             if matchesKeyboardShortcutEvent(event, action: action, shortcut: action.defaultShortcut) {
                 return true
             }
         }
         return false
+    }
+
+    private func isMenuBackedShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
+        action != .showHideAllWindows && action != .globalSearch
     }
 
     private func numberedShortcutDigit(event: NSEvent, stroke: ShortcutStroke) -> Int? {

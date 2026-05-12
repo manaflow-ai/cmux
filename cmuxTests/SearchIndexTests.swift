@@ -303,6 +303,29 @@ final class SearchIndexTests: XCTestCase {
         XCTAssertEqual(hits.first?.panelID, panelID)
     }
 
+    func testSearchAcceptsLimitBeyondInt32Range() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
+
+        let index = try SearchIndex(databaseURL: fixture.databaseURL)
+        try await index.upsert(
+            SearchIndexDocument(
+                id: "wide-limit-doc",
+                windowID: UUID(),
+                workspaceID: UUID(),
+                panelID: UUID(),
+                kind: .markdown,
+                title: "Wide Limit",
+                location: "/tmp/wide-limit.md",
+                anchor: "/tmp/wide-limit.md",
+                text: "widelimittoken"
+            )
+        )
+
+        let hits = try await index.search("widelimittoken", limit: Int(Int32.max) + 1)
+        XCTAssertEqual(hits.map(\.id), ["wide-limit-doc"])
+    }
+
     private func makeFixture() throws -> (directoryURL: URL, databaseURL: URL) {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-search-index-\(UUID().uuidString)", isDirectory: true)
