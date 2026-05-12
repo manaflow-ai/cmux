@@ -1932,15 +1932,20 @@ class TerminalController {
                 guard !trimmed.isEmpty else { continue }
 
                 if isEventsStreamRequest(trimmed) {
+                    let shouldWriteResponse = CMUXSocketProtocol.shouldWriteResponse(for: trimmed)
                     if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
-                        if CMUXSocketProtocol.shouldWriteResponse(for: trimmed) {
+                        if shouldWriteResponse {
                             guard writeSocketResponse(response, to: socket) else {
                                 return
                             }
                         }
                         continue
                     }
-                    handleEventsStreamRequest(trimmed, socket: socket)
+                    handleEventsStreamRequest(
+                        trimmed,
+                        socket: socket,
+                        writeInitialResponse: shouldWriteResponse
+                    )
                     return
                 }
 

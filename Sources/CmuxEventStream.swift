@@ -13,14 +13,20 @@ extension TerminalController {
         return method == "events.stream"
     }
 
-    nonisolated func handleEventsStreamRequest(_ line: String, socket: Int32) {
+    nonisolated func handleEventsStreamRequest(
+        _ line: String,
+        socket: Int32,
+        writeInitialResponse: Bool = true
+    ) {
         guard let data = line.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            _ = writeEventsStreamLine([
-                "type": "error",
-                "ok": false,
-                "error": ["code": "invalid_request", "message": "events.stream requires a JSON object"]
-            ], socket: socket)
+            if writeInitialResponse {
+                _ = writeEventsStreamLine([
+                    "type": "error",
+                    "ok": false,
+                    "error": ["code": "invalid_request", "message": "events.stream requires a JSON object"]
+                ], socket: socket)
+            }
             return
         }
 
@@ -39,7 +45,9 @@ extension TerminalController {
         )
         defer { CmuxEventBus.shared.unsubscribe(snapshot.subscription) }
 
-        guard writeEventsStreamLine(snapshot.ack, socket: socket, jsonRPC: usesJSONRPC, responseId: requestId) else { return }
+        if writeInitialResponse {
+            guard writeEventsStreamLine(snapshot.ack, socket: socket, jsonRPC: usesJSONRPC, responseId: requestId) else { return }
+        }
         for event in snapshot.replay {
             guard writeEventsStreamLine(event, socket: socket, jsonRPC: usesJSONRPC) else { return }
         }
