@@ -6792,7 +6792,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let previousAutosaveName = survivor.frameAutosaveName
         guard previousAutosaveName != Self.primaryMainWindowFrameAutosaveName else { return }
-        _ = survivor.setFrameAutosaveName(Self.primaryMainWindowFrameAutosaveName)
+        guard survivor.setFrameAutosaveName(Self.primaryMainWindowFrameAutosaveName) else { return }
         survivor.saveFrame(usingName: Self.primaryMainWindowFrameAutosaveName)
 
         if !previousAutosaveName.isEmpty,
@@ -13429,6 +13429,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let frame = window.frame
         lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
 
+        if window.frameAutosaveName == Self.primaryMainWindowFrameAutosaveName {
+            _ = window.setFrameAutosaveName("")
+        }
         removeEphemeralMainWindowFrameAutosaveNameIfNeeded(window)
 
         guard let removed = unregisterMainWindowContext(for: window) else { return }
