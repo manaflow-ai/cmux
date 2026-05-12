@@ -370,6 +370,80 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         XCTAssertEqual(source.url.lastPathComponent, "Passwords.appex")
     }
 
+    func testRejectsApplicationBundleWithMultipleSafariWebExtensions() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let appURL = root.appendingPathComponent("Passwords.app", isDirectory: true)
+        let pluginsURL = appURL
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("PlugIns", isDirectory: true)
+        try createAppExtension(
+            at: pluginsURL.appendingPathComponent("Passwords.appex", isDirectory: true),
+            bundleIdentifier: "com.example.Passwords.Extension"
+        )
+        try createAppExtension(
+            at: pluginsURL.appendingPathComponent("PasswordsHelper.appex", isDirectory: true),
+            bundleIdentifier: "com.example.Passwords.HelperExtension"
+        )
+
+        let store = BrowserWebExtensionInstallStore(
+            registryURL: root.appendingPathComponent("registry.json"),
+            installedResourceDirectoryURL: root.appendingPathComponent("resources", isDirectory: true)
+        )
+
+        XCTAssertThrowsError(try store.discoverSource(from: appURL)) { error in
+            guard case BrowserWebExtensionInstallError.noWebExtensionInApp(let url) = error else {
+                XCTFail("Expected noWebExtensionInApp, got \(error)")
+                return
+            }
+            XCTAssertEqual(url, appURL.standardizedFileURL)
+        }
+    }
+
+    func testReloadKeepsExistingRecordsAndQuarantinesCorruptRegistry() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let registryURL = root.appendingPathComponent("registry.json")
+        let source = root.appendingPathComponent("SampleExtension", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try """
+        {
+          "manifest_version": 3,
+          "name": "Sample Extension",
+          "version": "1.2.3"
+        }
+        """.data(using: .utf8)?.write(to: source.appendingPathComponent("manifest.json"))
+
+        let store = BrowserWebExtensionInstallStore(
+            registryURL: registryURL,
+            installedResourceDirectoryURL: root.appendingPathComponent("resources", isDirectory: true)
+        )
+        let record = try store.installRecord(
+            from: try store.discoverSource(from: source),
+            displayName: "Sample Extension",
+            displayVersion: "1.2.3",
+            grantedPermissions: ["storage"],
+            grantedPermissionMatchPatterns: []
+        )
+
+        try Data("{ broken json".utf8).write(to: registryURL)
+        store.reload()
+
+        XCTAssertEqual(store.records, [record])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: registryURL.path))
+        let quarantinedFiles = try FileManager.default.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: nil
+        )
+        .filter {
+            $0.lastPathComponent.hasPrefix("registry.") &&
+                $0.lastPathComponent.hasSuffix(".corrupt.json")
+        }
+        XCTAssertEqual(quarantinedFiles.count, 1)
+    }
+
     func testRejectsNonSafariAppExtensionEvenWhenManifestExists() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

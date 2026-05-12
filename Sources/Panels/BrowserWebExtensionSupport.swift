@@ -486,6 +486,12 @@ final class BrowserWebExtensionInstallStore {
         case notSafariWebExtension
     }
 
+    private struct PreparedResourceCopy {
+        let temporaryDirectoryURL: URL
+        let finalDirectoryURL: URL
+        let storedSourceURL: URL
+    }
+
     private static let safariWebExtensionPointIdentifier = "com.apple.Safari.web-extension"
 
     private let registryURL: URL
@@ -525,14 +531,19 @@ final class BrowserWebExtensionInstallStore {
     }
 
     func reload() {
-        guard let data = try? Data(contentsOf: registryURL),
-              let decoded = try? JSONDecoder().decode([BrowserWebExtensionInstallRecord].self, from: data) else {
-            records = []
+        guard fileManager.fileExists(atPath: registryURL.path) else {
             return
         }
-        records = decoded.map(sanitizedRecord)
-        if records != decoded {
-            try? persist()
+
+        do {
+            let data = try Data(contentsOf: registryURL)
+            let decoded = try JSONDecoder().decode([BrowserWebExtensionInstallRecord].self, from: data)
+            records = decoded.map(sanitizedRecord)
+            if records != decoded {
+                try? persist()
+            }
+        } catch {
+            quarantineCorruptRegistry(after: error)
         }
     }
 
@@ -559,10 +570,15 @@ final class BrowserWebExtensionInstallStore {
         grantedPermissionMatchPatterns: [String]
     ) throws -> BrowserWebExtensionInstallRecord {
         let recordID = existingRecordID(for: source) ?? UUID()
+        let previousRecords = records
+        let preparedResourceCopy: PreparedResourceCopy?
         let storedSourceURL: URL
         if source.kind == .resourceBaseURL {
-            storedSourceURL = try copyResourceSource(source.url, recordID: recordID)
+            let preparedCopy = try prepareResourceSourceCopy(source.url, recordID: recordID)
+            preparedResourceCopy = preparedCopy
+            storedSourceURL = preparedCopy.storedSourceURL
         } else {
+            preparedResourceCopy = nil
             storedSourceURL = source.url
         }
 
@@ -580,31 +596,64 @@ final class BrowserWebExtensionInstallStore {
             grantedPermissionMatchPatterns: grantedPermissionMatchPatterns.sorted()
         )
 
-        if let index = records.firstIndex(where: { $0.id == recordID }) {
-            records[index] = record
+        var nextRecords = previousRecords
+        if let index = nextRecords.firstIndex(where: { $0.id == recordID }) {
+            nextRecords[index] = record
         } else {
-            records.append(record)
+            nextRecords.append(record)
         }
-        records.sort {
+        nextRecords.sort {
             $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
         }
-        try persist()
+
+        do {
+            try persist(nextRecords)
+            if let preparedResourceCopy {
+                try commitResourceSourceCopy(preparedResourceCopy)
+            }
+            records = nextRecords
+        } catch {
+            if let preparedResourceCopy {
+                try? fileManager.removeItem(at: preparedResourceCopy.temporaryDirectoryURL)
+            }
+            records = previousRecords
+            try? persist(previousRecords)
+            throw error
+        }
         return record
     }
 
     func setEnabled(_ isEnabled: Bool, for recordID: UUID) throws {
         guard let index = records.firstIndex(where: { $0.id == recordID }) else { return }
-        records[index].isEnabled = isEnabled
-        try persist()
+        var nextRecords = records
+        nextRecords[index].isEnabled = isEnabled
+        try persist(nextRecords)
+        records = nextRecords
     }
 
     func remove(recordID: UUID) throws {
         guard let index = records.firstIndex(where: { $0.id == recordID }) else { return }
-        let record = records.remove(at: index)
-        if record.sourceKind == .resourceBaseURL {
-            try? fileManager.removeItem(at: URL(fileURLWithPath: record.sourcePath).deletingLastPathComponent())
+        let previousRecords = records
+        let record = previousRecords[index]
+        var nextRecords = previousRecords
+        nextRecords.remove(at: index)
+        try persist(nextRecords)
+        records = nextRecords
+
+        guard record.sourceKind == .resourceBaseURL else {
+            return
         }
-        try persist()
+
+        do {
+            let directoryURL = URL(fileURLWithPath: record.sourcePath).deletingLastPathComponent()
+            if fileManager.fileExists(atPath: directoryURL.path) {
+                try fileManager.removeItem(at: directoryURL)
+            }
+        } catch {
+            records = previousRecords
+            try? persist(previousRecords)
+            throw BrowserWebExtensionInstallError.copyFailed(error.localizedDescription)
+        }
     }
 
     func discoverSource(from url: URL) throws -> BrowserWebExtensionInstallSource {
@@ -668,28 +717,67 @@ final class BrowserWebExtensionInstallStore {
         }?.id
     }
 
-    private func copyResourceSource(_ sourceURL: URL, recordID: UUID) throws -> URL {
+    private func prepareResourceSourceCopy(_ sourceURL: URL, recordID: UUID) throws -> PreparedResourceCopy {
         do {
             try fileManager.createDirectory(at: installedResourceDirectoryURL, withIntermediateDirectories: true)
-            let destinationDirectory = installedResourceDirectoryURL.appendingPathComponent(recordID.uuidString.lowercased(), isDirectory: true)
-            if fileManager.fileExists(atPath: destinationDirectory.path) {
-                try fileManager.removeItem(at: destinationDirectory)
-            }
-            try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
-            let destinationURL: URL
+            let finalDirectoryURL = installedResourceDirectoryURL
+                .appendingPathComponent(recordID.uuidString.lowercased(), isDirectory: true)
+            let temporaryDirectoryURL = installedResourceDirectoryURL
+                .appendingPathComponent(".tmp-\(recordID.uuidString.lowercased())-\(UUID().uuidString.lowercased())", isDirectory: true)
+            try fileManager.createDirectory(at: temporaryDirectoryURL, withIntermediateDirectories: true)
+
+            let temporarySourceURL: URL
+            let storedSourceURL: URL
             if sourceURL.pathExtension.lowercased() == "crx" {
-                destinationURL = destinationDirectory
+                temporarySourceURL = temporaryDirectoryURL
                     .appendingPathComponent(sourceURL.deletingPathExtension().lastPathComponent, isDirectory: false)
                     .appendingPathExtension("zip")
-                try Self.writeChromeExtensionZipPayload(from: sourceURL, to: destinationURL)
+                storedSourceURL = finalDirectoryURL
+                    .appendingPathComponent(sourceURL.deletingPathExtension().lastPathComponent, isDirectory: false)
+                    .appendingPathExtension("zip")
+                try Self.writeChromeExtensionZipPayload(from: sourceURL, to: temporarySourceURL)
             } else {
-                destinationURL = destinationDirectory.appendingPathComponent(sourceURL.lastPathComponent, isDirectory: isDirectory(sourceURL))
-                try fileManager.copyItem(at: sourceURL, to: destinationURL)
+                temporarySourceURL = temporaryDirectoryURL
+                    .appendingPathComponent(sourceURL.lastPathComponent, isDirectory: isDirectory(sourceURL))
+                storedSourceURL = finalDirectoryURL
+                    .appendingPathComponent(sourceURL.lastPathComponent, isDirectory: isDirectory(sourceURL))
+                try fileManager.copyItem(at: sourceURL, to: temporarySourceURL)
             }
-            return destinationURL
+            return PreparedResourceCopy(
+                temporaryDirectoryURL: temporaryDirectoryURL,
+                finalDirectoryURL: finalDirectoryURL,
+                storedSourceURL: storedSourceURL
+            )
         } catch let installError as BrowserWebExtensionInstallError {
             throw installError
         } catch {
+            throw BrowserWebExtensionInstallError.copyFailed(error.localizedDescription)
+        }
+    }
+
+    private func commitResourceSourceCopy(_ preparedCopy: PreparedResourceCopy) throws {
+        let backupDirectoryURL = preparedCopy.finalDirectoryURL.deletingLastPathComponent()
+            .appendingPathComponent(".backup-\(preparedCopy.finalDirectoryURL.lastPathComponent)-\(UUID().uuidString.lowercased())", isDirectory: true)
+        var movedExistingResourceToBackup = false
+
+        do {
+            if fileManager.fileExists(atPath: preparedCopy.finalDirectoryURL.path) {
+                try fileManager.moveItem(at: preparedCopy.finalDirectoryURL, to: backupDirectoryURL)
+                movedExistingResourceToBackup = true
+            }
+            try fileManager.moveItem(at: preparedCopy.temporaryDirectoryURL, to: preparedCopy.finalDirectoryURL)
+            if movedExistingResourceToBackup {
+                try? fileManager.removeItem(at: backupDirectoryURL)
+            }
+        } catch {
+            if fileManager.fileExists(atPath: preparedCopy.finalDirectoryURL.path) {
+                try? fileManager.removeItem(at: preparedCopy.finalDirectoryURL)
+            }
+            if movedExistingResourceToBackup,
+               fileManager.fileExists(atPath: backupDirectoryURL.path),
+               !fileManager.fileExists(atPath: preparedCopy.finalDirectoryURL.path) {
+                try? fileManager.moveItem(at: backupDirectoryURL, to: preparedCopy.finalDirectoryURL)
+            }
             throw BrowserWebExtensionInstallError.copyFailed(error.localizedDescription)
         }
     }
@@ -736,15 +824,34 @@ final class BrowserWebExtensionInstallStore {
     }
 
     private func persist() throws {
+        try persist(records)
+    }
+
+    private func persist(_ recordsToPersist: [BrowserWebExtensionInstallRecord]) throws {
         do {
             try fileManager.createDirectory(
                 at: registryURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            let data = try JSONEncoder.cmuxBrowserExtensions.encode(records)
+            let data = try JSONEncoder.cmuxBrowserExtensions.encode(recordsToPersist)
             try data.write(to: registryURL, options: .atomic)
         } catch {
             throw BrowserWebExtensionInstallError.persistFailed(error.localizedDescription)
+        }
+    }
+
+    private func quarantineCorruptRegistry(after error: Error) {
+        NSLog("[BrowserExtensions] Failed to reload extension registry: \(error.localizedDescription)")
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let timestamp = formatter.string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let quarantineURL = registryURL.deletingLastPathComponent()
+            .appendingPathComponent("\(registryURL.deletingPathExtension().lastPathComponent).\(timestamp).corrupt.json")
+        do {
+            try fileManager.moveItem(at: registryURL, to: quarantineURL)
+        } catch {
+            NSLog("[BrowserExtensions] Failed to quarantine extension registry: \(error.localizedDescription)")
         }
     }
 
@@ -770,10 +877,14 @@ final class BrowserWebExtensionInstallStore {
         ) else {
             return nil
         }
-        return children
+        let validAppExtensions = children
             .filter { $0.pathExtension.lowercased() == "appex" }
             .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
-            .first { appExtensionValidationResult(for: $0) == .valid }
+            .filter { appExtensionValidationResult(for: $0) == .valid }
+        guard validAppExtensions.count == 1 else {
+            return nil
+        }
+        return validAppExtensions[0]
     }
 
     private func appExtensionValidationResult(for appexURL: URL) -> AppExtensionValidationResult {
@@ -1580,7 +1691,26 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     }
 
     fileprivate var tabAdapters: [BrowserWebExtensionTabAdapter] {
-        Array(tabAdaptersByPanelID.values)
+        var seenPanelIDs: Set<UUID> = []
+        var orderedAdapters: [BrowserWebExtensionTabAdapter] = []
+
+        if let tabManager = AppDelegate.shared?.tabManager {
+            for workspace in tabManager.tabs {
+                for panelID in workspace.sidebarOrderedPanelIds() where seenPanelIDs.insert(panelID).inserted {
+                    if let adapter = tabAdaptersByPanelID[panelID] {
+                        orderedAdapters.append(adapter)
+                    }
+                }
+            }
+        }
+
+        let fallbackPanelIDs = tabAdaptersByPanelID.keys.sorted { $0.uuidString < $1.uuidString }
+        for panelID in fallbackPanelIDs where seenPanelIDs.insert(panelID).inserted {
+            if let adapter = tabAdaptersByPanelID[panelID] {
+                orderedAdapters.append(adapter)
+            }
+        }
+        return orderedAdapters
     }
 }
 
@@ -2119,9 +2249,7 @@ private final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWi
     }
 
     private func runtimeTabAdapters() -> [BrowserWebExtensionTabAdapter] {
-        runtime?.tabAdapters.sorted {
-            ($0.panel?.displayTitle ?? "").localizedCaseInsensitiveCompare($1.panel?.displayTitle ?? "") == .orderedAscending
-        } ?? []
+        runtime?.tabAdapters ?? []
     }
 }
 

@@ -637,7 +637,11 @@ struct BrowserPanelView: View {
                 onRequestPanelFocus()
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: BrowserWebExtensionSupport.didChangeNotification)) { _ in
+        .onReceive(
+            NotificationCenter.default
+                .publisher(for: BrowserWebExtensionSupport.didChangeNotification)
+                .receive(on: RunLoop.main)
+        ) { _ in
             refreshBrowserExtensionActions()
         }
         .onAppear {
