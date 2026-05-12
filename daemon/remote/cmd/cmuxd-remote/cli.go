@@ -430,6 +430,11 @@ func runRPC(socketPath string, args []string, jsonOutput bool, refreshAddr func(
 
 // runBrowserRelay handles "cmux browser <subcommand>" by mapping to browser.* v2 methods.
 func runBrowserRelay(socketPath string, args []string, jsonOutput bool, refreshAddr func() string) int {
+	if browserHelpRequested(args) {
+		browserUsage(os.Stdout)
+		return 0
+	}
+
 	spec, params, parsed, err := buildBrowserRelayRequest(args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cmux browser: %v\n", err)
@@ -454,9 +459,6 @@ type browserParsedArgs struct {
 func buildBrowserRelayRequest(args []string) (browserCommandSpec, map[string]any, browserParsedArgs, error) {
 	if len(args) == 0 {
 		return browserCommandSpec{}, nil, browserParsedArgs{}, fmt.Errorf("requires a subcommand (%s)", browserSubcommandHint())
-	}
-	if args[0] == "--help" || args[0] == "-h" || args[0] == "help" {
-		return browserCommandSpec{}, nil, browserParsedArgs{}, fmt.Errorf("usage: cmux browser [--surface <id|ref> | <surface>] <subcommand> [args]")
 	}
 
 	leadingParams := map[string]any{}
@@ -511,11 +513,6 @@ func buildBrowserRelayRequest(args []string) (browserCommandSpec, map[string]any
 		}
 		return browserCommandSpec{}, nil, browserParsedArgs{}, fmt.Errorf("unknown subcommand %q", args[0])
 	}
-	if commandKey == "open" {
-		if _, hasSurface := leadingParams["surface_id"]; hasSurface {
-			spec = browserCommands["navigate"]
-		}
-	}
 
 	parsed, err := parseBrowserArgs(args[consumed:])
 	if err != nil {
@@ -536,6 +533,9 @@ func buildBrowserRelayRequest(args []string) (browserCommandSpec, map[string]any
 			paramKey = override
 		}
 		params[paramKey] = value
+	}
+	if browserOpenCommandShouldNavigate(commandKey, params) {
+		spec = browserCommands["navigate"]
 	}
 
 	applyBrowserPositionals(params, parsed.positional, spec)
@@ -592,11 +592,14 @@ func normalizeBrowserToken(token string) string {
 }
 
 func isBrowserSurfaceTarget(token string) bool {
-	trimmed := strings.TrimSpace(strings.ToLower(token))
-	if strings.HasPrefix(trimmed, "surface:") || strings.HasPrefix(trimmed, "tab:") {
-		return true
+	trimmed := strings.TrimSpace(token)
+	lower := strings.ToLower(trimmed)
+	for _, prefix := range []string{"surface:", "tab:"} {
+		if strings.HasPrefix(lower, prefix) {
+			return strings.TrimSpace(trimmed[len(prefix):]) != ""
+		}
 	}
-	return looksLikeUUID(trimmed)
+	return looksLikeUUID(lower)
 }
 
 func looksLikeUUID(value string) bool {
@@ -686,11 +689,13 @@ func browserFlagIsBoolean(key string) bool {
 func applyBrowserPositionals(params map[string]any, positionals []string, spec browserCommandSpec) {
 	switch spec.special {
 	case browserSpecialFindNth:
-		if _, ok := params["index"]; !ok && len(positionals) > 0 {
-			params["index"] = positionals[0]
+		positionalIndex := 0
+		if _, ok := params["index"]; !ok && positionalIndex < len(positionals) {
+			params["index"] = positionals[positionalIndex]
+			positionalIndex++
 		}
-		if _, ok := params["selector"]; !ok && len(positionals) > 1 {
-			params["selector"] = strings.Join(positionals[1:], " ")
+		if _, ok := params["selector"]; !ok && positionalIndex < len(positionals) {
+			params["selector"] = strings.Join(positionals[positionalIndex:], " ")
 		}
 		return
 	case browserSpecialTabTarget:
@@ -818,6 +823,37 @@ func browserSubcommandHint() string {
 	}
 	sort.Strings(names)
 	return strings.Join(names, ", ")
+}
+
+func browserHelpRequested(args []string) bool {
+	for len(args) > 0 && normalizeBrowserToken(args[0]) == "--json" {
+		args = args[1:]
+	}
+	if len(args) == 0 {
+		return false
+	}
+	switch normalizeBrowserToken(args[0]) {
+	case "help", "--help", "-h":
+		return true
+	default:
+		return false
+	}
+}
+
+func browserOpenCommandShouldNavigate(commandKey string, params map[string]any) bool {
+	switch commandKey {
+	case "open", "open-split", "new":
+	default:
+		return false
+	}
+	surfaceID, ok := params["surface_id"].(string)
+	return ok && strings.TrimSpace(surfaceID) != ""
+}
+
+func browserUsage(out io.Writer) {
+	fmt.Fprintln(out, "Usage: cmux browser [--surface <id|ref> | <surface>] <subcommand> [args]")
+	fmt.Fprintln(out, "")
+	fmt.Fprintf(out, "Subcommands: %s\n", browserSubcommandHint())
 }
 
 func writeBrowserScreenshotOutput(resp string, outPath string, jsonOutput bool) int {
@@ -1312,7 +1348,7 @@ func cliUsage() {
 	fmt.Fprintln(os.Stderr, "  send                      Send text to a surface")
 	fmt.Fprintln(os.Stderr, "  send-key                  Send a key to a surface")
 	fmt.Fprintln(os.Stderr, "  notify                    Create a notification")
-	fmt.Fprintln(os.Stderr, "  browser <sub>             Browser commands through the local cmux browser relay")
+	fmt.Fprintln(os.Stderr, "  browser <sub>             Browser commands through the local cmux browser relay; see 'cmux browser help'")
 	fmt.Fprintln(os.Stderr, "  claude-teams [args...]     Launch Claude Code in teammate mode")
 	fmt.Fprintln(os.Stderr, "  omo [args...]              Launch OpenCode with cmux integration")
 	fmt.Fprintln(os.Stderr, "  omx [args...]              Launch Oh My Codex with cmux integration")
