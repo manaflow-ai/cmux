@@ -131,7 +131,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let fakeCLI = root.appendingPathComponent("cmux")
         let fakeSSH = root.appendingPathComponent("ssh")
         let logFile = root.appendingPathComponent("ssh.log")
-        let staleControlPath = URL(fileURLWithPath: NSTemporaryDirectory())
+        let staleControlPath = URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("cmux-ssh-\(getuid())-\(UUID().uuidString.prefix(8)).sock")
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
