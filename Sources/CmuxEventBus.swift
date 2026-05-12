@@ -342,7 +342,7 @@ final class CmuxEventBus: @unchecked Sendable {
             return URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
         }
 
-        FileManager.default.homeDirectoryForCurrentUser
+        return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("events.jsonl")
     }
