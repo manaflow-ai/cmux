@@ -827,6 +827,31 @@ claude_option_consumes_value() {
     return 1
 }
 
+claude_option_consumes_optional_value() {
+    case "$1" in
+        --debug)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+claude_known_subcommand() {
+    case "$1" in
+        api-key|auth|config|doctor|install|mcp|project|rc|remote-control|setup-token|update|upgrade|agents|daemon)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+claude_should_consume_optional_value() {
+    local next="${1:-}"
+    [[ -n "$next" ]] || return 1
+    [[ "$next" != -* ]] || return 1
+    ! claude_known_subcommand "$next"
+}
+
 claude_interactive_entry_flag() {
     case "$1" in
         --print|--print=*|-p|--resume|--resume=*|-r|--continue|-c|\
@@ -841,13 +866,11 @@ claude_interactive_entry_flag() {
 should_inject_claude_hooks() {
     (( $# == 0 )) && return 0
 
+    local -a args=("$@")
     local arg
-    local skip_next=false
-    for arg in "$@"; do
-        if [[ "$skip_next" == true ]]; then
-            skip_next=false
-            continue
-        fi
+    local index=0
+    while (( index < ${#args[@]} )); do
+        arg="${args[$index]}"
         case "$arg" in
             --)
                 return 0
@@ -857,8 +880,18 @@ should_inject_claude_hooks() {
                     return 0
                 fi
                 if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
-                    skip_next=true
+                    index=$((index + 2))
+                    continue
                 fi
+                if [[ "$arg" != *=* ]] && claude_option_consumes_optional_value "$arg"; then
+                    if (( index + 1 < ${#args[@]} )) && claude_should_consume_optional_value "${args[$((index + 1))]}"; then
+                        index=$((index + 2))
+                    else
+                        index=$((index + 1))
+                    fi
+                    continue
+                fi
+                index=$((index + 1))
                 continue
                 ;;
             *)
@@ -871,21 +904,29 @@ should_inject_claude_hooks() {
 }
 
 claude_first_subcommand() {
+    local -a args=("$@")
     local arg
-    local skip_next=false
-    for arg in "$@"; do
-        if [[ "$skip_next" == true ]]; then
-            skip_next=false
-            continue
-        fi
+    local index=0
+    while (( index < ${#args[@]} )); do
+        arg="${args[$index]}"
         case "$arg" in
             --)
                 return 1
                 ;;
             -*)
                 if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
-                    skip_next=true
+                    index=$((index + 2))
+                    continue
                 fi
+                if [[ "$arg" != *=* ]] && claude_option_consumes_optional_value "$arg"; then
+                    if (( index + 1 < ${#args[@]} )) && claude_should_consume_optional_value "${args[$((index + 1))]}"; then
+                        index=$((index + 2))
+                    else
+                        index=$((index + 1))
+                    fi
+                    continue
+                fi
+                index=$((index + 1))
                 continue
                 ;;
             *)

@@ -754,6 +754,9 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
         ("fork session", ["--fork-session", "fork-123", "agents"]),
         ("teammate mode", ["--teammate-mode", "review", "agents"]),
         ("tmux", ["--tmux", "pane:%1", "agents"]),
+        ("debug flag", ["--debug", "agents"]),
+        ("debug value", ["--debug", "verbose", "agents"]),
+        ("debug flag daemon", ["--debug", "daemon", "run", "--origin", "transient"]),
     ]
     for label, argv in env_only_value_options:
         code, real_argv, _, stderr, _, node_options, runtime_node_options, _, _, _ = run_wrapper(
