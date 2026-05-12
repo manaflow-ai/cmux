@@ -4080,14 +4080,17 @@ final class WorkspaceRemoteSessionController {
         }
         let connectDetail: String
         let bootstrapDetail: String
+        let connectionState: WorkspaceRemoteConnectionState
         if reconnectRetryCount > 0 {
+            connectionState = .reconnecting
             connectDetail = "Reconnecting to \(configuration.displayTarget) (retry \(reconnectRetryCount))"
             bootstrapDetail = "Bootstrapping remote daemon on \(configuration.displayTarget) (retry \(reconnectRetryCount))"
         } else {
+            connectionState = .connecting
             connectDetail = "Connecting to \(configuration.displayTarget)"
             bootstrapDetail = "Bootstrapping remote daemon on \(configuration.displayTarget)"
         }
-        publishState(.connecting, detail: connectDetail)
+        publishState(connectionState, detail: connectDetail)
         publishDaemonStatus(.bootstrapping, detail: bootstrapDetail)
         do {
             let hello: DaemonHello
@@ -4371,7 +4374,14 @@ final class WorkspaceRemoteSessionController {
         case .connecting:
             debugLog("remote.proxy.connecting \(debugConfigSummary())")
             if proxyEndpoint == nil {
-                publishState(.connecting, detail: "Connecting to \(configuration.displayTarget)")
+                if reconnectRetryCount > 0 {
+                    publishState(
+                        .reconnecting,
+                        detail: "Reconnecting to \(configuration.displayTarget) (retry \(reconnectRetryCount))"
+                    )
+                } else {
+                    publishState(.connecting, detail: "Connecting to \(configuration.displayTarget)")
+                }
             }
         case .ready(let endpoint):
             debugLog("remote.proxy.ready host=\(endpoint.host) port=\(endpoint.port) \(debugConfigSummary())")
@@ -6523,6 +6533,7 @@ private struct SidebarPanelObservationState: Equatable {
 enum WorkspaceRemoteConnectionState: String {
     case disconnected
     case connecting
+    case reconnecting
     case connected
     case error
 }
@@ -7830,7 +7841,7 @@ final class Workspace: Identifiable, ObservableObject {
     var surfaceIdToPanelId: [TabID: UUID] = [:]
 
     /// Tab IDs that are allowed to close even if they would normally require confirmation.
-    /// This is used by app-level confirmation prompts (e.g., Cmd+W "Close Tab?") so the
+    /// This is used by app-level confirmation prompts (for example, Close Tab) so the
     /// Bonsplit delegate doesn't block the close after the user already confirmed.
     private var forceCloseTabIds: Set<TabID> = []
 
@@ -7839,8 +7850,8 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingCloseConfirmTabIds: Set<TabID> = []
 
     /// Tab IDs whose next close attempt should be treated as an explicit
-    /// workspace-close gesture from the user (the tab-strip X button, or Cmd+W when
-    /// the shortcut preference is set to close the workspace on the last surface),
+    /// workspace-close gesture from the user (the tab-strip X button, or the Close Tab
+    /// shortcut when the shortcut preference is set to close the workspace on the last surface),
     /// rather than an internal close/move flow.
     private var explicitUserCloseTabIds: Set<TabID> = []
 
@@ -8244,13 +8255,15 @@ final class Workspace: Identifiable, ObservableObject {
         guard let panel = panels[panelId] else { return nil }
         return surfaceKind(for: panel)
     }
-
-    func requestBackgroundTerminalSurfaceStartIfNeeded() {
-        for terminalPanel in panels.values.compactMap({ $0 as? TerminalPanel }) {
-            terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+    private var backgroundPrimeTerminalPanels: [TerminalPanel] {
+        var seenPanelIds = Set<UUID>()
+        return bonsplitController.allPaneIds.compactMap { paneId -> TerminalPanel? in
+            guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id ?? bonsplitController.tabs(inPane: paneId).first?.id, let panelId = panelIdFromSurfaceId(tabId), seenPanelIds.insert(panelId).inserted else { return nil }
+            return panels[panelId] as? TerminalPanel
         }
     }
-
+    func requestBackgroundPrimeTerminalSurfaceStartIfNeeded() { backgroundPrimeTerminalPanels.forEach { $0.surface.requestBackgroundSurfaceStartIfNeeded() } }
+    func hasLoadedBackgroundPrimeTerminalSurface() -> Bool { backgroundPrimeTerminalPanels.allSatisfy { $0.surface.surface != nil } }
     @discardableResult
     func preloadTerminalPanelForDebugStress(
         tabId: TabID,
@@ -9088,7 +9101,7 @@ final class Workspace: Identifiable, ObservableObject {
                 proxyState = "error"
             } else {
                 switch remoteConnectionState {
-                case .connecting:
+                case .connecting, .reconnecting:
                     proxyState = "connecting"
                 case .error:
                     proxyState = "error"
@@ -9294,7 +9307,10 @@ final class Workspace: Identifiable, ObservableObject {
         guard activeRemoteTerminalSurfaceIds.isEmpty, remoteConfiguration != nil else { return }
         let hasBrowserPanels = panels.values.contains { $0 is BrowserPanel }
         if !hasBrowserPanels {
-            if remoteConnectionState == .error || remoteDaemonStatus.state == .error || remoteConnectionState == .connecting {
+            if remoteConnectionState == .error ||
+                remoteDaemonStatus.state == .error ||
+                remoteConnectionState == .connecting ||
+                remoteConnectionState == .reconnecting {
                 return
             }
             disconnectRemoteConnection(clearConfiguration: true)
@@ -9501,7 +9517,9 @@ final class Workspace: Identifiable, ObservableObject {
         let trimmedDetail = detail?.trimmingCharacters(in: .whitespacesAndNewlines)
         let proxyOnlyError = trimmedDetail.map(Self.isProxyOnlyRemoteError) ?? false
         let preserveConnectedStateForRetry =
-            state == .connecting && preservesSSHTerminalConnection && hasProxyOnlyRemoteSidebarError
+            (state == .connecting || state == .reconnecting) &&
+                preservesSSHTerminalConnection &&
+                hasProxyOnlyRemoteSidebarError
         let effectiveState: WorkspaceRemoteConnectionState
         if state == .error && proxyOnlyError && preservesSSHTerminalConnection {
             effectiveState = .connected
@@ -10549,12 +10567,8 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
-    /// Called before the workspace is removed from TabManager to ensure child
-    /// processes receive SIGHUP even if ARC deallocation is delayed.
+    /// Called before TabManager removes the workspace so child processes receive SIGHUP even if ARC deallocation is delayed.
     func teardownAllPanels() {
-        // Hide portal-hosted content up front so a workspace being torn down
-        // cannot keep drawing above the next selected/restored workspace while
-        // panel close work is still unwinding.
         portalRenderingEnabled = false
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()
@@ -10570,7 +10584,8 @@ final class Workspace: Identifiable, ObservableObject {
                 closePanel: true,
                 publishSurfaceClosedEvent: true,
                 clearSurfaceNotifications: true,
-                requestTransferredRemoteCleanup: true
+                requestTransferredRemoteCleanup: true,
+                cleanupControllerSurfaceState: true
             )
         }
         pruneSurfaceMetadata(validSurfaceIds: [])
@@ -13278,7 +13293,7 @@ extension Workspace: BonsplitDelegate {
 
         if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
-            owningTabManager?.closeWorkspaceWithConfirmation(self)
+            owningTabManager?.closeWorkspaceFromCloseTabGesture(self)
             return false
         }
 
@@ -13292,7 +13307,9 @@ extension Workspace: BonsplitDelegate {
         // If confirmation is required, Bonsplit will call into this delegate and we must return false.
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
-        if panelNeedsConfirmClose(panelId: panelId) {
+        if CloseTabConfirmationPolicy.shouldConfirm(
+            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId)
+        ) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             if pendingCloseConfirmTabIds.contains(tab.id) {
                 return false
@@ -13407,7 +13424,8 @@ extension Workspace: BonsplitDelegate {
             closePanel: !isDetaching,
             publishSurfaceClosedEvent: !isDetaching,
             clearSurfaceNotifications: !preservesSurfaceForDetach,
-            requestTransferredRemoteCleanup: false
+            requestTransferredRemoteCleanup: false,
+            cleanupControllerSurfaceState: !isDetaching
         )
         syncRemotePortScanTTYs()
         recomputeListeningPorts()
@@ -13565,7 +13583,8 @@ extension Workspace: BonsplitDelegate {
                     closePanel: true,
                     publishSurfaceClosedEvent: true,
                     clearSurfaceNotifications: true,
-                    requestTransferredRemoteCleanup: true
+                    requestTransferredRemoteCleanup: true,
+                    cleanupControllerSurfaceState: !isDetachingCloseTransaction
                 )
             }
 
@@ -13593,7 +13612,9 @@ extension Workspace: BonsplitDelegate {
         for tab in tabs {
             if forceCloseTabIds.contains(tab.id) { continue }
             if let panelId = panelIdFromSurfaceId(tab.id),
-               panelNeedsConfirmClose(panelId: panelId) {
+               CloseTabConfirmationPolicy.shouldConfirm(
+                   requiresConfirmation: panelNeedsConfirmClose(panelId: panelId)
+               ) {
                 pendingPaneClosePanelIds.removeValue(forKey: pane.id)
                 return false
             }

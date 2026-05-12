@@ -44,14 +44,8 @@ extension GhosttyNSView {
         let hadMarkedTextBefore = !before.text.isEmpty
         let hasMarkedTextAfter = !after.text.isEmpty
         guard hadMarkedTextBefore || hasMarkedTextAfter else {
-            // Some IMEs, including Traditional Chinese Zhuyin, can handle a
-            // command key against their private preedit buffer before they call
-            // setMarkedText on the client. Keep handled no-output input-method
-            // events out of the terminal so keys such as Down can open
-            // candidates instead of moving the shell cursor.
-            guard textInputHandledEvent, isInputMethodSource(inputSourceId) else { return false }
+            guard textInputHandledEvent, isBopomofoInputSource(inputSourceId) else { return false }
             return shouldKeepNoMarkedIMECommandInsideTextInput(event)
-                && !shouldAllowDeferredNumpadIMEFallback(event)
         }
 
         if before.text != after.text {
@@ -73,17 +67,10 @@ extension GhosttyNSView {
         return sourceId.localizedCaseInsensitiveContains("inputmethod")
     }
 
-    func shouldAllowDeferredNumpadIMEFallback(_ event: NSEvent?) -> Bool {
-        guard let event,
-              let text = event.characters,
-              !text.isEmpty,
-              text.allSatisfy(\.isNumber) else {
-            return false
-        }
-        let flags = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.function, .capsLock])
-        return flags == [.numericPad]
+    func isBopomofoInputSource(_ sourceId: String?) -> Bool {
+        guard let sourceId else { return false }
+        return sourceId.localizedCaseInsensitiveContains("Zhuyin")
+            || sourceId.localizedCaseInsensitiveContains("Bopomofo")
     }
 
     func hasOnlyTextInputCommandModifiers(_ event: NSEvent) -> Bool {
@@ -98,59 +85,7 @@ extension GhosttyNSView {
         guard hasOnlyTextInputCommandModifiers(event) else { return false }
 
         switch Int(event.keyCode) {
-        case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow,
-             kVK_PageUp, kVK_PageDown, kVK_Home, kVK_End,
-             kVK_Space:
-            return true
-        default:
-            return false
-        }
-    }
-
-    func isTraditionalZhuyinInputSource(_ sourceId: String?) -> Bool {
-        guard let sourceId else { return false }
-        return sourceId.localizedCaseInsensitiveContains("TCIM.Zhuyin")
-    }
-
-    func shouldOpenZhuyinCandidatesWithSyntheticSpace(
-        event: NSEvent,
-        inputSourceId: String?,
-        markedTextBefore: Bool,
-        before: (text: String, selection: NSRange),
-        after: (text: String, selection: NSRange),
-        accumulatedText: [String],
-        commandSelector: Selector?,
-        candidateOpenAlreadyRequested: Bool
-    ) -> Bool {
-        guard !candidateOpenAlreadyRequested,
-              markedTextBefore,
-              accumulatedText.isEmpty,
-              isTraditionalZhuyinInputSource(inputSourceId),
-              Int(event.keyCode) == kVK_DownArrow,
-              commandSelector == #selector(NSResponder.moveDown(_:)),
-              before.text == after.text,
-              before.selection == after.selection else {
-            return false
-        }
-        return true
-    }
-
-    func shouldRememberZhuyinCandidateInteraction(
-        event: NSEvent,
-        inputSourceId: String?,
-        markedTextBefore: Bool,
-        accumulatedText: [String]
-    ) -> Bool {
-        guard markedTextBefore,
-              accumulatedText.isEmpty,
-              isTraditionalZhuyinInputSource(inputSourceId) else {
-            return false
-        }
-
-        guard hasOnlyTextInputCommandModifiers(event) else { return false }
-
-        switch Int(event.keyCode) {
-        case kVK_DownArrow, kVK_UpArrow, kVK_PageUp, kVK_PageDown, kVK_Space:
+        case kVK_DownArrow, kVK_PageUp, kVK_PageDown, kVK_Space:
             return true
         default:
             return false
@@ -166,9 +101,13 @@ extension GhosttyNSView {
 
     func shouldRouteTextInputKeyEquivalentToKeyDown(_ event: NSEvent, inputSourceId: String?) -> Bool {
         guard event.type == .keyDown else { return false }
-        guard shouldKeepIMECompositionCommandInsideTextInput(event) else { return false }
-        if hasMarkedText() { return true }
-        return isInputMethodSource(inputSourceId ?? KeyboardLayout.id)
+        let resolvedInputSourceId = inputSourceId ?? KeyboardLayout.id
+        if hasMarkedText() {
+            return isInputMethodSource(resolvedInputSourceId)
+                && shouldKeepIMECompositionCommandInsideTextInput(event)
+        }
+        return isBopomofoInputSource(resolvedInputSourceId)
+            && shouldKeepNoMarkedIMECommandInsideTextInput(event)
     }
 
     /// Returns true for active-composition command keys that belong to AppKit's
