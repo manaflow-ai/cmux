@@ -1061,9 +1061,8 @@ extension Workspace {
 
         case .editor:
             let url = surface.url.flatMap { URL(string: $0) }
-            let directoryURL = CmuxConfigStore
-                .resolveCwd(surface.cwd, relativeTo: baseCwd)
-                .map { URL(fileURLWithPath: $0, isDirectory: true) }
+            let directoryPath = CmuxConfigStore.resolveCwd(surface.cwd, relativeTo: baseCwd)
+            let directoryURL = URL(fileURLWithPath: directoryPath, isDirectory: true)
             if let panel = newCodeEditorSurface(
                 inPane: paneId,
                 directoryURL: directoryURL,
@@ -1111,9 +1110,8 @@ extension Workspace {
 
         case .editor:
             let url = surface.url.flatMap { URL(string: $0) }
-            let directoryURL = CmuxConfigStore
-                .resolveCwd(surface.cwd, relativeTo: baseCwd)
-                .map { URL(fileURLWithPath: $0, isDirectory: true) }
+            let directoryPath = CmuxConfigStore.resolveCwd(surface.cwd, relativeTo: baseCwd)
+            let directoryURL = URL(fileURLWithPath: directoryPath, isDirectory: true)
             if let panel = newCodeEditorSurface(
                 inPane: paneId,
                 directoryURL: directoryURL,
