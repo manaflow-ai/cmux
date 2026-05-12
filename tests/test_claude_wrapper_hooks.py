@@ -749,6 +749,32 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
     expect("--settings" not in real_argv, f"agents after global option passthrough: expected no --settings injection, got {real_argv}", failures)
     expect("--session-id" not in real_argv, f"agents after global option passthrough: expected no --session-id injection, got {real_argv}", failures)
 
+    env_only_value_options = [
+        ("development channel", ["--dangerously-load-development-channels", "beta", "agents"]),
+        ("fork session", ["--fork-session", "fork-123", "agents"]),
+        ("teammate mode", ["--teammate-mode", "review", "agents"]),
+        ("tmux", ["--tmux", "pane:%1", "agents"]),
+    ]
+    for label, argv in env_only_value_options:
+        code, real_argv, _, stderr, _, node_options, runtime_node_options, _, _, _ = run_wrapper(
+            socket_state="live",
+            argv=argv,
+        )
+        expect(code == 0, f"{label} agents passthrough: wrapper exited {code}: {stderr}", failures)
+        expect(real_argv == argv, f"{label} agents passthrough: expected raw argv, got {real_argv}", failures)
+        expect("--settings" not in real_argv, f"{label} agents passthrough: expected no --settings injection, got {real_argv}", failures)
+        expect("--session-id" not in real_argv, f"{label} agents passthrough: expected no --session-id injection, got {real_argv}", failures)
+        expect(
+            "--require=" in node_options and "--max-old-space-size=4096" in node_options,
+            f"{label} agents passthrough: expected env-only preload NODE_OPTIONS, got {node_options!r}",
+            failures,
+        )
+        expect(
+            runtime_node_options == "__UNSET__",
+            f"{label} agents passthrough: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}",
+            failures,
+        )
+
 
 def test_background_claude_child_launches_inherit_cmux_hooks(failures: list[str]) -> None:
     code, parent_argv, child_argv, child_node_options_env, child_runtime_node_options, child_cmux_pid, child_launch_argv_b64, _, stderr = run_wrapper_background_child_spawn()
