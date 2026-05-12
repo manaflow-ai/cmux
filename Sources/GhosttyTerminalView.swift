@@ -1419,6 +1419,33 @@ func terminalKeyboardCopyModeInitialViewportRow(
     return max(0, min(clampedRows - 1, estimatedRow))
 }
 
+func terminalCursorCellClickPoint(
+    imePointX: Double,
+    imePointY: Double,
+    imeCellWidth: Double,
+    imeCellHeight: Double,
+    fallbackCellSize: CGSize,
+    boundsSize: CGSize
+) -> CGPoint {
+    let cellWidth = max(imeCellWidth, Double(fallbackCellSize.width), 1)
+    let cellHeight = max(imeCellHeight, Double(fallbackCellSize.height), 1)
+    return CGPoint(
+        x: terminalClampSurfaceClickCoordinate(
+            imePointX + cellWidth * 0.5,
+            upperBound: Double(boundsSize.width)
+        ),
+        y: terminalClampSurfaceClickCoordinate(
+            imePointY - cellHeight * 0.5,
+            upperBound: Double(boundsSize.height)
+        )
+    )
+}
+
+func terminalClampSurfaceClickCoordinate(_ value: Double, upperBound: Double) -> Double {
+    guard upperBound > 0 else { return 0 }
+    return min(max(value, 0), max(upperBound - 1, 0))
+}
+
 private func terminalKeyboardCopyModeNormalizedModifiers(
     _ modifierFlags: NSEvent.ModifierFlags
 ) -> NSEvent.ModifierFlags {
@@ -7035,6 +7062,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func selectCommandLineAtCursor(surface: ghostty_surface_t) -> Bool {
+        // Ghostty reports active xterm mouse reporting as captured; do not send
+        // synthetic selection clicks while a TUI owns mouse events.
         guard !ghostty_surface_mouse_captured(surface) else { return false }
         guard bounds.width > 0, bounds.height > 0 else { return false }
 
@@ -7044,14 +7073,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var height: Double = cellSize.height
         ghostty_surface_ime_point(surface, &x, &y, &width, &height)
 
-        let clickX = clampSurfaceClickCoordinate(
-            x + max(width, cellSize.width, 1) * 0.5,
-            upperBound: bounds.width
+        let clickPoint = terminalCursorCellClickPoint(
+            imePointX: x,
+            imePointY: y,
+            imeCellWidth: width,
+            imeCellHeight: height,
+            fallbackCellSize: cellSize,
+            boundsSize: bounds.size
         )
-        let clickY = clampSurfaceClickCoordinate(
-            y + max(height, cellSize.height, 1) * 0.5,
-            upperBound: bounds.height
-        )
+        let clickX = Double(clickPoint.x)
+        let clickY = Double(clickPoint.y)
         let resetX = clickX > max(cellSize.width * 2, 2) ? 0 : max(bounds.width - 1, 0)
         let resetY = clickY > max(cellSize.height * 2, 2) ? 0 : max(bounds.height - 1, 0)
 
@@ -7071,11 +7102,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         return ghostty_surface_has_selection(surface)
-    }
-
-    private func clampSurfaceClickCoordinate(_ value: Double, upperBound: Double) -> Double {
-        guard upperBound > 0 else { return 0 }
-        return min(max(value, 0), max(upperBound - 1, 0))
     }
 
     private func sendSurfaceLeftClick(

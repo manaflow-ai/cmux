@@ -1495,6 +1495,38 @@ final class TerminalKeyboardCopyModeViewportRowTests: XCTestCase {
             23
         )
     }
+
+    func testCursorCellClickPointUsesCursorRowCenterFromImeBaseline() {
+        let point = terminalCursorCellClickPoint(
+            imePointX: 48,
+            imePointY: 240,
+            imeCellWidth: 12,
+            imeCellHeight: 24,
+            fallbackCellSize: CGSize(width: 12, height: 24),
+            boundsSize: CGSize(width: 960, height: 576)
+        )
+
+        XCTAssertEqual(point.x, 54)
+        XCTAssertEqual(
+            point.y,
+            228,
+            "IME Y is already one cell below the cursor row, so the click should subtract half a cell"
+        )
+    }
+
+    func testCursorCellClickPointClampsToSurfaceBounds() {
+        XCTAssertEqual(
+            terminalCursorCellClickPoint(
+                imePointX: 995,
+                imePointY: 5,
+                imeCellWidth: 20,
+                imeCellHeight: 20,
+                fallbackCellSize: CGSize(width: 20, height: 20),
+                boundsSize: CGSize(width: 100, height: 80)
+            ),
+            CGPoint(x: 99, y: 0)
+        )
+    }
 }
 
 
