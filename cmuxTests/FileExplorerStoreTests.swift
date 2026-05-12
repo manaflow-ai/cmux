@@ -787,10 +787,26 @@ final class FileSearchControllerTests: XCTestCase {
             configuredPath: configuredPath,
             environment: ["PATH": ""],
             userName: "nixuser",
+            homeDirectory: "/Users/nixuser",
             isExecutable: { $0 == configuredPath || $0 == fallbackPath }
         )
 
         XCTAssertEqual(executable?.url.path, configuredPath)
+    }
+
+    func testRipgrepResolverExpandsTildeConfiguredBinaryPath() {
+        let configuredPath = "~/.nix-profile/bin/rg"
+        let expandedPath = "/Users/nixuser/.nix-profile/bin/rg"
+
+        let executable = RipgrepExecutableResolver.resolve(
+            configuredPath: configuredPath,
+            environment: ["PATH": ""],
+            userName: "nixuser",
+            homeDirectory: "/Users/nixuser",
+            isExecutable: { $0 == expandedPath }
+        )
+
+        XCTAssertEqual(executable?.url.path, expandedPath)
     }
 
     func testRipgrepResolverChecksNixProfilePathsBeforePATHFallback() {
@@ -801,10 +817,41 @@ final class FileSearchControllerTests: XCTestCase {
             configuredPath: nil,
             environment: ["PATH": "/tmp/bin"],
             userName: "nixuser",
+            homeDirectory: "/Users/nixuser",
             isExecutable: { $0 == nixProfilePath || $0 == pathFallback }
         )
 
         XCTAssertEqual(executable?.url.path, nixProfilePath)
+    }
+
+    func testRipgrepResolverChecksHomeManagerProfilePathsBeforePATHFallback() {
+        let homeManagerProfilePath = "/Users/nixuser/.nix-profile/bin/rg"
+        let pathFallback = "/tmp/bin/rg"
+
+        let executable = RipgrepExecutableResolver.resolve(
+            configuredPath: nil,
+            environment: ["PATH": "/tmp/bin"],
+            userName: "nixuser",
+            homeDirectory: "/Users/nixuser",
+            isExecutable: { $0 == homeManagerProfilePath || $0 == pathFallback }
+        )
+
+        XCTAssertEqual(executable?.url.path, homeManagerProfilePath)
+    }
+
+    func testRipgrepResolverChecksNixPerUserProfilePathBeforePATHFallback() {
+        let perUserProfilePath = "/nix/var/nix/profiles/per-user/nixuser/profile/bin/rg"
+        let pathFallback = "/tmp/bin/rg"
+
+        let executable = RipgrepExecutableResolver.resolve(
+            configuredPath: nil,
+            environment: ["PATH": "/tmp/bin"],
+            userName: "nixuser",
+            homeDirectory: "/Users/nixuser",
+            isExecutable: { $0 == perUserProfilePath || $0 == pathFallback }
+        )
+
+        XCTAssertEqual(executable?.url.path, perUserProfilePath)
     }
 
     func testRipgrepResolverRejectsNonExecutableConfiguredBinaryPath() {
@@ -815,6 +862,7 @@ final class FileSearchControllerTests: XCTestCase {
             configuredPath: configuredPath,
             environment: ["PATH": ""],
             userName: "nixuser",
+            homeDirectory: "/Users/nixuser",
             isExecutable: { $0 == fallbackPath }
         )
 
@@ -823,6 +871,7 @@ final class FileSearchControllerTests: XCTestCase {
             configuredPath: configuredPath,
             environment: ["PATH": ""],
             userName: "nixuser",
+            homeDirectory: "/Users/nixuser",
             isExecutable: { $0 == fallbackPath }
         ))
     }

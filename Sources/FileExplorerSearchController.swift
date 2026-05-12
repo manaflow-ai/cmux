@@ -68,6 +68,25 @@ struct FileSearchSnapshot: Equatable, Sendable {
 
 enum RipgrepIntegrationSettings {
     static let customRipgrepPathKey = "ripgrepCustomBinaryPath"
+
+    static func rawCustomRipgrepPath(defaults: UserDefaults = .standard) -> String? {
+        defaults.string(forKey: customRipgrepPathKey)
+    }
+
+    static func normalizedCustomPath(_ rawPath: String?, homeDirectory: String = NSHomeDirectory()) -> String? {
+        let trimmed = rawPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed == "~" {
+            return (homeDirectory as NSString).standardizingPath
+        }
+        if trimmed.hasPrefix("~/") {
+            let home = (homeDirectory as NSString).standardizingPath
+            let relativePath = String(trimmed.dropFirst(2))
+            return (home as NSString).appendingPathComponent(relativePath)
+        }
+        return trimmed
+    }
 }
 
 struct FileSearchRipgrepExecutable: Equatable, Sendable {
@@ -83,15 +102,17 @@ enum RipgrepExecutableResolution: Equatable, Sendable {
 
 enum RipgrepExecutableResolver {
     static func resolve(
-        configuredPath: String? = UserDefaults.standard.string(forKey: RipgrepIntegrationSettings.customRipgrepPathKey),
+        configuredPath: String? = RipgrepIntegrationSettings.rawCustomRipgrepPath(),
         environment: [String: String] = ProcessInfo.processInfo.environment,
         userName: String = NSUserName(),
+        homeDirectory: String = NSHomeDirectory(),
         isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
     ) -> FileSearchRipgrepExecutable? {
         guard case .found(let executable) = resolution(
             configuredPath: configuredPath,
             environment: environment,
             userName: userName,
+            homeDirectory: homeDirectory,
             isExecutable: isExecutable
         ) else {
             return nil
@@ -100,20 +121,23 @@ enum RipgrepExecutableResolver {
     }
 
     static func resolution(
-        configuredPath: String? = UserDefaults.standard.string(forKey: RipgrepIntegrationSettings.customRipgrepPathKey),
+        configuredPath: String? = RipgrepIntegrationSettings.rawCustomRipgrepPath(),
         environment: [String: String] = ProcessInfo.processInfo.environment,
         userName: String = NSUserName(),
+        homeDirectory: String = NSHomeDirectory(),
         isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
     ) -> RipgrepExecutableResolution {
-        if let configuredPath = configuredPath?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !configuredPath.isEmpty {
+        if let configuredPath = RipgrepIntegrationSettings.normalizedCustomPath(
+            configuredPath,
+            homeDirectory: homeDirectory
+        ) {
             if isExecutable(configuredPath) {
                 return .found(FileSearchRipgrepExecutable(url: URL(fileURLWithPath: configuredPath), prefixArguments: []))
             }
             return .configuredPathNotExecutable(configuredPath)
         }
 
-        for path in defaultSearchPaths(userName: userName) where isExecutable(path) {
+        for path in defaultSearchPaths(userName: userName, homeDirectory: homeDirectory) where isExecutable(path) {
             return .found(FileSearchRipgrepExecutable(url: URL(fileURLWithPath: path), prefixArguments: []))
         }
 
@@ -127,7 +151,8 @@ enum RipgrepExecutableResolver {
         return .notFound
     }
 
-    private static func defaultSearchPaths(userName: String) -> [String] {
+    private static func defaultSearchPaths(userName: String, homeDirectory: String) -> [String] {
+        let homeDirectory = (homeDirectory as NSString).standardizingPath
         [
             "/opt/homebrew/bin/rg",
             "/usr/local/bin/rg",
@@ -136,6 +161,8 @@ enum RipgrepExecutableResolver {
             "/etc/profiles/per-user/\(userName)/bin/rg",
             "/run/current-system/sw/bin/rg",
             "/nix/var/nix/profiles/default/bin/rg",
+            "\(homeDirectory)/.nix-profile/bin/rg",
+            "/nix/var/nix/profiles/per-user/\(userName)/profile/bin/rg",
         ]
     }
 }
