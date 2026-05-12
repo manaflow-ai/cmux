@@ -91,6 +91,16 @@ enum BrowserWebExtensionUserAgentSettings {
         userContentController.addUserScript(script)
     }
 
+    static func configureExtensionWebViewConfiguration(_ configuration: WKWebViewConfiguration) {
+        configuration.applicationNameForUserAgent = applicationNameForUserAgent
+        installCompatibilityScript(in: configuration.userContentController)
+    }
+
+    static func applyCompatibilityIdentity(to webView: WKWebView) {
+        webView.customUserAgent = userAgent
+        webView.evaluateJavaScript(compatibilityScriptSource) { _, _ in }
+    }
+
     private static var compatibilityScriptSource: String {
         """
         (() => {
@@ -206,6 +216,7 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
         permissions: [
             PermissionCapability("activeTab", availability: .delegatedToWebKit),
             PermissionCapability("alarms", availability: .delegatedToWebKit, apiPaths: ["browser.alarms"]),
+            PermissionCapability("bookmarks", availability: .unavailable(.missingHostAdapter), apiPaths: ["browser.bookmarks"]),
             PermissionCapability("clipboardRead", availability: .unavailable(.noPublicWebKitSurface)),
             PermissionCapability("clipboardWrite", availability: .delegatedToWebKit),
             PermissionCapability("contextMenus", availability: .delegatedToWebKit, apiPaths: ["browser.contextMenus"]),
@@ -217,7 +228,10 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
             ),
             PermissionCapability("declarativeNetRequestFeedback", availability: .delegatedToWebKit),
             PermissionCapability("declarativeNetRequestWithHostAccess", availability: .delegatedToWebKit),
+            PermissionCapability("downloads", availability: .unavailable(.missingHostAdapter), apiPaths: ["browser.downloads"]),
+            PermissionCapability("favicon", availability: .unavailable(.noPublicWebKitSurface), apiPaths: ["browser.favicon"]),
             PermissionCapability("idle", availability: .unavailable(.noPublicWebKitSurface), apiPaths: ["browser.idle"]),
+            PermissionCapability("management", availability: .unavailable(.missingHostAdapter), apiPaths: ["browser.management"]),
             PermissionCapability("menus", availability: .delegatedToWebKit, apiPaths: ["browser.menus"]),
             PermissionCapability(
                 "nativeMessaging",
@@ -259,10 +273,20 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
         ],
         apis: [
             APICapability("browser.clipboardRead", availability: .unavailable(.noPublicWebKitSurface)),
+            APICapability("browser.action.getUserSettings", availability: .unavailable(.noPublicWebKitSurface)),
+            APICapability("browser.browserAction.getUserSettings", availability: .unavailable(.noPublicWebKitSurface)),
+            APICapability("browser.bookmarks", availability: .unavailable(.missingHostAdapter)),
+            APICapability("browser.downloads", availability: .unavailable(.missingHostAdapter)),
+            APICapability("browser.extension.getBackgroundPage", availability: .unavailable(.noPublicWebKitSurface)),
+            APICapability("browser.extension.getViews", availability: .unavailable(.noPublicWebKitSurface)),
+            APICapability("browser.favicon", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.idle", availability: .unavailable(.noPublicWebKitSurface)),
+            APICapability("browser.management", availability: .unavailable(.missingHostAdapter)),
             APICapability("browser.notifications", availability: .unavailable(.missingHostAdapter)),
             APICapability("browser.offscreen", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.privacy", availability: .unavailable(.noPublicWebKitSurface)),
+            APICapability("browser.runtime.getBackgroundPage", availability: .unavailable(.noPublicWebKitSurface)),
+            APICapability("browser.runtime.getContexts", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability(
                 "browser.runtime.connectNative",
                 availability: .unavailable(.missingHostAdapter),
@@ -273,6 +297,7 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
                 availability: .unavailable(.missingHostAdapter),
                 appExtensionBundleAvailability: .delegatedToWebKit
             ),
+            APICapability("browser.storage.managed", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.userScripts", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.webRequest.onAuthRequired", availability: .unavailable(.missingHostAdapter)),
         ]
@@ -1293,6 +1318,11 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         )
         let webExtension = try await loadWebExtension(from: source)
         let context = WKWebExtensionContext(for: webExtension)
+        if let extensionWebViewConfiguration = context.webViewConfiguration {
+            BrowserWebExtensionUserAgentSettings.configureExtensionWebViewConfiguration(
+                extensionWebViewConfiguration
+            )
+        }
         if let uniqueIdentifier = browserWebExtensionContextUniqueIdentifier(for: record) {
             context.uniqueIdentifier = uniqueIdentifier
         }
@@ -1768,7 +1798,7 @@ private final class BrowserWebExtensionActionPopupPresentation: NSObject, NSWind
 
         let containerView = BrowserWebExtensionActionPopupContainerView(contentSize: contentSize)
         popupWebView.removeFromSuperview()
-        popupWebView.customUserAgent = BrowserWebExtensionUserAgentSettings.userAgent
+        BrowserWebExtensionUserAgentSettings.applyCompatibilityIdentity(to: popupWebView)
         popupWebView.translatesAutoresizingMaskIntoConstraints = false
 #if DEBUG
         popupWebView.isInspectable = true

@@ -637,11 +637,24 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
             from: webExtension.requestedPermissions.map { String($0.rawValue) }
         )
 
+        XCTAssertTrue(unsupportedAPIs.contains("browser.action.getUserSettings"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.bookmarks"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.downloads"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.extension.getBackgroundPage"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.extension.getViews"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.favicon"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.idle"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.management"))
         XCTAssertTrue(unsupportedAPIs.contains("browser.notifications"))
         XCTAssertTrue(unsupportedAPIs.contains("browser.offscreen"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.privacy"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.runtime.getBackgroundPage"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.runtime.getContexts"))
         XCTAssertTrue(unsupportedAPIs.contains("browser.runtime.connectNative"))
         XCTAssertTrue(unsupportedAPIs.contains("browser.runtime.sendNativeMessage"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.storage.managed"))
         XCTAssertTrue(unsupportedAPIs.contains("browser.webRequest.onAuthRequired"))
+        XCTAssertTrue(unsupportedAPIs.contains("chrome.runtime.getContexts"))
         XCTAssertTrue(unsupportedAPIs.contains("chrome.runtime.connectNative"))
         XCTAssertTrue(unsupportedAPIs.contains("chrome.runtime.sendNativeMessage"))
         XCTAssertTrue(unsupportedAPIs.contains("chrome.webRequest.onAuthRequired"))
@@ -650,7 +663,6 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
         XCTAssertTrue(grantablePermissions.contains("webRequest"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.commands"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.menus"))
-        XCTAssertFalse(unsupportedAPIs.contains("browser.runtime.getContexts"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.runtime.openOptionsPage"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.webNavigation"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.webRequest"))
@@ -683,7 +695,6 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
         XCTAssertTrue(unsupportedAPIs.contains("chrome.webRequest.onAuthRequired"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.commands"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.menus"))
-        XCTAssertFalse(unsupportedAPIs.contains("browser.runtime.getContexts"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.runtime.openOptionsPage"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.storage"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.webNavigation"))
@@ -727,6 +738,112 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
         XCTAssertFalse(appExtensionUnsupportedAPIs.contains("browser.runtime.sendNativeMessage"))
         XCTAssertFalse(appExtensionUnsupportedAPIs.contains("chrome.runtime.connectNative"))
         XCTAssertFalse(appExtensionUnsupportedAPIs.contains("chrome.runtime.sendNativeMessage"))
+    }
+
+    func testPasswordManagerResourceInstallsFailClosedForPrivilegedChromeAPIs() {
+        let policy = BrowserWebExtensionHostCapabilityPolicy.current
+        let bitwardenPermissions = [
+            "activeTab",
+            "alarms",
+            "clipboardRead",
+            "clipboardWrite",
+            "contextMenus",
+            "idle",
+            "offscreen",
+            "scripting",
+            "storage",
+            "tabs",
+            "unlimitedStorage",
+            "webNavigation",
+            "webRequest",
+            "webRequestAuthProvider",
+            "notifications",
+            "nativeMessaging",
+            "privacy",
+        ]
+        let onePasswordPermissions = [
+            "alarms",
+            "contextMenus",
+            "downloads",
+            "favicon",
+            "idle",
+            "management",
+            "nativeMessaging",
+            "notifications",
+            "offscreen",
+            "privacy",
+            "scripting",
+            "storage",
+            "tabs",
+            "webNavigation",
+            "webRequest",
+            "webRequestAuthProvider",
+            "declarativeNetRequestWithHostAccess",
+            "bookmarks",
+        ]
+
+        XCTAssertEqual(
+            policy.grantablePermissionNames(from: bitwardenPermissions, sourceKind: .resourceBaseURL),
+            [
+                "activeTab",
+                "alarms",
+                "clipboardWrite",
+                "contextMenus",
+                "scripting",
+                "storage",
+                "tabs",
+                "unlimitedStorage",
+                "webNavigation",
+                "webRequest",
+            ]
+        )
+        XCTAssertEqual(
+            policy.grantablePermissionNames(from: onePasswordPermissions, sourceKind: .resourceBaseURL),
+            [
+                "alarms",
+                "contextMenus",
+                "scripting",
+                "storage",
+                "tabs",
+                "webNavigation",
+                "webRequest",
+                "declarativeNetRequestWithHostAccess",
+            ]
+        )
+
+        let unsupportedAPIs = policy.unsupportedAPIs(
+            forPermissionNames: bitwardenPermissions + onePasswordPermissions,
+            sourceKind: .resourceBaseURL
+        )
+        for api in [
+            "browser.bookmarks",
+            "browser.clipboardRead",
+            "browser.downloads",
+            "browser.favicon",
+            "browser.idle",
+            "browser.management",
+            "browser.notifications",
+            "browser.offscreen",
+            "browser.privacy",
+            "browser.runtime.connectNative",
+            "browser.runtime.getContexts",
+            "browser.runtime.sendNativeMessage",
+            "browser.webRequest.onAuthRequired",
+            "chrome.bookmarks",
+            "chrome.downloads",
+            "chrome.management",
+            "chrome.runtime.connectNative",
+            "chrome.runtime.getContexts",
+            "chrome.runtime.sendNativeMessage",
+            "chrome.webRequest.onAuthRequired",
+        ] {
+            XCTAssertTrue(unsupportedAPIs.contains(api), api)
+        }
+
+        XCTAssertFalse(unsupportedAPIs.contains("browser.storage"))
+        XCTAssertFalse(unsupportedAPIs.contains("browser.tabs"))
+        XCTAssertFalse(unsupportedAPIs.contains("browser.webNavigation"))
+        XCTAssertFalse(unsupportedAPIs.contains("browser.webRequest"))
     }
 
     func testWebKitLoadsMinimalUnpackedExtension() async throws {
