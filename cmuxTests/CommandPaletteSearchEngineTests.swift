@@ -653,6 +653,27 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertTrue(inputs.includesSurfaces)
     }
 
+    func testExplicitSwitcherSearchOptOutKeepsWorkspaceOnlyQueries() {
+        let suiteName = "CommandPaletteSearchEngineTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Expected isolated UserDefaults suite")
+            return
+        }
+        defaults.set(false, forKey: CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertFalse(CommandPaletteSwitcherSearchSettings.searchAllSurfacesEnabled(defaults: defaults))
+
+        let inputs = ContentView.commandPaletteRefreshInputsForTests(
+            stateQuery: "",
+            observedQuery: "server logs",
+            searchAllSurfaces: CommandPaletteSwitcherSearchSettings.searchAllSurfacesEnabled(defaults: defaults)
+        )
+        XCTAssertEqual(inputs.scope, "switcher")
+        XCTAssertEqual(inputs.matchingQuery, "server logs")
+        XCTAssertFalse(inputs.includesSurfaces)
+    }
+
     func testSwitcherTabTitleQueryFindsTabEntry() throws {
         let entries = [
             FixtureEntry(
