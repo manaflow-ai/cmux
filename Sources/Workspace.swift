@@ -9632,27 +9632,22 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func resolvedTerminalInheritanceFontPoints(
         for terminalPanel: TerminalPanel,
-        sourceSurface: ghostty_surface_t,
         inheritedConfig: CmuxSurfaceConfigTemplate
     ) -> Float? {
-        let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface)
         if let rooted = terminalInheritanceFontPointsByPanelId[terminalPanel.id], rooted > 0 {
-            if let runtimePoints, abs(runtimePoints - rooted) > 0.05 {
-                // Runtime zoom changed after lineage was seeded (manual zoom on descendant);
-                // treat runtime as the new root for future descendants.
-                return runtimePoints
-            }
             return rooted
         }
         if inheritedConfig.fontSize > 0 {
             return inheritedConfig.fontSize
         }
-        return runtimePoints
+        return lastTerminalConfigInheritanceFontPoints
     }
 
     private func rememberTerminalConfigInheritanceSource(_ terminalPanel: TerminalPanel) {
         lastTerminalConfigInheritancePanelId = terminalPanel.id
-        if let sourceSurface = terminalPanel.surface.surface,
+        if let sourceSurface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
+            reason: "terminal.config.remember"
+        ),
            let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface) {
             let existing = terminalInheritanceFontPointsByPanelId[terminalPanel.id]
             if existing == nil || abs((existing ?? runtimePoints) - runtimePoints) > 0.05 {
@@ -9744,39 +9739,31 @@ final class Workspace: Identifiable, ObservableObject {
         preferredPanelId: UUID? = nil,
         inPane preferredPaneId: PaneID? = nil
     ) -> CmuxSurfaceConfigTemplate? {
-        // Walk candidates in priority order and use the first panel that still exposes
-        // a runtime surface pointer.
+        // Public Intel/Tahoe crash reports showed split creation dereferencing a
+        // stale Ghostty surface while inheriting config. Split cwd is resolved
+        // separately below, so keep this path on Swift-owned font lineage only.
         for terminalPanel in terminalPanelConfigInheritanceCandidates(
             preferredPanelId: preferredPanelId,
             inPane: preferredPaneId
         ) {
-            // Pin the panel and its TerminalSurface wrapper for the duration of
-            // this iteration. The raw ghostty_surface_t extracted below is owned
-            // by `surface` (the TerminalSurface) — ARC must not release it while
-            // ghostty_surface_inherited_config or cmuxCurrentSurfaceFontSizePoints
-            // is still reading through the pointer.
-            let surface = terminalPanel.surface
-            guard let sourceSurface = surface.liveSurfaceForGhosttyAccess(
-                reason: "terminal.config.inherit"
-            ) else { continue }
-            guard var config = cmuxInheritedSurfaceConfig(
-                sourceSurface: sourceSurface,
-                context: GHOSTTY_SURFACE_CONTEXT_SPLIT
-            ) else { continue }
+            var config = CmuxSurfaceConfigTemplate()
             if let rootedFontPoints = resolvedTerminalInheritanceFontPoints(
                 for: terminalPanel,
-                sourceSurface: sourceSurface,
                 inheritedConfig: config
             ), rootedFontPoints > 0 {
                 config.fontSize = rootedFontPoints
                 terminalInheritanceFontPointsByPanelId[terminalPanel.id] = rootedFontPoints
+            } else {
+                continue
             }
-            // Prevent ARC from releasing panel/surface before the C calls above complete.
-            withExtendedLifetime((terminalPanel, surface)) {}
-            rememberTerminalConfigInheritanceSource(terminalPanel)
             if config.fontSize > 0 {
                 lastTerminalConfigInheritanceFontPoints = config.fontSize
             }
+#if DEBUG
+            cmuxDebugLog(
+                "zoom.inherit context=split source=cached font=\(String(format: "%.2f", config.fontSize))"
+            )
+#endif
             return config
         }
 

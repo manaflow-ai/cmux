@@ -806,10 +806,10 @@ final class WindowTerminalPortal: NSObject {
     }
 
     private func synchronizeLayoutHierarchy() {
-        installedContainerView?.layoutSubtreeIfNeeded()
-        installedReferenceView?.layoutSubtreeIfNeeded()
-        hostView.superview?.layoutSubtreeIfNeeded()
-        hostView.layoutSubtreeIfNeeded()
+        // Public AppKit crash reports show portal install/sync re-entering
+        // NSHostingView layout while SwiftUI is already updating the terminal
+        // subtree. Use the latest available frames here; normal layout and the
+        // deferred external geometry sync will settle any constraint changes.
         _ = synchronizeHostFrameToReference()
     }
 
