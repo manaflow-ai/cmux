@@ -872,6 +872,34 @@ final class TerminalOSC7LocationTests: XCTestCase {
         XCTAssertNil(workspace.panelPullRequests[panelId])
         XCTAssertTrue(workspace.sidebarPullRequestsInDisplayOrder().isEmpty)
     }
+
+    @MainActor
+    func testSocketReportedRemoteFileURIReachesSidebarStateWithHostAndBranch() throws {
+        let controller = TerminalController.shared
+        let manager = TabManager()
+        controller.setActiveTabManager(manager)
+        defer { controller.setActiveTabManager(nil) }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let remoteReport = "file://devbox.example/tmp/cmux-issue3791-remote-test?cmux_git_branch=feature%2Fmosh&cmux_git_dirty=1"
+
+        XCTAssertEqual(controller.handleSocketLine("report_pwd \(remoteReport)"), "OK")
+
+        let sidebarState = controller.handleSocketLine("sidebar_state")
+        XCTAssertTrue(
+            sidebarState.contains("cwd=devbox.example:/tmp/cmux-issue3791-remote-test"),
+            sidebarState
+        )
+        XCTAssertTrue(
+            sidebarState.contains("focused_cwd=devbox.example:/tmp/cmux-issue3791-remote-test"),
+            sidebarState
+        )
+        XCTAssertTrue(sidebarState.contains("focused_panel=\(panelId.uuidString)"), sidebarState)
+        XCTAssertTrue(sidebarState.contains("git_branch=feature/mosh dirty"), sidebarState)
+        XCTAssertEqual(workspace.terminalLocation(for: panelId)?.remoteHost, "devbox.example")
+        XCTAssertNil(workspace.panelDirectories[panelId])
+    }
 }
 
 
@@ -1286,6 +1314,15 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
         XCTAssertEqual(
             TerminalController.normalizeReportedDirectory("file:///Users/cmux/project"),
             "/Users/cmux/project"
+        )
+    }
+
+    func testNormalizeReportedDirectoryPreservesRemoteFileURLForLocationClassification() {
+        XCTAssertEqual(
+            TerminalController.normalizeReportedDirectory(
+                "file://devbox.example/tmp/cmux-issue3791-remote-test?cmux_git_branch=feature%2Fmosh&cmux_git_dirty=1"
+            ),
+            "file://devbox.example/tmp/cmux-issue3791-remote-test?cmux_git_branch=feature%2Fmosh&cmux_git_dirty=1"
         )
     }
 

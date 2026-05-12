@@ -149,6 +149,53 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(stdout.contains("\u{1B}\\"), stdout.debugDescription)
     }
 
+    func testRemoteShellSnippetSourcesCleanlyUnderZshWithPathIntact() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-remote-shell-zsh-path-\(UUID().uuidString)")
+        let project = root.appendingPathComponent("[WIP]-project", isDirectory: true)
+        try fileManager.createDirectory(at: project, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let shellPath = "/usr/bin:/bin:/usr/sbin:/sbin"
+        let script = """
+        set -e
+        original_path="$PATH"
+        cd "\(project.path)"
+        \(RemoteShellIntegrationSnippet.script())
+        CMUX_REMOTE_HOST='remote[host]'
+        CMUX_REMOTE_DISABLE_GIT=1
+        export CMUX_REMOTE_HOST CMUX_REMOTE_DISABLE_GIT
+        output="$(__cmux_remote_report_prompt)"
+        if [ "$PATH" != "$original_path" ]; then
+          print -r -- "PATH_CHANGED=$PATH"
+          exit 33
+        fi
+        command -v tr >/dev/null
+        print -r -- "$output"
+        print -r -- "PATH_OK=$PATH"
+        """
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "-i",
+                "HOME=\(root.path)",
+                "PATH=\(shellPath)",
+                "TMPDIR=\(fileManager.temporaryDirectory.path)",
+                "/bin/zsh",
+                "-c",
+                script,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("file://remote%5Bhost%5D/"), result.stdout.debugDescription)
+        XCTAssertTrue(result.stdout.contains("%5BWIP%5D-project"), result.stdout.debugDescription)
+        XCTAssertTrue(result.stdout.contains("PATH_OK=\(shellPath)"), result.stdout.debugDescription)
+    }
+
     func testRemoteShellSnippetEscapesBracketPathBytes() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-remote-shell-brackets-\(UUID().uuidString)")
