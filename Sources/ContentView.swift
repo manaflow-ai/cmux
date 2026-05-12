@@ -1574,54 +1574,6 @@ struct ContentView: View {
     private static let maximumRightSidebarWidth: CGFloat = 1200
     private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
 
-    static func workspaceSidebarResizeEdge(for position: WorkspaceSidebarPosition) -> SidebarResizeInteraction.Edge {
-        switch position {
-        case .left:
-            return .leading
-        case .right:
-            return .trailing
-        }
-    }
-
-    static func workspaceSidebarWidthDelta(translation: CGFloat, position: WorkspaceSidebarPosition) -> CGFloat {
-        switch position {
-        case .left:
-            return translation
-        case .right:
-            return -translation
-        }
-    }
-
-    static func workspaceSidebarDividerX(
-        totalWidth: CGFloat,
-        sidebarWidth: CGFloat,
-        position: WorkspaceSidebarPosition
-    ) -> CGFloat {
-        let sanitizedTotalWidth = max(0, totalWidth.isFinite ? totalWidth : 0)
-        let sanitizedSidebarWidth = min(max(0, sidebarWidth.isFinite ? sidebarWidth : 0), sanitizedTotalWidth)
-        switch position {
-        case .left:
-            return sanitizedSidebarWidth
-        case .right:
-            return sanitizedTotalWidth - sanitizedSidebarWidth
-        }
-    }
-
-    static func rightSidebarDividerX(
-        totalWidth: CGFloat,
-        rightSidebarWidth: CGFloat,
-        workspaceSidebarWidth: CGFloat,
-        workspaceSidebarVisible: Bool,
-        workspaceSidebarPosition: WorkspaceSidebarPosition
-    ) -> CGFloat {
-        let sanitizedTotalWidth = max(0, totalWidth.isFinite ? totalWidth : 0)
-        let sanitizedRightSidebarWidth = max(0, rightSidebarWidth.isFinite ? rightSidebarWidth : 0)
-        let reservedWorkspaceSidebarWidth = workspaceSidebarVisible && workspaceSidebarPosition == .right
-            ? max(0, workspaceSidebarWidth.isFinite ? workspaceSidebarWidth : 0)
-            : 0
-        return max(0, sanitizedTotalWidth - reservedWorkspaceSidebarWidth - sanitizedRightSidebarWidth)
-    }
-
     private enum SidebarResizerHandle: Hashable {
         case divider
         case explorerDivider
@@ -1641,7 +1593,7 @@ struct ContentView: View {
                 captureStart: { sidebarDragStartWidth = sidebarWidth },
                 updateWidth: { translation in
                     let startWidth = sidebarDragStartWidth ?? sidebarWidth
-                    let widthDelta = Self.workspaceSidebarWidthDelta(
+                    let widthDelta = SidebarGeometryPolicy.workspaceSidebarWidthDelta(
                         translation: translation,
                         position: workspaceSidebarPosition
                     )
@@ -1661,7 +1613,7 @@ struct ContentView: View {
                 captureStart: { fileExplorerDragStartWidth = fileExplorerWidth },
                 updateWidth: { translation in
                     let startWidth = fileExplorerDragStartWidth ?? fileExplorerWidth
-                    let nextWidth = Self.clampedRightSidebarWidth(
+                    let nextWidth = normalizedRightSidebarWidth(
                         startWidth - translation,
                         availableWidth: availableWidth
                     )
@@ -1702,11 +1654,18 @@ struct ContentView: View {
         return max(minimumWidth, min(sanitizedMaximumWidth, candidate))
     }
 
-    static func clampedRightSidebarWidth(_ candidate: CGFloat, availableWidth: CGFloat) -> CGFloat {
+    static func clampedRightSidebarWidth(
+        _ candidate: CGFloat,
+        availableWidth: CGFloat,
+        reservedTrailingWidth: CGFloat = 0
+    ) -> CGFloat {
         let minimumWidth = Self.minimumRightSidebarWidth
         let sanitizedCandidate = candidate.isFinite ? candidate : 220
         let sanitizedAvailableWidth = availableWidth.isFinite && availableWidth > 0 ? availableWidth : 1920
-        let availableWidthCap = sanitizedAvailableWidth - Self.minimumTerminalWidthWithRightSidebar
+        let sanitizedReservedTrailingWidth = max(0, reservedTrailingWidth.isFinite ? reservedTrailingWidth : 0)
+        let availableWidthCap = sanitizedAvailableWidth
+            - sanitizedReservedTrailingWidth
+            - Self.minimumTerminalWidthWithRightSidebar
         let maximumWidth = min(
             Self.maximumRightSidebarWidth,
             max(minimumWidth, availableWidthCap)
@@ -1754,10 +1713,19 @@ struct ContentView: View {
         return 1920
     }
 
+    private var reservedTrailingWorkspaceSidebarWidth: CGFloat {
+        SidebarGeometryPolicy.reservedTrailingWorkspaceSidebarWidth(
+            workspaceSidebarWidth: sidebarWidth,
+            workspaceSidebarVisible: sidebarState.isVisible,
+            workspaceSidebarPosition: workspaceSidebarPosition
+        )
+    }
+
     private func normalizedRightSidebarWidth(_ candidate: CGFloat, availableWidth: CGFloat? = nil) -> CGFloat {
         Self.clampedRightSidebarWidth(
             candidate,
-            availableWidth: resolvedRightSidebarAvailableWidth(availableWidth)
+            availableWidth: resolvedRightSidebarAvailableWidth(availableWidth),
+            reservedTrailingWidth: reservedTrailingWorkspaceSidebarWidth
         )
     }
 
@@ -1805,19 +1773,19 @@ struct ContentView: View {
         guard point.y >= contentBounds.minY, point.y <= contentBounds.maxY else { return false }
         let totalWidth = max(0, contentBounds.width)
         if sidebarState.isVisible {
-            let workspaceDividerX = contentBounds.minX + Self.workspaceSidebarDividerX(
+            let workspaceDividerX = contentBounds.minX + SidebarGeometryPolicy.workspaceSidebarDividerX(
                 totalWidth: totalWidth,
                 sidebarWidth: sidebarWidth,
                 position: workspaceSidebarPosition
             )
-            if Self.workspaceSidebarResizeEdge(for: workspaceSidebarPosition)
+            if SidebarGeometryPolicy.workspaceSidebarResizeEdge(for: workspaceSidebarPosition)
                 .hitRange(dividerX: workspaceDividerX)
                 .contains(point.x) {
                 return true
             }
         }
 
-        let rightDividerX = contentBounds.minX + Self.rightSidebarDividerX(
+        let rightDividerX = contentBounds.minX + SidebarGeometryPolicy.rightSidebarDividerX(
             totalWidth: totalWidth,
             rightSidebarWidth: rightSidebarWidth,
             workspaceSidebarWidth: sidebarWidth,
@@ -2029,10 +1997,10 @@ struct ContentView: View {
         let position = workspaceSidebarPosition
         return placedSidebarResizerOverlay(
             handle: .divider,
-            edge: Self.workspaceSidebarResizeEdge(for: position),
+            edge: SidebarGeometryPolicy.workspaceSidebarResizeEdge(for: position),
             accessibilityIdentifier: "SidebarResizer",
             dividerX: { totalWidth in
-                Self.workspaceSidebarDividerX(
+                SidebarGeometryPolicy.workspaceSidebarDividerX(
                     totalWidth: totalWidth,
                     sidebarWidth: sidebarWidth,
                     position: position
@@ -2048,7 +2016,7 @@ struct ContentView: View {
             edge: .trailing,
             accessibilityIdentifier: "RightSidebarResizer",
             dividerX: { totalWidth in
-                Self.rightSidebarDividerX(
+                SidebarGeometryPolicy.rightSidebarDividerX(
                     totalWidth: totalWidth,
                     rightSidebarWidth: rightSidebarWidth,
                     workspaceSidebarWidth: sidebarWidth,
@@ -3251,6 +3219,7 @@ struct ContentView: View {
             if abs(sidebarState.persistedWidth - sanitized) > 0.5 {
                 sidebarState.persistedWidth = sanitized
             }
+            clampRightSidebarWidthIfNeeded()
             // Sidebar width changes are pure SwiftUI layout updates, so portal-hosted
             // terminals and browsers need an explicit post-layout geometry resync.
             schedulePortalGeometrySynchronize()
@@ -3259,6 +3228,7 @@ struct ContentView: View {
 
         view = AnyView(view.onChange(of: sidebarState.isVisible) { isVisible in
             setMinimalModeSidebarTitlebarControlsAvailable(isVisible, in: observedWindow)
+            clampRightSidebarWidthIfNeeded()
             if let observedWindow {
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
             }
@@ -3268,6 +3238,7 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: workspaceSidebarPositionRaw) {
+            clampRightSidebarWidthIfNeeded()
             if let observedWindow {
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
             }

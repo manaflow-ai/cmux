@@ -33,6 +33,18 @@ final class SidebarWidthPolicyTests: XCTestCase {
         )
     }
 
+    func testRightSidebarClampReservesTrailingWorkspaceSidebarWidth() {
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarWidth(
+                10_000,
+                availableWidth: 1200,
+                reservedTrailingWidth: 200
+            ),
+            640,
+            accuracy: 0.001
+        )
+    }
+
     func testRightSidebarClampKeepsMinimumWidth() {
         XCTAssertEqual(
             ContentView.clampedRightSidebarWidth(20, availableWidth: 1000),
@@ -64,23 +76,31 @@ final class SidebarWidthPolicyTests: XCTestCase {
     }
 
     func testWorkspaceSidebarResizeEdgeTracksPosition() {
-        XCTAssertEqual(ContentView.workspaceSidebarResizeEdge(for: .left), .leading)
-        XCTAssertEqual(ContentView.workspaceSidebarResizeEdge(for: .right), .trailing)
+        XCTAssertEqual(SidebarGeometryPolicy.workspaceSidebarResizeEdge(for: .left), .leading)
+        XCTAssertEqual(SidebarGeometryPolicy.workspaceSidebarResizeEdge(for: .right), .trailing)
     }
 
     func testWorkspaceSidebarWidthDeltaTracksPosition() {
-        XCTAssertEqual(ContentView.workspaceSidebarWidthDelta(translation: 24, position: .left), 24, accuracy: 0.001)
-        XCTAssertEqual(ContentView.workspaceSidebarWidthDelta(translation: 24, position: .right), -24, accuracy: 0.001)
+        XCTAssertEqual(
+            SidebarGeometryPolicy.workspaceSidebarWidthDelta(translation: 24, position: .left),
+            24,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            SidebarGeometryPolicy.workspaceSidebarWidthDelta(translation: 24, position: .right),
+            -24,
+            accuracy: 0.001
+        )
     }
 
     func testWorkspaceSidebarDividerTracksPosition() {
         XCTAssertEqual(
-            ContentView.workspaceSidebarDividerX(totalWidth: 1000, sidebarWidth: 200, position: .left),
+            SidebarGeometryPolicy.workspaceSidebarDividerX(totalWidth: 1000, sidebarWidth: 200, position: .left),
             200,
             accuracy: 0.001
         )
         XCTAssertEqual(
-            ContentView.workspaceSidebarDividerX(totalWidth: 1000, sidebarWidth: 200, position: .right),
+            SidebarGeometryPolicy.workspaceSidebarDividerX(totalWidth: 1000, sidebarWidth: 200, position: .right),
             800,
             accuracy: 0.001
         )
@@ -88,7 +108,7 @@ final class SidebarWidthPolicyTests: XCTestCase {
 
     func testRightSidebarDividerAccountsForRightWorkspaceSidebar() {
         XCTAssertEqual(
-            ContentView.rightSidebarDividerX(
+            SidebarGeometryPolicy.rightSidebarDividerX(
                 totalWidth: 1200,
                 rightSidebarWidth: 300,
                 workspaceSidebarWidth: 200,
@@ -99,7 +119,7 @@ final class SidebarWidthPolicyTests: XCTestCase {
             accuracy: 0.001
         )
         XCTAssertEqual(
-            ContentView.rightSidebarDividerX(
+            SidebarGeometryPolicy.rightSidebarDividerX(
                 totalWidth: 1200,
                 rightSidebarWidth: 300,
                 workspaceSidebarWidth: 200,
