@@ -40,7 +40,7 @@ struct SearchIndexDocument: Sendable, Equatable {
         location: String,
         anchor: String,
         text: String,
-        timestamp: Date = Date()
+        timestamp: Date = Date.now
     ) {
         self.id = id
         self.windowID = windowID
@@ -54,19 +54,15 @@ struct SearchIndexDocument: Sendable, Equatable {
         self.timestamp = timestamp
     }
 
-    static func stableID(
-        windowID: UUID,
-        workspaceID: UUID,
-        panelID: UUID?,
+    static func panelStableID(
+        panelID: UUID,
         kind: GlobalSearchKind,
-        anchor: String
+        subtype: String = "document"
     ) -> String {
         [
-            windowID.uuidString,
-            workspaceID.uuidString,
-            panelID?.uuidString ?? "workspace",
+            panelID.uuidString,
             kind.rawValue,
-            anchor
+            subtype
         ].joined(separator: ":")
     }
 }
@@ -137,6 +133,8 @@ actor SearchIndex {
     }
 
     func upsert(_ document: SearchIndexDocument) throws {
+        try Task.checkCancellation()
+
         let sql = """
             INSERT INTO chunks (
                 id, window_id, workspace_id, panel_id, kind,
@@ -179,6 +177,10 @@ actor SearchIndex {
             try bind(panelID.uuidString, at: 1, in: statement)
             try stepDone(statement)
         }
+    }
+
+    func deleteAll() throws {
+        try execute("DELETE FROM chunks")
     }
 
     func search(_ rawQuery: String, limit: Int = 20) throws -> [SearchIndexHit] {
@@ -228,7 +230,7 @@ actor SearchIndex {
 
     #if DEBUG
     func clearForTesting() throws {
-        try execute("DELETE FROM chunks")
+        try deleteAll()
     }
     #endif
 
@@ -376,7 +378,8 @@ actor SearchIndex {
         guard !tokens.isEmpty else { return nil }
 
         return tokens.map { token in
-            "\(token)*"
+            let lowercasedToken = token.lowercased()
+            "\(lowercasedToken)*"
         }.joined(separator: " AND ")
     }
 

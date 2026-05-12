@@ -96,6 +96,75 @@ final class SearchIndexTests: XCTestCase {
         XCTAssertEqual(try await index.search("newtoken", limit: 10).map(\.id), ["doc"])
     }
 
+    func testPanelStableIDReplacesDocumentAfterNavigationOrMove() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
+
+        let index = try SearchIndex(databaseURL: fixture.databaseURL)
+        let panelID = UUID()
+        let documentID = SearchIndexDocument.panelStableID(panelID: panelID, kind: .browser)
+
+        try await index.upsert(
+            SearchIndexDocument(
+                id: documentID,
+                windowID: UUID(),
+                workspaceID: UUID(),
+                panelID: panelID,
+                kind: .browser,
+                title: "Old Page",
+                location: "https://example.test/old",
+                anchor: "https://example.test/old",
+                text: "oldnavigationtoken"
+            )
+        )
+
+        let movedWindowID = UUID()
+        let movedWorkspaceID = UUID()
+        try await index.upsert(
+            SearchIndexDocument(
+                id: documentID,
+                windowID: movedWindowID,
+                workspaceID: movedWorkspaceID,
+                panelID: panelID,
+                kind: .browser,
+                title: "New Page",
+                location: "https://example.test/new",
+                anchor: "https://example.test/new",
+                text: "newnavigationtoken"
+            )
+        )
+
+        XCTAssertEqual(try await index.search("oldnavigationtoken", limit: 10), [])
+        let hits = try await index.search("newnavigationtoken", limit: 10)
+        XCTAssertEqual(hits.map(\.id), [documentID])
+        XCTAssertEqual(hits.first?.windowID, movedWindowID)
+        XCTAssertEqual(hits.first?.workspaceID, movedWorkspaceID)
+        XCTAssertEqual(hits.first?.location, "https://example.test/new")
+    }
+
+    func testSearchLowercasesUppercaseFTSOperatorTokens() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
+
+        let index = try SearchIndex(databaseURL: fixture.databaseURL)
+
+        try await index.upsert(
+            SearchIndexDocument(
+                id: "operator-doc",
+                windowID: UUID(),
+                workspaceID: UUID(),
+                panelID: UUID(),
+                kind: .markdown,
+                title: "Operator Notes",
+                location: "/tmp/operator.md",
+                anchor: "/tmp/operator.md",
+                text: "andromeda orbit notes"
+            )
+        )
+
+        XCTAssertEqual(try await index.search("AND", limit: 10).map(\.id), ["operator-doc"])
+    }
+
     func testDeletePanelRemovesIndexedDocuments() async throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
@@ -122,6 +191,31 @@ final class SearchIndexTests: XCTestCase {
         XCTAssertEqual(try await index.search("kiwifruit", limit: 10).count, 1)
         try await index.deletePanel(panelID)
         XCTAssertEqual(try await index.search("kiwifruit", limit: 10), [])
+    }
+
+    func testDeleteAllClearsPersistentDocuments() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
+
+        let index = try SearchIndex(databaseURL: fixture.databaseURL)
+
+        try await index.upsert(
+            SearchIndexDocument(
+                id: "stale-doc",
+                windowID: UUID(),
+                workspaceID: UUID(),
+                panelID: UUID(),
+                kind: .title,
+                title: "Stale",
+                location: "Old Window",
+                anchor: "title",
+                text: "stalesessiontoken"
+            )
+        )
+
+        XCTAssertEqual(try await index.search("stalesessiontoken", limit: 10).count, 1)
+        try await index.deleteAll()
+        XCTAssertEqual(try await index.search("stalesessiontoken", limit: 10), [])
     }
 
     private func makeFixture() throws -> (directoryURL: URL, databaseURL: URL) {

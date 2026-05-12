@@ -6,6 +6,10 @@ final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
     private unowned let coordinator: GlobalSearchCoordinator
     private let popover = NSPopover()
 
+    var isShown: Bool {
+        popover.isShown
+    }
+
     init(coordinator: GlobalSearchCoordinator) {
         self.coordinator = coordinator
         super.init()
@@ -45,9 +49,13 @@ private struct GlobalSearchPaletteView: View {
     @State private var results: [GlobalSearchResultRow] = []
     @State private var selectedIndex = 0
     @State private var isSearching = false
+    @State private var searchGeneration = 0
+    @State private var searchTimer: DispatchSourceTimer?
     @State private var searchTask: Task<Void, Never>?
     @State private var keyMonitor: Any?
     @FocusState private var searchFieldFocused: Bool
+
+    private let searchDebounceMilliseconds = 80
 
     var body: some View {
         VStack(spacing: 0) {
@@ -82,13 +90,13 @@ private struct GlobalSearchPaletteView: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(results) { row in
-                        GlobalSearchResultRowView(
-                            row: row,
-                            isSelected: selectedIndex == row.index,
-                            action: {
-                                selectedIndex = row.index
-                                openSelectedResult()
-                            }
+                            GlobalSearchResultRowView(
+                                row: row,
+                                isSelected: selectedIndex == row.index,
+                                action: {
+                                    selectedIndex = row.index
+                                    openSelectedResult()
+                                }
                             )
                             .onHover { hovering in
                                 if hovering {
@@ -110,8 +118,7 @@ private struct GlobalSearchPaletteView: View {
         }
         .onDisappear {
             removeKeyMonitor()
-            searchTask?.cancel()
-            searchTask = nil
+            cancelSearchWork()
         }
         .onChange(of: query) { _, newValue in
             scheduleSearch(newValue)
@@ -119,7 +126,9 @@ private struct GlobalSearchPaletteView: View {
     }
 
     private func scheduleSearch(_ nextQuery: String) {
-        searchTask?.cancel()
+        cancelSearchWork()
+        searchGeneration += 1
+        let generation = searchGeneration
         let trimmed = nextQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             isSearching = false
@@ -129,23 +138,36 @@ private struct GlobalSearchPaletteView: View {
         }
 
         isSearching = true
-        searchTask = Task {
-            do {
-                try await Task.sleep(nanoseconds: 80_000_000)
-            } catch {
-                return
-            }
-            guard !Task.isCancelled else { return }
-            let hits = await coordinator.search(query: trimmed)
-            await MainActor.run {
-                guard !Task.isCancelled else { return }
-                results = hits.enumerated().map { offset, hit in
-                    GlobalSearchResultRow(hit: hit, query: trimmed, index: offset)
+
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + .milliseconds(searchDebounceMilliseconds), leeway: .milliseconds(10))
+        timer.setEventHandler {
+            MainActor.assumeIsolated {
+                searchTimer?.cancel()
+                searchTimer = nil
+                guard searchGeneration == generation else { return }
+                searchTask = Task {
+                    let hits = await coordinator.search(query: trimmed)
+                    await MainActor.run {
+                        guard searchGeneration == generation, !Task.isCancelled else { return }
+                        results = hits.enumerated().map { offset, hit in
+                            GlobalSearchResultRow(hit: hit, query: trimmed, index: offset)
+                        }
+                        selectedIndex = min(selectedIndex, max(results.count - 1, 0))
+                        isSearching = false
+                    }
                 }
-                selectedIndex = min(selectedIndex, max(results.count - 1, 0))
-                isSearching = false
             }
         }
+        searchTimer = timer
+        timer.resume()
+    }
+
+    private func cancelSearchWork() {
+        searchTimer?.cancel()
+        searchTimer = nil
+        searchTask?.cancel()
+        searchTask = nil
     }
 
     private func installKeyMonitorIfNeeded() {
@@ -165,6 +187,8 @@ private struct GlobalSearchPaletteView: View {
     }
 
     private func handleKeyEvent(_ event: NSEvent) -> Bool {
+        guard coordinator.isPaletteVisible() else { return false }
+
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if flags.contains(.command),
            !flags.contains(.option),

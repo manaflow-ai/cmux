@@ -21,9 +21,13 @@ final class GlobalSearchCoordinator {
     static let shared = GlobalSearchCoordinator()
 
     private let maxIndexedTextCharacters = 400_000
-    private let browserCaptureDebounceNanoseconds: UInt64 = 250_000_000
+    private let browserCaptureDebounceMilliseconds = 250
+    private var browserCaptureTimers: [UUID: DispatchSourceTimer] = [:]
     private var browserCaptureTasks: [UUID: Task<Void, Never>] = [:]
     private var browserCaptureTaskIDs: [UUID: UUID] = [:]
+    private var markdownCaptureTasks: [UUID: Task<Void, Never>] = [:]
+    private var markdownCaptureTaskIDs: [UUID: UUID] = [:]
+    private var startupIndexTask: Task<Void, Never>?
     private var index: SearchIndex?
     private var indexCreationFailed = false
     private lazy var popover = MenubarSearchPopover(coordinator: self)
@@ -31,7 +35,23 @@ final class GlobalSearchCoordinator {
     private init() {}
 
     func start() {
-        _ = ensureIndex()
+        guard let index = ensureIndex() else { return }
+        startupIndexTask?.cancel()
+        startupIndexTask = Task { @MainActor [weak self] in
+            do {
+                try await index.deleteAll()
+            } catch {
+#if DEBUG
+                cmuxDebugLog("globalSearch.index.clear failed error=\(error.localizedDescription)")
+#endif
+            }
+
+            guard let self, !Task.isCancelled else { return }
+            await self.refreshLiveIndex()
+            if !Task.isCancelled {
+                self.startupIndexTask = nil
+            }
+        }
     }
 
     func togglePalette(anchor: NSStatusBarButton) {
@@ -40,6 +60,10 @@ final class GlobalSearchCoordinator {
 
     func dismissPalette() {
         popover.dismiss()
+    }
+
+    func isPaletteVisible() -> Bool {
+        popover.isShown
     }
 
     func search(query: String) async -> [SearchIndexHit] {
@@ -90,22 +114,39 @@ final class GlobalSearchCoordinator {
     func captureBrowserPanel(_ panel: BrowserPanel) {
         let panelID = panel.id
         let taskID = UUID()
+        browserCaptureTimers[panelID]?.cancel()
         browserCaptureTasks[panelID]?.cancel()
         browserCaptureTaskIDs[panelID] = taskID
-        browserCaptureTasks[panelID] = Task { @MainActor [weak self, weak panel] in
-            guard let self, let panel else { return }
-            do {
-                try await Task.sleep(nanoseconds: self.browserCaptureDebounceNanoseconds)
-            } catch {
-                return
-            }
-            guard !Task.isCancelled, self.browserCaptureTaskIDs[panelID] == taskID else { return }
-            await self.indexBrowserPanel(panel)
-            if self.browserCaptureTaskIDs[panelID] == taskID {
-                self.browserCaptureTasks[panelID] = nil
-                self.browserCaptureTaskIDs[panelID] = nil
+
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(
+            deadline: .now() + .milliseconds(browserCaptureDebounceMilliseconds),
+            leeway: .milliseconds(25)
+        )
+        timer.setEventHandler { [weak self, weak panel] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.browserCaptureTimers[panelID]?.cancel()
+                self.browserCaptureTimers[panelID] = nil
+                guard let panel else { return }
+                guard self.browserCaptureTaskIDs[panelID] == taskID else { return }
+
+                let task = Task { @MainActor [weak self, weak panel] in
+                    guard let self, let panel else { return }
+                    guard !Task.isCancelled, self.browserCaptureTaskIDs[panelID] == taskID else { return }
+                    await self.indexBrowserPanel(panel)
+                    if self.browserCaptureTaskIDs[panelID] == taskID {
+                        self.browserCaptureTasks[panelID] = nil
+                        self.browserCaptureTaskIDs[panelID] = nil
+                    }
+                }
+                if self.browserCaptureTaskIDs[panelID] == taskID {
+                    self.browserCaptureTasks[panelID] = task
+                }
             }
         }
+        browserCaptureTimers[panelID] = timer
+        timer.resume()
     }
 
     func captureMarkdownPanel(_ panel: MarkdownPanel) {
@@ -119,21 +160,36 @@ final class GlobalSearchCoordinator {
         }
 
         let panelID = panel.id
-        Task {
+        let taskID = UUID()
+        markdownCaptureTasks[panelID]?.cancel()
+        markdownCaptureTaskIDs[panelID] = taskID
+        markdownCaptureTasks[panelID] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard !Task.isCancelled, self.markdownCaptureTaskIDs[panelID] == taskID else { return }
             do {
                 try await index.upsert(document)
             } catch {
+                guard !Task.isCancelled else { return }
 #if DEBUG
                 cmuxDebugLog("globalSearch.markdown.capture failed panel=\(panelID.uuidString.prefix(5)) error=\(error.localizedDescription)")
 #endif
+            }
+            if self.markdownCaptureTaskIDs[panelID] == taskID {
+                self.markdownCaptureTasks[panelID] = nil
+                self.markdownCaptureTaskIDs[panelID] = nil
             }
         }
     }
 
     func purgePanel(id panelID: UUID) {
+        browserCaptureTimers[panelID]?.cancel()
+        browserCaptureTimers[panelID] = nil
         browserCaptureTasks[panelID]?.cancel()
         browserCaptureTasks[panelID] = nil
         browserCaptureTaskIDs[panelID] = nil
+        markdownCaptureTasks[panelID]?.cancel()
+        markdownCaptureTasks[panelID] = nil
+        markdownCaptureTaskIDs[panelID] = nil
         guard let index = ensureIndex() else { return }
         Task {
             do {
@@ -173,6 +229,7 @@ final class GlobalSearchCoordinator {
         }
 
         let payload = await browserPagePayload(for: panel)
+        guard !Task.isCancelled else { return }
         let fallbackTitle = panel.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = firstNonEmpty(payload?.title, panel.pageTitle, fallbackTitle)
             ?? String(localized: "globalSearch.untitled", defaultValue: "Untitled")
@@ -183,13 +240,7 @@ final class GlobalSearchCoordinator {
 
         let anchor = firstNonEmpty(location, panel.id.uuidString) ?? panel.id.uuidString
         let document = SearchIndexDocument(
-            id: SearchIndexDocument.stableID(
-                windowID: context.windowID,
-                workspaceID: context.workspaceID,
-                panelID: context.panelID,
-                kind: .browser,
-                anchor: anchor
-            ),
+            id: SearchIndexDocument.panelStableID(panelID: context.panelID, kind: .browser),
             windowID: context.windowID,
             workspaceID: context.workspaceID,
             panelID: context.panelID,
@@ -201,8 +252,10 @@ final class GlobalSearchCoordinator {
         )
 
         do {
+            guard !Task.isCancelled else { return }
             try await index.upsert(document)
         } catch {
+            guard !Task.isCancelled else { return }
 #if DEBUG
             cmuxDebugLog("globalSearch.browser.upsert failed panel=\(panel.id.uuidString.prefix(5)) error=\(error.localizedDescription)")
 #endif
@@ -211,11 +264,29 @@ final class GlobalSearchCoordinator {
 
     private func browserPagePayload(for panel: BrowserPanel) async -> BrowserPagePayload? {
         let script = """
-        JSON.stringify({
-            title: document.title || "",
-            url: location.href || "",
-            text: document.body ? document.body.innerText : ""
-        })
+        (() => {
+            const limit = \(maxIndexedTextCharacters);
+            const collectText = (root) => {
+                if (!root) { return ""; }
+                const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+                const parts = [];
+                let remaining = limit;
+                let node;
+                while (remaining > 0 && (node = walker.nextNode())) {
+                    const value = node.nodeValue || "";
+                    if (!value.trim()) { continue; }
+                    const chunk = value.length > remaining ? value.slice(0, remaining) : value;
+                    parts.push(chunk);
+                    remaining -= chunk.length;
+                }
+                return parts.join(" ");
+            };
+            return JSON.stringify({
+                title: document.title || "",
+                url: location.href || "",
+                text: collectText(document.body)
+            });
+        })()
         """
         do {
             guard let json = try await panel.evaluateJavaScript(script) as? String,
@@ -236,13 +307,7 @@ final class GlobalSearchCoordinator {
         ].filter { !$0.isEmpty }.joined(separator: "\n")
 
         return SearchIndexDocument(
-            id: SearchIndexDocument.stableID(
-                windowID: context.windowID,
-                workspaceID: context.workspaceID,
-                panelID: context.panelID,
-                kind: .title,
-                anchor: "title"
-            ),
+            id: SearchIndexDocument.panelStableID(panelID: context.panelID, kind: .title),
             windowID: context.windowID,
             workspaceID: context.workspaceID,
             panelID: context.panelID,
@@ -260,13 +325,7 @@ final class GlobalSearchCoordinator {
         guard !text.isEmpty else { return nil }
 
         return SearchIndexDocument(
-            id: SearchIndexDocument.stableID(
-                windowID: context.windowID,
-                workspaceID: context.workspaceID,
-                panelID: context.panelID,
-                kind: .markdown,
-                anchor: panel.filePath
-            ),
+            id: SearchIndexDocument.panelStableID(panelID: context.panelID, kind: .markdown),
             windowID: context.windowID,
             workspaceID: context.workspaceID,
             panelID: context.panelID,
