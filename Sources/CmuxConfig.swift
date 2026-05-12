@@ -1535,7 +1535,7 @@ struct CmuxPromptSnippetDefinition: Codable, Sendable, Hashable, Identifiable {
         let explicitID = id.map(Self.sanitizedString).flatMap { $0.isEmpty ? nil : $0 }
         self.id = explicitID ?? Self.generatedID(for: sanitizedTitle)
         self.title = sanitizedTitle
-        self.text = text
+        self.text = Self.removingDangerousScalars(from: text)
         self.description = description.map(Self.sanitizedString).flatMap { $0.isEmpty ? nil : $0 }
         self.keywords = Self.sanitizedKeywords(keywords)
     }

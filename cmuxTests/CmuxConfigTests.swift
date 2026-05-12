@@ -126,6 +126,15 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertThrowsError(try decode(json))
     }
 
+    func testPromptSnippetInitializerSanitizesTextDangerousScalars() {
+        let snippet = CmuxPromptSnippetDefinition(
+            title: "Prompt",
+            text: "\u{202E}\nKeep the prompt spacing.\u{200B}\n"
+        )
+
+        XCTAssertEqual(snippet.text, "\nKeep the prompt spacing.\n")
+    }
+
     @MainActor
     func testPromptSnippetsMergeLocalBeforeGlobalById() throws {
         let root = FileManager.default.temporaryDirectory

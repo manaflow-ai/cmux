@@ -31,8 +31,8 @@
 2170	cmuxTests/SessionPersistenceTests.swift
 2153	Sources/Update/UpdateTitlebarAccessory.swift
 2026	cmuxTests/CJKIMEInputTests.swift
+1992	cmuxTests/CmuxConfigTests.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
-1899	cmuxTests/CmuxConfigTests.swift
 1879	Sources/FileExplorerView.swift
 1826	Sources/SessionIndexStore.swift
 1765	cmuxTests/ShortcutAndCommandPaletteTests.swift
