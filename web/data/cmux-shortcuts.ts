@@ -28,7 +28,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       {
         id: "showHideAllWindows",
         combos: [["⌃", "⌥", "⌘", "."]],
-        description: { en: "Show/hide all cmux windows", ja: "すべてのcmuxウインドウを表示/非表示" },
+        description: { en: "Show/hide the cmux hotkey window", ja: "cmuxホットキーウインドウを表示/非表示" },
         note: { en: "system-wide hotkey", ja: "システム全体のホットキー" },
       },
       { id: "commandPalette", combos: [["⌘", "⇧", "P"]], description: { en: "Command palette", ja: "コマンドパレット" } },

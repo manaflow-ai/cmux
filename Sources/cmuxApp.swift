@@ -7932,12 +7932,12 @@ private struct GlobalHotkeySection: View {
         if isEnabled {
             return String(
                 localized: "settings.globalHotkey.enable.subtitleOn",
-                defaultValue: "Press the shortcut from any app to show or hide all cmux windows."
+                defaultValue: "Press the shortcut from any app to show or hide the cmux hotkey window."
             )
         }
         return String(
             localized: "settings.globalHotkey.enable.subtitleOff",
-            defaultValue: "Turn this on to show or hide all cmux windows from any app."
+            defaultValue: "Turn this on to show or hide a cmux overlay from any app, including full-screen spaces."
         )
     }
 
@@ -7982,7 +7982,7 @@ private struct GlobalHotkeySection: View {
         SettingsCardNote(
             String(
                 localized: "settings.globalHotkey.note",
-                defaultValue: "Use Command, Option, or Control with another key. No extra macOS permission is required."
+                defaultValue: "Use Command, Option, or Control with another key. The overlay uses a native panel that can appear over full-screen apps."
             )
         )
             .accessibilityIdentifier("SettingsGlobalHotkeyNote")

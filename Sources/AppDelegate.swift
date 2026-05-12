@@ -537,11 +537,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @MainActor
+    enum MainWindowContextRole {
+        case standard
+        case globalHotkeyPanel
+
+        var isSessionRestorable: Bool {
+            switch self {
+            case .standard:
+                return true
+            case .globalHotkeyPanel:
+                return false
+            }
+        }
+    }
+
+    @MainActor
     final class MainWindowContext {
         let windowId: UUID
         let tabManager: TabManager
         let sidebarState: SidebarState
         let sidebarSelectionState: SidebarSelectionState
+        let role: MainWindowContextRole
         var fileExplorerState: FileExplorerState?
         let keyboardFocusCoordinator: MainWindowFocusController
         var cmuxConfigStore: CmuxConfigStore?
@@ -552,6 +568,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager: TabManager,
             sidebarState: SidebarState,
             sidebarSelectionState: SidebarSelectionState,
+            role: MainWindowContextRole = .standard,
             fileExplorerState: FileExplorerState?,
             cmuxConfigStore: CmuxConfigStore?,
             window: NSWindow?
@@ -560,6 +577,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.tabManager = tabManager
             self.sidebarState = sidebarState
             self.sidebarSelectionState = sidebarSelectionState
+            self.role = role
             self.fileExplorerState = fileExplorerState
             self.cmuxConfigStore = cmuxConfigStore
             self.window = window
@@ -689,6 +707,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var splitButtonTooltipRefreshScheduled = false
+    private lazy var globalHotkeyPanelController = GlobalHotkeyPanelController(appDelegate: self)
     private struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
         let windowNumber: Int?
@@ -3193,7 +3212,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !includeScrollback else { return nil }
 
         var hasher = Hasher()
-        let contexts = mainWindowContexts.values.sorted { lhs, rhs in
+        let contexts = mainWindowContexts.values.filter { $0.role.isSessionRestorable }.sorted { lhs, rhs in
             lhs.windowId.uuidString < rhs.windowId.uuidString
         }
         hasher.combine(contexts.count)
@@ -3518,7 +3537,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func sortedMainWindowContextsForSessionSnapshot() -> [MainWindowContext] {
-        mainWindowContexts.values.sorted { lhs, rhs in
+        mainWindowContexts.values.filter { $0.role.isSessionRestorable }.sorted { lhs, rhs in
             let lhsWindow = lhs.window ?? windowForMainWindowId(lhs.windowId)
             let rhsWindow = rhs.window ?? windowForMainWindowId(rhs.windowId)
             let lhsIsKey = lhsWindow?.isKeyWindow ?? false
@@ -3627,7 +3646,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarState: SidebarState,
         sidebarSelectionState: SidebarSelectionState,
         fileExplorerState: FileExplorerState? = nil,
-        cmuxConfigStore: CmuxConfigStore? = nil
+        cmuxConfigStore: CmuxConfigStore? = nil,
+        role: MainWindowContextRole = .standard
     ) {
         let key = ObjectIdentifier(window)
         forgetRecoverableMainWindowRoute(windowId: windowId)
@@ -3691,6 +3711,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager: tabManager,
                 sidebarState: sidebarState,
                 sidebarSelectionState: sidebarSelectionState,
+                role: role,
                 fileExplorerState: fileExplorerState,
                 cmuxConfigStore: cmuxConfigStore,
                 window: window
@@ -5003,7 +5024,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in removedKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
-        rememberRecoverableMainWindowRoute(windowId: removed.windowId, tabManager: removed.tabManager, window: removed.window)
+        if removed.role.isSessionRestorable {
+            rememberRecoverableMainWindowRoute(windowId: removed.windowId, tabManager: removed.tabManager, window: removed.window)
+        }
         notifyMainWindowContextsDidChange()
         return removed
     }
@@ -5015,7 +5038,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in contextKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
-        rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
+        if context.role.isSessionRestorable {
+            rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
+        }
         notifyMainWindowContextsDidChange()
 
         commandPaletteVisibilityByWindowId.removeValue(forKey: context.windowId)
@@ -7361,10 +7386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func toggleApplicationVisibilityFromGlobalHotkey() {
-        mainWindowVisibilityController.toggleApplicationVisibility(
-            windows: mainWindowsForVisibilityController(),
-            reason: .globalHotkey
-        )
+        globalHotkeyPanelController.toggle()
     }
 
     @discardableResult

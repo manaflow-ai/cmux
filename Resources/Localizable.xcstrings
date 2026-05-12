@@ -69494,6 +69494,29 @@
         }
       }
     },
+    "globalHotkey.window.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Hotkey Window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ホットキーウィンドウ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 핫키 윈도우"
+          }
+        }
+      }
+    },
     "settings.globalHotkey.enable": {
       "extractionState": "manual",
       "localizations": {
@@ -69523,19 +69546,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Turn this on to show or hide all cmux windows from any app."
+            "value": "Turn this on to show or hide a cmux overlay from any app, including full-screen spaces."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "どのアプリからでも cmux のすべてのウィンドウを表示または非表示にするにはオンにします。"
+            "value": "フルスクリーンスペースを含むどのアプリからでも cmux オーバーレイを表示または非表示にするにはオンにします。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 옵션을 켜면 어떤 앱에서든 모든 cmux 윈도우를 표시하거나 숨길 수 있습니다."
+            "value": "이 옵션을 켜면 전체 화면 Spaces를 포함해 어떤 앱에서든 cmux 오버레이를 표시하거나 숨길 수 있습니다."
           }
         }
       }
@@ -69546,19 +69569,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press the shortcut from any app to show or hide all cmux windows."
+            "value": "Press the shortcut from any app to show or hide the cmux hotkey window."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "どのアプリからでもこのショートカットで cmux のすべてのウィンドウを表示または非表示にできます。"
+            "value": "どのアプリからでもこのショートカットで cmux ホットキーウィンドウを表示または非表示にできます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "어떤 앱에서든 단축키를 눌러 모든 cmux 윈도우를 표시하거나 숨깁니다."
+            "value": "어떤 앱에서든 단축키를 눌러 cmux 핫키 윈도우를 표시하거나 숨깁니다."
           }
         }
       }
@@ -69569,19 +69592,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use Command, Option, or Control with another key. No extra macOS permission is required."
+            "value": "Use Command, Option, or Control with another key. The overlay uses a native panel that can appear over full-screen apps."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command、Option、または Control と別のキーを組み合わせてください。追加の macOS 権限は不要です。"
+            "value": "Command、Option、または Control と別のキーを組み合わせてください。このオーバーレイはフルスクリーンアプリの上に表示できるネイティブパネルを使用します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command, Option 또는 Control과 다른 키를 함께 사용하세요. 추가 macOS 권한이 필요하지 않습니다."
+            "value": "Command, Option 또는 Control과 다른 키를 함께 사용하세요. 이 오버레이는 전체 화면 앱 위에 표시될 수 있는 네이티브 패널을 사용합니다."
           }
         }
       }
@@ -69592,19 +69615,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show/Hide All Windows"
+            "value": "Show/Hide Hotkey Window"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべてのウィンドウを表示/非表示"
+            "value": "ホットキーウィンドウを表示/非表示"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "모든 윈도우 표시/숨기기"
+            "value": "핫키 윈도우 표시/숨기기"
           }
         }
       }
@@ -70993,13 +71016,13 @@
             "en": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "system shortcut global keyboard show hide bring forward"
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window"
                 }
             },
             "ja": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "system shortcut global keyboard show hide bring forward システム ショートカット グローバル ホットキー キーボード 表示 非表示 前面"
+                    "value": "system shortcut global keyboard show hide overlay full screen hotkey window システム ショートカット グローバル ホットキー キーボード 表示 非表示 オーバーレイ フルスクリーン"
                 }
             },
             "ar": {
@@ -79102,13 +79125,13 @@
             "en": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey enable system wide show hide all windows"
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen"
                 }
             },
             "ja": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey enable system wide show hide all windows グローバルホットキー 有効 システム全体 表示 非表示 全ウィンドウ"
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen グローバルホットキー 有効 システム全体 表示 非表示 オーバーレイ フルスクリーン"
                 }
             },
             "ar": {
@@ -79156,7 +79179,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey enable system wide show hide all windows 키보드 단축키 핫키 명령 키 기록기 외관 테마 색상 색 구성표 라이트 다크 시스템 모드 비밀번호 비밀 토큰 자격 증명 접근 허용 비활성화 활성화 권한 안전하지 않음 전역 글로벌 모든 윈도우 표시/숨기기"
+                    "value": "global hotkey enable system wide show hide overlay hotkey window full screen 키보드 단축키 핫키 명령 키 기록기 외관 테마 색상 색 구성표 라이트 다크 시스템 모드 비밀번호 비밀 토큰 자격 증명 접근 허용 비활성화 활성화 권한 안전하지 않음 전역 글로벌 오버레이 전체 화면"
                 }
             },
             "nb": {
@@ -79221,13 +79244,13 @@
             "en": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey shortcut recorder key command option control"
+                    "value": "global hotkey overlay shortcut recorder key command option control"
                 }
             },
             "ja": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey shortcut recorder key command option control グローバルホットキー ショートカット レコーダー command option control"
+                    "value": "global hotkey overlay shortcut recorder key command option control グローバルホットキー オーバーレイ ショートカット レコーダー command option control"
                 }
             },
             "ar": {
@@ -79275,7 +79298,7 @@
             "ko": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "global hotkey shortcut recorder key command option control 자동화 api cli 제어 소켓 에이전트 훅 포트 환경 키보드 단축키 핫키 명령 키 기록기 전역 글로벌"
+                    "value": "global hotkey overlay shortcut recorder key command option control 자동화 api cli 제어 소켓 에이전트 훅 포트 환경 키보드 단축키 핫키 명령 키 기록기 전역 글로벌 오버레이"
                 }
             },
             "nb": {
