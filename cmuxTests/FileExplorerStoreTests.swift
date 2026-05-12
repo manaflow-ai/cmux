@@ -907,6 +907,37 @@ final class FileSearchControllerTests: XCTestCase {
         XCTAssertFalse(searchField.superview?.isHidden ?? true)
     }
 
+    func testFindPresentationBeforeVisibilitySnapshotKeepsSearchHidden() throws {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .files,
+            searchController: SpyFileSearchController()
+        )
+        store.rootPath = "/tmp/cmux-loading"
+        container.updateHeader(store: store)
+
+        container.updatePresentation(.find)
+        let searchField = try XCTUnwrap(Self.findSearchField(in: container))
+
+        XCTAssertTrue(
+            searchField.superview?.isHidden ?? false,
+            "Find presentation must not reveal search controls before Files applies a visibility snapshot."
+        )
+
+        container.updateVisibility(hasContent: true, isLoading: true, statusMessage: nil)
+        XCTAssertTrue(searchField.superview?.isHidden ?? false)
+
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        XCTAssertFalse(searchField.superview?.isHidden ?? true)
+    }
+
     func testTypingBurstDebouncesFindSearches() async throws {
         let store = FileExplorerStore()
         let state = FileExplorerState()
