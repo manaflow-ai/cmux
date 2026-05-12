@@ -5742,7 +5742,7 @@ final class WorkspaceRemoteSessionController {
             .drop(while: { $0 == "/" })
         guard normalizedHome.hasPrefix("/"), !normalizedHome.isEmpty, !normalizedRelative.isEmpty else {
             throw NSError(domain: "cmux.remote.daemon", code: 14, userInfo: [
-                NSLocalizedDescriptionKey: "remote HOME did not resolve to an absolute path",
+                NSLocalizedDescriptionKey: "remote daemon install path could not be resolved from remote HOME",
             ])
         }
         while normalizedHome.count > 1, normalizedHome.hasSuffix("/") {
