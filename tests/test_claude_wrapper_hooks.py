@@ -45,6 +45,7 @@ def run_wrapper(
     argv: list[str],
     node_options: str | None = None,
     tmpdir: str | None = None,
+    home: str | None = None,
     hooks_disabled: bool = False,
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
@@ -173,6 +174,8 @@ exit 0
         env.pop("NODE_OPTIONS", None)
         if tmpdir is not None:
             env["TMPDIR"] = tmpdir
+        if home is not None:
+            env["HOME"] = home
         if node_options is not None:
             env["NODE_OPTIONS"] = node_options
 
@@ -226,6 +229,16 @@ def decode_nul_argv(encoded: str) -> list[str]:
     if parts and parts[-1] == b"":
         parts = parts[:-1]
     return [part.decode("utf-8") for part in parts]
+
+
+def restore_module_path_from_node_options(node_options: str) -> str | None:
+    tokens = node_options.split()
+    for index, token in enumerate(tokens):
+        if token == "--require" and index + 1 < len(tokens):
+            return tokens[index + 1]
+        if token.startswith("--require="):
+            return token.split("=", 1)[1]
+    return None
 
 
 def run_wrapper_auth_env(
@@ -864,6 +877,56 @@ def test_live_socket_tmpdir_failure_skips_node_options_injection(failures: list[
     expect(child_node_options == "__UNSET__", f"tmpdir failure: expected child NODE_OPTIONS passthrough, got {child_node_options!r}", failures)
 
 
+def test_live_socket_restore_module_survives_session_tmpdir_cleanup(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-stale-tmp-") as td:
+        root = Path(td)
+        session_tmpdir = root / "session-tmp"
+        home = root / "home"
+        session_tmpdir.mkdir()
+        home.mkdir()
+        code, _, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["--print", "hello"],
+            tmpdir=str(session_tmpdir),
+            home=str(home),
+        )
+        expect(code == 0, f"persistent restore module: wrapper exited {code}: {stderr}", failures)
+
+        restore_path = restore_module_path_from_node_options(node_options)
+        expect(
+            restore_path is not None,
+            f"persistent restore module: expected NODE_OPTIONS restore preload, got {node_options!r}",
+            failures,
+        )
+        if restore_path is None:
+            return
+
+        session_prefix = str(session_tmpdir) + os.sep
+        expect(
+            restore_path != str(session_tmpdir) and not restore_path.startswith(session_prefix),
+            f"persistent restore module: restore preload should not live under session TMPDIR {session_tmpdir}, got {restore_path!r}",
+            failures,
+        )
+
+        shutil.rmtree(session_tmpdir)
+        child_env = os.environ.copy()
+        child_env["NODE_OPTIONS"] = node_options
+        child = subprocess.run(
+            ["node", "-e", "process.stdout.write('ok')"],
+            env=child_env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        expect(
+            child.returncode == 0,
+            "persistent restore module: child Node process should still start after session TMPDIR cleanup, "
+            f"exit={child.returncode}, stderr={child.stderr.strip()!r}",
+            failures,
+        )
+        expect(child.stdout == "ok", f"persistent restore module: expected child stdout 'ok', got {child.stdout!r}", failures)
+
+
 def test_live_socket_preserves_explicit_bypass_availability_flag(failures: list[str]) -> None:
     cases = [
         ("allow/print", ["--allow-dangerously-skip-permissions", "--print", "hello"], True, "--allow-dangerously-skip-permissions"),
@@ -986,6 +1049,7 @@ def main() -> int:
     test_live_socket_explicit_key_list_is_additive_to_vertex_auto_preserve(failures)
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
     test_live_socket_tmpdir_failure_skips_node_options_injection(failures)
+    test_live_socket_restore_module_survives_session_tmpdir_cleanup(failures)
     test_live_socket_preserves_explicit_bypass_availability_flag(failures)
     test_live_socket_stale_mktemp_literal_does_not_warn(failures)
     test_missing_socket_skips_hook_injection(failures)
