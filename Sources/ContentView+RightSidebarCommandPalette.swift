@@ -1,6 +1,8 @@
 import AppKit
 
 extension ContentView {
+    static let commandPaletteToggleRightSidebarCommandID = "palette.toggleRightSidebar"
+
     static func commandPaletteShortcutAction(forCommandID commandId: String) -> KeyboardShortcutSettings.Action? {
         if let rightSidebarModeAction = commandPaletteRightSidebarModeShortcutAction(forCommandID: commandId) {
             return rightSidebarModeAction
@@ -23,6 +25,8 @@ extension ContentView {
             return .closeWindow
         case "palette.toggleSidebar":
             return .toggleSidebar
+        case Self.commandPaletteToggleRightSidebarCommandID:
+            return .focusRightSidebar
         case "palette.showNotifications":
             return .showNotifications
         case "palette.jumpUnread":
@@ -76,6 +80,19 @@ extension ContentView {
         default:
             return nil
         }
+    }
+
+    static func commandPaletteRightSidebarToggleCommandContribution() -> CommandPaletteCommandContribution {
+        func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
+            { _ in value }
+        }
+
+        return CommandPaletteCommandContribution(
+            commandId: commandPaletteToggleRightSidebarCommandID,
+            title: constant(KeyboardShortcutSettings.Action.focusRightSidebar.label),
+            subtitle: constant(String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")),
+            keywords: ["toggle", "right", "sidebar", "show", "hide", "close", "focus"]
+        )
     }
 
     static func commandPaletteRightSidebarModeCommandContributions() -> [CommandPaletteCommandContribution] {

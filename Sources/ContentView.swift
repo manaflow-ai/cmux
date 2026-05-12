@@ -6975,6 +6975,7 @@ struct ContentView: View {
                 keywords: ["toggle", "sidebar", "layout"]
             )
         )
+        contributions.append(Self.commandPaletteRightSidebarToggleCommandContribution())
         contributions.append(contentsOf: Self.commandPaletteRightSidebarModeCommandContributions())
         contributions.append(
             CommandPaletteCommandContribution(
@@ -7857,6 +7858,13 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.toggleSidebar") {
             sidebarState.toggle()
+        }
+        registry.register(commandId: Self.commandPaletteToggleRightSidebarCommandID) {
+            if AppDelegate.shared?.toggleRightSidebarKeyboardFocusInActiveMainWindow(
+                preferredWindow: observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+            ) != true {
+                NSSound.beep()
+            }
         }
         for mode in RightSidebarMode.allCases {
             registry.register(commandId: Self.commandPaletteRightSidebarModeCommandID(mode)) {

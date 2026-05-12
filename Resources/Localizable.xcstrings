@@ -104836,19 +104836,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Focus Right Sidebar"
+            "value": "Toggle Right Sidebar"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右サイドバーにフォーカス"
+            "value": "右サイドバーを切り替え"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오른쪽 사이드바에 포커스"
+            "value": "오른쪽 사이드바 전환"
           }
         }
       }
@@ -104968,19 +104968,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Focus Right Sidebar"
+            "value": "Toggle Right Sidebar"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右サイドバーにフォーカス"
+            "value": "右サイドバーを切り替え"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오른쪽 사이드바에 포커스"
+            "value": "오른쪽 사이드바 전환"
           }
         }
       }

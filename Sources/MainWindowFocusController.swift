@@ -7,7 +7,7 @@ enum RightSidebarFocusShortcutAction: Equatable {
 
     static func resolve(isVisible: Bool, isFocused: Bool) -> RightSidebarFocusShortcutAction {
         guard isVisible else { return .showAndFocus }
-        return .focus
+        return isFocused ? .hide : .focus
     }
 }
 
@@ -463,6 +463,33 @@ final class MainWindowFocusController {
             return .terminal
         case .mainPanel, .unknown:
             return .rightSidebar
+        }
+    }
+
+    func rightSidebarFocusShortcutAction(
+        isVisible: Bool,
+        currentResponder: NSResponder? = nil
+    ) -> RightSidebarFocusShortcutAction {
+        RightSidebarFocusShortcutAction.resolve(
+            isVisible: isVisible,
+            isFocused: effectiveFocusOwner(currentResponder: currentResponder) == .rightSidebar
+        )
+    }
+
+    @discardableResult
+    func performRightSidebarFocusShortcut(currentResponder: NSResponder? = nil) -> Bool {
+        guard let state = fileExplorerState else { return false }
+
+        switch rightSidebarFocusShortcutAction(
+            isVisible: state.isVisible,
+            currentResponder: currentResponder
+        ) {
+        case .hide:
+            state.setVisible(false)
+            _ = restoreTerminalFocusAfterRightSidebarHiddenIfNeeded()
+            return true
+        case .focus, .showAndFocus:
+            return focusRightSidebar()
         }
     }
 

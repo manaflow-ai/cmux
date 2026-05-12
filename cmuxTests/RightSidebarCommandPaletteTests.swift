@@ -59,6 +59,15 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         }
     }
 
+    func testCommandPaletteRightSidebarToggleUsesFocusShortcutAction() {
+        XCTAssertEqual(
+            ContentView.commandPaletteShortcutAction(
+                forCommandID: ContentView.commandPaletteToggleRightSidebarCommandID
+            ),
+            .focusRightSidebar
+        )
+    }
+
     private func withSavedBetaFeatureDefaults(_ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
         let previousFeed = defaults.object(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
