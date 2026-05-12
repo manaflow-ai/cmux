@@ -196,6 +196,7 @@ final class FeedCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(deliveredRequests.count, 1)
         XCTAssertEqual(deliveredRequests.first?.identifier, "feed.notif-background-request")
+        XCTAssertEqual(deliveredRequests.first?.content.categoryIdentifier, "CMUXFeedPermission")
     }
 
     @MainActor
