@@ -68,7 +68,66 @@ func browserWebExtensionConfigureBaseWebViewConfiguration(
     configuration.websiteDataStore = defaultWebsiteDataStore
     configuration.mediaTypesRequiringUserActionForPlayback = []
     configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-    configuration.applicationNameForUserAgent = BrowserUserAgentSettings.safariApplicationNameForUserAgent
+    configuration.applicationNameForUserAgent = BrowserWebExtensionUserAgentSettings.applicationNameForUserAgent
+    BrowserWebExtensionUserAgentSettings.installCompatibilityScript(
+        in: configuration.userContentController
+    )
+}
+
+enum BrowserWebExtensionUserAgentSettings {
+    static let chromeVersion = "136.0.0.0"
+    static let applicationNameForUserAgent = "Chrome/\(chromeVersion) Safari/605.1.15"
+    static let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Chrome/\(chromeVersion) Safari/605.1.15"
+    static let vendor = "Google Inc."
+    static let platform = "MacIntel"
+
+    static func installCompatibilityScript(in userContentController: WKUserContentController) {
+        let script = WKUserScript(
+            source: compatibilityScriptSource,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false,
+            in: .page
+        )
+        userContentController.addUserScript(script)
+    }
+
+    private static var compatibilityScriptSource: String {
+        """
+        (() => {
+          const cmuxUserAgent = \(javaScriptStringLiteral(userAgent));
+          const cmuxVendor = \(javaScriptStringLiteral(vendor));
+          const cmuxPlatform = \(javaScriptStringLiteral(platform));
+          const cmuxAppVersion = cmuxUserAgent.replace(/^Mozilla\\//, "");
+          const defineNavigatorValue = (name, value) => {
+            try {
+              Object.defineProperty(Navigator.prototype, name, {
+                configurable: true,
+                get() { return value; }
+              });
+            } catch (_) {
+              try {
+                Object.defineProperty(navigator, name, {
+                  configurable: true,
+                  get() { return value; }
+                });
+              } catch (_) {}
+            }
+          };
+
+          defineNavigatorValue("userAgent", cmuxUserAgent);
+          defineNavigatorValue("appVersion", cmuxAppVersion);
+          defineNavigatorValue("vendor", cmuxVendor);
+          defineNavigatorValue("platform", cmuxPlatform);
+        })();
+        """
+    }
+
+    private static func javaScriptStringLiteral(_ value: String) -> String {
+        let data = try? JSONSerialization.data(withJSONObject: [value], options: [])
+        let encoded = data.flatMap { String(data: $0, encoding: .utf8) } ?? #"[""]"#
+        return String(encoded.dropFirst().dropLast())
+    }
+
 }
 
 struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
@@ -90,7 +149,6 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
     enum UnavailableReason: Equatable {
         case missingHostAdapter
         case noPublicWebKitSurface
-        case knownRuntimeRegression(String)
     }
 
     struct PermissionCapability: Equatable {
@@ -165,11 +223,7 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
                 availability: .unavailable(.noPublicWebKitSurface),
                 apiPaths: ["browser.userScripts"]
             ),
-            PermissionCapability(
-                "webNavigation",
-                availability: .unavailable(.knownRuntimeRegression("Bitwarden WebKit namespace CPU loop")),
-                apiPaths: ["browser.webNavigation"]
-            ),
+            PermissionCapability("webNavigation", availability: .delegatedToWebKit, apiPaths: ["browser.webNavigation"]),
             PermissionCapability("webRequest", availability: .delegatedToWebKit, apiPaths: ["browser.webRequest"]),
             PermissionCapability(
                 "webRequestAuthProvider",
@@ -178,15 +232,12 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
             ),
         ],
         apis: [
-            APICapability("browser.commands", availability: .unavailable(.missingHostAdapter)),
             APICapability("browser.clipboardRead", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.idle", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.notifications", availability: .unavailable(.missingHostAdapter)),
             APICapability("browser.offscreen", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.privacy", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.runtime.connectNative", availability: .unavailable(.missingHostAdapter)),
-            APICapability("browser.runtime.getContexts", availability: .unavailable(.noPublicWebKitSurface)),
-            APICapability("browser.runtime.openOptionsPage", availability: .unavailable(.missingHostAdapter)),
             APICapability("browser.runtime.sendNativeMessage", availability: .unavailable(.missingHostAdapter)),
             APICapability("browser.userScripts", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.webRequest.onAuthRequired", availability: .unavailable(.missingHostAdapter)),
@@ -210,8 +261,8 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
     }
 
     func unsupportedAPIs(forPermissionNames rawPermissions: [String]) -> Set<String> {
-        var unsupportedAPIs = Set(apiCapabilities.compactMap { api in
-            api.availability.isAvailable ? nil : api.path
+        var unsupportedAPIs = Set(apiCapabilities.flatMap { api in
+            api.availability.isAvailable ? [] : Self.namespaceAliases(forAPIPath: api.path)
         })
 
         for rawPermission in rawPermissions {
@@ -219,10 +270,24 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
                   !permission.availability.isAvailable else {
                 continue
             }
-            unsupportedAPIs.formUnion(permission.apiPaths)
+            for apiPath in permission.apiPaths {
+                unsupportedAPIs.formUnion(Self.namespaceAliases(forAPIPath: apiPath))
+            }
         }
 
         return unsupportedAPIs
+    }
+
+    private static func namespaceAliases(forAPIPath path: String) -> [String] {
+        if path.hasPrefix("browser.") {
+            let suffix = String(path.dropFirst("browser.".count))
+            return [path, "chrome.\(suffix)"]
+        }
+        if path.hasPrefix("chrome.") {
+            let suffix = String(path.dropFirst("chrome.".count))
+            return [path, "browser.\(suffix)"]
+        }
+        return [path]
     }
 }
 
@@ -909,7 +974,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         context: WKWebExtensionContext,
         openerPanel: BrowserPanel?,
         shouldBePrivate: Bool
-    ) -> WKWebViewConfiguration? {
+    ) -> (configuration: WKWebViewConfiguration, usesExtensionOrigin: Bool)? {
         let usesExtensionOrigin: Bool
         if let initialURL,
            let targetContext = controller?.extensionContext(for: initialURL),
@@ -943,7 +1008,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         }
         configuration.mediaTypesRequiringUserActionForPlayback = []
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-        return configuration
+        return (configuration, usesExtensionOrigin)
     }
 
     private func loadInstalledRecordsIfNeeded() async {
@@ -1114,7 +1179,10 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         let window = BrowserWebExtensionAuxiliaryWindowAdapter(
             runtime: self,
             configuration: configuration,
-            webViewConfiguration: webViewConfiguration,
+            webViewConfiguration: webViewConfiguration.configuration,
+            customUserAgent: webViewConfiguration.usesExtensionOrigin
+                ? BrowserWebExtensionUserAgentSettings.userAgent
+                : BrowserUserAgentSettings.safariUserAgent,
             initialURL: initialURL,
             openerPanel: opener
         )
@@ -1393,7 +1461,7 @@ private final class BrowserWebExtensionActionPopupPresentation: NSObject, NSWind
 
         let containerView = BrowserWebExtensionActionPopupContainerView(contentSize: contentSize)
         popupWebView.removeFromSuperview()
-        popupWebView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        popupWebView.customUserAgent = BrowserWebExtensionUserAgentSettings.userAgent
         popupWebView.translatesAutoresizingMaskIntoConstraints = false
 #if DEBUG
         popupWebView.isInspectable = true
@@ -1490,6 +1558,7 @@ private final class BrowserWebExtensionAuxiliaryWindowAdapter: NSObject, WKWebEx
         runtime: BrowserWebExtensionRuntime,
         configuration: WKWebExtension.WindowConfiguration,
         webViewConfiguration: WKWebViewConfiguration,
+        customUserAgent: String,
         initialURL: URL?,
         openerPanel: BrowserPanel?
     ) {
@@ -1532,7 +1601,7 @@ private final class BrowserWebExtensionAuxiliaryWindowAdapter: NSObject, WKWebEx
         webView.isInspectable = true
 #endif
         webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
-        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        webView.customUserAgent = customUserAgent
         self.webView = webView
         self.tabAdapter = BrowserWebExtensionAuxiliaryTabAdapter(webView: webView)
 

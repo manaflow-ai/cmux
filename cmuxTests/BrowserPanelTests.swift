@@ -21,6 +21,18 @@ private func drainBrowserPanelMainQueue() {
     XCTWaiter().wait(for: [expectation], timeout: 1.0)
 }
 
+private final class BrowserWebExtensionNavigationProbe: NSObject, WKNavigationDelegate {
+    private let didFinish: () -> Void
+
+    init(didFinish: @escaping () -> Void) {
+        self.didFinish = didFinish
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        didFinish()
+    }
+}
+
 @MainActor
 private func makeTemporaryBrowserPanelProfile(named prefix: String) throws -> BrowserProfileDefinition {
     try XCTUnwrap(
@@ -291,18 +303,41 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
 @available(macOS 15.4, *)
 @MainActor
 final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
-    func testExtensionBaseConfigurationUsesSafariUserAgentIdentity() async throws {
+    func testExtensionBaseConfigurationUsesChromeExtensionUserAgentIdentity() async throws {
         let configuration = WKWebViewConfiguration()
         browserWebExtensionConfigureBaseWebViewConfiguration(
             configuration,
             defaultWebsiteDataStore: .nonPersistent()
         )
         let webView = WKWebView(frame: .zero, configuration: configuration)
-        let value = try await webView.evaluateJavaScript("navigator.userAgent")
-        let userAgent = try XCTUnwrap(value as? String)
+        let loaded = expectation(description: "loaded extension page")
+        let navigationProbe = BrowserWebExtensionNavigationProbe {
+            loaded.fulfill()
+        }
+        webView.navigationDelegate = navigationProbe
+        webView.loadHTMLString("<!doctype html><title>Extension</title>", baseURL: nil)
+        await fulfillment(of: [loaded], timeout: 5)
 
-        XCTAssertTrue(userAgent.contains("Version/"), userAgent)
+        let value = try await webView.evaluateJavaScript("""
+        ({
+          userAgent: navigator.userAgent,
+          appVersion: navigator.appVersion,
+          vendor: navigator.vendor,
+          platform: navigator.platform
+        })
+        """)
+        let values = try XCTUnwrap(value as? [String: Any])
+        let userAgent = try XCTUnwrap(values["userAgent"] as? String)
+        let appVersion = try XCTUnwrap(values["appVersion"] as? String)
+        let vendor = try XCTUnwrap(values["vendor"] as? String)
+        let platform = try XCTUnwrap(values["platform"] as? String)
+
+        XCTAssertTrue(userAgent.contains("Chrome/"), userAgent)
         XCTAssertTrue(userAgent.contains("Safari/"), userAgent)
+        XCTAssertTrue(appVersion.contains("Chrome/"), appVersion)
+        XCTAssertEqual(vendor, BrowserWebExtensionUserAgentSettings.vendor)
+        XCTAssertEqual(platform, BrowserWebExtensionUserAgentSettings.platform)
+        _ = navigationProbe
     }
 
     func testHostUnsupportedAPIsDeclareUnbridgedBrowserFeatures() async throws {
@@ -330,15 +365,21 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
         XCTAssertTrue(unsupportedAPIs.contains("browser.notifications"))
         XCTAssertTrue(unsupportedAPIs.contains("browser.offscreen"))
         XCTAssertTrue(unsupportedAPIs.contains("browser.runtime.connectNative"))
-        XCTAssertTrue(unsupportedAPIs.contains("browser.runtime.getContexts"))
         XCTAssertTrue(unsupportedAPIs.contains("browser.runtime.sendNativeMessage"))
-        XCTAssertTrue(unsupportedAPIs.contains("browser.webNavigation"))
         XCTAssertTrue(unsupportedAPIs.contains("browser.webRequest.onAuthRequired"))
+        XCTAssertTrue(unsupportedAPIs.contains("chrome.runtime.connectNative"))
+        XCTAssertTrue(unsupportedAPIs.contains("chrome.runtime.sendNativeMessage"))
+        XCTAssertTrue(unsupportedAPIs.contains("chrome.webRequest.onAuthRequired"))
         XCTAssertTrue(grantablePermissions.contains("menus"))
+        XCTAssertTrue(grantablePermissions.contains("webNavigation"))
         XCTAssertTrue(grantablePermissions.contains("webRequest"))
-        XCTAssertFalse(grantablePermissions.contains("webNavigation"))
+        XCTAssertFalse(unsupportedAPIs.contains("browser.commands"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.menus"))
+        XCTAssertFalse(unsupportedAPIs.contains("browser.runtime.getContexts"))
+        XCTAssertFalse(unsupportedAPIs.contains("browser.runtime.openOptionsPage"))
+        XCTAssertFalse(unsupportedAPIs.contains("browser.webNavigation"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.webRequest"))
+        XCTAssertFalse(unsupportedAPIs.contains("chrome.webNavigation"))
     }
 
     func testHostCapabilityPolicyDrivesGrantsAndAPISurface() {
@@ -355,20 +396,24 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
 
         XCTAssertEqual(
             policy.grantablePermissionNames(from: requestedPermissions),
-            ["storage", "webRequest", "menus"]
+            ["storage", "webNavigation", "webRequest", "menus"]
         )
 
         let unsupportedAPIs = policy.unsupportedAPIs(forPermissionNames: requestedPermissions)
-        XCTAssertTrue(unsupportedAPIs.contains("browser.commands"))
         XCTAssertTrue(unsupportedAPIs.contains("browser.runtime.connectNative"))
-        XCTAssertTrue(unsupportedAPIs.contains("browser.runtime.getContexts"))
-        XCTAssertTrue(unsupportedAPIs.contains("browser.runtime.openOptionsPage"))
         XCTAssertTrue(unsupportedAPIs.contains("browser.runtime.sendNativeMessage"))
-        XCTAssertTrue(unsupportedAPIs.contains("browser.webNavigation"))
         XCTAssertTrue(unsupportedAPIs.contains("browser.webRequest.onAuthRequired"))
+        XCTAssertTrue(unsupportedAPIs.contains("chrome.runtime.connectNative"))
+        XCTAssertTrue(unsupportedAPIs.contains("chrome.runtime.sendNativeMessage"))
+        XCTAssertTrue(unsupportedAPIs.contains("chrome.webRequest.onAuthRequired"))
+        XCTAssertFalse(unsupportedAPIs.contains("browser.commands"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.menus"))
+        XCTAssertFalse(unsupportedAPIs.contains("browser.runtime.getContexts"))
+        XCTAssertFalse(unsupportedAPIs.contains("browser.runtime.openOptionsPage"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.storage"))
+        XCTAssertFalse(unsupportedAPIs.contains("browser.webNavigation"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.webRequest"))
+        XCTAssertFalse(unsupportedAPIs.contains("chrome.webNavigation"))
     }
 
     func testWebKitLoadsMinimalUnpackedExtension() async throws {
