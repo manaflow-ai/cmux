@@ -220,27 +220,29 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         }
     }
 
-    private func assertRoutesNoMarkedCandidateArrowKeyEquivalentThroughKeyDown(
+    private func assertRoutesNoMarkedCandidateKeyEquivalentsThroughKeyDown(
         _ inputSourceId: String,
+        commandNames: Set<String>,
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
         let view = GhosttyNSView(frame: .zero)
-        let event = try keyEvent(
-            text: "\u{F700}",
-            keyCode: UInt16(kVK_UpArrow),
-            windowNumber: 0
-        )
 
-        XCTAssertTrue(
-            view.shouldRouteTextInputKeyEquivalentToKeyDown(
-                event,
-                inputSourceId: inputSourceId
-            ),
-            "\(inputSourceId) candidate arrows should reach NSTextInputContext before terminal routing",
-            file: file,
-            line: line
-        )
+        for probe in noMarkedNavigationKeyProbes {
+            let event = try keyEvent(text: probe.text, keyCode: probe.keyCode, windowNumber: 0)
+            let shouldRoute = commandNames.contains(probe.name)
+
+            XCTAssertEqual(
+                view.shouldRouteTextInputKeyEquivalentToKeyDown(
+                    event,
+                    inputSourceId: inputSourceId
+                ),
+                shouldRoute,
+                "\(inputSourceId) \(probe.name) routing should match the no-marked-text candidate command policy",
+                file: file,
+                line: line
+            )
+        }
     }
 
     func testSelectedRangeReturnsEmptyRangeWithoutSelectionOrMarkedText() {
@@ -632,15 +634,17 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
-    func testRoutesSimplifiedChinesePinyinCandidateArrowKeyEquivalentThroughKeyDownWithoutMarkedText() throws {
-        try assertRoutesNoMarkedCandidateArrowKeyEquivalentThroughKeyDown(
-            "com.apple.inputmethod.SCIM.ITABC"
+    func testRoutesSimplifiedChinesePinyinCandidateKeyEquivalentsThroughKeyDownWithoutMarkedText() throws {
+        try assertRoutesNoMarkedCandidateKeyEquivalentsThroughKeyDown(
+            "com.apple.inputmethod.SCIM.ITABC",
+            commandNames: pinyinCandidateCommandProbeNames
         )
     }
 
-    func testRoutesTraditionalChinesePinyinCandidateArrowKeyEquivalentThroughKeyDownWithoutMarkedText() throws {
-        try assertRoutesNoMarkedCandidateArrowKeyEquivalentThroughKeyDown(
-            "com.apple.inputmethod.TCIM.Pinyin"
+    func testRoutesTraditionalChinesePinyinCandidateKeyEquivalentsThroughKeyDownWithoutMarkedText() throws {
+        try assertRoutesNoMarkedCandidateKeyEquivalentsThroughKeyDown(
+            "com.apple.inputmethod.TCIM.Pinyin",
+            commandNames: pinyinCandidateCommandProbeNames
         )
     }
 
@@ -664,9 +668,10 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
-    func testRoutesZhuyinCandidateArrowKeyEquivalentThroughKeyDownWithoutMarkedText() throws {
-        try assertRoutesNoMarkedCandidateArrowKeyEquivalentThroughKeyDown(
-            "com.apple.inputmethod.TCIM.Zhuyin"
+    func testRoutesZhuyinCandidateKeyEquivalentsThroughKeyDownWithoutMarkedText() throws {
+        try assertRoutesNoMarkedCandidateKeyEquivalentsThroughKeyDown(
+            "com.apple.inputmethod.TCIM.Zhuyin",
+            commandNames: zhuyinCandidateCommandProbeNames
         )
     }
 
