@@ -267,7 +267,7 @@ claude_option_consumes_value() {
         --append-system-prompt|--betas|--debug-file|--disallowedTools|\
         --disallowed-tools|--effort|--fallback-model|--file|\
         --input-format|--json-schema|--max-budget-usd|--mcp-config|\
-        --model|-n|--name|--output-format|--permission-mode|--plugin-dir|\
+        --model|-m|-n|--name|--output-format|--permission-mode|--plugin-dir|\
         --plugin-url|--remote-control-session-name-prefix|--setting-sources|\
         --settings|--system-prompt|--tools)
             return 0
