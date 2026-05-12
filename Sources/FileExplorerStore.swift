@@ -815,6 +815,7 @@ final class FileExplorerStore: ObservableObject {
             mutateOutline {
                 expandedPaths.insert(nodePath)
                 if shouldLoadChildren {
+                    loadingPaths.insert(nodePath)
                     node.isLoading = true
                     node.error = nil
                 }
@@ -922,7 +923,7 @@ final class FileExplorerStore: ObservableObject {
     private func loadChildren(for parentNode: FileExplorerNode?, at path: String, silent: Bool = false) async {
         guard let provider else { return }
 
-        if !silent {
+        if !silent && (!loadingPaths.contains(path) || parentNode?.error != nil) {
             mutateOutline {
                 loadingPaths.insert(path)
                 parentNode?.error = nil
@@ -976,11 +977,12 @@ final class FileExplorerStore: ObservableObject {
             // Auto-expand children that were previously expanded
             if !silent {
                 for child in children where child.isDirectory && expandedPaths.contains(child.path) {
+                    let childPath = child.path
                     mutateOutline {
+                        loadingPaths.insert(childPath)
                         child.isLoading = true
                     }
                     objectWillChange.send()
-                    let childPath = child.path
                     let childTask = Task { @MainActor [weak self] in
                         guard let self else { return }
                         await self.loadChildren(for: child, at: childPath)

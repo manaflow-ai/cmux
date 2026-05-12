@@ -554,6 +554,39 @@ final class FileExplorerStoreTests: XCTestCase {
         XCTAssertTrue(outlineView.isItemExpanded(srcNode))
     }
 
+    func testExpandStartsChildLoadWithoutRedundantOutlineRevision() async throws {
+        let provider = DeferredListFileExplorerProvider()
+        let store = FileExplorerStore()
+        let srcNode = FileExplorerNode(name: "src", path: "/project/src", isDirectory: true)
+        store.setProviderForTesting(provider, reloadIfAvailable: false)
+        store.rootPath = "/project"
+        store.rootNodes = [srcNode]
+
+        let revisionBeforeExpand = store.outlineRevision
+        store.expand(node: srcNode)
+        let revisionAfterExpand = store.outlineRevision
+
+        XCTAssertEqual(revisionAfterExpand, revisionBeforeExpand + 1)
+        XCTAssertTrue(store.loadingPaths.contains(srcNode.path))
+        XCTAssertTrue(srcNode.isLoading)
+
+        try await waitFor("child load started") {
+            provider.listCallPaths.contains(srcNode.path)
+        }
+
+        XCTAssertEqual(
+            store.outlineRevision,
+            revisionAfterExpand,
+            "Starting the async child load should reuse the expand mutation instead of dirtying the outline again."
+        )
+
+        provider.resumeListing(returning: [])
+        try await waitFor("child load completed") {
+            srcNode.children?.isEmpty == true
+        }
+        XCTAssertEqual(store.outlineRevision, revisionAfterExpand + 1)
+    }
+
     func testRefreshGitStatusIgnoresStaleRootsAndDuplicateStatus() async throws {
         let store = FileExplorerStore()
         let activeRoot = "/project"
