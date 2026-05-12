@@ -405,6 +405,14 @@ extension Workspace {
                !requestedDirectory.isEmpty {
                 return requestedDirectory
             }
+            if let browserPanel = panel as? BrowserPanel,
+               browserPanel.panelType == .codeEditor,
+               let directoryPath = browserPanel.codeEditorDirectoryURL?
+                .path
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !directoryPath.isEmpty {
+                return directoryPath
+            }
             return nil
         }()
         let isPinned = pinnedPanelIds.contains(panelId)
@@ -805,14 +813,30 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
             return terminalPanel.id
-        case .browser, .codeEditor:
+        case .browser:
             guard let browserPanel = newBrowserSurface(
                 inPane: paneId,
                 url: nil,
                 focus: false,
-                panelType: snapshot.type == .codeEditor ? .codeEditor : .browser,
                 preferredProfileID: snapshot.browser?.profileID,
                 creationPolicy: .restoration
+            ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: browserPanel.id)
+            return browserPanel.id
+        case .codeEditor:
+            let directoryURL: URL? = {
+                guard let directory = snapshot.directory?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !directory.isEmpty else {
+                    return nil
+                }
+                return URL(fileURLWithPath: directory, isDirectory: true)
+            }()
+            guard let browserPanel = newCodeEditorSurface(
+                inPane: paneId,
+                directoryURL: directoryURL,
+                focus: false
             ) else {
                 return nil
             }
@@ -10410,7 +10434,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         panel.setCodeEditorDirectoryURL(resolvedDirectoryURL)
         if url == nil {
-            navigateCodeEditorPanel(panel, directoryURL: resolvedDirectoryURL)
+            beginCodeEditorNavigation(for: panel, directoryURL: resolvedDirectoryURL)
         }
         return panel
     }
@@ -10439,7 +10463,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         panel.setCodeEditorDirectoryURL(resolvedDirectoryURL)
         if url == nil {
-            navigateCodeEditorPanel(panel, directoryURL: resolvedDirectoryURL)
+            beginCodeEditorNavigation(for: panel, directoryURL: resolvedDirectoryURL)
         }
         return panel
     }
@@ -10453,28 +10477,33 @@ final class Workspace: Identifiable, ObservableObject {
         return URL(fileURLWithPath: trimmedDirectory, isDirectory: true).standardizedFileURL
     }
 
-    private func navigateCodeEditorPanel(_ panel: BrowserPanel, directoryURL: URL?) {
+    private func beginCodeEditorNavigation(for panel: BrowserPanel, directoryURL: URL?) {
         guard let directoryURL else { return }
+        let panelId = panel.id
+        Task { [weak self] in
+            await self?.navigateCodeEditorPanel(panelId: panelId, directoryURL: directoryURL)
+        }
+    }
+
+    private func navigateCodeEditorPanel(panelId: UUID, directoryURL: URL) async {
         guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
             NSSound.beep()
             return
         }
 
-        Task { [weak panel] in
-            let serveWebURL = await VSCodeServeWebController.shared.ensureServeWebURL(
-                vscodeApplicationURL: vscodeApplicationURL
-            )
-            guard let serveWebURL,
-                  let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
-                    baseWebUIURL: serveWebURL,
-                    directoryPath: directoryURL.path
-                  ) else {
-                NSSound.beep()
-                return
-            }
-            guard let panel else { return }
-            panel.navigate(to: openFolderURL)
+        let serveWebURL = await VSCodeServeWebController.shared.ensureServeWebURL(
+            vscodeApplicationURL: vscodeApplicationURL
+        )
+        guard let serveWebURL,
+              let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
+                baseWebUIURL: serveWebURL,
+                directoryPath: directoryURL.path
+              ) else {
+            NSSound.beep()
+            return
         }
+        guard let panel = panels[panelId] as? BrowserPanel else { return }
+        panel.navigate(to: openFolderURL)
     }
 
     /// Open the markdown viewer for `filePath`, reusing an existing
