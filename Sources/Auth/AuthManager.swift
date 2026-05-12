@@ -646,9 +646,9 @@ final class AuthManager: ObservableObject {
         let line = "[\(Self.logTimestampFormatter.string(from: Date()))] auth: \(message)\n"
         let path = "/tmp/cmux-auth-debug.log"
         if let handle = FileHandle(forWritingAtPath: path) {
-            handle.seekToEndOfFile()
-            handle.write(line.data(using: .utf8)!)
-            handle.closeFile()
+            defer { try? handle.close() }
+            guard (try? handle.seekToEnd()) != nil else { return }
+            try? handle.write(contentsOf: Data(line.utf8))
         } else {
             FileManager.default.createFile(atPath: path, contents: line.data(using: .utf8))
         }
