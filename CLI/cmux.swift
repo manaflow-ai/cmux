@@ -366,6 +366,7 @@ struct NotificationInfo {
 }
 
 private struct ClaudeHookParsedInput {
+    let rawObject: [String: Any]?
     let object: [String: Any]?
     let rawFallback: String?
     let sessionId: String?
@@ -4813,6 +4814,7 @@ struct CMUXCLI {
             sshOptions.sshOptions,
             remoteRelayPort: sshOptions.remoteRelayPort
         )
+        let controlPathPreflightShellFunction = sshControlPathPreflightShellFunction(options: sshOptions)
         let initialSSHCommand = buildSSHCommandText(sshOptions)
         // For VM workspaces (Freestyle), skip the interactive bootstrap script: the russh
         // gateway forwards shell-request PTYs but stalls on exec-channel I/O, and the bootstrap
@@ -4866,25 +4868,29 @@ struct CMUXCLI {
                 remoteBootstrapScript: remoteTerminalBootstrapScript,
                 shellFeatures: shellFeaturesValue,
                 remoteRelayPort: sshOptions.remoteRelayPort,
-                localCommandScript: combinedLocalCommandScript
+                localCommandScript: combinedLocalCommandScript,
+                controlPathPreflightShellFunction: controlPathPreflightShellFunction
             )
             remoteTerminalSSHStartupCommand = buildReusableBootstrapSSHStartupCommand(
                 options: sshOptions,
                 remoteBootstrapScript: remoteTerminalBootstrapScript,
                 shellFeatures: shellFeaturesValue,
                 remoteRelayPort: sshOptions.remoteRelayPort,
-                localCommandScript: combinedLocalCommandScript
+                localCommandScript: combinedLocalCommandScript,
+                controlPathPreflightShellFunction: controlPathPreflightShellFunction
             )
         } else {
             initialSSHStartupCommand = try buildSSHStartupCommand(
                 sshCommand: startupInitialSSHCommand,
                 shellFeatures: "",
-                remoteRelayPort: sshOptions.remoteRelayPort
+                remoteRelayPort: sshOptions.remoteRelayPort,
+                controlPathPreflightShellFunction: controlPathPreflightShellFunction
             )
             remoteTerminalSSHStartupCommand = buildReusableSSHStartupCommand(
                 sshCommand: startupRemoteTerminalSSHCommand,
                 shellFeatures: shellFeaturesValue,
-                remoteRelayPort: sshOptions.remoteRelayPort
+                remoteRelayPort: sshOptions.remoteRelayPort,
+                controlPathPreflightShellFunction: controlPathPreflightShellFunction
             )
         }
         let reusableTerminalStartupCommand: String
@@ -5178,7 +5184,8 @@ struct CMUXCLI {
         remoteBootstrapScript: String,
         shellFeatures: String,
         remoteRelayPort: Int,
-        localCommandScript: String? = nil
+        localCommandScript: String? = nil,
+        controlPathPreflightShellFunction: String? = nil
     ) throws -> String {
         let commandSnippet = buildSSHBootstrapCommandSnippet(
             options: options,
@@ -5189,7 +5196,8 @@ struct CMUXCLI {
             sshCommand: commandSnippet,
             shellFeatures: shellFeatures,
             remoteRelayPort: remoteRelayPort,
-            isShellSnippet: true
+            isShellSnippet: true,
+            controlPathPreflightShellFunction: controlPathPreflightShellFunction
         )
     }
 
@@ -5198,7 +5206,8 @@ struct CMUXCLI {
         remoteBootstrapScript: String,
         shellFeatures: String,
         remoteRelayPort: Int,
-        localCommandScript: String? = nil
+        localCommandScript: String? = nil,
+        controlPathPreflightShellFunction: String? = nil
     ) -> String {
         let commandSnippet = buildSSHBootstrapCommandSnippet(
             options: options,
@@ -5209,7 +5218,8 @@ struct CMUXCLI {
             sshCommand: commandSnippet,
             shellFeatures: shellFeatures,
             remoteRelayPort: remoteRelayPort,
-            isShellSnippet: true
+            isShellSnippet: true,
+            controlPathPreflightShellFunction: controlPathPreflightShellFunction
         )
     }
 
@@ -5335,6 +5345,39 @@ struct CMUXCLI {
             merged.append("StrictHostKeyChecking=accept-new")
         }
         return merged
+    }
+
+    private func sshControlPathPreflightShellFunction(options: SSHCommandOptions) -> String? {
+        let effectiveOptions = effectiveSSHOptions(
+            options.sshOptions,
+            remoteRelayPort: options.remoteRelayPort
+        )
+        guard let controlMaster = sshOptionValue(named: "ControlMaster", in: effectiveOptions)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+              !["no", "false", "off"].contains(controlMaster),
+              let controlPath = sshOptionValue(named: "ControlPath", in: effectiveOptions)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !controlPath.isEmpty,
+              controlPath.lowercased() != "none" else {
+            return nil
+        }
+
+        let sshPrefix = baseSSHArguments(options).map(shellQuote).joined(separator: " ")
+        let destination = shellQuote(options.destination)
+        return [
+            "cmux_ssh_preflight_control_path() {",
+            #"  cmux_ssh_control_path="$(command \#(sshPrefix) -G \#(destination) 2>/dev/null | awk 'tolower($1) == "controlpath" { $1 = ""; sub(/^[[:space:]]+/, ""); print; exit }')" "#,
+            "  case \"${cmux_ssh_control_path:-}\" in",
+            "    /tmp/cmux-ssh-*|\"$HOME\"/.cmux/control/*)",
+            "      if ! command \(sshPrefix) -S \"$cmux_ssh_control_path\" -O check \(destination) >/dev/null 2>&1; then",
+            "        rm -f -- \"$cmux_ssh_control_path\" 2>/dev/null || true",
+            "      fi",
+            "      ;;",
+            "  esac",
+            "  unset cmux_ssh_control_path",
+            "}",
+        ].joined(separator: "\n")
     }
 
     func buildInteractiveRemoteShellScript(
@@ -5737,13 +5780,15 @@ struct CMUXCLI {
         sshCommand: String,
         shellFeatures: String,
         remoteRelayPort: Int,
-        isShellSnippet: Bool = false
+        isShellSnippet: Bool = false,
+        controlPathPreflightShellFunction: String? = nil
     ) throws -> String {
         let script = buildSSHStartupScriptBody(
             sshCommand: sshCommand,
             shellFeatures: shellFeatures,
             remoteRelayPort: remoteRelayPort,
-            isShellSnippet: isShellSnippet
+            isShellSnippet: isShellSnippet,
+            controlPathPreflightShellFunction: controlPathPreflightShellFunction
         )
         return try writeSSHStartupScript(script, remoteRelayPort: remoteRelayPort)
     }
@@ -5752,13 +5797,15 @@ struct CMUXCLI {
         sshCommand: String,
         shellFeatures: String,
         remoteRelayPort: Int,
-        isShellSnippet: Bool = false
+        isShellSnippet: Bool = false,
+        controlPathPreflightShellFunction: String? = nil
     ) -> String {
         let script = buildSSHStartupScriptBody(
             sshCommand: sshCommand,
             shellFeatures: shellFeatures,
             remoteRelayPort: remoteRelayPort,
-            isShellSnippet: isShellSnippet
+            isShellSnippet: isShellSnippet,
+            controlPathPreflightShellFunction: controlPathPreflightShellFunction
         )
         return reusableShellStartupCommand(
             scriptBody: script,
@@ -5770,16 +5817,22 @@ struct CMUXCLI {
         sshCommand: String,
         shellFeatures: String,
         remoteRelayPort: Int,
-        isShellSnippet: Bool
+        isShellSnippet: Bool,
+        controlPathPreflightShellFunction: String?
     ) -> String {
         let trimmedFeatures = shellFeatures.trimmingCharacters(in: .whitespacesAndNewlines)
         let shellFeaturesBootstrap: String = trimmedFeatures.isEmpty
             ? ""
             : "export GHOSTTY_SHELL_FEATURES=\(shellQuote(trimmedFeatures))"
         let lifecycleCleanup = buildSSHSessionEndShellCommand(remoteRelayPort: remoteRelayPort)
+        let trimmedControlPathPreflight = controlPathPreflightShellFunction?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         var scriptLines: [String] = []
         if !shellFeaturesBootstrap.isEmpty {
             scriptLines.append(shellFeaturesBootstrap)
+        }
+        if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
+            scriptLines.append(trimmedControlPathPreflight)
         }
         scriptLines += [
             "rm -f -- \"$0\" 2>/dev/null || true",
@@ -5802,6 +5855,9 @@ struct CMUXCLI {
             "trap 'cmux_ssh_signal_exit 143' TERM",
             "while :; do",
         ]
+        if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
+            scriptLines.append("  cmux_ssh_preflight_control_path")
+        }
         if isShellSnippet {
             scriptLines += [
                 "  (",
@@ -14665,6 +14721,13 @@ struct CMUXCLI {
             }
             print("OK")
 
+        case "cron-create-guard":
+            telemetry.breadcrumb("claude-hook.cron-create-guard")
+            let guardResponse = claudeCronCreateGuardResponse(parsedInput.rawObject)
+            didSendFeedTelemetry = guardResponse == "{}"
+            print(guardResponse)
+            fflush(stdout)
+
         case "pre-tool-use":
             telemetry.breadcrumb("claude-hook.pre-tool-use")
             // Clears "Needs input" status and notification when Claude resumes work
@@ -14739,6 +14802,41 @@ struct CMUXCLI {
         default:
             throw CLIError(message: "Unknown claude-hook subcommand: \(subcommand)")
         }
+    }
+
+    private func claudeCronCreateGuardResponse(_ object: [String: Any]?) -> String {
+        guard let object,
+              object["tool_name"] as? String == "CronCreate",
+              let input = object["tool_input"] as? [String: Any],
+              claudeCronCreateDurableRequested(input["durable"]) else {
+            return "{}"
+        }
+
+        return jsonString([
+            "hookSpecificOutput": [
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": "cmux does not support durable Claude Code cron jobs. CronCreate durable:true would be silently downgraded to session-only in this environment, so cmux denied the tool call instead. Re-run with durable:false for a session-only job, or use an external scheduler or state-file resume path for persistence."
+            ]
+        ])
+    }
+
+    private func claudeCronCreateDurableRequested(_ value: Any?) -> Bool {
+        if let value = value as? Bool {
+            return value
+        }
+        if let value = value as? NSNumber {
+            return value.boolValue
+        }
+        if let value = value as? String {
+            switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "1", "true", "yes":
+                return true
+            default:
+                return false
+            }
+        }
+        return false
     }
 
     private func setClaudeStatus(
@@ -15047,7 +15145,7 @@ struct CMUXCLI {
                 normalizedSingleLine(redactClaudeSensitiveSpans(trimmed)),
                 maxLength: 180
             )
-            return ClaudeHookParsedInput(object: nil, rawFallback: fallback, sessionId: nil, turnId: nil, cwd: nil, transcriptPath: nil)
+            return ClaudeHookParsedInput(rawObject: nil, object: nil, rawFallback: fallback, sessionId: nil, turnId: nil, cwd: nil, transcriptPath: nil)
         }
 
         let sessionId = extractClaudeHookSessionId(from: object)
@@ -15056,6 +15154,7 @@ struct CMUXCLI {
         let transcriptPath = firstString(in: object, keys: ["transcript_path", "transcriptPath"])
         let compactObject = compactClaudeHookObject(object)
         return ClaudeHookParsedInput(
+            rawObject: object,
             object: compactObject,
             rawFallback: nil,
             sessionId: sessionId,
@@ -18186,7 +18285,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         switch sub {
         case "session-start", "active": return "SessionStart"
         case "prompt-submit": return "UserPromptSubmit"
-        case "pre-tool-use": return "PreToolUse"
+        case "pre-tool-use", "cron-create-guard": return "PreToolUse"
         case "post-tool-use": return "PostToolUse"
         case "stop", "idle": return "Stop"
         case "session-end": return "SessionEnd"
