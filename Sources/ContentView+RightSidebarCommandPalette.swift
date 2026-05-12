@@ -86,7 +86,7 @@ extension ContentView {
         return RightSidebarMode.availableModes().map { mode in
             CommandPaletteCommandContribution(
                 commandId: Self.commandPaletteRightSidebarModeCommandID(mode),
-                title: constant(mode.shortcutAction.label),
+                title: constant(mode.commandPaletteTitle),
                 subtitle: constant(String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")),
                 keywords: ["right", "sidebar", "show", "switch", "focus", mode.rawValue]
             )
@@ -101,6 +101,8 @@ extension ContentView {
             return "palette.showRightSidebarFind"
         case .sessions:
             return "palette.showRightSidebarSessions"
+        case .goals:
+            return "palette.showRightSidebarGoals"
         case .feed:
             return "palette.showRightSidebarFeed"
         case .dock:

@@ -14,6 +14,7 @@ enum RightSidebarMode: String, CaseIterable {
     case files
     case find
     case sessions
+    case goals
     case feed
     case dock
 
@@ -22,6 +23,7 @@ enum RightSidebarMode: String, CaseIterable {
         case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
         case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
+        case .goals: return String(localized: "rightSidebar.mode.goals", defaultValue: "Goals")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
         }
@@ -32,19 +34,25 @@ enum RightSidebarMode: String, CaseIterable {
         case .files: return "folder"
         case .find: return "magnifyingglass"
         case .sessions: return "books.vertical"
+        case .goals: return "target"
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
         }
     }
 
-    var shortcutAction: KeyboardShortcutSettings.Action {
+    var shortcutAction: KeyboardShortcutSettings.Action? {
         switch self {
         case .files: return .switchRightSidebarToFiles
         case .find: return .switchRightSidebarToFind
         case .sessions: return .switchRightSidebarToSessions
+        case .goals: return nil
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
         }
+    }
+
+    var commandPaletteTitle: String {
+        shortcutAction?.label ?? String(localized: "command.showRightSidebarGoals.label", defaultValue: "Show Sidebar Goals")
     }
 }
 
@@ -232,7 +240,7 @@ struct RightSidebarPanelView: View {
                         mode: mode,
                         isSelected: fileExplorerState.mode == mode,
                         badgeCount: mode == .feed ? feedPendingCount : 0,
-                        shortcutHint: KeyboardShortcutSettings.shortcut(for: mode.shortcutAction),
+                        shortcutHint: mode.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) },
                         showsShortcutHint: showsModeShortcutHints
                     ) {
                         if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
@@ -355,6 +363,8 @@ struct RightSidebarPanelView: View {
                 .onAppear {
                     sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                 }
+        case .goals:
+            GoalSupervisionPanelView(currentWorkspacePath: sessionIndexDirectory)
         case .feed:
             FeedPanelView()
         case .dock:
@@ -487,7 +497,7 @@ private struct ModeBarButton: View {
     let mode: RightSidebarMode
     let isSelected: Bool
     var badgeCount: Int = 0
-    let shortcutHint: StoredShortcut
+    let shortcutHint: StoredShortcut?
     let showsShortcutHint: Bool
     let action: () -> Void
 
@@ -512,7 +522,7 @@ private struct ModeBarButton: View {
                 geometryKeyPrefix: "rightSidebarModeControl_\(mode.rawValue)"
             )
             .overlay(alignment: .trailing) {
-                if showsShortcutHint {
+                if showsShortcutHint, let shortcutHint {
                     ShortcutHintPill(shortcut: shortcutHint, fontSize: 9, emphasis: isSelected ? 1.15 : 0.95)
                         .offset(x: 5)
                         .shortcutHintTransition()
