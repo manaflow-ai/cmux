@@ -280,7 +280,7 @@ claude_interactive_entry_flag() {
     case "$1" in
         --print|--print=*|-p|--resume|--resume=*|-r|--continue|-c|\
         --session-id|--session-id=*|--remote-control|--remote-control=*|\
-        --from-pr|--from-pr=*|--worktree|--worktree=*)
+        --from-pr|--from-pr=*|--worktree|--worktree=*|-w|-w=*)
             return 0
             ;;
     esac

@@ -437,6 +437,17 @@ def test_print_invocation_injects_hook_flags(failures: list[str]) -> None:
     expect(real_argv[-2:] == ["--print", "hi"], f"print injection: expected print args preserved, got {real_argv}", failures)
 
 
+def test_short_worktree_invocation_injects_hook_flags(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["-w", "feature-worktree"],
+    )
+    expect(code == 0, f"short worktree injection: wrapper exited {code}: {stderr}", failures)
+    expect("--settings" in real_argv, f"short worktree injection: expected --settings injection, got {real_argv}", failures)
+    expect("--session-id" in real_argv, f"short worktree injection: expected --session-id injection, got {real_argv}", failures)
+    expect(real_argv[-2:] == ["-w", "feature-worktree"], f"short worktree injection: expected worktree args preserved, got {real_argv}", failures)
+
+
 def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> None:
     subcommands = [
         "mcp",
@@ -718,6 +729,7 @@ def main() -> int:
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_plain_claude_injects_hook_flags(failures)
     test_print_invocation_injects_hook_flags(failures)
+    test_short_worktree_invocation_injects_hook_flags(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
