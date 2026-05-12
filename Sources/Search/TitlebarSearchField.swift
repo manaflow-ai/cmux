@@ -65,13 +65,25 @@ public struct TitlebarSearchField: View {
             ResultsList(hits: hits, selection: $selection, onPick: pick(_:))
                 .frame(width: 480, height: 320)
         }
-        .onAppear {
-            // Pre-warm Synapse + ranker so first keystroke is instant.
-            Task.detached(priority: .utility) {
-                _ = await SynapseBridge.shared.hybrid("warmup", k: 1)
-            }
-        }
         .onKeyPress(.escape) { fieldFocus = false; return .handled }
+        .onKeyPress(.upArrow) {
+            if !hits.isEmpty { selection = max(0, selection - 1) }
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            if !hits.isEmpty {
+                selection = min(hits.count - 1, selection + 1)
+            }
+            return .handled
+        }
+        .onKeyPress(keys: Set("123456789".map { KeyEquivalent($0) })) { press in
+            guard press.modifiers.contains(.command),
+                  let n = Int(press.characters), hits.indices.contains(n - 1) else {
+                return .ignored
+            }
+            pick(hits[n - 1])
+            return .handled
+        }
         .onReceive(NotificationCenter.default.publisher(for: .cmuxFocusTitlebarSearch)) { _ in
             fieldFocus = true
         }
@@ -88,43 +100,34 @@ public struct TitlebarSearchField: View {
     }
 
     private func refresh(_ q: String) async {
+        // Smart scope-prefix: "t:foo" / "b:foo" / "m:foo" / "w:foo"
+        // narrows to terminal / browser / markdown / window-title.
         let trimmed = q.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { hits = []; return }
-
-        // Parallel fan-out: Synapse (semantic) + FTS5 (lexical), merged.
-        async let synapse = SynapseBridge.shared.hybrid(trimmed, k: 50)
-        async let fts: [SearchIndex.Hit] = {
-            guard let index else { return [] }
-            return await index.search(trimmed)
-        }()
-
-        let (sem, lex) = await (synapse, fts)
-        let merged = merge(synapse: sem, fts: lex)
-        let ranked = SmartRanker.shared.rank(merged)
+        guard !trimmed.isEmpty, let index else {
+            await MainActor.run { hits = [] }
+            return
+        }
+        let (scope, body) = parseScope(trimmed)
+        let raw = await index.search(body, limit: 80)
+        let scoped = scope.map { k in raw.filter { $0.kind == k } } ?? raw
+        let ranked = SmartRanker.shared.rank(scoped)
         SmartRanker.shared.recordImpressions(ranked)
 
         await MainActor.run {
-            hits = ranked
+            hits = Array(ranked.prefix(50))
             selection = 0
         }
     }
 
-    private func merge(synapse: [SynapseBridge.Hit],
-                       fts: [SearchIndex.Hit]) -> [SearchIndex.Hit] {
-        // FTS hits carry full panel routing; Synapse hits carry semantic
-        // score. Use synapse score as bonus on matching FTS rows (id ==
-        // panelID); pass through FTS-only rows untouched.
-        let semScore = Dictionary(uniqueKeysWithValues:
-            synapse.map { ($0.id, $0.score) })
-        return fts.map { hit in
-            guard let s = semScore[hit.panelID.uuidString] else { return hit }
-            return SearchIndex.Hit(
-                panelID: hit.panelID, workspaceID: hit.workspaceID,
-                windowID: hit.windowID, kind: hit.kind,
-                snippet: hit.snippet,
-                rank: max(0.001, hit.rank * (1.0 - 0.5 * s))  // boost
-            )
+    private func parseScope(_ q: String) -> (SearchIndex.Kind?, String) {
+        let map: [String: SearchIndex.Kind] = [
+            "t:": .terminal, "b:": .browser,
+            "m:": .markdown, "w:": .title,
+        ]
+        for (p, k) in map where q.lowercased().hasPrefix(p) {
+            return (k, String(q.dropFirst(p.count)).trimmingCharacters(in: .whitespaces))
         }
+        return (nil, q)
     }
 
     private func acceptSelected() {

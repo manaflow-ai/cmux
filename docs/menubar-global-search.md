@@ -14,21 +14,31 @@ and shares focus with the rest of the titlebar controls.
 
 `MenubarSearchPopover` retained for opt-in system-menubar fallback.
 
-## Smart stack
+## Smart stack (local-only, zero external deps)
 
-Parallel fan-out per keystroke (warm path ~10–20 ms):
+Per-keystroke pipeline:
 
-1. **Synapse hybrid** — local daemon at `/tmp/synapse.sock` (SimSIMD,
-   MRL-128, 8 ms hybrid lex+vector). Semantic scores by panel ID.
-2. **SQLite FTS5** — `SearchIndex` lex recall.
-3. **Merge** — Synapse score boosts matching FTS rows; FTS-only rows
-   pass through.
-4. **SmartRanker** — BM25 (inverted) + recency + Thompson click-history
-   prior per `(kind, panel)`, persisted to
+1. **Scope-prefix parse** — `t:` terminal · `b:` browser · `m:`
+   markdown · `w:` window-title. Filters before recall.
+2. **SQLite FTS5** — `SearchIndex` lex recall (BM25 + snippet).
+3. **SmartRanker** — BM25 (inverted) + recency hook + Thompson
+   click-history prior per `(kind, panel)`, persisted to
    `~/Library/Application Support/cmux/search-clicks.json`.
+4. **Focus bridge** — accepted hit posts `.cmuxJumpToSearchHit`;
+   `AppDelegate` forwards to the existing
+   `FeedCoordinator.focus(workspaceId:surfaceId:)` pathway so the user
+   lands directly in the matching window / workspace / panel.
 
-If the Synapse daemon is unreachable, the bridge silently degrades to
-FTS-only with a 60 s back-off. No required dep.
+Keyboard:
+- `↑` / `↓` step through hits.
+- `↵` accepts (focus + record reward).
+- `⌘1..9` direct-jump to the N-th hit.
+- `Esc` dismisses.
+
+No network. No daemon. No telemetry. Index lives in the user's app
+support directory; deletable at any time. A future opt-in semantic
+backend (Synapse / sqlite-vec / Core ML embeddings) can plug in
+behind `SearchIndex` without touching the UI.
 
 ## Phases
 

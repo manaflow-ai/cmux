@@ -1017,6 +1017,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Register ⌥⌘F → focus inline titlebar search. Tracking #3865.
         GlobalSearchHotkey.shared.install()
 
+        // Bridge: a picked search hit → focus its workspace+surface via
+        // the existing Feed focus pathway (so the user lands in the
+        // correct window/workspace/panel without inventing a new route).
+        NotificationCenter.default.addObserver(
+            forName: .cmuxJumpToSearchHit, object: nil, queue: .main
+        ) { note in
+            guard let hit = note.object as? SearchIndex.Hit else { return }
+            FeedCoordinator.focus(
+                workspaceId: hit.workspaceID.uuidString,
+                surfaceId: hit.panelID.uuidString)
+        }
+
         claimAuthCallbackURLSchemes()
 
         // Install the Feed (workstream) store. Separate from the transport
