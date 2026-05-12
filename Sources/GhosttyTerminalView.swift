@@ -357,6 +357,14 @@ enum GhosttyPasteboardHelper {
             return richText
         }
 
+        if let plainText,
+           PasteboardTextFidelity.shouldInspectRichTextForPlainTextLoss(plainText),
+           types.contains(where: isRichTextType),
+           let richText = richTextContents(from: pasteboard),
+           PasteboardTextFidelity.shouldPreferRichText(richText, overPlainText: plainText) {
+            return richText
+        }
+
         // Match upstream Ghostty's fast plain-text path for normal text paste.
         // Large clipboard payloads often also advertise HTML/RTF variants, and
         // eagerly rendering those rich-text flavors makes Cmd-V much slower than
@@ -477,6 +485,10 @@ enum GhosttyPasteboardHelper {
               let utType = UTType(type.rawValue) else { return false }
 
         return utType.conforms(to: .plainText)
+    }
+
+    private static func isRichTextType(_ type: NSPasteboard.PasteboardType) -> Bool {
+        type == .html || type == .rtf || type == .rtfd
     }
 
     private static func attributedString(
@@ -2098,8 +2110,9 @@ class GhosttyApp {
                 return
             }
 
+            let fallbackShouldUseHostLayerBackground = usesHostLayerBackground(for: fallbackConfig)
             loadInlineGhosttyConfig(
-                "macos-background-from-layer = true",
+                "macos-background-from-layer = \(fallbackShouldUseHostLayerBackground)",
                 into: fallbackConfig,
                 prefix: "cmux-renderer-bg",
                 logLabel: "renderer background (fallback)"
@@ -2112,7 +2125,7 @@ class GhosttyApp {
             )
             loadCmuxOwnedGhosttyKeybindOverrides(fallbackConfig)
             let fallbackRenderingModeChanged = setUsesHostLayerBackground(
-                true,
+                fallbackShouldUseHostLayerBackground,
                 source: "initialize.fallbackConfig"
             )
             ghostty_config_finalize(fallbackConfig)
@@ -2248,15 +2261,17 @@ class GhosttyApp {
         }
         #endif
         loadCJKFontFallbackIfNeeded(config)
+        let shouldUseHostLayerBackground = usesHostLayerBackground(for: config)
         let renderingModeChanged = setUsesHostLayerBackground(
-            true,
+            shouldUseHostLayerBackground,
             source: "loadDefaultConfigFilesWithLegacyFallback"
         )
-        // Let cmux own the window-level backdrop once, while Ghostty keeps
-        // rendering text, cell backgrounds, and background images. This avoids
-        // separate translucent fills for terminal and chrome surfaces.
+        // Let Ghostty paint solid opaque terminal backgrounds so default cells
+        // and explicit ANSI background cells share one renderer/compositor path.
+        // Host-layer ownership remains required for translucent and blurred
+        // terminal backgrounds.
         loadInlineGhosttyConfig(
-            "macos-background-from-layer = true",
+            "macos-background-from-layer = \(shouldUseHostLayerBackground)",
             into: config,
             prefix: "cmux-renderer-bg",
             logLabel: "renderer background"
@@ -3214,10 +3229,7 @@ class GhosttyApp {
         let resolvedCursorText = ghosttyColorValue(from: config, key: "cursor-text", fallback: baseline.cursorTextColor)
         let resolvedSelectionBackground = ghosttyColorValue(from: config, key: "selection-background", fallback: baseline.selectionBackground)
         let resolvedSelectionForeground = ghosttyColorValue(from: config, key: "selection-foreground", fallback: baseline.selectionForeground)
-        var opacity = baseline.backgroundOpacity
-        let opacityKey = "background-opacity"
-        _ = ghostty_config_get(config, &opacity, opacityKey, UInt(opacityKey.lengthOfBytes(using: .utf8)))
-        opacity = min(1.0, max(0.0, opacity))
+        let opacity = defaultBackgroundOpacityValue(from: config)
         let backgroundBlur = defaultBackgroundBlurValue(from: config)
         applyDefaultBackground(
             color: resolvedColor,
@@ -3231,6 +3243,20 @@ class GhosttyApp {
             source: source,
             scope: scope,
             forceNotify: forceNotify
+        )
+    }
+
+    private func defaultBackgroundOpacityValue(from config: ghostty_config_t) -> Double {
+        var opacity = Self.fallbackAppearanceConfig.backgroundOpacity
+        let key = "background-opacity"
+        _ = ghostty_config_get(config, &opacity, key, UInt(key.lengthOfBytes(using: .utf8)))
+        return Double(WindowAppearanceSnapshot.clampedOpacity(opacity))
+    }
+
+    private func usesHostLayerBackground(for config: ghostty_config_t) -> Bool {
+        WindowAppearanceSnapshot.usesHostLayerBackground(
+            backgroundOpacity: defaultBackgroundOpacityValue(from: config),
+            backgroundBlur: defaultBackgroundBlurValue(from: config)
         )
     }
 
@@ -7255,6 +7281,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             if let displayID = window?.screen?.displayID, displayID != 0 {
                 ghostty_surface_set_display_id(surface, displayID)
             }
+            terminalSurface?.forceRefresh(reason: "focus.firstResponder")
         }
         return result
     }
