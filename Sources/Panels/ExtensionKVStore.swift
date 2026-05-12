@@ -57,7 +57,7 @@ struct ExtensionKVStore {
     }
 }
 
-enum ExtensionKVStoreError {
+enum ExtensionKVStoreError: Error {
     case invalidKey(String)
     case quotaExceeded(String)
 

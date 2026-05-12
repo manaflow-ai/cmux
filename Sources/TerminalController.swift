@@ -16090,7 +16090,24 @@ class TerminalController {
         return PanelType(rawValue: normalized) ?? .terminal
     }
 
-    private func tokenizeSocketArguments(_ args: String) -> Result<[String], String> {
+    private enum SocketArgumentParseError: LocalizedError {
+        case unterminatedQuote
+        case missingExtensionBundle
+        case invalidExtensionBundle(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .unterminatedQuote:
+                return "Unterminated quoted argument"
+            case .missingExtensionBundle:
+                return "--bundle is required for extension panes"
+            case .invalidExtensionBundle(let message):
+                return message
+            }
+        }
+    }
+
+    private func tokenizeSocketArguments(_ args: String) -> Result<[String], SocketArgumentParseError> {
         var tokens: [String] = []
         var current = ""
         var quote: Character?
@@ -16136,22 +16153,22 @@ class TerminalController {
             current.append("\\")
         }
         guard quote == nil else {
-            return .failure("Unterminated quoted argument")
+            return .failure(.unterminatedQuote)
         }
         emitCurrent()
         return .success(tokens)
     }
 
-    private func resolveSocketExtensionBundle(panelType: PanelType, bundlePath: String?) -> Result<ExtensionBundleDescriptor, String>? {
+    private func resolveSocketExtensionBundle(panelType: PanelType, bundlePath: String?) -> Result<ExtensionBundleDescriptor, SocketArgumentParseError>? {
         guard panelType == .extensionPane else { return nil }
         guard let rawBundlePath = bundlePath?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawBundlePath.isEmpty else {
-            return .failure("--bundle is required for extension panes")
+            return .failure(.missingExtensionBundle)
         }
         do {
             return .success(try ExtensionBundleDescriptor.resolveUserSelected(path: rawBundlePath))
         } catch {
-            return .failure(error.localizedDescription)
+            return .failure(.invalidExtensionBundle(error.localizedDescription))
         }
     }
 
@@ -16170,8 +16187,8 @@ class TerminalController {
         switch tokenizeSocketArguments(args) {
         case .success(let parsed):
             parts = parsed
-        case .failure(let message):
-            return "ERROR: \(message)"
+        case .failure(let error):
+            return "ERROR: \(error.localizedDescription)"
         }
         for partStr in parts {
             if partStr.hasPrefix("--type=") {
@@ -16205,8 +16222,8 @@ class TerminalController {
             switch bundleResult {
             case .success(let bundle):
                 extensionBundle = bundle
-            case .failure(let message):
-                return "ERROR: \(message)"
+            case .failure(let error):
+                return "ERROR: \(error.localizedDescription)"
             }
         } else {
             extensionBundle = nil
@@ -17770,8 +17787,8 @@ class TerminalController {
         switch tokenizeSocketArguments(args) {
         case .success(let parsed):
             parts = parsed
-        case .failure(let message):
-            return "ERROR: \(message)"
+        case .failure(let error):
+            return "ERROR: \(error.localizedDescription)"
         }
         for partStr in parts {
             if partStr.hasPrefix("--type=") {
@@ -17796,8 +17813,8 @@ class TerminalController {
             switch bundleResult {
             case .success(let bundle):
                 extensionBundle = bundle
-            case .failure(let message):
-                return "ERROR: \(message)"
+            case .failure(let error):
+                return "ERROR: \(error.localizedDescription)"
             }
         } else {
             extensionBundle = nil
