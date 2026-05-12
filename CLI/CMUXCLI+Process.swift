@@ -107,6 +107,7 @@ private func cliWaitForWritableFD(_ fd: Int32) -> Bool {
 @discardableResult
 func cliWrite(_ data: Data, to handle: FileHandle, onBrokenPipe: CLIBrokenPipeDisposition) -> Bool {
     guard !data.isEmpty else { return true }
+    let fd = handle.fileDescriptor
 
     return data.withUnsafeBytes { rawBuffer in
         guard let baseAddress = rawBuffer.bindMemory(to: UInt8.self).baseAddress else {
@@ -116,7 +117,8 @@ func cliWrite(_ data: Data, to handle: FileHandle, onBrokenPipe: CLIBrokenPipeDi
         var offset = 0
         while offset < rawBuffer.count {
             cliStdioDispositionLock.lock()
-            let written = Darwin.write(handle.fileDescriptor, baseAddress.advanced(by: offset), rawBuffer.count - offset)
+            configureCLIWriteFDNoSIGPIPE(fd)
+            let written = Darwin.write(fd, baseAddress.advanced(by: offset), rawBuffer.count - offset)
             let errorCode = written < 0 ? errno : 0
             cliStdioDispositionLock.unlock()
 
@@ -132,7 +134,7 @@ func cliWrite(_ data: Data, to handle: FileHandle, onBrokenPipe: CLIBrokenPipeDi
             case EINTR:
                 continue
             case EAGAIN, EWOULDBLOCK:
-                guard cliWaitForWritableFD(handle.fileDescriptor) else {
+                guard cliWaitForWritableFD(fd) else {
                     return false
                 }
                 continue
@@ -172,17 +174,6 @@ func cliWriteStderr(_ text: String) {
 
 func cliWriteStderr(_ data: Data) {
     _ = cliWrite(data, to: FileHandle.standardError, onBrokenPipe: .ignore)
-}
-
-@discardableResult
-func cliWriteFatalStderr(_ text: String, brokenPipeExitCode: Int32? = nil) -> Bool {
-    let disposition: CLIBrokenPipeDisposition
-    if let brokenPipeExitCode {
-        disposition = .exit(brokenPipeExitCode)
-    } else {
-        disposition = .ignore
-    }
-    return cliWrite(text, to: FileHandle.standardError, onBrokenPipe: disposition)
 }
 
 func cliPrint(_ items: Any..., separator: String = " ", terminator: String = "\n") {
@@ -240,7 +231,6 @@ enum CLIProcessRunner {
 
         if let stdinText, let stdinPipe {
             if let data = stdinText.data(using: .utf8) {
-                configureCLIWriteFDNoSIGPIPE(stdinPipe.fileHandleForWriting.fileDescriptor)
                 _ = cliWrite(data, to: stdinPipe.fileHandleForWriting, onBrokenPipe: .ignore)
             }
             stdinPipe.fileHandleForWriting.closeFile()
