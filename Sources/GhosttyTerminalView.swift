@@ -4372,7 +4372,7 @@ private final class TerminalSharedBackdropCutoutFilter: CIFilter {
     @objc dynamic var inputBackgroundImage: CIImage?
 
     override var outputImage: CIImage? {
-        guard let inputImage, let inputBackgroundImage else { return inputImage }
+        guard let inputImage, let inputBackgroundImage else { return nil }
         return CIBlendKernel.destinationOut.apply(
             foreground: inputImage,
             background: inputBackgroundImage
