@@ -82,10 +82,13 @@ enum RipgrepExecutableResolver {
         userName: String = NSUserName(),
         isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
     ) -> FileSearchRipgrepExecutable? {
-        _ = configuredPath
-        _ = userName
+        if let configuredPath = configuredPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !configuredPath.isEmpty,
+           isExecutable(configuredPath) {
+            return FileSearchRipgrepExecutable(url: URL(fileURLWithPath: configuredPath), prefixArguments: [])
+        }
 
-        for path in defaultSearchPaths where isExecutable(path) {
+        for path in defaultSearchPaths(userName: userName) where isExecutable(path) {
             return FileSearchRipgrepExecutable(url: URL(fileURLWithPath: path), prefixArguments: [])
         }
 
@@ -99,11 +102,17 @@ enum RipgrepExecutableResolver {
         return nil
     }
 
-    private static let defaultSearchPaths = [
-        "/opt/homebrew/bin/rg",
-        "/usr/local/bin/rg",
-        "/usr/bin/rg",
-    ]
+    private static func defaultSearchPaths(userName: String) -> [String] {
+        [
+            "/opt/homebrew/bin/rg",
+            "/usr/local/bin/rg",
+            "/opt/local/bin/rg",
+            "/usr/bin/rg",
+            "/etc/profiles/per-user/\(userName)/bin/rg",
+            "/run/current-system/sw/bin/rg",
+            "/nix/var/nix/profiles/default/bin/rg",
+        ]
+    }
 }
 
 @MainActor
