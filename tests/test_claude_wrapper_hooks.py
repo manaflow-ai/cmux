@@ -462,6 +462,7 @@ def test_missing_real_claude_reports_actionable_diagnostics(failures: list[str])
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-missing-real-") as td:
         tmp = Path(td)
         wrapper_dir = tmp / "wrapper-bin"
+        wrapper_alias_dir = tmp / "wrapper-bin-alias"
         searched_dir = tmp / "searched-bin"
         wrapper_dir.mkdir(parents=True, exist_ok=True)
         searched_dir.mkdir(parents=True, exist_ok=True)
@@ -471,9 +472,10 @@ def test_missing_real_claude_reports_actionable_diagnostics(failures: list[str])
         wrapper = wrapper_dir / "claude"
         shutil.copy2(SOURCE_WRAPPER, wrapper)
         wrapper.chmod(0o755)
+        wrapper_alias_dir.symlink_to(wrapper_dir, target_is_directory=True)
 
         env = os.environ.copy()
-        env["PATH"] = f"{wrapper_dir}:{searched_dir}:/usr/bin:/bin"
+        env["PATH"] = f"{wrapper_dir}:{wrapper_alias_dir}:{searched_dir}:/usr/bin:/bin"
         env.pop("CMUX_CUSTOM_CLAUDE_PATH", None)
 
         proc = subprocess.run(
@@ -489,6 +491,8 @@ def test_missing_real_claude_reports_actionable_diagnostics(failures: list[str])
     expect(proc.returncode == 127, f"missing real claude: expected exit 127, got {proc.returncode}: {stderr}", failures)
     expect("cmux claude wrapper could not find the real Claude Code executable" in stderr, f"missing real claude: expected wrapper-specific summary, got {stderr!r}", failures)
     expect(str(wrapper) in stderr, f"missing real claude: expected skipped wrapper path {wrapper}, got {stderr!r}", failures)
+    expect(str(wrapper_alias_dir / "claude") in stderr, f"missing real claude: expected aliased wrapper path, got {stderr!r}", failures)
+    expect("cmux wrapper (skipped)" in stderr, f"missing real claude: expected wrapper aliases to be labeled as skipped, got {stderr!r}", failures)
     expect(str(searched_dir / "claude") in stderr, f"missing real claude: expected searched PATH entry, got {stderr!r}", failures)
     expect("/opt/homebrew/bin/claude" in stderr, f"missing real claude: expected Apple Silicon npm path diagnostic, got {stderr!r}", failures)
     expect("/usr/local/bin/claude" in stderr, f"missing real claude: expected Intel/Homebrew npm path diagnostic, got {stderr!r}", failures)

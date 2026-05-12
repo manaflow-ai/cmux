@@ -17,25 +17,34 @@ claude_wrapper_dir() {
     cd "$(dirname "$0")" && pwd
 }
 
-# Find the real claude binary, skipping our own directory.
+is_real_claude_candidate() {
+    local path="$1"
+    [[ -f "$path" && -x "$path" ]] || return 1
+    [[ ! "$path" -ef "$0" ]] || return 1
+    return 0
+}
+
+# Find the real claude binary, rejecting any path that resolves back to this wrapper.
 find_real_claude() {
     # Honor custom path from Settings > Automation > Claude Code > Claude Binary Path.
     # Guard against self-reference (user pointing back to this wrapper).
     local custom
     custom="$(trim_claude_path "${CMUX_CUSTOM_CLAUDE_PATH:-}")"
-    if [[ -n "$custom" && -f "$custom" && -x "$custom" ]]; then
-        # Use -ef to detect same underlying file even through symlinks
-        if [[ ! "$custom" -ef "$0" ]]; then
-            printf '%s' "$custom"
-            return 0
-        fi
+    if [[ -n "$custom" ]] && is_real_claude_candidate "$custom"; then
+        printf '%s' "$custom"
+        return 0
     fi
     local self_dir
     self_dir="$(cd "$(dirname "$0")" && pwd)"
     local IFS=:
+    local d candidate
     for d in $PATH; do
         [[ "$d" == "$self_dir" ]] && continue
-        [[ -x "$d/claude" ]] && printf '%s' "$d/claude" && return 0
+        candidate="$d/claude"
+        if is_real_claude_candidate "$candidate"; then
+            printf '%s' "$candidate"
+            return 0
+        fi
     done
     return 1
 }
@@ -45,7 +54,7 @@ describe_claude_candidate() {
     if [[ -e "$path" || -L "$path" ]]; then
         if [[ "$path" -ef "$0" ]]; then
             printf 'cmux wrapper (skipped)'
-        elif [[ -f "$path" && -x "$path" ]]; then
+        elif is_real_claude_candidate "$path"; then
             printf 'executable'
         elif [[ -L "$path" && ! -e "$path" ]]; then
             printf 'broken symlink'
