@@ -200,10 +200,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotNil(connectedIndex, "Successful SSH redial must mark the pane as connected; recorded: \(recordedCalls)")
         XCTAssertNotNil(sessionEndIndex, "The terminal still reports final session end on wrapper exit; recorded: \(recordedCalls)")
         if let reconnectingIndex, let connectedIndex {
-            XCTAssertLessThan(reconnectingIndex, connectedIndex, recordedCalls)
+            XCTAssertLessThan(reconnectingIndex, connectedIndex, recordedCalls.joined(separator: "\n"))
         }
         if let connectedIndex, let sessionEndIndex {
-            XCTAssertLessThan(connectedIndex, sessionEndIndex, recordedCalls)
+            XCTAssertLessThan(connectedIndex, sessionEndIndex, recordedCalls.joined(separator: "\n"))
         }
         if let reconnectingIndex {
             XCTAssertTrue(recordedCalls[reconnectingIndex].contains("--attempt 1"), recordedCalls.joined(separator: "\n"))
