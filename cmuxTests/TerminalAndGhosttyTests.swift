@@ -3314,6 +3314,36 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         XCTWaiter().wait(for: [expectation], timeout: 1.0)
     }
 
+    func testPortalHostInstallsInsideContentViewInsteadOfThemeFrame() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView,
+              let themeFrame = contentView.superview else {
+            XCTFail("Expected AppKit content hierarchy")
+            return
+        }
+
+        let portal = WindowTerminalPortal(window: window)
+        _ = portal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
+
+        guard let host = contentView.subviews.first(where: { $0 is WindowTerminalHostView }) else {
+            XCTFail("Expected terminal portal host inside the app-owned content view")
+            return
+        }
+
+        XCTAssertTrue(host.superview === contentView)
+        XCTAssertFalse(
+            themeFrame.subviews.contains(where: { $0 === host }),
+            "The terminal portal must not mutate AppKit's private theme frame during window attachment"
+        )
+    }
+
     func testPortalHostInstallsAboveContentViewForVisibility() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
