@@ -762,6 +762,30 @@ openSettings = "cmd+option+,"
                 f"failed shortcut import changed cmux.json: before={before_shortcut_import} after={after_shortcut_import}"
             )
 
+        before_multi_conflict_import = read_config(home)
+        multi_conflict_config = json.loads(json.dumps(before_multi_conflict_import))
+        multi_conflict_config.setdefault("shortcuts", {}).setdefault("bindings", {})["closeWindow"] = "cmd+n"
+        config_path(home).write_text(json.dumps(multi_conflict_config), encoding="utf-8")
+        multi_conflict_import_path = home / "bad-shortcut-import-multiple-conflicts.json"
+        multi_conflict_import_path.write_text(
+            json.dumps({"shortcuts": {"bindings": {"openSettings": "cmd+n"}}}),
+            encoding="utf-8",
+        )
+        multi_conflict_import = run_cli(cli_path, ["settings", "import", str(multi_conflict_import_path)], home)
+        assert_fails(failures, "atomic shortcut import reports every conflict", multi_conflict_import, "conflicts with")
+        if "newTab" not in multi_conflict_import.stderr or "closeWindow" not in multi_conflict_import.stderr:
+            failures.append(
+                "atomic shortcut import did not report every conflicting action: "
+                f"stderr={multi_conflict_import.stderr!r}"
+            )
+        after_multi_conflict_import = read_config(home)
+        if after_multi_conflict_import != multi_conflict_config:
+            failures.append(
+                "failed multi-conflict shortcut import changed cmux.json: "
+                f"before={multi_conflict_config} after={after_multi_conflict_import}"
+            )
+        config_path(home).write_text(json.dumps(before_multi_conflict_import), encoding="utf-8")
+
         before_duplicate_action_import = read_config(home)
         duplicate_action_import_path = home / "duplicate-shortcut-action-import.json"
         duplicate_action_import_path.write_text(
@@ -812,6 +836,39 @@ openSettings = "cmd+option+,"
 
         config.setdefault("shortcuts", {}).setdefault("bindings", {})["legacyAction"] = "cmd+option+y"
         config_path(home).write_text(json.dumps(config), encoding="utf-8")
+
+        corrupt_config = read_config(home)
+        corrupt_config.setdefault("shortcuts", {}).setdefault("bindings", {})["openSettings"] = True
+        config_path(home).write_text(json.dumps(corrupt_config), encoding="utf-8")
+
+        corrupt_list = run_cli(cli_path, ["settings", "shortcuts", "list", "--json"], home)
+        assert_ok(failures, "shortcut list survives malformed binding", corrupt_list)
+        corrupt_list_payload = parse_json(failures, "shortcut list survives malformed binding", corrupt_list)
+        if isinstance(corrupt_list_payload, dict):
+            corrupt_row = shortcut_row(corrupt_list_payload, "openSettings")
+            if corrupt_row is None:
+                failures.append("shortcut list omitted malformed openSettings binding")
+            else:
+                assert_equal(failures, "malformed shortcut list source", corrupt_row.get("source"), "invalid")
+                if not corrupt_row.get("error"):
+                    failures.append(f"malformed shortcut row did not include an error: {corrupt_row}")
+
+        corrupt_get = run_cli(cli_path, ["settings", "shortcuts", "get", "openSettings", "--json"], home)
+        assert_ok(failures, "shortcut get survives malformed binding", corrupt_get)
+        corrupt_get_payload = parse_json(failures, "shortcut get survives malformed binding", corrupt_get)
+        if isinstance(corrupt_get_payload, dict):
+            assert_equal(failures, "malformed shortcut get source", corrupt_get_payload.get("source"), "invalid")
+            if not corrupt_get_payload.get("error"):
+                failures.append(f"malformed shortcut get did not include an error: {corrupt_get_payload}")
+
+        set_with_unrelated_corrupt_binding = run_cli(
+            cli_path,
+            ["settings", "shortcuts", "set", "focusDown", "cmd+option+shift+/"],
+            home,
+        )
+        assert_ok(failures, "shortcut set skips unrelated malformed binding during conflict scan", set_with_unrelated_corrupt_binding)
+        unset_corrupt_binding = run_cli(cli_path, ["settings", "shortcuts", "unset", "openSettings"], home)
+        assert_ok(failures, "shortcut unset removes malformed binding", unset_corrupt_binding)
 
         before_import = read_config(home)
         bad_import_path = home / "bad-import.json"
