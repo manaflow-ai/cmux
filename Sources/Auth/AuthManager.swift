@@ -63,7 +63,8 @@ protocol StackAuthTokenStoreProtocol: TokenStoreProtocol, Sendable {
     func clear() async
     func currentAccessToken() async -> String?
     func currentRefreshToken() async -> String?
-    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async
+    @discardableResult
+    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool
 }
 
 extension StackAuthTokenStoreProtocol {
@@ -83,7 +84,8 @@ extension StackAuthTokenStoreProtocol {
         await getStoredRefreshToken()
     }
 
-    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async {
+    @discardableResult
+    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool {
         let storedAccessToken = await currentAccessToken()
         let storedRefreshToken = await currentRefreshToken()
         guard authTokenSnapshotMatches(
@@ -92,9 +94,10 @@ extension StackAuthTokenStoreProtocol {
             expectedAccessToken: accessToken,
             expectedRefreshToken: refreshToken
         ) else {
-            return
+            return false
         }
         await clear()
+        return true
     }
 }
 
@@ -254,12 +257,19 @@ final class AuthManager: ObservableObject {
                     return
                 }
                 guard let callbackURL else { return }
+                let callbackPayload = AuthCallbackRouter.callbackPayload(from: callbackURL)
                 do {
                     try await self.handleCallbackURL(callbackURL)
                     if self.signOutCancelledBrowserSignInAttemptID == attemptID,
-                       self.activeBrowserSignInAttemptID == nil {
-                        await self.tokenStore.clear()
-                        self.clearSessionState(clearSelectedTeam: true)
+                       self.activeBrowserSignInAttemptID == nil,
+                       let callbackPayload {
+                        let didClear = await self.tokenStore.clearTokensIfCurrent(
+                            accessToken: callbackPayload.accessToken,
+                            refreshToken: callbackPayload.refreshToken
+                        )
+                        if didClear {
+                            self.clearSessionState(clearSelectedTeam: true)
+                        }
                         self.signOutCancelledBrowserSignInAttemptID = nil
                     }
                 } catch {
@@ -1025,13 +1035,14 @@ private actor FallbackTokenStore: StackAuthTokenStoreProtocol {
         await file.clearTokens()
     }
 
-    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async {
+    @discardableResult
+    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool {
         if keychainWorks {
-            await keychain.clearTokensIfCurrent(accessToken: accessToken, refreshToken: refreshToken)
-            await file.clearTokensIfCurrent(accessToken: accessToken, refreshToken: refreshToken)
-            return
+            let keychainCleared = await keychain.clearTokensIfCurrent(accessToken: accessToken, refreshToken: refreshToken)
+            let fileCleared = await file.clearTokensIfCurrent(accessToken: accessToken, refreshToken: refreshToken)
+            return keychainCleared || fileCleared
         }
-        await file.clearTokensIfCurrent(accessToken: accessToken, refreshToken: refreshToken)
+        return await file.clearTokensIfCurrent(accessToken: accessToken, refreshToken: refreshToken)
     }
 
     func compareAndSet(
@@ -1102,7 +1113,8 @@ private actor FileStackTokenStore: StackAuthTokenStoreProtocol {
         write(Snapshot(accessToken: nil, refreshToken: nil))
     }
 
-    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async {
+    @discardableResult
+    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool {
         let snapshot = loadIfNeeded()
         guard authTokenSnapshotMatches(
             currentAccessToken: snapshot.accessToken,
@@ -1111,10 +1123,11 @@ private actor FileStackTokenStore: StackAuthTokenStoreProtocol {
             expectedRefreshToken: refreshToken
         ) else {
             AuthManager.authLog("file.clearTokensIfCurrent: skipped stale clear")
-            return
+            return false
         }
         AuthManager.authLog("file.clearTokensIfCurrent: cleared matching tokens")
         write(Snapshot(accessToken: nil, refreshToken: nil))
+        return true
     }
 
     func compareAndSet(
@@ -1224,7 +1237,8 @@ private actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         keychainDelete(account: Self.refreshTokenAccount)
     }
 
-    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async {
+    @discardableResult
+    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool {
         let currentAccessToken = keychainRead(account: Self.accessTokenAccount)
         let currentRefreshToken = keychainRead(account: Self.refreshTokenAccount)
         guard authTokenSnapshotMatches(
@@ -1234,10 +1248,11 @@ private actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
             expectedRefreshToken: refreshToken
         ) else {
             AuthManager.authLog("keychain.clearTokensIfCurrent: skipped stale clear")
-            return
+            return false
         }
         AuthManager.authLog("keychain.clearTokensIfCurrent: cleared matching tokens")
         await clearTokens()
+        return true
     }
 
     func compareAndSet(

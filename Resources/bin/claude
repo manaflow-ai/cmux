@@ -341,35 +341,12 @@ claude_passthrough_option_flag() {
 claude_builtin_command_name() {
     case "$1" in
         agents|auth|auto-mode|config|api-key|daemon|doctor|install|mcp|\
-        plugin|plugins|project|rc|remote-control|setup-token|ultrareview|\
-        update|upgrade)
+        experimental-next|plugin|plugins|project|rc|remote-control|setup-token|\
+        ultrareview|update|upgrade)
             return 0
             ;;
     esac
     return 1
-}
-
-claude_help_lists_command() {
-    local candidate="$1"
-    [[ -n "$candidate" ]] || return 1
-
-    (
-        unset CLAUDECODE CMUX_SURFACE_ID CMUX_SOCKET_PATH
-        "$REAL_CLAUDE" --help
-    ) 2>/dev/null | awk -v candidate="$candidate" '
-        /^Commands:/ { in_commands = 1; next }
-        in_commands && /^[[:space:]]*$/ { exit }
-        in_commands && /^[[:space:]]+[[:alnum:]_-]+([|][[:alnum:]_-]+)*/ {
-            split($1, aliases, "|")
-            for (alias_index in aliases) {
-                if (aliases[alias_index] == candidate) {
-                    found = 1
-                    exit
-                }
-            }
-        }
-        END { exit found ? 0 : 1 }
-    '
 }
 
 claude_command_like_invocation() {
@@ -380,8 +357,7 @@ claude_command_like_invocation() {
             return 1
             ;;
     esac
-    claude_builtin_command_name "$candidate" && return 0
-    claude_help_lists_command "$candidate"
+    claude_builtin_command_name "$candidate"
 }
 
 should_inject_claude_hooks() {
