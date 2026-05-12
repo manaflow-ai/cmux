@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-struct TerminalTimestampScrollbarState: Equatable {
+nonisolated struct TerminalTimestampScrollbarState: Equatable, Sendable {
     let total: Int
     let offset: Int
     let len: Int
@@ -44,7 +44,7 @@ struct TerminalTimestampScrollbarState: Equatable {
     }
 }
 
-struct TerminalTimestampVisibleRow: Equatable {
+nonisolated struct TerminalTimestampVisibleRow: Equatable, Sendable {
     let row: Int
     let timestamp: Date
 }
@@ -66,6 +66,7 @@ final class TerminalTimestampStore {
         at date: Date,
         markVisibleRows: Bool
     ) {
+        let visibleRows = visibleRange(for: scrollbar)
         if let previous = lastScrollbar {
             if scrollbar.total < previous.total {
                 pruneRows(atOrAbove: scrollbar.total)
@@ -77,10 +78,10 @@ final class TerminalTimestampStore {
             }
         }
 
-        prune(forTotalRows: scrollbar.total)
+        prune(forTotalRows: scrollbar.total, preserving: visibleRows)
 
         if markVisibleRows {
-            for row in visibleRange(for: scrollbar) where timestampsByRow[row] == nil {
+            for row in visibleRows where timestampsByRow[row] == nil {
                 recordTimestamp(for: row, at: date)
             }
         }
@@ -119,14 +120,42 @@ final class TerminalTimestampStore {
         refreshNewestTrackedRow(startingAt: upperBound - 1)
     }
 
-    private func prune(forTotalRows totalRows: Int) {
+    private func prune(forTotalRows totalRows: Int, preserving preservedRows: Range<Int>) {
         let minimumRow = max(0, totalRows - maxRetainedRows)
         guard let oldestTrackedRow, oldestTrackedRow < minimumRow else { return }
 
+        let previousNewestTrackedRow = newestTrackedRow
+        var preservedOldestRow: Int?
+        var preservedNewestRow: Int?
         for row in oldestTrackedRow..<minimumRow {
+            if preservedRows.contains(row), timestampsByRow[row] != nil {
+                preservedOldestRow = min(preservedOldestRow ?? row, row)
+                preservedNewestRow = max(preservedNewestRow ?? row, row)
+                continue
+            }
             timestampsByRow.removeValue(forKey: row)
         }
-        refreshOldestTrackedRow(startingAt: minimumRow)
+
+        guard !timestampsByRow.isEmpty else {
+            clearTrackedBounds()
+            return
+        }
+
+        if let preservedOldestRow {
+            oldestTrackedRow = preservedOldestRow
+            if let previousNewestTrackedRow, previousNewestTrackedRow >= minimumRow {
+                newestTrackedRow = previousNewestTrackedRow
+            } else {
+                newestTrackedRow = preservedNewestRow
+            }
+            return
+        }
+
+        if let previousNewestTrackedRow, previousNewestTrackedRow >= minimumRow {
+            refreshOldestTrackedRow(startingAt: minimumRow)
+        } else {
+            clearTrackedBounds()
+        }
     }
 
     private func refreshOldestTrackedRow(startingAt row: Int) {
