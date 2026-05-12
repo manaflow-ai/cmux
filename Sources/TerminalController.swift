@@ -3252,7 +3252,7 @@ class TerminalController {
         }
         do {
             var preparedParams = params
-            preparedParams[Self.v2ResolvedExtensionBundleParamKey] = try ExtensionBundleDescriptor.resolveUserSelected(path: bundlePath)
+            preparedParams[Self.v2ResolvedExtensionBundleParamKey] = try ExtensionBundleDescriptor.resolve(path: bundlePath)
             return .ok(preparedParams)
         } catch {
             return .err(
