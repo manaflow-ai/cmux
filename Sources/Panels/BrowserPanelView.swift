@@ -4969,27 +4969,17 @@ struct WebViewRepresentable: NSViewRepresentable {
                 webView.setNeedsDisplay(webView.bounds)
             }
 
-            localInlineSlotView.layoutSubtreeIfNeeded()
-            layoutSubtreeIfNeeded()
-
             for webView in hostedWebKitSubviews {
                 if let scrollView = webView.enclosingScrollView {
-                    scrollView.layoutSubtreeIfNeeded()
-                    scrollView.contentView.layoutSubtreeIfNeeded()
-                    scrollView.displayIfNeeded()
+                    scrollView.needsLayout = true
+                    scrollView.contentView.needsLayout = true
                 }
-                webView.layoutSubtreeIfNeeded()
                 if forceLifecycleRefresh {
                     webView.cmuxBrowserPanelForceRenderingStateRefresh(reason: reason)
                 } else {
                     webView.cmuxBrowserPanelReattachRenderingState(reason: reason)
                 }
-                webView.displayIfNeeded()
             }
-
-            localInlineSlotView.displayIfNeeded()
-            displayIfNeeded()
-            window?.displayIfNeeded()
         }
 
         func prepareForWindowPortalHosting() {
@@ -6398,9 +6388,8 @@ struct WebViewRepresentable: NSViewRepresentable {
             let didRevealDeveloperToolsAfterAttach =
                 !wasDeveloperToolsVisible && panel.isDeveloperToolsVisible()
             webView.needsLayout = true
-            webView.layoutSubtreeIfNeeded()
-            slotView.layoutSubtreeIfNeeded()
-            host.layoutSubtreeIfNeeded()
+            slotView.needsLayout = true
+            host.needsLayout = true
             host.refreshHostedWebKitPresentation(
                 reason: didAttachWebViewToLocalHost
                     ? "localInline.update.immediate"

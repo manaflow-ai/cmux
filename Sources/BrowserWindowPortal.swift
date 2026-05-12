@@ -2561,21 +2561,15 @@ final class WindowBrowserPortal: NSObject {
             webKitSubview.setNeedsDisplay(webKitSubview.bounds)
         }
 
-        containerView.layoutSubtreeIfNeeded()
         for webKitSubview in hostedWebKitSubviews {
             if let scrollView = webKitSubview.enclosingScrollView {
-                scrollView.layoutSubtreeIfNeeded()
-                scrollView.contentView.layoutSubtreeIfNeeded()
-                scrollView.displayIfNeeded()
+                scrollView.needsLayout = true
+                scrollView.contentView.needsLayout = true
             }
-            webKitSubview.layoutSubtreeIfNeeded()
             if reattachRenderingState {
                 webKitSubview.browserPortalReattachRenderingState(reason: "\(reason):\(phase)")
             }
-            webKitSubview.displayIfNeeded()
         }
-        containerView.displayIfNeeded()
-        (containerView.window ?? webView.window ?? hostView.window)?.displayIfNeeded()
 #if DEBUG
         cmuxDebugLog(
             "\(reattachRenderingState ? "browser.portal.refresh" : "browser.portal.invalidate") " +

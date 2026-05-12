@@ -6579,8 +6579,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // Recompute from settled bounds after AppKit finishes the move-to-window
             // lifecycle turn. Forcing layout directly inside viewDidMoveToWindow can
             // recurse through NSHostingView during portal reparent/layout churn.
-            self.superview?.layoutSubtreeIfNeeded()
-            self.layoutSubtreeIfNeeded()
             self.updateSurfaceSize()
             self.applySurfaceBackground()
             self.applySurfaceColorScheme(force: true)
