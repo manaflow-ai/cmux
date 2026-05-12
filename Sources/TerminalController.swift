@@ -5144,6 +5144,7 @@ class TerminalController {
                 _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)
             } else {
                 PortScanner.shared.registerTTY(workspaceId: workspaceId, panelId: surfaceId, ttyName: ttyName)
+                AppDelegate.requestRestorableAgentProcessSnapshotRefresh(reason: "surface.report_tty")
             }
 
             result = .ok([
@@ -5312,6 +5313,7 @@ class TerminalController {
                 tab.kickRemotePortScan(panelId: surfaceId, reason: reason)
             } else {
                 PortScanner.shared.kick(workspaceId: workspaceId, panelId: surfaceId)
+                AppDelegate.requestRestorableAgentProcessSnapshotRefresh(reason: "surface.ports_kick")
             }
 
             result = .ok([
@@ -17101,6 +17103,7 @@ class TerminalController {
                     _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: scope.panelId)
                 } else {
                     PortScanner.shared.registerTTY(workspaceId: scope.workspaceId, panelId: scope.panelId, ttyName: ttyName)
+                    AppDelegate.requestRestorableAgentProcessSnapshotRefresh(reason: "report_tty")
                 }
             }
             return "OK"
@@ -17145,6 +17148,7 @@ class TerminalController {
                 _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)
             } else {
                 PortScanner.shared.registerTTY(workspaceId: tab.id, panelId: surfaceId, ttyName: ttyName)
+                AppDelegate.requestRestorableAgentProcessSnapshotRefresh(reason: "report_tty")
             }
         }
         return result
@@ -17175,6 +17179,7 @@ class TerminalController {
                     tab.kickRemotePortScan(panelId: scope.panelId, reason: reason)
                 } else {
                     PortScanner.shared.kick(workspaceId: scope.workspaceId, panelId: scope.panelId)
+                    AppDelegate.requestRestorableAgentProcessSnapshotRefresh(reason: "ports_kick")
                 }
             }
             return "OK"
@@ -17211,6 +17216,7 @@ class TerminalController {
                 tab.kickRemotePortScan(panelId: surfaceId, reason: reason)
             } else {
                 PortScanner.shared.kick(workspaceId: tab.id, panelId: surfaceId)
+                AppDelegate.requestRestorableAgentProcessSnapshotRefresh(reason: "ports_kick")
             }
         }
         return result

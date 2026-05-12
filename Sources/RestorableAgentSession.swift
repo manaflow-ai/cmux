@@ -481,6 +481,8 @@ struct RestorableAgentSessionIndex: Sendable {
         let panelId: UUID
     }
 
+    typealias DetectedSnapshots = [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)]
+
     private let snapshotsByPanel: [PanelKey: SessionRestorableAgentSnapshot]
 
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
@@ -519,14 +521,14 @@ struct RestorableAgentSessionIndex: Sendable {
         }.value
     }
 
-    private static func load(
+    static func load(
         homeDirectory: String,
         fileManager: FileManager,
         registry: CmuxVaultAgentRegistry,
-        detectedSnapshots: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)]
+        detectedSnapshots: DetectedSnapshots
     ) -> RestorableAgentSessionIndex {
         let decoder = JSONDecoder()
-        var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
+        var resolved: DetectedSnapshots = [:]
         let builtInKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
         let hookKinds: [(kind: RestorableAgentKind, registration: CmuxVaultAgentRegistration?)] =
             RestorableAgentKind.allCases.map { (kind: $0, registration: nil) }

@@ -862,6 +862,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
+    private let restorableAgentSessionIndexProvider = RestorableAgentSessionIndexProvider()
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
@@ -3092,6 +3093,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sessionAutosaveDeferredRetryPending = false
     }
 
+    nonisolated static func requestRestorableAgentProcessSnapshotRefresh(reason: String) {
+        Task { @MainActor in
+            AppDelegate.shared?.requestRestorableAgentProcessSnapshotRefresh(reason: reason)
+        }
+    }
+
+    private func requestRestorableAgentProcessSnapshotRefresh(reason: String) {
+        Task {
+            await restorableAgentSessionIndexProvider.requestProcessDetectedSnapshotRefresh(reason: reason)
+        }
+    }
+
     private func installLifecycleSnapshotObserversIfNeeded() {
         guard !didInstallLifecycleSnapshotObservers else { return }
         didInstallLifecycleSnapshotObservers = true
@@ -3401,7 +3414,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let fingerprintStart = ProcessInfo.processInfo.systemUptime
 #endif
-        let restorableAgentIndex = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+        let restorableAgentIndex = await restorableAgentSessionIndexProvider.indexForAutosave()
         let autosaveFingerprint = sessionAutosaveFingerprint(
             includeScrollback: false,
             restorableAgentIndex: restorableAgentIndex
