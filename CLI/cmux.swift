@@ -17389,22 +17389,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 let existingContent: String = fm.fileExists(atPath: configPath)
                     ? ((try? String(contentsOfFile: configPath, encoding: .utf8)) ?? "")
                     : ""
-                let newContent: String
-                if existingContent.contains("codex_hooks") {
-                    // Replace existing value (might be false) with true
-                    newContent = existingContent.replacingOccurrences(
-                        of: "codex_hooks\\s*=\\s*\\w+",
-                        with: "codex_hooks = true",
-                        options: .regularExpression
-                    )
-                } else if existingContent.contains("[features]") {
-                    newContent = existingContent.replacingOccurrences(
-                        of: "[features]",
-                        with: "[features]\ncodex_hooks = true"
-                    )
-                } else {
-                    newContent = existingContent + "\n[features]\ncodex_hooks = true\n"
-                }
+                let newContent = Self.codexConfigTomlInstallingHooksFeature(in: existingContent)
                 if newContent != existingContent {
                     if !skipConfirm {
                         Self.printInstallPreview(
@@ -17503,18 +17488,80 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 guard fm.fileExists(atPath: configPath),
                       let content = try? String(contentsOfFile: configPath, encoding: .utf8),
                       content.contains("codex_hooks") else { return }
-                // Remove the codex_hooks line
-                let newContent = content.replacingOccurrences(
-                    of: "\\n?codex_hooks\\s*=\\s*\\w+",
-                    with: "",
-                    options: .regularExpression
-                )
+                let newContent = Self.codexConfigTomlUninstallingHooksFeature(from: content)
                 if newContent != content {
                     try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
                     print("Removed codex_hooks from \(configPath)")
                 }
             }
         }
+    }
+
+    private static func codexConfigTomlInstallingHooksFeature(in existingContent: String) -> String {
+        var lines = tomlLines(from: existingContent)
+        if let existingKeyIndex = lines.firstIndex(where: { tomlLineDefinesCodexHooksKey($0) }) {
+            lines[existingKeyIndex] = "codex_hooks = true"
+            return tomlContent(from: lines)
+        }
+        if let existingDottedKeyIndex = lines.firstIndex(where: { tomlLineDefinesDottedCodexHooksKey($0) }) {
+            lines[existingDottedKeyIndex] = "features.codex_hooks = true"
+            return tomlContent(from: lines)
+        }
+
+        if let featuresStart = lines.firstIndex(where: { tomlLineIsTable("features", line: $0) }) {
+            lines.insert("codex_hooks = true", at: featuresStart + 1)
+        } else {
+            if !lines.isEmpty, lines.last?.isEmpty == false {
+                lines.append("")
+            }
+            lines.append("[features]")
+            lines.append("codex_hooks = true")
+        }
+        return tomlContent(from: lines)
+    }
+
+    private static func codexConfigTomlUninstallingHooksFeature(from existingContent: String) -> String {
+        var lines = tomlLines(from: existingContent)
+        lines.removeAll {
+            tomlLineDefinesCodexHooksKey($0) || tomlLineDefinesDottedCodexHooksKey($0)
+        }
+        return tomlContent(from: lines)
+    }
+
+    private static func tomlLines(from content: String) -> [String] {
+        guard !content.isEmpty else { return [] }
+        var lines = content.components(separatedBy: "\n")
+        if content.hasSuffix("\n"), lines.last == "" {
+            lines.removeLast()
+        }
+        return lines
+    }
+
+    private static func tomlContent(from lines: [String]) -> String {
+        guard !lines.isEmpty else { return "" }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private static func tomlLineDefinesCodexHooksKey(_ line: String) -> Bool {
+        line.range(
+            of: #"^\s*codex_hooks\s*="#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private static func tomlLineDefinesDottedCodexHooksKey(_ line: String) -> Bool {
+        line.range(
+            of: #"^\s*features\s*\.\s*codex_hooks\s*="#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private static func tomlLineIsTable(_ name: String, line: String) -> Bool {
+        let escapedName = NSRegularExpression.escapedPattern(for: name)
+        return line.range(
+            of: #"^\s*\[\s*"# + escapedName + #"\s*\]\s*(#.*)?$"#,
+            options: .regularExpression
+        ) != nil
     }
 
     // MARK: Generic hook handler

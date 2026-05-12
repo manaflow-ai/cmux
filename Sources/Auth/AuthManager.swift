@@ -405,6 +405,7 @@ final class AuthManager: ObservableObject {
             accessToken: payload.accessToken,
             refreshToken: payload.refreshToken
         )
+        lastKnownAccessToken = payload.accessToken
         try await refreshSession()
         didCompleteBrowserSignIn = true
     }
@@ -431,6 +432,7 @@ final class AuthManager: ObservableObject {
         }
 
         await tokenStore.setTokens(accessToken: resolvedAccess, refreshToken: refreshToken)
+        lastKnownAccessToken = resolvedAccess
         do {
             try await refreshSession()
             authLog("seedTokensFromCLI: success user=\(currentUser?.primaryEmail ?? "nil")")
@@ -526,6 +528,7 @@ final class AuthManager: ObservableObject {
             throw AuthManagerError.invalidCallback
         }
         await tokenStore.setTokens(accessToken: accessToken, refreshToken: refreshToken)
+        lastKnownAccessToken = accessToken
 
         // Fetch user info directly with the access token
         let userJSON = try await Self.stackAPIRequest(
@@ -578,12 +581,17 @@ final class AuthManager: ObservableObject {
         clearSessionState(clearSelectedTeam: true)
     }
 
-    /// Cached access token for fast synchronous reads (no actor hops).
+    /// Cached access token for fast reads after sign-in or session restoration.
     private var lastKnownAccessToken: String?
 
     func getAccessToken() async throws -> String {
+        await awaitBootstrapped()
         if let cached = lastKnownAccessToken, !cached.isEmpty {
             return cached
+        }
+        if let stored = await tokenStore.currentAccessToken(), !stored.isEmpty {
+            lastKnownAccessToken = stored
+            return stored
         }
         throw AuthManagerError.missingAccessToken
     }
@@ -684,6 +692,9 @@ final class AuthManager: ObservableObject {
         }
         let hasRefreshToken = await tokenStore.currentRefreshToken() != nil
         authLog("refreshSession: user=\(user?.primaryEmail ?? "nil") teams=\(teams.count) hasRefresh=\(hasRefreshToken)")
+        if let accessToken = await tokenStore.currentAccessToken(), !accessToken.isEmpty {
+            lastKnownAccessToken = accessToken
+        }
         currentUser = user
         settingsStore.saveCachedUser(user)
         availableTeams = teams
@@ -692,6 +703,7 @@ final class AuthManager: ObservableObject {
     }
 
     private func clearSessionState(clearSelectedTeam: Bool) {
+        lastKnownAccessToken = nil
         availableTeams = []
         currentUser = nil
         isAuthenticated = false
