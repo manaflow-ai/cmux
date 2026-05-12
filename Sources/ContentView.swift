@@ -6962,6 +6962,22 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.workspaceHasSplits) }
             )
         )
+        for (commandId, action, directionKeyword) in [
+            ("palette.resizePaneLeft", KeyboardShortcutSettings.Action.resizePaneLeft, "left"),
+            ("palette.resizePaneRight", .resizePaneRight, "right"),
+            ("palette.resizePaneUp", .resizePaneUp, "up"),
+            ("palette.resizePaneDown", .resizePaneDown, "down"),
+        ] {
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: commandId,
+                    title: constant(action.label),
+                    subtitle: workspaceSubtitle,
+                    keywords: ["split", "pane", "resize", "divider", directionKeyword],
+                    when: { $0.bool(CommandPaletteContextKeys.workspaceHasSplits) }
+                )
+            )
+        }
 
         let cmuxConfigDefaultSubtitle = String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json")
         for issue in cmuxConfigStore.configurationIssues {
@@ -7492,6 +7508,21 @@ struct ContentView: View {
 #if DEBUG
                 cmuxDebugLog("palette.equalizeSplits result=noSplitOrFailed workspaceId=\(workspace.id)")
 #endif
+            }
+        }
+        for (commandId, direction) in [
+            ("palette.resizePaneLeft", ResizeDirection.left),
+            ("palette.resizePaneRight", .right),
+            ("palette.resizePaneUp", .up),
+            ("palette.resizePaneDown", .down),
+        ] {
+            registry.register(commandId: commandId) {
+                if AppDelegate.shared?.performResizePaneShortcut(
+                    direction: direction,
+                    preferredWindow: observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+                ) != true {
+                    NSSound.beep()
+                }
             }
         }
 

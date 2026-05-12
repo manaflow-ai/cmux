@@ -243,6 +243,13 @@
           "default": true,
           "description": "When cmux is inactive, the first click can activate and focus the clicked pane."
         },
+        "paneResizeStepPixels": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 20,
+          "description": "Pixels moved per keypress when using pane-resize shortcuts."
+        },
         "preferredEditor": {
           "type": "string",
           "default": "",
@@ -760,6 +767,10 @@
               "splitDown",
               "toggleSplitZoom",
               "equalizeSplits",
+              "resize-pane-left",
+              "resize-pane-right",
+              "resize-pane-up",
+              "resize-pane-down",
               "splitBrowserRight",
               "splitBrowserDown",
               "toggleFileExplorer",

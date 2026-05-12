@@ -762,6 +762,22 @@ struct cmuxApp: App {
             }
 
             equalizeSplitsCommandButton()
+
+            splitCommandButton(title: KeyboardShortcutSettings.Action.resizePaneLeft.label, shortcut: menuShortcut(for: .resizePaneLeft)) {
+                _ = AppDelegate.shared?.performResizePaneShortcut(direction: .left)
+            }
+
+            splitCommandButton(title: KeyboardShortcutSettings.Action.resizePaneRight.label, shortcut: menuShortcut(for: .resizePaneRight)) {
+                _ = AppDelegate.shared?.performResizePaneShortcut(direction: .right)
+            }
+
+            splitCommandButton(title: KeyboardShortcutSettings.Action.resizePaneUp.label, shortcut: menuShortcut(for: .resizePaneUp)) {
+                _ = AppDelegate.shared?.performResizePaneShortcut(direction: .up)
+            }
+
+            splitCommandButton(title: KeyboardShortcutSettings.Action.resizePaneDown.label, shortcut: menuShortcut(for: .resizePaneDown)) {
+                _ = AppDelegate.shared?.performResizePaneShortcut(direction: .down)
+            }
             Divider()
 
             // Numbered workspace selection (9 = last workspace)
@@ -5009,6 +5025,8 @@ struct SettingsView: View {
     private var closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
     @AppStorage(PaneFirstClickFocusSettings.enabledKey)
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
+    @AppStorage(PaneResizeStepSettings.key)
+    private var paneResizeStepPixels = PaneResizeStepSettings.defaultPixels
     @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
     private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
     @AppStorage(FileDropBehaviorSettings.defaultBehaviorKey)
@@ -5099,6 +5117,13 @@ struct SettingsView: View {
         Binding(
             get: { keepWorkspaceOpenOnLastSurfaceShortcut },
             set: { closeWorkspaceOnLastSurfaceShortcut = !$0 }
+        )
+    }
+
+    private var paneResizeStepPixelsBinding: Binding<Int> {
+        Binding(
+            get: { PaneResizeStepSettings.normalizedPixels(paneResizeStepPixels) },
+            set: { paneResizeStepPixels = PaneResizeStepSettings.normalizedPixels($0) }
         )
     }
 
@@ -6806,6 +6831,28 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
+                            configurationReview: .json("app.paneResizeStepPixels"),
+                            String(localized: "settings.shortcuts.paneResizeStep", defaultValue: "Pane Resize Step"),
+                            subtitle: String(localized: "settings.shortcuts.paneResizeStep.subtitle", defaultValue: "Pixels moved each time a pane-resize shortcut repeats."),
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "pane-resize-step")
+                        ) {
+                            Stepper(value: paneResizeStepPixelsBinding, in: PaneResizeStepSettings.minimumPixels...PaneResizeStepSettings.maximumPixels) {
+                                Text(
+                                    String(
+                                        format: String(localized: "settings.shortcuts.paneResizeStep.value", defaultValue: "%d px"),
+                                        paneResizeStepPixels
+                                    )
+                                )
+                                .monospacedDigit()
+                                .frame(minWidth: 56, alignment: .trailing)
+                            }
+                            .controlSize(.small)
+                            .accessibilityIdentifier("SettingsPaneResizeStepStepper")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
                             configurationReview: .settingsOnly,
                             String(localized: "settings.shortcuts.resetDefaults", defaultValue: "Reset Default Shortcuts"),
                             subtitle: String(localized: "settings.shortcuts.resetDefaults.subtitle", defaultValue: "Restore built-in shortcut values for shortcuts managed in app settings."),
@@ -7242,6 +7289,7 @@ struct SettingsView: View {
         defaults.removeObject(forKey: WorkspaceButtonFadeSettings.legacyPaneTabBarControlsVisibilityModeKey)
         closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
         paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
+        paneResizeStepPixels = PaneResizeStepSettings.defaultPixels
         let previousShowTerminalScrollBar = showTerminalScrollBar
         showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
         if previousShowTerminalScrollBar != showTerminalScrollBar {

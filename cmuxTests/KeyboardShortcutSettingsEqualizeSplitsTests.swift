@@ -35,6 +35,47 @@ final class KeyboardShortcutSettingsEqualizeSplitsTests: XCTestCase {
         )
     }
 
+    func testSettingsFileStoreParsesPaneResizeShortcutAndStep() throws {
+        let originalStep = UserDefaults.standard.object(forKey: PaneResizeStepSettings.key)
+        defer {
+            if let originalStep {
+                UserDefaults.standard.set(originalStep, forKey: PaneResizeStepSettings.key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: PaneResizeStepSettings.key)
+            }
+        }
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "paneResizeStepPixels": 36
+              },
+              "shortcuts": {
+                "resize-pane-left": "ctrl+shift+h"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            store.override(for: .resizePaneLeft),
+            StoredShortcut(key: "h", command: false, shift: true, option: false, control: true)
+        )
+        XCTAssertEqual(PaneResizeStepSettings.currentPixels(), 36)
+    }
+
     func testSettingsFileStoreParsesSystemWideHotkeyWithoutSharedStoreRecursion() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }

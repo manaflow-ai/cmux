@@ -69443,6 +69443,57 @@
         }
       }
     },
+    "settings.shortcuts.paneResizeStep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane Resize Step"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインのリサイズ幅"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.paneResizeStep.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pixels moved each time a pane-resize shortcut repeats."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインリサイズのショートカットがリピートするたびに移動するピクセル数です。"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.paneResizeStep.value": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d px"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d px"
+          }
+        }
+      }
+    },
     "settings.shortcuts.resetDefaults": {
       "extractionState": "manual",
       "localizations": {
@@ -79453,6 +79504,23 @@
             }
         }
     },
+    "settings.search.alias.setting.keyboardShortcuts.pane-resize-step": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "pane resize split step pixels key repeat keybindings ctrl shift h j k l"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "pane resize split step pixels key repeat keybindings ctrl shift h j k l ペイン リサイズ 分割 ピクセル キーリピート"
+                }
+            }
+        }
+    },
     "settings.search.alias.setting.keyboardShortcuts.shortcuts": {
         "extractionState": "manual",
         "localizations": {
@@ -85511,6 +85579,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Вирівняти розділення"
+          }
+        }
+      }
+    },
+    "shortcut.resizePaneDown.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resize Pane Down"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインを下にリサイズ"
+          }
+        }
+      }
+    },
+    "shortcut.resizePaneLeft.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resize Pane Left"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインを左にリサイズ"
+          }
+        }
+      }
+    },
+    "shortcut.resizePaneRight.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resize Pane Right"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインを右にリサイズ"
+          }
+        }
+      }
+    },
+    "shortcut.resizePaneUp.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resize Pane Up"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインを上にリサイズ"
           }
         }
       }
