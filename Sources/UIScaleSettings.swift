@@ -11,12 +11,10 @@ enum UIScaleSettings {
     static let maximum = 2.0
     static let keyboardStep = 0.1
     private static let logger = Logger(subsystem: "ai.manaflow.cmux", category: "UIScaleSettings")
-    private static let persistenceQueue = DispatchQueue(label: "ai.manaflow.cmux.ui-scale-settings")
-    private static let persistenceDebounceInterval: TimeInterval = 0.15
-    private static let persistenceStateLock = NSLock()
-    private static var pendingPersistenceWorkItem: DispatchWorkItem?
-    private static var latestPersistenceGeneration: UInt64 = 0
-    private static var completedPersistenceGeneration: UInt64 = 0
+    private static let persistenceCoordinator = UIScaleSettingsPersistenceCoordinator()
+    private static let pendingPersistenceDomainName = "ai.manaflow.cmux.ui-scale-settings.pending"
+    private static let pendingPersistenceIdentifierKey = "identifier"
+    private static let pendingPersistenceValueKey = "value"
 
     static func clamped(_ value: Double) -> Double {
         min(max(value, minimum), maximum)
@@ -40,10 +38,22 @@ enum UIScaleSettings {
         let next = roundedForPersistence(clamped(value))
         defaults.set(next, forKey: userDefaultsKey)
         if persistToSettingsFile {
-            persistAppUIScaleInBackground(
-                next,
-                settingsFileStore: settingsFileStore ?? KeyboardShortcutSettings.settingsFileStore
-            )
+            let requestIdentifier = UUID().uuidString
+            let store = settingsFileStore ?? KeyboardShortcutSettings.settingsFileStore
+            recordPendingPersistence(value: next, identifier: requestIdentifier, defaults: defaults)
+            Task {
+                await persistenceCoordinator.schedule(
+                    value: next,
+                    identifier: requestIdentifier,
+                    defaults: defaults,
+                    settingsFileStore: store
+                )
+            }
+        } else {
+            clearPendingPersistence(defaults: defaults)
+            Task {
+                await persistenceCoordinator.cancel()
+            }
         }
         notificationCenter.post(name: didChangeNotification, object: nil, userInfo: ["value": next])
         return next
@@ -78,61 +88,129 @@ enum UIScaleSettings {
     ) -> Bool {
         let persisted = roundedForPersistence(value)
         let current = roundedForPersistence(resolved(defaults: defaults))
-        persistenceStateLock.lock()
-        let hasPendingLocalPersistence = completedPersistenceGeneration < latestPersistenceGeneration
-        persistenceStateLock.unlock()
-        return !hasPendingLocalPersistence || persisted == current
+        guard let pending = pendingPersistence(defaults: defaults) else {
+            return true
+        }
+        return roundedForPersistence(pending.value) != current || persisted == current
     }
 
-    private static func persistAppUIScaleInBackground(
-        _ value: Double,
+    fileprivate static func completePendingPersistence(
+        identifier: String,
+        defaults: UserDefaults,
         settingsFileStore: CmuxSettingsFileStore
     ) {
-        let generation = nextPersistenceGeneration()
-        let workItem = DispatchWorkItem {
-            guard isCurrentPersistenceGeneration(generation) else { return }
+        guard isPendingPersistenceCurrent(identifier: identifier, defaults: defaults) else {
+            return
+        }
+        clearPendingPersistence(defaults: defaults)
+        settingsFileStore.reload()
+    }
+
+    fileprivate static func failPendingPersistence(
+        identifier: String,
+        defaults: UserDefaults,
+        error: Error
+    ) {
+        if isPendingPersistenceCurrent(identifier: identifier, defaults: defaults) {
+            clearPendingPersistence(defaults: defaults)
+        }
+        logger.error(
+            "Failed to persist \(jsonPath, privacy: .public): \(String(describing: error), privacy: .public)"
+        )
+    }
+
+    fileprivate static func isPendingPersistenceCurrent(
+        identifier: String,
+        defaults: UserDefaults
+    ) -> Bool {
+        pendingPersistence(defaults: defaults)?.identifier == identifier
+    }
+
+    private static func recordPendingPersistence(
+        value: Double,
+        identifier: String,
+        defaults: UserDefaults
+    ) {
+        // Volatile defaults make the synchronous settings-file parser aware of
+        // an in-flight local write without adding a lock or blocking queue.
+        defaults.setVolatileDomain(
+            [
+                pendingPersistenceIdentifierKey: identifier,
+                pendingPersistenceValueKey: roundedForPersistence(value),
+            ],
+            forName: pendingPersistenceDomainName
+        )
+    }
+
+    private static func pendingPersistence(defaults: UserDefaults) -> (identifier: String, value: Double)? {
+        let domain = defaults.volatileDomain(forName: pendingPersistenceDomainName)
+        guard let identifier = domain[pendingPersistenceIdentifierKey] as? String,
+              let number = domain[pendingPersistenceValueKey] as? NSNumber else {
+            return nil
+        }
+        return (identifier, number.doubleValue)
+    }
+
+    private static func clearPendingPersistence(defaults: UserDefaults) {
+        defaults.removeVolatileDomain(forName: pendingPersistenceDomainName)
+    }
+}
+
+private actor UIScaleSettingsPersistenceCoordinator {
+    private static let debounceDuration: Duration = .milliseconds(150)
+
+    private var pendingTask: Task<Void, Never>?
+
+    func schedule(
+        value: Double,
+        identifier: String,
+        defaults: UserDefaults,
+        settingsFileStore: CmuxSettingsFileStore
+    ) async {
+        let isCurrent = await MainActor.run {
+            UIScaleSettings.isPendingPersistenceCurrent(
+                identifier: identifier,
+                defaults: defaults
+            )
+        }
+        guard isCurrent else { return }
+        pendingTask?.cancel()
+        pendingTask = Task {
             do {
-                try settingsFileStore.writeAppUIScale(value)
-                completePersistenceGeneration(generation)
-                DispatchQueue.main.async {
-                    guard isCurrentPersistenceGeneration(generation) else { return }
-                    settingsFileStore.reload()
+                try await Task.sleep(for: Self.debounceDuration)
+                try Task.checkCancellation()
+                let shouldWrite = await MainActor.run {
+                    UIScaleSettings.isPendingPersistenceCurrent(
+                        identifier: identifier,
+                        defaults: defaults
+                    )
                 }
+                guard shouldWrite else { return }
+                try settingsFileStore.writeAppUIScale(value)
+                try Task.checkCancellation()
+                await MainActor.run {
+                    UIScaleSettings.completePendingPersistence(
+                        identifier: identifier,
+                        defaults: defaults,
+                        settingsFileStore: settingsFileStore
+                    )
+                }
+            } catch is CancellationError {
             } catch {
-                completePersistenceGeneration(generation)
-                logger.error(
-                    "Failed to persist \(jsonPath, privacy: .public): \(String(describing: error), privacy: .public)"
-                )
+                await MainActor.run {
+                    UIScaleSettings.failPendingPersistence(
+                        identifier: identifier,
+                        defaults: defaults,
+                        error: error
+                    )
+                }
             }
         }
-        persistenceStateLock.lock()
-        pendingPersistenceWorkItem?.cancel()
-        pendingPersistenceWorkItem = workItem
-        persistenceStateLock.unlock()
-        persistenceQueue.asyncAfter(deadline: .now() + persistenceDebounceInterval, execute: workItem)
     }
 
-    private static func nextPersistenceGeneration() -> UInt64 {
-        persistenceStateLock.lock()
-        latestPersistenceGeneration &+= 1
-        let generation = latestPersistenceGeneration
-        persistenceStateLock.unlock()
-        return generation
-    }
-
-    private static func isCurrentPersistenceGeneration(_ generation: UInt64) -> Bool {
-        persistenceStateLock.lock()
-        let isCurrent = generation == latestPersistenceGeneration
-        persistenceStateLock.unlock()
-        return isCurrent
-    }
-
-    private static func completePersistenceGeneration(_ generation: UInt64) {
-        persistenceStateLock.lock()
-        if generation == latestPersistenceGeneration {
-            completedPersistenceGeneration = generation
-        }
-        persistenceStateLock.unlock()
+    func cancel() {
+        pendingTask?.cancel()
+        pendingTask = nil
     }
 }
 

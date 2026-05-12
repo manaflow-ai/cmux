@@ -2007,7 +2007,7 @@ private struct SectionPopoverView: View {
         // preferred content size via sizingOptions. Do NOT pin an outer
         // fixed height; it made SwiftUI center-distribute slack space
         // and squashed the top header padding.
-        .frame(width: 360)
+        .frame(width: UIScaleSettings.scaled(360, by: uiScaleFactor))
         .background(
             EscapeKeyCatcher { onDismiss() }
         )
@@ -2562,7 +2562,7 @@ struct SectionPopoverHost: NSViewRepresentable {
             let fitting = hostingController.view.fittingSize
             guard fitting.width > 0, fitting.height > 0 else { return }
             popover?.contentSize = NSSize(
-                width: ceil(max(fitting.width, 360)),
+                width: ceil(max(fitting.width, UIScaleSettings.scaled(360, by: currentUIScaleFactor))),
                 height: ceil(min(fitting.height, UIScaleSettings.scaled(480, by: currentUIScaleFactor)))
             )
         }
