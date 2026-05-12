@@ -109,6 +109,8 @@ final class GhosttyCommandShiftForwardingTests: XCTestCase {
     func testUnboundCommandShiftKeyAfterMenuMissForwardsToGhosttyKeyDown() throws {
 #if DEBUG
         CmuxSystemShortcutMatcher.debugAppleSymbolicHotKeysProvider = { [:] }
+#else
+        throw XCTSkip("System shortcut provider injection is DEBUG-only")
 #endif
         let hostedTerminal = try makeHostedTerminal()
         let window = hostedTerminal.window
