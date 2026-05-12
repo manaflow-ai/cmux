@@ -231,6 +231,8 @@ extension SocketListenerAcceptPolicyTests {
                     "threads",
                     "continue",
                     "T-old-thread",
+                    "-l",
+                    "scratch",
                     "--mode",
                     "smart",
                     "--effort",

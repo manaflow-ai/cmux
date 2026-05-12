@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from claude_teams_test_utils import resolve_cmux_cli
@@ -18,6 +19,10 @@ from claude_teams_test_utils import resolve_cmux_cli
 def make_executable(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
+
+
+def read_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
 def main() -> int:
@@ -79,6 +84,10 @@ def main() -> int:
         fake_args_log = root / "fake-cmux-args.log"
         fake_stdin_log = root / "fake-cmux-stdin.log"
         fake_env_log = root / "fake-cmux-env.log"
+        fake_bin = root / "bin"
+        fake_bin.mkdir()
+        fake_amp = fake_bin / "amp"
+        make_executable(fake_amp, "#!/usr/bin/env bash\nexit 0\n")
         make_executable(
             fake_cmux,
             """#!/usr/bin/env bash
@@ -104,6 +113,7 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
         check_env["FAKE_CMUX_STDIN_LOG"] = str(fake_stdin_log)
         check_env["FAKE_CMUX_ENV_LOG"] = str(fake_env_log)
         check_env["PWD"] = "/tmp/amp-project"
+        check_env["PATH"] = f"{fake_bin}{os.pathsep}{env.get('PATH', '')}"
         check_source = """
 const extensionPath = process.env.CMUX_TEST_AMP_EXTENSION_PATH;
 const mod = await import(extensionPath);
@@ -120,7 +130,8 @@ for (const name of ["session.start", "agent.start", "agent.end"]) {
 process.argv.splice(
   0,
   process.argv.length,
-  "/Users/example/.bun/bin/amp",
+  "/usr/local/bin/node",
+  "/Users/example/node_modules/@ampcode/amp/dist/cli.js",
   "--mode",
   "geppetto"
 );
@@ -148,9 +159,23 @@ await handlers.get("agent.end")({ thread, message: "hello amp", id: "msg-user-1"
             print(f"stderr={check.stderr.strip()}")
             return 1
 
-        args_log = fake_args_log.read_text(encoding="utf-8") if fake_args_log.exists() else ""
-        stdin_log = fake_stdin_log.read_text(encoding="utf-8") if fake_stdin_log.exists() else ""
-        env_log = fake_env_log.read_text(encoding="utf-8") if fake_env_log.exists() else ""
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            args_log = read_text(fake_args_log)
+            stdin_log = read_text(fake_stdin_log)
+            env_log = read_text(fake_env_log)
+            if (
+                "hooks amp session-start" in args_log
+                and "hooks amp prompt-submit" in args_log
+                and "hooks amp stop" in args_log
+                and '"session_id":"T-amp-session-test"' in stdin_log
+                and "argv=" in env_log
+            ):
+                break
+            time.sleep(0.05)
+        args_log = read_text(fake_args_log)
+        stdin_log = read_text(fake_stdin_log)
+        env_log = read_text(fake_env_log)
         for expected in [
             "hooks amp session-start",
             "hooks amp prompt-submit",
@@ -180,7 +205,7 @@ await handlers.get("agent.end")({ thread, message: "hello amp", id: "msg-user-1"
             print(f"FAIL: plugin launch argv was not valid base64 NUL data: {exc}; env={env_log!r}")
             return 1
         expected_argv = [
-            "/Users/example/.bun/bin/amp",
+            str(fake_amp),
             "--mode",
             "geppetto",
         ]

@@ -188,7 +188,7 @@ struct AgentLaunchSanitizerTests {
                 ["amp", "-l", "bar", "--effort", "high"],
                 launcher: "amp",
                 fallbackKind: "amp"
-            ) == ["amp", "-l", "bar", "--effort", "high"]
+            ) == ["amp", "--effort", "high"]
         )
     }
 

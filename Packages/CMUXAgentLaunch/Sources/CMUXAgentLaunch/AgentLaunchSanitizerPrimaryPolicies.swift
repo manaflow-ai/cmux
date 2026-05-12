@@ -253,6 +253,7 @@ extension AgentLaunchSanitizer {
         droppedOptions: [
             "--archive",
             "--label",
+            "-l",
             "--stream-json",
             "--stream-json-input",
             "--stream-json-thinking"
