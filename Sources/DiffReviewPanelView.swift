@@ -16,7 +16,7 @@ struct DiffReviewPanelView: View {
             store.setDirectory(nextDirectory)
         }
         .onDisappear {
-            store.stopLiveRefresh()
+            store.stopObserving()
         }
     }
 

@@ -99,6 +99,12 @@ final class DiffReviewStore: ObservableObject {
         liveRefreshTimer = nil
     }
 
+    func stopObserving() {
+        loadTask?.cancel()
+        loadTask = nil
+        stopLiveRefresh()
+    }
+
     private func startLiveRefreshIfNeeded() {
         guard directory != nil, liveRefreshTimer == nil else { return }
         let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
@@ -113,9 +119,4 @@ final class DiffReviewStore: ObservableObject {
         liveRefreshTimer = timer
     }
 
-    @MainActor
-    deinit {
-        loadTask?.cancel()
-        liveRefreshTimer?.invalidate()
-    }
 }
