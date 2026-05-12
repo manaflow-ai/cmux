@@ -80,6 +80,103 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
     }
 
+    func testMobileSyncStatusReportsDisabledModelStateWithoutListener() throws {
+        _ = NSApplication.shared
+        UserDefaults.standard.removeObject(forKey: MobileSyncSettings.enabledKey)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            UserDefaults.standard.removeObject(forKey: MobileSyncSettings.enabledKey)
+        }
+
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let capabilities = try v2Result(method: "system.capabilities")
+        let methods = try XCTUnwrap(capabilities["methods"] as? [String])
+        XCTAssertTrue(methods.contains("mobile_sync.status"))
+        XCTAssertTrue(methods.contains("mobile_sync.enable"))
+        XCTAssertTrue(methods.contains("mobile_sync.disable"))
+        XCTAssertTrue(methods.contains("mobile_sync.terminal_snapshot"))
+
+        let status = try v2Result(method: "mobile_sync.status")
+        XCTAssertEqual(status["enabled"] as? Bool, false)
+        XCTAssertEqual((status["listener"] as? [String: Any])?["state"] as? String, "stopped")
+        XCTAssertGreaterThanOrEqual(status["workspace_count"] as? Int ?? 0, 1)
+        XCTAssertGreaterThanOrEqual(status["terminal_count"] as? Int ?? 0, 1)
+        XCTAssertEqual(status["active_attachment_count"] as? Int, 0)
+
+        let enabled = try v2Result(method: "mobile_sync.enable")
+        XCTAssertEqual(enabled["enabled"] as? Bool, true)
+        XCTAssertTrue(MobileSyncSettings.snapshot().enabled)
+
+        let disabled = try v2Result(method: "mobile_sync.disable")
+        XCTAssertEqual(disabled["enabled"] as? Bool, false)
+        XCTAssertFalse(MobileSyncSettings.snapshot().enabled)
+        XCTAssertEqual((disabled["listener"] as? [String: Any])?["state"] as? String, "stopped")
+    }
+
+#if DEBUG
+    func testDebugMobileSyncFakeRemoteSizeSetsAndClearsOverlay() throws {
+        _ = NSApplication.shared
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let surface = terminalPanel.surface
+        let surfaceId = terminalPanel.id
+        surface.hostedView.frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
+        surface.hostedView.layoutSubtreeIfNeeded()
+
+        let capabilities = try v2Result(method: "system.capabilities")
+        let methods = try XCTUnwrap(capabilities["methods"] as? [String])
+        XCTAssertTrue(methods.contains("debug.mobile_sync.set_fake_remote_size"))
+        XCTAssertTrue(methods.contains("debug.mobile_sync.clear_fake_remote_size"))
+
+        let setPayload = try v2Result(
+            method: "debug.mobile_sync.set_fake_remote_size",
+            params: [
+                "surface_id": surfaceId.uuidString,
+                "columns": 80,
+                "rows": 24,
+                "local_columns": 120,
+                "local_rows": 40,
+                "surface_kind": "iPad",
+                "device_name": "iPad",
+            ]
+        )
+
+        XCTAssertEqual(setPayload["surface_id"] as? String, surfaceId.uuidString)
+        XCTAssertEqual(setPayload["visible"] as? Bool, true)
+        XCTAssertEqual((setPayload["effective"] as? [String: Any])?["columns"] as? Int, 80)
+        XCTAssertEqual((setPayload["effective"] as? [String: Any])?["rows"] as? Int, 24)
+        XCTAssertEqual((setPayload["local"] as? [String: Any])?["columns"] as? Int, 120)
+        XCTAssertEqual((setPayload["local"] as? [String: Any])?["rows"] as? Int, 40)
+
+        let snapshot = try XCTUnwrap(surface.debugMobileSizeOverlaySnapshot())
+        XCTAssertTrue(snapshot.isRemotelyConstrained)
+        XCTAssertEqual(snapshot.effectiveSize, TerminalGridSize(columns: 80, rows: 24))
+        XCTAssertEqual(snapshot.localSize, TerminalGridSize(columns: 120, rows: 40))
+
+        let geometry = surface.debugMobileSizeOverlayGeometry()
+        XCTAssertTrue(geometry.isVisible)
+        XCTAssertEqual(geometry.activeRect, CGRect(x: 0, y: 320, width: 800, height: 480))
+
+        let clearPayload = try v2Result(
+            method: "debug.mobile_sync.clear_fake_remote_size",
+            params: ["surface_id": surfaceId.uuidString]
+        )
+        XCTAssertEqual(clearPayload["surface_id"] as? String, surfaceId.uuidString)
+        XCTAssertEqual(clearPayload["visible"] as? Bool, false)
+        XCTAssertNil(surface.debugMobileSizeOverlaySnapshot())
+        XCTAssertFalse(surface.debugMobileSizeOverlayGeometry().isVisible)
+    }
+#endif
+
     func testWorkspaceListResolvesLiveSurfaceAfterMainWindowContextAssociationIsLost() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

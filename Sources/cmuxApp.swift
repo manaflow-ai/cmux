@@ -4960,6 +4960,7 @@ struct SettingsView: View {
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
+    @AppStorage(MobileSyncSettings.enabledKey) private var mobileSyncEnabled = MobileSyncSettings.defaultEnabled
     @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
     @AppStorage(ClaudeCodeIntegrationSettings.customClaudePathKey)
@@ -5295,6 +5296,32 @@ struct SettingsView: View {
                     socketPasswordStatusIsError = false
                 }
             }
+        )
+    }
+
+    private var mobileSyncEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { mobileSyncEnabled },
+            set: { newValue in
+                let manager = AppDelegate.shared?.tabManager
+                let status = newValue
+                    ? MobileSyncServerController.shared.enable(tabManager: manager)
+                    : MobileSyncServerController.shared.disable(tabManager: manager)
+                mobileSyncEnabled = status.settings.enabled
+            }
+        )
+    }
+
+    private var mobileSyncSubtitle: String {
+        if mobileSyncEnabled {
+            return String(
+                localized: "settings.automation.mobileSync.subtitleOn",
+                defaultValue: "Enabled. cmux listens only on Tailscale and only while the Mac app is open."
+            )
+        }
+        return String(
+            localized: "settings.automation.mobileSync.subtitleOff",
+            defaultValue: "Off. cmux is not listening for iPhone or iPad connections."
         )
     }
 
@@ -6333,6 +6360,24 @@ struct SettingsView: View {
                     SettingsSectionHeader(title: String(localized: "settings.section.automation", defaultValue: "Automation"))
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .automation))
                     SettingsCard {
+                        SettingsCardRow(
+                            configurationReview: .settingsOnly,
+                            String(localized: "settings.automation.mobileSync", defaultValue: "iOS and iPadOS Sync"),
+                            subtitle: mobileSyncSubtitle,
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .automation, idSuffix: "mobile-sync")
+                        ) {
+                            Toggle("", isOn: mobileSyncEnabledBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsMobileSyncToggle")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote(String(localized: "settings.automation.mobileSync.note", defaultValue: "Production pairing will be Tailscale-only. You can also toggle this with `cmux ios` and `cmux ios off`."))
+                    }
+
+                    SettingsCard {
                         SettingsPickerRow(
                             configurationReview: .json("automation.socketControlMode"),
                             String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"),
@@ -7194,6 +7239,9 @@ struct SettingsView: View {
         appIconMode = AppIconSettings.defaultMode.rawValue
         AppIconSettings.applyIcon(.automatic)
         socketControlMode = SocketControlSettings.defaultMode.rawValue
+        mobileSyncEnabled = MobileSyncServerController.shared.disable(
+            tabManager: AppDelegate.shared?.tabManager
+        ).settings.enabled
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
         customClaudePath = ""
         cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled

@@ -1,0 +1,384 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "mobile.pairing.codePlaceholder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pairing code" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ペアリングコード" } }
+      }
+    },
+    "mobile.pairing.connect" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connect" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続" } }
+      }
+    },
+    "mobile.pairing.navigationTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pairing" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ペアリング" } }
+      }
+    },
+    "mobile.pairing.cameraDenied" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Camera Access Required" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "カメラへのアクセスが必要です" } }
+      }
+    },
+    "mobile.pairing.cameraUnavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Camera Unavailable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "カメラを使用できません" } }
+      }
+    },
+    "mobile.pairing.scan" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Scan QR Code" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "QR コードをスキャン" } }
+      }
+    },
+    "mobile.pairing.scannerCancel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Cancel" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "キャンセル" } }
+      }
+    },
+    "mobile.pairing.scannerTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Scan QR Code" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "QR コードをスキャン" } }
+      }
+    },
+    "mobile.pairing.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Scan the QR from `cmux ios`, or enter a debug pairing code in Simulator." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "`cmux ios` の QR をスキャンするか、Simulator でデバッグ用ペアリングコードを入力します。" } }
+      }
+    },
+    "mobile.pairing.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pair with Mac" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac とペアリング" } }
+      }
+    },
+    "mobile.preview.terminalNameFormat" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Terminal %d" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナル %d" } }
+      }
+    },
+    "mobile.preview.workspaceNameFormat" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspace %d" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペース %d" } }
+      }
+    },
+    "mobile.signIn.button" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sign In" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サインイン" } }
+      }
+    },
+    "mobile.signIn.apple" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sign in with Apple" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Apple でサインイン" } }
+      }
+    },
+    "mobile.signIn.checkEmail" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Check your email" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "メールを確認してください" } }
+      }
+    },
+    "mobile.signIn.codeError" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enter the 6-digit code from your email." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "メールに届いた 6 桁のコードを入力してください。" } }
+      }
+    },
+    "mobile.signIn.codePlaceholder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "000000" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "000000" } }
+      }
+    },
+    "mobile.signIn.emailCode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Email me a code" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コードをメールで受け取る" } }
+      }
+    },
+    "mobile.signIn.emailDivider" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "or continue with email" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "またはメールで続行" } }
+      }
+    },
+    "mobile.signIn.emailError" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Please enter a valid email address." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "有効なメールアドレスを入力してください。" } }
+      }
+    },
+    "mobile.signIn.emailPlaceholder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Email address" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "メールアドレス" } }
+      }
+    },
+    "mobile.signIn.google" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sign in with Google" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Google でサインイン" } }
+      }
+    },
+    "mobile.signIn.sentCodeFormat" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "We sent a code to %@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@ にコードを送信しました" } }
+      }
+    },
+    "mobile.signIn.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sign in to connect to your Mac workspaces." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サインインして Mac のワークスペースに接続します。" } }
+      }
+    },
+    "mobile.signIn.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "cmux" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux" } }
+      }
+    },
+    "mobile.signIn.useDifferentEmail" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Use a different email" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "別のメールを使用" } }
+      }
+    },
+    "mobile.signIn.verifyCode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Verify code" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コードを確認" } }
+      }
+    },
+    "auth.error.apple_config" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Apple Sign In is not available yet. Please use another sign-in method." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Apple でのサインインはまだ利用できません。別のサインイン方法を使用してください。" } }
+      }
+    },
+    "auth.error.code_expired" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Code expired. Please request a new one." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コードの有効期限が切れました。新しいコードをリクエストしてください。" } }
+      }
+    },
+    "auth.error.config" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sign in is temporarily unavailable. Please try again later." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サインインは一時的に利用できません。しばらくしてからもう一度お試しください。" } }
+      }
+    },
+    "auth.error.email_exists" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "An account with this email already exists. Try signing in instead." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このメールのアカウントはすでに存在します。サインインを試してください。" } }
+      }
+    },
+    "auth.error.generic" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Something went wrong. Please try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "問題が発生しました。もう一度お試しください。" } }
+      }
+    },
+    "auth.error.invalid_code" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Invalid code. Please check and try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コードが無効です。確認してもう一度お試しください。" } }
+      }
+    },
+    "auth.error.invalid_email" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Please enter a valid email address." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "有効なメールアドレスを入力してください。" } }
+      }
+    },
+    "auth.error.invalid_mfa" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Incorrect verification code. Please try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "確認コードが正しくありません。もう一度お試しください。" } }
+      }
+    },
+    "auth.error.invalidCodeShort" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Invalid code. Please try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コードが無効です。もう一度お試しください。" } }
+      }
+    },
+    "auth.error.network" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not connect to the server. Check your internet connection and try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サーバーに接続できませんでした。インターネット接続を確認してもう一度お試しください。" } }
+      }
+    },
+    "auth.error.networkError" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Network error. Please check your connection." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ネットワークエラーです。接続を確認してください。" } }
+      }
+    },
+    "auth.error.oauth_linked" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This account is already linked to another sign-in method." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このアカウントは別のサインイン方法にすでにリンクされています。" } }
+      }
+    },
+    "auth.error.passkey_failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Passkey authentication failed. Please try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "パスキー認証に失敗しました。もう一度お試しください。" } }
+      }
+    },
+    "auth.error.rate_limit" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Too many attempts. Please wait a moment and try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "試行回数が多すぎます。少し待ってからもう一度お試しください。" } }
+      }
+    },
+    "auth.error.serverError" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Something went wrong. Please try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "問題が発生しました。もう一度お試しください。" } }
+      }
+    },
+    "auth.error.unauthorized" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Session expired. Please sign in again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "セッションの有効期限が切れました。もう一度サインインしてください。" } }
+      }
+    },
+    "auth.error.user_not_found" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No account found with this email." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このメールのアカウントは見つかりません。" } }
+      }
+    },
+    "auth.error.wrong_password" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Incorrect email or password." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "メールまたはパスワードが正しくありません。" } }
+      }
+    },
+    "mobile.signOut" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sign Out" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サインアウト" } }
+      }
+    },
+    "mobile.terminal.inputPlaceholder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Send to terminal" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナルに送信" } }
+      }
+    },
+    "mobile.terminal.new" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "New Terminal" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新規ターミナル" } }
+      }
+    },
+    "mobile.terminal.select" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Terminal" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナル" } }
+      }
+    },
+    "mobile.terminal.send" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Send" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "送信" } }
+      }
+    },
+    "mobile.workspace.emptyTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No Workspace" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペースなし" } }
+      }
+    },
+    "mobile.workspace.new" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "New Workspace" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新規ワークスペース" } }
+      }
+    },
+    "mobile.workspace.terminalCountFormat" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%d terminals" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%d 個のターミナル" } }
+      }
+    },
+    "mobile.workspaces.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspaces" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペース" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}

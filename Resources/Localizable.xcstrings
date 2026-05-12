@@ -106731,6 +106731,83 @@
         }
       }
     },
+    "settings.automation.mobileSync": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "iOS and iPadOS Sync" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iOS と iPadOS の同期" } }
+      }
+    },
+    "settings.automation.mobileSync.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Enabled. cmux listens only on Tailscale and only while the Mac app is open." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "有効です。cmux は Mac アプリが開いている間だけ Tailscale で待ち受けます。" } }
+      }
+    },
+    "settings.automation.mobileSync.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Off. cmux is not listening for iPhone or iPad connections." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "オフです。cmux は iPhone または iPad からの接続を待ち受けていません。" } }
+      }
+    },
+    "settings.automation.mobileSync.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Production pairing will be Tailscale-only. You can also toggle this with `cmux ios` and `cmux ios off`." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "本番のペアリングは Tailscale のみを使用します。`cmux ios` と `cmux ios off` でも切り替えられます。" } }
+      }
+    },
+    "settings.search.alias.setting.automation.mobile-sync": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "ios ipad tailscale mobile sync remote control pairing" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ios ipad tailscale mobile sync remote control pairing iOS iPad Tailscale モバイル 同期 リモート 制御 ペアリング" } }
+      }
+    },
+    "terminal.mobileSizeOverlay.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sized for %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ 用にサイズ調整" } }
+      }
+    },
+    "terminal.mobileSizeOverlay.device.mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mac" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Mac" } }
+      }
+    },
+    "terminal.mobileSizeOverlay.device.iPhone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "iPhone" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iPhone" } }
+      }
+    },
+    "terminal.mobileSizeOverlay.device.iPad": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "iPad" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iPad" } }
+      }
+    },
+    "terminal.mobileSizeOverlay.device.simulator": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Simulator" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Simulator" } }
+      }
+    },
+    "terminal.mobileSizeOverlay.device.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "device" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デバイス" } }
+      }
+    },
     "settings.account.error.missingAccessToken": {
       "extractionState": "manual",
       "localizations": {
