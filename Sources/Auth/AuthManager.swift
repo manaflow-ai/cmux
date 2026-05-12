@@ -235,6 +235,7 @@ final class AuthManager: ObservableObject {
         ) { [weak self, sessionHandle] callbackURL, error in
             Task { @MainActor [weak self, sessionHandle] in
                 guard let self else { return }
+                @MainActor
                 func isCurrentSession() -> Bool {
                     guard let session = sessionHandle.session else { return false }
                     return self.webAuthSession === session
