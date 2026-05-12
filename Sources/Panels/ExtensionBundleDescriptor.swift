@@ -190,27 +190,33 @@ struct ExtensionBundleDescriptor: Equatable, Sendable {
     }
 }
 
-final class ExtensionBundleTrustStore {
+// Sendable safety: `defaults` access is serialized through `lock`.
+final class ExtensionBundleTrustStore: @unchecked Sendable {
     static let shared = ExtensionBundleTrustStore()
 
     private let defaults: UserDefaults
     private let defaultsKey = "extensionPanel.trustedBundleHashes"
+    private let lock = NSLock()
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
     }
 
     func trust(_ descriptor: ExtensionBundleDescriptor) {
-        var trusted = trustedHashes()
+        lock.lock()
+        defer { lock.unlock() }
+        var trusted = trustedHashesLocked()
         trusted[descriptor.bundlePath] = descriptor.contentHash
         defaults.set(trusted, forKey: defaultsKey)
     }
 
     func isTrusted(_ descriptor: ExtensionBundleDescriptor) -> Bool {
-        trustedHashes()[descriptor.bundlePath] == descriptor.contentHash
+        lock.lock()
+        defer { lock.unlock() }
+        return trustedHashesLocked()[descriptor.bundlePath] == descriptor.contentHash
     }
 
-    private func trustedHashes() -> [String: String] {
+    private func trustedHashesLocked() -> [String: String] {
         defaults.dictionary(forKey: defaultsKey) as? [String: String] ?? [:]
     }
 }
