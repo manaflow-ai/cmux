@@ -78,6 +78,11 @@ nonisolated enum CmuxSettingsJSONPersistence {
                 defaultValue: QuitWarningSettings.defaultWarnBeforeQuit,
                 defaults: defaults
             )),
+            "app.warnBeforeClosingTab": .bool(boolValue(
+                CloseTabWarningSettings.warnBeforeClosingTabKey,
+                defaultValue: CloseTabWarningSettings.defaultWarnBeforeClosingTab,
+                defaults: defaults
+            )),
             "app.renameSelectsExistingName": .bool(boolValue(
                 CommandPaletteRenameSelectionSettings.selectAllOnFocusKey,
                 defaultValue: CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus,
