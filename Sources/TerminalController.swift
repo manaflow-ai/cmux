@@ -2039,7 +2039,7 @@ class TerminalController {
         guard let action else { return }
         switch action {
         case .reloadConfiguration(let source):
-            v2MainSync {
+            Task { @MainActor in
                 Self.performSocketReloadConfiguration(source: source)
             }
         }
