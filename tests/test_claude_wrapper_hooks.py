@@ -423,6 +423,8 @@ def test_missing_real_claude_reports_actionable_diagnostics(failures: list[str])
         searched_dir = tmp / "searched-bin"
         wrapper_dir.mkdir(parents=True, exist_ok=True)
         searched_dir.mkdir(parents=True, exist_ok=True)
+        wrapper_dir = wrapper_dir.resolve()
+        searched_dir = searched_dir.resolve()
 
         wrapper = wrapper_dir / "claude"
         shutil.copy2(SOURCE_WRAPPER, wrapper)
