@@ -330,11 +330,12 @@ metadata lives under `ack.resume` as `after_seq`, `oldest_seq`, `latest_seq`,
 `next_seq`, and `gap`. Event frames carry a process-local monotonic `seq` and a
 stable `id` for dedupe. Clients should persist `seq` after processing each event
 and reconnect with that value. See [events.md](events.md) for the full protocol,
-status payload, and event catalog. Every emitted event is also appended to
-`~/.cmuxterm/events.jsonl`, including model lifecycle events for window
-creation, close, focus, key-window state, workspace selection, pane focus, and
-surface selection, focus, creation, or closure. The stream is bounded: cmux keeps
-4,096 replay events in memory, caps each encoded event frame at 16 KiB, closes
+status payload, and event catalog. In `events.status`, `oldest_seq` and
+`latest_seq` are `null` when no events are retained yet. Every emitted event is
+also appended to `~/.cmuxterm/events.jsonl`, including model lifecycle events for
+window creation, close, focus, key-window state, workspace selection, pane focus,
+and surface selection, focus, creation, or closure. The stream is bounded: cmux
+keeps 4,096 replay events in memory, caps each encoded event frame at 16 KiB, closes
 slow subscribers after 1,024 pending events, and rotates `events.jsonl` with one
 16 MiB archive at `events.jsonl.1`. Disk-only drops reported by
 `events.status.durable_log.dropped_disk_only_line_count` mean the durable audit

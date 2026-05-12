@@ -256,7 +256,9 @@ content.
 Interpretation:
 
 1. `retained_count`, `oldest_seq`, and `latest_seq` describe the in-memory
-   replay window used by `events.stream`.
+   replay window used by `events.stream`. When no events are retained yet,
+   `oldest_seq` and `latest_seq` are `null` and `next_seq` is the first sequence
+   that will be assigned.
 2. `active_subscription_count` and `subscriptions[].pending_count` show live
    clients that are connected but not yet reading all queued events.
 3. `durable_log.pending_queue_depth` and `dropped_disk_only_line_count` describe

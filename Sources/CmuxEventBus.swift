@@ -326,8 +326,9 @@ final class CmuxEventBus: @unchecked Sendable {
 
     func diagnosticsSnapshot(resetCounters: Bool = false) -> [String: Any] {
         lock.lock()
-        let oldestSequence = Self.int64(retained.first?["seq"]) ?? nextSequence
-        let latestSequence = nextSequence - 1
+        let oldestSequence = Self.int64(retained.first?["seq"])
+        let latestSequence: Int64? = retained.isEmpty ? nil : nextSequence - 1
+        let nextSequenceSnapshot = nextSequence
         let retainedCount = retained.count
         let activeSubscriptions = Array(subscriptions.values)
         lock.unlock()
@@ -359,9 +360,9 @@ final class CmuxEventBus: @unchecked Sendable {
             "protocol": Self.protocolName,
             "version": Self.protocolVersion,
             "boot_id": bootId,
-            "oldest_seq": NSNumber(value: oldestSequence),
-            "latest_seq": NSNumber(value: latestSequence),
-            "next_seq": NSNumber(value: latestSequence + 1),
+            "oldest_seq": oldestSequence.map { NSNumber(value: $0) } ?? NSNull(),
+            "latest_seq": latestSequence.map { NSNumber(value: $0) } ?? NSNull(),
+            "next_seq": NSNumber(value: nextSequenceSnapshot),
             "retained_count": retainedCount,
             "active_subscription_count": activeSubscriptions.count,
             "subscriptions": subscriptionSnapshots,

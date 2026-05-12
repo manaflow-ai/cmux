@@ -478,6 +478,17 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertFalse(encoded.contains("payload"))
     }
 
+    func testDiagnosticsUsesNullSequenceBoundsWhenRetainedBufferIsEmpty() {
+        let bus = CmuxEventBus(retainedEventLimit: 3)
+
+        let diagnostics = bus.diagnosticsSnapshot()
+
+        XCTAssertTrue(diagnostics["oldest_seq"] is NSNull)
+        XCTAssertTrue(diagnostics["latest_seq"] is NSNull)
+        XCTAssertEqual((diagnostics["next_seq"] as? NSNumber)?.int64Value, 1)
+        XCTAssertEqual(diagnostics["retained_count"] as? Int, 0)
+    }
+
     func testDiagnosticsCanResetDiskOnlyDropCounterWithoutClearingPendingDepth() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-event-diagnostics-reset-\(UUID().uuidString)", isDirectory: true)
