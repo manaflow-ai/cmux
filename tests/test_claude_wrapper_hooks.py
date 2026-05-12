@@ -477,7 +477,7 @@ def test_missing_real_claude_reports_actionable_diagnostics(failures: list[str])
         env.pop("CMUX_CUSTOM_CLAUDE_PATH", None)
 
         proc = subprocess.run(
-            ["claude", "--version"],
+            ["claude", "--version"],  # noqa: S607 - intentional PATH lookup under test
             cwd=tmp,
             env=env,
             capture_output=True,
