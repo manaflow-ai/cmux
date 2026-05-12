@@ -71,6 +71,18 @@ struct FirstMouseGatedHostingOverlay: NSViewRepresentable {
 final class CmuxMainWindow: NSWindow {
     private var isSoftHiddenForVisibilityController = false
 
+    // cmux renders the workspace directory icon inside its custom titlebar, whose layout follows
+    // the sidebar. AppKit's native proxy icon is positioned in the standard titlebar instead.
+    override var representedURL: URL? {
+        get { nil }
+        set { super.representedURL = nil }
+    }
+
+    override var representedFilename: String {
+        get { "" }
+        set { super.representedFilename = "" }
+    }
+
     func setSoftHiddenForVisibilityController(_ isSoftHidden: Bool) {
         isSoftHiddenForVisibilityController = isSoftHidden
         if isSoftHidden {
