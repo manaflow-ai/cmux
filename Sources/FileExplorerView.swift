@@ -669,29 +669,58 @@ struct FileExplorerPanelView: NSViewRepresentable {
                         isDirectory: isDirectory,
                         toLocalDirectory: localDirectory
                     )
-                    await MainActor.run {
-                        guard self?.finishDownloadTask(downloadID) == true else { return }
-                        self?.presentDownloadCompletion(
-                            itemName: itemName,
-                            localPath: localPath,
-                            workspaceId: workspaceId
-                        )
-                    }
+                    await self?.completeDownloadTask(
+                        downloadID,
+                        itemName: itemName,
+                        localPath: localPath,
+                        workspaceId: workspaceId
+                    )
                 } catch is CancellationError {
-                    await MainActor.run {
-                        _ = self?.finishDownloadTask(downloadID)
-                    }
+                    await self?.cancelDownloadTask(downloadID)
                 } catch {
-                    await MainActor.run {
-                        guard self?.finishDownloadTask(downloadID) == true else { return }
-                        self?.presentDownloadFailure(
-                            itemName: itemName,
-                            error: error,
-                            workspaceId: workspaceId
-                        )
-                    }
+                    await self?.failDownloadTask(
+                        downloadID,
+                        itemName: itemName,
+                        error: error,
+                        workspaceId: workspaceId
+                    )
                 }
             }
+        }
+
+        @MainActor
+        private func completeDownloadTask(
+            _ downloadID: UUID,
+            itemName: String,
+            localPath: String,
+            workspaceId: UUID?
+        ) {
+            guard finishDownloadTask(downloadID) else { return }
+            presentDownloadCompletion(
+                itemName: itemName,
+                localPath: localPath,
+                workspaceId: workspaceId
+            )
+        }
+
+        @MainActor
+        private func failDownloadTask(
+            _ downloadID: UUID,
+            itemName: String,
+            error: Error,
+            workspaceId: UUID?
+        ) {
+            guard finishDownloadTask(downloadID) else { return }
+            presentDownloadFailure(
+                itemName: itemName,
+                error: error,
+                workspaceId: workspaceId
+            )
+        }
+
+        @MainActor
+        private func cancelDownloadTask(_ downloadID: UUID) {
+            _ = finishDownloadTask(downloadID)
         }
 
         @MainActor

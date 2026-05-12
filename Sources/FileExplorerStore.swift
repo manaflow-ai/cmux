@@ -597,7 +597,6 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         private let lock = NSLock()
         private var cancelled = false
         private var started = false
-        private var timedOut = false
 
         init(executable: String, arguments: [String]) {
             process.executableURL = URL(fileURLWithPath: executable)
@@ -608,10 +607,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         }
 
         func run(timeout: TimeInterval? = nil) async throws -> SSHCommandResult {
-            lock.lock()
-            let wasCancelled = cancelled
-            lock.unlock()
-            if wasCancelled {
+            if isCancelled {
                 throw CancellationError()
             }
 
@@ -630,17 +626,18 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
                 throw error
             }
 
-            lock.lock()
-            started = true
-            let shouldTerminate = cancelled && process.isRunning
-            lock.unlock()
-            if shouldTerminate {
+            if markStartedAndShouldTerminate {
                 process.terminate()
             }
 
             let terminationStatus: Int32
             do {
-                terminationStatus = try await waitForTermination(timeout: timeout, waiter: terminationWaiter)
+                terminationStatus = try await withTaskCancellationHandler {
+                    try await waitForTermination(timeout: timeout, waiter: terminationWaiter)
+                } onCancel: {
+                    self.terminate()
+                    self.forceKillIfRunning()
+                }
             } catch {
                 terminate()
                 forceKillIfRunning()
@@ -652,9 +649,6 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             let output = outputCollector.finish()
             process.terminationHandler = nil
             try Task.checkCancellation()
-            if hasTimedOut {
-                throw FileExplorerError.downloadTimedOut
-            }
 
             return SSHCommandResult(
                 stdout: output.stdout,
@@ -674,15 +668,22 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             }
         }
 
-        private var hasTimedOut: Bool {
+        private var isCancelled: Bool {
             lock.lock()
             defer { lock.unlock() }
-            return timedOut
+            return cancelled
         }
 
-        private func markTimedOutAndTerminate() {
+        private var markStartedAndShouldTerminate: Bool {
             lock.lock()
-            timedOut = true
+            started = true
+            let shouldTerminate = cancelled && process.isRunning
+            lock.unlock()
+            return shouldTerminate
+        }
+
+        private func terminateForTimeout() {
+            lock.lock()
             let shouldTerminate = started && process.isRunning
             lock.unlock()
 
@@ -702,43 +703,39 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             }
         }
 
+        private enum TerminationRaceResult: Sendable {
+            case terminated(Int32)
+            case timedOut
+        }
+
         private func waitForTermination(timeout: TimeInterval?, waiter: TerminationWaiter) async throws -> Int32 {
             guard let timeout else {
-                let status = await waiter.wait()
-                if hasTimedOut {
-                    throw FileExplorerError.downloadTimedOut
-                }
-                return status
+                return await waiter.wait()
             }
 
             let timeoutNanoseconds = UInt64(max(0, timeout) * 1_000_000_000)
-            return try await withThrowingTaskGroup(of: Int32.self) { group in
-                group.addTask { [self, waiter] in
-                    let status = await waiter.wait()
-                    if hasTimedOut {
-                        throw FileExplorerError.downloadTimedOut
-                    }
-                    return status
+            return try await withThrowingTaskGroup(of: TerminationRaceResult.self) { group in
+                group.addTask { [waiter] in
+                    .terminated(await waiter.wait())
                 }
-                group.addTask { [self] in
-                    do {
-                        try await Task.sleep(nanoseconds: timeoutNanoseconds)
-                    } catch {
-                        terminate()
-                        forceKillIfRunning()
-                        throw error
-                    }
-                    markTimedOutAndTerminate()
-                    await forceKillAfterGraceUnlessTerminated(waiter: waiter)
-                    throw FileExplorerError.downloadTimedOut
+                group.addTask {
+                    try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                    return .timedOut
                 }
 
                 do {
-                    guard let status = try await group.next() else {
+                    guard let result = try await group.next() else {
                         throw FileExplorerError.downloadTimedOut
                     }
                     group.cancelAll()
-                    return status
+                    switch result {
+                    case .terminated(let status):
+                        return status
+                    case .timedOut:
+                        terminateForTimeout()
+                        await forceKillAfterGraceUnlessTerminated(waiter: waiter)
+                        throw FileExplorerError.downloadTimedOut
+                    }
                 } catch {
                     group.cancelAll()
                     throw error
@@ -761,8 +758,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
                     do {
                         try await ContinuousClock().sleep(for: .seconds(1))
                     } catch {
-                        forceKillIfRunning()
-                        return .deadline
+                        return .terminated
                     }
                     forceKillIfRunning()
                     return .deadline
