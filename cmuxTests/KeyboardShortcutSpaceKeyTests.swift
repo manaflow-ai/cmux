@@ -47,6 +47,46 @@ final class KeyboardShortcutSpaceKeyTests: XCTestCase {
         XCTAssertEqual(StoredShortcut.parseConfig(" ")?.configIdentifier, "space")
     }
 
+    func testShortcutConfigParsingRoundTripsPageKeys() throws {
+        let pageUpKeyCode = UInt16(116)
+        let pageDownKeyCode = UInt16(121)
+
+        let pageUpShortcut = try XCTUnwrap(StoredShortcut.parseConfig("ctrl+page_up"))
+        XCTAssertEqual(pageUpShortcut.key, "pageUp")
+        XCTAssertFalse(pageUpShortcut.command)
+        XCTAssertFalse(pageUpShortcut.shift)
+        XCTAssertFalse(pageUpShortcut.option)
+        XCTAssertTrue(pageUpShortcut.control)
+        XCTAssertEqual(pageUpShortcut.firstStroke.resolvedKeyCode(), pageUpKeyCode)
+        XCTAssertEqual(pageUpShortcut.configIdentifier, "ctrl+pageUp")
+        XCTAssertTrue(
+            pageUpShortcut.matches(
+                keyCode: pageUpKeyCode,
+                modifierFlags: [.control, .function],
+                eventCharacter: String(UnicodeScalar(NSPageUpFunctionKey)!)
+            )
+        )
+
+        let pageDownShortcut = try XCTUnwrap(StoredShortcut.parseConfig("ctrl+page_down"))
+        XCTAssertEqual(pageDownShortcut.key, "pageDown")
+        XCTAssertEqual(pageDownShortcut.firstStroke.resolvedKeyCode(), pageDownKeyCode)
+        XCTAssertEqual(pageDownShortcut.configIdentifier, "ctrl+pageDown")
+        XCTAssertTrue(
+            pageDownShortcut.matches(
+                keyCode: pageDownKeyCode,
+                modifierFlags: [.control, .function],
+                eventCharacter: String(UnicodeScalar(NSPageDownFunctionKey)!)
+            )
+        )
+
+        XCTAssertEqual(StoredShortcut.parseConfig("ctrl+pageup")?.configIdentifier, "ctrl+pageUp")
+        XCTAssertEqual(StoredShortcut.parseConfig("ctrl+page-up")?.configIdentifier, "ctrl+pageUp")
+        XCTAssertEqual(StoredShortcut.parseConfig("ctrl+<pageup>")?.configIdentifier, "ctrl+pageUp")
+        XCTAssertEqual(StoredShortcut.parseConfig("ctrl+pagedown")?.configIdentifier, "ctrl+pageDown")
+        XCTAssertEqual(StoredShortcut.parseConfig("ctrl+page-down")?.configIdentifier, "ctrl+pageDown")
+        XCTAssertEqual(StoredShortcut.parseConfig("ctrl+<pagedown>")?.configIdentifier, "ctrl+pageDown")
+    }
+
     func testSettingsFileStoreParsesSpaceShortcutBinding() throws {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

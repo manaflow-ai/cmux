@@ -1838,6 +1838,31 @@ final class StoredShortcutMatchingTests: XCTestCase {
         )
     }
 
+    func testShortcutRecordingResultAcceptsPageKeys() {
+        let pageUpCharacters = String(UnicodeScalar(NSPageUpFunctionKey)!)
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control, .function],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: pageUpCharacters,
+            charactersIgnoringModifiers: pageUpCharacters,
+            isARepeat: false,
+            keyCode: 116
+        ) else {
+            XCTFail("Failed to construct Page Up event")
+            return
+        }
+
+        XCTAssertEqual(
+            ShortcutStroke.recordingResult(from: event, requireModifier: true),
+            .accepted(ShortcutStroke(key: "pageUp", command: false, shift: false, option: false, control: true, keyCode: 116))
+        )
+    }
+
     func testShortcutRecordingResultSafelyIgnoresNonMediaSystemDefinedEvent() {
         guard let event = NSEvent.otherEvent(
             with: .systemDefined,

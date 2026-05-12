@@ -101,6 +101,61 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         return ghostty_input_mods_e(rawValue: rawValue)
     }
 
+    private func ghosttyConfigTrigger(
+        _ config: ghostty_config_t,
+        action: String
+    ) -> ghostty_input_trigger_s {
+        action.withCString { pointer in
+            ghostty_config_trigger(config, pointer, UInt(action.lengthOfBytes(using: .utf8)))
+        }
+    }
+
+    private func withTemporaryGhosttyConfig(
+        _ contents: String,
+        body: () -> Void
+    ) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-tab-keybind-\(UUID().uuidString)", isDirectory: true)
+        let configDirectory = root.appendingPathComponent(".config/ghostty", isDirectory: true)
+        try fileManager.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        try contents.write(
+            to: configDirectory.appendingPathComponent("config", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let environmentKeys = ["HOME", "CFFIXED_USER_HOME", "XDG_CONFIG_HOME"]
+        let originalEnvironment = environmentKeys.map { key in
+            (key, getenv(key).map { String(cString: $0) })
+        }
+        defer {
+            for (key, value) in originalEnvironment {
+                if let value {
+                    setenv(key, value, 1)
+                } else {
+                    unsetenv(key)
+                }
+            }
+            GhosttyApp.shared.reloadConfiguration(
+                source: "test.restoreGhosttyConfig",
+                reloadSettingsFromFile: false
+            )
+            try? fileManager.removeItem(at: root)
+        }
+
+        setenv("HOME", root.path, 1)
+        setenv("CFFIXED_USER_HOME", root.path, 1)
+        setenv("XDG_CONFIG_HOME", root.appendingPathComponent(".config", isDirectory: true).path, 1)
+        GhosttyApp.shared.reloadConfiguration(
+            source: "test.temporaryGhosttyConfig",
+            reloadSettingsFromFile: false
+        )
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        body()
+    }
+
     override func setUp() {
         super.setUp()
         // Prevent a single hanging test from consuming the entire CI timeout budget.
@@ -1372,6 +1427,162 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertNotEqual(secondManager.selectedTabId, secondSelectedBefore, "Cmd+1 should change tab selection in event window")
         XCTAssertEqual(secondManager.selectedTabId, secondFirstTabId, "Cmd+1 should select first tab in the event window")
         XCTAssertTrue(appDelegate.tabManager === secondManager, "Shortcut routing should retarget active manager to event window")
+    }
+
+    func testGhosttyPreviousNextTabKeybindsRouteWorkspaceSelection() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let firstWorkspaceId = manager.tabs.first?.id else {
+            XCTFail("Expected test window and tab manager")
+            return
+        }
+
+        let secondWorkspace = manager.addTab(select: true)
+        manager.selectTab(at: 0)
+        XCTAssertEqual(manager.selectedTabId, firstWorkspaceId)
+
+        try withTemporaryGhosttyConfig(
+            """
+            keybind = super+alt+left=previous_tab
+            keybind = super+alt+right=next_tab
+            """
+        ) {
+            guard let config = GhosttyApp.shared.config else {
+                XCTFail("Expected loaded Ghostty config")
+                return
+            }
+            let nextTrigger = ghosttyConfigTrigger(config, action: "next_tab")
+            XCTAssertEqual(nextTrigger.tag, GHOSTTY_TRIGGER_PHYSICAL)
+            XCTAssertEqual(nextTrigger.key.physical, GHOSTTY_KEY_ARROW_RIGHT)
+
+            guard let nextEvent = makeKeyDownEvent(
+                key: "→",
+                modifiers: [.command, .option],
+                keyCode: 124,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Cmd+Option+Right event")
+                return
+            }
+
+            #if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: nextEvent))
+            #else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            #endif
+            XCTAssertEqual(
+                manager.selectedTabId,
+                secondWorkspace.id,
+                "Ghostty next_tab keybind should select the next cmux workspace"
+            )
+
+            guard let previousEvent = makeKeyDownEvent(
+                key: "←",
+                modifiers: [.command, .option],
+                keyCode: 123,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Cmd+Option+Left event")
+                return
+            }
+
+            #if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: previousEvent))
+            #else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            #endif
+            XCTAssertEqual(
+                manager.selectedTabId,
+                firstWorkspaceId,
+                "Ghostty previous_tab keybind should select the previous cmux workspace"
+            )
+        }
+    }
+
+    func testGhosttyControlPageTabKeybindsRouteWorkspaceSelection() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let firstWorkspaceId = manager.tabs.first?.id else {
+            XCTFail("Expected test window and tab manager")
+            return
+        }
+
+        let secondWorkspace = manager.addTab(select: true)
+        manager.selectTab(at: 0)
+        XCTAssertEqual(manager.selectedTabId, firstWorkspaceId)
+
+        try withTemporaryGhosttyConfig(
+            """
+            keybind = ctrl+page_up=previous_tab
+            keybind = ctrl+page_down=next_tab
+            """
+        ) {
+            guard let config = GhosttyApp.shared.config else {
+                XCTFail("Expected loaded Ghostty config")
+                return
+            }
+            let nextTrigger = ghosttyConfigTrigger(config, action: "next_tab")
+            XCTAssertEqual(nextTrigger.tag, GHOSTTY_TRIGGER_PHYSICAL)
+            XCTAssertEqual(nextTrigger.key.physical, GHOSTTY_KEY_PAGE_DOWN)
+
+            guard let nextEvent = makeKeyDownEvent(
+                key: String(UnicodeScalar(NSPageDownFunctionKey)!),
+                modifiers: [.control, .function],
+                keyCode: 121,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Ctrl+PageDown event")
+                return
+            }
+
+            #if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: nextEvent))
+            #else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            #endif
+            XCTAssertEqual(
+                manager.selectedTabId,
+                secondWorkspace.id,
+                "Ghostty next_tab Page Down keybind should select the next cmux workspace"
+            )
+
+            guard let previousEvent = makeKeyDownEvent(
+                key: String(UnicodeScalar(NSPageUpFunctionKey)!),
+                modifiers: [.control, .function],
+                keyCode: 116,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Ctrl+PageUp event")
+                return
+            }
+
+            #if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: previousEvent))
+            #else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            #endif
+            XCTAssertEqual(
+                manager.selectedTabId,
+                firstWorkspaceId,
+                "Ghostty previous_tab Page Up keybind should select the previous cmux workspace"
+            )
+        }
     }
 
     func testCmdTRoutesToEventWindowWhenActiveManagerIsStale() {
