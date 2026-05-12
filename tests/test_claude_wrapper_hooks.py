@@ -504,11 +504,11 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
 def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures: list[str]) -> None:
     inherited = {
         "CLAUDE_CONFIG_DIR": "/tmp/claude-config",
-        "ANTHROPIC_API_KEY": "stale-api-key",
+        "ANTHROPIC_API_KEY": "api-key",
         "ANTHROPIC_AUTH_TOKEN": "third-party-auth-token",
         "ANTHROPIC_BASE_URL": "https://api.example.test",
-        "ANTHROPIC_MODEL": "stale-model",
-        "ANTHROPIC_SMALL_FAST_MODEL": "stale-small-model",
+        "ANTHROPIC_MODEL": "model",
+        "ANTHROPIC_SMALL_FAST_MODEL": "small-model",
         "CLAUDE_CODE_USE_BEDROCK": "1",
         "CLAUDE_CODE_USE_VERTEX": "1",
     }
@@ -520,15 +520,30 @@ def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures
     expect(auth_env.get("CLAUDE_CONFIG_DIR") == "/tmp/claude-config", f"fresh auth env: expected CLAUDE_CONFIG_DIR preserved, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
     expect(auth_env.get("ANTHROPIC_AUTH_TOKEN") == "third-party-auth-token", f"fresh auth env: expected ANTHROPIC_AUTH_TOKEN preserved, got {auth_env.get('ANTHROPIC_AUTH_TOKEN')!r}", failures)
     expect(auth_env.get("ANTHROPIC_BASE_URL") == "https://api.example.test", f"fresh auth env: expected ANTHROPIC_BASE_URL preserved, got {auth_env.get('ANTHROPIC_BASE_URL')!r}", failures)
-    for key in [
-        "ANTHROPIC_API_KEY",
-        "ANTHROPIC_MODEL",
-        "ANTHROPIC_SMALL_FAST_MODEL",
-        "CLAUDE_CODE_USE_BEDROCK",
-        "CLAUDE_CODE_USE_VERTEX",
-    ]:
-        expect(auth_env.get(key) == "__UNSET__", f"fresh auth env: expected {key} unset, got {auth_env.get(key)!r}", failures)
+    expect(auth_env.get("ANTHROPIC_API_KEY") == "api-key", f"fresh auth env: expected ANTHROPIC_API_KEY preserved, got {auth_env.get('ANTHROPIC_API_KEY')!r}", failures)
+    expect(auth_env.get("ANTHROPIC_MODEL") == "model", f"fresh auth env: expected ANTHROPIC_MODEL preserved, got {auth_env.get('ANTHROPIC_MODEL')!r}", failures)
+    expect(auth_env.get("ANTHROPIC_SMALL_FAST_MODEL") == "small-model", f"fresh auth env: expected ANTHROPIC_SMALL_FAST_MODEL preserved, got {auth_env.get('ANTHROPIC_SMALL_FAST_MODEL')!r}", failures)
+    expect(auth_env.get("CLAUDE_CODE_USE_BEDROCK") == "1", f"fresh auth env: expected CLAUDE_CODE_USE_BEDROCK preserved, got {auth_env.get('CLAUDE_CODE_USE_BEDROCK')!r}", failures)
+    expect(auth_env.get("CLAUDE_CODE_USE_VERTEX") == "1", f"fresh auth env: expected CLAUDE_CODE_USE_VERTEX preserved, got {auth_env.get('CLAUDE_CODE_USE_VERTEX')!r}", failures)
     expect("--session-id" in real_argv, f"fresh auth env: expected session injection, got {real_argv}", failures)
+
+
+def test_live_socket_clears_empty_masked_claude_auth_selection_env(failures: list[str]) -> None:
+    inherited = {
+        "ANTHROPIC_API_KEY": "",
+        "ANTHROPIC_MODEL": "",
+        "ANTHROPIC_SMALL_FAST_MODEL": "",
+        "CLAUDE_CODE_USE_BEDROCK": "",
+        "CLAUDE_CODE_USE_VERTEX": "",
+    }
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["--print", "hello"],
+        inherited_env=inherited,
+    )
+    expect(code == 0, f"masked auth env: wrapper exited {code}: {stderr}", failures)
+    for key in inherited:
+        expect(auth_env.get(key) == "__UNSET__", f"masked auth env: expected empty {key} unset, got {auth_env.get(key)!r}", failures)
+    expect("--session-id" in real_argv, f"masked auth env: expected session injection, got {real_argv}", failures)
 
 
 def test_live_socket_normalizes_subrouter_claude_config_dir(failures: list[str]) -> None:
@@ -749,6 +764,7 @@ def main() -> int:
     test_value_options_before_print_do_not_hide_interactive_entry(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)
+    test_live_socket_clears_empty_masked_claude_auth_selection_env(failures)
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
     test_live_socket_preserves_only_listed_claude_auth_keys(failures)
