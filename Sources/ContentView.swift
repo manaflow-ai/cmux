@@ -9675,7 +9675,7 @@ struct VerticalTabsSidebar: View {
         collapsedGroupIds: Set<String>
     ) -> [UUID] {
         let showsFolderHeaders = groupingPlan.folderGroups.count > 1
-        groupingPlan.bookmarkIds + groupingPlan.folderGroups.flatMap { group in
+        return groupingPlan.bookmarkIds + groupingPlan.folderGroups.flatMap { group in
             showsFolderHeaders && collapsedGroupIds.contains(group.id) ? [] : group.workspaceIds
         }
     }
