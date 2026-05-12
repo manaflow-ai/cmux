@@ -87,6 +87,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     private let popupNavigationDelegate: PopupNavigationDelegate
     private let downloadDelegate: BrowserDownloadDelegate
     private let webAuthnCoordinator: BrowserWebAuthnCoordinator
+    private let dialogOwnerId = UUID()
 
     private static var associatedObjectKey: UInt8 = 0
 
@@ -307,6 +308,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         urlObservation = nil
 
         // Tear down web view
+        cancelPendingJavaScriptDialogs()
         webAuthnCoordinator.uninstall(from: webView)
         webView.stopLoading()
         webView.navigationDelegate = nil
@@ -359,12 +361,29 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         defaultText: String?,
         responder: @escaping (_ accept: Bool, _ text: String?) -> Void
     ) -> Bool {
+        enqueueJavaScriptDialog(
+            type: type,
+            message: message,
+            defaultText: defaultText,
+            ownerId: dialogOwnerId,
+            responder: responder
+        )
+    }
+
+    private func enqueueJavaScriptDialog(
+        type: String,
+        message: String,
+        defaultText: String?,
+        ownerId: UUID,
+        responder: @escaping (_ accept: Bool, _ text: String?) -> Void
+    ) -> Bool {
         if let openerPanel {
             TerminalController.shared.enqueueBrowserDialog(
                 surfaceId: openerPanel.id,
                 type: type,
                 message: message,
                 defaultText: defaultText,
+                ownerId: ownerId,
                 responder: responder
             )
             return true
@@ -373,8 +392,25 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             type: type,
             message: message,
             defaultText: defaultText,
+            ownerId: ownerId,
             responder: responder
         ) ?? false
+    }
+
+    private func cancelPendingJavaScriptDialogs() {
+        if let openerPanel {
+            TerminalController.shared.cancelBrowserDialogs(surfaceId: openerPanel.id, ownerId: dialogOwnerId)
+        } else {
+            parentPopupController?.cancelChildJavaScriptDialogs(ownerId: dialogOwnerId)
+        }
+    }
+
+    private func cancelChildJavaScriptDialogs(ownerId: UUID) {
+        if let openerPanel {
+            TerminalController.shared.cancelBrowserDialogs(surfaceId: openerPanel.id, ownerId: ownerId)
+        } else {
+            parentPopupController?.cancelChildJavaScriptDialogs(ownerId: ownerId)
+        }
     }
 
     // MARK: - Insecure HTTP prompt (parity with main browser)

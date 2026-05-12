@@ -191,6 +191,7 @@ class TerminalController {
         let type: String
         let message: String
         let defaultText: String?
+        let ownerId: UUID?
         let responder: (_ accept: Bool, _ text: String?) -> Void
     }
 
@@ -8967,16 +8968,31 @@ class TerminalController {
         type: String,
         message: String,
         defaultText: String?,
+        ownerId: UUID? = nil,
         responder: @escaping (_ accept: Bool, _ text: String?) -> Void
     ) {
         var queue = v2BrowserDialogQueueBySurface[surfaceId] ?? []
-        queue.append(V2BrowserPendingDialog(type: type, message: message, defaultText: defaultText, responder: responder))
+        queue.append(V2BrowserPendingDialog(type: type, message: message, defaultText: defaultText, ownerId: ownerId, responder: responder))
         while queue.count > 16 {
             // Keep bounded memory while preserving FIFO semantics for newest entries.
             let dropped = queue.removeFirst()
             dropped.responder(false, nil)
         }
         v2BrowserDialogQueueBySurface[surfaceId] = queue
+    }
+
+    func cancelBrowserDialogs(surfaceId: UUID, ownerId: UUID) {
+        let queue = v2BrowserDialogQueueBySurface[surfaceId] ?? []
+        guard !queue.isEmpty else { return }
+        var remaining: [V2BrowserPendingDialog] = []
+        for dialog in queue {
+            if dialog.ownerId == ownerId {
+                dialog.responder(false, nil)
+            } else {
+                remaining.append(dialog)
+            }
+        }
+        v2BrowserDialogQueueBySurface[surfaceId] = remaining
     }
 
     private func v2BrowserPopDialog(surfaceId: UUID) -> V2BrowserPendingDialog? {
