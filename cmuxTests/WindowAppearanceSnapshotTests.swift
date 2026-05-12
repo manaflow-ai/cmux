@@ -51,13 +51,35 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             backgroundOpacity: 1.0,
             backgroundBlur: .macosGlassClear
         )
+        let plan = snapshot.backdropPlan(glassEffectAvailable: true)
 
         XCTAssertTrue(snapshot.shouldUseTransparentHosting(glassEffectAvailable: true))
         XCTAssertTrue(snapshot.windowGlassSettings.shouldApply(glassEffectAvailable: true))
         XCTAssertEqual(snapshot.windowGlassSettings.style, .clear)
         XCTAssertEqual(snapshot.windowGlassSettings.tintColor.hexString(includeAlpha: true), "#272822FF")
         assertClearBackdrop(snapshot.policy(for: .windowRoot))
-        XCTAssertEqual(snapshot.backdropPlan(glassEffectAvailable: true).hostingPhase, .windowGlass)
+        XCTAssertEqual(plan.hostingPhase, .windowGlass)
+        XCTAssertFalse(plan.shouldApplyGhosttyCompositorBlur)
+    }
+
+    func testMacOSGlassRegularUsesNativeWindowGlassInsteadOfLegacyBlur() {
+        let snapshot = makeSnapshot(
+            unifySurfaceBackdrops: true,
+            backgroundOpacity: 0.25,
+            backgroundBlur: .macosGlassRegular
+        )
+        let plan = snapshot.backdropPlan(glassEffectAvailable: true)
+
+        XCTAssertTrue(snapshot.shouldUseTransparentHosting(glassEffectAvailable: true))
+        XCTAssertTrue(snapshot.windowGlassSettings.shouldApply(glassEffectAvailable: true))
+        XCTAssertEqual(snapshot.windowGlassSettings.style, .regular)
+        XCTAssertEqual(snapshot.windowGlassSettings.tintColor.hexString(includeAlpha: true), "#2728223F")
+        assertClearBackdrop(snapshot.policy(for: .windowRoot))
+        XCTAssertEqual(plan.hostingPhase, .windowGlass)
+        XCTAssertEqual(plan.glass?.style, .regular)
+        XCTAssertEqual(plan.windowBackgroundColor.hexString(includeAlpha: true), "#FFFFFF00")
+        XCTAssertFalse(plan.windowIsOpaque)
+        XCTAssertFalse(plan.shouldApplyGhosttyCompositorBlur)
     }
 
     func testTranslucentTerminalWithSidebarTintKeepsRootBackdropOwner() {
