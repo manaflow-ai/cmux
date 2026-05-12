@@ -14156,8 +14156,12 @@ private extension NSWindow {
             let responderWebView = self.firstResponder.flatMap {
                 Self.cmuxOwningWebView(for: $0, in: self, event: event)
             }
-            let hitWebView = Self.cmuxHitViewForEventDispatch(in: self, event: event).flatMap {
-                Self.cmuxOwningWebView(for: $0)
+            let hitWebView: CmuxWebView? = if Self.cmuxShouldResolveHitViewForEventDispatch(event) {
+                Self.cmuxHitViewForEventDispatch(in: self, event: event).flatMap {
+                    Self.cmuxOwningWebView(for: $0)
+                }
+            } else {
+                nil
             }
             let firstResponderType = self.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
             return "browser=\((responderWebView != nil || hitWebView != nil) ? 1 : 0) firstResponder=\(firstResponderType)"
@@ -14205,7 +14209,9 @@ private extension NSWindow {
         let previousContextHitView = cmuxFirstResponderGuardHitViewContext
         let previousContextWindowNumber = cmuxFirstResponderGuardContextWindowNumber
         cmuxFirstResponderGuardCurrentEventContext = event
-        cmuxFirstResponderGuardHitViewContext = Self.cmuxHitViewForEventDispatch(in: self, event: event)
+        cmuxFirstResponderGuardHitViewContext = Self.cmuxShouldResolveHitViewForEventDispatch(event)
+            ? Self.cmuxHitViewForEventDispatch(in: self, event: event)
+            : nil
         cmuxFirstResponderGuardContextWindowNumber = self.windowNumber
 #if DEBUG
         if event.type == .keyDown {
@@ -14692,6 +14698,14 @@ private extension NSWindow {
             return nil
         }
         return cmuxTopHitViewForEvent(in: window, event: event)
+    }
+
+    private static func cmuxShouldResolveHitViewForEventDispatch(_ event: NSEvent) -> Bool {
+        // The cached hit view is only consumed by pointer-down focus guards.
+        // Avoid forcing AppKit/SwiftUI hit-testing for hover/tracking events; public
+        // crash reports show stale tracking areas can re-enter layout after hours of
+        // workspace churn.
+        cmuxIsPointerDownEvent(event)
     }
 
     private static func cmuxHitViewForCurrentEvent(in window: NSWindow, event: NSEvent) -> NSView? {
