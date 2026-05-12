@@ -154,4 +154,24 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
             ]
         )
     }
+
+    func testTerminalTimestampStorePrunesRowsOutsideRetentionWindow() {
+        let store = TerminalTimestampStore(maxRetainedRows: 3)
+        let timestamp = Date(timeIntervalSince1970: 100)
+
+        store.record(
+            scrollbar: TerminalTimestampScrollbarState(total: 5, offset: 0, len: 5),
+            at: timestamp,
+            markVisibleRows: true
+        )
+
+        XCTAssertEqual(
+            store.visibleRows(for: TerminalTimestampScrollbarState(total: 5, offset: 0, len: 5)),
+            [
+                TerminalTimestampVisibleRow(row: 2, timestamp: timestamp),
+                TerminalTimestampVisibleRow(row: 3, timestamp: timestamp),
+                TerminalTimestampVisibleRow(row: 4, timestamp: timestamp),
+            ]
+        )
+    }
 }

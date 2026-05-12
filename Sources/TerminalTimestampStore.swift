@@ -52,6 +52,8 @@ struct TerminalTimestampVisibleRow: Equatable {
 final class TerminalTimestampStore {
     private let maxRetainedRows: Int
     private var timestampsByRow: [Int: Date] = [:]
+    private var oldestTrackedRow: Int?
+    private var newestTrackedRow: Int?
     private var lastScrollbar: TerminalTimestampScrollbarState?
 
     init(maxRetainedRows: Int = 20_000) {
@@ -65,17 +67,17 @@ final class TerminalTimestampStore {
     ) {
         if let previous = lastScrollbar {
             if scrollbar.total < previous.total {
-                timestampsByRow = timestampsByRow.filter { entry in entry.key < scrollbar.total }
+                pruneRows(atOrAbove: scrollbar.total)
             } else if scrollbar.total > previous.total {
                 for row in previous.total..<scrollbar.total {
-                    timestampsByRow[row] = date
+                    recordTimestamp(for: row, at: date)
                 }
             }
         }
 
         if markVisibleRows {
             for row in visibleRange(for: scrollbar) where timestampsByRow[row] == nil {
-                timestampsByRow[row] = date
+                recordTimestamp(for: row, at: date)
             }
         }
 
@@ -97,10 +99,95 @@ final class TerminalTimestampStore {
         return lower..<upper
     }
 
+    private func recordTimestamp(for row: Int, at date: Date) {
+        let isNewRow = timestampsByRow[row] == nil
+        timestampsByRow[row] = date
+
+        guard isNewRow else { return }
+        oldestTrackedRow = min(oldestTrackedRow ?? row, row)
+        newestTrackedRow = max(newestTrackedRow ?? row, row)
+    }
+
+    private func pruneRows(atOrAbove upperBound: Int) {
+        guard let newestTrackedRow, newestTrackedRow >= upperBound else { return }
+        for row in upperBound...newestTrackedRow {
+            timestampsByRow.removeValue(forKey: row)
+        }
+        refreshNewestTrackedRow(startingAt: upperBound - 1)
+    }
+
     private func prune(forTotalRows totalRows: Int) {
         let minimumRow = max(0, totalRows - maxRetainedRows)
-        timestampsByRow = timestampsByRow.filter { entry in
-            entry.key >= minimumRow && entry.key < totalRows
+        guard let oldestTrackedRow, oldestTrackedRow < minimumRow else { return }
+
+        for row in oldestTrackedRow..<minimumRow {
+            timestampsByRow.removeValue(forKey: row)
         }
+        refreshOldestTrackedRow(startingAt: minimumRow)
+    }
+
+    private func refreshOldestTrackedRow(startingAt row: Int) {
+        guard !timestampsByRow.isEmpty else {
+            clearTrackedBounds()
+            return
+        }
+        guard let newestTrackedRow else {
+            refreshTrackedBounds()
+            return
+        }
+
+        var candidate = row
+        while candidate <= newestTrackedRow {
+            if timestampsByRow[candidate] != nil {
+                oldestTrackedRow = candidate
+                return
+            }
+            candidate += 1
+        }
+
+        refreshTrackedBounds()
+    }
+
+    private func refreshNewestTrackedRow(startingAt row: Int) {
+        guard !timestampsByRow.isEmpty else {
+            clearTrackedBounds()
+            return
+        }
+        guard let oldestTrackedRow else {
+            refreshTrackedBounds()
+            return
+        }
+
+        var candidate = row
+        while candidate >= oldestTrackedRow {
+            if timestampsByRow[candidate] != nil {
+                newestTrackedRow = candidate
+                return
+            }
+            candidate -= 1
+        }
+
+        refreshTrackedBounds()
+    }
+
+    private func refreshTrackedBounds() {
+        guard !timestampsByRow.isEmpty else {
+            clearTrackedBounds()
+            return
+        }
+
+        var oldest = Int.max
+        var newest = Int.min
+        for row in timestampsByRow.keys {
+            oldest = min(oldest, row)
+            newest = max(newest, row)
+        }
+        oldestTrackedRow = oldest
+        newestTrackedRow = newest
+    }
+
+    private func clearTrackedBounds() {
+        oldestTrackedRow = nil
+        newestTrackedRow = nil
     }
 }
