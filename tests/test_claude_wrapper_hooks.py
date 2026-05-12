@@ -261,9 +261,11 @@ keys=(
   ANTHROPIC_BASE_URL
   ANTHROPIC_MODEL
   ANTHROPIC_SMALL_FAST_MODEL
+  ANTHROPIC_VERTEX_PROJECT_ID
   CLAUDE_CODE_USE_BEDROCK
   CLAUDE_CODE_USE_VERTEX
   CLAUDE_CONFIG_DIR
+  CLOUD_ML_REGION
 )
 for key in "${keys[@]}"; do
   if [[ ${!key+x} ]]; then
@@ -531,6 +533,22 @@ def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures
     expect("--session-id" in real_argv, f"fresh auth env: expected session injection, got {real_argv}", failures)
 
 
+def test_live_socket_preserves_vertex_auth_env_for_shell_configured_launch(failures: list[str]) -> None:
+    inherited = {
+        "ANTHROPIC_VERTEX_PROJECT_ID": "vertex-project-123",
+        "CLAUDE_CODE_USE_VERTEX": "1",
+        "CLOUD_ML_REGION": "us-central1",
+    }
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["--print", "hello"],
+        inherited_env=inherited,
+    )
+    expect(code == 0, f"vertex auth env: wrapper exited {code}: {stderr}", failures)
+    for key, value in inherited.items():
+        expect(auth_env.get(key) == value, f"vertex auth env: expected {key}={value!r}, got {auth_env.get(key)!r}", failures)
+    expect("--session-id" in real_argv, f"vertex auth env: expected session injection, got {real_argv}", failures)
+
+
 def test_live_socket_normalizes_subrouter_claude_config_dir(failures: list[str]) -> None:
     expected: dict[str, str] = {}
 
@@ -749,6 +767,7 @@ def main() -> int:
     test_value_options_before_print_do_not_hide_interactive_entry(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)
+    test_live_socket_preserves_vertex_auth_env_for_shell_configured_launch(failures)
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
     test_live_socket_preserves_only_listed_claude_auth_keys(failures)
