@@ -1028,6 +1028,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 workspaceId: hit.workspaceID.uuidString,
                 surfaceId: hit.panelID.uuidString)
         }
+        // Soft-focus while arrowing — same focus path, no reward/dismiss.
+        NotificationCenter.default.addObserver(
+            forName: .cmuxPreviewSearchHit, object: nil, queue: .main
+        ) { note in
+            guard let hit = note.object as? SearchIndex.Hit else { return }
+            FeedCoordinator.focus(
+                workspaceId: hit.workspaceID.uuidString,
+                surfaceId: hit.panelID.uuidString)
+        }
 
         claimAuthCallbackURLSchemes()
 

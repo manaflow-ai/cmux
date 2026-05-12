@@ -67,12 +67,16 @@ public struct TitlebarSearchField: View {
         }
         .onKeyPress(.escape) { fieldFocus = false; return .handled }
         .onKeyPress(.upArrow) {
-            if !hits.isEmpty { selection = max(0, selection - 1) }
+            if !hits.isEmpty {
+                selection = max(0, selection - 1)
+                preview(hits[selection])
+            }
             return .handled
         }
         .onKeyPress(.downArrow) {
             if !hits.isEmpty {
                 selection = min(hits.count - 1, selection + 1)
+                preview(hits[selection])
             }
             return .handled
         }
@@ -141,6 +145,20 @@ public struct TitlebarSearchField: View {
             name: .cmuxJumpToSearchHit, object: hit)
         fieldFocus = false
         query = ""
+    }
+
+    @State private var previewTask: Task<Void, Never>?
+
+    private func preview(_ hit: SearchIndex.Hit) {
+        // Debounce: only fire if the user dwells on a row briefly
+        // (no thrash when holding arrow keys).
+        previewTask?.cancel()
+        previewTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard !Task.isCancelled else { return }
+            NotificationCenter.default.post(
+                name: .cmuxPreviewSearchHit, object: hit)
+        }
     }
 }
 
