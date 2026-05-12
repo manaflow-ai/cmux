@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Darwin
 import Foundation
 import QuartzCore
 import SwiftUI
@@ -275,6 +276,12 @@ protocol SSHFileExplorerTransport: AnyObject {
         connection: SSHFileExplorerConnection,
         showHidden: Bool
     ) async throws -> [FileExplorerEntry]
+    nonisolated func download(
+        remotePath: String,
+        isDirectory: Bool,
+        connection: SSHFileExplorerConnection,
+        toLocalDirectory localDirectory: String
+    ) async throws -> String
 }
 
 enum FileExplorerWorkspaceRoot: Equatable {
@@ -403,6 +410,18 @@ final class SSHFileExplorerProvider: FileExplorerProvider, @unchecked Sendable {
         }
         return try await transport.listDirectory(path: path, connection: connection, showHidden: showHidden)
     }
+
+    func download(remotePath: String, isDirectory: Bool, toLocalDirectory localDirectory: String) async throws -> String {
+        guard isAvailable else {
+            throw FileExplorerError.providerUnavailable
+        }
+        return try await transport.download(
+            remotePath: remotePath,
+            isDirectory: isDirectory,
+            connection: connection,
+            toLocalDirectory: localDirectory
+        )
+    }
 }
 
 final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
@@ -424,6 +443,20 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         try await Self.runSSHListCommand(path: path, connection: connection, showHidden: showHidden)
     }
 
+    nonisolated func download(
+        remotePath: String,
+        isDirectory: Bool,
+        connection: SSHFileExplorerConnection,
+        toLocalDirectory localDirectory: String
+    ) async throws -> String {
+        try await Self.runSCPDownloadCommand(
+            remotePath: remotePath,
+            isDirectory: isDirectory,
+            connection: connection,
+            localDirectory: localDirectory
+        )
+    }
+
     private struct SSHCommandResult: Sendable {
         let stdout: String
         let stderr: String
@@ -432,21 +465,22 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
 
     // Keeps the child process reachable from the cancellation handler while
     // the blocking wait runs off Swift's cooperative executor.
-    private final class SSHCommandProcess: @unchecked Sendable {
+    private final class CommandProcess: @unchecked Sendable {
         private let process = Process()
         private let outPipe = Pipe()
         private let errPipe = Pipe()
         private let lock = NSLock()
         private var cancelled = false
 
-        init(connection: SSHFileExplorerConnection, command: String) {
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-            process.arguments = ProcessSSHFileExplorerTransport.sshArguments(connection: connection, command: command)
+        init(executable: String, arguments: [String]) {
+            process.executableURL = URL(fileURLWithPath: executable)
+            process.arguments = arguments
+            process.standardInput = FileHandle.nullDevice
             process.standardOutput = outPipe
             process.standardError = errPipe
         }
 
-        func run() throws -> SSHCommandResult {
+        func run(timeout: TimeInterval? = nil) throws -> SSHCommandResult {
             lock.lock()
             let wasCancelled = cancelled
             lock.unlock()
@@ -463,9 +497,31 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
                 process.terminate()
             }
 
-            let data = outPipe.fileHandleForReading.readDataToEndOfFile()
-            let stderrData = errPipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
+            let data: Data
+            let stderrData: Data
+            if let timeout {
+                let exitSignal = DispatchSemaphore(value: 0)
+                DispatchQueue.global(qos: .userInitiated).async { [process] in
+                    process.waitUntilExit()
+                    exitSignal.signal()
+                }
+
+                if exitSignal.wait(timeout: .now() + timeout) == .timedOut {
+                    terminate()
+                    _ = exitSignal.wait(timeout: .now() + 1)
+                    if process.isRunning {
+                        _ = Darwin.kill(process.processIdentifier, SIGKILL)
+                        process.waitUntilExit()
+                    }
+                    throw FileExplorerError.sshCommandFailed("scp timed out")
+                }
+                data = outPipe.fileHandleForReading.readDataToEndOfFile()
+                stderrData = errPipe.fileHandleForReading.readDataToEndOfFile()
+            } else {
+                data = outPipe.fileHandleForReading.readDataToEndOfFile()
+                stderrData = errPipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+            }
 
             return SSHCommandResult(
                 stdout: String(data: data, encoding: .utf8) ?? "",
@@ -487,7 +543,10 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     }
 
     private static func runSSHCommand(connection: SSHFileExplorerConnection, command: String) async throws -> String {
-        let commandProcess = SSHCommandProcess(connection: connection, command: command)
+        let commandProcess = CommandProcess(
+            executable: "/usr/bin/ssh",
+            arguments: sshArguments(connection: connection, command: command)
+        )
         let result = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 DispatchQueue.global(qos: .userInitiated).async {
@@ -502,6 +561,19 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             throw FileExplorerError.sshCommandFailed(result.stderr)
         }
         return result.stdout
+    }
+
+    private static func runSCPCommand(arguments: [String], timeout: TimeInterval) async throws -> SSHCommandResult {
+        let commandProcess = CommandProcess(executable: "/usr/bin/scp", arguments: arguments)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    continuation.resume(with: Result { try commandProcess.run(timeout: timeout) })
+                }
+            }
+        } onCancel: {
+            commandProcess.terminate()
+        }
     }
 
     private static func sshArguments(connection: SSHFileExplorerConnection, command: String) -> [String] {
@@ -553,18 +625,210 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             return FileExplorerEntry(name: cleanName, path: fullPath, isDirectory: isDir)
         }
     }
+
+    private static func runSCPDownloadCommand(
+        remotePath: String,
+        isDirectory: Bool,
+        connection: SSHFileExplorerConnection,
+        localDirectory: String
+    ) async throws -> String {
+        let normalizedDirectory = (localDirectory as NSString).expandingTildeInPath
+        var isLocalDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: normalizedDirectory, isDirectory: &isLocalDirectory),
+              isLocalDirectory.boolValue else {
+            throw FileExplorerError.invalidDownloadDestination(normalizedDirectory)
+        }
+
+        let targetName = (remotePath as NSString).lastPathComponent
+        let targetPath = (normalizedDirectory as NSString).appendingPathComponent(
+            targetName.isEmpty ? "download" : targetName
+        )
+        let args = scpDownloadArguments(
+            remotePath: remotePath,
+            isDirectory: isDirectory,
+            connection: connection,
+            localDirectory: normalizedDirectory
+        )
+        let result = try await runSCPCommand(arguments: args, timeout: 30 * 60)
+        guard result.terminationStatus == 0 else {
+            let detail = bestErrorLine(stderr: result.stderr, stdout: result.stdout) ??
+                "scp exited \(result.terminationStatus)"
+            throw FileExplorerError.downloadFailed(detail)
+        }
+        return targetPath
+    }
+
+    private static func scpDownloadArguments(
+        remotePath: String,
+        isDirectory: Bool,
+        connection: SSHFileExplorerConnection,
+        localDirectory: String
+    ) -> [String] {
+        var args: [String] = [
+            "-q",
+            "-o", "ConnectTimeout=6",
+            "-o", "ServerAliveInterval=20",
+            "-o", "ServerAliveCountMax=2",
+            "-o", "BatchMode=yes",
+            "-o", "ControlMaster=no",
+        ]
+        if isDirectory {
+            args.append("-r")
+        }
+        if let port = connection.port {
+            args += ["-P", String(port)]
+        }
+        if let identityFile = connection.identityFile,
+           !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            args += ["-i", identityFile]
+        }
+        let effectiveSSHOptions = backgroundSSHOptions(connection.sshOptions)
+        if !hasSSHOptionKey(effectiveSSHOptions, key: "StrictHostKeyChecking") {
+            args += ["-o", "StrictHostKeyChecking=accept-new"]
+        }
+        for option in effectiveSSHOptions {
+            args += ["-o", option]
+        }
+
+        args += [
+            "\(scpRemoteDestination(connection.destination)):\(shellSingleQuoted(remotePath))",
+            localDirectory,
+        ]
+        return args
+    }
+
+    private static func bestErrorLine(stderr: String, stdout: String) -> String? {
+        let stderrLine = stderr
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first(where: { !$0.isEmpty })
+        if let stderrLine {
+            return stderrLine
+        }
+
+        return stdout
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first(where: { !$0.isEmpty })
+    }
+
+    private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
+        let loweredKey = key.lowercased()
+        return options.contains { optionKey($0) == loweredKey }
+    }
+
+    private static func backgroundSSHOptions(_ options: [String]) -> [String] {
+        let batchSSHControlOptionKeys: Set<String> = [
+            "controlmaster",
+            "controlpersist",
+        ]
+        return normalizedSSHOptions(options).filter { option in
+            guard let key = optionKey(option) else { return false }
+            return !batchSSHControlOptionKeys.contains(key)
+        }
+    }
+
+    private static func normalizedSSHOptions(_ options: [String]) -> [String] {
+        options.compactMap { option in
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            return trimmed
+        }
+    }
+
+    private static func optionKey(_ option: String) -> String? {
+        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
+            .first
+            .map(String.init)?
+            .lowercased()
+    }
+
+    private static func scpRemoteDestination(_ destination: String) -> String {
+        let trimmedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDestination.isEmpty else { return destination }
+
+        let parts = trimmedDestination.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
+        let userPart: String?
+        let hostPart: String
+        if parts.count == 2 {
+            userPart = String(parts[0])
+            hostPart = String(parts[1])
+        } else {
+            userPart = nil
+            hostPart = trimmedDestination
+        }
+
+        guard shouldBracketIPv6Literal(hostPart) else {
+            return trimmedDestination
+        }
+
+        let bracketedHost = "[\(hostPart)]"
+        if let userPart {
+            return "\(userPart)@\(bracketedHost)"
+        }
+        return bracketedHost
+    }
+
+    private static func shouldBracketIPv6Literal(_ host: String) -> Bool {
+        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmedHost.isEmpty &&
+            trimmedHost.contains(":") &&
+            !trimmedHost.hasPrefix("[") &&
+            !trimmedHost.hasSuffix("]")
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+#if DEBUG
+    static func scpDownloadArgumentsForTesting(
+        remotePath: String,
+        isDirectory: Bool,
+        connection: SSHFileExplorerConnection,
+        localDirectory: String
+    ) -> [String] {
+        scpDownloadArguments(
+            remotePath: remotePath,
+            isDirectory: isDirectory,
+            connection: connection,
+            localDirectory: localDirectory
+        )
+    }
+#endif
 }
 
 enum FileExplorerError: LocalizedError {
     case providerUnavailable
     case sshCommandFailed(String)
+    case invalidDownloadDestination(String)
+    case downloadFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .providerUnavailable:
             return String(localized: "fileExplorer.error.unavailable", defaultValue: "File explorer is not available")
         case .sshCommandFailed(let detail):
-            return String(localized: "fileExplorer.error.sshFailed", defaultValue: "SSH command failed: \(detail)")
+            return String(
+                format: String(localized: "fileExplorer.error.sshFailed", defaultValue: "SSH command failed: %@"),
+                detail
+            )
+        case .invalidDownloadDestination(let path):
+            return String(
+                format: String(
+                    localized: "fileExplorer.error.downloadDestinationInvalid",
+                    defaultValue: "Download destination is not a local folder: %@"
+                ),
+                path
+            )
+        case .downloadFailed(let detail):
+            return String(
+                format: String(localized: "fileExplorer.error.downloadFailed", defaultValue: "Download failed: %@"),
+                detail
+            )
         }
     }
 }
@@ -597,6 +861,8 @@ final class FileExplorerStore: ObservableObject {
 
     /// Whether hidden files are shown. Set from FileExplorerState externally.
     var showHiddenFiles: Bool = false
+
+    private(set) var defaultLocalDownloadDirectory: String?
 
     /// Watches the root directory for filesystem changes (local only).
     private var directoryWatcher: FileExplorerDirectoryWatcher?
@@ -672,6 +938,22 @@ final class FileExplorerStore: ObservableObject {
                 sshTransport: sshTransport
             )
         }
+    }
+
+    func setDefaultLocalDownloadDirectory(_ path: String?) {
+        guard let path = path?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty else {
+            defaultLocalDownloadDirectory = nil
+            return
+        }
+        let normalizedPath = (path as NSString).expandingTildeInPath
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: normalizedPath, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            defaultLocalDownloadDirectory = nil
+            return
+        }
+        defaultLocalDownloadDirectory = normalizedPath
     }
 
     func setRootPath(_ path: String) {

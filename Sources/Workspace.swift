@@ -7034,6 +7034,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var terminalScrollBarHidden: Bool = false
     @Published var currentDirectory: String
     @Published private(set) var surfaceTabBarDirectory: String?
+    private let initialLocalDirectory: String
     private(set) var preferredBrowserProfileID: UUID?
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
@@ -7274,6 +7275,24 @@ final class Workspace: Identifiable, ObservableObject {
     var surfaceDirectories: [UUID: String] {
         get { panelDirectories }
         set { panelDirectories = newValue }
+    }
+
+    var defaultLocalDownloadDirectory: String? {
+        Self.normalizedExistingLocalDirectory(initialLocalDirectory)
+    }
+
+    private static func normalizedExistingLocalDirectory(_ path: String?) -> String? {
+        guard let path = path?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty else {
+            return nil
+        }
+        let normalizedPath = (path as NSString).expandingTildeInPath
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: normalizedPath, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return nil
+        }
+        return normalizedPath
     }
 
     private var processTitle: String
@@ -7605,6 +7624,7 @@ final class Workspace: Identifiable, ObservableObject {
         let initialDirectory = hasWorkingDirectory
             ? trimmedWorkingDirectory
             : FileManager.default.homeDirectoryForCurrentUser.path
+        self.initialLocalDirectory = initialDirectory
         self.currentDirectory = hasWorkingDirectory
             ? trimmedWorkingDirectory
             : FileManager.default.homeDirectoryForCurrentUser.path
