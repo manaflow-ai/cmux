@@ -103,7 +103,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(data["cmux_code"] as? String, "invalid_params")
     }
 
-    func testJSONRPCNotificationDoesNotWriteSocketResponse() throws {
+    func testJSONRPCNotificationDoesNotWriteSocketResponse() async throws {
         let socketPath = makeSocketPath("jsonrpc-notification")
         let tabManager = TabManager()
 
@@ -114,6 +114,32 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         )
         try waitForSocket(at: socketPath)
 
+        let (explicitNullIDResponse, response) = try await runJSONRPCNotificationSocketSequence(to: socketPath)
+
+        XCTAssertTrue(explicitNullIDResponse["id"] is NSNull, "Unexpected v2 response: \(explicitNullIDResponse)")
+        XCTAssertEqual(response["jsonrpc"] as? String, "2.0", "Unexpected v2 response: \(response)")
+        XCTAssertEqual(response["id"] as? String, "after-notification", "Unexpected v2 response: \(response)")
+        XCTAssertNotNil(response["result"], "Unexpected v2 response: \(response)")
+    }
+
+    private func runJSONRPCNotificationSocketSequence(
+        to socketPath: String
+    ) async throws -> (explicitNullIDResponse: [String: Any], followUpResponse: [String: Any]) {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let result = try self.runJSONRPCNotificationSocketSequenceSync(to: socketPath)
+                    continuation.resume(returning: result)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private nonisolated func runJSONRPCNotificationSocketSequenceSync(
+        to socketPath: String
+    ) throws -> (explicitNullIDResponse: [String: Any], followUpResponse: [String: Any]) {
         let fd = try connect(to: socketPath)
         defer { Darwin.close(fd) }
 
@@ -133,7 +159,6 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             try JSONSerialization.jsonObject(with: explicitNullIDResponseData) as? [String: Any],
             "Expected response for explicit null JSON-RPC id"
         )
-        XCTAssertTrue(explicitNullIDResponse["id"] is NSNull, "Unexpected v2 response: \(explicitNullIDResponse)")
 
         let notification: [String: Any] = [
             "jsonrpc": "2.0",
@@ -163,9 +188,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             "Expected response after notification"
         )
 
-        XCTAssertEqual(response["jsonrpc"] as? String, "2.0", "Unexpected v2 response: \(response)")
-        XCTAssertEqual(response["id"] as? String, "after-notification", "Unexpected v2 response: \(response)")
-        XCTAssertNotNil(response["result"], "Unexpected v2 response: \(response)")
+        return (explicitNullIDResponse, response)
     }
 
     func testSocketCommandPolicyDistinguishesFocusIntent() throws {
