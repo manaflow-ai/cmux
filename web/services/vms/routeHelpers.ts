@@ -65,6 +65,28 @@ export function notFoundVm(vmId: string): Response {
   return jsonResponse({ error: `vm not found: ${vmId}` }, 404);
 }
 
+export function requestedVmTeamIdFromRequest(request: Request): string | null {
+  const fromHeader = normalizedOptionalString(
+    request.headers.get("x-cmux-team-id") ??
+      request.headers.get("x-cmux-billing-team-id"),
+  );
+  if (fromHeader) return fromHeader;
+
+  let url: URL;
+  try {
+    url = new URL(request.url);
+  } catch {
+    return null;
+  }
+
+  return normalizedOptionalString(
+    url.searchParams.get("teamId") ??
+      url.searchParams.get("team_id") ??
+      url.searchParams.get("billingTeamId") ??
+      url.searchParams.get("billing_team_id"),
+  );
+}
+
 function requiresBrowserMutationProtection(method: string, bearer: StackBearer | null): boolean {
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(method.toUpperCase())) {
     return false;
@@ -109,4 +131,9 @@ function allowedBrowserOrigins(): Set<string> {
       .filter((origin) => origin.length > 0),
   );
   return cachedAllowedOrigins;
+}
+
+function normalizedOptionalString(value: string | null | undefined): string | null {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
 }

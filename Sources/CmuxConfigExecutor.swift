@@ -35,12 +35,12 @@ struct CmuxConfigExecutor {
                 displayTitle: displayTitle ?? command.name,
                 presentingWindow: presentingWindow
             ) {
-                executeWorkspaceCommand(
+                guard executeWorkspaceCommand(
                     command: command,
                     workspace: workspace,
                     tabManager: tabManager,
                     baseCwd: baseCwd
-                )
+                ) else { return }
                 onExecuted?()
             }
         } else if let rawCommand = command.command {
@@ -426,17 +426,20 @@ struct CmuxConfigExecutor {
         workspace wsDef: CmuxWorkspaceDefinition,
         tabManager: TabManager,
         baseCwd: String
-    ) {
+    ) -> Bool {
         let workspaceName = wsDef.name ?? command.name
-        let restart = command.restart ?? .ignore
+        let restart = command.restart ?? .new
+        var existingWorkspaceToClose: Workspace?
 
         if let existing = tabManager.tabs.first(where: { $0.customTitle == workspaceName }) {
             switch restart {
+            case .new:
+                break
             case .ignore:
                 tabManager.selectWorkspace(existing)
-                return
+                return true
             case .recreate:
-                tabManager.closeWorkspace(existing)
+                existingWorkspaceToClose = existing
             case .confirm:
                 let alert = NSAlert()
                 alert.messageText = String(
@@ -448,13 +451,19 @@ struct CmuxConfigExecutor {
                     defaultValue: "A workspace with this name already exists. Close it and create a new one?"
                 )
                 alert.alertStyle = .warning
-                alert.addButton(withTitle: String(localized: "dialog.cmuxConfig.confirmRestart.recreate", defaultValue: "Recreate"))
-                alert.addButton(withTitle: String(localized: "dialog.cmuxConfig.confirmRestart.cancel", defaultValue: "Cancel"))
+                alert.addButton(withTitle: String(
+                    localized: "dialog.cmuxConfig.confirmRestart.recreate",
+                    defaultValue: "Recreate"
+                ))
+                alert.addButton(withTitle: String(
+                    localized: "dialog.cmuxConfig.confirmRestart.cancel",
+                    defaultValue: "Cancel"
+                ))
                 guard alert.runModal() == .alertFirstButtonReturn else {
                     tabManager.selectWorkspace(existing)
-                    return
+                    return false
                 }
-                tabManager.closeWorkspace(existing)
+                existingWorkspaceToClose = existing
             }
         }
 
@@ -465,7 +474,13 @@ struct CmuxConfigExecutor {
             newWorkspace.setCustomColor(color)
         }
 
-        guard let layout = wsDef.layout else { return }
-        newWorkspace.applyCustomLayout(layout, baseCwd: resolvedCwd)
+        if let existingWorkspaceToClose, existingWorkspaceToClose.id != newWorkspace.id {
+            tabManager.closeWorkspace(existingWorkspaceToClose)
+        }
+
+        if let layout = wsDef.layout {
+            newWorkspace.applyCustomLayout(layout, baseCwd: resolvedCwd)
+        }
+        return true
     }
 }

@@ -40,6 +40,14 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
     }
 
     func setDockTile(_ dockTile: NSDockTile?) {
+        Self.performOnMain { [self] in
+            setDockTileOnMain(dockTile)
+        }
+    }
+
+    private func setDockTileOnMain(_ dockTile: NSDockTile?) {
+        Self.assertMainQueue()
+
         if let iconChangeObserver {
             DistributedNotificationCenter.default().removeObserver(iconChangeObserver)
             self.iconChangeObserver = nil
@@ -53,7 +61,7 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
         iconChangeObserver = DistributedNotificationCenter.default().addObserver(
             forName: cmuxAppIconDidChangeNotification,
             object: nil,
-            queue: nil
+            queue: .main
         ) { [weak self] _ in
             guard let self else { return }
             self.updateDockTile(dockTile)
@@ -91,6 +99,8 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
     }
 
     private func updateDockTile(_ dockTile: NSDockTile) {
+        Self.assertMainQueue()
+
         let mode = DockTileAppIconMode(defaultsValue: appDefaults?.string(forKey: cmuxAppIconModeKey))
         let isDarkAppearance = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         guard let appBundleURL else {
@@ -117,6 +127,20 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
         dockTile.showIcon(icon)
     }
 
+    private static func performOnMain(_ work: @escaping () -> Void) {
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.async(execute: work)
+        }
+    }
+
+    fileprivate static func assertMainQueue() {
+        #if DEBUG
+        dispatchPrecondition(condition: .onQueue(.main))
+        #endif
+    }
+
     /// Determine the enclosing app bundle for the dock tile plugin bundle.
     static func appBundleURL(for pluginBundleURL: URL) -> URL? {
         var url = pluginBundleURL
@@ -137,20 +161,20 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
 
 private extension NSDockTile {
     func showDefaultAppIcon() {
-        DispatchQueue.main.async {
-            self.contentView = nil
-            self.display()
-        }
+        CmuxDockTilePlugin.assertMainQueue()
+
+        contentView = nil
+        display()
     }
 
     func showIcon(_ newIcon: NSImage) {
-        DispatchQueue.main.async {
-            let iconView = NSImageView(frame: CGRect(origin: .zero, size: self.size))
-            iconView.wantsLayer = true
-            iconView.image = newIcon
-            self.contentView = iconView
-            self.display()
-        }
+        CmuxDockTilePlugin.assertMainQueue()
+
+        let iconView = NSImageView(frame: CGRect(origin: .zero, size: size))
+        iconView.wantsLayer = true
+        iconView.image = newIcon
+        contentView = iconView
+        display()
     }
 }
 

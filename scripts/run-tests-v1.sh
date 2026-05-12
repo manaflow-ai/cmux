@@ -68,7 +68,6 @@ launch_and_wait() {
     exit 1
   fi
   export CMUX_SOCKET_PATH="$SOCK"
-  export CMUX_SOCKET="$SOCK"
 
   # Ensure LaunchServices has a visible/main window attached for rendering checks.
   CMUX_TAG="$RUN_TAG" open "$APP" >/dev/null 2>&1 || true

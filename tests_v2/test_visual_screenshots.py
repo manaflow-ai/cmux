@@ -32,7 +32,7 @@ from typing import Optional, List
 sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
 HTML_REPORT = Path(__file__).parent / "visual_report.html"
 
 # Timing constants

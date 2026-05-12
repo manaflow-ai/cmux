@@ -13,7 +13,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "").strip()
+if not SOCKET_PATH:
+    raise cmuxError("CMUX_SOCKET_PATH is required (expected /tmp/cmux-debug-<tag>.sock)")
 LAST_SOCKET_HINT_PATH = Path("/tmp/cmux-last-socket-path")
 
 
@@ -57,6 +59,52 @@ def main() -> int:
     _must(version_proc.returncode == 0, f"--version should succeed: {version_proc.returncode} {version_out!r}")
     _must("cmux" in version_out, f"--version output should mention cmux: {version_out!r}")
 
+    legacy_socket_key = "CMUX_" + "SOCKET"
+    conflict_env = dict(os.environ)
+    conflict_env["CMUX_SOCKET_PATH"] = SOCKET_PATH
+    conflict_env[legacy_socket_key] = "/tmp/cmux-conflicting-legacy.sock"
+    conflict_version = _run([cli, "--version"], env=conflict_env)
+    conflict_version_out = _merged_output(conflict_version).lower()
+    _must(conflict_version.returncode == 0, f"--version should ignore socket env conflicts: {conflict_version_out!r}")
+    _must("cmux" in conflict_version_out, f"--version with socket env conflict should mention cmux: {conflict_version_out!r}")
+    conflict_help = _run([cli, "--help"], env=conflict_env)
+    conflict_help_out = _merged_output(conflict_help).lower()
+    _must(conflict_help.returncode == 0, f"--help should ignore socket env conflicts: {conflict_help_out!r}")
+    _must("usage" in conflict_help_out, f"--help with socket env conflict should show usage: {conflict_help_out!r}")
+    conflict_help_command = _run([cli, "help"], env=conflict_env)
+    conflict_help_command_out = _merged_output(conflict_help_command).lower()
+    _must(conflict_help_command.returncode == 0, f"help command should ignore socket env conflicts: {conflict_help_command_out!r}")
+    _must("usage" in conflict_help_command_out, f"help command with socket env conflict should show usage: {conflict_help_command_out!r}")
+    conflict_help_command_help = _run([cli, "help", "--help"], env=conflict_env)
+    conflict_help_command_help_out = _merged_output(conflict_help_command_help).lower()
+    _must(conflict_help_command_help.returncode == 0, f"help --help should ignore socket env conflicts: {conflict_help_command_help_out!r}")
+    _must("usage: cmux help" in conflict_help_command_help_out, f"help --help should show help command usage: {conflict_help_command_help_out!r}")
+    conflict_subcommand_help = _run([cli, "ping", "--help"], env=conflict_env)
+    conflict_subcommand_help_out = _merged_output(conflict_subcommand_help).lower()
+    _must(conflict_subcommand_help.returncode == 0, f"subcommand --help should ignore socket env conflicts: {conflict_subcommand_help_out!r}")
+    _must("usage: cmux ping" in conflict_subcommand_help_out, f"subcommand --help should show command usage: {conflict_subcommand_help_out!r}")
+    for docs_cmd, expected in [
+        ([cli, "docs"], "topics:"),
+        ([cli, "docs", "settings"], "config files:"),
+        ([cli, "settings", "path"], "config files:"),
+        ([cli, "settings", "--", "path"], "config files:"),
+        ([cli, "settings", "docs"], "config files:"),
+        ([cli, "settings", "--", "docs"], "config files:"),
+        ([cli, "welcome"], "built for coding agents"),
+    ]:
+        docs_proc = _run(docs_cmd, env=conflict_env)
+        docs_out = _merged_output(docs_proc).lower()
+        _must(docs_proc.returncode == 0, f"{docs_cmd[1:]} should ignore socket env conflicts: {docs_out!r}")
+        _must(expected in docs_out, f"{docs_cmd[1:]} should show no-socket output: {docs_out!r}")
+    override_ping = _run([cli, "--socket", SOCKET_PATH, "ping"], env=conflict_env)
+    override_ping_out = _merged_output(override_ping).lower()
+    _must(override_ping.returncode == 0, f"--socket should override conflicting socket env: {override_ping_out!r}")
+    _must("pong" in override_ping_out, f"--socket override should still return pong: {override_ping_out!r}")
+    conflict_proc = _run([cli, "ping"], env=conflict_env)
+    conflict_out = _merged_output(conflict_proc)
+    _must(conflict_proc.returncode != 0, f"conflicting socket env should fail: {conflict_out!r}")
+    _must("CMUX_SOCKET_PATH" in conflict_out and "differ" in conflict_out, f"conflict error should name canonical socket env: {conflict_out!r}")
+
     # Debug builds should auto-resolve the active debug socket via /tmp/cmux-last-socket-path
     # when CMUX_SOCKET_PATH is not set.
     hint_backup: str | None = None
@@ -67,7 +115,6 @@ def main() -> int:
         LAST_SOCKET_HINT_PATH.write_text(f"{SOCKET_PATH}\n", encoding="utf-8")
         auto_env = dict(os.environ)
         auto_env.pop("CMUX_SOCKET_PATH", None)
-        auto_env.pop("CMUX_SOCKET", None)
         auto_ping = _run([cli, "ping"], env=auto_env)
         auto_ping_out = _merged_output(auto_ping).lower()
         _must(auto_ping.returncode == 0, f"debug auto socket resolution should succeed: {auto_ping.returncode} {auto_ping_out!r}")

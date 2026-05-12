@@ -148,6 +148,7 @@ body {
     background: var(--code-bg);
     padding: 0.125rem 0.375rem;
     border-radius: 0.25rem;
+    overflow-wrap: anywhere;
   }
 
   .docs-content kbd {
@@ -179,6 +180,8 @@ body {
     padding: 0;
     font-size: 1em;
     font-family: inherit;
+    overflow-wrap: normal;
+    white-space: inherit;
   }
 }
 
