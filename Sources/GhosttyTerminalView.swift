@@ -7757,6 +7757,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
 
+        // A forwarded keyDown owns its keyUp. Clear any stale IME suppression
+        // entry left by an earlier suppressed repeat for the same physical key.
+        imeSuppressedKeyUpKeyCodes.remove(event.keyCode)
+
         // Build the key event
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = action

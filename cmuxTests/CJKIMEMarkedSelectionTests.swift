@@ -486,4 +486,71 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
             )
         )
     }
+
+    func testForwardedKeyDownClearsStaleIMESuppressedKeyUpEntry() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let terminalSurface = hostedTerminal.surface
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
+            window.orderOut(nil)
+            withExtendedLifetime(terminalSurface) {}
+        }
+
+        let keyCode = UInt16(kVK_DownArrow)
+        surfaceView.setIMETransientStateForTesting(suppressedKeyUpKeyCodes: [keyCode])
+        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
+        GhosttyNSView.debugTextInputEventHandler = { _, _ in false }
+
+        var forwardedPressCount = 0
+        var forwardedReleaseCount = 0
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.keycode == UInt32(keyCode) else { return }
+            if keyEvent.action == GHOSTTY_ACTION_PRESS {
+                forwardedPressCount += 1
+            } else if keyEvent.action == GHOSTTY_ACTION_RELEASE {
+                forwardedReleaseCount += 1
+            }
+        }
+
+        let keyDown = try keyEvent(
+            text: "\u{F701}",
+            keyCode: keyCode,
+            windowNumber: window.windowNumber
+        )
+        let keyUp = try keyEvent(
+            type: .keyUp,
+            text: "\u{F701}",
+            keyCode: keyCode,
+            windowNumber: window.windowNumber
+        )
+
+        window.makeFirstResponder(surfaceView)
+        withExtendedLifetime(terminalSurface) {
+            surfaceView.keyDown(with: keyDown)
+        }
+
+        XCTAssertEqual(forwardedPressCount, 1)
+        XCTAssertFalse(
+            surfaceView.imeSuppressedKeyUpKeyCodesForTesting.contains(keyCode),
+            "Forwarded keyDown must clear stale IME keyUp suppression for the same key"
+        )
+
+        withExtendedLifetime(terminalSurface) {
+            surfaceView.keyUp(with: keyUp)
+        }
+
+        XCTAssertEqual(
+            forwardedReleaseCount,
+            1,
+            "The eventual keyUp must reach Ghostty after a forwarded keyDown clears stale suppression"
+        )
+    }
 }
