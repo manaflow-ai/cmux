@@ -12385,7 +12385,13 @@ struct CMUXCLI {
     private func createClaudeNodeOptionsRestoreModule() throws -> URL {
         var candidates: [URL] = []
         let environment = ProcessInfo.processInfo.environment
-        let homePath = environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? NSHomeDirectory()
+        let homePath: String = {
+            guard let rawHome = environment["HOME"] else {
+                return NSHomeDirectory()
+            }
+            let trimmedHome = rawHome.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmedHome.isEmpty ? NSHomeDirectory() : trimmedHome
+        }()
         if !homePath.isEmpty {
             candidates.append(
                 URL(fileURLWithPath: homePath, isDirectory: true)
