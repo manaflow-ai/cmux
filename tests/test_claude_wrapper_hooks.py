@@ -947,32 +947,38 @@ def test_background_claude_daemon_child_gets_env_without_settings(failures: list
     expect(launch_argv[1:] == child_args, f"background daemon child: expected daemon launch argv recorded, got {launch_argv}", failures)
 
 
-def test_background_claude_agents_child_with_short_model_gets_env_without_settings(failures: list[str]) -> None:
-    child_args = ["-m", "sonnet", "agents"]
-    code, _, child_argv, child_node_options_env, child_runtime_node_options, child_cmux_pid, child_launch_argv_b64, _, stderr = run_wrapper_background_child_spawn(
-        child_args=child_args,
-    )
-    expect(code == 0, f"background agents child: wrapper exited {code}: {stderr}", failures)
-    expect(child_argv == child_args, f"background agents child: expected agents args to stay raw, got {child_argv}", failures)
-    expect("--settings" not in child_argv, f"background agents child: expected no --settings injection, got {child_argv}", failures)
-    expect(
-        "--require=" in child_node_options_env and "--max-old-space-size=4096" in child_node_options_env,
-        f"background agents child: expected preload NODE_OPTIONS, got {child_node_options_env!r}",
-        failures,
-    )
-    expect(
-        child_runtime_node_options == "__UNSET__",
-        f"background agents child: expected runtime NODE_OPTIONS restored, got {child_runtime_node_options!r}",
-        failures,
-    )
-    expect(
-        child_cmux_pid.isdigit() and int(child_cmux_pid) > 0,
-        f"background agents child: expected child preload to reset CMUX_CLAUDE_PID to its own pid, got {child_cmux_pid!r}",
-        failures,
-    )
-    launch_argv = decode_nul_argv(child_launch_argv_b64)
-    expect(launch_argv[0].endswith("/child-bin/claude"), f"background agents child: expected child executable in launch argv, got {launch_argv}", failures)
-    expect(launch_argv[1:] == child_args, f"background agents child: expected agents launch argv recorded, got {launch_argv}", failures)
+def test_background_claude_env_only_subcommands_after_options_get_env_without_settings(failures: list[str]) -> None:
+    cases = [
+        ("short model agents", ["-m", "sonnet", "agents"]),
+        ("debug flag agents", ["--debug", "agents"]),
+        ("debug value agents", ["--debug", "verbose", "agents"]),
+        ("debug flag daemon", ["--debug", "daemon", "run", "--origin", "transient"]),
+    ]
+    for label, child_args in cases:
+        code, _, child_argv, child_node_options_env, child_runtime_node_options, child_cmux_pid, child_launch_argv_b64, _, stderr = run_wrapper_background_child_spawn(
+            child_args=child_args,
+        )
+        expect(code == 0, f"background {label}: wrapper exited {code}: {stderr}", failures)
+        expect(child_argv == child_args, f"background {label}: expected env-only args to stay raw, got {child_argv}", failures)
+        expect("--settings" not in child_argv, f"background {label}: expected no --settings injection, got {child_argv}", failures)
+        expect(
+            "--require=" in child_node_options_env and "--max-old-space-size=4096" in child_node_options_env,
+            f"background {label}: expected preload NODE_OPTIONS, got {child_node_options_env!r}",
+            failures,
+        )
+        expect(
+            child_runtime_node_options == "__UNSET__",
+            f"background {label}: expected runtime NODE_OPTIONS restored, got {child_runtime_node_options!r}",
+            failures,
+        )
+        expect(
+            child_cmux_pid.isdigit() and int(child_cmux_pid) > 0,
+            f"background {label}: expected child preload to reset CMUX_CLAUDE_PID to its own pid, got {child_cmux_pid!r}",
+            failures,
+        )
+        launch_argv = decode_nul_argv(child_launch_argv_b64)
+        expect(launch_argv[0].endswith("/child-bin/claude"), f"background {label}: expected child executable in launch argv, got {launch_argv}", failures)
+        expect(launch_argv[1:] == child_args, f"background {label}: expected env-only launch argv recorded, got {launch_argv}", failures)
 
 
 def test_background_claude_child_short_model_value_does_not_skip_hook_injection(failures: list[str]) -> None:
@@ -1461,7 +1467,7 @@ def main() -> int:
     test_background_claude_exec_file_launch_preserves_callback(failures)
     test_background_claude_child_settings_detection_parses_hooks_json(failures)
     test_background_claude_daemon_child_gets_env_without_settings(failures)
-    test_background_claude_agents_child_with_short_model_gets_env_without_settings(failures)
+    test_background_claude_env_only_subcommands_after_options_get_env_without_settings(failures)
     test_background_claude_child_short_model_value_does_not_skip_hook_injection(failures)
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)

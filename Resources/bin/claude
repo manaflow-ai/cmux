@@ -312,6 +312,7 @@ function installClaudeChildHookPropagation() {
     "upgrade",
   ]);
   const envOnlySubcommands = new Set(["agents", "daemon"]);
+  const knownSubcommands = new Set([...passthroughSubcommands, ...envOnlySubcommands]);
   const valueOptions = new Set([
     "--add-dir",
     "--agent",
@@ -386,7 +387,8 @@ function installClaudeChildHookPropagation() {
         }
         if (!hasInlineValue && optionalValueOptions.has(arg)) {
           const next = args[index + 1];
-          index += next && !String(next).startsWith("-") ? 2 : 1;
+          const nextValue = next === undefined ? "" : String(next);
+          index += nextValue && !nextValue.startsWith("-") && !knownSubcommands.has(nextValue) ? 2 : 1;
           continue;
         }
         index += 1;
