@@ -39,6 +39,11 @@ private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresen
     }
 }
 
+@MainActor
+private final class AuthWebAuthenticationSessionHandle {
+    weak var session: ASWebAuthenticationSession?
+}
+
 protocol StackAuthTokenStoreProtocol: TokenStoreProtocol, Sendable {
     func seed(accessToken: String, refreshToken: String) async
     func clear() async
@@ -223,15 +228,26 @@ final class AuthManager: ObservableObject {
         let signInURL = AuthEnvironment.signInURL()
         let callbackScheme = AuthEnvironment.callbackScheme
 
+        let sessionHandle = AuthWebAuthenticationSessionHandle()
         let session = ASWebAuthenticationSession(
             url: signInURL,
             callbackURLScheme: callbackScheme
-        ) { [weak self] callbackURL, error in
-            Task { @MainActor [weak self] in
+        ) { [weak self, sessionHandle] callbackURL, error in
+            Task { @MainActor [weak self, sessionHandle] in
                 guard let self else { return }
+                func isCurrentSession() -> Bool {
+                    guard let session = sessionHandle.session else { return false }
+                    return self.webAuthSession === session
+                }
+                guard isCurrentSession() else {
+                    Self.authLogger.debug("auth.webauth stale completion ignored")
+                    return
+                }
                 defer {
-                    self.isLoading = false
-                    self.webAuthSession = nil
+                    if isCurrentSession() {
+                        self.isLoading = false
+                        self.webAuthSession = nil
+                    }
                 }
                 if let error {
                     let nsError = error as NSError
@@ -254,6 +270,7 @@ final class AuthManager: ObservableObject {
                 }
             }
         }
+        sessionHandle.session = session
         session.presentationContextProvider = AuthPresentationContext.shared
         session.prefersEphemeralWebBrowserSession = false
 
