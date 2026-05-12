@@ -10,7 +10,9 @@ actor RestorableAgentSessionIndexProvider {
     private let fileManager: FileManager
     private let processDetector: ProcessDetector
     private var cachedDetectedSnapshots: RestorableAgentSessionIndex.DetectedSnapshots = [:]
-    private var refreshTask: Task<RestorableAgentSessionIndex.DetectedSnapshots, Never>?
+    private var refreshLoopTask: Task<Void, Never>?
+    private var requestedRefreshGeneration: UInt64 = 0
+    private var completedRefreshGeneration: UInt64 = 0
 
     init(
         homeDirectory: String = NSHomeDirectory(),
@@ -37,27 +39,50 @@ actor RestorableAgentSessionIndexProvider {
         }.value
     }
 
-    func requestProcessDetectedSnapshotRefresh(reason: String) async {
-        await refreshProcessDetectedSnapshots(reason: reason)
+    func requestProcessDetectedSnapshotRefresh() async {
+        await refreshProcessDetectedSnapshots()
     }
 
-    func refreshProcessDetectedSnapshots(reason: String) async {
-        _ = reason
-        if let refreshTask {
-            cachedDetectedSnapshots = await refreshTask.value
-            return
-        }
+    func refreshProcessDetectedSnapshots() async {
+        requestedRefreshGeneration &+= 1
+        let targetGeneration = requestedRefreshGeneration
+        startRefreshLoopIfNeeded()
 
+        while completedRefreshGeneration < targetGeneration {
+            guard let refreshLoopTask else {
+                startRefreshLoopIfNeeded()
+                continue
+            }
+            await refreshLoopTask.value
+        }
+    }
+
+    private func startRefreshLoopIfNeeded() {
+        guard refreshLoopTask == nil else { return }
+        refreshLoopTask = Task { await self.runRefreshLoop() }
+    }
+
+    private func runRefreshLoop() async {
+        while true {
+            let refreshGeneration = requestedRefreshGeneration
+            cachedDetectedSnapshots = await detectProcessSnapshots()
+            completedRefreshGeneration = refreshGeneration
+
+            guard completedRefreshGeneration < requestedRefreshGeneration else {
+                refreshLoopTask = nil
+                return
+            }
+        }
+    }
+
+    private func detectProcessSnapshots() async -> RestorableAgentSessionIndex.DetectedSnapshots {
         let homeDirectory = homeDirectory
         let fileManager = fileManager
         let processDetector = processDetector
-        let task = Task.detached(priority: .utility) {
+        return await Task.detached(priority: .utility) {
             let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
             return processDetector(registry, fileManager)
-        }
-        refreshTask = task
-        cachedDetectedSnapshots = await task.value
-        refreshTask = nil
+        }.value
     }
 
     private static func detectLiveProcessSnapshots(

@@ -3100,8 +3100,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func requestRestorableAgentProcessSnapshotRefresh(reason: String) {
-        Task {
-            await restorableAgentSessionIndexProvider.requestProcessDetectedSnapshotRefresh(reason: reason)
+#if DEBUG
+        cmuxDebugLog("session.restorableAgent.refresh.request reason=\(reason)")
+#endif
+        // Best-effort lifecycle hint: autosave remains valid with the previous cache if termination wins this race.
+        Task { [restorableAgentSessionIndexProvider] in
+            await restorableAgentSessionIndexProvider.requestProcessDetectedSnapshotRefresh()
         }
     }
 
