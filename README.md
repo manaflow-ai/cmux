@@ -251,6 +251,20 @@ Quitting cmux saves the current session. On relaunch, cmux restores:
 - Browser URL and navigation history
 - Saved Claude Code and Codex sessions, when cmux has a resume token for the panel
 
+To keep restored agent terminals idle instead of automatically running their resume commands,
+turn off **Settings > Terminal > Resume Agent Sessions on Reopen** or set:
+
+```json
+{
+  "terminal": {
+    "autoResumeAgentSessions": false
+  }
+}
+```
+
+This only disables automatic agent resume commands. cmux still restores the saved layout,
+working directories, scrollback, and browser history.
+
 If you need to reapply the last saved snapshot manually, use:
 - `File > Reopen Previous Session`
 - `⌘ ⇧ O`
