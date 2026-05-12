@@ -101353,6 +101353,74 @@
         }
       }
     },
+    "markdown.mermaid.diagramLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mermaid diagram"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mermaid図"
+          }
+        }
+      }
+    },
+    "markdown.mermaid.renderFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mermaid render failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mermaidの描画に失敗しました"
+          }
+        }
+      }
+    },
+    "markdown.mermaid.runtimeUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mermaid runtime is unavailable."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mermaidランタイムを利用できません。"
+          }
+        }
+      }
+    },
+    "markdown.mermaid.unknownError": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown Mermaid render error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なMermaid描画エラー"
+          }
+        }
+      }
+    },
     "settings.section.sidebarAppearance": {
       "extractionState": "manual",
       "localizations": {
