@@ -373,6 +373,8 @@ async function runHeadless(parsed: ReturnType<typeof parseArgs>): Promise<void> 
     prompt,
     spawnSubagent: infra.spawnSubagent,
     verbose: parsed.showThinking,
+    quiet: parsed.quiet,
+    outputFormat: parsed.outputFormat,
     onRunnerCreated: (r) => { headlessRunner = r; },
   });
 
@@ -406,8 +408,8 @@ async function runInteractive(parsed: ReturnType<typeof parseArgs>): Promise<voi
     else if (event.kind === "tool_post") tui.handle.pushToolUpdate({ name: "(tool)", status: "streaming" });
     else if (event.kind === "assistant_message") tui.handle.onMessageAppended(event.message);
     else if (event.kind === "turn_end") tui.handle.pushToolUpdate({ name: "", status: "done" });
-    else if (event.kind === "usage_update" && typeof tui.handle.setUsage === "function") {
-      tui.handle.setUsage(event.usage);
+    else if (event.kind === "usage_update") {
+      tui.handle.setUsage?.(event.usage);
     }
   };
 

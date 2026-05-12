@@ -19,10 +19,56 @@ fluently as it edits files.
 
 ## Status
 
-Early. The model and tool plumbing is solid (393 unit + integration tests pass),
-the agent loop runs end-to-end, and the cmux integration is live. The TUI is
-functional but minimal. Distribution as a single binary via `bun build --compile`
-works on macOS.
+Working end-to-end. **602 tests pass**, `tsc --noEmit` is clean. The model
+plumbing covers 8 providers, the tool surface is 41 tools (matches claw-code's
+40+ at the schema level), the agent loop streams text + tools, and the cmux
+integration drives ~25 of cmux's CLI surface points. Verified live: text-only
+turns, multi-tool turns, todo-write planning, cmux pane creation + send +
+read-screen, OAuth fallback to Claude Code's keychain credentials.
+
+## Feature surface
+
+* **Providers**: Anthropic, OpenAI, Gemini, OpenRouter, Bedrock, Vertex,
+  Ollama, LM Studio — one normalized `StreamEvent` shape regardless.
+* **Model routing (OpenCode-style)**: `provider/model` form, alias table
+  (`opus`, `sonnet`, `haiku`, `gpt5`, `gpt4o`, `flash`, `pro`), prefix routing,
+  user-defined aliases in config.
+* **Tools** (built-in, 41): `file_read/write/edit`, `shell`, `glob`, `grep`,
+  `web_fetch`, `web_search`, `notebook_edit`, `repl` (python/node),
+  `subagent_spawn(_many)`, `todo_write/list/update`, `enter/exit_plan_mode`,
+  `sleep`, `config_read`, `structured_output`, `lsp` (stub), memory tools,
+  MCP-bridged tools, **25 cmux_* tools** (tree, send, new_pane, new_workspace,
+  read_screen, browser, notify, …), `cmux_raw` escape hatch.
+* **Permissions**: `read-only`, `workspace-write`, `danger-full-access`,
+  `plan`, `default`, `auto`. Interactive `(y / s / a / n)` prompts in TUI,
+  safe deny in headless without `--auto`.
+* **Sessions**: append-only JSONL transcripts. User-scope (`~/.cmux101/`) and
+  project-scope (`<cwd>/.cmux101/`) storage. `worker_state.json` for IDE
+  attachment.
+* **CLAUDE.md context loading** (claw-code parity): walks `cwd` to git root,
+  picks up `CLAUDE.md`, `AGENTS.md`, `.cmux101/CLAUDE.md`, and
+  `~/.cmux101/CLAUDE.md`. Size-capped (32 KB/file, 128 KB total).
+* **`cmux101 init`**: bootstraps `CLAUDE.md`, `.cmux101/config.json`, sessions
+  dir, gitignore entries. Idempotent.
+* **`cmux101 doctor`**: 8 preflight checks (bun version, cmux availability,
+  providers configured, writable home, CLAUDE.md, tool registration,
+  model listing, OAuth discovery). `--output-format json` for scripts.
+* **Print mode**: tool result summaries (with `file_edit` diff coloring and
+  compact shell output), `--quiet` for terse, `--output-format json` for
+  NDJSON event streaming, `--show-cost` for per-turn token + USD totals.
+* **Slash commands**: `/help`, `/clear`, `/quit`, `/model`, `/resume`,
+  `/skills`, `/memory`, `/tools`, `/status`, `/cost`, `/permissions`,
+  `/export`, `/init`, `/doctor`, `/compact`.
+* **Hooks**: subprocess JSON protocol (`pass` / `block` / `transform`).
+* **Skills**: markdown-with-frontmatter and executable shell scripts under
+  `.cmux101/skills/` (project) or `~/.cmux101/skills/` (user).
+* **MCP client**: stdio + sse + http transports; tools surface as
+  `mcp__<server>__<tool>`.
+* **Auto-memory**: `~/.cmux101/memory/` + `.cmux101/memory/` with
+  user/feedback/project/reference scopes, indexed in `MEMORY.md`.
+* **Auth**: env vars → OS keychain → file fallback; also auto-discovers
+  Claude Code's keychain OAuth and Codex's `~/.codex/auth.json` so users with
+  an existing subscription don't need an API key.
 
 ## Install
 
