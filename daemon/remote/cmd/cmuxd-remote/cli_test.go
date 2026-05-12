@@ -534,6 +534,26 @@ func TestCLIListWorkspacesV2(t *testing.T) {
 	}
 }
 
+func TestCLIListWorkspacesAcceptsTrailingJSONFlag(t *testing.T) {
+	sockPath := startMockV2TCPSocketWithResult(t, map[string]any{
+		"workspaces": []any{
+			map[string]any{"id": "ws-1"},
+		},
+	})
+
+	output := captureStdout(t, func() {
+		code := runCLI([]string{"--socket", sockPath, "list-workspaces", "--json"})
+		if code != 0 {
+			t.Fatalf("list-workspaces should return 0, got %d", code)
+		}
+	})
+
+	want := "{\"workspaces\":[{\"id\":\"ws-1\"}]}\n"
+	if output != want {
+		t.Fatalf("trailing --json output mismatch:\ngot  %q\nwant %q", output, want)
+	}
+}
+
 func TestCLIListWorkspacesV2DefaultOutputShowsResult(t *testing.T) {
 	sockPath := startMockV2TCPSocketWithResult(t, map[string]any{"method": "workspace.list", "params": map[string]any{}})
 	output := captureStdout(t, func() {
