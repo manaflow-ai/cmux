@@ -213,6 +213,36 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         return window
     }
 
+    func testCloseMainWindowTearsDownContextWhenStandardCloseControlIsUnavailable() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        let windowId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        window.makeKeyAndOrderFront(nil)
+
+        XCTAssertTrue(app.listMainWindowSummaries().contains { $0.windowId == windowId })
+        XCTAssertTrue(app.closeMainWindow(windowId: windowId))
+        XCTAssertFalse(app.listMainWindowSummaries().contains { $0.windowId == windowId })
+        XCTAssertNil(app.tabManagerFor(windowId: windowId))
+    }
+
     func testSynchronizeActiveMainWindowContextPrefersProvidedWindowOverStaleActiveManager() {
         _ = NSApplication.shared
         let app = AppDelegate()
