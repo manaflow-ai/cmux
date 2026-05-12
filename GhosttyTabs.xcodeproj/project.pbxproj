@@ -135,6 +135,7 @@
 		C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */; };
 		C3408A000000000000000003 /* RightSidebarCommandPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */; };
 		B37A0000000000000000000B /* FileExplorerStateModePersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A0000000000000000000C /* FileExplorerStateModePersistenceTests.swift */; };
+		D6090000D6090000D6090005 /* DiffReviewPatchParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6090000D6090000D6090006 /* DiffReviewPatchParserTests.swift */; };
 		619D509BC9B1EA946CBD6A8A /* WorkspaceRuntimeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9960CC3992F3C44489E7627C /* WorkspaceRuntimeSettings.swift */; };
 		211A75777F433ED8BA5AE208 /* SidebarAppearanceSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */; };
 		4D8B37E0E11A29997632765F /* InternalTabDragConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 610008EA5E3744DDBE05C8E2 /* InternalTabDragConfiguration.swift */; };
@@ -428,6 +429,8 @@
 		B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000004 /* RightSidebarMode+Availability.swift */; };
 		B37A0000000000000000000D /* RightSidebarRemoteCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */; };
 		FE003103 /* RightSidebarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003003 /* RightSidebarPanelView.swift */; };
+		D6090000D6090000D6090001 /* DiffReviewModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6090000D6090000D6090002 /* DiffReviewModels.swift */; };
+		D6090000D6090000D6090003 /* DiffReviewPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6090000D6090000D6090004 /* DiffReviewPanelView.swift */; };
 		FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003004 /* SessionIndexStore+CodexSQL.swift */; };
 		FE003105 /* RovoDevIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003005 /* RovoDevIndex.swift */; };
 		FE003106 /* SessionAgentPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003006 /* SessionAgentPresentation.swift */; };
@@ -549,6 +552,7 @@
 		17C9F5BA0DD14EDC8C3E5002 /* MainWindowVisibilityControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowVisibilityControllerTests.swift; sourceTree = "<group>"; };
 		A11EAA000000000000000001 /* AppearanceSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettingsTests.swift; sourceTree = "<group>"; };
 		C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarCommandPaletteTests.swift; sourceTree = "<group>"; };
+		D6090000D6090000D6090006 /* DiffReviewPatchParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffReviewPatchParserTests.swift; sourceTree = "<group>"; };
 		61A19A4145F034965110CF87 /* AuthCallbackRouter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthCallbackRouter.swift; sourceTree = "<group>"; };
 		71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceUnitTests.swift; sourceTree = "<group>"; };
 		71F8ED92A4B55D34BE6A0668 /* WorkspaceSplitStartupCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSplitStartupCommandTests.swift; sourceTree = "<group>"; };
@@ -575,6 +579,8 @@
 		B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeStyle.swift; sourceTree = "<group>"; };
 		B37A00000000000000000004 /* RightSidebarMode+Availability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RightSidebarMode+Availability.swift"; sourceTree = "<group>"; };
 		B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarRemoteCommand.swift; sourceTree = "<group>"; };
+		D6090000D6090000D6090002 /* DiffReviewModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffReviewModels.swift; sourceTree = "<group>"; };
+		D6090000D6090000D6090004 /* DiffReviewPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffReviewPanelView.swift; sourceTree = "<group>"; };
 		B37A00000000000000000006 /* MainWindowFocusTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusTypes.swift; sourceTree = "<group>"; };
 		A11EAB000000000000000001 /* AppearanceSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettings.swift; sourceTree = "<group>"; };
 		A11EAC000000000000000001 /* GhosttyTerminalAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalAppearance.swift; sourceTree = "<group>"; };
@@ -1315,6 +1321,8 @@
 				B37A00000000000000000004 /* RightSidebarMode+Availability.swift */,
 				B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */,
 				FE003003 /* RightSidebarPanelView.swift */,
+				D6090000D6090000D6090002 /* DiffReviewModels.swift */,
+				D6090000D6090000D6090004 /* DiffReviewPanelView.swift */,
 				D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */,
 				D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */,
 				105D8421DF4E2E09D255D785 /* Auth */,
@@ -1444,6 +1452,7 @@
 				6083A7DAD962E287FC2FFE94 /* ShortcutAndCommandPaletteTests.swift */,
 				C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */,
 				B37A0000000000000000000C /* FileExplorerStateModePersistenceTests.swift */,
+				D6090000D6090000D6090006 /* DiffReviewPatchParserTests.swift */,
 				BC39DE4B96D1931C52AF7D68 /* SidebarOrderingTests.swift */,
 				B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */,
 				D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */,
@@ -1954,6 +1963,8 @@
 				B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */,
 				B37A0000000000000000000D /* RightSidebarRemoteCommand.swift in Sources */,
 				FE003103 /* RightSidebarPanelView.swift in Sources */,
+				D6090000D6090000D6090001 /* DiffReviewModels.swift in Sources */,
+				D6090000D6090000D6090003 /* DiffReviewPanelView.swift in Sources */,
 				D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */,
 				D0C0D0C0D0C0D0C0D0C0D003 /* DockEmptyView.swift in Sources */,
 				FEED0000000000000000F002 /* FeedCoordinator.swift in Sources */,
@@ -2122,6 +2133,7 @@
 				1521D55DC63D5E5FC4955E31 /* ShortcutAndCommandPaletteTests.swift in Sources */,
 				C3408A000000000000000003 /* RightSidebarCommandPaletteTests.swift in Sources */,
 				B37A0000000000000000000B /* FileExplorerStateModePersistenceTests.swift in Sources */,
+				D6090000D6090000D6090005 /* DiffReviewPatchParserTests.swift in Sources */,
 				CB23911D7E131E8FBC9B82B6 /* SidebarOrderingTests.swift in Sources */,
 					4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */,
 					C2B6A97D1F2E4C71A8B9D001 /* BrowserOmnibarPerformanceSupportTests.swift in Sources */,

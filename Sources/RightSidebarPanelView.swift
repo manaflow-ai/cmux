@@ -14,6 +14,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Sendable {
     case files
     case find
     case sessions
+    case review
     case feed
     case dock
 
@@ -22,6 +23,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Sendable {
         case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
         case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
+        case .review: return String(localized: "rightSidebar.mode.review", defaultValue: "Review")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
         }
@@ -32,16 +34,25 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Sendable {
         case .files: return "folder"
         case .find: return "magnifyingglass"
         case .sessions: return "books.vertical"
+        case .review: return "doc.text.magnifyingglass"
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
         }
     }
 
-    var shortcutAction: KeyboardShortcutSettings.Action {
+    var commandTitle: String {
+        if let shortcutAction {
+            return shortcutAction.label
+        }
+        return String(localized: "command.rightSidebarMode.review.title", defaultValue: "Show Sidebar Review")
+    }
+
+    var shortcutAction: KeyboardShortcutSettings.Action? {
         switch self {
         case .files: return .switchRightSidebarToFiles
         case .find: return .switchRightSidebarToFind
         case .sessions: return .switchRightSidebarToSessions
+        case .review: return nil
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
         }
@@ -157,6 +168,7 @@ struct RightSidebarPanelView: View {
     @State private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject private var dockStore = DockControlsStore()
+    @StateObject private var diffReviewStore = DiffReviewStore()
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
     private let closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
@@ -232,7 +244,7 @@ struct RightSidebarPanelView: View {
                         mode: mode,
                         isSelected: fileExplorerState.mode == mode,
                         badgeCount: mode == .feed ? feedPendingCount : 0,
-                        shortcutHint: KeyboardShortcutSettings.shortcut(for: mode.shortcutAction),
+                        shortcutHint: mode.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) },
                         showsShortcutHint: showsModeShortcutHints
                     ) {
                         if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
@@ -355,6 +367,8 @@ struct RightSidebarPanelView: View {
                 .onAppear {
                     sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                 }
+        case .review:
+            DiffReviewPanelView(store: diffReviewStore, directory: sessionIndexDirectory)
         case .feed:
             FeedPanelView()
         case .dock:
@@ -487,7 +501,7 @@ private struct ModeBarButton: View {
     let mode: RightSidebarMode
     let isSelected: Bool
     var badgeCount: Int = 0
-    let shortcutHint: StoredShortcut
+    let shortcutHint: StoredShortcut?
     let showsShortcutHint: Bool
     let action: () -> Void
 
@@ -512,7 +526,7 @@ private struct ModeBarButton: View {
                 geometryKeyPrefix: "rightSidebarModeControl_\(mode.rawValue)"
             )
             .overlay(alignment: .trailing) {
-                if showsShortcutHint {
+                if showsShortcutHint, let shortcutHint {
                     ShortcutHintPill(shortcut: shortcutHint, fontSize: 9, emphasis: isSelected ? 1.15 : 0.95)
                         .offset(x: 5)
                         .shortcutHintTransition()

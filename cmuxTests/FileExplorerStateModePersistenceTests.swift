@@ -45,6 +45,10 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
             defaults.set(false, forKey: dockEnabledKey)
             let state = FileExplorerState()
 
+            state.mode = .review
+            XCTAssertEqual(state.mode, .review)
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.review.rawValue)
+
             state.mode = .feed
             XCTAssertEqual(state.mode, .files)
             XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.files.rawValue)
@@ -66,6 +70,9 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "find"), .find)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "vault"), .sessions)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "sessions"), .sessions)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "review"), .review)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "diff"), .review)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "code-review"), .review)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "feed"), .feed)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "dock"), .dock)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: " Vault "), .sessions)

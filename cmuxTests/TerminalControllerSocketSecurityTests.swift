@@ -263,6 +263,14 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
                 RightSidebarRemoteRequest(command: .setMode(.sessions, focus: false), target: RightSidebarRemoteTarget())
             ),
             (
+                "right_sidebar set review",
+                RightSidebarRemoteRequest(command: .setMode(.review, focus: true), target: RightSidebarRemoteTarget())
+            ),
+            (
+                "right_sidebar diff",
+                RightSidebarRemoteRequest(command: .setMode(.review, focus: true), target: RightSidebarRemoteTarget())
+            ),
+            (
                 "right_sidebar sessions",
                 RightSidebarRemoteRequest(command: .setMode(.sessions, focus: true), target: RightSidebarRemoteTarget())
             ),
@@ -315,6 +323,8 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             ("right_sidebar show", true),
             ("right_sidebar focus", true),
             ("right_sidebar set find", true),
+            ("right_sidebar set review", true),
+            ("right_sidebar diff", true),
             ("right_sidebar sessions", true),
             ("right_sidebar set vault --no-focus", false),
             ("right_sidebar hide", false),
