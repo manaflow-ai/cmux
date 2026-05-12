@@ -2302,7 +2302,6 @@ struct ContentView: View {
                 if let directory = focusedDirectory {
                     DetachedFolderDragIcon(directory: directory)
                         .frame(width: 16, height: 16)
-                        .padding(.leading, -6)
                 }
 
                 Text(titlebarText)

@@ -474,9 +474,10 @@ func isMinimalModeTitlebarControlHit(window: NSWindow, locationInWindow: NSPoint
 
 enum MinimalModeTitlebarDebugSettings {
     static let defaultLeftControlsLeadingInset = 72.0
-    static let defaultLeftControlsTopInset = -2.0
+    static let defaultLeftControlsTopInset = -4.0
     static let defaultTrafficLightsXOffset = 0.0
-    static let defaultTrafficLightsYOffset = 1.7
+    static let defaultTrafficLightsYOffset = 3.0
+    static let titlebarControlsUpwardOffset = 2.0
     static let defaultTrafficLightTabBarInset = 80.0
     static let defaultTrafficLightTitlebarLeadingInset = 78.0
 
