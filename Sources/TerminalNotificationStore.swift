@@ -269,11 +269,6 @@ enum NotificationSoundSettings {
         playSoundFile(at: url)
     }
 
-    static func playSelectedSound(defaults: UserDefaults = .standard) {
-        let value = defaults.string(forKey: key) ?? defaultValue
-        playSound(value: value, defaults: defaults)
-    }
-
     static func previewSound(value: String, defaults: UserDefaults = .standard) {
         playSound(value: value, defaults: defaults)
     }
@@ -681,6 +676,15 @@ final class TerminalNotificationStore: ObservableObject {
         var latestByTabId: [UUID: TerminalNotification] = [:]
     }
 
+    private enum NotificationArrivalDisposition {
+        case externalDelivery
+        case focusedInline
+
+        var recordsAsRead: Bool {
+            self == .focusedInline
+        }
+    }
+
     static let shared = TerminalNotificationStore()
 
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
@@ -739,7 +743,7 @@ final class TerminalNotificationStore: ObservableObject {
     private var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification) -> Void = {
         store,
         notification in
-        store.playSuppressedNotificationFeedback(for: notification)
+        store.runFocusedInlineNotificationCommand(for: notification)
     }
     private var lastNotificationDateByCooldownKey: [String: Date] = [:]
     private var indexes = NotificationIndexes()
@@ -968,19 +972,22 @@ final class TerminalNotificationStore: ObservableObject {
             return true
         }
 
-        if let existingIndicatorSurfaceId = focusedReadIndicatorByTabId[tabId],
-           existingIndicatorSurfaceId != surfaceId {
-            focusedReadIndicatorByTabId.removeValue(forKey: tabId)
-        }
-
         let isActiveTab = AppDelegate.shared?.tabManager?.selectedTabId == tabId
         let focusedSurfaceId = AppDelegate.shared?.tabManager?.focusedSurfaceId(for: tabId)
         let isFocusedSurface = surfaceId == nil || focusedSurfaceId == surfaceId
-        let isFocusedPanel = isActiveTab && isFocusedSurface
-        let isAppFocused = AppFocusState.isAppFocused()
-        let shouldSuppressExternalDelivery = isAppFocused && isFocusedPanel
-        if shouldSuppressExternalDelivery {
-            setFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
+        let disposition = Self.notificationArrivalDisposition(
+            isAppFocused: AppFocusState.isAppFocused(),
+            isActiveTab: isActiveTab,
+            isFocusedSurface: isFocusedSurface
+        )
+        switch disposition {
+        case .focusedInline:
+            focusedReadIndicatorByTabId.removeValue(forKey: tabId)
+        case .externalDelivery:
+            if let existingIndicatorSurfaceId = focusedReadIndicatorByTabId[tabId],
+               existingIndicatorSurfaceId != surfaceId {
+                focusedReadIndicatorByTabId.removeValue(forKey: tabId)
+            }
         }
 
         if WorkspaceAutoReorderSettings.isEnabled() {
@@ -995,7 +1002,7 @@ final class TerminalNotificationStore: ObservableObject {
             subtitle: subtitle,
             body: body,
             createdAt: now,
-            isRead: false
+            isRead: disposition.recordsAsRead
         )
         updated.insert(notification, at: 0)
         setWorkspaceManualUnread(false, forTabId: tabId)
@@ -1007,9 +1014,10 @@ final class TerminalNotificationStore: ObservableObject {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
         }
-        if shouldSuppressExternalDelivery {
+        switch disposition {
+        case .focusedInline:
             suppressedNotificationFeedbackHandler(self, notification)
-        } else {
+        case .externalDelivery:
             notificationDeliveryHandler(self, notification)
         }
     }
@@ -1270,8 +1278,9 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    private func playSuppressedNotificationFeedback(for notification: TerminalNotification) {
-        NotificationSoundSettings.playSelectedSound()
+    private func runFocusedInlineNotificationCommand(for notification: TerminalNotification) {
+        // Focused inline notifications intentionally skip the built-in notification sound.
+        // Keep the custom command hook so automation can still observe notification arrivals.
         NotificationSoundSettings.runCustomCommand(
             title: resolvedNotificationTitle(for: notification),
             subtitle: notification.subtitle,
@@ -1439,6 +1448,17 @@ final class TerminalNotificationStore: ObservableObject {
         return !hasRequestedAutomaticAuthorization
     }
 
+    private static func notificationArrivalDisposition(
+        isAppFocused: Bool,
+        isActiveTab: Bool,
+        isFocusedSurface: Bool
+    ) -> NotificationArrivalDisposition {
+        if isAppFocused && isActiveTab && isFocusedSurface {
+            return .focusedInline
+        }
+        return .externalDelivery
+    }
+
     private static func shouldDeferAutomaticAuthorizationRequest(
         origin: AuthorizationRequestOrigin,
         status: UNAuthorizationStatus,
@@ -1515,7 +1535,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func resetSuppressedNotificationFeedbackHandlerForTesting() {
         suppressedNotificationFeedbackHandler = { store, notification in
-            store.playSuppressedNotificationFeedback(for: notification)
+            store.runFocusedInlineNotificationCommand(for: notification)
         }
     }
 

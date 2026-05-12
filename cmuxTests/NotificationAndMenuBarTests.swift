@@ -553,7 +553,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         }
     }
 
-    func testFocusedTerminalNotificationSuppressesLocalFeedbackAndVisibleIndicator() throws {
+    func testFocusedTerminalNotificationSuppressesBuiltInFeedbackAndVisibleIndicator() throws {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("AppDelegate.shared must be set for this test")
             return
@@ -1035,7 +1035,7 @@ final class MenuBarBadgeLabelFormatterTests: XCTestCase {
 
 @MainActor
 final class FocusedNotificationIndicatorTests: XCTestCase {
-    func testFocusedNotificationIndicatorRemainsVisibleAfterFocusedNotificationIsRead() {
+    func testFocusedNotificationDoesNotCreateVisibleIndicator() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
         let store = TerminalNotificationStore.shared
@@ -1072,16 +1072,8 @@ final class FocusedNotificationIndicatorTests: XCTestCase {
             body: ""
         )
 
-        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId))
-        XCTAssertTrue(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: panelId))
-
-        store.markRead(forTabId: workspace.id, surfaceId: panelId)
-
+        XCTAssertEqual(store.notifications.first?.isRead, true)
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId))
-        XCTAssertTrue(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: panelId))
-
-        store.clearFocusedReadIndicator(forTabId: workspace.id, surfaceId: panelId)
-
         XCTAssertFalse(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: panelId))
     }
 

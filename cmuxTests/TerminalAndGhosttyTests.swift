@@ -1824,6 +1824,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         AppFocusState.overrideIsFocused = true
         XCTAssertTrue(window.makeFirstResponder(surfaceView))
 
+        AppFocusState.overrideIsFocused = false
         store.addNotification(
             tabId: workspace.id,
             surfaceId: terminalPanel.id,
@@ -1896,6 +1897,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         AppFocusState.overrideIsFocused = true
         XCTAssertTrue(window.makeFirstResponder(surfaceView))
 
+        AppFocusState.overrideIsFocused = false
         store.addNotification(
             tabId: workspace.id,
             surfaceId: terminalPanel.id,
@@ -1905,6 +1907,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         )
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
 
+        AppFocusState.overrideIsFocused = true
         let event = makeKeyEvent(characters: "", keyCode: 122, window: window)
         surfaceView.keyDown(with: event)
         let drained = expectation(description: "flash drained")
