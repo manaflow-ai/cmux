@@ -321,6 +321,7 @@ final class TerminalStatusBarCommandController {
 
         _ = FileManager.default.createFile(atPath: outputURL.path, contents: nil)
         guard let outputHandle = try? FileHandle(forWritingTo: outputURL) else {
+            try? FileManager.default.removeItem(at: outputURL)
             return ""
         }
         defer {
@@ -334,9 +335,7 @@ final class TerminalStatusBarCommandController {
         process.standardOutput = outputHandle
         process.standardError = FileHandle.nullDevice
         process.environment = environment(for: context)
-        if let directory = validatedDirectory(context.workingDirectory) {
-            process.currentDirectoryURL = directory
-        }
+        process.currentDirectoryURL = validatedDirectory(context.workingDirectory)
 
         _ = await runAndWaitForTermination(process: process, timeout: timeout)
         outputHandle.synchronizeFile()
@@ -405,7 +404,7 @@ final class TerminalStatusBarCommandController {
         return ["-lc", command]
     }
 
-    private nonisolated static func validatedDirectory(_ path: String) -> URL? {
+    private nonisolated static func validatedDirectory(_ path: String) -> URL {
         var isDirectory = ObjCBool(false)
         guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
               isDirectory.boolValue else {
@@ -418,7 +417,6 @@ final class TerminalStatusBarCommandController {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_WORKSPACE_ID"] = context.workspaceId.uuidString
         environment["CMUX_SURFACE_ID"] = context.surfaceId.uuidString
-        environment["CMUX_PANEL_ID"] = context.surfaceId.uuidString
         environment["PWD"] = context.workingDirectory
         return environment
     }
