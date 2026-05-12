@@ -780,7 +780,7 @@ final class FileSearchControllerTests: XCTestCase {
         var snapshots: [FileSearchSnapshot] = []
         controller.onSnapshotChanged = { snapshots.append($0) }
 
-        controller.search(query: "issue3817Token", rootPath: rootURL.path, isLocal: true)
+        controller.search(query: "issue3817Token", rootPath: rootURL.path, scope: .local, contentRevision: 0)
         let finalSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
 
         XCTAssertEqual(finalSnapshot.status, .matches)
@@ -808,7 +808,7 @@ final class FileSearchControllerTests: XCTestCase {
         var snapshots: [FileSearchSnapshot] = []
         controller.onSnapshotChanged = { snapshots.append($0) }
 
-        controller.search(query: "needle", rootPath: rootURL.path, isLocal: true)
+        controller.search(query: "needle", rootPath: rootURL.path, scope: .local, contentRevision: 0)
         let finalSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
 
         XCTAssertEqual(finalSnapshot.status, .limited(500))
