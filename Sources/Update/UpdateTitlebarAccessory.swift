@@ -579,6 +579,9 @@ struct TitlebarControlsView: View {
             .background(NotificationsAnchorView { viewModel.notificationsAnchorView = $0 })
             .safeHelp(KeyboardShortcutSettings.Action.showNotifications.tooltip(String(localized: "titlebar.notifications.tooltip", defaultValue: "Show notifications")))
 
+            TitlebarSearchField(index: AppDelegate.shared?.searchIndex)
+                .frame(width: 220, height: config.buttonSize)
+
             TitlebarControlButton(
                 config: config,
                 accessibilityIdentifier: "titlebarControl.newTab",

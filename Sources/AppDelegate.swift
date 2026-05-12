@@ -512,6 +512,18 @@ final class CmuxMainThreadTurnProfiler {
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
     nonisolated(unsafe) static var shared: AppDelegate?
 
+    /// Lazy shared FTS5 search index. See `Sources/Search/SearchIndex.swift`
+    /// and `docs/menubar-global-search.md`. Nil if the on-disk store
+    /// cannot be opened — callers must tolerate this.
+    lazy var searchIndex: SearchIndex? = {
+        let base = (try? FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: true))
+            ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        let url = base.appending(path: "cmux/search.db")
+        return try? SearchIndex(url: url)
+    }()
+
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
 
     private var isRunningUnderXCTestCached: Bool {
@@ -1001,6 +1013,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else {
             syncActivationPolicy()
         }
+
+        // Register ⌥⌘F → focus inline titlebar search. Tracking #3865.
+        GlobalSearchHotkey.shared.install()
 
         claimAuthCallbackURLSchemes()
 

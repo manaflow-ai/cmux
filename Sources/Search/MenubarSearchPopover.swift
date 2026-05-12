@@ -38,7 +38,7 @@ public final class MenubarSearchPopover {
     }
 
     public func show() {
-        guard let anchor else { return }
+        guard let anchor, popover.contentViewController != nil else { return }
         popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
     }
 
