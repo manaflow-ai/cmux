@@ -61,6 +61,35 @@ func browserWebExtensionActionPopupContentSize(
     return CGSize(width: width, height: height)
 }
 
+func browserWebExtensionActionPopupPositioningRect(
+    positioningRect: NSRect,
+    positioningView: NSView,
+    popupWidth: CGFloat,
+    margin: CGFloat = 12
+) -> NSRect {
+    guard let anchorWindow = positioningView.window else {
+        return positioningRect
+    }
+
+    let rectInWindow = positioningView.convert(positioningRect, to: nil)
+    let screenRect = anchorWindow.convertToScreen(rectInWindow)
+    let visibleFrame = anchorWindow.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? screenRect
+    let hostFrame = anchorWindow.frame.intersection(visibleFrame)
+    let allowedFrame = (hostFrame.isNull || hostFrame.isEmpty ? visibleFrame : hostFrame)
+        .insetBy(dx: margin, dy: margin)
+    guard allowedFrame.width > 0 else {
+        return positioningRect
+    }
+
+    let effectiveWidth = min(max(popupWidth, 1), allowedFrame.width)
+    let minMidX = allowedFrame.minX + effectiveWidth / 2
+    let maxMidX = allowedFrame.maxX - effectiveWidth / 2
+    let clampedMidX = min(max(screenRect.midX, minMidX), maxMidX)
+    let adjustedScreenRect = screenRect.offsetBy(dx: clampedMidX - screenRect.midX, dy: 0)
+    let adjustedWindowRect = anchorWindow.convertFromScreen(adjustedScreenRect)
+    return positioningView.convert(adjustedWindowRect, from: nil)
+}
+
 func browserWebExtensionConfigureBaseWebViewConfiguration(
     _ configuration: WKWebViewConfiguration,
     defaultWebsiteDataStore: WKWebsiteDataStore
@@ -82,13 +111,15 @@ enum BrowserWebExtensionUserAgentSettings {
     static let platform = "MacIntel"
 
     static func installCompatibilityScript(in userContentController: WKUserContentController) {
-        let script = WKUserScript(
-            source: compatibilityScriptSource,
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: false,
-            in: .page
-        )
-        userContentController.addUserScript(script)
+        for injectionTime in [WKUserScriptInjectionTime.atDocumentStart, .atDocumentEnd] {
+            let script = WKUserScript(
+                source: compatibilityScriptSource,
+                injectionTime: injectionTime,
+                forMainFrameOnly: false,
+                in: .page
+            )
+            userContentController.addUserScript(script)
+        }
     }
 
     static func configureExtensionWebViewConfiguration(_ configuration: WKWebViewConfiguration) {
@@ -101,7 +132,7 @@ enum BrowserWebExtensionUserAgentSettings {
         webView.evaluateJavaScript(compatibilityScriptSource) { _, _ in }
     }
 
-    private static var compatibilityScriptSource: String {
+    static var compatibilityScriptSource: String {
         """
         (() => {
           const cmuxUserAgent = \(javaScriptStringLiteral(userAgent));
@@ -128,6 +159,166 @@ enum BrowserWebExtensionUserAgentSettings {
           defineNavigatorValue("appVersion", cmuxAppVersion);
           defineNavigatorValue("vendor", cmuxVendor);
           defineNavigatorValue("platform", cmuxPlatform);
+
+          const createEvent = () => {
+            const listeners = new Set();
+            return Object.freeze({
+              addListener(listener) {
+                if (typeof listener === "function") listeners.add(listener);
+              },
+              removeListener(listener) {
+                listeners.delete(listener);
+              },
+              hasListener(listener) {
+                return listeners.has(listener);
+              },
+              hasListeners() {
+                return listeners.size > 0;
+              }
+            });
+          };
+
+          const completeAsync = (callback, value) => {
+            if (typeof callback === "function") {
+              queueMicrotask(() => callback(value));
+              return undefined;
+            }
+            return Promise.resolve(value);
+          };
+
+          const notificationShimState = globalThis.__cmuxWebExtensionNotificationShimState || {
+            activeNotifications: new Map(),
+            events: {
+              onButtonClicked: createEvent(),
+              onClicked: createEvent(),
+              onClosed: createEvent(),
+              onPermissionLevelChanged: createEvent(),
+              onShown: createEvent()
+            }
+          };
+          try {
+            Object.defineProperty(globalThis, "__cmuxWebExtensionNotificationShimState", {
+              configurable: false,
+              value: notificationShimState
+            });
+          } catch (_) {}
+
+          const notifications = Object.freeze({
+            onButtonClicked: notificationShimState.events.onButtonClicked,
+            onClicked: notificationShimState.events.onClicked,
+            onClosed: notificationShimState.events.onClosed,
+            onPermissionLevelChanged: notificationShimState.events.onPermissionLevelChanged,
+            onShown: notificationShimState.events.onShown,
+            create(notificationId, options, callback) {
+              if (typeof notificationId !== "string") {
+                callback = options;
+                options = notificationId;
+                notificationId = "";
+              }
+              const id = notificationId || `cmux-notification-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+              notificationShimState.activeNotifications.set(id, { ...(options || {}) });
+              return completeAsync(callback, id);
+            },
+            update(notificationId, options, callback) {
+              const exists = notificationShimState.activeNotifications.has(notificationId);
+              if (exists) {
+                notificationShimState.activeNotifications.set(notificationId, {
+                  ...notificationShimState.activeNotifications.get(notificationId),
+                  ...(options || {})
+                });
+              }
+              return completeAsync(callback, exists);
+            },
+            clear(notificationId, callback) {
+              const existed = notificationShimState.activeNotifications.delete(notificationId);
+              return completeAsync(callback, existed);
+            },
+            getAll(callback) {
+              const all = {};
+              for (const [id, options] of notificationShimState.activeNotifications) {
+                all[id] = { ...options };
+              }
+              return completeAsync(callback, all);
+            },
+            getPermissionLevel(callback) {
+              return completeAsync(callback, "granted");
+            }
+          });
+
+          const hasNotificationsShim = (namespace) => {
+            try { return namespace && namespace.notifications === notifications; } catch (_) { return false; }
+          };
+
+          const defineNotificationsProperty = (target) => {
+            try {
+              Object.defineProperty(target, "notifications", {
+                configurable: true,
+                value: notifications
+              });
+              return target.notifications === notifications;
+            } catch (_) {}
+            try {
+              target.notifications = notifications;
+              return target.notifications === notifications;
+            } catch (_) {
+              return false;
+            }
+          };
+
+          const defineNotificationsPrototypeFallback = (namespace) => {
+            const prototype = Object.getPrototypeOf(namespace);
+            if (!prototype) return false;
+            const descriptor = Object.getOwnPropertyDescriptor(prototype, "notifications");
+            if (descriptor && !descriptor.configurable) return false;
+            try {
+              Object.defineProperty(prototype, "notifications", {
+                configurable: true,
+                get() {
+                  return this === globalThis.chrome || this === globalThis.browser ? notifications : undefined;
+                },
+                set(value) {
+                  try {
+                    Object.defineProperty(this, "notifications", {
+                      configurable: true,
+                      value
+                    });
+                  } catch (_) {}
+                }
+              });
+              return namespace.notifications === notifications;
+            } catch (_) {
+              return false;
+            }
+          };
+
+          const installNotificationsShim = (namespace) => {
+            if (!namespace || hasNotificationsShim(namespace)) return;
+            if (defineNotificationsProperty(namespace)) return;
+            defineNotificationsPrototypeFallback(namespace);
+          };
+
+          const installNotificationsShimWhenNamespaceAppears = (name) => {
+            const isExtensionPage = typeof location !== "undefined" && location.protocol === "webkit-extension:";
+            if (!isExtensionPage) return;
+            let namespaceValue = globalThis[name];
+            installNotificationsShim(namespaceValue);
+            try {
+              Object.defineProperty(globalThis, name, {
+                configurable: true,
+                get() {
+                  installNotificationsShim(namespaceValue);
+                  return namespaceValue;
+                },
+                set(value) {
+                  namespaceValue = value;
+                  installNotificationsShim(value);
+                }
+              });
+            } catch (_) {}
+          };
+
+          installNotificationsShimWhenNamespaceAppears("chrome");
+          installNotificationsShimWhenNamespaceAppears("browser");
         })();
         """
     }
@@ -241,7 +432,7 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
             ),
             PermissionCapability(
                 "notifications",
-                availability: .unavailable(.missingHostAdapter),
+                availability: .hostedByCmux,
                 apiPaths: ["browser.notifications"]
             ),
             PermissionCapability(
@@ -282,7 +473,7 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
             APICapability("browser.favicon", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.idle", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.management", availability: .unavailable(.missingHostAdapter)),
-            APICapability("browser.notifications", availability: .unavailable(.missingHostAdapter)),
+            APICapability("browser.notifications", availability: .hostedByCmux),
             APICapability("browser.offscreen", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.privacy", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.runtime.getBackgroundPage", availability: .unavailable(.noPublicWebKitSurface)),
@@ -564,6 +755,7 @@ final class BrowserWebExtensionInstallStore {
             let data = try Data(contentsOf: registryURL)
             let decoded = try JSONDecoder().decode([BrowserWebExtensionInstallRecord].self, from: data)
             records = decoded.map(sanitizedRecord)
+            ensureManagedResourceCompatibility()
             if records != decoded {
                 try? persist()
             }
@@ -768,6 +960,12 @@ final class BrowserWebExtensionInstallStore {
                     .appendingPathComponent(sourceURL.lastPathComponent, isDirectory: isDirectory(sourceURL))
                 try fileManager.copyItem(at: sourceURL, to: temporarySourceURL)
             }
+            if isDirectory(temporarySourceURL) {
+                try BrowserWebExtensionResourceCompatibility.ensureServiceWorkerCompatibility(
+                    in: temporarySourceURL,
+                    fileManager: fileManager
+                )
+            }
             return PreparedResourceCopy(
                 temporaryDirectoryURL: temporaryDirectoryURL,
                 finalDirectoryURL: finalDirectoryURL,
@@ -891,6 +1089,21 @@ final class BrowserWebExtensionInstallStore {
         return record
     }
 
+    private func ensureManagedResourceCompatibility() {
+        for record in records where record.sourceKind == .resourceBaseURL {
+            let sourceURL = URL(fileURLWithPath: record.sourcePath)
+            guard isDirectory(sourceURL) else { continue }
+            do {
+                try BrowserWebExtensionResourceCompatibility.ensureServiceWorkerCompatibility(
+                    in: sourceURL,
+                    fileManager: fileManager
+                )
+            } catch {
+                NSLog("[BrowserExtensions] Failed to prepare compatibility files for \(record.displayName): \(error.localizedDescription)")
+            }
+        }
+    }
+
     private func firstWebExtensionAppExtension(in appURL: URL) -> URL? {
         let pluginsURL = appURL
             .appendingPathComponent("Contents", isDirectory: true)
@@ -963,6 +1176,174 @@ final class BrowserWebExtensionInstallStore {
 
     private func isDirectory(_ url: URL) -> Bool {
         (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+    }
+}
+
+private enum BrowserWebExtensionResourceCompatibility {
+    private static let legacyCompatibilityDirectoryName = "__cmux_compatibility__"
+    private static let legacyWrapperScriptName = "service-worker-wrapper.js"
+    private static let compatibilityScriptName = "__cmux_service_worker_globals.js"
+    private static let wrapperScriptName = "__cmux_service_worker_wrapper.js"
+
+    static func ensureServiceWorkerCompatibility(
+        in extensionDirectoryURL: URL,
+        fileManager: FileManager
+    ) throws {
+        let manifestURL = extensionDirectoryURL.appendingPathComponent("manifest.json", isDirectory: false)
+        guard fileManager.fileExists(atPath: manifestURL.path) else { return }
+
+        let manifestData = try Data(contentsOf: manifestURL)
+        guard var manifest = try JSONSerialization.jsonObject(with: manifestData) as? [String: Any],
+              var background = manifest["background"] as? [String: Any],
+              let rawServiceWorkerPath = background["service_worker"] as? String,
+              !rawServiceWorkerPath.isEmpty,
+              let serviceWorkerPath = normalizedExtensionRelativePath(rawServiceWorkerPath) else {
+            return
+        }
+
+        let originalServiceWorkerPath = (isManagedWrapperPath(serviceWorkerPath)
+            ? restoredOriginalServiceWorkerPath(from: fileURL(relativePath: serviceWorkerPath, in: extensionDirectoryURL))
+            : serviceWorkerPath)
+            .flatMap(normalizedExtensionRelativePath)
+        guard let originalServiceWorkerPath, !originalServiceWorkerPath.isEmpty else { return }
+
+        let wrapperPath = wrapperPath(forOriginalServiceWorkerPath: originalServiceWorkerPath)
+        let wrapperDirectoryPath = directoryPath(forRelativePath: wrapperPath)
+        let compatibilityScriptPath = path(
+            directoryPath: wrapperDirectoryPath,
+            filename: compatibilityScriptName
+        )
+
+        let compatibilityScriptURL = fileURL(relativePath: compatibilityScriptPath, in: extensionDirectoryURL)
+        try fileManager.createDirectory(
+            at: compatibilityScriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try BrowserWebExtensionUserAgentSettings.compatibilityScriptSource
+            .data(using: .utf8)?
+            .write(to: compatibilityScriptURL, options: .atomic)
+
+        let wrapperScriptURL = fileURL(relativePath: wrapperPath, in: extensionDirectoryURL)
+        try fileManager.createDirectory(
+            at: wrapperScriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let wrapperSource = serviceWorkerWrapperSource(
+            originalServiceWorkerPath: originalServiceWorkerPath,
+            originalServiceWorkerImportPath: "./\(filename(forRelativePath: originalServiceWorkerPath))",
+            compatibilityScriptImportPath: "./\(compatibilityScriptName)",
+            isModule: (background["type"] as? String)?.lowercased() == "module"
+        )
+        try wrapperSource.data(using: .utf8)?.write(to: wrapperScriptURL, options: .atomic)
+
+        if serviceWorkerPath != wrapperPath {
+            background["service_worker"] = wrapperPath
+            manifest["background"] = background
+            let updatedManifestData = try JSONSerialization.data(
+                withJSONObject: manifest,
+                options: [.prettyPrinted, .sortedKeys]
+            )
+            try updatedManifestData.write(to: manifestURL, options: .atomic)
+        }
+    }
+
+    private static func restoredOriginalServiceWorkerPath(from wrapperScriptURL: URL) -> String? {
+        guard let source = try? String(contentsOf: wrapperScriptURL, encoding: .utf8) else {
+            return nil
+        }
+        let marker = "cmux-original-service-worker:"
+        guard let markerRange = source.range(of: marker) else {
+            return nil
+        }
+        let remainder = source[markerRange.upperBound...]
+        guard let lineEnd = remainder.firstIndex(where: { $0.isNewline }) else {
+            return String(remainder).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return String(remainder[..<lineEnd]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func normalizedExtensionRelativePath(_ path: String) -> String? {
+        let normalized = path
+            .replacingOccurrences(of: "\\", with: "/")
+            .drop(while: { $0 == "/" })
+
+        var components: [String] = []
+        for component in normalized.split(separator: "/", omittingEmptySubsequences: false) {
+            if component == "." {
+                continue
+            }
+            guard !component.isEmpty, component != ".." else {
+                return nil
+            }
+            components.append(String(component))
+        }
+        guard !components.isEmpty else { return nil }
+        return components.joined(separator: "/")
+    }
+
+    private static func serviceWorkerWrapperSource(
+        originalServiceWorkerPath: String,
+        originalServiceWorkerImportPath: String,
+        compatibilityScriptImportPath: String,
+        isModule: Bool
+    ) -> String {
+        if isModule {
+            return """
+            // cmux-original-service-worker: \(originalServiceWorkerPath)
+            import \(javaScriptStringLiteral(compatibilityScriptImportPath));
+            import \(javaScriptStringLiteral(originalServiceWorkerImportPath));
+            """
+        }
+
+        return """
+        // cmux-original-service-worker: \(originalServiceWorkerPath)
+        importScripts(
+          \(javaScriptStringLiteral(compatibilityScriptImportPath)),
+          \(javaScriptStringLiteral(originalServiceWorkerImportPath))
+        );
+        """
+    }
+
+    private static func isManagedWrapperPath(_ path: String) -> Bool {
+        path == wrapperScriptName
+            || path.hasSuffix("/\(wrapperScriptName)")
+            || path == "\(legacyCompatibilityDirectoryName)/\(legacyWrapperScriptName)"
+    }
+
+    private static func wrapperPath(forOriginalServiceWorkerPath originalServiceWorkerPath: String) -> String {
+        path(
+            directoryPath: directoryPath(forRelativePath: originalServiceWorkerPath),
+            filename: wrapperScriptName
+        )
+    }
+
+    private static func directoryPath(forRelativePath path: String) -> String {
+        let components = path.split(separator: "/").map(String.init)
+        guard components.count > 1 else { return "" }
+        return components.dropLast().joined(separator: "/")
+    }
+
+    private static func filename(forRelativePath path: String) -> String {
+        path.split(separator: "/").last.map(String.init) ?? path
+    }
+
+    private static func path(directoryPath: String, filename: String) -> String {
+        directoryPath.isEmpty ? filename : "\(directoryPath)/\(filename)"
+    }
+
+    private static func fileURL(relativePath: String, in directoryURL: URL) -> URL {
+        relativePath
+            .split(separator: "/")
+            .reduce(directoryURL) { partialURL, component in
+                partialURL.appendingPathComponent(String(component), isDirectory: false)
+            }
+    }
+
+    private static func javaScriptStringLiteral(_ value: String) -> String {
+        let data = try? JSONSerialization.data(withJSONObject: [value], options: [])
+        let encoded = data.flatMap { String(data: $0, encoding: .utf8) } ?? #"[""]"#
+        return String(encoded.dropFirst().dropLast())
+            .replacingOccurrences(of: "\\/", with: "/")
     }
 }
 
@@ -1137,19 +1518,10 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     }
 
     func performAction(_ actionID: UUID, for panel: BrowserPanel) {
-        guard let context = contextsByRecordID[actionID],
-              let tab = tabAdaptersByPanelID[panel.id] else {
+        guard let context = contextsByRecordID[actionID] else {
             return
         }
-
-        context.userGesturePerformed(in: tab)
-        if let action = context.action(for: tab),
-           action.isEnabled,
-           action.presentsPopup,
-           action.popupWebView != nil {
-            showActionPopup(action) { _ in }
-            return
-        }
+        let tab = tabAdaptersByPanelID[panel.id]
         context.performAction(for: tab)
     }
 
@@ -1575,25 +1947,23 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         _ action: WKWebExtension.Action,
         completionHandler: @escaping (Error?) -> Void
     ) {
+        let popupPopover = action.popupPopover
+        let fallbackAnchorView = (action.associatedTab as? BrowserWebExtensionTabAdapter)?.panel?.webView
+            ?? activeTabAdapter()?.panel?.webView
         guard action.isEnabled,
               action.presentsPopup,
               let popupWebView = action.popupWebView,
-              let fallbackAnchorView = (action.associatedTab as? BrowserWebExtensionTabAdapter)?.panel?.webView
-                ?? activeTabAdapter()?.panel?.webView else {
+              let fallbackAnchorView else {
             completionHandler(nil)
             return
         }
         let anchorView = actionPopupAnchorView(for: action) ?? fallbackAnchorView
         closeAllActionPopups()
         let rect = anchorView.bounds
-        let visibleFrame = anchorView.window?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? anchorView.visibleRect
         let presentation = BrowserWebExtensionActionPopupPresentation(
             action: action,
             popupWebView: popupWebView,
-            contentSize: browserWebExtensionActionPopupContentSize(
-                requestedSize: popupWebView.frame.size,
-                visibleFrame: visibleFrame
-            ),
+            requestedContentSize: popupPopover?.contentSize ?? .zero,
             runtime: self
         )
         actionPopupPresentationsByID[presentation.id] = presentation
@@ -1746,79 +2116,46 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
 @available(macOS 15.4, *)
 @MainActor
-private final class BrowserWebExtensionActionPopupContainerView: NSView {
-    private let preferredSize: CGSize
-
-    init(contentSize: CGSize) {
-        self.preferredSize = contentSize
-        super.init(frame: NSRect(origin: .zero, size: contentSize))
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        nil
-    }
-
-    override var intrinsicContentSize: NSSize {
-        preferredSize
-    }
-}
-
-@available(macOS 15.4, *)
-@MainActor
-private final class BrowserWebExtensionActionPopupPanel: NSPanel {
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { false }
-}
-
-@available(macOS 15.4, *)
-@MainActor
-private final class BrowserWebExtensionActionPopupPresentation: NSObject, NSWindowDelegate {
+private final class BrowserWebExtensionActionPopupPresentation: NSObject, NSPopoverDelegate {
     let id = UUID()
+    private let popover = NSPopover()
+    private let contentViewController = NSViewController()
     private let action: WKWebExtension.Action
-    private let panel: BrowserWebExtensionActionPopupPanel
+    private let requestedContentSize: CGSize
+    private let popupWebView: WKWebView
     private weak var runtime: BrowserWebExtensionRuntime?
     private var didClosePopup = false
 
     init(
         action: WKWebExtension.Action,
         popupWebView: WKWebView,
-        contentSize: CGSize,
+        requestedContentSize: CGSize,
         runtime: BrowserWebExtensionRuntime
     ) {
         self.action = action
-        self.panel = BrowserWebExtensionActionPopupPanel(
-            contentRect: NSRect(origin: .zero, size: contentSize),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
+        self.popupWebView = popupWebView
+        self.requestedContentSize = requestedContentSize
         self.runtime = runtime
         super.init()
 
-        let containerView = BrowserWebExtensionActionPopupContainerView(contentSize: contentSize)
+        let containerView = NSView()
         popupWebView.removeFromSuperview()
-        BrowserWebExtensionUserAgentSettings.applyCompatibilityIdentity(to: popupWebView)
         popupWebView.translatesAutoresizingMaskIntoConstraints = false
-#if DEBUG
-        popupWebView.isInspectable = true
-#endif
         containerView.addSubview(popupWebView)
         NSLayoutConstraint.activate([
             popupWebView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             popupWebView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             popupWebView.topAnchor.constraint(equalTo: containerView.topAnchor),
-            popupWebView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            popupWebView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
         ])
-
-        panel.contentView = containerView
-        panel.delegate = self
-        panel.hasShadow = true
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.isReleasedWhenClosed = false
-        panel.collectionBehavior = [.transient, .fullScreenAuxiliary]
-        panel.level = .floating
+        contentViewController.view = containerView
+        popover.contentViewController = contentViewController
+        popover.delegate = self
+        popover.behavior = .transient
+        popover.animates = false
+#if DEBUG
+        popupWebView.isInspectable = true
+#endif
     }
 
     func show(
@@ -1826,34 +2163,41 @@ private final class BrowserWebExtensionActionPopupPresentation: NSObject, NSWind
         of positioningView: NSView,
         preferredEdge: NSRectEdge
     ) {
-        guard let anchorWindow = positioningView.window else { return }
-        let anchorRect = positioningView.convert(positioningRect, to: nil)
-        let anchorScreenRect = anchorWindow.convertToScreen(anchorRect)
-        let visibleFrame = anchorWindow.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? anchorScreenRect
-        let hostFrame = anchorWindow.frame.intersection(visibleFrame)
-        let allowedFrame = hostFrame.isNull || hostFrame.isEmpty ? visibleFrame : hostFrame
-        let size = panel.frame.size
-        let maxXOrigin = max(allowedFrame.minX, allowedFrame.maxX - size.width)
-        let maxYOrigin = max(allowedFrame.minY, allowedFrame.maxY - size.height)
-        let x = max(allowedFrame.minX, min(anchorScreenRect.midX - size.width / 2, maxXOrigin))
-        let y = max(allowedFrame.minY, min(anchorScreenRect.minY - size.height - 6, maxYOrigin))
-        panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
-        panel.makeKeyAndOrderFront(nil)
+        let visibleFrame = positioningView.window?.screen?.visibleFrame
+            ?? NSScreen.main?.visibleFrame
+            ?? NSRect(origin: .zero, size: CGSize(width: 800, height: 600))
+        let requestedSize = requestedContentSize.width > 0 || requestedContentSize.height > 0
+            ? requestedContentSize
+            : popupWebView.frame.size
+        let contentSize = browserWebExtensionActionPopupContentSize(
+            requestedSize: requestedSize,
+            visibleFrame: visibleFrame
+        )
+        contentViewController.preferredContentSize = contentSize
+        contentViewController.view.setFrameSize(contentSize)
+        popupWebView.setFrameSize(contentSize)
+        popover.contentSize = contentSize
+        let adjustedPositioningRect = browserWebExtensionActionPopupPositioningRect(
+            positioningRect: positioningRect,
+            positioningView: positioningView,
+            popupWidth: contentSize.width
+        )
+        popover.show(
+            relativeTo: adjustedPositioningRect,
+            of: positioningView,
+            preferredEdge: preferredEdge
+        )
     }
 
     func close() {
-        if panel.isVisible {
-            panel.close()
+        if popover.isShown {
+            popover.close()
         } else {
             closeWebExtensionPopupIfNeeded()
         }
     }
 
-    func windowDidResignKey(_ notification: Notification) {
-        close()
-    }
-
-    func windowWillClose(_ notification: Notification) {
+    func popoverDidClose(_ notification: Notification) {
         closeWebExtensionPopupIfNeeded()
         runtime?.actionPopupDidClose(self)
     }

@@ -608,6 +608,15 @@ struct BrowserPanelView: View {
                 .environment(\.colorScheme, browserChromeColorScheme)
             }
         }
+        .overlay(alignment: .topTrailing) {
+            if isBrowserExtensionsPopoverPresented {
+                browserExtensionsInlinePopover
+                    .padding(.top, addressBarHeight + 4)
+                    .padding(.trailing, 8 + addressBarButtonSize + browserToolbarAccessorySpacing)
+                    .zIndex(1100)
+                    .environment(\.colorScheme, browserChromeColorScheme)
+            }
+        }
         .coordinateSpace(name: "BrowserPanelViewSpace")
         .onPreferenceChange(OmnibarPillFramePreferenceKey.self) { frame in
             omnibarPillFrame = frame
@@ -1062,11 +1071,30 @@ struct BrowserPanelView: View {
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .background(BrowserWebExtensionActionPopupAnchor(panelID: panel.id))
-        .popover(isPresented: $isBrowserExtensionsPopoverPresented, arrowEdge: .bottom) {
-            browserExtensionsPopover
-        }
         .safeHelp(String(localized: "browser.extensions.buttonHelp", defaultValue: "Browser Extensions"))
         .accessibilityIdentifier("BrowserExtensionsButton")
+    }
+
+    private var browserExtensionsInlinePopover: some View {
+        VStack(alignment: .trailing, spacing: 0) {
+            BrowserExtensionsPopoverArrow()
+                .fill(.regularMaterial)
+                .frame(width: 18, height: 9)
+                .overlay(
+                    BrowserExtensionsPopoverArrow()
+                        .stroke(Color.secondary.opacity(0.25), lineWidth: 0.75)
+                )
+                .padding(.trailing, 14)
+                .offset(y: 1)
+
+            browserExtensionsPopover
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.25), lineWidth: 0.75)
+                )
+                .shadow(color: Color.black.opacity(0.22), radius: 16, x: 0, y: 8)
+        }
     }
 
     private var browserExtensionsPopover: some View {
@@ -3497,6 +3525,17 @@ private struct BrowserWebExtensionActionPopupAnchor: NSViewRepresentable {
         init(panelID: UUID) {
             self.panelID = panelID
         }
+    }
+}
+
+private struct BrowserExtensionsPopoverArrow: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.closeSubpath()
+        return path
     }
 }
 
