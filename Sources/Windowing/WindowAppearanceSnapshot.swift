@@ -153,14 +153,12 @@ nonisolated struct TerminalSurfaceBackgroundFillPlan {
             owner = .ghosttyNativeRenderer
         } else if usesPaneLocalSurfaceFill {
             owner = .surfaceHostLayer
-        } else if renderingMode.usesWindowHostBackdrop && !sharesWindowBackdrop && !usesBonsplitPaneBackdrop {
+        } else if !sharesWindowBackdrop && !usesBonsplitPaneBackdrop {
             owner = .surfaceHostLayer
         } else if sharesWindowBackdrop {
             owner = .sharedWindowBackdrop
-        } else if usesBonsplitPaneBackdrop {
-            owner = .bonsplitPaneBackdrop
         } else {
-            owner = .ghosttyNativeRenderer
+            owner = .bonsplitPaneBackdrop
         }
         return Self(
             owner: owner,
