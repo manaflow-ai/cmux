@@ -234,7 +234,6 @@ private final class FileExplorerGitStatusColorPalette {
     private let lock = NSLock()
     private var colorsByStatus: [String: NSColor] = [:]
     private var styleObserver: NSObjectProtocol?
-    private var defaultsObserver: NSObjectProtocol?
 
     init(
         defaults: UserDefaults = .standard,
@@ -250,21 +249,11 @@ private final class FileExplorerGitStatusColorPalette {
         ) { [weak self] _ in
             self?.reload()
         }
-        defaultsObserver = notificationCenter.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
-            self?.reload()
-        }
     }
 
     deinit {
         if let styleObserver {
             notificationCenter.removeObserver(styleObserver)
-        }
-        if let defaultsObserver {
-            notificationCenter.removeObserver(defaultsObserver)
         }
     }
 
