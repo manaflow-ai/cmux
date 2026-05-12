@@ -106,6 +106,14 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         ["Home", "End"]
     }
 
+    private var nonTextInputCommandModifierProbes: [(name: String, flags: NSEvent.ModifierFlags)] {
+        [
+            ("Command", [.command]),
+            ("Control", [.control]),
+            ("Option", [.option]),
+        ]
+    }
+
     private func assertInputSourceDoesNotSwallowNoMarkedIMECommandKeys(
         _ inputSourceId: String,
         file: StaticString = #filePath,
@@ -499,6 +507,43 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
+    func testOtherInputMethodMarkedTextCommandStillRoutesThroughTextInput() throws {
+        let view = GhosttyNSView(frame: .zero)
+        view.setMarkedText(
+            "かな",
+            selectedRange: NSRange(location: 2, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        let event = try keyEvent(
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: 0
+        )
+        let inputSourceId = "com.apple.inputmethod.Kotoeri.Japanese"
+
+        XCTAssertTrue(
+            view.shouldRouteTextInputKeyEquivalentToKeyDown(
+                event,
+                inputSourceId: inputSourceId
+            ),
+            "Active marked text from non-Pinyin input methods should stay in NSTextInputContext"
+        )
+
+        XCTAssertTrue(
+            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                markedTextBefore: "かな",
+                markedSelectionBefore: NSRange(location: 2, length: 0),
+                markedTextAfter: "かな",
+                markedSelectionAfter: NSRange(location: 2, length: 0),
+                accumulatedText: [],
+                event: event,
+                textInputHandledEvent: false,
+                inputSourceId: inputSourceId
+            ),
+            "Unchanged active marked text command should not leak to Ghostty for other input methods"
+        )
+    }
+
     func testKoreanInputSourceDoesNotSwallowNavigationAndSpaceKeysWithoutComposition() throws {
         try assertInputSourceDoesNotSwallowNoMarkedIMECommandKeys(
             "com.apple.inputmethod.Korean.2SetKorean"
@@ -602,6 +647,49 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
+    private func assertApplePinyinInputSourceModifiedCandidateCommandsDoNotStayInTextInputWithoutMarkedText(
+        _ inputSourceId: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let view = GhosttyNSView(frame: .zero)
+
+        for modifierProbe in nonTextInputCommandModifierProbes {
+            let event = try keyEvent(
+                text: "\u{F701}",
+                keyCode: UInt16(kVK_DownArrow),
+                modifierFlags: modifierProbe.flags,
+                windowNumber: 0
+            )
+
+            XCTAssertFalse(
+                view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                    markedTextBefore: "",
+                    markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
+                    markedTextAfter: "",
+                    markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                    accumulatedText: [],
+                    event: event,
+                    textInputHandledEvent: true,
+                    inputSourceId: inputSourceId
+                ),
+                "\(inputSourceId) \(modifierProbe.name)-modified candidate key should not be suppressed as IME text input",
+                file: file,
+                line: line
+            )
+
+            XCTAssertFalse(
+                view.shouldRouteTextInputKeyEquivalentToKeyDown(
+                    event,
+                    inputSourceId: inputSourceId
+                ),
+                "\(inputSourceId) \(modifierProbe.name)-modified candidate key should keep normal key-equivalent routing",
+                file: file,
+                line: line
+            )
+        }
+    }
+
     func testSimplifiedChinesePinyinForwardsUnhandledNavigationAndSpaceKeysWithoutComposition() throws {
         try assertApplePinyinInputSourceForwardsUnhandledNavigationAndSpaceKeysWithoutComposition(
             "com.apple.inputmethod.SCIM.ITABC"
@@ -634,6 +722,18 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
 
     func testTraditionalChinesePinyinHandledNonCandidateCommandsForwardWithoutMarkedText() throws {
         try assertApplePinyinInputSourceHandledNonCandidateCommandsForwardWithoutMarkedText(
+            "com.apple.inputmethod.TCIM.Pinyin"
+        )
+    }
+
+    func testSimplifiedChinesePinyinModifiedCandidateCommandsDoNotStayInTextInputWithoutMarkedText() throws {
+        try assertApplePinyinInputSourceModifiedCandidateCommandsDoNotStayInTextInputWithoutMarkedText(
+            "com.apple.inputmethod.SCIM.ITABC"
+        )
+    }
+
+    func testTraditionalChinesePinyinModifiedCandidateCommandsDoNotStayInTextInputWithoutMarkedText() throws {
+        try assertApplePinyinInputSourceModifiedCandidateCommandsDoNotStayInTextInputWithoutMarkedText(
             "com.apple.inputmethod.TCIM.Pinyin"
         )
     }

@@ -63,8 +63,7 @@ extension GhosttyNSView {
     }
 
     func isInputMethodSource(_ sourceId: String?) -> Bool {
-        guard let sourceId else { return false }
-        return sourceId.localizedCaseInsensitiveContains("inputmethod")
+        IMECommandPolicy(inputSourceId: sourceId).isInputMethod
     }
 
     func hasOnlyTextInputCommandModifiers(_ event: NSEvent) -> Bool {
@@ -78,8 +77,8 @@ extension GhosttyNSView {
         guard let event else { return false }
         guard hasOnlyTextInputCommandModifiers(event) else { return false }
 
-        return NoMarkedIMECommandPolicy(inputSourceId: inputSourceId)
-            .keepsInsideTextInput(keyCode: Int(event.keyCode))
+        return IMECommandPolicy(inputSourceId: inputSourceId)
+            .keepsNoMarkedHandledCommandInsideTextInput(keyCode: Int(event.keyCode))
     }
 
     /// Returns true when a window-level key-equivalent probe should re-enter
@@ -118,14 +117,15 @@ extension GhosttyNSView {
         }
     }
 
-    private enum NoMarkedIMECommandPolicy {
-        case none
+    private enum IMECommandPolicy {
+        case nonInputMethod
+        case otherInputMethod
         case bopomofoCandidate
         case applePinyinCandidate
 
         init(inputSourceId: String?) {
             guard let inputSourceId else {
-                self = .none
+                self = .nonInputMethod
                 return
             }
 
@@ -141,12 +141,26 @@ extension GhosttyNSView {
                 return
             }
 
-            self = .none
+            if inputSourceId.localizedCaseInsensitiveContains("inputmethod") {
+                self = .otherInputMethod
+                return
+            }
+
+            self = .nonInputMethod
         }
 
-        func keepsInsideTextInput(keyCode: Int) -> Bool {
+        var isInputMethod: Bool {
             switch self {
-            case .none:
+            case .bopomofoCandidate, .applePinyinCandidate, .otherInputMethod:
+                return true
+            case .nonInputMethod:
+                return false
+            }
+        }
+
+        func keepsNoMarkedHandledCommandInsideTextInput(keyCode: Int) -> Bool {
+            switch self {
+            case .nonInputMethod, .otherInputMethod:
                 return false
             case .bopomofoCandidate:
                 switch keyCode {
