@@ -464,7 +464,7 @@ final class MainWindowFocusController {
         ) {
         case .hide:
             state.setVisible(false)
-            _ = restoreTerminalFocusAfterRightSidebarHiddenIfNeeded()
+            _ = restoreFocusedPanelFocusFromRightSidebarIfNeeded(currentResponder: currentResponder)
             return true
         case .focus, .showAndFocus:
             // focusRightSidebar reveals the sidebar before focusing, so both non-hidden outcomes share one path.

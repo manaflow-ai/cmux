@@ -89,7 +89,7 @@ extension ContentView {
     static func commandPaletteRightSidebarToggleCommandContribution() -> CommandPaletteCommandContribution {
         return CommandPaletteCommandContribution(
             commandId: commandPaletteToggleRightSidebarCommandID,
-            title: constantCommandPaletteText(KeyboardShortcutSettings.Action.toggleRightSidebar.label),
+            title: constantCommandPaletteText(KeyboardShortcutSettings.Action.focusRightSidebar.label),
             subtitle: constantCommandPaletteText(String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")),
             keywords: ["toggle", "right", "sidebar", "show", "hide", "close", "focus"]
         )
