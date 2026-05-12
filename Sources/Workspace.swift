@@ -7961,7 +7961,17 @@ final class Workspace: Identifiable, ObservableObject {
         case mergePendingTargets
         case replaceSelectionTargets(panelId: UUID)
     }
-    private var portalRenderingEnabled = true
+    private enum PortalRenderingPhase {
+        case unmounted
+        case mounted
+
+        var isMounted: Bool {
+            self == .mounted
+        }
+    }
+
+    private var portalRenderingPhase: PortalRenderingPhase = .unmounted
+    private var portalRenderingEnabled: Bool { portalRenderingPhase.isMounted }
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
     private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
@@ -10575,7 +10585,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
     /// Called before TabManager removes the workspace so child processes receive SIGHUP even if ARC deallocation is delayed.
     func teardownAllPanels() {
-        portalRenderingEnabled = false
+        portalRenderingPhase = .unmounted
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()
         hideAllBrowserPortalViews()
@@ -11660,8 +11670,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func setPortalRenderingEnabled(_ enabled: Bool, reason: String) {
-        let changed = portalRenderingEnabled != enabled
-        portalRenderingEnabled = enabled
+        let nextPhase: PortalRenderingPhase = enabled ? .mounted : .unmounted
+        let changed = portalRenderingPhase != nextPhase
+        portalRenderingPhase = nextPhase
         if enabled {
             if changed {
                 beginEventDrivenLayoutFollowUp(
