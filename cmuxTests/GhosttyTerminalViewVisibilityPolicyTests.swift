@@ -49,11 +49,7 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
 
     func testSwiftUIHostGeometryCallbackDefersDuringInteractiveResize() {
         XCTAssertFalse(
-            GhosttyTerminalView.shouldSynchronizePortalGeometryImmediately(
-                hostInLiveResize: false,
-                windowInLiveResize: false,
-                interactiveGeometryResizeActive: true
-            ),
+            GhosttyTerminalView.shouldSynchronizePortalGeometryImmediately,
             "SwiftUI/AppKit host callbacks must not force portal layout reentrantly"
         )
     }

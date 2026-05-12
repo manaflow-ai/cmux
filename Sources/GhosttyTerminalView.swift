@@ -13344,17 +13344,11 @@ struct GhosttyTerminalView: NSViewRepresentable {
         return !hostedViewHasSuperview
     }
 
-    static func shouldSynchronizePortalGeometryImmediately(
-        hostInLiveResize _: Bool,
-        windowInLiveResize _: Bool,
-        interactiveGeometryResizeActive _: Bool
-    ) -> Bool {
-        // This policy is for callbacks originating from HostContainerView, which
-        // can fire while SwiftUI/AppKit is already rendering or laying out the
-        // representable. External AppKit resize observers own immediate live
-        // resize flushing; host callbacks only schedule the portal owner.
-        false
-    }
+    // This policy is for callbacks originating from HostContainerView, which
+    // can fire while SwiftUI/AppKit is already rendering or laying out the
+    // representable. External AppKit resize observers own immediate live
+    // resize flushing; host callbacks only schedule the portal owner.
+    static let shouldSynchronizePortalGeometryImmediately = false
 
     private static func synchronizePortalGeometry(
         for host: HostContainerView,
@@ -13363,20 +13357,11 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let geometryRevision = host.geometryRevision
         guard coordinator.lastSynchronizedHostGeometryRevision != geometryRevision else { return }
         coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
-        let window = host.window
-        if shouldSynchronizePortalGeometryImmediately(
-            hostInLiveResize: host.inLiveResize,
-            windowInLiveResize: window?.inLiveResize == true,
-            interactiveGeometryResizeActive: TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
-        ) {
-            TerminalWindowPortalRegistry.synchronizeForAnchor(host)
-            return
-        }
         // Avoid synchronizing the terminal portal while AppKit is still inside
         // the current layout turn. Re-entrant syncs here can escalate from
         // SwiftUI warnings to AppKit exceptions during CATransaction display
         // link flushes.
-        guard let window else { return }
+        guard let window = host.window else { return }
         TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
     }
 
