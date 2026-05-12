@@ -357,9 +357,6 @@ private struct SessionRecord {
                 toolInputJSON: toolInputJSON
             )
             merge(metadata: metadata)
-            if Self.isSpawnTool(toolName) {
-                mergeTaskDescription(metadata.taskDescription)
-            }
         default:
             break
         }

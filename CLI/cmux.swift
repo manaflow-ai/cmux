@@ -17958,6 +17958,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             "parent_session_id", "parentSessionId", "parentSessionID",
             "child_workstream_id", "childWorkstreamId", "subagent_workstream_id", "subagentWorkstreamId",
             "child_session_id", "childSessionId", "childSessionID", "subagent_session_id", "subagentSessionId",
+            "parent_source", "parentSource", "parent_agent_source", "parentAgentSource",
             "child_source", "childSource", "subagent_source", "subagentSource",
             "subagent_type", "subagentType", "agent_type", "agentType",
             "model", "subagent_model", "subagentModel",
