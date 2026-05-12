@@ -803,7 +803,6 @@ final class WindowTerminalPortal: NSObject {
     private func synchronizeLayoutHierarchy() {
         guard let container = installedContainerView,
               let reference = installedReferenceView else {
-            _ = synchronizeHostFrameToReference()
             return
         }
 
@@ -916,7 +915,10 @@ final class WindowTerminalPortal: NSObject {
             container.addSubview(hostView, positioned: .above, relativeTo: reference)
         }
 
-        // Keep the drag/mouse forwarding overlay above portal-hosted terminal views.
+        // Keep the drag/mouse forwarding overlay above portal-hosted terminal views
+        // when glass mode puts both in the same app-owned foreground container.
+        // In non-glass mode the overlay lives in the theme frame above contentView,
+        // so hierarchy already keeps it above this content-hosted portal.
         if let overlay = objc_getAssociatedObject(window, &fileDropOverlayKey) as? NSView,
            overlay.superview === container,
            !Self.isView(overlay, above: hostView, in: container) {

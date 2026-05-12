@@ -3423,6 +3423,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        defer { window.orderOut(nil) }
         let portal = WindowTerminalPortal(window: window)
         _ = portal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
 
