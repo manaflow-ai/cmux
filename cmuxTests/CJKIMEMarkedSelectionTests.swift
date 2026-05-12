@@ -396,6 +396,50 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
+    func testDoesNotRouteNonInputMethodDeadKeyMarkedTextThroughKeyDown() throws {
+        let view = GhosttyNSView(frame: .zero)
+        view.setMarkedText(
+            "`",
+            selectedRange: NSRange(location: 1, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        let event = try keyEvent(
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: 0
+        )
+
+        XCTAssertFalse(
+            view.shouldRouteTextInputKeyEquivalentToKeyDown(
+                event,
+                inputSourceId: "com.apple.keylayout.USInternational"
+            ),
+            "Dead-key marked text should keep normal AppKit key-equivalent dispatch"
+        )
+    }
+
+    func testRoutesInputMethodMarkedTextCommandThroughKeyDown() throws {
+        let view = GhosttyNSView(frame: .zero)
+        view.setMarkedText(
+            "ㄓㄨ",
+            selectedRange: NSRange(location: 2, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        let event = try keyEvent(
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: 0
+        )
+
+        XCTAssertTrue(
+            view.shouldRouteTextInputKeyEquivalentToKeyDown(
+                event,
+                inputSourceId: "com.apple.inputmethod.TCIM.Zhuyin"
+            ),
+            "Input-method marked text should still route command keys through keyDown"
+        )
+    }
+
     func testSuppressesInputMethodCommandWhenMarkedTextIsUnchanged() throws {
         let view = GhosttyNSView(frame: .zero)
         let event = try keyEvent(

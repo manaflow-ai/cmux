@@ -101,10 +101,12 @@ extension GhosttyNSView {
 
     func shouldRouteTextInputKeyEquivalentToKeyDown(_ event: NSEvent, inputSourceId: String?) -> Bool {
         guard event.type == .keyDown else { return false }
+        let resolvedInputSourceId = inputSourceId ?? KeyboardLayout.id
         if hasMarkedText() {
-            return shouldKeepIMECompositionCommandInsideTextInput(event)
+            return isInputMethodSource(resolvedInputSourceId)
+                && shouldKeepIMECompositionCommandInsideTextInput(event)
         }
-        return isBopomofoInputSource(inputSourceId ?? KeyboardLayout.id)
+        return isBopomofoInputSource(resolvedInputSourceId)
             && shouldKeepNoMarkedIMECommandInsideTextInput(event)
     }
 
