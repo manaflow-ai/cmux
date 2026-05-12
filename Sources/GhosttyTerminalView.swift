@@ -1342,6 +1342,19 @@ private func cmuxTerminalFileURL(path: String, line: Int?, column: Int?) -> URL 
     return components?.url ?? url
 }
 
+private func cmuxFileURL(_ fileURL: URL, preservingFragmentFrom originalURL: URL) -> URL {
+    guard fileURL.fragment == nil,
+          let originalComponents = URLComponents(url: originalURL, resolvingAgainstBaseURL: false),
+          let fragment = originalComponents.percentEncodedFragment,
+          !fragment.isEmpty else {
+        return fileURL
+    }
+
+    var components = URLComponents(url: fileURL, resolvingAgainstBaseURL: false)
+    components?.percentEncodedFragment = fragment
+    return components?.url ?? fileURL
+}
+
 private func cmuxResolveTerminalLocalFileURL(
     _ rawValue: String,
     cwd: String?,
@@ -1418,10 +1431,11 @@ func resolveTerminalOpenURLTarget(
        let scheme = parsed.scheme?.lowercased() {
         if scheme == "file", cmuxIsLocalFileURL(parsed) {
             if let fileURL = cmuxResolveTerminalLocalFileURL(parsed.path, cwd: nil, fileExists: fileExists) {
+                let resolvedURL = cmuxFileURL(fileURL, preservingFragmentFrom: parsed)
                 #if DEBUG
-                cmuxDebugLog("link.resolve result=external(fileURLLocalPath) url=\(fileURL)")
+                cmuxDebugLog("link.resolve result=external(fileURLLocalPath) url=\(resolvedURL)")
                 #endif
-                return .external(fileURL)
+                return .external(resolvedURL)
             }
             #if DEBUG
             cmuxDebugLog("link.resolve result=external(fileURL) url=\(parsed)")

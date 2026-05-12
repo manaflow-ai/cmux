@@ -4267,6 +4267,24 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
         }
     }
 
+    func testPreservesFileSchemeLineFragmentWhenFileExists() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fileURL = root.appendingPathComponent("main.swift", isDirectory: false)
+        try "print(\"hello\")\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("\(fileURL.absoluteString)#L42:5"))
+        switch target {
+        case let .external(url):
+            XCTAssertTrue(url.isFileURL)
+            XCTAssertEqual(url.path, fileURL.path)
+            XCTAssertEqual(url.fragment, "L42:5")
+        default:
+            XCTFail("Expected file URL to open externally")
+        }
+    }
+
     func testResolvesAbsolutePathAsExternalFileURL() throws {
         let target = try XCTUnwrap(resolveTerminalOpenURLTarget("/tmp/cmux-path.txt"))
         switch target {
