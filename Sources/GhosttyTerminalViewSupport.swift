@@ -395,7 +395,8 @@ final class TerminalStatusBarCommandController {
             let timerQueue = DispatchQueue.global(qos: .utility)
             let timeoutSource = DispatchSource.makeTimerSource(queue: timerQueue)
             let killSource = DispatchSource.makeTimerSource(queue: timerQueue)
-            process.terminationHandler = { _ in
+            process.terminationHandler = { terminatedProcess in
+                terminatedProcess.terminationHandler = nil
                 timeoutSource.cancel()
                 killSource.cancel()
                 let result = state.finish()
