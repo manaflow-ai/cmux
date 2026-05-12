@@ -255,7 +255,21 @@ function installClaudeChildHookPropagation() {
   const entrypoint = process.env.CMUX_CLAUDE_ENTRYPOINT || process.argv[1] || "";
   process.env.CMUX_CLAUDE_ENTRYPOINT = entrypoint;
 
-  const passthroughSubcommands = new Set(["mcp", "config", "api-key", "rc", "remote-control"]);
+  const passthroughSubcommands = new Set([
+    "api-key",
+    "auth",
+    "config",
+    "doctor",
+    "install",
+    "mcp",
+    "project",
+    "rc",
+    "remote-control",
+    "setup-token",
+    "update",
+    "upgrade",
+  ]);
+  const envOnlySubcommands = new Set(["agents", "daemon"]);
   const valueOptions = new Set([
     "--add-dir",
     "--agent",
@@ -278,11 +292,13 @@ function installClaudeChildHookPropagation() {
     "--max-budget-usd",
     "--mcp-config",
     "--model",
+    "-m",
     "--name",
     "-n",
     "--output-format",
     "--permission-mode",
     "--plugin-dir",
+    "--plugin-url",
     "--remote-control-session-name-prefix",
     "--resume",
     "-r",
@@ -480,7 +496,7 @@ function installClaudeChildHookPropagation() {
       return { args: normalizedArgs, options, patched: false };
     }
 
-    const nextArgs = subcommand === "daemon"
+    const nextArgs = envOnlySubcommands.has(subcommand)
       ? normalizedArgs
       : withCmuxSettings(normalizedArgs, insertIndex);
     return {
@@ -562,7 +578,7 @@ function installClaudeChildHookPropagation() {
         ? originalFork.call(this, modulePath, actualArgs, originalOptions)
         : originalFork.call(this, modulePath, originalOptions);
     }
-    const nextArgs = subcommand === "daemon" ? actualArgs.map(String) : withCmuxSettings(actualArgs.map(String), 0);
+    const nextArgs = envOnlySubcommands.has(subcommand) ? actualArgs.map(String) : withCmuxSettings(actualArgs.map(String), 0);
     return originalFork.call(this, modulePath, nextArgs, withCmuxClaudeEnv(originalOptions, process.execPath, [modulePath, ...nextArgs], 1));
   };
 }
