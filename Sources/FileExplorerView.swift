@@ -260,6 +260,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             FileExplorerStyle.current.rowHeight
         }
 
+        @MainActor
         func toggleHiddenFiles() {
             state.showHiddenFiles.toggle()
             store.setShowHiddenFiles(state.showHiddenFiles)
