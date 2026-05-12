@@ -285,6 +285,14 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    func resourceUsageRootPIDs() -> Set<Int32> {
+        var pids = webView.cmuxResourceUsageRootPIDs()
+        for child in childPopups {
+            pids.formUnion(child.resourceUsageRootPIDs())
+        }
+        return pids
+    }
+
     // MARK: - NSWindowDelegate
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
