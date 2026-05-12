@@ -164,9 +164,6 @@ extension CmuxSettingsFileStore {
             [
                 "rightSidebar": [
                     "beta": [
-                        "feed": [
-                            "enabled": RightSidebarBetaFeatureSettings.defaultFeedEnabled,
-                        ],
                         "dock": [
                             "enabled": RightSidebarBetaFeatureSettings.defaultDockEnabled,
                         ],
