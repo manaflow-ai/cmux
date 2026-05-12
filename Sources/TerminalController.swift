@@ -6992,6 +6992,17 @@ class TerminalController {
             #endif
             let queued: Bool
             if let surface = terminalPanel.surface.surface {
+                guard terminalPanel.surface.runtimeSurfaceCanAcceptInput(
+                    surface,
+                    reason: "v2SurfaceSendText"
+                ) else {
+                    result = .err(
+                        code: "unavailable",
+                        message: "Terminal surface is not accepting input",
+                        data: ["surface_id": surfaceId.uuidString]
+                    )
+                    return
+                }
                 sendSocketText(text, surface: surface)
                 // Ensure we present a new frame after injecting input so snapshot-based tests (and
                 // socket-driven agents) can observe the updated terminal without requiring a focus
@@ -15409,6 +15420,12 @@ class TerminalController {
     }
 
     private func terminalSurfaceAcceptsInput(_ surface: ghostty_surface_t) -> Bool {
+        guard cmuxSurfacePointerAppearsLive(surface) else {
+#if DEBUG
+            cmuxDebugLog("socket.input.drop reason=staleSurface")
+#endif
+            return false
+        }
         guard !ghostty_surface_process_exited(surface) else {
 #if DEBUG
             cmuxDebugLog("socket.input.drop reason=processExited")
@@ -15509,7 +15526,10 @@ class TerminalController {
                 error = "ERROR: Surface not ready"
                 return
             }
-            guard terminalSurfaceAcceptsInput(surface) else {
+            guard terminalPanel.surface.runtimeSurfaceCanAcceptInput(
+                surface,
+                reason: "sendInput"
+            ) else {
                 error = "ERROR: Terminal process exited"
                 return
             }
@@ -15603,7 +15623,10 @@ class TerminalController {
             TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
                 guard let self else { return }
                 if let surface = terminalPanel.surface.surface {
-                    guard self.terminalSurfaceAcceptsInput(surface) else { return }
+                    guard terminalPanel.surface.runtimeSurfaceCanAcceptInput(
+                        surface,
+                        reason: "sendInputToWorkspace"
+                    ) else { return }
                     self.sendSocketText(unescaped, surface: surface)
                 } else {
                     terminalPanel.sendText(unescaped)
@@ -15665,8 +15688,12 @@ class TerminalController {
 
         var success = false
         v2MainSync {
-            guard let surface = resolveSurface(from: target, tabManager: tabManager) else { return }
-            guard terminalSurfaceAcceptsInput(surface) else { return }
+            guard let terminalPanel = resolveTerminalPanel(from: target, tabManager: tabManager),
+                  let surface = waitForTerminalSurface(terminalPanel, waitUpTo: 2.0) else { return }
+            guard terminalPanel.surface.runtimeSurfaceCanAcceptInput(
+                surface,
+                reason: "sendInputToSurface"
+            ) else { return }
 
             let unescaped = text
                 .replacingOccurrences(of: "\\n", with: "\r")
