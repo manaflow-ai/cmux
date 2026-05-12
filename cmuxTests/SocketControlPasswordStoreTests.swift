@@ -327,6 +327,41 @@ final class AuthManagerSignOutTests: XCTestCase {
             XCTFail("Expected missingAccessToken, got \(error)")
         }
     }
+
+    func testNewSignInDuringInFlightSignOutSurvivesSignOutCompletion() async throws {
+        let suiteName = "cmux-auth-manager-sign-out-new-sign-in-tests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create isolated defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let client = AuthManagerSuspendingSignOutTestClient()
+        let tokenStore = AuthManagerSignOutTestTokenStore()
+        await tokenStore.setTokens(accessToken: "old-access", refreshToken: "old-refresh")
+        let manager = AuthManager(
+            client: client,
+            tokenStore: tokenStore,
+            settingsStore: AuthSettingsStore(userDefaults: defaults)
+        )
+        await manager.awaitBootstrapped()
+
+        let signOutTask = Task { @MainActor in
+            await manager.signOut()
+        }
+        await client.waitForSignOutStarted()
+
+        let callbackURL = try XCTUnwrap(URL(string: "cmux://auth-callback?stack_refresh=new-refresh&stack_access=new-access"))
+        try await manager.handleCallbackURL(callbackURL)
+        await client.resumeSignOut()
+        await signOutTask.value
+
+        XCTAssertTrue(manager.isAuthenticated)
+        XCTAssertEqual(await tokenStore.getStoredAccessToken(), "new-access")
+        XCTAssertEqual(await tokenStore.getStoredRefreshToken(), "new-refresh")
+    }
 }
 
 private struct AuthManagerSignOutTestClient: AuthClientProtocol {
@@ -339,6 +374,42 @@ private struct AuthManagerSignOutTestClient: AuthClientProtocol {
     }
 
     func signOut() async throws {}
+}
+
+private actor AuthManagerSuspendingSignOutTestClient: AuthClientProtocol {
+    private var signOutContinuation: CheckedContinuation<Void, Never>?
+    private var signOutStartedContinuation: CheckedContinuation<Void, Never>?
+
+    func currentUser() async throws -> CMUXAuthUser? {
+        nil
+    }
+
+    func listTeams() async throws -> [AuthTeamSummary] {
+        []
+    }
+
+    func signOut() async throws {
+        await withCheckedContinuation { continuation in
+            signOutContinuation = continuation
+            signOutStartedContinuation?.resume()
+            signOutStartedContinuation = nil
+        }
+    }
+
+    func waitForSignOutStarted() async {
+        if signOutContinuation != nil {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            signOutStartedContinuation = continuation
+        }
+    }
+
+    func resumeSignOut() {
+        let continuation = signOutContinuation
+        signOutContinuation = nil
+        continuation?.resume()
+    }
 }
 
 private actor AuthManagerSignOutTestTokenStore: StackAuthTokenStoreProtocol {

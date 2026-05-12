@@ -57,6 +57,12 @@ class UpdateViewModel: ObservableObject {
         }
     }
 
+    func cancelActiveStateForNewCheck() {
+        state.cancel()
+        state = .idle
+        overrideState = nil
+    }
+
     var text: String {
         #if DEBUG
         if let debugOverrideText { return debugOverrideText }

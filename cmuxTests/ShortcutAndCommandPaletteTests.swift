@@ -1701,6 +1701,24 @@ final class UpdateViewModelPresentationTests: XCTestCase {
         XCTAssertFalse(viewModel.showsPill)
     }
 
+    func testCancelActiveStateForNewCheckDismissesAndClearsTransientState() throws {
+        let viewModel = UpdateViewModel()
+        let item = try XCTUnwrap(makeAppcastItem(displayVersion: "9.9.9"))
+        let recorder = UpdateChoiceRecorder()
+
+        viewModel.state = .updateAvailable(.init(
+            appcastItem: item,
+            reply: { recorder.record($0) }
+        ))
+        viewModel.overrideState = .checking(.init(cancel: {}))
+
+        viewModel.cancelActiveStateForNewCheck()
+
+        XCTAssertEqual(recorder.snapshot(), [.dismiss])
+        XCTAssertEqual(viewModel.state, .idle)
+        XCTAssertNil(viewModel.overrideState)
+    }
+
     private func makeAppcastItem(displayVersion: String) -> SUAppcastItem? {
         let enclosure: [String: Any] = [
             "url": "https://example.com/cmux.zip",

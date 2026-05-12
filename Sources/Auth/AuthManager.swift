@@ -63,6 +63,7 @@ protocol StackAuthTokenStoreProtocol: TokenStoreProtocol, Sendable {
     func clear() async
     func currentAccessToken() async -> String?
     func currentRefreshToken() async -> String?
+    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async
 }
 
 extension StackAuthTokenStoreProtocol {
@@ -81,6 +82,32 @@ extension StackAuthTokenStoreProtocol {
     func currentRefreshToken() async -> String? {
         await getStoredRefreshToken()
     }
+
+    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async {
+        let storedAccessToken = await currentAccessToken()
+        let storedRefreshToken = await currentRefreshToken()
+        guard authTokenSnapshotMatches(
+            currentAccessToken: storedAccessToken,
+            currentRefreshToken: storedRefreshToken,
+            expectedAccessToken: accessToken,
+            expectedRefreshToken: refreshToken
+        ) else {
+            return
+        }
+        await clear()
+    }
+}
+
+private func authTokenSnapshotMatches(
+    currentAccessToken: String?,
+    currentRefreshToken: String?,
+    expectedAccessToken: String?,
+    expectedRefreshToken: String?
+) -> Bool {
+    if let expectedRefreshToken {
+        return currentRefreshToken == expectedRefreshToken
+    }
+    return currentRefreshToken == nil && currentAccessToken == expectedAccessToken
 }
 
 protocol AuthClientProtocol: Sendable {
@@ -621,11 +648,17 @@ final class AuthManager: ObservableObject {
     }
 
     func signOut() async {
-        _ = beginAuthMutation(.signOut)
+        let signOutGeneration = beginAuthMutation(.signOut)
         cancelBrowserSignInForSignOut()
+        let accessTokenAtSignOut = await tokenStore.currentAccessToken()
+        let refreshTokenAtSignOut = await tokenStore.currentRefreshToken()
         try? await client.signOut()
-        await tokenStore.clear()
-        _ = beginAuthMutation(.signOut)
+        guard isCurrentAuthMutation(signOutGeneration) else { return }
+        await tokenStore.clearTokensIfCurrent(
+            accessToken: accessTokenAtSignOut,
+            refreshToken: refreshTokenAtSignOut
+        )
+        guard isCurrentAuthMutation(signOutGeneration) else { return }
         clearSessionState(clearSelectedTeam: true)
     }
 
@@ -992,6 +1025,15 @@ private actor FallbackTokenStore: StackAuthTokenStoreProtocol {
         await file.clearTokens()
     }
 
+    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async {
+        if keychainWorks {
+            await keychain.clearTokensIfCurrent(accessToken: accessToken, refreshToken: refreshToken)
+            await file.clearTokensIfCurrent(accessToken: accessToken, refreshToken: refreshToken)
+            return
+        }
+        await file.clearTokensIfCurrent(accessToken: accessToken, refreshToken: refreshToken)
+    }
+
     func compareAndSet(
         compareRefreshToken: String,
         newRefreshToken: String?,
@@ -1057,6 +1099,21 @@ private actor FileStackTokenStore: StackAuthTokenStoreProtocol {
 
     func clearTokens() async {
         AuthManager.authLog("clearTokens called")
+        write(Snapshot(accessToken: nil, refreshToken: nil))
+    }
+
+    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async {
+        let snapshot = loadIfNeeded()
+        guard authTokenSnapshotMatches(
+            currentAccessToken: snapshot.accessToken,
+            currentRefreshToken: snapshot.refreshToken,
+            expectedAccessToken: accessToken,
+            expectedRefreshToken: refreshToken
+        ) else {
+            AuthManager.authLog("file.clearTokensIfCurrent: skipped stale clear")
+            return
+        }
+        AuthManager.authLog("file.clearTokensIfCurrent: cleared matching tokens")
         write(Snapshot(accessToken: nil, refreshToken: nil))
     }
 
@@ -1165,6 +1222,22 @@ private actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         cachedRefreshToken = nil
         keychainDelete(account: Self.accessTokenAccount)
         keychainDelete(account: Self.refreshTokenAccount)
+    }
+
+    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async {
+        let currentAccessToken = keychainRead(account: Self.accessTokenAccount)
+        let currentRefreshToken = keychainRead(account: Self.refreshTokenAccount)
+        guard authTokenSnapshotMatches(
+            currentAccessToken: currentAccessToken,
+            currentRefreshToken: currentRefreshToken,
+            expectedAccessToken: accessToken,
+            expectedRefreshToken: refreshToken
+        ) else {
+            AuthManager.authLog("keychain.clearTokensIfCurrent: skipped stale clear")
+            return
+        }
+        AuthManager.authLog("keychain.clearTokensIfCurrent: cleared matching tokens")
+        await clearTokens()
     }
 
     func compareAndSet(
