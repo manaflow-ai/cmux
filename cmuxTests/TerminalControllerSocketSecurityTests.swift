@@ -181,6 +181,32 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(result["type"] as? String, "ack", "Unexpected events.stream ack: \(result)")
     }
 
+    func testMalformedJSONRPCRequestUsesJSONRPCParseErrorEnvelope() throws {
+        let socketPath = makeSocketPath("jsonrpc-parse")
+        let tabManager = TabManager()
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try sendRawSocketLine(
+            #"{"jsonrpc":"2.0","id":"bad-json","method":"system.ping""#,
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["jsonrpc"] as? String, "2.0", "Unexpected parse error response: \(response)")
+        XCTAssertNil(response["ok"], "JSON-RPC parse errors should not include legacy ok: \(response)")
+        XCTAssertTrue(response["id"] is NSNull, "JSON-RPC parse errors should use id:null: \(response)")
+
+        let error = try XCTUnwrap(response["error"] as? [String: Any], "Expected JSON-RPC parse error")
+        XCTAssertEqual(error["code"] as? Int, -32700)
+        let data = try XCTUnwrap(error["data"] as? [String: Any], "Expected JSON-RPC error data")
+        XCTAssertEqual(data["cmux_code"] as? String, "parse_error")
+    }
+
     private func runJSONRPCNotificationSocketSequence(
         to socketPath: String
     ) async throws -> (explicitNullIDResponse: [String: Any], followUpResponse: [String: Any]) {
@@ -1047,6 +1073,14 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
             "Expected v2 response object"
         )
+    }
+
+    private nonisolated func sendRawSocketLine(_ line: String, to socketPath: String) throws -> [String: Any] {
+        let fd = try connect(to: socketPath)
+        defer { Darwin.close(fd) }
+
+        try writeLine(line, to: fd)
+        return try readJSONObjectLine(from: fd)
     }
 
     private func sendV2RequestAsync(
