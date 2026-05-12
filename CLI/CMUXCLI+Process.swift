@@ -6,7 +6,7 @@ enum CLIBrokenPipeDisposition {
     case ignore
 }
 
-private let cliChildLaunchLock = NSLock()
+private let cliStdioDispositionLock = NSLock()
 
 func currentCLINoSIGPIPEValue(for fd: Int32) -> Int32? {
     let value = fcntl(fd, F_GETNOSIGPIPE, 0)
@@ -48,8 +48,8 @@ func withCLIDefaultSIGPIPEForChildLaunch<T>(
     inheritedNoSIGPIPEFDs: [Int32] = [STDOUT_FILENO, STDERR_FILENO],
     body: () throws -> T
 ) rethrows -> T {
-    cliChildLaunchLock.lock()
-    defer { cliChildLaunchLock.unlock() }
+    cliStdioDispositionLock.lock()
+    defer { cliStdioDispositionLock.unlock() }
 
     let previousValues = inheritedNoSIGPIPEFDs.compactMap { fd -> (fd: Int32, value: Int32)? in
         guard let value = currentCLINoSIGPIPEValue(for: fd) else { return nil }
@@ -107,6 +107,9 @@ private func cliWaitForWritableFD(_ fd: Int32) -> Bool {
 @discardableResult
 func cliWrite(_ data: Data, to handle: FileHandle, onBrokenPipe: CLIBrokenPipeDisposition) -> Bool {
     guard !data.isEmpty else { return true }
+    cliStdioDispositionLock.lock()
+    defer { cliStdioDispositionLock.unlock() }
+
     return data.withUnsafeBytes { rawBuffer in
         guard let baseAddress = rawBuffer.bindMemory(to: UInt8.self).baseAddress else {
             return true
