@@ -1038,6 +1038,31 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(resolved, "456789")
     }
 
+    @MainActor
+    func testWorkspaceSessionSnapshotUsesConfiguredScrollbackLimits() throws {
+        let defaults = try makeIsolatedDefaults()
+        defaults.set(3, forKey: SessionPersistencePolicy.maxScrollbackLinesPerTerminalKey)
+        defaults.set(5, forKey: SessionPersistencePolicy.maxScrollbackCharactersPerTerminalKey)
+
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.panelShellActivityStates[panelId] = .promptIdle
+
+        var capturedLineLimit: Int?
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: true,
+            defaults: defaults,
+            terminalScrollbackReader: { _, lineLimit in
+                capturedLineLimit = lineLimit
+                return "0123456789"
+            }
+        )
+
+        let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panelId })
+        XCTAssertEqual(capturedLineLimit, 3)
+        XCTAssertEqual(panelSnapshot.terminal?.scrollback, "56789")
+    }
+
     func testResolvedSnapshotTerminalScrollbackSkipsFallbackWhenRestoreIsUnsafe() {
         let resolved = Workspace.resolvedSnapshotTerminalScrollback(
             capturedScrollback: nil,
