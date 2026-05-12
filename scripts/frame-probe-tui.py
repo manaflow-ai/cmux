@@ -246,10 +246,15 @@ def classify_gap(gap_ms: float, budget_ms: float) -> str:
 def draw(stdscr: curses.window, stats: FrameStats, notify: NotifyState, args: argparse.Namespace) -> None:
     stdscr.erase()
     height, width = stdscr.getmaxyx()
+    content_y = 1 if height >= 3 else 0
+    content_x = 2 if width >= 4 else 0
+    content_height = max(0, height - 2) if height >= 3 else height
+    content_width = max(0, width - 4) if width >= 4 else width
     summary = stats.summary()
     budget = stats.budget_ms
     rows = [
         "cmux frame probe TUI",
+        f"visible terminal cells: columns={width} rows={height} inner={content_width}x{content_height}",
         "terminal cadence proxy, not a Core Animation compositor counter",
         f"target={stats.hz:.1f}Hz budget={budget:.2f}ms hiccup>={stats.hiccup_ms:.2f}ms cmux={args.cmux_bin}",
         f"socket={args.socket_path or os.environ.get('CMUX_SOCKET_PATH') or '(auto)'}",
@@ -271,16 +276,31 @@ def draw(stdscr: curses.window, stats: FrameStats, notify: NotifyState, args: ar
         "",
     ]
 
-    for row, text in enumerate(rows[: max(0, height - 1)]):
-        add_line(stdscr, row, 0, text[: max(0, width - 1)])
+    draw_bounds_border(stdscr, height, width)
 
-    if height > len(rows):
-        graph_width = max(0, width - 1)
+    max_text_rows = max(0, content_height - 1)
+    for row, text in enumerate(rows[:max_text_rows]):
+        add_line(stdscr, content_y + row, content_x, text[: max(0, content_width)])
+
+    graph_y = content_y + min(len(rows), max_text_rows)
+    if content_height > len(rows) and graph_y < height - 1:
+        graph_width = max(0, content_width)
         samples = list(stats.gaps_ms)[-graph_width:]
         graph = "".join(classify_gap(gap, budget) for gap in samples)
-        add_line(stdscr, len(rows), 0, graph)
+        add_line(stdscr, graph_y, content_x, graph)
 
     stdscr.refresh()
+
+
+def draw_bounds_border(stdscr: curses.window, height: int, width: int) -> None:
+    if height < 2 or width < 2:
+        return
+    horizontal = "-" * max(0, width - 2)
+    add_line(stdscr, 0, 0, f"+{horizontal}+")
+    add_line(stdscr, height - 1, 0, f"+{horizontal}+")
+    for row in range(1, height - 1):
+        add_line(stdscr, row, 0, "|")
+        add_line(stdscr, row, width - 1, "|")
 
 
 def notify_line(state: NotifyState, args: argparse.Namespace) -> str:

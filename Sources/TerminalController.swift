@@ -14924,27 +14924,50 @@ class TerminalController {
         // Capture the main window on main thread
         var captureError: String?
         v2MainSync {
-            guard let window = NSApp.mainWindow ?? NSApp.windows.first else {
+            let candidateWindows = NSApp.windows.filter { window in
+                window.isVisible &&
+                !window.isMiniaturized &&
+                window.contentView != nil &&
+                !window.frame.isEmpty
+            }
+            let window = candidateWindows.max { lhs, rhs in
+                (lhs.frame.width * lhs.frame.height) < (rhs.frame.width * rhs.frame.height)
+            } ?? NSApp.mainWindow ?? NSApp.windows.first
+
+            guard let window else {
                 captureError = "No window available"
                 return
             }
 
-            // Get window's CGWindowID
-            let windowNumber = CGWindowID(window.windowNumber)
-
-            // Capture the window using CGWindowListCreateImage
-            guard let cgImage = CGWindowListCreateImage(
-                .null,  // Capture just the window bounds
-                .optionIncludingWindow,
-                windowNumber,
-                [.boundsIgnoreFraming, .nominalResolution]
-            ) else {
-                captureError = "Failed to capture window image"
+            guard let contentView = window.contentView else {
+                captureError = "No window content view available"
                 return
             }
 
-            // Convert to NSBitmapImageRep and save as PNG
-            let bitmap = NSBitmapImageRep(cgImage: cgImage)
+            let bounds = contentView.bounds
+            guard !bounds.isEmpty,
+                  let bitmap = contentView.bitmapImageRepForCachingDisplay(in: bounds) else {
+                captureError = "Failed to prepare window image"
+                return
+            }
+            bitmap.size = bounds.size
+
+            contentView.displayIfNeeded()
+            if let layer = contentView.layer,
+               let graphicsContext = NSGraphicsContext(bitmapImageRep: bitmap) {
+                let scale = max(window.backingScaleFactor, 1)
+                let pixelHeight = bounds.height * scale
+
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = graphicsContext
+                graphicsContext.cgContext.translateBy(x: 0, y: pixelHeight)
+                graphicsContext.cgContext.scaleBy(x: scale, y: -scale)
+                layer.render(in: graphicsContext.cgContext)
+                NSGraphicsContext.restoreGraphicsState()
+            } else {
+                contentView.cacheDisplay(in: bounds, to: bitmap)
+            }
+
             guard let pngData = bitmap.representation(using: .png, properties: [:]) else {
                 captureError = "Failed to create PNG data"
                 return
