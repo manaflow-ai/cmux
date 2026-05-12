@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import CMUXMobileCore
 import CMUXWorkstream
 import Foundation
 import Bonsplit
@@ -2434,6 +2435,14 @@ class TerminalController {
             return v2Ok(id: id, result: ["pong": true])
         case "system.capabilities":
             return v2Ok(id: id, result: v2Capabilities())
+        case "mobile.host.status":
+            return v2Result(id: id, self.v2MobileHostStatus(params: params))
+        case "mobile.attach_ticket.create":
+            return v2Result(id: id, self.v2MobileAttachTicketCreate(params: params))
+        case "mobile.workspace.list":
+            return v2Result(id: id, self.v2MobileWorkspaceList(params: params))
+        case "mobile.terminal.snapshot":
+            return v2Result(id: id, self.v2MobileTerminalSnapshot(params: params))
 
         case "system.identify":
             return v2Ok(id: id, result: v2Identify(params: params))
@@ -2878,6 +2887,10 @@ class TerminalController {
             "system.identify",
             "system.tree",
             "system.top",
+            "mobile.host.status",
+            "mobile.attach_ticket.create",
+            "mobile.workspace.list",
+            "mobile.terminal.snapshot",
             "events.stream",
             "auth.login",
             "auth.status",
@@ -17458,6 +17471,357 @@ class TerminalController {
             }
         }
         return result
+    }
+
+    // MARK: - Mobile Host V2 Methods
+
+    func mobileHostHandleRPC(_ request: MobileHostRPCRequest) -> MobileHostRPCResult {
+        let result: V2CallResult
+        switch request.method {
+        case "mobile.host.status":
+            result = v2MobileHostStatus(params: request.params)
+        case "mobile.attach_ticket.create":
+            result = v2MobileAttachTicketCreate(params: request.params)
+        case "mobile.workspace.list", "workspace.list":
+            result = v2MobileWorkspaceList(params: request.params)
+        case "workspace.create":
+            result = v2MobileWorkspaceCreate(params: request.params)
+        case "mobile.terminal.create", "terminal.create":
+            result = v2MobileTerminalCreate(params: request.params)
+        case "mobile.terminal.snapshot", "terminal.snapshot":
+            result = v2MobileTerminalSnapshot(params: request.params)
+        case "mobile.terminal.input", "terminal.input":
+            result = v2MobileTerminalInput(params: request.params)
+        default:
+            result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
+                "method": request.method
+            ])
+        }
+        return mobileHostResult(result)
+    }
+
+    private func mobileHostResult(_ result: V2CallResult) -> MobileHostRPCResult {
+        switch result {
+        case let .ok(payload):
+            return .ok(payload)
+        case let .err(code, message, data):
+            return .failure(MobileHostRPCError(code: code, message: message, data: data))
+        }
+    }
+
+    private func v2MobileHostStatus(params: [String: Any]) -> V2CallResult {
+        let status = MobileHostService.shared.statusSnapshot()
+        let tabManager = v2ResolveTabManager(params: params)
+        let selectedWorkspaceID = tabManager?.selectedTabId
+        let selectedWorkspace = selectedWorkspaceID.flatMap { id in
+            tabManager?.tabs.first(where: { $0.id == id })
+        }
+
+        return .ok([
+            "mac_device_id": MobileHostIdentity.deviceID(),
+            "mac_display_name": MobileHostIdentity.displayName() ?? NSNull(),
+            "host_service": status.payload,
+            "workspace_count": tabManager?.tabs.count ?? 0,
+            "selected_workspace_id": selectedWorkspaceID?.uuidString ?? NSNull(),
+            "selected_terminal_id": selectedWorkspace?.focusedPanelId?.uuidString ?? NSNull(),
+            "snapshot_fidelity": "ansi_vt"
+        ])
+    }
+
+    private func v2MobileAttachTicketCreate(params: [String: Any]) -> V2CallResult {
+        let ttl = TimeInterval(max(30, min(v2Int(params, "ttl_seconds") ?? 600, 3600)))
+        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: false) else {
+            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        }
+
+        do {
+            let payload = try MobileHostService.shared.createAttachTicket(
+                workspaceID: resolved.workspace.id.uuidString,
+                terminalID: resolved.surfaceId?.uuidString,
+                ttl: ttl
+            )
+            return .ok(payload)
+        } catch {
+            return .err(
+                code: "unavailable",
+                message: "Mobile host routes are not available yet",
+                data: ["error": String(describing: error)]
+            )
+        }
+    }
+
+    private func v2MobileWorkspaceList(
+        params: [String: Any],
+        createdWorkspaceID: String? = nil,
+        createdTerminalID: String? = nil
+    ) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        let workspaces = tabManager.tabs.enumerated().map { _, workspace in
+            let terminals = orderedPanels(in: workspace).compactMap { panel -> [String: Any]? in
+                guard let terminal = panel as? TerminalPanel else {
+                    return nil
+                }
+                return [
+                    "id": terminal.id.uuidString,
+                    "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
+                    "current_directory": mobileNonEmpty(workspace.panelDirectories[terminal.id])
+                        ?? mobileNonEmpty(terminal.directory)
+                        ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
+                        ?? NSNull(),
+                    "is_focused": terminal.id == workspace.focusedPanelId
+                ]
+            }
+
+            return [
+                "id": workspace.id.uuidString,
+                "title": workspace.title,
+                "current_directory": mobileNonEmpty(workspace.currentDirectory) ?? NSNull(),
+                "is_selected": workspace.id == tabManager.selectedTabId,
+                "terminals": terminals
+            ]
+        }
+
+        var payload: [String: Any] = [
+            "workspaces": workspaces
+        ]
+        if let createdWorkspaceID {
+            payload["created_workspace_id"] = createdWorkspaceID
+        }
+        if let createdTerminalID {
+            payload["created_terminal_id"] = createdTerminalID
+        }
+        return .ok(payload)
+    }
+
+    private func v2MobileWorkspaceCreate(params: [String: Any]) -> V2CallResult {
+        var createParams = params
+        createParams["focus"] = false
+        let createResult = v2WorkspaceCreate(params: createParams)
+        switch createResult {
+        case let .ok(payload):
+            let createdWorkspaceID = (payload as? [String: Any])?["workspace_id"] as? String
+            return v2MobileWorkspaceList(
+                params: createParams,
+                createdWorkspaceID: createdWorkspaceID
+            )
+        case .err:
+            return createResult
+        }
+    }
+
+    private func v2MobileTerminalCreate(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        }
+        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+            return .err(code: "not_found", message: "Pane not found", data: nil)
+        }
+        guard let terminal = workspace.newTerminalSurface(inPane: paneId, focus: false) else {
+            return .err(code: "internal_error", message: "Failed to create terminal", data: nil)
+        }
+        return v2MobileWorkspaceList(
+            params: ["workspace_id": workspace.id.uuidString],
+            createdTerminalID: terminal.id.uuidString
+        )
+    }
+
+    private func v2MobileTerminalSnapshot(params: [String: Any]) -> V2CallResult {
+        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
+              let surfaceId = resolved.surfaceId,
+              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+        }
+
+        let maxScrollbackRows = v2Int(params, "max_scrollback_rows") ?? v2Int(params, "lines")
+        if let maxScrollbackRows, maxScrollbackRows < 0 {
+            return .err(code: "invalid_params", message: "max_scrollback_rows must be non-negative", data: nil)
+        }
+
+        return mobileTerminalSnapshotPayload(
+            workspace: resolved.workspace,
+            terminalPanel: terminalPanel,
+            maxScrollbackRows: maxScrollbackRows
+        )
+    }
+
+    private func v2MobileTerminalInput(params: [String: Any]) -> V2CallResult {
+        guard let text = v2RawString(params, "text"), !text.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing text", data: nil)
+        }
+        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
+              let surfaceId = resolved.surfaceId,
+              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+        }
+
+        terminalPanel.sendText(text)
+        terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalInput")
+        return .ok([
+            "workspace_id": resolved.workspace.id.uuidString,
+            "surface_id": terminalPanel.id.uuidString
+        ])
+    }
+
+    private func mobileTerminalSnapshotPayload(
+        workspace: Workspace,
+        terminalPanel: TerminalPanel,
+        maxScrollbackRows: Int?
+    ) -> V2CallResult {
+        guard let surface = terminalPanel.surface.surface else {
+            return .err(code: "not_found", message: "Terminal surface is not ready", data: [
+                "surface_id": terminalPanel.id.uuidString
+            ])
+        }
+
+        let size = ghostty_surface_size(surface)
+        let columns = max(Int(size.columns), 1)
+        let rows = max(Int(size.rows), 1)
+
+        guard let viewportText = readTerminalTextForSnapshot(
+            terminalPanel: terminalPanel,
+            includeScrollback: true,
+            lineLimit: rows
+        ) ?? readTerminalTextForSnapshot(
+            terminalPanel: terminalPanel,
+            includeScrollback: false,
+            lineLimit: rows
+        ) else {
+            return .err(code: "internal_error", message: "Failed to read terminal viewport", data: nil)
+        }
+
+        let scrollbackText: String?
+        if let maxScrollbackRows, maxScrollbackRows > 0,
+           let combinedText = readTerminalTextForSnapshot(
+               terminalPanel: terminalPanel,
+               includeScrollback: true,
+               lineLimit: maxScrollbackRows + rows
+           ) {
+            scrollbackText = Self.mobileScrollbackText(
+                combinedText: combinedText,
+                viewportText: viewportText,
+                maxRows: maxScrollbackRows
+            )
+        } else {
+            scrollbackText = nil
+        }
+
+        do {
+            let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+                terminalID: terminalPanel.id.uuidString,
+                columns: columns,
+                rows: rows,
+                scrollbackText: scrollbackText,
+                viewportText: viewportText,
+                maxScrollbackRows: maxScrollbackRows,
+                activeScreen: .primary,
+                streamOffset: 0,
+                generatedAt: Date()
+            )
+
+            return .ok([
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": terminalPanel.id.uuidString,
+                "snapshot": try mobileJSONObject(snapshot),
+                "fidelity": "ansi_vt",
+                "limitations": [
+                    "ghostty_grid_metadata_unavailable",
+                    "active_screen_unavailable",
+                    "stream_offset_unavailable"
+                ]
+            ])
+        } catch {
+            return .err(code: "internal_error", message: "Failed to build terminal snapshot", data: [
+                "error": String(describing: error)
+            ])
+        }
+    }
+
+    private func mobileResolveWorkspaceAndSurface(
+        params: [String: Any],
+        requireTerminal: Bool
+    ) -> (tabManager: TabManager, workspace: Workspace, surfaceId: UUID?)? {
+        guard let tabManager = v2ResolveTabManager(params: params),
+              let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+            return nil
+        }
+
+        let requestedSurfaceId = v2UUID(params, "surface_id")
+            ?? v2UUID(params, "terminal_id")
+            ?? v2UUID(params, "tab_id")
+
+        let surfaceId: UUID?
+        if let requestedSurfaceId {
+            guard workspace.panels[requestedSurfaceId] != nil else {
+                return nil
+            }
+            surfaceId = requestedSurfaceId
+        } else if requireTerminal {
+            surfaceId = workspace.focusedTerminalPanel?.id
+                ?? orderedPanels(in: workspace).compactMap { ($0 as? TerminalPanel)?.id }.first
+        } else {
+            surfaceId = workspace.focusedPanelId
+        }
+
+        return (tabManager, workspace, surfaceId)
+    }
+
+    private func mobileJSONObject<T: Encodable>(_ value: T) throws -> Any {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(value)
+        return try JSONSerialization.jsonObject(with: data)
+    }
+
+    private func mobileNonEmpty(_ raw: String?) -> String? {
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private static func mobileScrollbackText(
+        combinedText: String,
+        viewportText: String,
+        maxRows: Int
+    ) -> String? {
+        guard maxRows > 0 else {
+            return nil
+        }
+
+        let combinedLines = mobileTerminalLines(from: combinedText)
+        let viewportLines = mobileTerminalLines(from: viewportText)
+        guard !combinedLines.isEmpty else {
+            return nil
+        }
+
+        let scrollbackLines: ArraySlice<String>
+        if !viewportLines.isEmpty,
+           combinedLines.count >= viewportLines.count,
+           Array(combinedLines.suffix(viewportLines.count)) == viewportLines {
+            scrollbackLines = combinedLines.dropLast(viewportLines.count).suffix(maxRows)
+        } else {
+            scrollbackLines = combinedLines.dropLast(min(combinedLines.count, viewportLines.count)).suffix(maxRows)
+        }
+
+        guard !scrollbackLines.isEmpty else {
+            return nil
+        }
+        return scrollbackLines.joined(separator: "\n")
+    }
+
+    private static func mobileTerminalLines(from text: String) -> [String] {
+        guard !text.isEmpty else {
+            return []
+        }
+        var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        if text.hasSuffix("\n"), lines.last == "" {
+            lines.removeLast()
+        }
+        return lines
     }
 
     deinit {
