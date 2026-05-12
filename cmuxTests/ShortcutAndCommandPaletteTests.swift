@@ -1719,6 +1719,21 @@ final class UpdateViewModelPresentationTests: XCTestCase {
         XCTAssertNil(viewModel.overrideState)
     }
 
+    func testApplyDriverStateRecordsDetectedUpdateMetadata() throws {
+        let viewModel = UpdateViewModel()
+        let item = try XCTUnwrap(makeAppcastItem(displayVersion: "9.9.9"))
+
+        viewModel.applyDriverState(.updateAvailable(.init(
+            appcastItem: item,
+            reply: { _ in }
+        )))
+        viewModel.state = .idle
+
+        XCTAssertEqual(viewModel.detectedUpdateVersion, "9.9.9")
+        XCTAssertTrue(viewModel.hasCachedDetectedUpdateDetails)
+        XCTAssertTrue(viewModel.showsDetectedBackgroundUpdate)
+    }
+
     private func makeAppcastItem(displayVersion: String) -> SUAppcastItem? {
         let enclosure: [String: Any] = [
             "url": "https://example.com/cmux.zip",

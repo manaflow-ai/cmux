@@ -63,6 +63,13 @@ class UpdateViewModel: ObservableObject {
         overrideState = nil
     }
 
+    func applyDriverState(_ newState: UpdateState) {
+        if case .updateAvailable(let update) = newState {
+            recordDetectedUpdate(update.appcastItem)
+        }
+        state = newState
+    }
+
     var text: String {
         #if DEBUG
         if let debugOverrideText { return debugOverrideText }
