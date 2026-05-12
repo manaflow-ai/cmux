@@ -12086,12 +12086,33 @@ struct CMUXCLI {
     }
 
     private func createClaudeNodeOptionsRestoreModule() throws -> URL {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-            .appendingPathComponent("cmux-claude-node-options", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
-        let restoreModuleURL = root.appendingPathComponent("restore-node-options.cjs", isDirectory: false)
-        try writeShimIfChanged(Self.claudeNodeOptionsRestoreModule, to: restoreModuleURL)
-        return restoreModuleURL
+        var candidates: [URL] = []
+        let environment = ProcessInfo.processInfo.environment
+        let homePath = environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? NSHomeDirectory()
+        if !homePath.isEmpty {
+            candidates.append(
+                URL(fileURLWithPath: homePath, isDirectory: true)
+                    .appendingPathComponent(".claude", isDirectory: true)
+                    .appendingPathComponent("cmux", isDirectory: true)
+            )
+        }
+        candidates.append(
+            URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+                .appendingPathComponent("cmux-claude-node-options", isDirectory: true)
+        )
+
+        var lastError: Error?
+        for root in candidates {
+            do {
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
+                let restoreModuleURL = root.appendingPathComponent("restore-node-options.cjs", isDirectory: false)
+                try writeShimIfChanged(Self.claudeNodeOptionsRestoreModule, to: restoreModuleURL)
+                return restoreModuleURL
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError ?? CocoaError(.fileWriteUnknown)
     }
 
     private func runClaudeTeams(

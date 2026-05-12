@@ -335,23 +335,38 @@ def main() -> int:
         print(f"stderr={proc.stderr.strip()}")
         return 1
 
-    if node_options_value != "--trace-warnings":
+    require_flag, _, remaining_flags = node_options_value.partition(" ")
+    if not require_flag.startswith("--require="):
         print(
-            "FAIL: expected claude-teams to skip restore preload injection when TMPDIR is unusable, "
+            "FAIL: expected claude-teams to use persistent restore preload when TMPDIR is unusable, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+
+    if "/.claude/cmux/restore-node-options.cjs" not in require_flag:
+        print(
+            "FAIL: expected claude-teams restore preload under ~/.claude/cmux when TMPDIR is unusable, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+
+    if remaining_flags != "--max-old-space-size=4096 --trace-warnings":
+        print(
+            "FAIL: expected claude-teams to prepend the V8 heap cap after the persistent restore preload, "
             f"got {node_options_value!r}"
         )
         return 1
 
     if runtime_node_options_value != "--trace-warnings":
         print(
-            "FAIL: expected Claude runtime NODE_OPTIONS to remain unchanged when TMPDIR is unusable, "
+            "FAIL: expected Claude runtime NODE_OPTIONS to be restored when TMPDIR is unusable, "
             f"got {runtime_node_options_value!r}"
         )
         return 1
 
     if child_node_options_value != "--trace-warnings":
         print(
-            "FAIL: expected child NODE_OPTIONS to remain unchanged when TMPDIR is unusable, "
+            "FAIL: expected child NODE_OPTIONS to inherit the restored original value when TMPDIR is unusable, "
             f"got {child_node_options_value!r}"
         )
         return 1

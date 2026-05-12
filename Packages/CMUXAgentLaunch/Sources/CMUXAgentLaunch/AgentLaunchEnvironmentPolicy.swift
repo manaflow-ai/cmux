@@ -163,7 +163,7 @@ public enum AgentLaunchEnvironmentPolicy {
         guard URL(fileURLWithPath: trimmed).lastPathComponent == "restore-node-options.cjs" else {
             return false
         }
-        return trimmed.contains("/cmux-")
+        return trimmed.contains("/cmux-") || trimmed.contains("/.claude/cmux/")
     }
 
     private static func isInjectedNodeHeapCap(_ tokens: [String], index: Int) -> Bool {

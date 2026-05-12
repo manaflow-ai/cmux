@@ -314,15 +314,33 @@ func writeShimIfChanged(path string, content string) error {
 }
 
 func ensureClaudeNodeOptionsRestoreModule() (string, error) {
-	dir := filepath.Join(os.TempDir(), "cmux-claude-node-options")
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return "", err
+	dirs := claudeNodeOptionsRestoreDirs()
+	var lastErr error
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			lastErr = err
+			continue
+		}
+		restoreModulePath := filepath.Join(dir, "restore-node-options.cjs")
+		if err := writeShimIfChanged(restoreModulePath, claudeNodeOptionsRestoreModuleScript); err != nil {
+			lastErr = err
+			continue
+		}
+		return restoreModulePath, nil
 	}
-	restoreModulePath := filepath.Join(dir, "restore-node-options.cjs")
-	if err := writeShimIfChanged(restoreModulePath, claudeNodeOptionsRestoreModuleScript); err != nil {
-		return "", err
+	if lastErr != nil {
+		return "", lastErr
 	}
-	return restoreModulePath, nil
+	return "", fmt.Errorf("no NODE_OPTIONS restore module directory candidates")
+}
+
+func claudeNodeOptionsRestoreDirs() []string {
+	dirs := make([]string, 0, 2)
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		dirs = append(dirs, filepath.Join(home, ".claude", "cmux"))
+	}
+	dirs = append(dirs, filepath.Join(os.TempDir(), "cmux-claude-node-options"))
+	return dirs
 }
 
 // --- Focused context ---

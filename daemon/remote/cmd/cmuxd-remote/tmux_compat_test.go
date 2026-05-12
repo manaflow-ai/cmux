@@ -413,6 +413,29 @@ func TestMergeNodeOptions(t *testing.T) {
 	}
 }
 
+func TestEnsureClaudeNodeOptionsRestoreModuleUsesHome(t *testing.T) {
+	home := t.TempDir()
+	tmp := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("TMPDIR", tmp)
+
+	path, err := ensureClaudeNodeOptionsRestoreModule()
+	if err != nil {
+		t.Fatalf("ensureClaudeNodeOptionsRestoreModule() error = %v", err)
+	}
+
+	want := filepath.Join(home, ".claude", "cmux", "restore-node-options.cjs")
+	if path != want {
+		t.Fatalf("restore module path = %q, want %q", path, want)
+	}
+	if strings.HasPrefix(path, tmp+string(os.PathSeparator)) {
+		t.Fatalf("restore module path should not be under TMPDIR %q: %q", tmp, path)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("restore module was not written at %q: %v", path, err)
+	}
+}
+
 func TestTmuxWaitForSignalRoundTrip(t *testing.T) {
 	name := "test-roundtrip-" + randomHex(4)
 	path := tmuxWaitForSignalPath(name)
