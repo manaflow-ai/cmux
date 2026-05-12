@@ -39,7 +39,7 @@ private final class FileExplorerGitStatusColorPalette {
         styleObserver = notificationCenter.addObserver(
             forName: .fileExplorerStyleDidChange,
             object: nil,
-            queue: nil
+            queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.reload()
