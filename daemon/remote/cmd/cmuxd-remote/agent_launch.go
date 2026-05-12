@@ -87,7 +87,8 @@ func runOMORelay(socketPath string, args []string, refreshAddr func() string) in
 	}
 
 	// Ensure oh-my-opencode plugin is set up
-	if err := omoEnsurePlugin(originalPath); err != nil {
+	requestedModel := omoRequestedModel(args)
+	if err := omoEnsurePlugin(originalPath, requestedModel); err != nil {
 		fmt.Fprintf(os.Stderr, "cmux omo: plugin setup: %v\n", err)
 		return 1
 	}
@@ -506,6 +507,97 @@ func configureAgentEnvironment(cfg agentConfig) {
 
 const omoPluginName = "oh-my-opencode"
 
+var omoModelOverrideAgentKeys = []string{
+	"build",
+	"plan",
+	"sisyphus",
+	"hephaestus",
+	"sisyphus-junior",
+	"OpenCode-Builder",
+	"prometheus",
+	"metis",
+	"momus",
+	"oracle",
+	"librarian",
+	"explore",
+	"multimodal-looker",
+	"atlas",
+}
+
+var omoModelOverrideCategoryKeys = []string{
+	"quick",
+	"deep",
+	"ultrabrain",
+	"unspecified-low",
+	"unspecified-high",
+	"visual-engineering",
+	"artistry",
+	"writing",
+}
+
+func omoRequestedModel(args []string) string {
+	var requestedModel string
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		if arg == "--" {
+			break
+		}
+		if arg == "--model" || arg == "-m" {
+			if index+1 >= len(args) {
+				return requestedModel
+			}
+			value := strings.TrimSpace(args[index+1])
+			if value != "" {
+				requestedModel = value
+			}
+			index++
+			continue
+		}
+		if strings.HasPrefix(arg, "--model=") {
+			value := strings.TrimSpace(strings.TrimPrefix(arg, "--model="))
+			if value != "" {
+				requestedModel = value
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-m=") {
+			value := strings.TrimSpace(strings.TrimPrefix(arg, "-m="))
+			if value != "" {
+				requestedModel = value
+			}
+		}
+	}
+	return requestedModel
+}
+
+func omoObjectConfig(parent map[string]any, key string) map[string]any {
+	if existing, ok := parent[key].(map[string]any); ok {
+		return existing
+	}
+	config := map[string]any{}
+	parent[key] = config
+	return config
+}
+
+func omoApplyModelOverride(config map[string]any, requestedModel string) {
+	model := strings.TrimSpace(requestedModel)
+	if model == "" {
+		return
+	}
+
+	agents := omoObjectConfig(config, "agents")
+	for _, agent := range omoModelOverrideAgentKeys {
+		agentConfig := omoObjectConfig(agents, agent)
+		agentConfig["model"] = model
+	}
+
+	categories := omoObjectConfig(config, "categories")
+	for _, category := range omoModelOverrideCategoryKeys {
+		categoryConfig := omoObjectConfig(categories, category)
+		categoryConfig["model"] = model
+	}
+}
+
 func omoUserConfigDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "opencode")
@@ -519,7 +611,7 @@ func omoShadowConfigDir() string {
 // omoEnsurePlugin creates a shadow config directory that layers the
 // oh-my-opencode plugin on top of the user's opencode config, installs
 // the plugin if needed, and sets OPENCODE_CONFIG_DIR.
-func omoEnsurePlugin(searchPath string) error {
+func omoEnsurePlugin(searchPath string, requestedModel string) error {
 	userDir := omoUserConfigDir()
 	shadowDir := omoShadowConfigDir()
 
@@ -672,6 +764,10 @@ func omoEnsurePlugin(searchPath string) error {
 	}
 	if tmuxConfig["main_pane_size"] == nil {
 		tmuxConfig["main_pane_size"] = 50
+		needsWrite = true
+	}
+	if strings.TrimSpace(requestedModel) != "" {
+		omoApplyModelOverride(omoConfig, requestedModel)
 		needsWrite = true
 	}
 	if needsWrite {

@@ -12256,6 +12256,32 @@ struct CMUXCLI {
 
     private static let omoPluginName = "oh-my-opencode"
     private static let openCodeSessionPluginConfigSpec = "./plugins/cmux-session.js"
+    private static let omoModelOverrideAgentKeys = [
+        "build",
+        "plan",
+        "sisyphus",
+        "hephaestus",
+        "sisyphus-junior",
+        "OpenCode-Builder",
+        "prometheus",
+        "metis",
+        "momus",
+        "oracle",
+        "librarian",
+        "explore",
+        "multimodal-looker",
+        "atlas",
+    ]
+    private static let omoModelOverrideCategoryKeys = [
+        "quick",
+        "deep",
+        "ultrabrain",
+        "unspecified-low",
+        "unspecified-high",
+        "visual-engineering",
+        "artistry",
+        "writing",
+    ]
 
     private func resolveExecutableInPath(_ name: String) -> String? {
         let entries = ProcessInfo.processInfo.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
@@ -12371,6 +12397,77 @@ struct CMUXCLI {
         return nil
     }
 
+    private func omoRequestedModel(from commandArgs: [String]) -> String? {
+        var requestedModel: String?
+        var index = commandArgs.startIndex
+        while index < commandArgs.endIndex {
+            let arg = commandArgs[index]
+            if arg == "--" { break }
+
+            if arg == "--model" || arg == "-m" {
+                let nextIndex = commandArgs.index(after: index)
+                guard nextIndex < commandArgs.endIndex else { return requestedModel }
+                let value = commandArgs[nextIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty {
+                    requestedModel = value
+                }
+                index = commandArgs.index(after: nextIndex)
+                continue
+            }
+
+            if arg.hasPrefix("--model=") {
+                let value = String(arg.dropFirst("--model=".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty {
+                    requestedModel = value
+                }
+            } else if arg.hasPrefix("-m=") {
+                let value = String(arg.dropFirst("-m=".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty {
+                    requestedModel = value
+                }
+            }
+
+            index = commandArgs.index(after: index)
+        }
+
+        return requestedModel
+    }
+
+    private func omoApplyRequestedModelOverride(_ requestedModel: String, to omoConfig: inout [String: Any]) -> Bool {
+        let model = requestedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !model.isEmpty else { return false }
+
+        var changed = false
+        var agents = (omoConfig["agents"] as? [String: Any]) ?? [:]
+        for agent in Self.omoModelOverrideAgentKeys {
+            var agentConfig = (agents[agent] as? [String: Any]) ?? [:]
+            if agentConfig["model"] as? String != model {
+                agentConfig["model"] = model
+                agents[agent] = agentConfig
+                changed = true
+            }
+        }
+        if changed || omoConfig["agents"] == nil {
+            omoConfig["agents"] = agents
+        }
+
+        var categoriesChanged = false
+        var categories = (omoConfig["categories"] as? [String: Any]) ?? [:]
+        for category in Self.omoModelOverrideCategoryKeys {
+            var categoryConfig = (categories[category] as? [String: Any]) ?? [:]
+            if categoryConfig["model"] as? String != model {
+                categoryConfig["model"] = model
+                categories[category] = categoryConfig
+                categoriesChanged = true
+            }
+        }
+        if categoriesChanged || omoConfig["categories"] == nil {
+            omoConfig["categories"] = categories
+        }
+
+        return changed || categoriesChanged
+    }
+
     private func omoBindableLoopbackPort(_ port: UInt16) -> UInt16? {
         let socketDescriptor = socket(AF_INET, SOCK_STREAM, 0)
         guard socketDescriptor >= 0 else { return nil }
@@ -12444,7 +12541,7 @@ struct CMUXCLI {
     /// Creates a shadow config directory that layers oh-my-opencode on top of the user's
     /// existing opencode config without modifying the original. Sets OPENCODE_CONFIG_DIR
     /// to point at the shadow directory.
-    private func omoEnsurePlugin() throws {
+    private func omoEnsurePlugin(requestedModel: String?) throws {
         let userDir = omoUserConfigDir()
         let shadowDir = omoShadowConfigDir()
         let fm = FileManager.default
@@ -12582,6 +12679,9 @@ struct CMUXCLI {
             tmuxConfig["main_pane_size"] = 50
             needsWrite = true
         }
+        if let requestedModel {
+            needsWrite = omoApplyRequestedModelOverride(requestedModel, to: &omoConfig) || needsWrite
+        }
         if needsWrite {
             omoConfig["tmux"] = tmuxConfig
             // Remove symlink if it exists (we need a real file)
@@ -12652,7 +12752,8 @@ struct CMUXCLI {
         }
 
         // Ensure oh-my-opencode plugin is registered and installed
-        try omoEnsurePlugin()
+        let requestedModel = omoRequestedModel(from: commandArgs)
+        try omoEnsurePlugin(requestedModel: requestedModel)
 
         let shimDirectory = try createOMOShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
