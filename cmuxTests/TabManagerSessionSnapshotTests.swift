@@ -66,6 +66,24 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNotNil(restoredTerminal.sidekickBrowserPanel)
     }
 
+    func testTerminalSidekickSplitRatioClampsWhenSetAndRestored() throws {
+        let manager = TabManager()
+        let terminalPanel = try XCTUnwrap(manager.selectedWorkspace?.focusedTerminalPanel)
+
+        terminalPanel.setSidekickSplitRatio(0.1)
+        XCTAssertEqual(terminalPanel.sidekickState.splitRatio, 0.25, accuracy: 0.001)
+
+        terminalPanel.restoreSidekick(
+            SessionTerminalSidekickSnapshot(
+                urlString: nil,
+                isOpen: false,
+                splitRatio: 0.9
+            )
+        )
+
+        XCTAssertEqual(terminalPanel.sidekickState.splitRatio, 0.7, accuracy: 0.001)
+    }
+
     func testTerminalSidekickRestoreStaysClosedWhenBrowserIsDisabled() throws {
         let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
         BrowserAvailabilitySettings.setDisabled(true)
