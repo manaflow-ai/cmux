@@ -7434,7 +7434,7 @@ private struct AuthSettingsRow: View {
                     .cmuxFont(size: 13, weight: .medium)
                 if let subtitle = subtitleText {
                     Text(subtitle)
-                        .cmuxFont(size: 11)
+                        .cmuxFont(size: 11, relativeTo: .caption)
                         .foregroundColor(.secondary)
                 }
             }
@@ -7558,7 +7558,7 @@ struct SettingsCardRow<Trailing: View>: View {
                     .cmuxFont(size: 13, weight: .medium)
                 if let subtitle {
                     Text(subtitle)
-                        .cmuxFont(size: 12)
+                        .cmuxFont(size: 12, relativeTo: .caption)
                         .foregroundColor(.secondary)
                         .lineLimit(2)
                 }
@@ -8183,7 +8183,7 @@ private struct SettingsSidebarEntryRow: View {
 
                 if let subtitle = entry.subtitle {
                     Text(subtitle)
-                        .cmuxFont(size: 12)
+                        .cmuxFont(size: 12, relativeTo: .caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }

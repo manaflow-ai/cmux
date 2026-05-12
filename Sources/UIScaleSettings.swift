@@ -165,9 +165,54 @@ private struct UIScaledFontModifier: ViewModifier {
     }
 }
 
+private struct UIScaledTextStyleFontModifier: ViewModifier {
+    @Environment(\.uiScaleFactor) private var uiScaleFactor
+    @ScaledMetric private var textStyleSize: CGFloat
+
+    let weight: Font.Weight?
+    let design: Font.Design?
+
+    init(
+        size: CGFloat,
+        weight: Font.Weight?,
+        design: Font.Design?,
+        relativeTo textStyle: Font.TextStyle
+    ) {
+        _textStyleSize = ScaledMetric(wrappedValue: size, relativeTo: textStyle)
+        self.weight = weight
+        self.design = design
+    }
+
+    func body(content: Content) -> some View {
+        content.font(
+            .system(
+                size: UIScaleSettings.scaled(textStyleSize, by: uiScaleFactor),
+                weight: weight,
+                design: design
+            )
+        )
+    }
+}
+
 extension View {
     func cmuxFont(size: CGFloat, weight: Font.Weight? = nil, design: Font.Design? = nil) -> some View {
         modifier(UIScaledFontModifier(size: size, weight: weight, design: design))
+    }
+
+    func cmuxFont(
+        size: CGFloat,
+        weight: Font.Weight? = nil,
+        design: Font.Design? = nil,
+        relativeTo textStyle: Font.TextStyle
+    ) -> some View {
+        modifier(
+            UIScaledTextStyleFontModifier(
+                size: size,
+                weight: weight,
+                design: design,
+                relativeTo: textStyle
+            )
+        )
     }
 }
 
