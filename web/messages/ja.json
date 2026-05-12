@@ -551,7 +551,7 @@
       "workspaceIdDesc": "自動設定：現在のワークスペースID",
       "surfaceIdDesc": "自動設定：現在のサーフェスID",
       "termProgramDesc": "ghosttyに設定",
-      "termDesc": "既定はxterm-256color。上書きするにはcmux.jsonでterminal.termを設定",
+      "termDesc": "既定はxterm-256color。新しいtmuxシェルにはterminal.termを設定",
       "envCallout": "レガシーのCMUX_SOCKET_MODE値fullとnotificationsは互換性のため引き続き使用可能です。",
       "detectingCmux": "cmuxの検出",
       "examples": "使用例",

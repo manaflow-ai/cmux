@@ -285,6 +285,16 @@ working-directory = ~/code`}</CodeBlock>
         <strong>Reload:</strong> edit the file, then use <code>Cmd+Shift+,</code> or{" "}
         <code>cmux reload-config</code> to re-read it without restarting the app.
       </Callout>
+      <Callout type="info">
+        <strong>tmux TERM compatibility:</strong> cmux keeps <code>TERM=xterm-256color</code>{" "}
+        by default for prompt-color compatibility. If tmux scrolling is slower in your setup
+        and <code>infocmp xterm-ghostty</code> succeeds, set <code>terminal.term</code> to{" "}
+        <code>xterm-ghostty</code>, reload config, and create a new terminal surface before
+        starting a fresh tmux server. Existing tmux servers keep their negotiated client state;
+        if lag remains, compare against{" "}
+        <code>env TERM=xterm-ghostty tmux -L cmux-clean -f /dev/null new</code> to separate
+        cmux TERM identity from tmux config or server state.
+      </Callout>
       <Callout type="warn">
         <strong>Migrations:</strong> keep <code>schemaVersion</code> at <code>1</code> for now.
         Future cmux versions will use that field for upgrades. If cmux sees a newer schema version,

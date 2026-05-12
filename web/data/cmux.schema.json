@@ -305,7 +305,7 @@
           "type": "string",
           "default": "xterm-256color",
           "pattern": "^\\S+$",
-          "description": "TERM value for new local terminal surfaces. Defaults to xterm-256color for compatibility; set to xterm-ghostty if your local terminfo and tmux configuration work better with Ghostty's native terminal identity."
+          "description": "TERM value for new local terminal surfaces. Defaults to xterm-256color for compatibility; set to xterm-ghostty if your local terminfo and tmux configuration work better with Ghostty's native terminal identity. Existing shells and tmux servers must be restarted to observe changes."
         },
         "autoResumeAgentSessions": {
           "type": "boolean",
