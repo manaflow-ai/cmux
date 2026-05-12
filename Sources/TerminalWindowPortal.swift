@@ -1624,6 +1624,11 @@ final class WindowTerminalPortal: NSObject {
         let currentWindow = window
         let deadHostedIds = entriesByHostedId.compactMap { hostedId, entry -> ObjectIdentifier? in
             guard entry.hostedView != nil else { return hostedId }
+            if entry.visibleInUI,
+               let terminalSurface = entry.hostedView?.terminalSurfaceForPortalPruning,
+               !portalSurfaceIsStillOwned(terminalSurface) {
+                return hostedId
+            }
             guard let anchor = entry.anchorView else {
                 return entry.visibleInUI ? nil : hostedId
             }
@@ -1649,6 +1654,11 @@ final class WindowTerminalPortal: NSObject {
             entry.anchorView.map { ObjectIdentifier($0) }
         })
         hostedByAnchorId = hostedByAnchorId.filter { validAnchorIds.contains($0.key) }
+    }
+
+    private func portalSurfaceIsStillOwned(_ terminalSurface: TerminalSurface) -> Bool {
+        guard let workspace = terminalSurface.owningWorkspace() else { return false }
+        return workspace.panels[terminalSurface.id] != nil
     }
 
     func hostedIds() -> Set<ObjectIdentifier> {
