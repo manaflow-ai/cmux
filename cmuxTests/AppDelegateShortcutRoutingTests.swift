@@ -141,6 +141,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 source: "test.restoreGhosttyConfig",
                 reloadSettingsFromFile: false
             )
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
             try? fileManager.removeItem(at: root)
         }
 
