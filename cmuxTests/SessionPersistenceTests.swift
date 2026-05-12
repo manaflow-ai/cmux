@@ -1729,9 +1729,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertTrue(input.hasPrefix("/bin/zsh '"))
         XCTAssertFalse(input.contains(unicodeWorkingDirectory))
 
-        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        let prefix = "/bin/zsh '"
-        let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
+        let scriptPath = try Self.scriptPath(fromStartupInput: input)
         let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
         XCTAssertTrue(scriptContents.contains(unicodeWorkingDirectory))
         XCTAssertTrue(scriptContents.contains("'resume'"))
@@ -1772,9 +1770,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertTrue(input.hasPrefix("/bin/zsh '"))
         XCTAssertFalse(input.contains(longPath))
 
-        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        let prefix = "/bin/zsh '"
-        let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
+        let scriptPath = try Self.scriptPath(fromStartupInput: input)
         let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
         XCTAssertTrue(scriptContents.contains(longPath))
         XCTAssertTrue(scriptContents.contains("'resume'"))
@@ -1817,6 +1813,47 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
 
         XCTAssertNil(snapshot.resumeStartupInput(temporaryDirectory: blockedDirectory))
+    }
+
+    private static func scriptPath(fromStartupInput input: String) throws -> String {
+        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "/bin/zsh "
+        let scriptPath = trimmedInput.hasPrefix(prefix)
+            ? shellSingleQuotedWord(String(trimmedInput.dropFirst(prefix.count)))
+            : nil
+        return try XCTUnwrap(
+            scriptPath,
+            "Expected startup input to invoke /bin/zsh with a single-quoted script path"
+        )
+    }
+
+    private static func shellSingleQuotedWord(_ value: String) -> String? {
+        var index = value.startIndex
+        guard index < value.endIndex, value[index] == "'" else { return nil }
+        index = value.index(after: index)
+
+        var result = ""
+        while index < value.endIndex {
+            if value[index] != "'" {
+                result.append(value[index])
+                index = value.index(after: index)
+                continue
+            }
+
+            let afterQuote = value.index(after: index)
+            guard afterQuote < value.endIndex else { return result }
+            guard value[afterQuote] == "\\" else { return nil }
+
+            let escapedQuote = value.index(after: afterQuote)
+            guard escapedQuote < value.endIndex, value[escapedQuote] == "'" else { return nil }
+
+            let reopenedQuote = value.index(after: escapedQuote)
+            guard reopenedQuote < value.endIndex, value[reopenedQuote] == "'" else { return nil }
+
+            result.append("'")
+            index = value.index(after: reopenedQuote)
+        }
+        return nil
     }
 
     func testClaudeResumeCommandPreservesDangerouslySkipPermissionsAndObservedEnvironment() {

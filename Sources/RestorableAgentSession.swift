@@ -397,7 +397,11 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         }
 
         let scriptInput = "/bin/zsh \(shellSingleQuoted(scriptURL.path))\n"
-        return Self.canUseInlineStartupInput(scriptInput) ? scriptInput : nil
+        guard Self.canUseInlineStartupInput(scriptInput) else {
+            try? fileManager.removeItem(at: scriptURL)
+            return nil
+        }
+        return scriptInput
     }
 
     private static func canUseInlineStartupInput(_ input: String) -> Bool {
