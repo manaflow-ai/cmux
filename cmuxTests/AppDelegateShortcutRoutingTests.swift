@@ -20,6 +20,7 @@ private final class GhosttyCommandEquivalentProbeView: GhosttyNSView {
     var afterMenuMissCallCount = 0
     var keyDownCallCount = 0
     var lastKeyDownCharactersIgnoringModifiers: String?
+    var selectAllCallCount = 0
     var pasteCallCount = 0
     var pasteAsPlainTextCallCount = 0
     var performAfterMenuMissResult = true
@@ -32,6 +33,10 @@ private final class GhosttyCommandEquivalentProbeView: GhosttyNSView {
     override func keyDown(with event: NSEvent) {
         keyDownCallCount += 1
         lastKeyDownCharactersIgnoringModifiers = event.charactersIgnoringModifiers
+    }
+
+    override func selectAll(_ sender: Any?) {
+        selectAllCallCount += 1
     }
 
     override func paste(_ sender: Any?) {
@@ -5279,6 +5284,51 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             0,
             "Window routing must not force plain-text paste before Ghostty inspects bindings"
         )
+    }
+
+    func testWindowPerformKeyEquivalentRoutesTerminalCmdAToResponderSelectAll() {
+        let previousMainMenu = NSApp.mainMenu
+        let probeWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
+        let probeView = GhosttyCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+
+        defer {
+            NSApp.mainMenu = previousMainMenu
+            probeWindow.orderOut(nil)
+        }
+
+        let emptyMenu = NSMenu(title: "Test")
+        emptyMenu.addItem(withTitle: "Placeholder", action: nil, keyEquivalent: "")
+        NSApp.mainMenu = emptyMenu
+
+        probeWindow.contentView = contentView
+        contentView.addSubview(probeView)
+        probeWindow.makeKeyAndOrderFront(nil)
+        probeWindow.displayIfNeeded()
+        XCTAssertTrue(probeWindow.makeFirstResponder(probeView), "Expected probe Ghostty view to own first responder")
+
+        guard let event = makeKeyDownEvent(
+            key: "a",
+            modifiers: [.command],
+            keyCode: 0,
+            windowNumber: probeWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+A event")
+            return
+        }
+
+        XCTAssertTrue(
+            probeWindow.performKeyEquivalent(with: event),
+            "Cmd+A in a terminal should use the terminal responder's natural text selection path"
+        )
+        XCTAssertEqual(probeView.selectAllCallCount, 1, "Terminal Cmd+A should invoke selectAll on the Ghostty responder")
+        XCTAssertEqual(probeView.afterMenuMissCallCount, 0, "Terminal Cmd+A must not fall through to Ghostty's viewport-wide select_all binding")
+        XCTAssertEqual(probeView.keyDownCallCount, 0, "Terminal Cmd+A must not be sent as a raw terminal key event")
     }
 
     func testWindowPerformKeyEquivalentForwardsClearedCmdDPastStaleMenuShortcut() {
