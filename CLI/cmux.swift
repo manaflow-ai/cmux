@@ -4481,7 +4481,7 @@ struct CMUXCLI {
             colorOpt ?? (action == "set_color" ? (inferredPositional.isEmpty ? nil : inferredPositional) : nil)
         )?.trimmingCharacters(in: .whitespacesAndNewlines)
         if action == "set_color", (color?.isEmpty ?? true) {
-            throw CLIError(message: "workspace-action set-color requires --color <name|#hex> (or a trailing color)")
+            throw CLIError(message: "workspace-action set-color requires --color <name|#RRGGBB> (or a trailing color)")
         }
 
         let icon = (
@@ -9190,7 +9190,7 @@ struct CMUXCLI {
               --action <name>              Action name (required if not positional)
               --workspace <id|ref|index>   Target workspace (default: current/$CMUX_WORKSPACE_ID)
               --title <text>               Title for rename
-              --color <name|#hex>          Color for set-color (name or #RRGGBB hex)
+              --color <name|#RRGGBB>       Color for set-color (name or #RRGGBB hex)
               --icon <json>                CmuxButtonIcon JSON for set-icon
               --description <text>         Description for set-description
 
@@ -20662,7 +20662,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           close-window --window <id>
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
-          workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>] [--icon <json>] [--description <text>]
+          workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#RRGGBB>] [--icon <json>] [--description <text>]
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--icon <json>] [--layout <json>] [--focus <true|false>]
@@ -20692,8 +20692,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           focus-panel --panel <id|ref> [--workspace <id|ref>]
           close-workspace --workspace <id|ref>
           select-workspace --workspace <id|ref>
-          rename-workspace [--workspace <id|ref>] [--icon <json>] <title>
-          rename-window [--workspace <id|ref>] [--icon <json>] <title>
+          rename-workspace [--workspace <id|ref|index>] [--icon <json>] <title>
+          rename-window [--workspace <id|ref|index>] [--icon <json>] <title>
           current-workspace
           read-screen [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]
           send [--workspace <id|ref>] [--surface <id|ref>] <text>

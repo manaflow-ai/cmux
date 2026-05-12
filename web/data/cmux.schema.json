@@ -835,6 +835,8 @@
             },
             "scale": {
               "type": "number",
+              "minimum": 0.1,
+              "maximum": 5,
               "default": 1,
               "description": "Optional emoji scale multiplier."
             }

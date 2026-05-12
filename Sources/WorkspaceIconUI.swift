@@ -84,6 +84,10 @@ enum WorkspaceIconPrompting {
 }
 
 private enum SidebarWorkspaceIconImageCache {
+    private struct DecodedImage: @unchecked Sendable {
+        let image: NSImage
+    }
+
     @MainActor
     private static let cache: NSCache<NSString, NSImage> = {
         let cache = NSCache<NSString, NSImage>()
@@ -108,9 +112,12 @@ private enum SidebarWorkspaceIconImageCache {
         }.value
     }
 
-    nonisolated static func fileData(forExpandedPath expandedPath: String) async -> Data? {
+    nonisolated static func decodedImage(forExpandedPath expandedPath: String) async -> DecodedImage? {
         await Task.detached(priority: .utility) {
-            try? Data(contentsOf: URL(fileURLWithPath: expandedPath, isDirectory: false))
+            let url = URL(fileURLWithPath: expandedPath, isDirectory: false)
+            guard let data = try? Data(contentsOf: url),
+                  let image = NSImage(data: data) else { return nil }
+            return DecodedImage(image: image)
         }.value
     }
 
@@ -167,10 +174,10 @@ private final class SidebarWorkspaceIconImageLoader: ObservableObject {
                 return
             }
 
-            let data = await SidebarWorkspaceIconImageCache.fileData(forExpandedPath: expandedPath)
+            let decodedImage = await SidebarWorkspaceIconImageCache.decodedImage(forExpandedPath: expandedPath)
             guard !Task.isCancelled else { return }
 
-            let loadedImage = data.flatMap(NSImage.init(data:))
+            let loadedImage = decodedImage?.image
             if let loadedImage {
                 SidebarWorkspaceIconImageCache.store(loadedImage, forKey: cacheKey)
             }
