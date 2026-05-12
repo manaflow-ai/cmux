@@ -619,11 +619,17 @@ def main() -> int:
         valid_escape_path.write_text('notifications.command = "tab\\tcr\\rbs\\bff\\funicode\\u0021"\n', encoding="utf-8")
         valid_escape = run_cli(cli_path, ["settings", "import", str(valid_escape_path)], home)
         assert_ok(failures, "settings import standard TOML escapes", valid_escape)
-        valid_escape_get = run_cli(cli_path, ["settings", "get", "notifications.command"], home)
+        valid_escape_get = run_cli(cli_path, ["settings", "get", "notifications.command", "--json"], home)
         assert_ok(failures, "settings get standard TOML escapes", valid_escape_get)
         expected_escaped_command = "tab\tcr\rbs\bff\funicode!"
-        if valid_escape_get.stdout.strip() != expected_escaped_command:
-            failures.append(f"standard TOML escapes did not import correctly: {valid_escape_get.stdout!r}")
+        valid_escape_payload = parse_json(failures, "settings get standard TOML escapes", valid_escape_get)
+        if isinstance(valid_escape_payload, dict):
+            assert_equal(
+                failures,
+                "standard TOML escapes imported value",
+                valid_escape_payload.get("value"),
+                expected_escaped_command,
+            )
         export_escaped_path = home / "export-standard-escapes.toml"
         export_escaped = run_cli(cli_path, ["settings", "export", "--format", "toml", "--out", str(export_escaped_path)], home)
         assert_ok(failures, "settings export standard TOML escapes", export_escaped)
@@ -634,7 +640,7 @@ def main() -> int:
         bad_escape_path = home / "bad-escape.toml"
         bad_escape_path.write_text('notifications.command = "bad\\q"\n', encoding="utf-8")
         bad_escape = run_cli(cli_path, ["settings", "import", str(bad_escape_path)], home)
-        assert_fails(failures, "settings import unsupported TOML escape", bad_escape, r"Unsupported TOML string escape: \\q")
+        assert_fails(failures, "settings import unsupported TOML escape", bad_escape, "Unsupported TOML string escape: \\q")
 
         bad_inline_table_path = home / "bad-inline-table.toml"
         bad_inline_table_path.write_text('appearance = { theme = "dark" }\n', encoding="utf-8")
