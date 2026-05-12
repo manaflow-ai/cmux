@@ -12751,10 +12751,6 @@ final class GhosttySurfaceScrollView: NSView {
         return true
     }
 
-    private func scrollbarHasScrollableContent(_ scrollbar: GhosttyScrollbar) -> Bool {
-        scrollbar.total > scrollbar.len
-    }
-
     private func surfaceHasScrollback() -> Bool? {
         guard let scrollbar = surfaceView.scrollbar else { return nil }
         // Embedded Ghostty exposes alternate-screen TUIs to the wrapper as a
@@ -12762,7 +12758,7 @@ final class GhosttySurfaceScrollView: NSView {
         // as the signal to suppress the visible overlay scrollbar. PTY sizing
         // is intentionally driven only by scrollbar settings, so scrollback
         // packets cannot resize the terminal grid on the first overflow edge.
-        return scrollbarHasScrollableContent(scrollbar)
+        return scrollbar.total > scrollbar.len
     }
 
     private func shouldShowTerminalScrollBar() -> Bool {
