@@ -215,7 +215,11 @@ exit 0
         )
 
 
-def run_wrapper_terminal_env_probe(argv: list[str]) -> tuple[int, dict[str, str], list[str], str]:
+def run_wrapper_terminal_env_probe(
+    argv: list[str],
+    *,
+    hooks_disabled: bool = False,
+) -> tuple[int, dict[str, str], list[str], str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-env-probe-") as td:
         tmp = Path(td)
         wrapper_dir = tmp / "wrapper-bin"
@@ -230,32 +234,38 @@ def run_wrapper_terminal_env_probe(argv: list[str]) -> tuple[int, dict[str, str]
         env_log = tmp / "real-env.log"
         args_log = tmp / "real-args.log"
         socket_path = str(tmp / "cmux.sock")
+        fingerprint_env = {
+            "CMUX_BUNDLE_ID": "com.cmuxterm.app.debug.envprobe",
+            "CMUX_BUNDLED_CLI_PATH": str(wrapper_dir / "cmux"),
+            "CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION": "1",
+            "CMUX_PANEL_ID": "panel:test",
+            "CMUX_PORT": "9170",
+            "CMUX_PORT_END": "9179",
+            "CMUX_PORT_RANGE": "10",
+            "CMUX_SHELL_INTEGRATION": "1",
+            "CMUX_SHELL_INTEGRATION_DIR": str(tmp / "shell-integration"),
+            "CMUX_SOCKET_PATH": socket_path,
+            "CMUX_SURFACE_ID": "surface:test",
+            "CMUX_TAB_ID": "tab:test",
+            "CMUX_WORKSPACE_ID": "workspace:test",
+            "TERMINFO": str(tmp / "terminfo"),
+        }
+        if hooks_disabled:
+            fingerprint_env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
+        probe_key_lines = "\n".join(f"  {key}" for key in fingerprint_env)
 
         make_executable(
             real_dir / "claude",
-            """#!/usr/bin/env bash
+            f"""#!/usr/bin/env bash
 set -euo pipefail
 : > "$FAKE_REAL_ENV_LOG"
 : > "$FAKE_REAL_ARGS_LOG"
 keys=(
-  CMUX_BUNDLE_ID
-  CMUX_BUNDLED_CLI_PATH
-  CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION
-  CMUX_PANEL_ID
-  CMUX_PORT
-  CMUX_PORT_END
-  CMUX_PORT_RANGE
-  CMUX_SHELL_INTEGRATION
-  CMUX_SHELL_INTEGRATION_DIR
-  CMUX_SOCKET_PATH
-  CMUX_SURFACE_ID
-  CMUX_TAB_ID
-  CMUX_WORKSPACE_ID
-  TERMINFO
+{probe_key_lines}
 )
-for key in "${keys[@]}"; do
-  if [[ ${!key+x} ]]; then
-    printf '%s=%s\\n' "$key" "${!key}" >> "$FAKE_REAL_ENV_LOG"
+for key in "${{keys[@]}}"; do
+  if [[ ${{!key+x}} ]]; then
+    printf '%s=%s\\n' "$key" "${{!key}}" >> "$FAKE_REAL_ENV_LOG"
   else
     printf '%s=__UNSET__\\n' "$key" >> "$FAKE_REAL_ENV_LOG"
   fi
@@ -286,25 +296,12 @@ exit 0
 
             env = os.environ.copy()
             env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
-            env["CMUX_BUNDLE_ID"] = "com.cmuxterm.app.debug.envprobe"
-            env["CMUX_BUNDLED_CLI_PATH"] = str(wrapper_dir / "cmux")
-            env["CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION"] = "1"
-            env["CMUX_PANEL_ID"] = "panel:test"
-            env["CMUX_PORT"] = "9170"
-            env["CMUX_PORT_END"] = "9179"
-            env["CMUX_PORT_RANGE"] = "10"
-            env["CMUX_SHELL_INTEGRATION"] = "1"
-            env["CMUX_SHELL_INTEGRATION_DIR"] = str(tmp / "shell-integration")
-            env["CMUX_SOCKET_PATH"] = socket_path
-            env["CMUX_SURFACE_ID"] = "surface:test"
-            env["CMUX_TAB_ID"] = "tab:test"
-            env["CMUX_WORKSPACE_ID"] = "workspace:test"
-            env["TERMINFO"] = str(tmp / "terminfo")
+            env.update(fingerprint_env)
             env["FAKE_REAL_ENV_LOG"] = str(env_log)
             env["FAKE_REAL_ARGS_LOG"] = str(args_log)
 
             proc = subprocess.run(
-                ["claude", *argv],
+                [str(wrapper), *argv],
                 cwd=tmp,
                 env=env,
                 capture_output=True,
@@ -647,31 +644,21 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
 
 
 def test_agents_subcommand_removes_cmux_terminal_fingerprint(failures: list[str]) -> None:
-    code, observed_env, real_argv, stderr = run_wrapper_terminal_env_probe(["agents"])
-    expect(code == 0, f"agents env probe: wrapper exited {code}: {stderr}", failures)
-    expect(real_argv == ["agents"], f"agents env probe: expected raw argv, got {real_argv}", failures)
+    scenarios = [
+        ("agents env probe", {}),
+        ("agents hooks-disabled env probe", {"hooks_disabled": True}),
+    ]
+    for label, kwargs in scenarios:
+        code, observed_env, real_argv, stderr = run_wrapper_terminal_env_probe(["agents"], **kwargs)
+        expect(code == 0, f"{label}: wrapper exited {code}: {stderr}", failures)
+        expect(real_argv == ["agents"], f"{label}: expected raw argv, got {real_argv}", failures)
 
-    for key in [
-        "CMUX_BUNDLE_ID",
-        "CMUX_BUNDLED_CLI_PATH",
-        "CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION",
-        "CMUX_PANEL_ID",
-        "CMUX_PORT",
-        "CMUX_PORT_END",
-        "CMUX_PORT_RANGE",
-        "CMUX_SHELL_INTEGRATION",
-        "CMUX_SHELL_INTEGRATION_DIR",
-        "CMUX_SOCKET_PATH",
-        "CMUX_SURFACE_ID",
-        "CMUX_TAB_ID",
-        "CMUX_WORKSPACE_ID",
-        "TERMINFO",
-    ]:
-        expect(
-            observed_env.get(key) == "__UNSET__",
-            f"agents env probe: expected {key} unset, got {observed_env.get(key)!r}",
-            failures,
-        )
+        for key, value in observed_env.items():
+            expect(
+                value == "__UNSET__",
+                f"{label}: expected {key} unset, got {value!r}",
+                failures,
+            )
 
 
 def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures: list[str]) -> None:
