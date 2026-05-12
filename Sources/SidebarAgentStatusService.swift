@@ -43,8 +43,12 @@ enum SidebarAgentStatusService {
         }
     }
 
-    static func registrationDeduplicationKey(workspaceId: UUID, statusKey: String) -> String {
-        "\(workspaceId.uuidString):\(statusKey)"
+    static func runtimeKey(for registration: SidebarAgentTitleRegistration, panelId: UUID) -> String {
+        "\(registration.statusKey).\(panelId.uuidString.lowercased())"
+    }
+
+    static func registrationDeduplicationKey(workspaceId: UUID, panelId: UUID, statusKey: String) -> String {
+        "\(workspaceId.uuidString):\(panelId.uuidString):\(statusKey)"
     }
 
     static func matchedPID(
@@ -155,8 +159,14 @@ extension TabManager {
         return tabs.flatMap { tab in
             tab.panels.keys.compactMap { panelId -> (Workspace, UUID, SidebarAgentTitleRegistration)? in
                 let key = PanelTitleUpdateKey(tabId: tab.id, panelId: panelId)
-                guard let registration = panelAgentTitleRegistrations[key],
-                      tab.agentPIDs[registration.statusKey] == nil else {
+                guard let registration = panelAgentTitleRegistrations[key] else {
+                    return nil
+                }
+                let runtimeKey = SidebarAgentStatusService.runtimeKey(
+                    for: registration,
+                    panelId: panelId
+                )
+                guard tab.agentPIDs[runtimeKey] == nil else {
                     return nil
                 }
                 return (tab, panelId, registration)
@@ -170,9 +180,10 @@ extension TabManager {
         }
         let now = Date()
         let dueRegistrationKeys = Set(
-            agentTitleRegistrationCandidates().compactMap { tab, _, registration -> String? in
+            agentTitleRegistrationCandidates().compactMap { tab, panelId, registration -> String? in
                 let registrationKey = SidebarAgentStatusService.registrationDeduplicationKey(
                     workspaceId: tab.id,
+                    panelId: panelId,
                     statusKey: registration.statusKey
                 )
                 if let lastStarted = agentPIDDiscoveryLastStartedAtByRegistration[registrationKey],
@@ -228,14 +239,19 @@ extension TabManager {
         for (tab, panelId, registration) in titleCandidates {
             let registrationKey = SidebarAgentStatusService.registrationDeduplicationKey(
                 workspaceId: tab.id,
+                panelId: panelId,
                 statusKey: registration.statusKey
             )
             if let allowedRegistrationKeys,
                !allowedRegistrationKeys.contains(registrationKey) {
                 continue
             }
+            let runtimeKey = SidebarAgentStatusService.runtimeKey(
+                for: registration,
+                panelId: panelId
+            )
             guard !registeredKeys.contains(registrationKey),
-                  tab.agentPIDs[registration.statusKey] == nil else {
+                  tab.agentPIDs[runtimeKey] == nil else {
                 continue
             }
             if registerAgentPID(registration, workspace: tab, panelId: panelId, processSnapshot: processSnapshot) {
@@ -288,7 +304,8 @@ extension TabManager {
         ) else {
             return false
         }
-        workspace.setAgentPID(key: registration.statusKey, panelId: panelId, pid: matchedPID)
+        let runtimeKey = SidebarAgentStatusService.runtimeKey(for: registration, panelId: panelId)
+        workspace.setAgentPID(key: runtimeKey, panelId: panelId, pid: matchedPID)
         return true
     }
 

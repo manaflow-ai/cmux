@@ -3636,7 +3636,7 @@ class TerminalController {
         var tags: [[String: Any]] = []
 
         for (index, entry) in workspace.sidebarStatusEntriesInDisplayOrder().enumerated() {
-            let pid = workspace.agentPIDs[entry.key].flatMap { $0 > 0 ? Int($0) : nil }
+            let pid = v2TopTagPID(for: entry, workspace: workspace)
             tags.append([
                 "kind": "tag",
                 "id": v2TopTagIdentifier(workspaceId: workspace.id, key: entry.key),
@@ -3655,6 +3655,32 @@ class TerminalController {
         }
 
         return tags
+    }
+
+    private func v2TopTagPID(for entry: SidebarStatusEntry, workspace: Workspace) -> Int? {
+        let candidates = workspace.agentPIDs.compactMap { key, pid -> (key: String, pid: pid_t, isLikelyAlive: Bool)? in
+            guard pid > 0,
+                  workspace.agentStatusKey(forAgentPIDKey: key) == entry.key else {
+                return nil
+            }
+            let processState = workspace.agentProcessStates[key]
+            let isLikelyAlive = processState?.pid == pid ? processState?.isAlive == true : true
+            return (key, pid, isLikelyAlive)
+        }
+        .sorted { lhs, rhs in
+            if lhs.isLikelyAlive != rhs.isLikelyAlive {
+                return lhs.isLikelyAlive && !rhs.isLikelyAlive
+            }
+            if lhs.key == entry.key, rhs.key != entry.key {
+                return true
+            }
+            if rhs.key == entry.key, lhs.key != entry.key {
+                return false
+            }
+            return lhs.key < rhs.key
+        }
+
+        return candidates.first.map { Int($0.pid) }
     }
 
     private func v2TreeWindowNode(
