@@ -76,6 +76,47 @@ jobs:
       - name: Build tagged app
         run: ./scripts/reload.sh --tag "$PERF_TAG"
 
+      - name: Run crash pressure regressions
+        run: |
+          set -euo pipefail
+          APP_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-$PERF_TAG/Build/Products/Debug/cmux DEV $PERF_TAG.app"
+          CLI_BIN="$APP_PATH/Contents/Resources/bin/cmux"
+          APP_BIN="$APP_PATH/Contents/MacOS/cmux DEV"
+          SOCK="/tmp/cmux-debug-${PERF_TAG}.sock"
+          BUNDLE_ID="com.cmuxterm.app.debug.${PERF_TAG}"
+
+          test -x "$CLI_BIN"
+          test -x "$APP_BIN"
+
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_closed_standard_handles.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_hot_path_parallel_pool.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_hot_path_tmux_pool.py
+
+          pkill -f "cmux DEV ${PERF_TAG}.app/Contents/MacOS/cmux DEV" || true
+          rm -f "$SOCK"
+          defaults write "$BUNDLE_ID" socketControlMode -string full >/dev/null 2>&1 || true
+
+          CMUX_TAG="$PERF_TAG" \
+          CMUX_SOCKET_PATH="$SOCK" \
+          CMUX_UI_TEST_MODE=1 \
+          "$APP_BIN" >/tmp/cmux-pressure-${PERF_TAG}.log 2>&1 &
+          APP_PID=$!
+          trap 'kill "$APP_PID" >/dev/null 2>&1 || true; rm -f "$SOCK"' EXIT
+
+          for _ in {1..240}; do
+            [ -S "$SOCK" ] && break
+            sleep 0.25
+          done
+          [ -S "$SOCK" ] || { echo "Socket not ready at $SOCK" >&2; exit 1; }
+
+          CMUX_SOCKET_PATH="$SOCK" \
+          python3 tests_v2/test_background_workspace_idle_thread_footprint.py
+
+          kill "$APP_PID" >/dev/null 2>&1 || true
+          wait "$APP_PID" 2>/dev/null || true
+          rm -f "$SOCK"
+          trap - EXIT
+
       - name: Run activation session benchmark
         run: |
           set -euo pipefail
