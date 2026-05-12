@@ -480,6 +480,29 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
+    func testSimplifiedChinesePinyinHandledCandidateArrowStaysInTextInputWithoutMarkedText() throws {
+        let view = GhosttyNSView(frame: .zero)
+        let event = try keyEvent(
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: 0
+        )
+
+        XCTAssertTrue(
+            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                markedTextBefore: "",
+                markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
+                markedTextAfter: "",
+                markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                accumulatedText: [],
+                event: event,
+                textInputHandledEvent: true,
+                inputSourceId: "com.apple.inputmethod.SCIM.ITABC"
+            ),
+            "Simplified Chinese Pinyin candidate arrows handled by NSTextInputContext must not leak to Ghostty"
+        )
+    }
+
     func testCangjieDoesNotSwallowNavigationAndSpaceKeysWithoutComposition() throws {
         try assertInputSourceDoesNotSwallowNoMarkedIMECommandKeys(
             "com.apple.inputmethod.TCIM.Cangjie"
