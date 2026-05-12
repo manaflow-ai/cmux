@@ -514,7 +514,7 @@ final class AuthManager: ObservableObject {
         }
     }
 
-    struct SignInResult {
+    struct SignInResult: Sendable {
         let accessToken: String
         let refreshToken: String
         let email: String?

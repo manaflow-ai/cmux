@@ -1,7 +1,7 @@
 import AuthenticationServices
 import Foundation
 
-enum AuthManagerError: LocalizedError, Equatable {
+enum AuthManagerError: LocalizedError, Equatable, Sendable {
     case invalidCallback
     case missingAccessToken
     case missingRefreshToken
@@ -27,7 +27,7 @@ enum AuthManagerError: LocalizedError, Equatable {
     }
 }
 
-enum AuthSignInError: Equatable {
+enum AuthSignInError: Equatable, Sendable {
     case authManager(AuthManagerError)
     case message(String)
 
