@@ -5738,7 +5738,8 @@ struct CMUXCLI {
             sshCommand: sshCommand,
             shellFeatures: shellFeatures,
             remoteRelayPort: remoteRelayPort,
-            isShellSnippet: isShellSnippet
+            isShellSnippet: isShellSnippet,
+            removeWrittenScriptOnStart: true
         )
         return try writeSSHStartupScript(script, remoteRelayPort: remoteRelayPort)
     }
@@ -5753,7 +5754,8 @@ struct CMUXCLI {
             sshCommand: sshCommand,
             shellFeatures: shellFeatures,
             remoteRelayPort: remoteRelayPort,
-            isShellSnippet: isShellSnippet
+            isShellSnippet: isShellSnippet,
+            removeWrittenScriptOnStart: false
         )
         return reusableShellStartupCommand(
             scriptBody: script,
@@ -5765,7 +5767,8 @@ struct CMUXCLI {
         sshCommand: String,
         shellFeatures: String,
         remoteRelayPort: Int,
-        isShellSnippet: Bool
+        isShellSnippet: Bool,
+        removeWrittenScriptOnStart: Bool
     ) -> String {
         let trimmedFeatures = shellFeatures.trimmingCharacters(in: .whitespacesAndNewlines)
         let shellFeaturesBootstrap: String = trimmedFeatures.isEmpty
@@ -5776,7 +5779,7 @@ struct CMUXCLI {
         if !shellFeaturesBootstrap.isEmpty {
             scriptLines.append(shellFeaturesBootstrap)
         }
-        if !isShellSnippet {
+        if removeWrittenScriptOnStart {
             scriptLines.append("rm -f -- \"$0\" 2>/dev/null || true")
         }
         scriptLines += [
