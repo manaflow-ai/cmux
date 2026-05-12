@@ -62,4 +62,25 @@ final class DiffReviewPatchParserTests: XCTestCase {
         XCTAssertEqual(files[0].addedLineCount, 2)
         XCTAssertEqual(files[0].deletedLineCount, 0)
     }
+
+    func testLoadSnapshotReportsNotGitRepositoryForPlainDirectory() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-diff-review-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        do {
+            _ = try await DiffReviewGitClient.loadSnapshot(
+                directory: directory.path,
+                selectedTargetID: DiffReviewTarget.workingTreeID
+            )
+            XCTFail("Expected a not-git-repository error")
+        } catch let error as DiffReviewGitError {
+            XCTAssertEqual(error, .notGitRepository)
+        } catch {
+            XCTFail("Expected a not-git-repository error, got \(error)")
+        }
+    }
 }

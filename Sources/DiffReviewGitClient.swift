@@ -35,10 +35,15 @@ enum DiffReviewGitClient {
     }
 
     private static func loadSnapshotSync(directory: String, selectedTargetID: String) throws -> DiffReviewSnapshot {
-        let repositoryRoot = try runGit(
+        let repositoryRootResult = try runGit(
             in: directory,
-            arguments: ["rev-parse", "--show-toplevel"]
-        ).stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            arguments: ["rev-parse", "--show-toplevel"],
+            acceptedStatuses: [0, 128]
+        )
+        guard repositoryRootResult.status == 0 else {
+            throw DiffReviewGitError.notGitRepository
+        }
+        let repositoryRoot = repositoryRootResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !repositoryRoot.isEmpty else { throw DiffReviewGitError.notGitRepository }
 
         let currentBranch = try? runGit(

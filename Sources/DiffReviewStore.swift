@@ -113,6 +113,7 @@ final class DiffReviewStore: ObservableObject {
         liveRefreshTimer = timer
     }
 
+    @MainActor
     deinit {
         loadTask?.cancel()
         liveRefreshTimer?.invalidate()
