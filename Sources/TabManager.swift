@@ -5073,9 +5073,6 @@ class TabManager: ObservableObject {
                 title: trimmed,
                 sawAgentTitleRegistration: priorSawAgentTitleRegistration
             )
-            if !priorSawAgentTitleRegistration {
-                clearPanelAgentTitleRegistration(for: key)
-            }
         }
         panelTitleUpdateCoalescer.signal { [weak self] in
             self?.flushPendingPanelTitleUpdates()

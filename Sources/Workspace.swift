@@ -8937,7 +8937,7 @@ final class Workspace: Identifiable, ObservableObject {
                     selectedEntry = candidate
                 }
                 if sidebarAgentStatusPrecedence(candidate)
-                    == sidebarAgentStatusPrecedenceValue(for: SidebarAgentFallbackActivity.running.protocolValue)
+                    == sidebarAgentStatusPrecedenceValue(for: SidebarAgentFallbackActivity.needsInput.protocolValue)
                 {
                     break
                 }
@@ -8972,10 +8972,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func sidebarAgentStatusPrecedenceValue(for protocolValue: String?) -> Int {
         switch protocolValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case SidebarAgentFallbackActivity.needsInput.protocolValue:
+            4
         case SidebarAgentFallbackActivity.running.protocolValue:
             3
-        case SidebarAgentFallbackActivity.needsInput.protocolValue:
-            2
         case "idle":
             1
         default:
