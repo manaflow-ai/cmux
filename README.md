@@ -93,6 +93,11 @@ Sidebar shows git branch, linked PR status/number, working directory, listening 
 
 ## Install
 
+cmux currently ships for macOS only. A Windows build would need a sibling
+native host rather than a direct AppKit/Xcode port; see the
+[Windows port feasibility note](docs/windows-port-feasibility.md) for the
+current assessment.
+
 ### DMG (recommended)
 
 <a href="https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg">
