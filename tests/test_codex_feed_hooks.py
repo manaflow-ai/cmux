@@ -625,6 +625,72 @@ def test_uninstall_preserves_existing_codex_hooks_feature(cli_path: str, root: P
         raise AssertionError(f"existing feature setting was not preserved: {config_toml!r}")
 
 
+def test_uninstall_restores_disabled_codex_hooks_feature(cli_path: str, root: Path) -> None:
+    codex_home = root / "codex-home-uninstall-disabled"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text(
+        "[features]\napps = true\nhooks = false\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    for action in ["install", "uninstall"]:
+        result = subprocess.run(
+            [cli_path, "hooks", "codex", action, "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=20,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"hooks codex {action} failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+            )
+
+    config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
+    if "hooks = false" not in config_toml:
+        raise AssertionError(f"pre-existing disabled hooks feature was not restored: {config_toml!r}")
+    if "hooks = true" in config_toml or "cmux hooks codex feature" in config_toml:
+        raise AssertionError(f"cmux-owned hooks feature was not removed: {config_toml!r}")
+    if "apps = true" not in config_toml:
+        raise AssertionError(f"existing feature setting was not preserved: {config_toml!r}")
+
+
+def test_uninstall_restores_disabled_dotted_codex_hooks_feature(cli_path: str, root: Path) -> None:
+    codex_home = root / "codex-home-uninstall-dotted-disabled"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text(
+        "features.apps = true\nfeatures.hooks = false\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    for action in ["install", "uninstall"]:
+        result = subprocess.run(
+            [cli_path, "hooks", "codex", action, "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=20,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"hooks codex {action} failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+            )
+
+    config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
+    if "features.hooks = false" not in config_toml:
+        raise AssertionError(f"pre-existing disabled dotted hooks feature was not restored: {config_toml!r}")
+    if "features.hooks = true" in config_toml or "cmux hooks codex feature" in config_toml:
+        raise AssertionError(f"cmux-owned dotted hooks feature was not removed: {config_toml!r}")
+    if "features.apps = true" not in config_toml:
+        raise AssertionError(f"existing dotted feature setting was not preserved: {config_toml!r}")
+
+
 def test_uninstall_removes_cmux_owned_codex_hooks_feature(cli_path: str, root: Path) -> None:
     codex_home = root / "codex-home-uninstall-owned"
     codex_home.mkdir()
@@ -752,6 +818,8 @@ def main() -> int:
             test_install_migrates_legacy_codex_hooks_feature(cli_path, root)
             test_install_migrates_dotted_codex_hooks_feature(cli_path, root)
             test_uninstall_preserves_existing_codex_hooks_feature(cli_path, root)
+            test_uninstall_restores_disabled_codex_hooks_feature(cli_path, root)
+            test_uninstall_restores_disabled_dotted_codex_hooks_feature(cli_path, root)
             test_uninstall_removes_cmux_owned_codex_hooks_feature(cli_path, root)
             test_permission_reply_uses_codex_permission_request_schema(cli_path, root)
             test_codex_persistent_permission_modes_degrade_to_once(cli_path, root)

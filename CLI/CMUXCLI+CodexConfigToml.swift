@@ -3,6 +3,7 @@ import Foundation
 extension CMUXCLI {
     private static let cmuxCodexHooksFeatureBegin = "# cmux hooks codex feature begin"
     private static let cmuxCodexHooksFeatureEnd = "# cmux hooks codex feature end"
+    private static let cmuxCodexHooksFeaturePreviousLinePrefix = "# cmux hooks codex feature previous line: "
 
     static func codexConfigTomlInstallingHooksFeature(in existingContent: String) -> String {
         var lines = tomlLines(from: existingContent)
@@ -27,12 +28,24 @@ extension CMUXCLI {
                let hooksIndex = (featuresStart + 1..<featuresEnd)
                 .first(where: { tomlLineDefinesKey("hooks", line: lines[$0]) })
             {
-                lines[hooksIndex] = "hooks = true"
+                if !tomlLineDefinesTrueKey("hooks", line: lines[hooksIndex]) {
+                    let previousLine = lines[hooksIndex]
+                    lines.replaceSubrange(
+                        hooksIndex...hooksIndex,
+                        with: codexHooksFeatureLines(settingLine: "hooks = true", previousLine: previousLine)
+                    )
+                }
             } else {
                 lines.insert(contentsOf: insertedLines, at: featuresStart + 1)
             }
         } else if let dottedHooksIndex = lines.firstIndex(where: { tomlLineDefinesDottedFeaturesKey("hooks", line: $0) }) {
-            lines[dottedHooksIndex] = "features.hooks = true"
+            if !tomlLineDefinesDottedFeaturesTrueKey("hooks", line: lines[dottedHooksIndex]) {
+                let previousLine = lines[dottedHooksIndex]
+                lines.replaceSubrange(
+                    dottedHooksIndex...dottedHooksIndex,
+                    with: codexHooksFeatureLines(settingLine: "features.hooks = true", previousLine: previousLine)
+                )
+            }
         } else if let firstDottedFeaturesIndex = lines.firstIndex(where: { tomlLineDefinesAnyDottedFeaturesKey($0) }) {
             lines.insert(contentsOf: insertedDottedLines, at: firstDottedFeaturesIndex)
         } else {
@@ -44,6 +57,16 @@ extension CMUXCLI {
         }
 
         return tomlContent(from: lines)
+    }
+
+    private static func codexHooksFeatureLines(settingLine: String, previousLine: String? = nil) -> [String] {
+        var lines = [cmuxCodexHooksFeatureBegin]
+        if let previousLine {
+            lines.append(cmuxCodexHooksFeaturePreviousLinePrefix + previousLine)
+        }
+        lines.append(settingLine)
+        lines.append(cmuxCodexHooksFeatureEnd)
+        return lines
     }
 
     static func codexConfigTomlUninstallingHooksFeature(from existingContent: String) -> String {
@@ -77,10 +100,26 @@ extension CMUXCLI {
         ) != nil
     }
 
+    private static func tomlLineDefinesTrueKey(_ key: String, line: String) -> Bool {
+        let escapedKey = NSRegularExpression.escapedPattern(for: key)
+        return line.range(
+            of: #"^\s*"# + escapedKey + #"\s*=\s*true\s*(#.*)?$"#,
+            options: .regularExpression
+        ) != nil
+    }
+
     private static func tomlLineDefinesDottedFeaturesKey(_ key: String, line: String) -> Bool {
         let escapedKey = NSRegularExpression.escapedPattern(for: key)
         return line.range(
             of: #"^\s*features\s*\.\s*"# + escapedKey + #"\s*="#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private static func tomlLineDefinesDottedFeaturesTrueKey(_ key: String, line: String) -> Bool {
+        let escapedKey = NSRegularExpression.escapedPattern(for: key)
+        return line.range(
+            of: #"^\s*features\s*\.\s*"# + escapedKey + #"\s*=\s*true\s*(#.*)?$"#,
             options: .regularExpression
         ) != nil
     }
@@ -129,7 +168,12 @@ extension CMUXCLI {
             if let endIndex = lines[index...].firstIndex(where: {
                 $0.trimmingCharacters(in: .whitespaces) == cmuxCodexHooksFeatureEnd
             }) {
-                lines.removeSubrange(index...endIndex)
+                let previousLines = lines[index...endIndex].compactMap { line -> String? in
+                    line.hasPrefix(cmuxCodexHooksFeaturePreviousLinePrefix)
+                        ? String(line.dropFirst(cmuxCodexHooksFeaturePreviousLinePrefix.count))
+                        : nil
+                }
+                lines.replaceSubrange(index...endIndex, with: previousLines)
             } else {
                 lines.remove(at: index)
             }
