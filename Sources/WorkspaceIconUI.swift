@@ -1,4 +1,5 @@
 import AppKit
+import Observation
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -58,12 +59,7 @@ enum WorkspaceIconPrompting {
         alert.addButton(withTitle: String(localized: "alert.workspaceIcon.apply", defaultValue: "Apply"))
         alert.addButton(withTitle: String(localized: "alert.workspaceIcon.cancel", defaultValue: "Cancel"))
 
-        let alertWindow = alert.window
-        alertWindow.initialFirstResponder = input
-        DispatchQueue.main.async {
-            alertWindow.makeFirstResponder(input)
-            input.selectText(nil)
-        }
+        alert.window.initialFirstResponder = input
 
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let trimmed = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -143,13 +139,14 @@ private enum SidebarWorkspaceIconImageCache {
 }
 
 @MainActor
-private final class SidebarWorkspaceIconImageLoader: ObservableObject {
-    @Published var image: NSImage?
-    @Published var didLoad = false
+@Observable
+private final class SidebarWorkspaceIconImageLoader {
+    var image: NSImage?
+    var didLoad = false
 
-    private var requestedPath: String?
-    private var isLoading = false
-    private var loadTask: Task<Void, Never>?
+    @ObservationIgnored private var requestedPath: String?
+    @ObservationIgnored private var isLoading = false
+    @ObservationIgnored private var loadTask: Task<Void, Never>?
 
     func load(path: String) {
         let expandedPath = (path as NSString).expandingTildeInPath
@@ -196,7 +193,7 @@ struct SidebarWorkspaceIconView: View {
     let icon: CmuxButtonIcon
     let foregroundColor: Color
 
-    @StateObject private var imageLoader = SidebarWorkspaceIconImageLoader()
+    @State private var imageLoader = SidebarWorkspaceIconImageLoader()
 
     var body: some View {
         Group {
