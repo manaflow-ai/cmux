@@ -506,7 +506,7 @@ struct cmuxApp: App {
 
             // Close tab/workspace
             CommandGroup(after: .newItem) {
-                splitCommandButton(title: String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…"), shortcut: menuShortcut(for: .goToWorkspace)) {
+                splitCommandButton(title: String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace or Tab…"), shortcut: menuShortcut(for: .goToWorkspace)) {
                     let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
                     NotificationCenter.default.post(name: .commandPaletteSwitcherRequested, object: targetWindow)
                 }
@@ -6098,9 +6098,9 @@ struct SettingsView: View {
 
                         SettingsCardRow(
                             configurationReview: .json("app.commandPaletteSearchesAllSurfaces"),
-                            String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"),
+                            String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches Tabs"),
                             subtitle: commandPaletteSearchAllSurfaces
-                                ? String(localized: "settings.app.commandPaletteSearchAllSurfaces.subtitleOn", defaultValue: "Cmd+P also matches panel surfaces across workspaces.")
+                                ? String(localized: "settings.app.commandPaletteSearchAllSurfaces.subtitleOn", defaultValue: "Cmd+P also matches tab titles across workspaces.")
                                 : String(localized: "settings.app.commandPaletteSearchAllSurfaces.subtitleOff", defaultValue: "Cmd+P matches workspace rows only.")
                         ) {
                             Toggle("", isOn: $commandPaletteSearchAllSurfaces)
@@ -6108,7 +6108,7 @@ struct SettingsView: View {
                                 .controlSize(.small)
                                 .accessibilityIdentifier("CommandPaletteSearchAllSurfacesToggle")
                                 .accessibilityLabel(
-                                    String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces")
+                                    String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches Tabs")
                                 )
                         }
 

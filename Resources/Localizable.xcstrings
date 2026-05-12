@@ -30592,25 +30592,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No workspaces or surfaces match your search."
+            "value": "No workspaces or tabs match your search."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "検索に一致するワークスペースまたはサーフェスはありません。"
+            "value": "検索に一致するワークスペースまたはタブはありません。"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Робочі області чи поверхні, що відповідають пошуку, не знайдено."
+            "value": "Робочі області чи вкладки, що відповідають пошуку, не знайдено."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "검색과 일치하는 워크스페이스 또는 서피스가 없습니다."
+            "value": "검색과 일치하는 워크스페이스 또는 탭이 없습니다."
           }
         }
       }
@@ -30740,25 +30740,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search workspaces and surfaces"
+            "value": "Search workspaces and tabs"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースとサーフェスを検索"
+            "value": "ワークスペースとタブを検索"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Пошук робочих областей і поверхонь"
+            "value": "Пошук робочих областей і вкладок"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "워크스페이스 및 서피스 검색"
+            "value": "워크스페이스 및 탭 검색"
           }
         }
       }
@@ -42318,13 +42318,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Go to Workspace…"
+            "value": "Go to Workspace or Tab…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースに移動…"
+            "value": "ワークスペースまたはタブに移動…"
           }
         },
         "zh-Hans": {
@@ -53019,25 +53019,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command Palette Searches All Surfaces"
+            "value": "Command Palette Searches Tabs"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コマンドパレットですべてのサーフェスを検索"
+            "value": "コマンドパレットでタブを検索"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Палітра команд шукає всі поверхні"
+            "value": "Палітра команд шукає вкладки"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "명령어 팔레트에서 모든 서피스 검색"
+            "value": "명령어 팔레트에서 탭 검색"
           }
         }
       }
@@ -53077,25 +53077,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd+P also matches terminal, browser, and markdown surfaces across workspaces."
+            "value": "Cmd+P also matches tab titles across workspaces."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd+Pでワークスペースをまたいだターミナル、ブラウザ、Markdownのサーフェスも検索できます。"
+            "value": "Cmd+Pでワークスペースをまたいだタブタイトルも検索できます。"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd+P також шукає термінали, браузери та markdown-поверхні у всіх робочих областях."
+            "value": "Cmd+P також шукає назви вкладок у всіх робочих областях."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd+P가 모든 워크스페이스의 터미널, 브라우저, 마크다운 서피스도 검색합니다."
+            "value": "Cmd+P가 모든 워크스페이스의 탭 제목도 검색합니다."
           }
         }
       }
@@ -74339,13 +74339,13 @@
             "en": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown"
+                    "value": "app.commandPaletteSearchesAllSurfaces command palette search tabs tab titles cmd-p terminal browser markdown"
                 }
             },
             "ja": {
                 "stringUnit": {
                     "state": "translated",
-                    "value": "app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown コマンドパレット すべて検索 サーフェス ターミナル ブラウザ markdown"
+                    "value": "app.commandPaletteSearchesAllSurfaces command palette search tabs tab titles cmd-p terminal browser markdown コマンドパレット タブ検索 タイトル ターミナル ブラウザ markdown"
                 }
             },
             "ar": {

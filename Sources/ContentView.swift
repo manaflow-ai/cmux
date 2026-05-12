@@ -4958,7 +4958,7 @@ struct ContentView: View {
             return String(localized: "commandPalette.search.commandsPlaceholder", defaultValue: "Type a command")
         case .switcher:
             return commandPaletteSearchAllSurfaces
-                ? String(localized: "commandPalette.search.switcherPlaceholderAllSurfaces", defaultValue: "Search workspaces and surfaces")
+                ? String(localized: "commandPalette.search.switcherPlaceholderAllSurfaces", defaultValue: "Search workspaces and tabs")
                 : String(localized: "commandPalette.search.switcherPlaceholder", defaultValue: "Search workspaces")
         }
     }
@@ -4969,7 +4969,7 @@ struct ContentView: View {
             return String(localized: "commandPalette.search.commandsEmpty", defaultValue: "No commands match your search.")
         case .switcher:
             return commandPaletteSearchAllSurfaces
-                ? String(localized: "commandPalette.search.switcherEmptyAllSurfaces", defaultValue: "No workspaces or surfaces match your search.")
+                ? String(localized: "commandPalette.search.switcherEmptyAllSurfaces", defaultValue: "No workspaces or tabs match your search.")
                 : String(localized: "commandPalette.search.switcherEmpty", defaultValue: "No workspaces match your search.")
         }
     }

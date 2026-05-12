@@ -63,7 +63,7 @@ enum SettingsSearchAliasIndex {
         "app:warn-before-quit": localized("settings.search.alias.setting.app.warn-before-quit", defaultValue: "app.warnBeforeQuit quit confirmation command-q cmd-q exit close app"),
         "app:warn-before-closing-tab": localized("settings.search.alias.setting.app.warn-before-closing-tab", defaultValue: "app.warnBeforeClosingTab close tab confirmation command-w cmd-w terminal surface"),
         "app:rename-selects-name": localized("settings.search.alias.setting.app.rename-selects-name", defaultValue: "app.renameSelectsExistingName rename select all existing title command palette workspace name"),
-        "app:palette-search-all": localized("settings.search.alias.setting.app.palette-search-all", defaultValue: "app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown"),
+        "app:palette-search-all": localized("settings.search.alias.setting.app.palette-search-all", defaultValue: "app.commandPaletteSearchesAllSurfaces command palette search tabs tab titles cmd-p terminal browser markdown"),
         "terminal:scrollbar": localized("settings.search.alias.setting.terminal.scrollbar", defaultValue: "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui"),
         "sidebarAppearance:match-terminal": localized("settings.search.alias.setting.sidebarAppearance.match-terminal", defaultValue: "sidebarAppearance.matchTerminalBackground transparent background material terminal background sync"),
         "sidebarAppearance:hide-sidebar-details": localized("settings.search.alias.setting.app.hide-sidebar-details", defaultValue: "sidebar.hideAllDetails compact sidebar hide details only title minimal left rail"),

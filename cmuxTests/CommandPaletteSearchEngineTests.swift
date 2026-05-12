@@ -653,6 +653,54 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertTrue(inputs.includesSurfaces)
     }
 
+    func testSwitcherTabTitleQueryFindsTabEntry() throws {
+        let entries = [
+            FixtureEntry(
+                id: "switcher.workspace.production",
+                rank: 0,
+                title: "Production",
+                searchableTexts: ["Production", "Workspace", "workspace", "switch", "go", "open"]
+            ),
+            FixtureEntry(
+                id: "switcher.surface.server-logs",
+                rank: 1,
+                title: "Server Logs",
+                searchableTexts: [
+                    "Server Logs",
+                    "Production",
+                    "Terminal",
+                    "surface",
+                    "tab",
+                    "switch",
+                    "go",
+                    "open"
+                ]
+            ),
+            FixtureEntry(
+                id: "switcher.surface.build-queue",
+                rank: 2,
+                title: "Build Queue",
+                searchableTexts: [
+                    "Build Queue",
+                    "Production",
+                    "Terminal",
+                    "surface",
+                    "tab",
+                    "switch",
+                    "go",
+                    "open"
+                ]
+            ),
+        ]
+
+        let results = optimizedResults(entries: entries, query: "server logs")
+
+        let first = try XCTUnwrap(results.first)
+        XCTAssertEqual(first.id, "switcher.surface.server-logs")
+        XCTAssertEqual(first.title, "Server Logs")
+        XCTAssertFalse(first.titleMatchIndices.isEmpty)
+    }
+
     func testCommandContextFingerprintTracksExactContextValues() {
         let base = ContentView.commandPaletteContextFingerprint(
             boolValues: [
