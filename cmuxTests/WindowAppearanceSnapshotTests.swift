@@ -110,6 +110,54 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertEqual(plan.windowBackgroundColor.hexString(includeAlpha: true), "#272822FF")
     }
 
+    func testOpaqueUnblurredTerminalBackgroundIsRendererOwned() {
+        let snapshot = makeSnapshot(
+            unifySurfaceBackdrops: false,
+            backgroundOpacity: 1.0,
+            backgroundBlur: .disabled
+        )
+        let policy = snapshot.policy(for: .windowRoot)
+
+        XCTAssertNil(policy.hostLayerBackgroundColor)
+        guard case let .ghosttyTerminalBackdrop(_, _, renderingMode) = policy else {
+            XCTFail("expected terminal backdrop policy")
+            return
+        }
+        XCTAssertEqual(renderingMode, .ghosttyRendererOwnedBackgroundImage)
+    }
+
+    func testTranslucentTerminalBackgroundStaysHostLayerOwned() {
+        let snapshot = makeSnapshot(
+            unifySurfaceBackdrops: false,
+            backgroundOpacity: 0.9,
+            backgroundBlur: .disabled
+        )
+        let policy = snapshot.policy(for: .windowRoot)
+
+        XCTAssertNotNil(policy.hostLayerBackgroundColor)
+        guard case let .ghosttyTerminalBackdrop(_, _, renderingMode) = policy else {
+            XCTFail("expected terminal backdrop policy")
+            return
+        }
+        XCTAssertEqual(renderingMode, .windowHostBackdrop)
+    }
+
+    func testBlurredTerminalBackgroundStaysHostLayerOwned() {
+        let snapshot = makeSnapshot(
+            unifySurfaceBackdrops: false,
+            backgroundOpacity: 1.0,
+            backgroundBlur: .radius(20)
+        )
+        let policy = snapshot.policy(for: .windowRoot)
+
+        XCTAssertNotNil(policy.hostLayerBackgroundColor)
+        guard case let .ghosttyTerminalBackdrop(_, _, renderingMode) = policy else {
+            XCTFail("expected terminal backdrop policy")
+            return
+        }
+        XCTAssertEqual(renderingMode, .windowHostBackdrop)
+    }
+
     func testDebugBackgroundGlassUsesWindowGlassPhase() {
         let snapshot = makeSnapshot(
             unifySurfaceBackdrops: false,
@@ -137,7 +185,10 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             terminalBackgroundColor: NSColor(hex: "#272822") ?? .black,
             terminalBackgroundOpacity: backgroundOpacity,
             terminalBackgroundBlur: backgroundBlur,
-            terminalRenderingMode: .windowHostBackdrop,
+            terminalRenderingMode: WindowAppearanceSnapshot.terminalRenderingMode(
+                backgroundOpacity: Double(backgroundOpacity),
+                backgroundBlur: backgroundBlur
+            ),
             unifySurfaceBackdrops: unifySurfaceBackdrops,
             sidebarSettings: SidebarBackdropSettingsSnapshot(
                 materialRawValue: SidebarMaterialOption.sidebar.rawValue,
