@@ -55,7 +55,7 @@ enum UpdateTestSupport {
             let applyState = {
                 if hasItem {
                     let appcastItem = makeAppcastItem(displayVersion: version) ?? SUAppcastItem.empty()
-                    viewModel.state = .updateAvailable(.init(appcastItem: appcastItem, reply: { _ in }))
+                    viewModel.recordAvailableUpdate(.init(appcastItem: appcastItem, reply: { _ in }))
                 } else {
                     viewModel.state = .notFound(.init(acknowledgement: {}))
                 }
