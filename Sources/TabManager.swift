@@ -3868,6 +3868,39 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
+    func setWorkspaceInitialDirectory(tabId: UUID, directory: String) -> Bool {
+        guard let workspace = tabs.first(where: { $0.id == tabId }) else { return false }
+        let normalized = normalizedInitialDirectory(directory)
+        guard workspace.initialDirectory != normalized else { return true }
+        objectWillChange.send()
+        workspace.initialDirectory = normalized
+        return true
+    }
+
+    @discardableResult
+    func moveWorkspaceToInitialDirectoryGroupEnd(
+        tabId: UUID,
+        directory: String
+    ) -> Bool {
+        moveWorkspace(
+            tabId: tabId,
+            initialDirectory: directory,
+            pinned: false,
+            placement: .endOfDirectoryGroup
+        )
+    }
+
+    @discardableResult
+    func moveWorkspaceToBookmarksEnd(tabId: UUID) -> Bool {
+        moveWorkspace(
+            tabId: tabId,
+            initialDirectory: nil,
+            pinned: true,
+            placement: .endOfBookmarks
+        )
+    }
+
+    @discardableResult
     func reorderWorkspace(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil) -> Bool {
         guard tabs.contains(where: { $0.id == tabId }) else { return false }
         if let beforeId {
@@ -3950,6 +3983,63 @@ class TabManager: ObservableObject {
             return min(clamped, max(0, pinnedCount - 1))
         }
         return max(clamped, pinnedCount)
+    }
+
+    private enum WorkspaceMovePlacement {
+        case endOfDirectoryGroup
+        case endOfBookmarks
+    }
+
+    @discardableResult
+    private func moveWorkspace(
+        tabId: UUID,
+        initialDirectory directory: String?,
+        pinned: Bool,
+        placement: WorkspaceMovePlacement
+    ) -> Bool {
+        guard let currentIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
+        let workspace = tabs[currentIndex]
+        let nextInitialDirectory = directory.map { normalizedInitialDirectory($0) }
+        let directoryChanged = nextInitialDirectory.map { workspace.initialDirectory != $0 } ?? false
+        let pinnedChanged = workspace.isPinned != pinned
+
+        var remainingTabs = tabs
+        remainingTabs.remove(at: currentIndex)
+
+        if let nextInitialDirectory {
+            workspace.initialDirectory = nextInitialDirectory
+        }
+        workspace.isPinned = pinned
+
+        let insertionIndex: Int
+        switch placement {
+        case .endOfDirectoryGroup:
+            let pinnedCount = remainingTabs.filter(\.isPinned).count
+            if let nextInitialDirectory,
+               let lastGroupIndex = remainingTabs.lastIndex(where: {
+                   !$0.isPinned && $0.initialDirectory == nextInitialDirectory
+               }) {
+                insertionIndex = lastGroupIndex + 1
+            } else {
+                insertionIndex = pinnedCount
+            }
+        case .endOfBookmarks:
+            let pinnedCount = remainingTabs.filter(\.isPinned).count
+            insertionIndex = pinnedCount
+        }
+
+        remainingTabs.insert(workspace, at: max(0, min(insertionIndex, remainingTabs.count)))
+        guard tabs.map(\.id) != remainingTabs.map(\.id) || directoryChanged || pinnedChanged else {
+            return true
+        }
+        tabs = remainingTabs
+        return true
+    }
+
+    private func normalizedInitialDirectory(_ directory: String) -> String {
+        let normalized = normalizeDirectory(directory)
+        let trimmed = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : normalized
     }
 
     // MARK: - Surface Directory Updates (Backwards Compatibility)
@@ -7224,6 +7314,7 @@ extension TabManager {
         for workspace in tabs.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
             hasher.combine(workspace.id)
             hasher.combine(workspace.focusedPanelId)
+            hasher.combine(workspace.initialDirectory)
             hasher.combine(workspace.currentDirectory)
             hasher.combine(workspace.customTitle ?? "")
             hasher.combine(workspace.customDescription ?? "")

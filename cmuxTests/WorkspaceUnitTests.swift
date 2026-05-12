@@ -2908,6 +2908,39 @@ final class WorkspaceReorderTests: XCTestCase {
     }
 
     @MainActor
+    func testMoveWorkspaceToInitialDirectoryGroupEndUpdatesDirectoryAndOrder() {
+        let manager = TabManager()
+        let alpha = manager.tabs[0]
+        XCTAssertTrue(manager.setWorkspaceInitialDirectory(tabId: alpha.id, directory: "/alpha"))
+        let beta = manager.addWorkspace(workingDirectory: "/beta", placementOverride: .end)
+        let gamma = manager.addWorkspace(workingDirectory: "/gamma", placementOverride: .end)
+
+        XCTAssertTrue(
+            manager.moveWorkspaceToInitialDirectoryGroupEnd(
+                tabId: gamma.id,
+                directory: "/alpha"
+            )
+        )
+
+        XCTAssertEqual(gamma.initialDirectory, "/alpha")
+        XCTAssertEqual(manager.tabs.map(\.id), [alpha.id, gamma.id, beta.id])
+    }
+
+    @MainActor
+    func testMoveWorkspaceToBookmarksEndPinsAfterExistingBookmarks() {
+        let manager = TabManager()
+        let firstPinned = manager.tabs[0]
+        manager.setPinned(firstPinned, pinned: true)
+        let second = manager.addWorkspace(placementOverride: .end)
+        let third = manager.addWorkspace(placementOverride: .end)
+
+        XCTAssertTrue(manager.moveWorkspaceToBookmarksEnd(tabId: third.id))
+
+        XCTAssertTrue(third.isPinned)
+        XCTAssertEqual(manager.tabs.map(\.id), [firstPinned.id, third.id, second.id])
+    }
+
+    @MainActor
     func testDetachedWorkspaceInsertionOverrideClampsAfterPinnedSegment() {
         let manager = TabManager()
         let firstPinned = manager.tabs[0]
@@ -4262,6 +4295,31 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             publishCount,
             baselinePublishCount,
             "Expected identical git metadata refreshes to be ignored by sidebar rows"
+        )
+    }
+
+    func testSidebarObservationPublisherEmitsForInitialDirectoryChangesOnlyOncePerState() {
+        let workspace = Workspace(workingDirectory: "/alpha")
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+
+        workspace.initialDirectory = "/beta"
+        let baselinePublishCount = publishCount
+        XCTAssertGreaterThan(
+            baselinePublishCount,
+            0,
+            "Expected initial directory changes to invalidate sidebar grouping"
+        )
+
+        workspace.initialDirectory = "/beta"
+        XCTAssertEqual(
+            publishCount,
+            baselinePublishCount,
+            "Expected identical initial directory assignments to be ignored by sidebar rows"
         )
     }
 

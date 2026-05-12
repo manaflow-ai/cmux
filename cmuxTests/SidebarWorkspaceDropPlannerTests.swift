@@ -8,6 +8,49 @@ import XCTest
 #endif
 
 final class SidebarWorkspaceDropPlannerTests: XCTestCase {
+    func testGroupingPlanSeparatesBookmarksAndPreservesFolderInsertionOrder() {
+        let pinned = UUID()
+        let firstAlpha = UUID()
+        let beta = UUID()
+        let secondAlpha = UUID()
+
+        let plan = SidebarWorkspaceGroupingPlanner.plan(
+            for: [
+                SidebarWorkspaceGroupingInput(id: pinned, initialDirectory: "/pinned", isPinned: true),
+                SidebarWorkspaceGroupingInput(id: firstAlpha, initialDirectory: "/alpha", isPinned: false),
+                SidebarWorkspaceGroupingInput(id: beta, initialDirectory: "/beta", isPinned: false),
+                SidebarWorkspaceGroupingInput(id: secondAlpha, initialDirectory: "/alpha", isPinned: false),
+            ],
+            fallbackDirectory: "/home"
+        )
+
+        XCTAssertEqual(plan.bookmarkIds, [pinned])
+        XCTAssertEqual(
+            plan.folderGroups,
+            [
+                SidebarWorkspaceFolderGroup(directory: "/alpha", workspaceIds: [firstAlpha, secondAlpha]),
+                SidebarWorkspaceFolderGroup(directory: "/beta", workspaceIds: [beta]),
+            ]
+        )
+        XCTAssertEqual(plan.visibleWorkspaceIds, [pinned, firstAlpha, secondAlpha, beta])
+    }
+
+    func testGroupingPlanUsesFallbackForEmptyDirectories() {
+        let workspace = UUID()
+
+        let plan = SidebarWorkspaceGroupingPlanner.plan(
+            for: [
+                SidebarWorkspaceGroupingInput(id: workspace, initialDirectory: "  ", isPinned: false),
+            ],
+            fallbackDirectory: "/fallback"
+        )
+
+        XCTAssertEqual(
+            plan.folderGroups,
+            [SidebarWorkspaceFolderGroup(directory: "/fallback", workspaceIds: [workspace])]
+        )
+    }
+
     func testWorkspaceDropCenterTargetsExistingWorkspace() {
         let first = UUID()
         let second = UUID()

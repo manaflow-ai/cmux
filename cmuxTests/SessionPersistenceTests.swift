@@ -47,6 +47,32 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceSessionSnapshotRestoresInitialDirectorySeparatelyFromCurrentDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-directory-\(UUID().uuidString)", isDirectory: true)
+        let original = root.appendingPathComponent("original", isDirectory: true)
+        let grouped = root.appendingPathComponent("grouped", isDirectory: true)
+        let live = root.appendingPathComponent("live", isDirectory: true)
+        try FileManager.default.createDirectory(at: original, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: grouped, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: live, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let workspace = Workspace(workingDirectory: original.path)
+        workspace.initialDirectory = grouped.path
+        workspace.currentDirectory = live.path
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(snapshot.initialDirectory, grouped.path)
+
+        let restored = Workspace(workingDirectory: original.path)
+        restored.restoreSessionSnapshot(snapshot)
+
+        XCTAssertEqual(restored.initialDirectory, grouped.path)
+        XCTAssertEqual(restored.currentDirectory, live.path)
+    }
+
+    @MainActor
     func testSessionSnapshotSkipsTransientRemoteListeningPorts() throws {
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
