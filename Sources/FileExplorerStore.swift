@@ -246,14 +246,14 @@ private final class FileExplorerGitStatusColorPalette {
         styleObserver = notificationCenter.addObserver(
             forName: .fileExplorerStyleDidChange,
             object: nil,
-            queue: .main
+            queue: nil
         ) { [weak self] _ in
             self?.reload()
         }
         defaultsObserver = notificationCenter.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,
-            queue: .main
+            queue: nil
         ) { [weak self] _ in
             self?.reload()
         }
