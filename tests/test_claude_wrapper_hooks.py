@@ -228,6 +228,176 @@ def decode_nul_argv(encoded: str) -> list[str]:
     return [part.decode("utf-8") for part in parts]
 
 
+def run_wrapper_background_child_spawn(
+    *,
+    child_node_options: str | None = None,
+) -> tuple[int, list[str], list[str], str, str, str, str, str]:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-bg-test-") as td:
+        tmp = Path(td)
+        wrapper_dir = tmp / "wrapper-bin"
+        real_dir = tmp / "real-bin"
+        child_dir = tmp / "child-bin"
+        bundled_dir = tmp / "bundled cli"
+        wrapper_dir.mkdir(parents=True, exist_ok=True)
+        real_dir.mkdir(parents=True, exist_ok=True)
+        child_dir.mkdir(parents=True, exist_ok=True)
+        bundled_dir.mkdir(parents=True, exist_ok=True)
+
+        wrapper = wrapper_dir / "claude"
+        shutil.copy2(SOURCE_WRAPPER, wrapper)
+        wrapper.chmod(0o755)
+
+        parent_args_log = tmp / "parent-args.log"
+        child_args_log = tmp / "child-args.log"
+        child_node_options_env_log = tmp / "child-node-options-env.log"
+        child_runtime_node_options_log = tmp / "child-runtime-node-options.log"
+        child_cmux_pid_log = tmp / "child-cmux-pid.log"
+        child_launch_argv_b64_log = tmp / "child-launch-argv-b64.log"
+        socket_path = str(tmp / "cmux.sock")
+
+        make_executable(
+            real_dir / "claude",
+            """#!/usr/bin/env bash
+set -euo pipefail
+: > "$FAKE_PARENT_ARGS_LOG"
+for arg in "$@"; do
+  printf '%s\\n' "$arg" >> "$FAKE_PARENT_ARGS_LOG"
+done
+exec node "$FAKE_PARENT_NODE_SCRIPT" "$@"
+""",
+        )
+        make_executable(
+            real_dir / "claude-parent.js",
+            """#!/usr/bin/env node
+const { spawnSync } = require("node:child_process");
+const childEnv = { ...process.env };
+if (process.env.FAKE_CHILD_NODE_OPTIONS !== undefined) {
+  childEnv.NODE_OPTIONS = process.env.FAKE_CHILD_NODE_OPTIONS;
+}
+const child = spawnSync(
+  process.env.FAKE_CHILD_CLAUDE,
+  ["--session-id", "agent-session-123", "--agent", "claude"],
+  {
+    encoding: "utf8",
+    env: childEnv,
+  },
+);
+if (child.error) {
+  console.error(child.error.message);
+  process.exit(1);
+}
+if ((child.status ?? 0) !== 0) {
+  process.stderr.write(child.stderr ?? "");
+  process.exit(child.status ?? 1);
+}
+""",
+        )
+        make_executable(
+            child_dir / "claude",
+            """#!/usr/bin/env bash
+set -euo pipefail
+: > "$FAKE_CHILD_ARGS_LOG"
+for arg in "$@"; do
+  printf '%s\\n' "$arg" >> "$FAKE_CHILD_ARGS_LOG"
+done
+printf '%s\\n' "${NODE_OPTIONS-__UNSET__}" > "$FAKE_CHILD_NODE_OPTIONS_ENV_LOG"
+exec node "$FAKE_CHILD_NODE_SCRIPT" "$@"
+""",
+        )
+        make_executable(
+            child_dir / "claude-child.js",
+            """#!/usr/bin/env node
+const fs = require("node:fs");
+fs.writeFileSync(
+  process.env.FAKE_CHILD_RUNTIME_NODE_OPTIONS_LOG,
+  `${process.env.NODE_OPTIONS ?? "__UNSET__"}\\n`,
+  "utf8",
+);
+fs.writeFileSync(
+  process.env.FAKE_CHILD_CMUX_PID_LOG,
+  `${process.env.CMUX_CLAUDE_PID ?? "__UNSET__"}\\n`,
+  "utf8",
+);
+fs.writeFileSync(
+  process.env.FAKE_CHILD_LAUNCH_ARGV_B64_LOG,
+  `${process.env.CMUX_AGENT_LAUNCH_ARGV_B64 ?? "__UNSET__"}\\n`,
+  "utf8",
+);
+""",
+        )
+        make_executable(
+            wrapper_dir / "cmux",
+            """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--socket" ]]; then
+  shift 2
+fi
+if [[ "${1:-}" == "ping" ]]; then
+  exit 0
+fi
+exit 0
+""",
+        )
+        bundled_cli_path = bundled_dir / "cmux"
+        make_executable(
+            bundled_cli_path,
+            """#!/usr/bin/env bash
+exit 0
+""",
+        )
+
+        test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            test_socket.bind(socket_path)
+            env = os.environ.copy()
+            env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
+            env["CMUX_SURFACE_ID"] = "surface:test"
+            env["CMUX_SOCKET_PATH"] = socket_path
+            env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli_path)
+            env["FAKE_PARENT_ARGS_LOG"] = str(parent_args_log)
+            env["FAKE_PARENT_NODE_SCRIPT"] = str(real_dir / "claude-parent.js")
+            env["FAKE_CHILD_CLAUDE"] = str(child_dir / "claude")
+            env["FAKE_CHILD_ARGS_LOG"] = str(child_args_log)
+            env["FAKE_CHILD_NODE_OPTIONS_ENV_LOG"] = str(child_node_options_env_log)
+            env["FAKE_CHILD_RUNTIME_NODE_OPTIONS_LOG"] = str(child_runtime_node_options_log)
+            env["FAKE_CHILD_CMUX_PID_LOG"] = str(child_cmux_pid_log)
+            env["FAKE_CHILD_LAUNCH_ARGV_B64_LOG"] = str(child_launch_argv_b64_log)
+            env["FAKE_CHILD_NODE_SCRIPT"] = str(child_dir / "claude-child.js")
+            env["CLAUDECODE"] = "nested-session-sentinel"
+            if child_node_options is not None:
+                env["FAKE_CHILD_NODE_OPTIONS"] = child_node_options
+            else:
+                env.pop("FAKE_CHILD_NODE_OPTIONS", None)
+            env.pop("NODE_OPTIONS", None)
+            env.pop("CMUX_CLAUDE_HOOKS_DISABLED", None)
+
+            proc = subprocess.run(
+                ["claude", "agents"],
+                cwd=tmp,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            test_socket.close()
+
+        child_node_options_env = read_lines(child_node_options_env_log)
+        child_runtime_node_options = read_lines(child_runtime_node_options_log)
+        child_cmux_pid = read_lines(child_cmux_pid_log)
+        child_launch_argv_b64 = read_lines(child_launch_argv_b64_log)
+        return (
+            proc.returncode,
+            read_lines(parent_args_log),
+            read_lines(child_args_log),
+            child_node_options_env[0] if child_node_options_env else "",
+            child_runtime_node_options[0] if child_runtime_node_options else "",
+            child_cmux_pid[0] if child_cmux_pid else "",
+            child_launch_argv_b64[0] if child_launch_argv_b64 else "",
+            proc.stderr.strip(),
+        )
+
+
 def run_wrapper_auth_env(
     *,
     argv: list[str],
@@ -414,6 +584,71 @@ def test_plain_claude_launch_argv_has_no_empty_argument(failures: list[str]) -> 
     argv = decode_nul_argv(launch_argv_b64)
     expect(len(argv) == 1, f"plain claude: expected only executable in encoded launch argv, got {argv}", failures)
     expect(argv[0].endswith("/real-bin/claude"), f"plain claude: expected real claude executable, got {argv}", failures)
+
+
+def test_background_claude_child_launches_inherit_cmux_hooks(failures: list[str]) -> None:
+    code, parent_argv, child_argv, child_node_options_env, child_runtime_node_options, child_cmux_pid, child_launch_argv_b64, stderr = run_wrapper_background_child_spawn()
+    expect(code == 0, f"background child: wrapper exited {code}: {stderr}", failures)
+    expect(parent_argv[-1] == "agents", f"background child: expected parent agents command, got {parent_argv}", failures)
+    expect("--settings" in child_argv, f"background child: expected child claude launch to receive --settings, got {child_argv}", failures)
+    expect("--session-id" in child_argv, f"background child: expected child session args preserved, got {child_argv}", failures)
+    expect(
+        child_argv.index("--settings") < child_argv.index("--session-id"),
+        f"background child: expected injected settings before child session args, got {child_argv}",
+        failures,
+    )
+
+    settings = parse_settings_arg(child_argv)
+    hooks = settings.get("hooks", {})
+    expect("SessionStart" in hooks, f"background child: expected SessionStart hook in child settings, got {settings}", failures)
+    expect(
+        any(
+            h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude'
+            for group in hooks.get("PermissionRequest", [])
+            for h in group.get("hooks", [])
+        ),
+        f"background child: expected PermissionRequest feed bridge in child settings, got {settings}",
+        failures,
+    )
+    expect(
+        "--require=" in child_node_options_env and "--max-old-space-size=4096" in child_node_options_env,
+        f"background child: expected child Claude process to inherit cmux preload NODE_OPTIONS, got {child_node_options_env!r}",
+        failures,
+    )
+    expect(
+        child_runtime_node_options == "__UNSET__",
+        f"background child: expected child runtime NODE_OPTIONS restored, got {child_runtime_node_options!r}",
+        failures,
+    )
+    expect(
+        child_cmux_pid.isdigit() and int(child_cmux_pid) > 0,
+        f"background child: expected child preload to reset CMUX_CLAUDE_PID to its own pid, got {child_cmux_pid!r}",
+        failures,
+    )
+    launch_argv = decode_nul_argv(child_launch_argv_b64)
+    expect(launch_argv[0].endswith("/child-bin/claude"), f"background child: expected child executable in launch argv, got {launch_argv}", failures)
+    expect("--agent" in launch_argv, f"background child: expected child agent flag in launch argv, got {launch_argv}", failures)
+
+
+def test_background_claude_child_preserves_explicit_node_options_override(failures: list[str]) -> None:
+    child_override = "--trace-warnings"
+    code, _, child_argv, child_node_options_env, child_runtime_node_options, _, _, stderr = run_wrapper_background_child_spawn(
+        child_node_options=child_override,
+    )
+    expect(code == 0, f"background child override: wrapper exited {code}: {stderr}", failures)
+    expect("--settings" in child_argv, f"background child override: expected child claude launch to receive --settings, got {child_argv}", failures)
+    expect(
+        "--require=" in child_node_options_env
+        and "--max-old-space-size=4096" in child_node_options_env
+        and child_override in child_node_options_env,
+        f"background child override: expected preload plus child NODE_OPTIONS override, got {child_node_options_env!r}",
+        failures,
+    )
+    expect(
+        child_runtime_node_options == child_override,
+        f"background child override: expected runtime NODE_OPTIONS to restore child override, got {child_runtime_node_options!r}",
+        failures,
+    )
 
 
 def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures: list[str]) -> None:
@@ -658,6 +893,8 @@ def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
+    test_background_claude_child_launches_inherit_cmux_hooks(failures)
+    test_background_claude_child_preserves_explicit_node_options_override(failures)
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
