@@ -17386,9 +17386,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             switch action {
             case .codexConfigToml:
                 let configPath = "\(configDir)/config.toml"
-                let existingContent: String = fm.fileExists(atPath: configPath)
-                    ? ((try? String(contentsOfFile: configPath, encoding: .utf8)) ?? "")
-                    : ""
+                let existingContent: String
+                if fm.fileExists(atPath: configPath) {
+                    existingContent = try String(contentsOfFile: configPath, encoding: .utf8)
+                } else {
+                    existingContent = ""
+                }
                 let newContent = Self.codexConfigTomlInstallingHooksFeature(in: existingContent)
                 if newContent != existingContent {
                     if !skipConfirm {
