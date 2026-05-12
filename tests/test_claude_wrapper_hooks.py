@@ -414,7 +414,6 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         "SessionEnd": "session-end",
         "Notification": "notification",
         "UserPromptSubmit": "prompt-submit",
-        "PreToolUse": "pre-tool-use",
     }.items():
         hook_command = hooks.get(hook_name, [{}])[0].get("hooks", [{}])[0].get("command", "")
         expect(
@@ -422,8 +421,28 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
             f"{hook_name} hook should pin bundled cmux, got {hook_command!r}",
             failures,
         )
-    # PreToolUse should be async to avoid blocking tool execution
-    pre_tool_use_hooks = hooks.get("PreToolUse", [{}])[0].get("hooks", [{}])
+    pre_tool_use_groups = hooks.get("PreToolUse", [])
+    cron_guard_groups = [group for group in pre_tool_use_groups if group.get("matcher") == "CronCreate"]
+    expect(cron_guard_groups, f"PreToolUse should install a CronCreate guard, got {pre_tool_use_groups}", failures)
+    if cron_guard_groups:
+        cron_guard_hooks = cron_guard_groups[0].get("hooks", [])
+        expect(
+            any(
+                h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude cron-create-guard'
+                and h.get("async") is not True
+                for h in cron_guard_hooks
+            ),
+            f"CronCreate guard should synchronously call hooks claude cron-create-guard, got {cron_guard_hooks}",
+            failures,
+        )
+
+    # General PreToolUse telemetry should remain async to avoid blocking tool execution.
+    pre_tool_use_hooks = [
+        hook
+        for group in pre_tool_use_groups
+        for hook in group.get("hooks", [])
+        if "pre-tool-use" in hook.get("command", "")
+    ]
     expect(
         any(h.get("async") is True for h in pre_tool_use_hooks),
         f"PreToolUse hook should have async:true, got {pre_tool_use_hooks}",
