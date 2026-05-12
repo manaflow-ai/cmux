@@ -589,6 +589,10 @@ def test_uninstall_codex_hooks_removes_legacy_managed_block(cli_path: str, root:
                 "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df previous line: hooks = false",
                 "hooks = true",
                 "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df end",
+                "# cmux hooks codex feature begin",
+                "# cmux hooks codex feature previous line: features.hooks = false",
+                "features.hooks = true",
+                "# cmux hooks codex feature end",
                 "",
             ]
         ),
@@ -613,10 +617,14 @@ def test_uninstall_codex_hooks_removes_legacy_managed_block(cli_path: str, root:
     config_toml = config_path.read_text(encoding="utf-8")
     if "cmux-codex-hooks-feature" in config_toml:
         raise AssertionError(f"legacy managed markers were not removed: {config_toml!r}")
+    if "cmux hooks codex feature" in config_toml:
+        raise AssertionError(f"old legacy managed markers were not removed: {config_toml!r}")
     if "hooks = true" in config_toml:
         raise AssertionError(f"cmux-owned legacy hooks setting was not removed: {config_toml!r}")
     if "hooks = false" not in config_toml:
         raise AssertionError(f"previous hooks setting was not restored: {config_toml!r}")
+    if "features.hooks = false" not in config_toml:
+        raise AssertionError(f"previous dotted hooks setting was not restored: {config_toml!r}")
     if "apps = true" not in config_toml:
         raise AssertionError(f"existing feature setting was not preserved: {config_toml!r}")
 
