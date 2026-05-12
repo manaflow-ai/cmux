@@ -1,6 +1,6 @@
 import Foundation
 
-internal enum ManagedSettingsValue: Equatable {
+internal enum ManagedSettingsValue: Codable, Equatable, Sendable {
     case bool(Bool)
     case int(Int)
     case double(Double)
@@ -29,7 +29,7 @@ internal enum ManagedSettingsValue: Equatable {
     }
 }
 
-internal enum BackupValue: Codable, Equatable {
+internal enum BackupValue: Codable, Equatable, Sendable {
     case absent
     case bool(Bool)
     case int(Int)

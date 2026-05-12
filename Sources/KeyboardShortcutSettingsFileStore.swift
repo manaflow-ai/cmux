@@ -1466,7 +1466,7 @@ final class CmuxSettingsFileStore {
 
 typealias KeyboardShortcutSettingsFileStore = CmuxSettingsFileStore
 
-private struct SettingsJSONPersistenceRollback {
+private struct SettingsJSONPersistenceRollback: Sendable {
     let previousValues: [String: ManagedSettingsValue]
     let missingPreviousPaths: Set<String>
 }
