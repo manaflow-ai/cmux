@@ -14707,7 +14707,6 @@ struct CMUXCLI {
                     "clear_agent_pid claude_code --tab=\(workspaceId)\(socketPanelOption(consumedSession.surfaceId)) --clear-status",
                     client: client
                 )
-                _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             }
             print("OK")
 
