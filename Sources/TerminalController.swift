@@ -15304,6 +15304,7 @@ class TerminalController {
         mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE,
         text: String? = nil
     ) {
+        guard terminalSurfaceAcceptsInput(surface) else { return }
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
         keyEvent.keycode = keycode
@@ -15324,6 +15325,16 @@ class TerminalController {
 
     private func sendTextEvent(surface: ghostty_surface_t, text: String) {
         sendKeyEvent(surface: surface, keycode: 0, text: text)
+    }
+
+    private func terminalSurfaceAcceptsInput(_ surface: ghostty_surface_t) -> Bool {
+        guard !ghostty_surface_process_exited(surface) else {
+#if DEBUG
+            cmuxDebugLog("socket.input.drop reason=processExited")
+#endif
+            return false
+        }
+        return true
     }
 
     enum SocketTextChunk: Equatable {
@@ -15404,6 +15415,10 @@ class TerminalController {
                 waitUpTo: 2.0
             ) else {
                 error = "ERROR: Surface not ready"
+                return
+            }
+            guard terminalSurfaceAcceptsInput(surface) else {
+                error = "ERROR: Terminal process exited"
                 return
             }
 
@@ -15491,6 +15506,7 @@ class TerminalController {
             TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
                 guard let self else { return }
                 if let surface = terminalPanel.surface.surface {
+                    guard self.terminalSurfaceAcceptsInput(surface) else { return }
                     self.sendSocketText(unescaped, surface: surface)
                 } else {
                     terminalPanel.sendText(unescaped)
@@ -15553,6 +15569,7 @@ class TerminalController {
         var success = false
         v2MainSync {
             guard let surface = resolveSurface(from: target, tabManager: tabManager) else { return }
+            guard terminalSurfaceAcceptsInput(surface) else { return }
 
             let unescaped = text
                 .replacingOccurrences(of: "\\n", with: "\r")

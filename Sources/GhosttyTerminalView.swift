@@ -5574,6 +5574,18 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return ghostty_surface_needs_confirm_quit(surface)
     }
 
+    func runtimeSurfaceCanAcceptInput(_ surface: ghostty_surface_t, reason: String) -> Bool {
+        guard !ghostty_surface_process_exited(surface) else {
+#if DEBUG
+            cmuxDebugLog(
+                "surface.input.drop surface=\(id.uuidString.prefix(8)) reason=\(reason) processExited=1"
+            )
+#endif
+            return false
+        }
+        return true
+    }
+
     func sendText(_ text: String) {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return }
         guard let surface = surface else {
@@ -5581,6 +5593,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             requestBackgroundSurfaceStartIfNeeded()
             return
         }
+        guard runtimeSurfaceCanAcceptInput(surface, reason: "sendText") else { return }
         writeTextData(data, to: surface)
     }
 
@@ -5588,6 +5601,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     func sendNamedKey(_ keyName: String) -> Bool {
         guard let event = pendingKeyEvent(for: keyName) else { return false }
         if let surface = surface {
+            guard runtimeSurfaceCanAcceptInput(surface, reason: "sendNamedKey") else { return false }
             sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
         } else {
             enqueuePendingSocketInput(.key(event))
@@ -5601,6 +5615,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// normal key-text path.  Mirrors `TerminalController.sendSocketText`.
     func sendInput(_ text: String) {
         guard let surface = surface else { return }
+        guard runtimeSurfaceCanAcceptInput(surface, reason: "sendInput") else { return }
         var bufferedText = ""
         var previousWasCR = false
         for scalar in text.unicodeScalars {
@@ -5870,6 +5885,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     private func flushPendingSocketInputIfNeeded() {
         guard let surface = surface, !pendingSocketInputQueue.isEmpty else { return }
+        guard runtimeSurfaceCanAcceptInput(surface, reason: "socketInput.flush") else {
+            pendingSocketInputQueue.removeAll(keepingCapacity: false)
+            pendingSocketInputBytes = 0
+            return
+        }
         let queued = pendingSocketInputQueue
         let queuedBytes = pendingSocketInputBytes
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
@@ -7596,6 +7616,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.keyDown(with: event)
             return
         }
+        let canAcceptInput = terminalSurface?.runtimeSurfaceCanAcceptInput(
+            surface,
+            reason: "keyDown"
+        ) ?? !ghostty_surface_process_exited(surface)
+        guard canAcceptInput else { return }
 #if DEBUG
         ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
@@ -12906,6 +12931,11 @@ extension GhosttyNSView: NSTextInputClient {
     /// automation payloads remain byte-for-byte stable.
     fileprivate func sendTextToSurface(_ chars: String, preserveLiteralEscape: Bool) {
         guard let surface = surface else { return }
+        let canAcceptInput = terminalSurface?.runtimeSurfaceCanAcceptInput(
+            surface,
+            reason: "insertText"
+        ) ?? !ghostty_surface_process_exited(surface)
+        guard canAcceptInput else { return }
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
 #endif
