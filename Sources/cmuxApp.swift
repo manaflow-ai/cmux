@@ -4651,8 +4651,8 @@ enum ClaudeCodeIntegrationSettings {
     static let hooksEnabledKey = "claudeCodeHooksEnabled"
     static let defaultHooksEnabled = true
     static let customClaudePathKey = "claudeCodeCustomClaudePath"
-    static let ignoredNotificationTypesKey = "claudeCodeIgnoredNotificationTypes"
-    static let defaultIgnoredNotificationTypes: [String] = []
+    static let ignoredNotificationTypesKey = ClaudeNotificationTypeNormalization.ignoredTypesDefaultsKey
+    static let defaultIgnoredNotificationTypes = ClaudeNotificationTypeNormalization.defaultIgnoredTypes
 
     static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: hooksEnabledKey) == nil {

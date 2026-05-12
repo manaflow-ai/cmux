@@ -16309,8 +16309,10 @@ struct CMUXCLI {
         return ("Attention", "Claude needs your attention")
     }
 
-    private static let claudeIgnoredNotificationTypesDefaultsKey = "claudeCodeIgnoredNotificationTypes"
-    private static let claudeIgnoredNotificationTypesEnvKey = "CMUX_CLAUDE_IGNORED_NOTIFICATION_TYPES"
+    private static let claudeIgnoredNotificationTypesDefaultsKey =
+        ClaudeNotificationTypeNormalization.ignoredTypesDefaultsKey
+    private static let claudeIgnoredNotificationTypesEnvKey =
+        ClaudeNotificationTypeNormalization.ignoredTypesEnvironmentKey
 
     private static func shouldSuppressClaudeNotification(types: Set<String>) -> Bool {
         let ignoredTypes = ignoredClaudeNotificationTypes()

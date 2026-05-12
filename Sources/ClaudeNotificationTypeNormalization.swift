@@ -1,6 +1,10 @@
 import Foundation
 
 enum ClaudeNotificationTypeNormalization {
+    static let ignoredTypesDefaultsKey = "claudeCodeIgnoredNotificationTypes"
+    static let ignoredTypesEnvironmentKey = "CMUX_CLAUDE_IGNORED_NOTIFICATION_TYPES"
+    static let defaultIgnoredTypes: [String] = []
+
     static func normalized(_ raw: String) -> String? {
         let collapsedWhitespace = raw
             .trimmingCharacters(in: .whitespacesAndNewlines)

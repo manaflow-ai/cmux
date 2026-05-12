@@ -5186,7 +5186,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             setManagedEnvironmentValue("CMUX_CLAUDE_HOOKS_DISABLED", "1")
         }
         setManagedEnvironmentValue(
-            "CMUX_CLAUDE_IGNORED_NOTIFICATION_TYPES",
+            ClaudeNotificationTypeNormalization.ignoredTypesEnvironmentKey,
             ClaudeCodeIntegrationSettings.ignoredNotificationTypes().joined(separator: ",")
         )
         if let customClaudePath = ClaudeCodeIntegrationSettings.customClaudePath() {
