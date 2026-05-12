@@ -484,6 +484,8 @@ enum SessionScrollbackReplayStore {
     private static let directoryName = "cmux-session-scrollback"
     private static let ansiEscape = "\u{001B}"
     private static let ansiReset = "\u{001B}[0m"
+    private static let zshPromptSpMarkerPattern =
+        #"(?:\x1B\[[0-9;]*m)*\x1B\[(?:1;)?7m%\x1B\[[0-9;]*m[ \t]*"#
 
     static func replayEnvironment(
         for scrollback: String?,
@@ -503,7 +505,8 @@ enum SessionScrollbackReplayStore {
         guard let scrollback else { return nil }
         guard scrollback.contains(where: { !$0.isWhitespace }) else { return nil }
         guard let truncated = SessionPersistencePolicy.truncatedScrollback(scrollback) else { return nil }
-        return ansiSafeReplayText(truncated)
+        let promptSafe = zshPromptSpSafeReplayText(truncated)
+        return ansiSafeReplayText(promptSafe)
     }
 
     /// Preserve ANSI color state safely across replay boundaries.
@@ -517,6 +520,23 @@ enum SessionScrollbackReplayStore {
             output += ansiReset
         }
         return output
+    }
+
+    /// zsh emits PROMPT_SP as an inverse-video "%" when the previous output did
+    /// not end with a newline. Replaying that marker makes the next shell record
+    /// it again, so normalize it back to the newline it visually represented.
+    private static func zshPromptSpSafeReplayText(_ text: String) -> String {
+        guard text.contains("\(ansiEscape)[7m%") || text.contains("\(ansiEscape)[1;7m%") else {
+            return text
+        }
+        guard let regex = try? NSRegularExpression(pattern: zshPromptSpMarkerPattern) else {
+            return text
+        }
+        return regex.stringByReplacingMatches(
+            in: text,
+            range: NSRange(text.startIndex..<text.endIndex, in: text),
+            withTemplate: "\n"
+        )
     }
 
     private static func writeReplayFile(contents: String, tempDirectory: URL) -> URL? {

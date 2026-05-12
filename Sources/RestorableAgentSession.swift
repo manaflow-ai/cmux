@@ -383,7 +383,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         guard let command = resumeCommand else { return nil }
 
         let inlineInput = command + "\n"
-        guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
+        guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes || inlineInput.containsNonASCII else {
             return inlineInput
         }
         guard let scriptURL = AgentResumeScriptStore.writeLauncherScript(
@@ -398,6 +398,12 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
 
         let scriptInput = "/bin/zsh \(shellSingleQuoted(scriptURL.path))\n"
         return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
+    }
+}
+
+private extension String {
+    var containsNonASCII: Bool {
+        utf8.contains { $0 >= 0x80 }
     }
 }
 
