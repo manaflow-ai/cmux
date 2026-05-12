@@ -108,6 +108,21 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
+    func testThemeSearchPathsIncludeCmuxUserThemesDirectoryFromFixedHome() {
+        let fixedHome = "/tmp/cmux-fixed-home-\(UUID().uuidString)"
+        let paths = GhosttyConfig.themeSearchPaths(
+            forThemeName: "Zag Light",
+            environment: ["CFFIXED_USER_HOME": fixedHome],
+            bundleResourceURL: nil
+        )
+
+        XCTAssertTrue(
+            paths.contains(
+                "\(fixedHome)/Library/Application Support/com.cmuxterm.app/themes/Zag Light"
+            )
+        )
+    }
+
     func testThemesListIncludesCmuxUserThemesDirectory() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

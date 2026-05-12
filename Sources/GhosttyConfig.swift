@@ -683,10 +683,51 @@ struct GhosttyConfig {
         // 4) Common system/user fallback locations.
         appendUniquePath("/Applications/Ghostty.app/Contents/Resources/ghostty/themes/\(themeName)")
         appendUniquePath("~/.config/ghostty/themes/\(themeName)")
-        appendUniquePath("~/Library/Application Support/com.cmuxterm.app/themes/\(themeName)")
+        for appSupportDirectory in userApplicationSupportDirectories(environment: environment) {
+            appendUniquePath(
+                appSupportDirectory
+                    .appendingPathComponent(CmuxGhosttyConfigPathResolver.releaseBundleIdentifier, isDirectory: true)
+                    .appendingPathComponent("themes", isDirectory: true)
+                    .appendingPathComponent(themeName, isDirectory: false)
+                    .path
+            )
+        }
         appendUniquePath("~/Library/Application Support/com.mitchellh.ghostty/themes/\(themeName)")
 
         return paths
+    }
+
+    private static func userApplicationSupportDirectories(environment: [String: String]) -> [URL] {
+        let fileManager = FileManager.default
+        var urls: [URL] = []
+        var seen: Set<String> = []
+
+        func append(_ url: URL?) {
+            guard let url else { return }
+            let standardized = url.standardizedFileURL
+            if seen.insert(standardized.path).inserted {
+                urls.append(standardized)
+            }
+        }
+
+        append(fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first)
+
+        if let fixedHome = environment["CFFIXED_USER_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !fixedHome.isEmpty {
+            append(
+                URL(fileURLWithPath: fixedHome, isDirectory: true)
+                    .appendingPathComponent("Library/Application Support", isDirectory: true)
+            )
+        }
+
+        append(
+            URL(
+                fileURLWithPath: NSString(string: "~/Library/Application Support").expandingTildeInPath,
+                isDirectory: true
+            )
+        )
+
+        return urls
     }
 
     private static func readConfigFile(at path: String) -> String? {
