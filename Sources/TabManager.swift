@@ -101,7 +101,7 @@ enum WorkspaceSidebarPosition: String, CaseIterable, Identifiable {
         }
     }
 
-    var description: String {
+    var subtitle: String {
         switch self {
         case .left:
             return String(

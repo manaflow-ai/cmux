@@ -6184,7 +6184,7 @@ struct SettingsView: View {
                         SettingsPickerRow(
                             configurationReview: .json("sidebar.position"),
                             String(localized: "settings.app.sidebarPosition", defaultValue: "Sidebar Position"),
-                            subtitle: selectedWorkspaceSidebarPosition.description,
+                            subtitle: selectedWorkspaceSidebarPosition.subtitle,
                             controlWidth: pickerColumnWidth,
                             selection: workspaceSidebarPositionSelection
                         ) {
