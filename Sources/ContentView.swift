@@ -11781,7 +11781,7 @@ private final class SidebarScrollViewResolverView: NSView {
 }
 
 private struct SidebarEmptyArea: View {
-    @EnvironmentObject var tabManager: TabManager
+    let tabManager: TabManager
     let rowSpacing: CGFloat
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
@@ -12790,174 +12790,206 @@ private struct TabItemView: View, Equatable {
     }
 
     var body: some View {
-        rowContent
-        .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.latestLog)
-        .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.progress != nil)
-        .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.metadataBlocks.count)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(backgroundColor)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(activeBorderColor, lineWidth: activeBorderLineWidth)
+        rowWithContextMenu
+    }
+
+    private var rowWithContextMenu: AnyView {
+        AnyView(
+            rowWithAccessibility
+                .contextMenu {
+                    workspaceContextMenu
+                        .onAppear {
+                            rowInteractionState.contextMenuDidAppear()
+                            contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
+                            contextMenuState.pendingWorkspaceSnapshot = nil
+                            frozenPresentation = livePresentation
+                        }
+                        .onDisappear {
+                            rowInteractionState.contextMenuDidDisappear()
+                            frozenPresentation = nil
+                            flushDeferredWorkspaceObservationInvalidation()
+                        }
                 }
-                .overlay(alignment: .leading) {
-                    if showsLeadingRail {
-                        Capsule(style: .continuous)
-                            .fill(railColor)
-                            .frame(width: 3)
-                            .padding(.leading, 4)
-                            .padding(.vertical, 5)
-                            .offset(x: -1)
+        )
+    }
+
+    private var rowWithAccessibility: AnyView {
+        AnyView(
+            rowWithSelection
+                .safeHelp(workspaceSnapshot.title)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(Text(accessibilityTitle))
+                .accessibilityHint(Text(accessibilityHintText))
+                .accessibilityAction(named: Text(moveUpActionText)) {
+                    guard allowsManualReordering else { return }
+                    moveBy(-1)
+                }
+                .accessibilityAction(named: Text(moveDownActionText)) {
+                    guard allowsManualReordering else { return }
+                    moveBy(1)
+                }
+        )
+    }
+
+    private var rowWithSelection: AnyView {
+        AnyView(
+            rowWithDrops
+                .onTapGesture {
+                    updateSelection()
+                }
+        )
+    }
+
+    private var rowWithDrops: AnyView {
+        AnyView(
+            rowWithLifecycle
+                .applyIf(allowsManualReordering) { content in
+                    content
+                        .onDrag {
+                            #if DEBUG
+                            cmuxDebugLog("sidebar.onDrag tab=\(tab.id.uuidString.prefix(5))")
+                            #endif
+                            draggedTabId = tab.id
+                            dropIndicator = nil
+                            return SidebarTabDragPayload.provider(for: tab.id)
+                        }
+                        .internalOnlyTabDrag()
+                        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: SidebarTabDropDelegate(
+                            targetTabId: tab.id,
+                            tabManager: tabManager,
+                            draggedTabId: $draggedTabId,
+                            selectedTabIds: $selectedTabIds,
+                            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                            targetRowHeight: rowHeight,
+                            dragAutoScrollController: dragAutoScrollController,
+                            dropIndicator: $dropIndicator
+                        ))
+                }
+                .onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: SidebarBonsplitTabDropDelegate(
+                    targetWorkspaceId: tab.id,
+                    tabManager: tabManager,
+                    selectedTabIds: $selectedTabIds,
+                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+                ))
+        )
+    }
+
+    private var rowWithLifecycle: AnyView {
+        AnyView(
+            rowWithChrome
+                .onAppear {
+                    refreshWorkspaceSnapshot(force: true)
+                }
+                .task(id: finderDirectoryCacheKey) {
+                    let cache = await WorkspaceFinderDirectoryResolver.cache(for: finderDirectoryCacheKey)
+                    guard !Task.isCancelled else { return }
+                    workspaceFinderDirectoryCache = cache
+                }
+                .task(id: workspaceFinderDirectoryOpenRequest) {
+                    guard let request = workspaceFinderDirectoryOpenRequest else { return }
+                    await WorkspaceFinderDirectoryOpener.openInFinder(request.directoryURL)
+                    guard !Task.isCancelled, workspaceFinderDirectoryOpenRequest == request else { return }
+                    workspaceFinderDirectoryOpenRequest = nil
+                }
+                .onReceive(tab.sidebarImmediateObservationPublisher.receive(on: RunLoop.main)) { _ in
+                    logSidebarInvalidation(source: "immediate")
+                    refreshWorkspaceSnapshot()
+                }
+                .onReceive(
+                    tab.sidebarObservationPublisher
+                        .receive(on: RunLoop.main)
+                        // Prompt-time sidebar telemetry can arrive as a short burst
+                        // (pwd, branch, PR, shell state). Coalesce that burst so the
+                        // row redraws once with the settled state instead of blinking.
+                        .debounce(for: Self.workspaceObservationCoalesceInterval, scheduler: RunLoop.main)
+                ) { _ in
+                    logSidebarInvalidation(source: "debounced")
+                    refreshWorkspaceSnapshot()
+                }
+                .onChange(of: settings) { _ in
+                    refreshWorkspaceSnapshot(force: true)
+                }
+        )
+    }
+
+    private var rowWithChrome: AnyView {
+        AnyView(
+            rowContent
+                .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.latestLog)
+                .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.progress != nil)
+                .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.metadataBlocks.count)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(rowBackground)
+                .padding(.horizontal, 6)
+                .background(rowHeightReader)
+                .contentShape(Rectangle())
+                .opacity(isBeingDragged ? 0.6 : 1)
+                .overlay {
+                    SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
+                }
+                .overlay {
+                    MiddleClickCapture {
+                        #if DEBUG
+                        cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=middleClick")
+                        #endif
+                        tabManager.closeWorkspaceWithConfirmation(tab)
+                    }
+                }
+                .overlay(alignment: .top) {
+                    if showsCenteredTopDropIndicator {
+                        Rectangle()
+                            .fill(cmuxAccentColor())
+                            .frame(height: 2)
+                            .padding(.horizontal, 8)
+                            .offset(y: index == 0 ? 0 : -(rowSpacing / 2))
                     }
                 }
         )
-        .padding(.horizontal, 6)
-        .background {
-            GeometryReader { proxy in
-                Color.clear
-                    .onAppear {
-                        rowHeight = max(proxy.size.height, 1)
-                    }
-                    .onChange(of: proxy.size.height) { newHeight in
-                        rowHeight = max(newHeight, 1)
-                    }
+    }
+
+    private var rowBackground: some View {
+        RoundedRectangle(cornerRadius: 6)
+            .fill(backgroundColor)
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(activeBorderColor, lineWidth: activeBorderLineWidth)
             }
-        }
-        .contentShape(Rectangle())
-        .opacity(isBeingDragged ? 0.6 : 1)
-        .overlay {
-            SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
-        }
-        .overlay {
-            MiddleClickCapture {
-                #if DEBUG
-                cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=middleClick")
-                #endif
-                tabManager.closeWorkspaceWithConfirmation(tab)
-            }
-        }
-        .overlay(alignment: .top) {
-            if showsCenteredTopDropIndicator {
-                Rectangle()
-                    .fill(cmuxAccentColor())
-                    .frame(height: 2)
-                    .padding(.horizontal, 8)
-                    .offset(y: index == 0 ? 0 : -(rowSpacing / 2))
-            }
-        }
-        .onAppear {
-            refreshWorkspaceSnapshot(force: true)
-        }
-        .task(id: finderDirectoryCacheKey) {
-            let cache = await WorkspaceFinderDirectoryResolver.cache(for: finderDirectoryCacheKey)
-            guard !Task.isCancelled else { return }
-            workspaceFinderDirectoryCache = cache
-        }
-        .task(id: workspaceFinderDirectoryOpenRequest) {
-            guard let request = workspaceFinderDirectoryOpenRequest else { return }
-            await WorkspaceFinderDirectoryOpener.openInFinder(request.directoryURL)
-            guard !Task.isCancelled, workspaceFinderDirectoryOpenRequest == request else { return }
-            workspaceFinderDirectoryOpenRequest = nil
-        }
-        .onReceive(
-            tab.sidebarImmediateObservationPublisher
-                .receive(on: RunLoop.main)
-        ) { _ in
-#if DEBUG
-            let description = tab.customDescription ?? ""
-            cmuxDebugLog(
-                "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
-                "source=immediate " +
-                "title=\"\(debugCommandPaletteTextPreview(tab.title))\" " +
-                "descLen=\((description as NSString).length) " +
-                "desc=\"\(debugCommandPaletteTextPreview(description))\""
-            )
-#endif
-            refreshWorkspaceSnapshot()
-        }
-        .onReceive(
-            tab.sidebarObservationPublisher
-                .receive(on: RunLoop.main)
-                // Prompt-time sidebar telemetry can arrive as a short burst
-                // (pwd, branch, PR, shell state). Coalesce that burst so the
-                // row redraws once with the settled state instead of blinking.
-                .debounce(for: Self.workspaceObservationCoalesceInterval, scheduler: RunLoop.main)
-        ) { _ in
-#if DEBUG
-            let description = tab.customDescription ?? ""
-            cmuxDebugLog(
-                "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
-                "source=debounced " +
-                "title=\"\(debugCommandPaletteTextPreview(tab.title))\" " +
-                "descLen=\((description as NSString).length) " +
-                "desc=\"\(debugCommandPaletteTextPreview(description))\""
-            )
-#endif
-            refreshWorkspaceSnapshot()
-        }
-        .onChange(of: settings) { _ in
-            refreshWorkspaceSnapshot(force: true)
-        }
-        .applyIf(allowsManualReordering) { content in
-            content
-                .onDrag {
-                    #if DEBUG
-                    cmuxDebugLog("sidebar.onDrag tab=\(tab.id.uuidString.prefix(5))")
-                    #endif
-                    draggedTabId = tab.id
-                    dropIndicator = nil
-                    return SidebarTabDragPayload.provider(for: tab.id)
+            .overlay(alignment: .leading) {
+                if showsLeadingRail {
+                    Capsule(style: .continuous)
+                        .fill(railColor)
+                        .frame(width: 3)
+                        .padding(.leading, 4)
+                        .padding(.vertical, 5)
+                        .offset(x: -1)
                 }
-                .internalOnlyTabDrag()
-                .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: SidebarTabDropDelegate(
-                    targetTabId: tab.id,
-                    tabManager: tabManager,
-                    draggedTabId: $draggedTabId,
-                    selectedTabIds: $selectedTabIds,
-                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                    targetRowHeight: rowHeight,
-                    dragAutoScrollController: dragAutoScrollController,
-                    dropIndicator: $dropIndicator
-                ))
-        }
-        .onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: SidebarBonsplitTabDropDelegate(
-            targetWorkspaceId: tab.id,
-            tabManager: tabManager,
-            selectedTabIds: $selectedTabIds,
-            lastSidebarSelectionIndex: $lastSidebarSelectionIndex
-        ))
-        .onTapGesture {
-            updateSelection()
-        }
-        .safeHelp(workspaceSnapshot.title)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(accessibilityTitle))
-        .accessibilityHint(Text(accessibilityHintText))
-        .accessibilityAction(named: Text(moveUpActionText)) {
-            guard allowsManualReordering else { return }
-            moveBy(-1)
-        }
-        .accessibilityAction(named: Text(moveDownActionText)) {
-            guard allowsManualReordering else { return }
-            moveBy(1)
-        }
-        .contextMenu {
-            workspaceContextMenu
+            }
+    }
+
+    private var rowHeightReader: some View {
+        GeometryReader { proxy in
+            Color.clear
                 .onAppear {
-                    rowInteractionState.contextMenuDidAppear()
-                    contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
-                    contextMenuState.pendingWorkspaceSnapshot = nil
-                    frozenPresentation = livePresentation
+                    rowHeight = max(proxy.size.height, 1)
                 }
-                .onDisappear {
-                    rowInteractionState.contextMenuDidDisappear()
-                    frozenPresentation = nil
-                    flushDeferredWorkspaceObservationInvalidation()
+                .onChange(of: proxy.size.height) { newHeight in
+                    rowHeight = max(newHeight, 1)
                 }
         }
+    }
+
+    private func logSidebarInvalidation(source: String) {
+        #if DEBUG
+        let description = tab.customDescription ?? ""
+        cmuxDebugLog(
+            "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
+            "source=\(source) " +
+            "title=\"\(debugCommandPaletteTextPreview(tab.title))\" " +
+            "descLen=\((description as NSString).length) " +
+            "desc=\"\(debugCommandPaletteTextPreview(description))\""
+        )
+        #endif
     }
 
     private func refreshWorkspaceSnapshot(force: Bool = false) {
