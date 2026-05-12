@@ -244,6 +244,25 @@ final class SocketControlPasswordStoreTests: XCTestCase {
 
 @MainActor
 final class AuthManagerSignOutTests: XCTestCase {
+    func testAuthLogRedactionRemovesTokensAndEmails() {
+        let message = """
+        auth.webauth callback failed: cmux://auth-callback?stack_access=access-token&stack_refresh=refresh-token&state=opaque-state user=alice@example.com Authorization: Bearer header.payload.signature
+        """
+
+        let redacted = AuthManager.redactedAuthLogMessageForTesting(message)
+
+        XCTAssertFalse(redacted.contains("access-token"))
+        XCTAssertFalse(redacted.contains("refresh-token"))
+        XCTAssertFalse(redacted.contains("opaque-state"))
+        XCTAssertFalse(redacted.contains("alice@example.com"))
+        XCTAssertFalse(redacted.contains("header.payload.signature"))
+        XCTAssertTrue(redacted.contains("stack_access=<redacted>"))
+        XCTAssertTrue(redacted.contains("stack_refresh=<redacted>"))
+        XCTAssertTrue(redacted.contains("state=<redacted>"))
+        XCTAssertTrue(redacted.contains("<email>"))
+        XCTAssertTrue(redacted.contains("Authorization=<redacted>"))
+    }
+
     func testSignOutClearsInFlightBrowserSignInLoadingState() async {
         let suiteName = "cmux-auth-manager-sign-out-tests-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {

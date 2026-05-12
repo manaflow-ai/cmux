@@ -2,6 +2,7 @@ import AppKit
 import AuthenticationServices
 import CMUXAuthCore
 import Foundation
+import os
 import StackAuth
 #if canImport(Security)
 import Security
@@ -696,14 +697,14 @@ final class AuthManager: ObservableObject {
     }
 
     /// DEBUG-only append to /tmp/cmux-auth-debug.log. In Release builds this
-    /// is a no-op so token-derived material and user emails never land in a
-    /// world-traversable file. Call sites still pass PII-bearing strings
-    /// because redacting at the call site is a lot of churn; keeping the
-    /// #if DEBUG guard here is the single bottleneck that makes that safe.
+    /// mirrors the sanitized unified log entry so token-derived material and
+    /// user emails never land in a world-traversable file.
     nonisolated static func authLog(_ message: String) {
+        let redactedMessage = redactedAuthLogMessage(message)
+        authLogger.log(level: authLogType(for: redactedMessage), "\(redactedMessage, privacy: .public)")
         #if DEBUG
-        let line = "[\(Self.logTimestampFormatter.string(from: Date()))] auth: \(message)\n"
-        let path = "/tmp/cmux-auth-debug.log"
+        let line = "[\(Self.logTimestampFormatter.string(from: Date()))] auth: \(redactedMessage)\n"
+        let path = authDebugLogPath
         if let handle = FileHandle(forWritingAtPath: path) {
             handle.seekToEndOfFile()
             handle.write(line.data(using: .utf8)!)
@@ -711,8 +712,48 @@ final class AuthManager: ObservableObject {
         } else {
             FileManager.default.createFile(atPath: path, contents: line.data(using: .utf8))
         }
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
         #endif
     }
+
+    private nonisolated static let authLogger = Logger(subsystem: "com.cmuxterm.app", category: "auth")
+    private nonisolated static let authDebugLogPath = "/tmp/cmux-auth-debug.log"
+
+    private nonisolated static func authLogType(for message: String) -> OSLogType {
+        let lowercased = message.lowercased()
+        if lowercased.contains("failed")
+            || lowercased.contains("error")
+            || lowercased.contains("invalid")
+            || lowercased.contains("status=") {
+            return .error
+        }
+        return .debug
+    }
+
+    private nonisolated static func redactedAuthLogMessage(_ message: String) -> String {
+        var redacted = message
+        let replacements: [(pattern: String, replacement: String)] = [
+            (#"(?i)\b(stack_access|stack_refresh|access_token|refresh_token|id_token|token|login_code|polling_code|code|state)=([^\s&#,)]+)"#, "$1=<redacted>"),
+            (#"(?i)\b(access|refresh)=([^\s,;)]+)"#, "$1=<redacted>"),
+            (#"(?i)\b(authorization|x-stack-access-token|x-stack-refresh-token)\s*[:=]\s*(?:Bearer\s+)?([^\s,;)]+)"#, "$1=<redacted>"),
+            (#"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"#, "<email>"),
+            (#"[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}"#, "<jwt>"),
+        ]
+        for replacement in replacements {
+            redacted = redacted.replacingOccurrences(
+                of: replacement.pattern,
+                with: replacement.replacement,
+                options: .regularExpression
+            )
+        }
+        return redacted
+    }
+
+    #if DEBUG
+    nonisolated static func redactedAuthLogMessageForTesting(_ message: String) -> String {
+        redactedAuthLogMessage(message)
+    }
+    #endif
 
     // ISO8601DateFormatter is expensive to construct (calendar + locale +
     // time zone). Reuse one instance across the high-frequency authLog path.
