@@ -125,6 +125,10 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "splitBrowserDown", combos: [["⌥", "⌘", "⇧", "D"]], description: { en: "Split browser down", ja: "下にブラウザ分割" } },
       { id: "toggleSplitZoom", combos: [["⌘", "⇧", "↩"]], description: { en: "Toggle pane zoom", ja: "ペインズームを切り替え" } },
       { id: "equalizeSplits", combos: [["⌃", "⌘", "="]], description: { en: "Equalize split sizes", ja: "分割サイズを均等にする" } },
+      { id: "resize-pane-left", combos: [["⌃", "⇧", "H"]], description: { en: "Resize pane left", ja: "ペインを左にリサイズ" } },
+      { id: "resize-pane-right", combos: [["⌃", "⇧", "L"]], description: { en: "Resize pane right", ja: "ペインを右にリサイズ" } },
+      { id: "resize-pane-up", combos: [["⌃", "⇧", "K"]], description: { en: "Resize pane up", ja: "ペインを上にリサイズ" } },
+      { id: "resize-pane-down", combos: [["⌃", "⇧", "J"]], description: { en: "Resize pane down", ja: "ペインを下にリサイズ" } },
     ],
   },
   {

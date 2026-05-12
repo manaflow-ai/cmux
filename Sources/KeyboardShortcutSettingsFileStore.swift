@@ -384,6 +384,13 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["focusPaneOnFirstClick"]) {
             snapshot.managedUserDefaults[PaneFirstClickFocusSettings.enabledKey] = .bool(value)
         }
+        if let value = jsonInt(section["paneResizeStepPixels"]) {
+            if (PaneResizeStepSettings.minimumPixels...PaneResizeStepSettings.maximumPixels).contains(value) {
+                snapshot.managedUserDefaults[PaneResizeStepSettings.key] = .int(value)
+            } else {
+                logInvalid("app.paneResizeStepPixels", sourcePath: sourcePath)
+            }
+        }
         if let value = jsonString(section["preferredEditor"]) {
             snapshot.managedUserDefaults[PreferredEditorSettings.key] = .string(value)
         }

@@ -111,6 +111,10 @@ enum KeyboardShortcutSettings {
         case splitRight
         case splitDown, toggleSplitZoom
         case equalizeSplits
+        case resizePaneLeft = "resize-pane-left"
+        case resizePaneRight = "resize-pane-right"
+        case resizePaneUp = "resize-pane-up"
+        case resizePaneDown = "resize-pane-down"
         case splitBrowserRight
         case splitBrowserDown
 
@@ -189,6 +193,10 @@ enum KeyboardShortcutSettings {
             case .splitDown: return String(localized: "shortcut.splitDown.label", defaultValue: "Split Down")
             case .toggleSplitZoom: return String(localized: "shortcut.togglePaneZoom.label", defaultValue: "Toggle Pane Zoom")
             case .equalizeSplits: return String(localized: "shortcut.equalizeSplits.label", defaultValue: "Equalize Splits")
+            case .resizePaneLeft: return String(localized: "shortcut.resizePaneLeft.label", defaultValue: "Resize Pane Left")
+            case .resizePaneRight: return String(localized: "shortcut.resizePaneRight.label", defaultValue: "Resize Pane Right")
+            case .resizePaneUp: return String(localized: "shortcut.resizePaneUp.label", defaultValue: "Resize Pane Up")
+            case .resizePaneDown: return String(localized: "shortcut.resizePaneDown.label", defaultValue: "Resize Pane Down")
             case .splitBrowserRight: return String(localized: "shortcut.splitBrowserRight.label", defaultValue: "Split Browser Right")
             case .splitBrowserDown: return String(localized: "shortcut.splitBrowserDown.label", defaultValue: "Split Browser Down")
             case .toggleRightSidebar: return String(localized: "shortcut.toggleRightSidebar.label", defaultValue: "Toggle Right Sidebar")
@@ -315,6 +323,10 @@ enum KeyboardShortcutSettings {
             case .splitDown: return StoredShortcut(key: "d", command: true, shift: true, option: false, control: false)
             case .toggleSplitZoom: return StoredShortcut(key: "\r", command: true, shift: true, option: false, control: false)
             case .equalizeSplits: return StoredShortcut(key: "=", command: true, shift: false, option: false, control: true)
+            case .resizePaneLeft: return StoredShortcut(key: "h", command: false, shift: true, option: false, control: true)
+            case .resizePaneRight: return StoredShortcut(key: "l", command: false, shift: true, option: false, control: true)
+            case .resizePaneUp: return StoredShortcut(key: "k", command: false, shift: true, option: false, control: true)
+            case .resizePaneDown: return StoredShortcut(key: "j", command: false, shift: true, option: false, control: true)
             case .splitBrowserRight:
                 return StoredShortcut(key: "d", command: true, shift: false, option: true, control: false)
             case .splitBrowserDown:
@@ -827,6 +839,10 @@ enum KeyboardShortcutSettings {
     static func splitRightShortcut() -> StoredShortcut { shortcut(for: .splitRight) }
     static func splitDownShortcut() -> StoredShortcut { shortcut(for: .splitDown) }
     static func toggleSplitZoomShortcut() -> StoredShortcut { shortcut(for: .toggleSplitZoom) }
+    static func resizePaneLeftShortcut() -> StoredShortcut { shortcut(for: .resizePaneLeft) }
+    static func resizePaneRightShortcut() -> StoredShortcut { shortcut(for: .resizePaneRight) }
+    static func resizePaneUpShortcut() -> StoredShortcut { shortcut(for: .resizePaneUp) }
+    static func resizePaneDownShortcut() -> StoredShortcut { shortcut(for: .resizePaneDown) }
     static func splitBrowserRightShortcut() -> StoredShortcut { shortcut(for: .splitBrowserRight) }
     static func splitBrowserDownShortcut() -> StoredShortcut { shortcut(for: .splitBrowserDown) }
 
@@ -839,6 +855,22 @@ enum KeyboardShortcutSettings {
     static func openBrowserShortcut() -> StoredShortcut { shortcut(for: .openBrowser) }
     static func toggleBrowserDeveloperToolsShortcut() -> StoredShortcut { shortcut(for: .toggleBrowserDeveloperTools) }
     static func showBrowserJavaScriptConsoleShortcut() -> StoredShortcut { shortcut(for: .showBrowserJavaScriptConsole) }
+}
+
+enum PaneResizeStepSettings {
+    static let key = "paneResizeStepPixels"
+    static let defaultPixels = 20
+    static let minimumPixels = 1
+    static let maximumPixels = 200
+
+    static func normalizedPixels(_ pixels: Int) -> Int {
+        min(max(pixels, minimumPixels), maximumPixels)
+    }
+
+    static func currentPixels(defaults: UserDefaults = .standard) -> UInt16 {
+        let rawValue = defaults.object(forKey: key) as? Int ?? defaultPixels
+        return UInt16(normalizedPixels(rawValue))
+    }
 }
 
 enum SystemWideHotkeySettings {

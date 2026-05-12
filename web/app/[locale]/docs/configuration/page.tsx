@@ -56,6 +56,7 @@ const settingsFileExample = `{
   //   "appearance": "dark",
   //   "menuBarOnly": false,
   //   "newWorkspacePlacement": "afterCurrent",
+  //   "paneResizeStepPixels": 20,
   //   "iMessageMode": true
   // },
 

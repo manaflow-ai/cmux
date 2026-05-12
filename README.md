@@ -180,6 +180,8 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.com
 | ⌘ D | Split right |
 | ⌘ ⇧ D | Split down |
 | ⌥ ⌘ ← → ↑ ↓ | Focus pane directionally |
+| ⌃ ⇧ H J K L | Resize pane left/down/up/right |
+| ⌃ ⌘ = | Equalize split sizes |
 | ⌘ ⇧ H | Flash focused panel |
 
 ### Browser

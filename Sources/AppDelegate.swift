@@ -11533,6 +11533,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         if matchConfiguredShortcut(event: event, action: .equalizeSplits) { performEqualizeSplitsShortcut(); return true }
+
+        if matchConfiguredShortcut(event: event, action: .resizePaneLeft) {
+            _ = performResizePaneShortcut(direction: .left, preferredWindow: event.window ?? NSApp.keyWindow ?? NSApp.mainWindow)
+            return true
+        }
+        if matchConfiguredShortcut(event: event, action: .resizePaneRight) {
+            _ = performResizePaneShortcut(direction: .right, preferredWindow: event.window ?? NSApp.keyWindow ?? NSApp.mainWindow)
+            return true
+        }
+        if matchConfiguredShortcut(event: event, action: .resizePaneUp) {
+            _ = performResizePaneShortcut(direction: .up, preferredWindow: event.window ?? NSApp.keyWindow ?? NSApp.mainWindow)
+            return true
+        }
+        if matchConfiguredShortcut(event: event, action: .resizePaneDown) {
+            _ = performResizePaneShortcut(direction: .down, preferredWindow: event.window ?? NSApp.keyWindow ?? NSApp.mainWindow)
+            return true
+        }
+
         // Configured split actions.
         if matchConfiguredShortcut(event: event, action: .splitRight) {
 #if DEBUG
@@ -12303,6 +12321,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "moveWeb=\(movedToWebView ? 1 : 0) moveNil=\(movedToNil ? 1 : 0) \(browser.debugDeveloperToolsStateSummary())"
         )
         #endif
+    }
+
+    @discardableResult
+    func performResizePaneShortcut(direction: ResizeDirection, preferredWindow: NSWindow? = nil) -> Bool {
+        let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let manager = synchronizeActiveMainWindowContext(preferredWindow: targetWindow)
+        let amount = PaneResizeStepSettings.currentPixels()
+        let didResize = manager?.resizeFocusedPane(direction: direction, amount: amount) ?? false
+#if DEBUG
+        let directionLabel: String
+        switch direction {
+        case .left: directionLabel = "left"
+        case .right: directionLabel = "right"
+        case .up: directionLabel = "up"
+        case .down: directionLabel = "down"
+        }
+        cmuxDebugLog(
+            "shortcut.action name=resizePane direction=\(directionLabel) amount=\(amount) " +
+            "result=\(didResize ? 1 : 0) manager=\(debugManagerToken(manager))"
+        )
+#endif
+        return didResize
     }
 
     @discardableResult

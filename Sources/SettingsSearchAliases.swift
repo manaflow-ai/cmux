@@ -103,6 +103,7 @@ enum SettingsSearchAliasIndex {
         "globalHotkey:enable-hotkey": localized("settings.search.alias.setting.globalHotkey.enable-hotkey", defaultValue: "global hotkey enable system wide show hide all windows"),
         "globalHotkey:shortcut": localized("settings.search.alias.setting.globalHotkey.shortcut", defaultValue: "global hotkey shortcut recorder key command option control"),
         "keyboardShortcuts:shortcut-chords": localized("settings.search.alias.setting.keyboardShortcuts.shortcut-chords", defaultValue: "tmux prefix ctrl-b control-b multi key sequence chord cmux json"),
+        "keyboardShortcuts:pane-resize-step": localized("settings.search.alias.setting.keyboardShortcuts.pane-resize-step", defaultValue: "pane resize split step pixels key repeat keybindings ctrl shift h j k l"),
         "keyboardShortcuts:shortcuts": localized("settings.search.alias.setting.keyboardShortcuts.shortcuts", defaultValue: "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json"),
         "workspaceColors:indicator": localized("settings.search.alias.setting.workspaceColors.indicator", defaultValue: "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
         "workspaceColors:selection": localized("settings.search.alias.setting.workspaceColors.selection", defaultValue: "workspaceColors.selectionColor selected workspace color highlight background active tab"),

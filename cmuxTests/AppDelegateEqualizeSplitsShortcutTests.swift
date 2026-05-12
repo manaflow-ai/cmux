@@ -145,6 +145,74 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         shortcutRoutingAssertPaneFramesMatch(cachedEqualizedLayout, liveEqualizedLayout)
     }
 
+    func testConfiguredPaneResizeShortcutMovesFocusedPaneDivider() {
+        let originalStep = UserDefaults.standard.object(forKey: PaneResizeStepSettings.key)
+        defer {
+            if let originalStep {
+                UserDefaults.standard.set(originalStep, forKey: PaneResizeStepSettings.key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: PaneResizeStepSettings.key)
+            }
+        }
+        UserDefaults.standard.set(40, forKey: PaneResizeStepSettings.key)
+
+        withTemporaryShortcut(action: .resizePaneRight) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let manager = appDelegate.tabManagerFor(windowId: windowId),
+                  let workspace = manager.selectedWorkspace,
+                  let leftPanelId = workspace.focusedPanelId,
+                  workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) != nil else {
+                XCTFail("Expected horizontal split setup")
+                return
+            }
+
+            workspace.focusPanel(leftPanelId)
+            window.makeKeyAndOrderFront(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+            guard let initialSplit = shortcutRoutingSplitNodes(in: workspace.bonsplitController.treeSnapshot())
+                .first(where: { $0.orientation.lowercased() == "horizontal" }) else {
+                XCTFail("Expected horizontal split")
+                return
+            }
+
+            guard let event = makeKeyDownEvent(key: "l", modifiers: [.control, .shift], keyCode: 37, windowNumber: window.windowNumber) else {
+                XCTFail("Failed to construct Ctrl+Shift+L event")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            return
+#endif
+
+            guard let resizedSplit = shortcutRoutingSplitNodes(in: workspace.bonsplitController.treeSnapshot())
+                .first(where: { $0.id == initialSplit.id }) else {
+                XCTFail("Expected resized split to remain present")
+                return
+            }
+            XCTAssertGreaterThan(resizedSplit.dividerPosition, initialSplit.dividerPosition)
+            XCTAssertLessThanOrEqual(resizedSplit.dividerPosition, 0.9)
+
+            let liveLayout = workspace.bonsplitController.layoutSnapshot()
+            guard let cachedLayout = workspace.tmuxLayoutSnapshot else {
+                XCTFail("Expected cached layout snapshot after pane resize")
+                return
+            }
+            shortcutRoutingAssertPaneFramesMatch(cachedLayout, liveLayout)
+        }
+    }
+
     private func shortcutRoutingSplitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
         switch node {
         case .pane:
