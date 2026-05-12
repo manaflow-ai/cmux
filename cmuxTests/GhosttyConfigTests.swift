@@ -1825,6 +1825,52 @@ final class RecentlyClosedBrowserStackTests: XCTestCase {
 }
 
 final class SocketControlSettingsTests: XCTestCase {
+    func testDefaultSocketPathUsesBundleScopedAppSupportNames() throws {
+        let socketDirectory = try XCTUnwrap(SocketControlSettings.stableSocketDirectoryURL())
+
+        XCTAssertEqual(
+            SocketControlSettings.defaultSocketPath(
+                bundleIdentifier: "com.cmuxterm.app",
+                isDebugBuild: false,
+                probeStableDefaultPathEntry: { _ in .missing }
+            ),
+            socketDirectory
+                .appendingPathComponent("com.cmuxterm.app.sock", isDirectory: false)
+                .path
+        )
+        XCTAssertEqual(
+            SocketControlSettings.defaultSocketPath(
+                bundleIdentifier: "com.cmuxterm.app.nightly",
+                isDebugBuild: false,
+                probeStableDefaultPathEntry: { _ in .missing }
+            ),
+            socketDirectory
+                .appendingPathComponent("com.cmuxterm.app.nightly.sock", isDirectory: false)
+                .path
+        )
+        XCTAssertEqual(
+            SocketControlSettings.defaultSocketPath(
+                bundleIdentifier: "com.cmuxterm.app.debug.issue-3993",
+                isDebugBuild: false,
+                probeStableDefaultPathEntry: { _ in .missing }
+            ),
+            socketDirectory
+                .appendingPathComponent("com.cmuxterm.app.dev.issue-3993.sock", isDirectory: false)
+                .path
+        )
+        XCTAssertEqual(
+            SocketControlSettings.socketPath(
+                environment: ["CMUX_TAG": "Issue_3993"],
+                bundleIdentifier: "com.cmuxterm.app.debug",
+                isDebugBuild: true,
+                probeStableDefaultPathEntry: { _ in .missing }
+            ),
+            socketDirectory
+                .appendingPathComponent("com.cmuxterm.app.dev.issue-3993.sock", isDirectory: false)
+                .path
+        )
+    }
+
     func testMigrateModeSupportsExpandedSocketModes() {
         XCTAssertEqual(SocketControlSettings.migrateMode("off"), .off)
         XCTAssertEqual(SocketControlSettings.migrateMode("cmuxOnly"), .cmuxOnly)
