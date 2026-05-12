@@ -204,6 +204,8 @@ final class TerminalStatusBarView: NSView {
 
 private final class TerminalStatusBarProcessWaitState: @unchecked Sendable {
     let process: Process
+    // Termination and timeout callbacks run on different queues; the lock guards
+    // the single continuation resume point without involving the MainActor.
     private let lock = NSLock()
     private var didTimeout = false
     private var didResume = false
@@ -236,8 +238,8 @@ final class TerminalStatusBarCommandController {
         let active: Bool
     }
 
-    private var timer: Timer?
-    private var task: Task<Void, Never>?
+    private var refreshTask: Task<Void, Never>?
+    private var commandTask: Task<Void, Never>?
     private var generation: UInt64 = 0
     private var appliedState: AppliedState?
     private var isCommandRunning = false
@@ -264,7 +266,7 @@ final class TerminalStatusBarCommandController {
         self.outputHandler = outputHandler
         let currentGeneration = generation
         runCommand(configuration: configuration, generation: currentGeneration)
-        scheduleTimer(configuration: configuration, generation: currentGeneration)
+        startRefreshLoop(configuration: configuration, generation: currentGeneration)
     }
 
     func stop() {
@@ -273,21 +275,19 @@ final class TerminalStatusBarCommandController {
         contextProvider = nil
         outputHandler = nil
         isCommandRunning = false
-        timer?.invalidate()
-        timer = nil
-        task?.cancel()
-        task = nil
+        refreshTask?.cancel()
+        refreshTask = nil
+        commandTask?.cancel()
+        commandTask = nil
     }
 
-    private func scheduleTimer(configuration: TerminalStatusBarConfiguration, generation: UInt64) {
-        let timer = Timer(timeInterval: configuration.refreshInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.runCommand(configuration: configuration, generation: generation)
+    private func startRefreshLoop(configuration: TerminalStatusBarConfiguration, generation: UInt64) {
+        refreshTask = Task { @MainActor [weak self] in
+            for await _ in Self.refreshTicks(every: configuration.refreshInterval) {
+                guard let self, self.generation == generation else { break }
+                self.runCommand(configuration: configuration, generation: generation)
             }
         }
-        timer.tolerance = min(0.5, max(0.01, configuration.refreshInterval * 0.1))
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
     }
 
     private func runCommand(configuration: TerminalStatusBarConfiguration, generation: UInt64) {
@@ -295,7 +295,7 @@ final class TerminalStatusBarCommandController {
         guard !isCommandRunning else { return }
         guard let context = contextProvider?() else { return }
         isCommandRunning = true
-        task = Task { @MainActor [weak self] in
+        commandTask = Task { @MainActor [weak self] in
             let output = await Task.detached(priority: .utility) {
                 await Self.runStatusCommand(
                     configuration.command,
@@ -306,9 +306,39 @@ final class TerminalStatusBarCommandController {
             guard let self else { return }
             guard self.generation == generation else { return }
             self.isCommandRunning = false
-            self.task = nil
+            self.commandTask = nil
             self.outputHandler?(output, configuration.heightRows)
         }
+    }
+
+    private nonisolated static func refreshTicks(every interval: TimeInterval) -> AsyncStream<Void> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let task = Task.detached(priority: .utility) {
+                let clock = ContinuousClock()
+                let duration = refreshDuration(for: interval)
+                let tolerance = refreshDuration(for: min(0.5, max(0.01, interval * 0.1)))
+
+                while !Task.isCancelled {
+                    do {
+                        try await clock.sleep(for: duration, tolerance: tolerance)
+                    } catch {
+                        break
+                    }
+                    guard !Task.isCancelled else { break }
+                    continuation.yield(())
+                }
+                continuation.finish()
+            }
+
+            continuation.onTermination = { @Sendable _ in
+                task.cancel()
+            }
+        }
+    }
+
+    private nonisolated static func refreshDuration(for interval: TimeInterval) -> Duration {
+        let nanoseconds = max(1, Int64((interval * 1_000_000_000).rounded()))
+        return .nanoseconds(nanoseconds)
     }
 
 #if compiler(>=6.2)
