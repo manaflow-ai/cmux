@@ -504,6 +504,11 @@ private struct AgentGraphMetadata {
             .flatMap(WorkstreamSource.init(wireName:))
     }
 
+    var parentSource: WorkstreamSource? {
+        string(keys: ["parent_source", "parentSource", "parent_agent_source", "parentAgentSource"])
+            .flatMap(WorkstreamSource.init(wireName:))
+    }
+
     var model: String? {
         string(keys: ["model", "subagent_model", "subagentModel"])
     }
@@ -525,7 +530,7 @@ private struct AgentGraphMetadata {
             return value
         }
         if let sessionId = string(keys: ["parent_session_id", "parentSessionId", "parentSessionID"]) {
-            return "\(source.rawValue)-\(sessionId)"
+            return "\((parentSource ?? source).rawValue)-\(sessionId)"
         }
         return nil
     }
