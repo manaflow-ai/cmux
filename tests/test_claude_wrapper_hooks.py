@@ -985,6 +985,120 @@ def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
     expect(hook_cmux_bin == "__UNSET__", f"stale socket: expected hook cmux unset, got {hook_cmux_bin!r}", failures)
 
 
+def run_wrapper_pty_probe(
+    *,
+    argv: list[str],
+    socket_state: str = "live",
+) -> tuple[int, str, str]:
+    """
+    Drive the wrapper with stdin=/dev/null (non-TTY) and capture whether the
+    fake real claude saw a TTY on its own stdin. Mirrors run_wrapper's faked
+    PATH layout but trims the parts that aren't relevant to the PTY check.
+    """
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-pty-") as td:
+        tmp = Path(td)
+        wrapper_dir = tmp / "wrapper-bin"
+        real_dir = tmp / "real-bin"
+        wrapper_dir.mkdir(parents=True, exist_ok=True)
+        real_dir.mkdir(parents=True, exist_ok=True)
+
+        wrapper = wrapper_dir / "claude"
+        shutil.copy2(SOURCE_WRAPPER, wrapper)
+        wrapper.chmod(0o755)
+
+        tty_log = tmp / "real-tty-state.log"
+        cmux_log = tmp / "cmux.log"
+        socket_path = str(tmp / "cmux.sock")
+
+        make_executable(
+            real_dir / "claude",
+            """#!/usr/bin/env bash
+set -euo pipefail
+if [ -t 0 ]; then
+  printf 'tty\\n' > "$FAKE_REAL_TTY_LOG"
+else
+  printf 'not_a_tty\\n' > "$FAKE_REAL_TTY_LOG"
+fi
+""",
+        )
+
+        make_executable(
+            wrapper_dir / "cmux",
+            """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "$FAKE_CMUX_LOG"
+if [[ "${1:-}" == "--socket" ]]; then
+  shift 2
+fi
+if [[ "${1:-}" == "ping" ]]; then
+  if [[ "${FAKE_CMUX_PING_OK:-0}" == "1" ]]; then
+    exit 0
+  fi
+  exit 1
+fi
+exit 0
+""",
+        )
+
+        test_socket: socket.socket | None = None
+        if socket_state in {"live", "stale"}:
+            test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            test_socket.bind(socket_path)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
+        env["CMUX_SURFACE_ID"] = "surface:test"
+        env["CMUX_SOCKET_PATH"] = socket_path
+        env["FAKE_REAL_TTY_LOG"] = str(tty_log)
+        env["FAKE_CMUX_LOG"] = str(cmux_log)
+        env["FAKE_CMUX_PING_OK"] = "1" if socket_state == "live" else "0"
+        env.pop("NODE_OPTIONS", None)
+        env.pop("CMUX_CLAUDE_FORCE_PTY", None)
+
+        try:
+            proc = subprocess.run(
+                ["claude", *argv],
+                cwd=tmp,
+                env=env,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            if test_socket is not None:
+                test_socket.close()
+
+        tty_state = tty_log.read_text(encoding="utf-8").strip() if tty_log.exists() else "<missing>"
+        return proc.returncode, tty_state, proc.stderr.strip()
+
+
+def test_inside_cmux_without_tty_allocates_pty_for_real_claude(failures: list[str]) -> None:
+    """
+    Regression for https://github.com/manaflow-ai/cmux/issues/4001.
+
+    cmux build variants that wire child-process IO without a controlling
+    terminal cause Ink-based TUIs (e.g. `claude`, `claude agents`) to drop
+    into non-interactive mode because stdin is not a real PTY. The wrapper
+    must allocate one so the spawned claude sees a TTY on stdin.
+    """
+    if not os.access("/usr/bin/script", os.X_OK):
+        return  # BSD `script` is required for the workaround.
+
+    cases: list[tuple[str, list[str]]] = [
+        ("interactive entry", []),
+        ("agents subcommand", ["agents"]),
+    ]
+    for label, argv in cases:
+        code, tty_state, stderr = run_wrapper_pty_probe(argv=argv)
+        expect(code == 0, f"pty alloc ({label}): wrapper exited {code}: {stderr}", failures)
+        expect(
+            tty_state == "tty",
+            f"pty alloc ({label}): expected real claude stdin to be a tty, got {tty_state!r}",
+            failures,
+        )
+
+
 def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
@@ -1010,6 +1124,7 @@ def main() -> int:
     test_missing_socket_skips_hook_injection(failures)
     test_disabled_integration_skips_hook_injection(failures)
     test_stale_socket_skips_hook_injection(failures)
+    test_inside_cmux_without_tty_allocates_pty_for_real_claude(failures)
 
     if failures:
         print("FAIL: claude wrapper regression checks failed")

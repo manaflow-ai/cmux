@@ -174,6 +174,28 @@ clear_inherited_claude_auth_selection_env() {
     normalize_claude_config_dir
 }
 
+# Inside cmux build variants that route child-process IO without a controlling
+# terminal (e.g. "manual-io-minimal"), Ink-based TUIs such as Claude Code drop
+# into non-interactive output because stdin is not a real PTY. Allocate one via
+# BSD `script` before exec'ing claude so interactive TUIs render correctly.
+# Set CMUX_CLAUDE_FORCE_PTY=0 to opt out.
+# Ref: https://github.com/manaflow-ai/cmux/issues/4001
+exec_real_claude() {
+    if [[ "${IN_CMUX:-0}" == "1" ]] \
+        && [[ "${CMUX_CLAUDE_FORCE_PTY:-1}" != "0" ]] \
+        && [[ ! -t 0 ]] \
+        && [[ -x /usr/bin/script ]]; then
+        # BSD `script` calls tcgetattr on stdin and aborts when it cannot read
+        # attrs (some socket types). Probe with /usr/bin/true so a hostile
+        # stdin can never regress claude into "failed to start" — fall back to
+        # direct exec instead, preserving today's behavior.
+        if /usr/bin/script -q /dev/null /usr/bin/true >/dev/null 2>&1; then
+            exec /usr/bin/script -q /dev/null "$@"
+        fi
+    fi
+    exec "$@"
+}
+
 # Pass through if not in a cmux terminal, hooks are disabled, or the cmux
 # socket is unavailable (stale env / app not running).
 IN_CMUX=0
@@ -189,7 +211,7 @@ if [[ "$IN_CMUX" == "0" || "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]] || ! cmux_soc
     fi
     clear_inherited_claude_auth_selection_env
     REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
-    exec "$REAL_CLAUDE" "$@"
+    exec_real_claude "$REAL_CLAUDE" "$@"
 fi
 
 # Find real claude.
@@ -365,7 +387,7 @@ should_inject_claude_hooks() {
 # invocations pass through so new Claude subcommands do not need cmux changes.
 if ! should_inject_claude_hooks "$@"; then
     clear_inherited_claude_auth_selection_env
-    exec "$REAL_CLAUDE" "$@"
+    exec_real_claude "$REAL_CLAUDE" "$@"
 fi
 
 # Unset CLAUDECODE to avoid "nested session" detection — cmux terminals are
@@ -421,8 +443,8 @@ fi
 HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
-    exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
+    exec_real_claude "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
 else
     SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
-    exec "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
+    exec_real_claude "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
 fi
