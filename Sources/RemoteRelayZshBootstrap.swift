@@ -26,8 +26,8 @@ enum RemoteShellIntegrationSnippet {
           value="${value//+/%2B}"
           value="${value//\\//%2F}"
           value="${value//@/%40}"
-          value="${value//[/%5B}"
-          value="${value//]/%5D}"
+          value="${value//\\[/%5B}"
+          value="${value//\\]/%5D}"
           printf '%s' "$value"
         }
 
@@ -38,8 +38,8 @@ enum RemoteShellIntegrationSnippet {
           value="${value//#/%23}"
           value="${value//\\?/%3F}"
           value="${value//\\\\/%5C}"
-          value="${value//[/%5B}"
-          value="${value//]/%5D}"
+          value="${value//\\[/%5B}"
+          value="${value//\\]/%5D}"
           printf '%s' "$value"
         }
 
@@ -70,13 +70,13 @@ enum RemoteShellIntegrationSnippet {
         }
 
         __cmux_remote_report_prompt() {
-          local host path query
+          local host escaped_pwd query
           host="$(__cmux_remote_hostname | __cmux_strip_control_chars)"
           [ -n "$host" ] || host=remote
           host="$(__cmux_remote_uri_escape "$host")"
-          path="$(__cmux_remote_path_escape "$(printf '%s' "${PWD:-/}" | __cmux_strip_control_chars)")"
+          escaped_pwd="$(__cmux_remote_path_escape "$(printf '%s' "${PWD:-/}" | __cmux_strip_control_chars)")"
           query="$(__cmux_remote_git_branch_query)"
-          printf '\\033]7;file://%s%s%s\\033\\\\' "$host" "$path" "$query"
+          printf '\\033]7;file://%s%s%s\\033\\\\' "$host" "$escaped_pwd" "$query"
         }
 
         __cmux_remote_add_zsh_precmd_fallback() {

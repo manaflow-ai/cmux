@@ -530,7 +530,7 @@ class TerminalController {
         guard !trimmed.isEmpty else { return directory }
         if let location = TerminalLocation.parseReportedDirectory(trimmed),
            location.source == .osc7 || trimmed.hasPrefix("file://") || trimmed.hasPrefix("kitty-shell-cwd://") {
-            return location.path
+            return location.isRemote ? trimmed : location.path
         }
         return trimmed
     }
@@ -17228,11 +17228,22 @@ class TerminalController {
             var lines: [String] = []
             lines.append("tab=\(tab.id.uuidString)")
             lines.append("color=\(tab.customColor ?? "none")")
-            lines.append("cwd=\(tab.currentDirectory)")
+            let focusedPanelId = tab.focusedPanelId
+            let focusedDirectory = focusedPanelId.flatMap { panelId -> String? in
+                if let location = tab.terminalLocation(for: panelId) {
+                    return location.displayDirectory
+                }
+                return tab.panelDirectories[panelId]
+            }
+            lines.append("cwd=\(focusedDirectory ?? tab.currentDirectory)")
 
-            if let focused = tab.focusedPanelId,
+            if let focused = focusedPanelId,
                let focusedDir = tab.panelDirectories[focused] {
                 lines.append("focused_cwd=\(focusedDir)")
+                lines.append("focused_panel=\(focused.uuidString)")
+            } else if let focused = focusedPanelId,
+                      let focusedDirectory {
+                lines.append("focused_cwd=\(focusedDirectory)")
                 lines.append("focused_panel=\(focused.uuidString)")
             } else {
                 lines.append("focused_cwd=unknown")
