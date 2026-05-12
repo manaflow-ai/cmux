@@ -88,4 +88,37 @@ struct WorkstreamAgentGraphTests {
         #expect(graph.edgeCount == 0)
         #expect(graph.roots.map(\.workstreamId).sorted() == ["claude-child", "claude-parent"])
     }
+
+    @Test("Explicit child session prunes matching pending spawn")
+    func explicitChildSessionPrunesMatchingPendingSpawn() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-parent",
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: "workspace-1"
+        ))
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-parent",
+            hookEventName: .preToolUse,
+            source: "claude",
+            workspaceId: "workspace-1",
+            toolName: "Task",
+            toolInputJSON: #"{"description":"Explore settings","subagent_type":"explorer","prompt":"Map settings code paths"}"#
+        ))
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-child",
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: "workspace-1",
+            extraFieldsJSON: #"{"parent_workstream_id":"claude-parent","subagent_type":"explorer"}"#
+        ))
+
+        let graph = WorkstreamAgentGraphBuilder.snapshot(from: store.items)
+        #expect(graph.nodeCount == 2)
+        #expect(graph.edgeCount == 1)
+        let child = graph.roots.first?.children.first
+        #expect(child?.kind == .session)
+        #expect(child?.workstreamId == "claude-child")
+    }
 }

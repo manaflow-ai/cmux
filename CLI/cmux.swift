@@ -14822,7 +14822,7 @@ struct CMUXCLI {
             "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble",
             "event", "event_name", "hook_event_name", "type", "kind", "notification_type", "matcher", "reason",
             "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
-            "additional_details", "additionalDetails", "description", "model",
+            "additional_details", "additionalDetails", "description", "model", "subagent_model", "subagentModel",
             "parent_workstream_id", "parentWorkstreamId", "parent_session_id", "parentSessionId", "parentSessionID",
             "child_workstream_id", "childWorkstreamId", "child_session_id", "childSessionId", "childSessionID",
             "subagent_workstream_id", "subagentWorkstreamId", "subagent_session_id", "subagentSessionId",
@@ -14837,7 +14837,7 @@ struct CMUXCLI {
             var compactToolInput: [String: Any] = [:]
             for key in [
                 "file_path", "command", "pattern", "description", "query", "plan", "planFilePath",
-                "prompt", "message", "model",
+                "prompt", "message", "model", "subagent_model", "subagentModel",
                 "parent_workstream_id", "parentWorkstreamId", "parent_session_id", "parentSessionId", "parentSessionID",
                 "child_workstream_id", "childWorkstreamId", "child_session_id", "childSessionId", "childSessionID",
                 "subagent_workstream_id", "subagentWorkstreamId", "subagent_session_id", "subagentSessionId",

@@ -138,6 +138,12 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
                     record.parentWorkstreamId = parentWorkstreamId
                     record.merge(metadata: metadata)
                 }
+                pruneResolvedSpawn(
+                    parentWorkstreamId: parentWorkstreamId,
+                    metadata: metadata,
+                    childSource: item.source,
+                    childWorkspaceId: item.workspaceId
+                )
             }
 
             if let childWorkstreamId = metadata.childWorkstreamId(source: item.source) {
@@ -154,6 +160,69 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
             } else if let spawn = SpawnRecord(item: item, metadata: metadata) {
                 pendingSpawnsByParent[item.workstreamId, default: []].append(spawn)
             }
+        }
+
+        func pruneResolvedSpawn(
+            parentWorkstreamId: String,
+            metadata: AgentGraphMetadata,
+            childSource: WorkstreamSource,
+            childWorkspaceId: String?
+        ) {
+            guard var spawns = pendingSpawnsByParent[parentWorkstreamId],
+                  !spawns.isEmpty else { return }
+            let index = bestResolvedSpawnIndex(
+                in: spawns,
+                metadata: metadata,
+                childSource: childSource,
+                childWorkspaceId: childWorkspaceId
+            )
+            spawns.remove(at: index)
+            if spawns.isEmpty {
+                pendingSpawnsByParent[parentWorkstreamId] = nil
+            } else {
+                pendingSpawnsByParent[parentWorkstreamId] = spawns
+            }
+        }
+
+        func bestResolvedSpawnIndex(
+            in spawns: [SpawnRecord],
+            metadata: AgentGraphMetadata,
+            childSource: WorkstreamSource,
+            childWorkspaceId: String?
+        ) -> Int {
+            var bestIndex = spawns.startIndex
+            var bestScore = Int.min
+            for (index, spawn) in spawns.enumerated() {
+                var score = 0
+                if spawn.source == childSource {
+                    score += 2
+                }
+                if let childWorkspaceId,
+                   let workspaceId = spawn.workspaceId,
+                   childWorkspaceId == workspaceId {
+                    score += 2
+                }
+                if let subagentType = metadata.subagentType,
+                   let spawnSubagentType = spawn.subagentType,
+                   subagentType == spawnSubagentType {
+                    score += 4
+                }
+                if let model = metadata.model,
+                   let spawnModel = spawn.model,
+                   model == spawnModel {
+                    score += 3
+                }
+                if let taskDescription = metadata.taskDescription,
+                   let spawnTaskDescription = spawn.taskDescription,
+                   taskDescription == spawnTaskDescription {
+                    score += 4
+                }
+                if score > bestScore {
+                    bestIndex = index
+                    bestScore = score
+                }
+            }
+            return bestIndex
         }
 
         var childrenByParent: [String: [String]] = [:]
