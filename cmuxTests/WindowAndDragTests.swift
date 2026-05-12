@@ -243,6 +243,42 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         XCTAssertNil(app.tabManagerFor(windowId: windowId))
     }
 
+    func testCloseMainWindowReleasesRegisteredWindowContent() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+        weak var releasedContentView: NSView?
+
+        autoreleasepool {
+            let windowId = UUID()
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+                styleMask: [.titled, .closable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+            window.isReleasedWhenClosed = false
+            let contentView = NSView(frame: window.contentLayoutRect)
+            window.contentView = contentView
+            releasedContentView = contentView
+
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            app.registerMainWindow(
+                window,
+                windowId: windowId,
+                tabManager: manager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: FileExplorerState()
+            )
+
+            XCTAssertTrue(app.closeMainWindow(windowId: windowId))
+            XCTAssertNil(app.tabManagerFor(windowId: windowId))
+        }
+
+        XCTAssertNil(releasedContentView)
+    }
+
     func testSynchronizeActiveMainWindowContextPrefersProvidedWindowOverStaleActiveManager() {
         _ = NSApplication.shared
         let app = AppDelegate()
