@@ -14594,9 +14594,18 @@ private extension NSWindow {
 
         if let firstResponderGhosttyView, shouldRouteCommandEquivalentDirectlyToMainMenu(event) {
             if AppDelegate.shared?.shouldForwardBrowserSurfaceShortcutToTerminal(event) == true {
-                if firstResponderGhosttyView.performKeyEquivalentAfterMenuMiss(with: event) { return true }
-                firstResponderGhosttyView.keyDown(with: event)
-                return true
+                switch firstResponderGhosttyView.commandEquivalentAfterMenuMissResult(with: event) {
+                case .consumedByTerminal:
+                    return true
+                case .yieldToSystem:
+#if DEBUG
+                    cmuxDebugLog("  → browser-surface terminal fallback yielded to system shortcut")
+#endif
+                    return cmux_performKeyEquivalent(with: event)
+                case .unhandled:
+                    firstResponderGhosttyView.keyDown(with: event)
+                    return true
+                }
             }
             guard let mainMenu = NSApp.mainMenu else { return false }
             let consumedByMenu = mainMenu.performKeyEquivalent(with: event)

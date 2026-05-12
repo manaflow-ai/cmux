@@ -22,7 +22,7 @@ enum CmuxSystemShortcutMatcher {
 
     static func shouldYieldTerminalCommandEquivalentToSystem(event: NSEvent) -> Bool {
         guard event.type == .keyDown else { return false }
-        let normalizedFlags = normalizedModifierFlags(event.modifierFlags)
+        let normalizedFlags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
         guard normalizedFlags.contains(.command) else { return false }
         return matchesEnabledAppleSymbolicHotKey(
             event: event,
@@ -35,7 +35,7 @@ enum CmuxSystemShortcutMatcher {
         symbolicHotKeys: [String: Any]?
     ) -> Bool {
         guard let symbolicHotKeys else { return false }
-        let eventFlags = normalizedModifierFlags(event.modifierFlags)
+        let eventFlags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
 
         for rawEntry in symbolicHotKeys.values {
             guard let entry = rawEntry as? [String: Any],
@@ -48,8 +48,8 @@ enum CmuxSystemShortcutMatcher {
                 continue
             }
 
-            let shortcutFlags = normalizedModifierFlags(
-                NSEvent.ModifierFlags(rawValue: UInt(modifierRaw))
+            let shortcutFlags = ShortcutStroke.normalizedModifierFlags(
+                from: NSEvent.ModifierFlags(rawValue: UInt(modifierRaw))
             )
             if Int(event.keyCode) == keyCode, eventFlags == shortcutFlags {
                 return true
@@ -99,12 +99,6 @@ enum CmuxSystemShortcutMatcher {
     private static func invalidateAppleSymbolicHotKeysCache() {
         cachedAppleSymbolicHotKeys = nil
         cachedAppleSymbolicHotKeysLoadedAt = nil
-    }
-
-    private static func normalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
-        flags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
     }
 
     private static func boolValue(_ value: Any?) -> Bool {

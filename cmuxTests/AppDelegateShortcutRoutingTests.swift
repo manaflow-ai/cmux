@@ -46,6 +46,7 @@ private final class GhosttyCommandEquivalentProbeView: GhosttyNSView {
 
 @MainActor
 final class AppDelegateShortcutRoutingTests: XCTestCase {
+    private static let keyCodeANSI0: UInt16 = 29
     private var savedShortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var actionsWithPersistedShortcut: Set<KeyboardShortcutSettings.Action> = []
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
@@ -102,6 +103,26 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         return ghostty_input_mods_e(rawValue: rawValue)
     }
 
+    private func symbolicHotKeysDomain(
+        keyCode: UInt16,
+        modifiers: NSEvent.ModifierFlags,
+        enabled: Bool = true
+    ) -> [String: Any] {
+        [
+            "3652": [
+                "enabled": enabled,
+                "value": [
+                    "parameters": [
+                        65535,
+                        Int(keyCode),
+                        Int(modifiers.rawValue),
+                    ],
+                    "type": "standard",
+                ],
+            ],
+        ]
+    }
+
     override func setUp() {
         super.setUp()
         // Prevent a single hanging test from consuming the entire CI timeout budget.
@@ -123,6 +144,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     override func tearDown() {
         #if DEBUG
         KeyboardShortcutSettings.shortcutLookupObserver = nil
+        CmuxSystemShortcutMatcher.debugAppleSymbolicHotKeysProvider = nil
+        CmuxSystemShortcutMatcher.debugAppleSymbolicHotKeysCacheLifetime = nil
         #endif
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
@@ -5280,6 +5303,115 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             0,
             "Window routing must not force plain-text paste before Ghostty inspects bindings"
         )
+    }
+
+    func testWindowPerformKeyEquivalentForwardsBrowserSurfaceShortcutFallbackToTerminal() throws {
+        let previousMainMenu = NSApp.mainMenu
+        let probeWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
+        let probeView = GhosttyCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        probeView.performAfterMenuMissResult = false
+
+        defer {
+            NSApp.mainMenu = previousMainMenu
+            probeWindow.orderOut(nil)
+        }
+
+        let emptyMenu = NSMenu(title: "Test")
+        emptyMenu.addItem(withTitle: "Placeholder", action: nil, keyEquivalent: "")
+        NSApp.mainMenu = emptyMenu
+
+        probeWindow.contentView = contentView
+        contentView.addSubview(probeView)
+        probeWindow.makeKeyAndOrderFront(nil)
+        probeWindow.displayIfNeeded()
+        XCTAssertTrue(probeWindow.makeFirstResponder(probeView), "Expected probe Ghostty view to own first responder")
+
+        guard let event = makeKeyDownEvent(
+            key: "0",
+            modifiers: [.command],
+            keyCode: Self.keyCodeANSI0,
+            windowNumber: probeWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+0 event")
+            return
+        }
+
+#if DEBUG
+        CmuxSystemShortcutMatcher.debugAppleSymbolicHotKeysProvider = { [:] }
+#else
+        throw XCTSkip("System shortcut provider injection is DEBUG-only")
+#endif
+
+        XCTAssertTrue(
+            probeWindow.performKeyEquivalent(with: event),
+            "Unclaimed browser-panel shortcuts should still fall back to focused terminal input"
+        )
+        XCTAssertEqual(probeView.afterMenuMissCallCount, 1, "Ghostty binding resolution should run before keyDown fallback")
+        XCTAssertEqual(probeView.keyDownCallCount, 1, "Unclaimed browser-panel shortcut fallback should reach keyDown")
+        XCTAssertEqual(probeView.lastKeyDownCharactersIgnoringModifiers, "0")
+    }
+
+    func testWindowPerformKeyEquivalentYieldsSystemShortcutBeforeBrowserSurfaceTerminalFallback() throws {
+        let previousMainMenu = NSApp.mainMenu
+        let probeWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
+        let probeView = GhosttyCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        probeView.performAfterMenuMissResult = false
+
+        defer {
+            NSApp.mainMenu = previousMainMenu
+            probeWindow.orderOut(nil)
+        }
+
+        let emptyMenu = NSMenu(title: "Test")
+        emptyMenu.addItem(withTitle: "Placeholder", action: nil, keyEquivalent: "")
+        NSApp.mainMenu = emptyMenu
+
+        probeWindow.contentView = contentView
+        contentView.addSubview(probeView)
+        probeWindow.makeKeyAndOrderFront(nil)
+        probeWindow.displayIfNeeded()
+        XCTAssertTrue(probeWindow.makeFirstResponder(probeView), "Expected probe Ghostty view to own first responder")
+
+        guard let event = makeKeyDownEvent(
+            key: "0",
+            modifiers: [.command],
+            keyCode: Self.keyCodeANSI0,
+            windowNumber: probeWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+0 event")
+            return
+        }
+
+#if DEBUG
+        let symbolicHotKeysDomain = symbolicHotKeysDomain(
+            keyCode: Self.keyCodeANSI0,
+            modifiers: [.command]
+        )
+        CmuxSystemShortcutMatcher.debugAppleSymbolicHotKeysProvider = {
+            symbolicHotKeysDomain
+        }
+#else
+        throw XCTSkip("System shortcut provider injection is DEBUG-only")
+#endif
+
+        XCTAssertFalse(
+            probeWindow.performKeyEquivalent(with: event),
+            "Enabled system shortcuts should be yielded instead of falling back to terminal keyDown"
+        )
+        XCTAssertEqual(probeView.afterMenuMissCallCount, 1, "Ghostty binding resolution should still run once")
+        XCTAssertEqual(probeView.keyDownCallCount, 0, "System shortcut yield must not be defeated by keyDown fallback")
     }
 
     func testWindowPerformKeyEquivalentForwardsClearedCmdDPastStaleMenuShortcut() {
