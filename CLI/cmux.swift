@@ -2112,7 +2112,7 @@ struct CMUXCLI {
         else {
             return Self.hotPathBrokerIdleTimeoutSeconds
         }
-        return min(max(parsed, 0.05), Self.hotPathBrokerIdleTimeoutSeconds)
+        return min(max(parsed, 1.0), Self.hotPathBrokerIdleTimeoutSeconds)
     }
 
     private func hotPathBrokerClientReadTimeout(from environment: [String: String]) -> TimeInterval {
@@ -2474,7 +2474,8 @@ struct CMUXCLI {
             }
         }
 
-        let addrLen = socklen_t(MemoryLayout<sa_family_t>.size + pathBytes.count + 1)
+        let addrLen = socklen_t(MemoryLayout<UInt8>.size + MemoryLayout<sa_family_t>.size + pathBytes.count + 1)
+        addr.sun_len = UInt8(addrLen)
         let bindResult = withUnsafePointer(to: &addr) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
                 Darwin.bind(listenerFD, sockaddrPtr, addrLen)
@@ -21555,8 +21556,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
 enum CMUXCLIOutput {
     static func configureStandardHandlesForCLIPipes() {
-        configureCLIWriteFDNoSIGPIPE(STDOUT_FILENO)
-        configureCLIWriteFDNoSIGPIPE(STDERR_FILENO)
         _ = signal(SIGPIPE, SIG_DFL)
     }
 
@@ -21577,26 +21576,7 @@ enum CMUXCLIOutput {
     }
 
     private static func write(_ data: Data, to fd: Int32) {
-        data.withUnsafeBytes { rawBuffer in
-            guard let baseAddress = rawBuffer.baseAddress else {
-                return
-            }
-
-            var offset = 0
-            while offset < data.count {
-                cliStdioDispositionLock.lock()
-                let bytesWritten = Darwin.write(fd, baseAddress.advanced(by: offset), data.count - offset)
-                let writeErrno = bytesWritten < 0 ? errno : 0
-                cliStdioDispositionLock.unlock()
-                if bytesWritten > 0 {
-                    offset += bytesWritten
-                } else if bytesWritten == -1, writeErrno == EINTR {
-                    continue
-                } else {
-                    return
-                }
-            }
-        }
+        cliWriteIgnoringBrokenPipe(data, to: fd)
     }
 }
 
