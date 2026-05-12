@@ -1251,7 +1251,7 @@ final class WindowTerminalPortal: NSObject {
         for entry in entriesByHostedId.values {
             guard let hostedView = entry.hostedView, !hostedView.isHidden else { continue }
             if hostedView.reconcileGeometryNow() {
-                hostedView.refreshSurfaceNow(reason: reason)
+                hostedView.scheduleSurfaceRefresh(reason: reason)
             }
         }
     }
@@ -1568,7 +1568,7 @@ final class WindowTerminalPortal: NSObject {
             CATransaction.commit()
             if geometryChanged {
                 hostedView.reconcileGeometryNow()
-                hostedView.refreshSurfaceNow(reason: "portal.frameChange")
+                hostedView.scheduleSurfaceRefresh(reason: "portal.frameChange")
             }
         }
 
@@ -1598,7 +1598,7 @@ final class WindowTerminalPortal: NSObject {
             // normal frame-change refresh path won't run. Nudge geometry + redraw so newly
             // revealed terminals don't sit on a stale/blank IOSurface until later focus churn.
             hostedView.reconcileGeometryNow()
-            hostedView.refreshSurfaceNow(reason: "portal.reveal")
+            hostedView.scheduleSurfaceRefresh(reason: "portal.reveal")
         }
 
         if transientRecoveryReason == nil {

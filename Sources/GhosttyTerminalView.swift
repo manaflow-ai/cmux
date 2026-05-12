@@ -9785,6 +9785,8 @@ final class GhosttySurfaceScrollView: NSView {
     private var pendingDropZone: DropZone?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     private var pendingAutomaticFirstResponderApply = false
+    private var pendingSurfaceRefreshQueued = false
+    private var pendingSurfaceRefreshReason = "portal.refreshSurfaceNow"
     // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
 
     /// Tracks whether keyboard focus should go to the search field or the terminal
@@ -10428,14 +10430,27 @@ final class GhosttySurfaceScrollView: NSView {
     /// Request an immediate terminal redraw after geometry updates so stale IOSurface
     /// contents do not remain stretched during live resize churn.
     func refreshSurfaceNow(reason: String = "portal.refreshSurfaceNow") {
-        // Portal reparent/reveal can settle geometry a tick before AppKit finishes
-        // realizing the terminal subtree's backing layer state. Flush display for the
-        // hosted subtree first so forceRefresh does not race a still-unrealized layer.
-        layoutSubtreeIfNeeded()
-        surfaceView.layoutSubtreeIfNeeded()
-        displayIfNeeded()
-        surfaceView.displayIfNeeded()
+        if !Thread.isMainThread {
+            scheduleSurfaceRefresh(reason: reason)
+            return
+        }
+
         surfaceView.terminalSurface?.forceRefresh(reason: reason)
+    }
+
+    /// Coalesce terminal redraw nudges that originate from portal geometry/visibility churn.
+    /// Synchronous layout/display forcing from those callbacks can re-enter SwiftUI/AppKit
+    /// layout while the hosting tree is already being rendered; the next main turn still
+    /// refreshes the Metal surface promptly, but after the current layout transaction settles.
+    func scheduleSurfaceRefresh(reason: String = "portal.scheduleSurfaceRefresh") {
+        pendingSurfaceRefreshReason = reason
+        guard !pendingSurfaceRefreshQueued else { return }
+        pendingSurfaceRefreshQueued = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.pendingSurfaceRefreshQueued = false
+            self.refreshSurfaceNow(reason: self.pendingSurfaceRefreshReason)
+        }
     }
 
     @discardableResult
@@ -11363,8 +11378,8 @@ final class GhosttySurfaceScrollView: NSView {
         } else if !wasVisible {
             // Workspace/sidebar selection can make an already-sized terminal visible again
             // without a portal frame delta or a focus handoff. Reuse the portal refresh
-            // path so the Metal layer is nudged immediately on plain visibility restores.
-            refreshSurfaceNow(reason: "setVisibleInUI")
+            // path so the Metal layer is nudged once visibility settles.
+            scheduleSurfaceRefresh(reason: "setVisibleInUI")
             scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
         }
     }
