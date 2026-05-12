@@ -12,6 +12,7 @@ const DEFAULT_SOCKET = `${os.homedir()}/.config/cmux/cmux.sock`;
 const SOCKET_PATH = process.env.CMUX_SOCKET_PATH || DEFAULT_SOCKET;
 const REPLY_TIMEOUT_MS = 120_000;
 const MAX_PLAN_BYTES = 128 * 1024;
+const COMPLETE_NOTIFICATION_DEDUPE_MS = 1000;
 
 export const CMUXFeed = async (ctx) => {
   let client = null;
@@ -29,6 +30,14 @@ export const CMUXFeed = async (ctx) => {
     return null;
   };
 
+  const sessionIdFromProperties = (props = {}) => firstString(
+    props.info && props.info.id,
+    props.sessionID,
+    props.sessionId,
+    props.session_id,
+    props.session && props.session.id
+  );
+
   const normalizeText = (value, max = 1000) => {
     if (typeof value !== "string") return null;
     const normalized = value.replace(/\s+/g, " ").trim();
@@ -43,6 +52,7 @@ export const CMUXFeed = async (ctx) => {
         lastUserMessage: null,
         assistantPreamble: null,
         cwd: null,
+        lastCompletionNotificationAt: 0,
       });
     }
     return sessions.get(key);
@@ -487,6 +497,46 @@ export const CMUXFeed = async (ctx) => {
     });
   };
 
+  const envString = (name) => {
+    const value = process.env[name];
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+  };
+
+  const completionNotificationParams = (sessionId) => {
+    const state = sessionState(sessionId);
+    const cwd = state.cwd || ctx?.directory || process.cwd();
+    const projectName = cwd ? path.basename(cwd) : null;
+    const params = {
+      title: "OpenCode",
+      subtitle: projectName ? `Completed in ${projectName}` : "Completed",
+      body: state.assistantPreamble || "OpenCode session completed",
+    };
+    const workspaceId = envString("CMUX_WORKSPACE_ID");
+    const surfaceId = envString("CMUX_SURFACE_ID");
+    if (workspaceId) params.preferred_workspace_id = workspaceId;
+    if (surfaceId) params.preferred_surface_id = surfaceId;
+    return params;
+  };
+
+  const pushCompletionNotification = (sessionId) => {
+    const state = sessionState(sessionId);
+    const now = Date.now();
+    if (now - state.lastCompletionNotificationAt < COMPLETE_NOTIFICATION_DEDUPE_MS) return;
+    state.lastCompletionNotificationAt = now;
+    write({
+      id: `opencode-notification-${now}`,
+      method: "notification.create_for_caller",
+      params: completionNotificationParams(sessionId),
+    });
+  };
+
+  const pushStop = (sessionId) => {
+    pushTelemetry(base(sessionId, {
+      hook_event_name: "Stop",
+    }));
+    pushCompletionNotification(sessionId);
+  };
+
   return {
     event: async ({ event }) => {
       const tracked = trackMessage(event);
@@ -496,25 +546,34 @@ export const CMUXFeed = async (ctx) => {
       }
       switch (event.type) {
         case "session.created": {
-          const info = event.properties?.info || {};
-          const state = sessionState(info.id || "unknown");
+          const props = event.properties || {};
+          const info = props.info || {};
+          const sid = sessionIdFromProperties(props) || "unknown";
+          const state = sessionState(sid);
           state.cwd = info.directory || ctx?.directory || state.cwd;
-          pushTelemetry(base(info.id || "unknown", {
+          state.lastCompletionNotificationAt = 0;
+          pushTelemetry(base(sid, {
             hook_event_name: "SessionStart",
             cwd: state.cwd,
           }));
           break;
         }
-        case "session.idle": {
-          const sid = event.properties?.sessionID;
+        case "session.status": {
+          const props = event.properties || {};
+          if (props.status?.type !== "idle") break;
+          const sid = sessionIdFromProperties(props);
           if (!sid) break;
-          pushTelemetry(base(sid, {
-            hook_event_name: "Stop",
-          }));
+          pushStop(sid);
+          break;
+        }
+        case "session.idle": {
+          const sid = sessionIdFromProperties(event.properties || {});
+          if (!sid) break;
+          pushStop(sid);
           break;
         }
         case "session.deleted": {
-          const sid = event.properties?.info?.id;
+          const sid = sessionIdFromProperties(event.properties || {});
           if (!sid) break;
           sessions.delete(sid);
           pushTelemetry(base(sid, {

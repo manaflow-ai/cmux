@@ -16742,11 +16742,11 @@ const CMUXSessionRestore = async (ctx) => {
           break;
         case "session.status":
           if (props.status && props.status.type === "idle") {
-            sendHook("stop", ctx, event);
+            sendHook("stop", ctx, event, { suppress_notification: true });
           }
           break;
         case "session.idle":
-          sendHook("stop", ctx, event);
+          sendHook("stop", ctx, event, { suppress_notification: true });
           break;
         case "session.deleted":
           sendHook("session-end", ctx, event);
@@ -17658,8 +17658,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     )
                 }
 
-                let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
-                _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+                let suppressNotification =
+                    (input.object?["suppress_notification"] as? Bool == true)
+                    || (input.object?["suppressNotification"] as? Bool == true)
+                if !suppressNotification {
+                    let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
+                    _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+                }
                 if let codexFailure {
                     _ = try? sendV1Command(
                         "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
