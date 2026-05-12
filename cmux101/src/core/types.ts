@@ -348,6 +348,7 @@ export interface Config {
     ask?: string[];
     deny?: string[];
   };
+  aliases?: Record<string, string>;
 }
 
 export interface McpServerConfig {

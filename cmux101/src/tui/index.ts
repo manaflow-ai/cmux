@@ -48,6 +48,17 @@ export function runTui(opts: InitialAppProps): TuiInstance {
         bufferedEvents.push(() => liveHandle!.onMessageAppended(message));
       }
     },
+    promptPermission(toolName, input) {
+      if (liveHandle) {
+        return liveHandle.promptPermission(toolName, input);
+      }
+      // If handle isn't live yet, buffer it and wait.
+      return new Promise((resolve) => {
+        bufferedEvents.push(() => {
+          liveHandle!.promptPermission(toolName, input).then(resolve);
+        });
+      });
+    },
   };
 
   function onReady(h: AppHandle) {

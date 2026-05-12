@@ -113,4 +113,48 @@ describe("parseArgs", () => {
   test("auth login missing provider throws", () => {
     expect(() => parseArgs(["auth", "login"])).toThrow();
   });
+
+  // --output-format
+  test("--output-format json sets outputFormat", () => {
+    const r = parseArgs(["--output-format", "json"]);
+    expect(r.outputFormat).toBe("json");
+  });
+
+  test("--output-format text sets outputFormat", () => {
+    const r = parseArgs(["--output-format", "text"]);
+    expect(r.outputFormat).toBe("text");
+  });
+
+  test("--output-format invalid value throws", () => {
+    expect(() => parseArgs(["--output-format", "xml"])).toThrow();
+  });
+
+  test("outputFormat defaults to undefined when not passed", () => {
+    const r = parseArgs([]);
+    expect(r.outputFormat).toBeUndefined();
+  });
+
+  // doctor subcommand
+  test("doctor subcommand sets mode to doctor", () => {
+    const r = parseArgs(["doctor"]);
+    expect(r.mode).toBe("doctor");
+  });
+
+  test("doctor with --output-format json", () => {
+    const r = parseArgs(["doctor", "--output-format", "json"]);
+    expect(r.mode).toBe("doctor");
+    expect(r.outputFormat).toBe("json");
+  });
+
+  // sessions subcommand
+  test("sessions subcommand sets mode to sessions", () => {
+    const r = parseArgs(["sessions"]);
+    expect(r.mode).toBe("sessions");
+  });
+
+  test("sessions with --output-format json", () => {
+    const r = parseArgs(["--output-format", "json", "sessions"]);
+    expect(r.mode).toBe("sessions");
+    expect(r.outputFormat).toBe("json");
+  });
 });

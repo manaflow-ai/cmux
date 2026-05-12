@@ -7,17 +7,23 @@
 import { parseArgs } from "./args.ts";
 import { login, logout, getApiKey } from "./auth.ts";
 import { loadConfig } from "./config.ts";
+import { resolveModel } from "./model_router.ts";
 import { createDefaultRegistry } from "../providers/index.ts";
 import { createDefaultToolRegistry } from "../tools/index.ts";
 import { subagentTools } from "../tools/subagent.ts";
 import { createSession, resumeSession, listSessions } from "../core/session.ts";
 import { createPermissionResolver, PermissionResolver } from "../core/permissions.ts";
 import { buildDefaultSystemPrompt } from "../core/system_prompt.ts";
+import { discoverProjectContext, renderProjectContext } from "./context.ts";
+import { runInit } from "./init.ts";
 import { Runner, type RunnerEvent } from "../core/runner.ts";
+import { estimateCost } from "../core/cost.ts";
 import { runPrint } from "../headless/print.ts";
 import { createSubagentDispatcher } from "../core/subagent_dispatcher.ts";
 import { cmuxAvailable } from "../tools/cmux/index.ts";
 import type { Provider, PermissionLevel, Message, Tool } from "../core/types.ts";
+import { runDoctor, renderDoctorReport } from "./doctor.ts";
+import { emit } from "./output.ts";
 
 // ---------------------------------------------------------------------------
 // Usage text
@@ -31,6 +37,7 @@ Usage:
   cmux101 auth login <provider>   Save API key for a provider
   cmux101 auth logout <provider>  Remove saved API key
   cmux101 models [provider]       List available models
+  cmux101 init [--force]          Bootstrap project CLAUDE.md + .cmux101/ config
   cmux101 sessions                List recent sessions
 
 Flags:
@@ -107,7 +114,21 @@ async function pickProvider(
 // Models
 // ---------------------------------------------------------------------------
 
-async function handleModels(preferred?: string): Promise<void> {
+type ModelEntry = {
+  id: string;
+  contextWindow: number;
+  maxOutput: number;
+  supportsTools: boolean;
+  supportsVision: boolean;
+  supportsThinking: boolean;
+  error?: string;
+};
+type ProviderEntry = { providerId: string; displayName: string; models: ModelEntry[] };
+
+async function handleModels(
+  preferred: string | undefined,
+  parsed: ReturnType<typeof parseArgs>,
+): Promise<void> {
   const registry = await createDefaultRegistry();
   registry.loadFromEnv(process.env);
 
@@ -120,38 +141,85 @@ async function handleModels(preferred?: string): Promise<void> {
     process.exit(1);
   }
 
+  const data: ProviderEntry[] = [];
+
   for (const p of providers) {
-    console.log(`\n=== ${p.displayName} (${p.id}) ===`);
     try {
       const models = await p.listModels();
-      for (const m of models) {
-        const flags = [
-          m.supportsTools ? "tools" : "",
-          m.supportsVision ? "vision" : "",
-          m.supportsThinking ? "thinking" : "",
-        ].filter(Boolean).join(",");
-        console.log(`  ${m.id.padEnd(40)}  ctx=${m.contextWindow.toLocaleString().padStart(10)}  out=${m.maxOutput.toLocaleString().padStart(7)}  ${flags}`);
-      }
+      data.push({
+        providerId: p.id,
+        displayName: p.displayName,
+        models: models.map((m) => ({
+          id: m.id,
+          contextWindow: m.contextWindow,
+          maxOutput: m.maxOutput,
+          supportsTools: m.supportsTools,
+          supportsVision: m.supportsVision,
+          supportsThinking: m.supportsThinking,
+        })),
+      });
     } catch (err) {
-      console.log(`  (could not list models: ${(err as Error).message})`);
+      data.push({
+        providerId: p.id,
+        displayName: p.displayName,
+        models: [
+          {
+            id: "(error)",
+            contextWindow: 0,
+            maxOutput: 0,
+            supportsTools: false,
+            supportsVision: false,
+            supportsThinking: false,
+            error: (err as Error).message,
+          },
+        ],
+      });
     }
   }
+
+  emit(parsed, data, (d) => {
+    const rows = d as ProviderEntry[];
+    const lines: string[] = [];
+    for (const row of rows) {
+      lines.push(`\n=== ${row.displayName} (${row.providerId}) ===`);
+      for (const m of row.models) {
+        if (m.error) {
+          lines.push(`  (could not list models: ${m.error})`);
+        } else {
+          const flags = [
+            m.supportsTools ? "tools" : "",
+            m.supportsVision ? "vision" : "",
+            m.supportsThinking ? "thinking" : "",
+          ]
+            .filter(Boolean)
+            .join(",");
+          const canonicalId = `${row.providerId}/${m.id}`;
+          lines.push(
+            `  ${canonicalId.padEnd(50)}  ctx=${m.contextWindow.toLocaleString().padStart(10)}  out=${m.maxOutput.toLocaleString().padStart(7)}  ${flags}`,
+          );
+        }
+      }
+    }
+    return lines.join("\n") + "\n";
+  });
 }
 
 // ---------------------------------------------------------------------------
 // Sessions
 // ---------------------------------------------------------------------------
 
-async function handleSessions(): Promise<void> {
+async function handleSessions(parsed: ReturnType<typeof parseArgs>): Promise<void> {
   const sessions = await listSessions();
-  if (sessions.length === 0) {
-    console.log("No sessions found.");
-    return;
-  }
-  console.log("Recent sessions:");
-  for (const s of sessions.slice(0, 20)) {
-    console.log(`  ${s.id.slice(0, 8)}  ${s.startedAt}  ${s.providerId}/${s.model}  ${s.cwd}`);
-  }
+
+  emit(parsed, sessions.slice(0, 20), (d) => {
+    const rows = d as typeof sessions;
+    if (rows.length === 0) return "No sessions found.\n";
+    const lines = ["Recent sessions:"];
+    for (const s of rows) {
+      lines.push(`  ${s.id.slice(0, 8)}  ${s.startedAt}  ${s.providerId}/${s.model}  ${s.cwd}`);
+    }
+    return lines.join("\n") + "\n";
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -197,8 +265,15 @@ async function handleAuth(
 async function buildSessionInfra(parsed: ReturnType<typeof parseArgs>) {
   const cwd = parsed.cwd ?? process.cwd();
   const config = await loadConfig({ cwd });
-  const provider = await pickProvider(parsed.provider, config.defaultProvider);
-  const model = parsed.model ?? config.defaultModel;
+
+  // Resolve model/provider via alias + prefix routing.
+  const rawModel = parsed.model ?? config.defaultModel;
+  const resolved = resolveModel(rawModel, config);
+
+  // --provider is a manual override; otherwise use what resolveModel decided.
+  const providerOverride = parsed.provider ?? resolved.providerId;
+  const provider = await pickProvider(providerOverride, config.defaultProvider);
+  const model = resolved.modelId;
 
   const cmuxOk = await cmuxAvailable();
   const toolRegistry = await createDefaultToolRegistry({ includeCmux: cmuxOk });
@@ -232,6 +307,10 @@ async function buildSessionInfra(parsed: ReturnType<typeof parseArgs>) {
     askUser: async () => "ask", // TUI will override via prompt; in print mode this means "ask" => deny by default
   });
 
+  // Discover and render project context (CLAUDE.md / AGENTS.md files).
+  const projectCtx = await discoverProjectContext(cwd);
+  const projectContextStr = renderProjectContext(projectCtx);
+
   const session = parsed.resume
     ? await resumeSession(parsed.resume)
     : await createSession({
@@ -244,6 +323,7 @@ async function buildSessionInfra(parsed: ReturnType<typeof parseArgs>) {
           providerId: provider.id,
           cmuxAvailable: cmuxOk,
           cmuxWorkspaceId: process.env.CMUX_WORKSPACE_ID,
+          projectContext: projectContextStr || undefined,
         }),
       });
 
@@ -281,6 +361,9 @@ async function runHeadless(parsed: ReturnType<typeof parseArgs>): Promise<void> 
   }
 
   const infra = await buildSessionInfra(parsed);
+  const showCost = parsed.showCost ?? false;
+  let headlessRunner: Runner | null = null;
+
   await runPrint({
     session: infra.session,
     provider: infra.provider,
@@ -290,7 +373,16 @@ async function runHeadless(parsed: ReturnType<typeof parseArgs>): Promise<void> 
     prompt,
     spawnSubagent: infra.spawnSubagent,
     verbose: parsed.showThinking,
+    onRunnerCreated: (r) => { headlessRunner = r; },
   });
+
+  if (showCost && headlessRunner) {
+    const usage = (headlessRunner as Runner).getUsage();
+    const { usd } = estimateCost(infra.model, usage);
+    process.stderr.write(
+      `[tokens in/out=${usage.inputTokens}/${usage.outputTokens}  ~$${usd.toFixed(4)}]\n`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -314,6 +406,9 @@ async function runInteractive(parsed: ReturnType<typeof parseArgs>): Promise<voi
     else if (event.kind === "tool_post") tui.handle.pushToolUpdate({ name: "(tool)", status: "streaming" });
     else if (event.kind === "assistant_message") tui.handle.onMessageAppended(event.message);
     else if (event.kind === "turn_end") tui.handle.pushToolUpdate({ name: "", status: "done" });
+    else if (event.kind === "usage_update" && typeof tui.handle.setUsage === "function") {
+      tui.handle.setUsage(event.usage);
+    }
   };
 
   const send = async (userText: string): Promise<void> => {
@@ -331,6 +426,7 @@ async function runInteractive(parsed: ReturnType<typeof parseArgs>): Promise<voi
         cwd: infra.cwd,
         spawnSubagent: infra.spawnSubagent,
         onEvent,
+        askUser: (toolName, input) => tui.handle.promptPermission(toolName, input),
       });
     }
     try {
@@ -369,13 +465,6 @@ export async function bootstrapCli(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // "sessions" is implemented here, not in args.ts (kept the parser minimal).
-  // Detect it from argv directly.
-  if (argv[0] === "sessions") {
-    await handleSessions();
-    return;
-  }
-
   switch (parsed.mode) {
     case "version": {
       const v = await getVersion();
@@ -396,7 +485,42 @@ export async function bootstrapCli(argv: string[]): Promise<void> {
       break;
     }
     case "models": {
-      await handleModels(parsed.provider);
+      await handleModels(parsed.provider, parsed);
+      break;
+    }
+    case "init": {
+      const cwd = parsed.cwd ?? process.cwd();
+      const force = parsed.initOptions?.force ?? false;
+      const result = await runInit({ cwd, force });
+
+      const isJson = parsed.outputFormat === "json";
+
+      if (isJson) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        if (result.created.length > 0) {
+          console.log("Created:");
+          for (const f of result.created) console.log(`  + ${f}`);
+        }
+        if (result.updated.length > 0) {
+          console.log("Updated:");
+          for (const f of result.updated) console.log(`  ~ ${f}`);
+        }
+        if (result.skipped.length > 0) {
+          console.log("Skipped (already exists):");
+          for (const f of result.skipped) console.log(`  - ${f}`);
+        }
+      }
+      break;
+    }
+    case "sessions": {
+      await handleSessions(parsed);
+      break;
+    }
+    case "doctor": {
+      const cwd = parsed.cwd ?? process.cwd();
+      const doctorResult = await runDoctor({ cwd });
+      emit(parsed, doctorResult, (d) => renderDoctorReport(d as typeof doctorResult) + "\n");
       break;
     }
     case "print": {

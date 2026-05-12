@@ -7,6 +7,89 @@ import { join } from "node:path";
 import type { Permissions, PermissionLevel } from "./types.js";
 
 // ----------------------------------------------------------------------------
+// Permission modes
+// ----------------------------------------------------------------------------
+
+export type PermissionMode =
+  | "default"
+  | "auto"
+  | "plan"
+  | "read-only"
+  | "workspace-write"
+  | "danger-full-access";
+
+const READ_ONLY_TOOLS: string[] = [
+  "file_read",
+  "glob",
+  "grep",
+  "web_fetch",
+  "web_search",
+  "cmux_tree",
+  "cmux_read_screen",
+  "cmux_list_workspaces",
+  "cmux_current_workspace",
+  "cmux_list_panes",
+  "cmux_top",
+  "todo_list",
+  "config_read",
+  "memory_list",
+];
+
+/**
+ * Returns a new PermissionResolver with mode-driven allow/deny rules layered
+ * on top of the existing resolver.
+ */
+export function applyPermissionMode(
+  resolver: PermissionResolver,
+  mode: PermissionMode,
+): PermissionResolver {
+  if (mode === "default") {
+    // No override — return resolver unchanged.
+    return resolver;
+  }
+
+  if (mode === "auto" || mode === "danger-full-access") {
+    // Allow everything.
+    return new PermissionResolver({
+      allow: ["*"],
+      ask: [],
+      deny: [],
+      defaults: new Map(),
+      askUser: resolver["_askUser"],
+      cwd: resolver["_cwd"],
+    });
+  }
+
+  if (mode === "read-only" || mode === "plan") {
+    // Allow only the read-only tool set; deny everything else.
+    return new PermissionResolver({
+      allow: [...READ_ONLY_TOOLS],
+      ask: [],
+      deny: [],
+      defaults: new Map(),
+      askUser: resolver["_askUser"],
+      cwd: resolver["_cwd"],
+      _narrowMode: true,
+    });
+  }
+
+  if (mode === "workspace-write") {
+    // Allow read-only tools + file_write/file_edit; ask for shell; deny the rest.
+    return new PermissionResolver({
+      allow: [...READ_ONLY_TOOLS, "file_write", "file_edit"],
+      ask: ["shell"],
+      deny: [],
+      defaults: new Map(),
+      askUser: resolver["_askUser"],
+      cwd: resolver["_cwd"],
+    });
+  }
+
+  // Unreachable, but satisfy TS.
+  return resolver;
+}
+
+// ----------------------------------------------------------------------------
 // Glob helper
 // ----------------------------------------------------------------------------
 

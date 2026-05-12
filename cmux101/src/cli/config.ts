@@ -52,6 +52,7 @@ const ConfigSchema = z.object({
   hooks: z.array(HookConfigSchema).optional(),
   mcp: z.array(McpServerConfigSchema).optional(),
   permissions: PermissionsSchema.optional(),
+  aliases: z.record(z.string()).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -87,7 +88,8 @@ async function readJsonFile(path: string): Promise<Record<string, unknown> | nul
     const exists = await file.exists();
     if (!exists) return null;
     const text = await file.text();
-    return JSON.parse(text) as Record<string, unknown>;
+    const raw = JSON.parse(text) as Record<string, unknown>;
+    return expandEnvInRecord(raw);
   } catch {
     return null;
   }
@@ -97,6 +99,35 @@ function mergeArrayField<T>(base: T[] | undefined, override: T[] | undefined): T
   if (!override) return base;
   if (!base) return override;
   return [...base, ...override];
+}
+
+// ---------------------------------------------------------------------------
+// Environment variable expansion
+// ---------------------------------------------------------------------------
+
+/**
+ * Replace `${FOO}` placeholders with `process.env.FOO` (empty string if unset).
+ * Applied recursively to all string values in config objects.
+ */
+export function expandEnv(str: string): string {
+  return str.replace(/\$\{([^}]+)\}/g, (_, name: string) => process.env[name] ?? "");
+}
+
+function expandEnvInValue(value: unknown): unknown {
+  if (typeof value === "string") return expandEnv(value);
+  if (Array.isArray(value)) return value.map(expandEnvInValue);
+  if (value !== null && typeof value === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      result[k] = expandEnvInValue(v);
+    }
+    return result;
+  }
+  return value;
+}
+
+function expandEnvInRecord(raw: Record<string, unknown>): Record<string, unknown> {
+  return expandEnvInValue(raw) as Record<string, unknown>;
 }
 
 function mergeConfigs(base: Config, override: Partial<Config>): Config {
@@ -113,6 +144,9 @@ function mergeConfigs(base: Config, override: Partial<Config>): Config {
           deny: mergeArrayField(base.permissions?.deny, override.permissions.deny),
         }
       : base.permissions,
+    aliases: override.aliases
+      ? { ...(base.aliases ?? {}), ...override.aliases }
+      : base.aliases,
   };
 }
 

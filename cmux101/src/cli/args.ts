@@ -9,7 +9,7 @@
  */
 
 export interface ParsedArgs {
-  mode: "tui" | "print" | "auth" | "models" | "version" | "help";
+  mode: "tui" | "print" | "auth" | "models" | "version" | "help" | "init" | "doctor" | "sessions";
   prompt?: string;
   model?: string;
   provider?: string;
@@ -17,9 +17,14 @@ export interface ParsedArgs {
   resume?: string;
   permissionMode?: "default" | "auto" | "plan";
   showThinking?: boolean;
+  showCost?: boolean;
   authSubcommand?: { provider: string; key?: string; action: "login" | "logout" };
   extraTools?: string[];
   print?: boolean;
+  quiet?: boolean;
+  outputFormat?: "text" | "json";
+  /** init subcommand options */
+  initOptions?: { force: boolean };
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
@@ -77,12 +82,38 @@ export function parseArgs(argv: string[]): ParsedArgs {
         result.showThinking = true;
         break;
 
+      case "--show-cost":
+        result.showCost = true;
+        break;
+
+      case "--quiet":
+        result.quiet = true;
+        break;
+
+      case "--output-format":
+        {
+          const fmt = nextToken(arg);
+          if (fmt !== "text" && fmt !== "json") {
+            throw new Error(`--output-format must be 'text' or 'json', got: ${fmt}`);
+          }
+          result.outputFormat = fmt;
+        }
+        break;
+
       case "--auto":
         result.permissionMode = "auto";
         break;
 
       case "--plan":
         result.permissionMode = "plan";
+        break;
+
+      case "--force":
+        if (result.initOptions) {
+          result.initOptions.force = true;
+        } else {
+          result.initOptions = { force: true };
+        }
         break;
 
       case "--tool":
@@ -130,6 +161,24 @@ export function parseArgs(argv: string[]): ParsedArgs {
     if (second) {
       result.provider = result.provider ?? second;
     }
+    return result;
+  }
+
+  if (first === "init") {
+    result.mode = "init";
+    if (!result.initOptions) {
+      result.initOptions = { force: false };
+    }
+    return result;
+  }
+
+  if (first === "doctor") {
+    result.mode = "doctor";
+    return result;
+  }
+
+  if (first === "sessions") {
+    result.mode = "sessions";
     return result;
   }
 

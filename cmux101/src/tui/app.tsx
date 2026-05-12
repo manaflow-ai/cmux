@@ -11,6 +11,9 @@ import { theme } from "./theme.js";
 import { applyStreamEvent, applyToolUpdate, initialStreamingState } from "./streamReducer.js";
 import type { StreamEvent, Message } from "../core/types.js";
 import type { SessionHandle } from "../core/types.js";
+import { PermissionPrompt } from "./permission_prompt.js";
+import type { PermissionAnswer } from "./permission_prompt.js";
+import type { SlashRegistry, SlashContext } from "../cli/slash.js";
 
 // ---------------------------------------------------------------------------
 // Public handle shape exposed to the runner
@@ -24,6 +27,9 @@ export interface AppHandle {
     status: StreamingState["status"];
   }): void;
   onMessageAppended(message: Message): void;
+  promptPermission(toolName: string, input: unknown): Promise<"yes" | "no" | "yes-session" | "yes-always">;
+  /** Optional: update token usage display. */
+  setUsage?: (usage: { inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheCreationTokens?: number }) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -38,6 +44,10 @@ export interface InitialAppProps {
   greeting?: string;
   /** Callback fired after mount, passing the AppHandle back to the runner. */
   onReady?: (handle: AppHandle) => void;
+  /** Optional slash command registry for built-in commands. */
+  slashRegistry?: SlashRegistry;
+  /** Optional slash context for command execution. */
+  slashContext?: SlashContext;
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +97,8 @@ export function App({
   showThinking = false,
   greeting,
   onReady,
+  slashRegistry,
+  slashContext,
 }: InitialAppProps) {
   const app = useApp();
   const { stdout } = useStdout();
@@ -103,8 +115,20 @@ export function App({
   // Disabled while the assistant is responding
   const [inputDisabled, setInputDisabled] = useState(false);
 
+  // Pending permission prompt. When set, render the overlay and resolve on answer.
+  const [pendingPermission, setPendingPermission] = useState<{
+    toolName: string;
+    input: unknown;
+  } | null>(null);
+  const permissionResolverRef = useRef<((answer: PermissionAnswer) => void) | null>(null);
+
   // Track Ctrl+C press count for graceful exit
   const ctrlCCount = useRef(0);
+
+  // Slash command names for autocomplete
+  const slashCommandNames: string[] = slashRegistry
+    ? slashRegistry.list().map((cmd) => cmd.name)
+    : [];
 
   // ---------------------------------------------------------------------------
   // Ctrl+C handling
@@ -158,6 +182,13 @@ export function App({
         setInputDisabled(false);
       }
     },
+
+    promptPermission(toolName: string, input: unknown): Promise<"yes" | "no" | "yes-session" | "yes-always"> {
+      return new Promise((resolve) => {
+        permissionResolverRef.current = resolve as (answer: PermissionAnswer) => void;
+        setPendingPermission({ toolName, input });
+      });
+    },
   });
 
   // Fire onReady once after mount
@@ -167,10 +198,43 @@ export function App({
   }, []);
 
   // ---------------------------------------------------------------------------
+  // Append a system-style message into the message list
+  // ---------------------------------------------------------------------------
+  const appendSystemMessage = useCallback((text: string) => {
+    const sysMsg: Message = {
+      role: "system",
+      content: [{ type: "text", text }],
+    };
+    setMessages((prev) => [...prev, sysMsg]);
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // Permission answer handler
+  // ---------------------------------------------------------------------------
+  const handlePermissionAnswer = useCallback((answer: PermissionAnswer) => {
+    const resolver = permissionResolverRef.current;
+    permissionResolverRef.current = null;
+    setPendingPermission(null);
+    resolver?.(answer);
+  }, []);
+
+  // ---------------------------------------------------------------------------
   // Submit handler
   // ---------------------------------------------------------------------------
   const handleSubmit = useCallback(
     async (text: string) => {
+      // Check for slash commands before sending to model
+      if (slashRegistry && slashContext && text.startsWith("/")) {
+        const result = await slashRegistry.dispatch(text, slashContext);
+        if (result.consumed) {
+          if (result.display) {
+            appendSystemMessage(result.display);
+          }
+          return;
+        }
+        // consumed=false means unknown command — fall through to model
+      }
+
       setInputDisabled(true);
       // Optimistically add user message to display
       const userMsg: Message = { role: "user", content: [{ type: "text", text }] };
@@ -182,7 +246,7 @@ export function App({
         setStreaming(null);
       }
     },
-    [send]
+    [send, slashRegistry, slashContext, appendSystemMessage]
   );
 
   // ---------------------------------------------------------------------------
@@ -211,8 +275,22 @@ export function App({
         />
       </Box>
 
+      {pendingPermission != null && (
+        <Box paddingX={1}>
+          <PermissionPrompt
+            toolName={pendingPermission.toolName}
+            input={pendingPermission.input}
+            onAnswer={handlePermissionAnswer}
+          />
+        </Box>
+      )}
+
       <Box paddingX={1}>
-        <UserInput onSubmit={handleSubmit} disabled={inputDisabled} />
+        <UserInput
+          onSubmit={handleSubmit}
+          disabled={inputDisabled || pendingPermission != null}
+          commands={slashCommandNames}
+        />
       </Box>
 
       <BottomHint columns={columns} />

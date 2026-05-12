@@ -26,6 +26,7 @@ import type {
   HookResponse,
 } from "./types.ts";
 import { AbortedError, PermissionDeniedError, ToolError } from "./errors.ts";
+import type { UsageTotals } from "./cost.ts";
 
 export type RunnerEvent =
   | { kind: "stream"; event: StreamEvent }
@@ -34,6 +35,7 @@ export type RunnerEvent =
   | { kind: "tool_output_delta"; toolUseId: string; text: string }
   | { kind: "tool_post"; toolUseId: string; result: ToolResult; isError: boolean }
   | { kind: "turn_end"; reason: "end_turn" | "tool_use" | "max_tokens" | "stop_sequence" | "refusal" | "error" }
+  | { kind: "usage_update"; usage: UsageTotals }
   | { kind: "error"; error: Error };
 
 export interface RunnerOptions {
@@ -57,13 +59,30 @@ export interface RunnerOptions {
   system?: string;
   /** Optional providerOptions passed through to provider.stream. */
   providerOptions?: Record<string, unknown>;
+  /**
+   * Interactive callback invoked when a tool resolves to "ask".
+   * When absent, "ask" is treated as "deny" (safe default for headless/print mode).
+   */
+  askUser?: (toolName: string, input: unknown) => Promise<"yes" | "no" | "yes-session" | "yes-always">;
 }
 
 export class Runner {
+  private _usage: UsageTotals = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+  };
+
   constructor(private readonly opts: RunnerOptions) {}
 
   get abortSignal(): AbortSignal {
     return (this.opts.abortController ?? new AbortController()).signal;
+  }
+
+  /** Return cumulative token usage across all turns. */
+  getUsage(): UsageTotals {
+    return { ...this._usage };
   }
 
   async run(userText: string): Promise<void> {
@@ -182,6 +201,14 @@ export class Runner {
             if (b) b.input = event.input;
             break;
           }
+          case "usage":
+            // Accumulate usage across all stream events.
+            this._usage.inputTokens += event.inputTokens;
+            this._usage.outputTokens += event.outputTokens;
+            this._usage.cacheReadTokens += event.cacheReadTokens ?? 0;
+            this._usage.cacheCreationTokens += event.cacheCreationTokens ?? 0;
+            this.emit({ kind: "usage_update", usage: this.getUsage() });
+            break;
           case "message_stop":
             stopReason = event.reason;
             break;
@@ -240,16 +267,34 @@ export class Runner {
       return result;
     }
 
-    const perm = this.opts.permissions.resolve(name, input);
+    let perm = this.opts.permissions.resolve(name, input);
+
+    if (perm === "ask") {
+      if (!this.opts.askUser) {
+        // No interactive callback — treat as deny (safe default for headless/print mode).
+        perm = "deny";
+      } else {
+        const answer = await this.opts.askUser(name, input);
+        if (answer === "yes") {
+          perm = "allow";
+        } else if (answer === "yes-session") {
+          this.opts.permissions.remember(name, "allow", "session");
+          perm = "allow";
+        } else if (answer === "yes-always") {
+          this.opts.permissions.remember(name, "allow", "project");
+          perm = "allow";
+        } else {
+          // "no"
+          perm = "deny";
+        }
+      }
+    }
+
     if (perm === "deny") {
       const result = { id, content: `Tool ${name} is denied by current permissions.`, isError: true };
       this.emit({ kind: "tool_post", toolUseId: id, result: { content: result.content, isError: true }, isError: true });
       return result;
     }
-    // "ask" handling is delegated to the askUser callback inside PermissionResolver
-    // by convention; resolvers may have already asked. If it's still "ask" here,
-    // we treat it as deny for safety. UI wires askUser via a callback passed at
-    // construction time.
 
     try {
       const parsed = tool.inputSchema.safeParse(input);

@@ -1,6 +1,7 @@
 /**
  * Session: manages a cmux101 agent session on disk.
- * Sessions live under ~/.cmux101/sessions/<id>/
+ * Sessions live under ~/.cmux101/sessions/<id>/ (user scope)
+ * or <cwd>/.cmux101/sessions/<id>/ (project scope).
  */
 
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
@@ -13,12 +14,25 @@ import { Transcript } from "./transcript.js";
 // Helpers
 // ----------------------------------------------------------------------------
 
-function sessionsRoot(home?: string): string {
+function userSessionsRoot(home?: string): string {
   return join(home ?? homedir(), ".cmux101", "sessions");
 }
 
+function projectSessionsRoot(cwd: string): string {
+  return join(cwd, ".cmux101", "sessions");
+}
+
+/** @deprecated Use userSessionsRoot instead. Kept for backward compat. */
+function sessionsRoot(home?: string): string {
+  return userSessionsRoot(home);
+}
+
 function sessionDir(sessionId: string, home?: string): string {
-  return join(sessionsRoot(home), sessionId);
+  return join(userSessionsRoot(home), sessionId);
+}
+
+function projectSessionDir(sessionId: string, cwd: string): string {
+  return join(projectSessionsRoot(cwd), sessionId);
 }
 
 // ----------------------------------------------------------------------------
@@ -75,9 +89,23 @@ export async function createSession(options: {
   system?: string;
   /** Override home dir (used in tests). */
   home?: string;
+  /**
+   * Storage scope for this session.
+   * - "user" (default): ~/.cmux101/sessions/<id>/
+   * - "project":        <cwd>/.cmux101/sessions/<id>/
+   */
+  scope?: "user" | "project";
+  /** Worker ID to embed in worker_state.json. Defaults to a new UUID. */
+  workerId?: string;
+  /** Permission mode to embed in worker_state.json. */
+  permissionMode?: "default" | "read-only" | "workspace-write" | "danger-full-access";
 }): Promise<Session> {
   const id = crypto.randomUUID();
-  const dir = sessionDir(id, options.home);
+  const scope = options.scope ?? "user";
+  const dir =
+    scope === "project"
+      ? projectSessionDir(id, options.cwd)
+      : sessionDir(id, options.home);
   mkdirSync(dir, { recursive: true });
 
   const meta: SessionMeta = {
@@ -95,6 +123,27 @@ export async function createSession(options: {
   // Create transcript and write session_start event
   const transcript = new Transcript(join(dir, "transcript.jsonl"));
   await transcript.append({ kind: "session_start", meta, ts: new Date().toISOString() });
+
+  // Write worker_state.json to <cwd>/.cmux101/worker_state.json (best-effort).
+  try {
+    const workerStateDir = join(options.cwd, ".cmux101");
+    mkdirSync(workerStateDir, { recursive: true });
+    const workerState = {
+      workerId: options.workerId ?? crypto.randomUUID(),
+      sessionId: id,
+      providerId: options.providerId,
+      model: options.model,
+      permissionMode: options.permissionMode ?? "default",
+      startedAt: meta.startedAt,
+      cwd: options.cwd,
+    };
+    await Bun.write(
+      join(workerStateDir, "worker_state.json"),
+      JSON.stringify(workerState, null, 2),
+    );
+  } catch {
+    // worker_state is informational; don't break session creation if cwd isn't writable
+  }
 
   return new Session(meta, [], transcript);
 }
@@ -125,8 +174,7 @@ export async function resumeSession(
 // listSessions
 // ----------------------------------------------------------------------------
 
-export async function listSessions(options?: { home?: string }): Promise<SessionMeta[]> {
-  const root = sessionsRoot(options?.home);
+async function readSessionsFromRoot(root: string): Promise<SessionMeta[]> {
   if (!existsSync(root)) return [];
 
   const entries = readdirSync(root, { withFileTypes: true });
@@ -145,8 +193,43 @@ export async function listSessions(options?: { home?: string }): Promise<Session
       // skip corrupt session dirs
     }
   }
+  return metas;
+}
+
+export async function listSessions(options?: {
+  home?: string;
+  /**
+   * Which scope(s) to search.
+   * - "user"    : only ~/.cmux101/sessions/
+   * - "project" : only <cwd>/.cmux101/sessions/  (requires cwd)
+   * - "all"     : both (default)
+   */
+  scope?: "user" | "project" | "all";
+  /** Project directory; required when scope is "project" or "all". */
+  cwd?: string;
+}): Promise<SessionMeta[]> {
+  const scope = options?.scope ?? "all";
+  const metas: SessionMeta[] = [];
+
+  if (scope === "user" || scope === "all") {
+    const root = userSessionsRoot(options?.home);
+    metas.push(...(await readSessionsFromRoot(root)));
+  }
+
+  if ((scope === "project" || scope === "all") && options?.cwd) {
+    const root = projectSessionsRoot(options.cwd);
+    metas.push(...(await readSessionsFromRoot(root)));
+  }
+
+  // Deduplicate by id (same session can't appear in both, but be safe).
+  const seen = new Set<string>();
+  const deduped = metas.filter((m) => {
+    if (seen.has(m.id)) return false;
+    seen.add(m.id);
+    return true;
+  });
 
   // Sort by startedAt descending (newest first)
-  metas.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-  return metas;
+  deduped.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  return deduped;
 }

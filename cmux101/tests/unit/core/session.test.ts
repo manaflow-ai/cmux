@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createSession, resumeSession, listSessions } from "../../../src/core/session.js";
@@ -195,5 +195,235 @@ describe("listSessions", () => {
     expect(meta.providerId).toBe("bedrock");
     expect(meta.model).toBe("claude-3-haiku");
     expect(meta.system).toBe("You are a helpful assistant.");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Project-scope sessions
+// ---------------------------------------------------------------------------
+
+describe("createSession with scope=project", () => {
+  it("writes session files to <cwd>/.cmux101/sessions/<id>/", async () => {
+    const projectCwd = join(tmpHome, "my-project");
+    mkdirSync(projectCwd, { recursive: true });
+
+    const session = await createSession({
+      cwd: projectCwd,
+      providerId: "anthropic",
+      model: "claude-sonnet-4-5",
+      home: tmpHome,
+      scope: "project",
+    });
+
+    const expectedDir = join(projectCwd, ".cmux101", "sessions", session.meta.id);
+    expect(existsSync(expectedDir)).toBe(true);
+    expect(existsSync(join(expectedDir, "meta.json"))).toBe(true);
+    expect(existsSync(join(expectedDir, "transcript.jsonl"))).toBe(true);
+  });
+
+  it("does NOT write to the user sessions dir when scope=project", async () => {
+    const projectCwd = join(tmpHome, "proj-scope-test");
+    mkdirSync(projectCwd, { recursive: true });
+
+    const session = await createSession({
+      cwd: projectCwd,
+      providerId: "anthropic",
+      model: "claude-sonnet-4-5",
+      home: tmpHome,
+      scope: "project",
+    });
+
+    const userDir = join(tmpHome, ".cmux101", "sessions", session.meta.id);
+    expect(existsSync(userDir)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// worker_state.json
+// ---------------------------------------------------------------------------
+
+describe("worker_state.json", () => {
+  it("is written to <cwd>/.cmux101/worker_state.json on session creation", async () => {
+    const projectCwd = join(tmpHome, "worker-state-test");
+    mkdirSync(projectCwd, { recursive: true });
+
+    await createSession({
+      cwd: projectCwd,
+      providerId: "openai",
+      model: "gpt-4o",
+      home: tmpHome,
+    });
+
+    const wsPath = join(projectCwd, ".cmux101", "worker_state.json");
+    expect(existsSync(wsPath)).toBe(true);
+  });
+
+  it("contains expected fields", async () => {
+    const projectCwd = join(tmpHome, "worker-state-fields");
+    mkdirSync(projectCwd, { recursive: true });
+
+    const workerId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const session = await createSession({
+      cwd: projectCwd,
+      providerId: "gemini",
+      model: "gemini-2.5-pro",
+      home: tmpHome,
+      workerId,
+      permissionMode: "read-only",
+    });
+
+    const wsPath = join(projectCwd, ".cmux101", "worker_state.json");
+    const ws = await Bun.file(wsPath).json();
+
+    expect(ws.workerId).toBe(workerId);
+    expect(ws.sessionId).toBe(session.meta.id);
+    expect(ws.providerId).toBe("gemini");
+    expect(ws.model).toBe("gemini-2.5-pro");
+    expect(ws.permissionMode).toBe("read-only");
+    expect(typeof ws.startedAt).toBe("string");
+    expect(ws.cwd).toBe(projectCwd);
+  });
+
+  it("defaults permissionMode to 'default' when not provided", async () => {
+    const projectCwd = join(tmpHome, "worker-state-defaults");
+    mkdirSync(projectCwd, { recursive: true });
+
+    await createSession({
+      cwd: projectCwd,
+      providerId: "anthropic",
+      model: "claude-haiku-4-5",
+      home: tmpHome,
+    });
+
+    const ws = await Bun.file(join(projectCwd, ".cmux101", "worker_state.json")).json();
+    expect(ws.permissionMode).toBe("default");
+  });
+
+  it("is overwritten on subsequent session creation in same cwd", async () => {
+    const projectCwd = join(tmpHome, "worker-state-overwrite");
+    mkdirSync(projectCwd, { recursive: true });
+
+    await createSession({
+      cwd: projectCwd,
+      providerId: "anthropic",
+      model: "claude-haiku-4-5",
+      home: tmpHome,
+    });
+
+    const session2 = await createSession({
+      cwd: projectCwd,
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      home: tmpHome,
+    });
+
+    const ws = await Bun.file(join(projectCwd, ".cmux101", "worker_state.json")).json();
+    // Should reflect the latest session
+    expect(ws.sessionId).toBe(session2.meta.id);
+    expect(ws.model).toBe("gpt-4o-mini");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// listSessions with scope options
+// ---------------------------------------------------------------------------
+
+describe("listSessions scope", () => {
+  it("scope=user returns only user sessions", async () => {
+    const projectCwd = join(tmpHome, "scope-user-test");
+    mkdirSync(projectCwd, { recursive: true });
+
+    // Create one user-scope and one project-scope session
+    await createSession({
+      cwd: projectCwd,
+      providerId: "anthropic",
+      model: "claude-sonnet-4-5",
+      home: tmpHome,
+      scope: "user",
+    });
+    await createSession({
+      cwd: projectCwd,
+      providerId: "anthropic",
+      model: "claude-haiku-4-5",
+      home: tmpHome,
+      scope: "project",
+    });
+
+    const list = await listSessions({ home: tmpHome, scope: "user" });
+    expect(list).toHaveLength(1);
+    expect(list[0].model).toBe("claude-sonnet-4-5");
+  });
+
+  it("scope=project returns only project sessions", async () => {
+    const projectCwd = join(tmpHome, "scope-project-test");
+    mkdirSync(projectCwd, { recursive: true });
+
+    await createSession({
+      cwd: projectCwd,
+      providerId: "anthropic",
+      model: "claude-sonnet-4-5",
+      home: tmpHome,
+      scope: "user",
+    });
+    await createSession({
+      cwd: projectCwd,
+      providerId: "anthropic",
+      model: "claude-haiku-4-5",
+      home: tmpHome,
+      scope: "project",
+    });
+
+    const list = await listSessions({ home: tmpHome, scope: "project", cwd: projectCwd });
+    expect(list).toHaveLength(1);
+    expect(list[0].model).toBe("claude-haiku-4-5");
+  });
+
+  it("scope=all returns both user and project sessions", async () => {
+    const projectCwd = join(tmpHome, "scope-all-test");
+    mkdirSync(projectCwd, { recursive: true });
+
+    await createSession({
+      cwd: projectCwd,
+      providerId: "anthropic",
+      model: "claude-sonnet-4-5",
+      home: tmpHome,
+      scope: "user",
+    });
+    await createSession({
+      cwd: projectCwd,
+      providerId: "anthropic",
+      model: "claude-haiku-4-5",
+      home: tmpHome,
+      scope: "project",
+    });
+
+    const list = await listSessions({ home: tmpHome, scope: "all", cwd: projectCwd });
+    expect(list).toHaveLength(2);
+    const models = list.map((s) => s.model).sort();
+    expect(models).toContain("claude-sonnet-4-5");
+    expect(models).toContain("claude-haiku-4-5");
+  });
+
+  it("default scope (all) with cwd returns both scopes", async () => {
+    const projectCwd = join(tmpHome, "scope-default-test");
+    mkdirSync(projectCwd, { recursive: true });
+
+    await createSession({
+      cwd: projectCwd,
+      providerId: "openai",
+      model: "gpt-4o",
+      home: tmpHome,
+      scope: "user",
+    });
+    await createSession({
+      cwd: projectCwd,
+      providerId: "openai",
+      model: "gpt-4o-mini",
+      home: tmpHome,
+      scope: "project",
+    });
+
+    const list = await listSessions({ home: tmpHome, cwd: projectCwd });
+    expect(list).toHaveLength(2);
   });
 });

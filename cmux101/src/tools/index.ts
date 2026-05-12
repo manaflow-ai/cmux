@@ -128,6 +128,14 @@ export async function createDefaultToolRegistry(opts?: {
     "./grep.js",
     "./web_fetch.js",
     "./web_search.js",
+    "./notebook.js",
+    "./repl.js",
+    "./lsp.js",
+    "./todos.js",
+    "./plan_mode.js",
+    "./sleep.js",
+    "./config_tool.js",
+    "./structured_output.js",
   ];
 
   const imports = await Promise.all(

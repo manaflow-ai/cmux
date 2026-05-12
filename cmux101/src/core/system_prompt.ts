@@ -11,6 +11,8 @@ export interface SystemPromptInputs {
   providerId: string;
   cmuxAvailable: boolean;
   cmuxWorkspaceId?: string;
+  /** Rendered project-context block from discoverProjectContext/renderProjectContext. */
+  projectContext?: string;
 }
 
 export function buildDefaultSystemPrompt(inputs: SystemPromptInputs): string {
@@ -54,6 +56,8 @@ export function buildDefaultSystemPrompt(inputs: SystemPromptInputs): string {
     `- model: ${inputs.model}`,
     gitInfo ? `- git: ${gitInfo}` : "- git: (not a git repo)",
     inputs.cmuxWorkspaceId ? `- cmux workspace: ${inputs.cmuxWorkspaceId} (you are running inside a cmux pane)` : "",
+    "",
+    inputs.projectContext ?? "",
   ]
     .filter(Boolean)
     .join("\n");
