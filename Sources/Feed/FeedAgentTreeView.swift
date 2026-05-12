@@ -13,39 +13,53 @@ struct FeedAgentTreeView: View {
     var body: some View {
         VStack(spacing: 0) {
             summaryBar
-            ScrollViewReader { proxy in
-                ScrollView(.vertical) {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(flattenedRows) { row in
-                            FeedAgentTreeRowView(
-                                row: row,
-                                isCollapsed: collapsedNodeIds.contains(row.node.id),
-                                isSelected: selectedNodeId == row.node.id,
-                                isFocusActive: isKeyboardActive && selectedNodeId == row.node.id,
-                                onToggle: {
-                                    toggle(row.node.id)
-                                },
-                                onFocus: {
-                                    onSelect(row.node)
-                                    if let workstreamId = row.node.focusWorkstreamId {
-                                        actions.jump(workstreamId)
-                                    }
-                                }
-                            )
-                            .id(row.node.id)
-                            .equatable()
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .feedZeroScrollContentMargins()
-                .onChange(of: scrollRequest) { request in
-                    guard let request else { return }
-                    proxy.scrollTo(request.nodeId, anchor: .center)
-                }
-            }
+            treeScrollView
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private var treeScrollView: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical) {
+                rowStack
+            }
+            .feedZeroScrollContentMargins()
+            .onChange(of: scrollRequest) { request in
+                guard let request else { return }
+                proxy.scrollTo(request.nodeId, anchor: .center)
+            }
+        }
+    }
+
+    private var rowStack: some View {
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(flattenedRows) { row in
+                rowView(for: row)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func rowView(for row: FeedAgentTreeRow) -> some View {
+        let nodeId = row.node.id
+        let rowIsSelected = selectedNodeId == nodeId
+        return FeedAgentTreeRowView(
+            row: row,
+            isCollapsed: collapsedNodeIds.contains(nodeId),
+            isSelected: rowIsSelected,
+            isFocusActive: isKeyboardActive && rowIsSelected,
+            onToggle: {
+                toggle(nodeId)
+            },
+            onFocus: {
+                onSelect(row.node)
+                if let workstreamId = row.node.focusWorkstreamId {
+                    actions.jump(workstreamId)
+                }
+            }
+        )
+        .equatable()
+        .id(nodeId)
     }
 
     private var summaryBar: some View {
