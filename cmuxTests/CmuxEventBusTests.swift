@@ -478,7 +478,7 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertFalse(encoded.contains("payload"))
     }
 
-    func testDiagnosticsUsesNullSequenceBoundsWhenRetainedBufferIsEmpty() {
+    func testDiagnosticsUsesNullSequenceBoundsWhenRetainedBufferIsEmpty() throws {
         let bus = CmuxEventBus(retainedEventLimit: 3)
 
         let diagnostics = bus.diagnosticsSnapshot()
