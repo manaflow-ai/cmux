@@ -39,6 +39,7 @@ struct TerminalPanelView: View {
         // Keep the NSViewRepresentable identity stable across bonsplit structural updates.
         // This prevents transient teardown/recreate that can momentarily detach the hosted terminal view.
         .id(panel.id)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color.clear)
 #if DEBUG
         .reportTerminalViewportGeometryForUITest(panel: panel)

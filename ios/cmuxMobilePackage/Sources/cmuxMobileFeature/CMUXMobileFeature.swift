@@ -1164,6 +1164,7 @@ struct MobilePairingScannerSheet: View {
 struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
     @State private var compactNavigationPath: [MobileWorkspacePreview.ID] = []
+    @State private var hasPresentedSplitDetail = false
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     #endif
@@ -1183,6 +1184,12 @@ struct WorkspaceShellView: View {
             } else {
                 splitLayout
             }
+        }
+        .onChange(of: usesCompactStack) { _, isCompact in
+            guard isCompact, hasPresentedSplitDetail, let selectedWorkspaceID = store.selectedWorkspaceID else {
+                return
+            }
+            compactNavigationPath = [selectedWorkspaceID]
         }
         .accessibilityIdentifier("MobileWorkspaceShell")
     }
@@ -1231,6 +1238,9 @@ struct WorkspaceShellView: View {
             workspaceDestination(for: store.selectedWorkspaceID, createWorkspace: store.createWorkspace)
         }
         .navigationSplitViewStyle(.balanced)
+        .onAppear {
+            hasPresentedSplitDetail = true
+        }
     }
 
     private func selectWorkspace(_ id: MobileWorkspacePreview.ID) {
