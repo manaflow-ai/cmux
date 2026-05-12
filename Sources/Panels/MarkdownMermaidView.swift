@@ -258,7 +258,7 @@ private struct MarkdownMermaidWebView: NSViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, @preconcurrency WKScriptMessageHandler, @preconcurrency WKNavigationDelegate {
+    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         var renderedHeight: Binding<CGFloat>
         var onError: @MainActor (String) -> Void
         private var currentRequest: MarkdownMermaidRenderRequest?
