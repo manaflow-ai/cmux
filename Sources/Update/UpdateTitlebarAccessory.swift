@@ -1469,6 +1469,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         )
         let yOffset = max(0, (containerHeight - contentSize.height) / 2.0)
             + CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset - debugSnapshot.leftControlsTopInset)
+            + CGFloat(MinimalModeTitlebarDebugSettings.titlebarControlsUpwardOffset)
         let nextLayoutSnapshot = TitlebarControlsLayoutSnapshot(
             contentSize: contentSize,
             containerHeight: containerHeight,
