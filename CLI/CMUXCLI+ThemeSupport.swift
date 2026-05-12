@@ -109,6 +109,14 @@ extension CMUXCLI {
         appendIfExisting(
             URL(
                 fileURLWithPath: NSString(
+                    string: "~/Library/Application Support/\(Self.cmuxThemeOverrideBundleIdentifier)/themes"
+                ).expandingTildeInPath,
+                isDirectory: true
+            )
+        )
+        appendIfExisting(
+            URL(
+                fileURLWithPath: NSString(
                     string: "~/Library/Application Support/com.mitchellh.ghostty/themes"
                 ).expandingTildeInPath,
                 isDirectory: true
