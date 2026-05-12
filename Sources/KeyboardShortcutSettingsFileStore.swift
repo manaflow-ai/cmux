@@ -374,10 +374,10 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[WorkspacePlacementSettings.placementKey] = .string(placement.rawValue)
         }
-        if let value = jsonBool(section["workspace-inherit-working-directory"]) {
+        if let value = jsonBool(section["workspaceInheritWorkingDirectory"]) {
             snapshot.managedUserDefaults[WorkspaceWorkingDirectoryInheritanceSettings.key] = .bool(value)
-        } else if section.keys.contains("workspace-inherit-working-directory") {
-            logInvalid("app.workspace-inherit-working-directory", sourcePath: sourcePath)
+        } else if section.keys.contains("workspaceInheritWorkingDirectory") {
+            logInvalid("app.workspaceInheritWorkingDirectory", sourcePath: sourcePath)
         }
         if let value = jsonBool(section["minimalMode"]) {
             let mode = value ? WorkspacePresentationModeSettings.Mode.minimal : .standard

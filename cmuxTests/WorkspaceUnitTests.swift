@@ -833,7 +833,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             """
             {
               "app": {
-                "workspace-inherit-working-directory": false
+                "workspaceInheritWorkingDirectory": false
               }
             }
             """,
