@@ -11837,15 +11837,9 @@ final class Workspace: Identifiable, ObservableObject {
             installLayoutFollowUpObservers()
         }
         refreshLayoutFollowUpTimeout()
-        // Use async scheduling instead of a synchronous call here. beginEventDrivenLayoutFollowUp
-        // is often invoked from splitTabBar(_:didChangeGeometry:), which fires from inside
-        // SwiftUI's .onChange(of: geometry) during an active layout pass. Calling
-        // attemptEventDrivenLayoutFollowUp() synchronously in that context causes
-        // flushWorkspaceWindowLayouts() → displayIfNeeded() to be called re-entrantly,
-        // incrementing AppKit's per-window constraint-pass counter on every display cycle
-        // until it exceeds the limit and crashes with NSGenericException.
-        // scheduleLayoutFollowUpAttempt() defers via asyncAfter(0) so the flush always
-        // happens after the current layout pass completes.
+        // Use async scheduling instead of a synchronous call here. The follow-up is often
+        // requested from SwiftUI/AppKit layout callbacks; forcing layout from those paths can
+        // re-enter NSHostingView rendering and later abort inside AppKit's display-link flush.
         scheduleLayoutFollowUpAttempt()
     }
 
@@ -11966,9 +11960,9 @@ final class Workspace: Identifiable, ObservableObject {
         return min(0.25, baseDelay * pow(2.0, Double(exponent)))
     }
 
-    private func flushWorkspaceWindowLayouts() {
+    private func requestWorkspaceWindowLayouts() {
         for window in NSApp.windows where window.isVisible {
-            window.contentView?.layoutSubtreeIfNeeded()
+            window.contentView?.needsLayout = true
         }
     }
 
@@ -12027,7 +12021,7 @@ final class Workspace: Identifiable, ObservableObject {
         isAttemptingLayoutFollowUp = true
         defer { isAttemptingLayoutFollowUp = false }
 
-        flushWorkspaceWindowLayouts()
+        requestWorkspaceWindowLayouts()
 
         let geometryPendingBefore = layoutFollowUpNeedsGeometryPass
         let terminalPortalPendingBefore = terminalPortalVisibilityNeedsFollowUp()
@@ -12133,9 +12127,10 @@ final class Workspace: Identifiable, ObservableObject {
         var needsFollowUpPass = false
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
 
-        // Flush pending AppKit layout first so terminal-host bounds reflect latest split topology.
+        // Ask AppKit to settle pending layout naturally. Synchronously forcing layout here can
+        // re-enter SwiftUI hosting views during display-link transaction flushes (#3873).
         for window in NSApp.windows where window.isVisible {
-            window.contentView?.layoutSubtreeIfNeeded()
+            window.contentView?.needsLayout = true
         }
 
         for panel in panels.values {
