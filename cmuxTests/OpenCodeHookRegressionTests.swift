@@ -108,21 +108,68 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let capturedArgv = try String(contentsOf: capturedArgvURL, encoding: .utf8)
         XCTAssertTrue(capturedArgv.contains("--model\n\(requestedModel)\n"), capturedArgv)
 
+        let expectedAgentKeys = [
+            "build",
+            "plan",
+            "sisyphus",
+            "hephaestus",
+            "sisyphus-junior",
+            "OpenCode-Builder",
+            "prometheus",
+            "metis",
+            "momus",
+            "oracle",
+            "librarian",
+            "explore",
+            "multimodal-looker",
+            "atlas",
+        ]
+        let expectedCategoryKeys = [
+            "quick",
+            "deep",
+            "ultrabrain",
+            "unspecified-low",
+            "unspecified-high",
+            "visual-engineering",
+            "artistry",
+            "writing",
+        ]
         let omoConfigURL = root
             .appendingPathComponent(".cmuxterm/omo-config", isDirectory: true)
             .appendingPathComponent("oh-my-opencode.json", isDirectory: false)
         let omoConfig = try XCTUnwrap(JSONSerialization.jsonObject(with: try Data(contentsOf: omoConfigURL), options: []) as? [String: Any])
 
         let agents = try XCTUnwrap(omoConfig["agents"] as? [String: Any])
-        for agent in ["explore", "librarian", "oracle", "hephaestus", "metis", "momus", "multimodal-looker"] {
+        for agent in expectedAgentKeys {
             let config = try XCTUnwrap(agents[agent] as? [String: Any], "missing agent override for \(agent)")
             XCTAssertEqual(config["model"] as? String, requestedModel, "agent \(agent)")
         }
 
         let categories = try XCTUnwrap(omoConfig["categories"] as? [String: Any])
-        for category in ["quick", "deep", "ultrabrain", "unspecified-low", "unspecified-high", "visual-engineering", "artistry", "writing"] {
+        for category in expectedCategoryKeys {
             let config = try XCTUnwrap(categories[category] as? [String: Any], "missing category override for \(category)")
             XCTAssertEqual(config["model"] as? String, requestedModel, "category \(category)")
+        }
+
+        let resetResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["omo", "run", "hello"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(resetResult.timedOut, resetResult.stderr)
+        XCTAssertEqual(resetResult.status, 0, resetResult.stderr)
+        let resetConfig = try XCTUnwrap(JSONSerialization.jsonObject(with: try Data(contentsOf: omoConfigURL), options: []) as? [String: Any])
+        let resetAgents = resetConfig["agents"] as? [String: Any]
+        for agent in expectedAgentKeys {
+            let config = resetAgents?[agent] as? [String: Any]
+            XCTAssertNil(config?["model"], "agent \(agent) should not keep the previous model")
+        }
+        let resetCategories = resetConfig["categories"] as? [String: Any]
+        for category in expectedCategoryKeys {
+            let config = resetCategories?[category] as? [String: Any]
+            XCTAssertNil(config?["model"], "category \(category) should not keep the previous model")
         }
     }
 
