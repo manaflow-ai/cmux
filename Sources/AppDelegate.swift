@@ -13814,10 +13814,23 @@ private var cmuxFirstResponderGuardCurrentEventContext: NSEvent?
 private var cmuxFirstResponderGuardHitViewContext: NSView?
 private var cmuxFirstResponderGuardContextWindowNumber: Int?
 private var cmuxBrowserReturnForwardingDepth = 0
+private var cmuxBrowserForwardedReturnEvent: CmuxForwardedBrowserReturnEvent?
 private var cmuxBrowserArrowForwardingDepth = 0
 private var cmuxCommandPaletteArrowForwardingDepth = 0
 private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
+
+private struct CmuxForwardedBrowserReturnEvent: Equatable {
+    let keyCode: UInt16
+    let timestamp: TimeInterval
+    let charactersIgnoringModifiers: String?
+
+    init(_ event: NSEvent) {
+        keyCode = event.keyCode
+        timestamp = event.timestamp
+        charactersIgnoringModifiers = event.charactersIgnoringModifiers
+    }
+}
 
 @discardableResult
 func cmuxWithWindowFirstResponderBypass<T>(_ body: () -> T) -> T {
@@ -14290,6 +14303,12 @@ private extension NSWindow {
         let firstResponderWebView = self.firstResponder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
+        let firstResponderEmbeddedWebView = self.firstResponder.flatMap {
+            Self.cmuxOwningEmbeddedWebView(for: $0)
+        }
+        let browserKeyDownTarget: NSResponder? = firstResponderWebView
+            ?? firstResponderEmbeddedWebView
+            ?? self.firstResponder
         let firstResponderHasMarkedText = browserResponderHasMarkedText(self.firstResponder)
         let firstResponderIsCommandPaletteFieldEditor = Self.cmuxCommandPaletteOwnsFieldEditor(
             self.firstResponder as? NSTextView,
@@ -14381,29 +14400,41 @@ private extension NSWindow {
         }
 
         // Web forms rely on Return/Enter flowing through keyDown. If the original
-        // NSWindow.performKeyEquivalent consumes Enter first, submission never reaches
-        // WebKit. Route Return/Enter directly to the current first responder and
-        // mark handled to avoid the AppKit alert sound path.
+        // NSWindow.performKeyEquivalent handles Enter as an unclaimed key equivalent,
+        // AppKit can play the alert sound even though WebKit submits the form. Route
+        // Return/Enter directly to the current WebKit first responder and mark handled.
         if shouldDispatchBrowserReturnViaFirstResponderKeyDown(
             keyCode: event.keyCode,
-            firstResponderIsBrowser: firstResponderWebView != nil,
+            firstResponderIsBrowser: firstResponderWebView != nil || firstResponderEmbeddedWebView != nil,
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
             // Forwarding keyDown can re-enter performKeyEquivalent in WebKit/AppKit internals.
-            // On re-entry, fall back to normal dispatch to avoid an infinite loop.
+            // Consume only the exact forwarded Return/Enter event. A different nested
+            // Return should continue through normal dispatch so AppKit can keep its own
+            // invalid-input feedback.
+            let forwardedReturnEvent = CmuxForwardedBrowserReturnEvent(event)
             if cmuxBrowserReturnForwardingDepth > 0 {
+                guard cmuxBrowserForwardedReturnEvent == forwardedReturnEvent else {
+                    return false
+                }
 #if DEBUG
-                cmuxDebugLog("  → browser Return/Enter reentry; using normal dispatch")
+                cmuxDebugLog("  → browser Return/Enter reentry; consumed during forwarded keyDown")
 #endif
-                return false
+                return true
             }
             cmuxBrowserReturnForwardingDepth += 1
-            defer { cmuxBrowserReturnForwardingDepth = max(0, cmuxBrowserReturnForwardingDepth - 1) }
+            cmuxBrowserForwardedReturnEvent = forwardedReturnEvent
+            defer {
+                cmuxBrowserReturnForwardingDepth = max(0, cmuxBrowserReturnForwardingDepth - 1)
+                if cmuxBrowserReturnForwardingDepth == 0 {
+                    cmuxBrowserForwardedReturnEvent = nil
+                }
+            }
 #if DEBUG
-            cmuxDebugLog("  → browser Return/Enter routed to firstResponder.keyDown")
+            cmuxDebugLog("  → browser Return/Enter routed to browser keyDown target")
 #endif
-            self.firstResponder?.keyDown(with: event)
+            browserKeyDownTarget?.keyDown(with: event)
             return true
         }
 
@@ -14412,7 +14443,7 @@ private extension NSWindow {
         // keyDown. Route those arrows directly to the first responder instead.
         if shouldDispatchBrowserArrowViaFirstResponderKeyDown(
             keyCode: event.keyCode,
-            firstResponderIsBrowser: firstResponderWebView != nil,
+            firstResponderIsBrowser: firstResponderWebView != nil || firstResponderEmbeddedWebView != nil,
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
@@ -14427,9 +14458,9 @@ private extension NSWindow {
             cmuxBrowserArrowForwardingDepth += 1
             defer { cmuxBrowserArrowForwardingDepth = max(0, cmuxBrowserArrowForwardingDepth - 1) }
 #if DEBUG
-            cmuxDebugLog("  → browser arrow routed to firstResponder.keyDown")
+            cmuxDebugLog("  → browser arrow routed to browser keyDown target")
 #endif
-            self.firstResponder?.keyDown(with: event)
+            browserKeyDownTarget?.keyDown(with: event)
             return true
         }
 
@@ -14600,6 +14631,84 @@ private extension NSWindow {
                     return nil
                 }
                 return portalWebView
+            }
+            current = candidate.superview
+        }
+
+        return nil
+    }
+
+    private static func cmuxOwningEmbeddedWebView(for responder: NSResponder) -> WKWebView? {
+        if let webView = responder as? WKWebView {
+            return webView
+        }
+
+        if let webView = cmuxOwningEmbeddedWebViewFromFieldEditorOwner(responder) {
+            return webView
+        }
+
+        if let view = responder as? NSView,
+           let webView = cmuxOwningEmbeddedWebView(for: view) {
+            return webView
+        }
+
+        // WebKit's active text responder is often an internal descendant or next
+        // responder rather than the WKWebView itself. Walk the AppKit responder
+        // chain so ASWebAuthenticationSession-hosted forms get the same Return
+        // handling as cmux-owned browser panels.
+        var current = responder.nextResponder
+        while let next = current {
+            if let webView = next as? WKWebView {
+                return webView
+            }
+            if let view = next as? NSView,
+               let webView = cmuxOwningEmbeddedWebView(for: view) {
+                return webView
+            }
+            current = next.nextResponder
+        }
+
+        return nil
+    }
+
+    private static func cmuxOwningEmbeddedWebViewFromFieldEditorOwner(_ responder: NSResponder) -> WKWebView? {
+        guard let fieldEditor = responder as? NSTextView,
+              fieldEditor.isFieldEditor,
+              let ownerView = cmuxFieldEditorOwnerView(fieldEditor) else {
+            return nil
+        }
+
+        if let webView = cmuxOwningEmbeddedWebView(for: ownerView) {
+            return webView
+        }
+
+        var current = ownerView.nextResponder
+        while let next = current {
+            if next === ownerView {
+                break
+            }
+            if let webView = next as? WKWebView {
+                return webView
+            }
+            if let view = next as? NSView,
+               let webView = cmuxOwningEmbeddedWebView(for: view) {
+                return webView
+            }
+            current = next.nextResponder
+        }
+
+        return nil
+    }
+
+    private static func cmuxOwningEmbeddedWebView(for view: NSView) -> WKWebView? {
+        if let webView = view as? WKWebView {
+            return webView
+        }
+
+        var current: NSView? = view.superview
+        while let candidate = current {
+            if let webView = candidate as? WKWebView {
+                return webView
             }
             current = candidate.superview
         }
