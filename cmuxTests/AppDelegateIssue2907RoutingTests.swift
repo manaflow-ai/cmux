@@ -363,6 +363,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
         app.debugClearRecoverableMainWindowRouteManagerForTesting(windowId: recoveredWindowId)
         TerminalController.shared.setActiveTabManager(nil)
+        app.retireRecoverableMainWindowRoutesWithoutRegisteredTerminalSurfaces(reason: "test")
 
         let payload = app.debugBenchmarkSessionSnapshot(
             includeScrollback: false,

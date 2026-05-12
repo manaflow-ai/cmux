@@ -277,7 +277,7 @@ extension AppDelegate {
             if let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window) {
                 route.window = window
             }
-            return tabManagerHasRegisteredTerminalSurface(manager)
+            return tabManagerHasRegisteredTerminalSurface(manager) || route.sessionSnapshot.containsTerminalPanel
         }
         let after = mainWindowRouteLedger.routesByWindowId.count
 #if DEBUG
