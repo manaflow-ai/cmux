@@ -148,6 +148,7 @@ final class CmuxEventBus: @unchecked Sendable {
     private var nextSequence: Int64 = 1
     private var retained: [[String: Any]] = []
     private var subscriptions: [UUID: CmuxEventSubscription] = [:]
+    private var slowSubscriptionCloseCount = 0
 
     init(
         retainedEventLimit: Int = CmuxEventBus.defaultRetainedEventLimit,
@@ -223,7 +224,7 @@ final class CmuxEventBus: @unchecked Sendable {
 
         for subscription in liveSubscriptions where subscription.accepts(event) {
             if !subscription.enqueue(event) {
-                removeSubscriptionIfStillActive(subscription)
+                removeSubscriptionIfStillActive(subscription, recordSlowClose: true)
             }
         }
     }
@@ -298,10 +299,13 @@ final class CmuxEventBus: @unchecked Sendable {
         subscription.close()
     }
 
-    private func removeSubscriptionIfStillActive(_ subscription: CmuxEventSubscription) {
+    private func removeSubscriptionIfStillActive(_ subscription: CmuxEventSubscription, recordSlowClose: Bool = false) {
         lock.lock()
         if subscriptions[subscription.id] === subscription {
             subscriptions.removeValue(forKey: subscription.id)
+            if recordSlowClose {
+                slowSubscriptionCloseCount += 1
+            }
         }
         lock.unlock()
     }
@@ -331,6 +335,10 @@ final class CmuxEventBus: @unchecked Sendable {
         let nextSequenceSnapshot = nextSequence
         let retainedCount = retained.count
         let activeSubscriptions = Array(subscriptions.values)
+        let slowSubscriptionCloseCountSnapshot = slowSubscriptionCloseCount
+        if resetCounters {
+            slowSubscriptionCloseCount = 0
+        }
         lock.unlock()
 
         let subscriptionSnapshots = activeSubscriptions
@@ -365,6 +373,7 @@ final class CmuxEventBus: @unchecked Sendable {
             "next_seq": NSNumber(value: nextSequenceSnapshot),
             "retained_count": retainedCount,
             "active_subscription_count": activeSubscriptions.count,
+            "slow_subscription_close_count": slowSubscriptionCloseCountSnapshot,
             "subscriptions": subscriptionSnapshots,
             "limits": [
                 "retained_events": retainedEventLimit,
@@ -380,6 +389,7 @@ final class CmuxEventBus: @unchecked Sendable {
         lock.lock()
         nextSequence = 1
         retained.removeAll()
+        slowSubscriptionCloseCount = 0
         let active = Array(subscriptions.values)
         subscriptions.removeAll()
         lock.unlock()

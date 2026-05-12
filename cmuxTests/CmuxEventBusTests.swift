@@ -446,6 +446,7 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual((diagnostics["latest_seq"] as? NSNumber)?.int64Value, 2)
         XCTAssertEqual(diagnostics["retained_count"] as? Int, 2)
         XCTAssertEqual(diagnostics["active_subscription_count"] as? Int, 1)
+        XCTAssertEqual(diagnostics["slow_subscription_close_count"] as? Int, 0)
         XCTAssertNotNil(diagnostics["boot_id"] as? String)
 
         let limits = try XCTUnwrap(diagnostics["limits"] as? [String: Any])
@@ -487,12 +488,53 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertTrue(diagnostics["latest_seq"] is NSNull)
         XCTAssertEqual((diagnostics["next_seq"] as? NSNumber)?.int64Value, 1)
         XCTAssertEqual(diagnostics["retained_count"] as? Int, 0)
+        XCTAssertEqual(diagnostics["slow_subscription_close_count"] as? Int, 0)
 
         let durableLog = try XCTUnwrap(diagnostics["durable_log"] as? [String: Any])
         XCTAssertEqual(durableLog["enabled"] as? Bool, false)
         XCTAssertEqual((durableLog["current_size_bytes"] as? NSNumber)?.uint64Value, 0)
         XCTAssertEqual((durableLog["rotated_size_bytes"] as? NSNumber)?.uint64Value, 0)
         XCTAssertEqual((durableLog["max_file_size_bytes"] as? NSNumber)?.uint64Value, 0)
+    }
+
+    func testDiagnosticsCanResetSlowSubscriptionCloseCounter() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 8, maxPendingEventsPerSubscription: 2)
+        let firstSnapshot = bus.subscribe(afterSequence: nil, names: [], categories: [])
+
+        for index in 0..<3 {
+            bus.publish(
+                name: "agent.log",
+                category: "agent",
+                source: "test",
+                payload: ["index": index]
+            )
+        }
+
+        XCTAssertTrue(firstSnapshot.subscription.isClosed)
+        var diagnostics = bus.diagnosticsSnapshot()
+        XCTAssertEqual(diagnostics["active_subscription_count"] as? Int, 0)
+        XCTAssertEqual(diagnostics["slow_subscription_close_count"] as? Int, 1)
+
+        let resetDiagnostics = bus.diagnosticsSnapshot(resetCounters: true)
+        XCTAssertEqual(resetDiagnostics["slow_subscription_close_count"] as? Int, 1)
+
+        diagnostics = bus.diagnosticsSnapshot()
+        XCTAssertEqual(diagnostics["slow_subscription_close_count"] as? Int, 0)
+
+        let secondSnapshot = bus.subscribe(afterSequence: nil, names: [], categories: [])
+        for index in 3..<6 {
+            bus.publish(
+                name: "agent.log",
+                category: "agent",
+                source: "test",
+                payload: ["index": index]
+            )
+        }
+
+        XCTAssertTrue(secondSnapshot.subscription.isClosed)
+        diagnostics = bus.diagnosticsSnapshot()
+        XCTAssertEqual(diagnostics["active_subscription_count"] as? Int, 0)
+        XCTAssertEqual(diagnostics["slow_subscription_close_count"] as? Int, 1)
     }
 
     func testDiagnosticsCanResetDiskOnlyDropCounterWithoutClearingPendingDepth() throws {

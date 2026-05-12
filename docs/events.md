@@ -225,6 +225,7 @@ content.
   "next_seq": 127,
   "retained_count": 7,
   "active_subscription_count": 1,
+  "slow_subscription_close_count": 0,
   "subscriptions": [
     {
       "subscription_id": "8F6F1E66-0D6E-4B4D-A0F8-0F7B0B7B92CA",
@@ -261,7 +262,9 @@ Interpretation:
    that will be assigned.
 2. `active_subscription_count` and `subscriptions[].pending_count` show live
    clients that are connected but not yet reading all queued events.
-3. `durable_log.pending_queue_depth` and `dropped_disk_only_line_count` describe
+3. `slow_subscription_close_count` is a resettable counter of subscriptions cmux
+   closed because their pending event queue reached `max_pending_events`.
+4. `durable_log.pending_queue_depth` and `dropped_disk_only_line_count` describe
    only the asynchronous disk writer. Disk-only drops are auditing pressure; an
    `ack.resume.gap` is the signal that a reconnecting stream client missed
    in-memory replay and must refresh state.
