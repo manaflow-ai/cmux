@@ -2099,8 +2099,9 @@ class GhosttyApp {
                 return
             }
 
+            let fallbackShouldUseHostLayerBackground = usesHostLayerBackground(for: fallbackConfig)
             loadInlineGhosttyConfig(
-                "macos-background-from-layer = true",
+                "macos-background-from-layer = \(fallbackShouldUseHostLayerBackground)",
                 into: fallbackConfig,
                 prefix: "cmux-renderer-bg",
                 logLabel: "renderer background (fallback)"
@@ -2113,7 +2114,7 @@ class GhosttyApp {
             )
             loadCmuxOwnedGhosttyKeybindOverrides(fallbackConfig)
             let fallbackRenderingModeChanged = setUsesHostLayerBackground(
-                true,
+                fallbackShouldUseHostLayerBackground,
                 source: "initialize.fallbackConfig"
             )
             ghostty_config_finalize(fallbackConfig)
@@ -2249,15 +2250,17 @@ class GhosttyApp {
         }
         #endif
         loadCJKFontFallbackIfNeeded(config)
+        let shouldUseHostLayerBackground = usesHostLayerBackground(for: config)
         let renderingModeChanged = setUsesHostLayerBackground(
-            true,
+            shouldUseHostLayerBackground,
             source: "loadDefaultConfigFilesWithLegacyFallback"
         )
-        // Let cmux own the window-level backdrop once, while Ghostty keeps
-        // rendering text, cell backgrounds, and background images. This avoids
-        // separate translucent fills for terminal and chrome surfaces.
+        // Let Ghostty paint solid opaque terminal backgrounds so default cells
+        // and explicit ANSI background cells share one renderer/compositor path.
+        // Host-layer ownership remains required for translucent and blurred
+        // terminal backgrounds.
         loadInlineGhosttyConfig(
-            "macos-background-from-layer = true",
+            "macos-background-from-layer = \(shouldUseHostLayerBackground)",
             into: config,
             prefix: "cmux-renderer-bg",
             logLabel: "renderer background"
@@ -3215,10 +3218,7 @@ class GhosttyApp {
         let resolvedCursorText = ghosttyColorValue(from: config, key: "cursor-text", fallback: baseline.cursorTextColor)
         let resolvedSelectionBackground = ghosttyColorValue(from: config, key: "selection-background", fallback: baseline.selectionBackground)
         let resolvedSelectionForeground = ghosttyColorValue(from: config, key: "selection-foreground", fallback: baseline.selectionForeground)
-        var opacity = baseline.backgroundOpacity
-        let opacityKey = "background-opacity"
-        _ = ghostty_config_get(config, &opacity, opacityKey, UInt(opacityKey.lengthOfBytes(using: .utf8)))
-        opacity = min(1.0, max(0.0, opacity))
+        let opacity = defaultBackgroundOpacityValue(from: config)
         let backgroundBlur = defaultBackgroundBlurValue(from: config)
         applyDefaultBackground(
             color: resolvedColor,
@@ -3232,6 +3232,20 @@ class GhosttyApp {
             source: source,
             scope: scope,
             forceNotify: forceNotify
+        )
+    }
+
+    private func defaultBackgroundOpacityValue(from config: ghostty_config_t) -> Double {
+        var opacity = Self.fallbackAppearanceConfig.backgroundOpacity
+        let key = "background-opacity"
+        _ = ghostty_config_get(config, &opacity, key, UInt(key.lengthOfBytes(using: .utf8)))
+        return Double(WindowAppearanceSnapshot.clampedOpacity(opacity))
+    }
+
+    private func usesHostLayerBackground(for config: ghostty_config_t) -> Bool {
+        WindowAppearanceSnapshot.usesHostLayerBackground(
+            backgroundOpacity: defaultBackgroundOpacityValue(from: config),
+            backgroundBlur: defaultBackgroundBlurValue(from: config)
         )
     }
 
@@ -6184,6 +6198,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")
     }()
     static var debugGhosttySurfaceKeyEventObserver: ((ghostty_input_key_s) -> Void)?
+    @MainActor static var debugTextInputEventHandler: ((GhosttyNSView, NSEvent) -> Bool)?
 #endif
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
@@ -7179,6 +7194,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let result = super.becomeFirstResponder()
         var shouldApplySurfaceFocus = false
         if result {
+            imeSuppressedKeyUpKeyCodes.removeAll()
             if let terminalSurface,
                AppDelegate.shared?.allowsTerminalKeyboardFocus(
                    workspaceId: terminalSurface.tabId,
@@ -7267,6 +7283,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if result {
             desiredFocus = false
             terminalSurface?.recordExternalFocusState(false)
+            imeSuppressedKeyUpKeyCodes.removeAll()
         }
         if result, let surface = surface {
             let now = CACurrentMediaTime()
@@ -7279,6 +7296,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // For NSTextInputClient - accumulates text during key events
     private(set) var keyTextAccumulator: [String]? = nil
+    private var imeSuppressedKeyUpKeyCodes: Set<UInt16> = []
     private var markedText = NSMutableAttributedString()
     private var markedSelectedRange = NSRange(location: NSNotFound, length: 0)
     private var lastPerformKeyEvent: TimeInterval?
@@ -7297,6 +7315,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     var keyTextAccumulatorForTesting: [String]? {
         keyTextAccumulator
+    }
+    func setIMETransientStateForTesting(suppressedKeyUpKeyCodes: Set<UInt16>) {
+        imeSuppressedKeyUpKeyCodes = suppressedKeyUpKeyCodes
+    }
+    var imeSuppressedKeyUpKeyCodesForTesting: Set<UInt16> {
+        imeSuppressedKeyUpKeyCodes
     }
     func shouldSuppressShiftSpaceFallbackTextForTesting(event: NSEvent, markedTextBefore: Bool) -> Bool {
         shouldSuppressShiftSpaceFallbackText(event: event, markedTextBefore: markedTextBefore)
@@ -7698,21 +7722,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let markedTextBefore = markedText.length > 0
         let markedStateBefore = (markedText.string, markedSelectedRange)
 
-        // Capture the keyboard layout ID before interpretation so we can
-        // detect if an IME changed it (e.g. toggling input methods).
-        // We only check when not already in a preedit state.
-        let keyboardIdBefore: String? = if (!markedTextBefore) {
-            KeyboardLayout.id
-        } else {
-            nil
-        }
+        // Capture the keyboard layout ID before interpretation so the IME
+        // forwarding decision uses the source that saw this key.
+        let keyboardIdBefore = KeyboardLayout.id
 
         // Let the input system handle the event (for IME, dead keys, etc.)
 #if DEBUG
         let interpretTimingStart = CmuxTypingTiming.start()
         let interpretPhaseStart = ProcessInfo.processInfo.systemUptime
 #endif
-        interpretKeyEvents([translationEvent])
+        let textInputHandledEvent = handleTextInputKeyEvent(translationEvent)
 #if DEBUG
         interpretMs = (ProcessInfo.processInfo.systemUptime - interpretPhaseStart) * 1000.0
         CmuxTypingTiming.logDuration(
@@ -7724,7 +7743,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         // If the keyboard layout changed, an input method grabbed the event.
         // Sync preedit and return without sending the key to Ghostty.
-        if !markedTextBefore, let kbBefore = keyboardIdBefore, kbBefore != KeyboardLayout.id {
+        if !markedTextBefore, keyboardIdBefore != KeyboardLayout.id {
+            imeSuppressedKeyUpKeyCodes.insert(event.keyCode)
 #if DEBUG
             let syncPreeditStart = ProcessInfo.processInfo.systemUptime
 #endif
@@ -7746,8 +7766,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         let accumulatedText = keyTextAccumulator ?? []
         if shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
-            before: markedStateBefore, after: (markedText.string, markedSelectedRange), accumulatedText: accumulatedText
-        ) { return }
+            before: markedStateBefore,
+            after: (markedText.string, markedSelectedRange),
+            accumulatedText: accumulatedText,
+            event: translationEvent,
+            textInputHandledEvent: textInputHandledEvent,
+            inputSourceId: keyboardIdBefore
+        ) {
+            imeSuppressedKeyUpKeyCodes.insert(event.keyCode)
+            return
+        }
+
+        // A forwarded keyDown owns its keyUp. Clear any stale IME suppression
+        // entry left by an earlier suppressed repeat for the same physical key.
+        imeSuppressedKeyUpKeyCodes.remove(event.keyCode)
 
         // Build the key event
         var keyEvent = ghostty_input_key_s()
@@ -7930,6 +7962,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     @discardableResult
+    private func handleTextInputKeyEvent(_ event: NSEvent) -> Bool {
+#if DEBUG
+        if let debugTextInputEventHandler = Self.debugTextInputEventHandler {
+            return debugTextInputEventHandler(self, event)
+        }
+#endif
+        guard let inputContext else {
+            interpretKeyEvents([event])
+            return false
+        }
+        return inputContext.handleEvent(event)
+    }
+
+    @discardableResult
     private func sendGhosttyKey(_ surface: ghostty_surface_t, _ keyEvent: ghostty_input_key_s) -> Bool {
 #if DEBUG
         Self.debugGhosttySurfaceKeyEventObserver?(keyEvent)
@@ -7961,6 +8007,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func keyUp(with event: NSEvent) {
+        if imeSuppressedKeyUpKeyCodes.remove(event.keyCode) != nil {
+            return
+        }
+
         guard let surface = ensureSurfaceReadyForInput() else {
             super.keyUp(with: event)
             return

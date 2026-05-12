@@ -8,7 +8,7 @@ import ObjectiveC.runtime
 @testable import cmux
 #endif
 
-private var cjkIMEInterpretKeyEventsSwizzled = false
+@MainActor
 var cjkIMEInterpretKeyEventsHook: ((GhosttyNSView, [NSEvent]) -> Bool)?
 private var ghosttyPasteActionSwizzled = false
 private var ghosttyPasteActionHook: ((GhosttyNSView, Any?) -> Void)?
@@ -16,13 +16,6 @@ private var ghosttyPasteAsPlainTextActionSwizzled = false
 private var ghosttyPasteAsPlainTextActionHook: ((GhosttyNSView, Any?) -> Void)?
 
 private extension GhosttyNSView {
-    @objc func cmuxUnitTest_interpretKeyEvents(_ eventArray: [NSEvent]) {
-        if let hook = cjkIMEInterpretKeyEventsHook, hook(self, eventArray) {
-            return
-        }
-        cmuxUnitTest_interpretKeyEvents(eventArray)
-    }
-
     @objc func cmuxUnitTest_paste(_ sender: Any?) {
         ghosttyPasteActionHook?(self, sender)
         cmuxUnitTest_paste(sender)
@@ -34,36 +27,15 @@ private extension GhosttyNSView {
     }
 }
 
+@MainActor
 func installCJKIMEInterpretKeyEventsSwizzle() {
-    guard !cjkIMEInterpretKeyEventsSwizzled else { return }
-
-    let originalSelector = #selector(GhosttyNSView.interpretKeyEvents(_:))
-    let swizzledSelector = #selector(GhosttyNSView.cmuxUnitTest_interpretKeyEvents(_:))
-
-    guard let originalMethod = class_getInstanceMethod(GhosttyNSView.self, originalSelector),
-          let swizzledMethod = class_getInstanceMethod(GhosttyNSView.self, swizzledSelector) else {
-        fatalError("Unable to locate GhosttyNSView interpretKeyEvents methods for swizzling")
+    GhosttyNSView.debugTextInputEventHandler = { candidateView, event in
+        if let hook = cjkIMEInterpretKeyEventsHook, hook(candidateView, [event]) {
+            return true
+        }
+        candidateView.interpretKeyEvents([event])
+        return false
     }
-
-    let didAddMethod = class_addMethod(
-        GhosttyNSView.self,
-        originalSelector,
-        method_getImplementation(swizzledMethod),
-        method_getTypeEncoding(swizzledMethod)
-    )
-
-    if didAddMethod {
-        class_replaceMethod(
-            GhosttyNSView.self,
-            swizzledSelector,
-            method_getImplementation(originalMethod),
-            method_getTypeEncoding(originalMethod)
-        )
-    } else {
-        method_exchangeImplementations(originalMethod, swizzledMethod)
-    }
-
-    cjkIMEInterpretKeyEventsSwizzled = true
 }
 
 private func installGhosttyPasteActionSwizzle() {
@@ -1150,6 +1122,10 @@ final class KoreanIMEReturnCommitRegressionTests: XCTestCase {
 
         view.setMarkedText("한", selectedRange: NSRange(location: 0, length: 1), replacementRange: NSRange(location: NSNotFound, length: 0))
 
+        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+
         // Simulate Korean input source so shouldSendCommittedIMEConfirmKey fires
         KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.Korean.2SetKorean"
         installCJKIMEInterpretKeyEventsSwizzle()
@@ -1159,8 +1135,9 @@ final class KoreanIMEReturnCommitRegressionTests: XCTestCase {
             return true
         }
         defer {
-            KeyboardLayout.debugInputSourceIdOverride = nil
-            cjkIMEInterpretKeyEventsHook = nil
+            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
         }
 
         var sawReturnPress = false
@@ -1207,6 +1184,9 @@ final class KoreanIMEMarkedTextLeakRegressionTests: XCTestCase {
             workingDirectory: nil
         )
         let hostedView = surface.hostedView
+        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -1216,8 +1196,9 @@ final class KoreanIMEMarkedTextLeakRegressionTests: XCTestCase {
         )
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
-            KeyboardLayout.debugInputSourceIdOverride = nil
-            cjkIMEInterpretKeyEventsHook = nil
+            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
             window.orderOut(nil)
         }
 
