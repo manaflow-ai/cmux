@@ -418,7 +418,8 @@ extension CMUXCLI {
             cliWriteStdout(output + (output.hasSuffix("\n") ? "" : "\n"))
 
         case "exec":
-            var argv: [UnsafeMutablePointer<CChar>?] = [cliPath, "__sigpipe-inspect"].map { strdup($0) }
+            let execArguments = [cliPath, "__sigpipe-inspect"]
+            var argv: [UnsafeMutablePointer<CChar>?] = execArguments.map { strdup($0) }
             defer {
                 for item in argv {
                     free(item)
