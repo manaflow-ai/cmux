@@ -86,13 +86,15 @@ final class FeedCoordinator: @unchecked Sendable {
         waitTimeout: TimeInterval
     ) -> IngestBlockingResult {
         guard let requestId = event.requestId, waitTimeout > 0 else {
-            DispatchQueue.main.async {
+            let ingest: @Sendable () -> Void = { [self, event] in
                 MainActor.assumeIsolated {
-                    FeedCoordinator.shared.store.ingest(event)
-                    if let ppid = event.ppid, ppid > 0 {
-                        FeedCoordinator.shared.armPidWatcher(ppid: ppid)
-                    }
+                    self.ingestOnMainActor(event: event, itemIdSlot: nil)
                 }
+            }
+            if Thread.isMainThread {
+                ingest()
+            } else {
+                DispatchQueue.main.async(execute: ingest)
             }
             return .acknowledged(itemId: nil)
         }
@@ -111,15 +113,20 @@ final class FeedCoordinator: @unchecked Sendable {
         // caps the pending lifetime to the agent process lifetime
         // — no polling, no leaked cards when the agent is killed.
         let itemIdSlot = UnsafeItemIdSlot()
-        DispatchQueue.main.sync {
+        let ingest: @Sendable () -> Void = { [self, event, itemIdSlot] in
             MainActor.assumeIsolated {
-                FeedCoordinator.shared.store.ingest(event)
-                itemIdSlot.value = FeedCoordinator.shared.store.items.last?.id
-                if let ppid = event.ppid, ppid > 0 {
-                    FeedCoordinator.shared.armPidWatcher(ppid: ppid)
-                }
+                self.ingestOnMainActor(event: event, itemIdSlot: itemIdSlot)
             }
         }
+        if Thread.isMainThread {
+            ingest()
+            waiterLock.lock()
+            waiters.removeValue(forKey: requestId)
+            waiterLock.unlock()
+            expireTimedOutItem(itemIdSlot.value)
+            return .timedOut(itemId: itemIdSlot.value)
+        }
+        DispatchQueue.main.sync(execute: ingest)
 
         // If this is a blocking actionable event and the app window isn't
         // focused, post a native notification banner with inline action
@@ -143,6 +150,15 @@ final class FeedCoordinator: @unchecked Sendable {
         case .timedOut:
             expireTimedOutItem(itemIdSlot.value)
             return .timedOut(itemId: itemIdSlot.value)
+        }
+    }
+
+    @MainActor
+    private func ingestOnMainActor(event: WorkstreamEvent, itemIdSlot: UnsafeItemIdSlot?) {
+        store.ingest(event)
+        itemIdSlot?.value = store.items.last?.id
+        if let ppid = event.ppid, ppid > 0 {
+            armPidWatcher(ppid: ppid)
         }
     }
 
