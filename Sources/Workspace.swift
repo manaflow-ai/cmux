@@ -9366,6 +9366,7 @@ final class Workspace: Identifiable, ObservableObject {
         exitStatus: Int
     ) {
         guard remoteTerminalLifecycleMatches(surfaceId: surfaceId, relayPort: relayPort) else { return }
+        guard remoteConnectionState != .error else { return }
         let target = remoteConfiguration?.displayTarget ?? String(
             localized: "remote.state.targetFallback",
             defaultValue: "remote host"
