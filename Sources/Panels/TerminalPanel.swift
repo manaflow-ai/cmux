@@ -40,6 +40,9 @@ final class TerminalPanel: Panel, ObservableObject {
 
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
 
+    // [TextBox] Text content for the bottom input bar.
+    @Published var textBoxContent: String = ""
+
     private var cancellables = Set<AnyCancellable>()
 
     var displayTitle: String {
