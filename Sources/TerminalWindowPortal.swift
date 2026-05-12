@@ -1194,6 +1194,9 @@ final class WindowTerminalPortal: NSObject {
         hostedView.reconcileGeometryNow()
 
         if hostedView.superview !== hostView {
+            // Guard: never add subviews if the host isn't in a window yet
+            // (defense-in-depth against re-entrant _setWindow: crashes).
+            guard hostView.window != nil else { return }
 #if DEBUG
             cmuxDebugLog(
                 "portal.reparent hosted=\(portalDebugToken(hostedView)) " +
@@ -1205,6 +1208,7 @@ final class WindowTerminalPortal: NSObject {
             // Refresh z-order only when a view becomes visible or gets a higher priority.
             // Anchor-only churn is common during split tree updates; forcing remove/add there
             // causes transient inWindow=0 -> 1 bounces that can flash black.
+            guard hostView.window != nil else { return }
 #if DEBUG
             cmuxDebugLog(
                 "portal.reparent hosted=\(portalDebugToken(hostedView)) reason=raise " +
