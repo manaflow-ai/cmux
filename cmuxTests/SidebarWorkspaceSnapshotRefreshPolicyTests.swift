@@ -87,6 +87,51 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         XCTAssertFalse(decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
+    func testMenuTrackingEndRestoresLiveDetailsAfterColorAction() {
+        var interactionState = SidebarWorkspaceRowInteractionState()
+        let initial = Self.snapshot(
+            customColorHex: nil,
+            compactGitBranchSummaryText: "main",
+            compactBranchDirectoryRow: "main - ~/repo"
+        )
+        let colorAssigned = Self.snapshot(
+            customColorHex: "#C0392B",
+            compactGitBranchSummaryText: "main",
+            compactBranchDirectoryRow: "main - ~/repo"
+        )
+        let branchChanged = Self.snapshot(
+            customColorHex: "#C0392B",
+            compactGitBranchSummaryText: "feature/live",
+            compactBranchDirectoryRow: "feature/live - ~/repo"
+        )
+
+        interactionState.contextMenuDidAppear()
+        let colorDecision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
+            current: initial,
+            next: colorAssigned,
+            force: false,
+            contextMenuVisible: interactionState.contextMenuVisible
+        )
+        XCTAssertEqual(colorDecision.workspaceSnapshotStorage?.customColorHex, "#C0392B")
+
+        interactionState.contextMenuTrackingDidEnd()
+        let branchDecision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
+            current: colorDecision.workspaceSnapshotStorage,
+            next: branchChanged,
+            force: false,
+            contextMenuVisible: interactionState.contextMenuVisible
+        )
+
+        XCTAssertEqual(
+            branchDecision.workspaceSnapshotStorage?.compactGitBranchSummaryText,
+            "feature/live",
+            "Once AppKit menu tracking ends after assigning a workspace color, live sidebar details such as git branch must update even if SwiftUI does not deliver context-menu disappearance."
+        )
+        XCTAssertEqual(branchDecision.workspaceSnapshotStorage?.compactBranchDirectoryRow, "feature/live - ~/repo")
+        XCTAssertNil(branchDecision.pendingWorkspaceSnapshot)
+        XCTAssertFalse(branchDecision.hasDeferredWorkspaceObservationInvalidation)
+    }
+
     private static func snapshot(
         title: String = "workspace",
         customDescription: String? = nil,
@@ -94,6 +139,8 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         customColorHex: String? = nil,
         remoteConnectionStatusText: String = "Disconnected",
         latestSubmittedMessage: String? = nil,
+        compactGitBranchSummaryText: String? = nil,
+        compactBranchDirectoryRow: String? = nil,
         listeningPorts: [Int] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
@@ -110,8 +157,8 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             metadataBlocks: [],
             latestLog: nil,
             progress: nil,
-            compactGitBranchSummaryText: nil,
-            compactBranchDirectoryRow: nil,
+            compactGitBranchSummaryText: compactGitBranchSummaryText,
+            compactBranchDirectoryRow: compactBranchDirectoryRow,
             branchDirectoryLines: [],
             branchLinesContainBranch: false,
             pullRequestRows: [],
