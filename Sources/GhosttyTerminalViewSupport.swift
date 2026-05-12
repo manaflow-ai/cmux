@@ -267,6 +267,7 @@ final class TerminalStatusBarCommandController: @unchecked Sendable {
         scheduleTimer(configuration: configuration, generation: currentGeneration)
     }
 
+    @MainActor
     func stop() {
         generation &+= 1
         appliedState = nil
@@ -298,11 +299,13 @@ final class TerminalStatusBarCommandController: @unchecked Sendable {
         guard let context = contextProvider?() else { return }
         isCommandRunning = true
         task = Task { @MainActor [weak self] in
-            let output = await Self.runStatusCommand(
-                configuration.command,
-                context: context,
-                timeout: min(5, max(1, configuration.refreshInterval))
-            )
+            let output = await Task.detached(priority: .utility) {
+                await Self.runStatusCommand(
+                    configuration.command,
+                    context: context,
+                    timeout: min(5, max(1, configuration.refreshInterval))
+                )
+            }.value
             guard let self else { return }
             guard self.generation == generation else { return }
             self.isCommandRunning = false
@@ -356,22 +359,30 @@ final class TerminalStatusBarCommandController: @unchecked Sendable {
         let state = TerminalStatusBarProcessWaitState(process: process)
 
         return await withCheckedContinuation { continuation in
-            let timeoutSource = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+            let timerQueue = DispatchQueue.global(qos: .utility)
+            let timeoutSource = DispatchSource.makeTimerSource(queue: timerQueue)
+            let killSource = DispatchSource.makeTimerSource(queue: timerQueue)
             process.terminationHandler = { _ in
                 timeoutSource.cancel()
+                killSource.cancel()
                 let result = state.finish()
                 if result.shouldResume {
                     continuation.resume(returning: result.timedOut)
                 }
             }
+            killSource.setEventHandler {
+                if state.process.isRunning {
+                    kill(state.process.processIdentifier, SIGKILL)
+                }
+                killSource.cancel()
+            }
+            killSource.schedule(deadline: .distantFuture)
+            killSource.resume()
+
             timeoutSource.setEventHandler {
                 state.markTimedOut()
                 state.process.terminate()
-                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) {
-                    if state.process.isRunning {
-                        kill(state.process.processIdentifier, SIGKILL)
-                    }
-                }
+                killSource.schedule(deadline: .now() + 0.5)
             }
             timeoutSource.schedule(deadline: .now() + timeout)
             timeoutSource.resume()
@@ -380,6 +391,7 @@ final class TerminalStatusBarCommandController: @unchecked Sendable {
                 try process.run()
             } catch {
                 timeoutSource.cancel()
+                killSource.cancel()
                 process.terminationHandler = nil
                 let result = state.finish()
                 if result.shouldResume {

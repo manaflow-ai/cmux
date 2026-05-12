@@ -10342,7 +10342,9 @@ final class GhosttySurfaceScrollView: NSView {
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         deferredSearchOverlayMutationWorkItem?.cancel()
         imageTransferIndicatorShowWorkItem?.cancel()
-        statusBarCommandController.stop()
+        MainActor.assumeIsolated {
+            statusBarCommandController.stop()
+        }
         dropZoneOverlayView.removeFromSuperview()
         cancelFocusRequest()
     }
