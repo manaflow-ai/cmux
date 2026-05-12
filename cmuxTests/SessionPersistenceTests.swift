@@ -85,7 +85,7 @@ final class SessionPersistenceTests: XCTestCase {
             SessionPersistenceStore.save(
                 snapshot,
                 fileURL: snapshotURL,
-                sharedWindowGeometryHint: .skipForIsolatedSnapshot
+                sharedWindowGeometryHint: .skipForNonCurrentSnapshot
             )
         )
 
@@ -128,7 +128,7 @@ final class SessionPersistenceTests: XCTestCase {
             SessionPersistenceStore.save(
                 makeSnapshot(version: SessionSnapshotSchema.currentVersion),
                 fileURL: activeSnapshotURL,
-                sharedWindowGeometryHint: .skipForIsolatedSnapshot
+                sharedWindowGeometryHint: .skipForNonCurrentSnapshot
             )
         )
         XCTAssertNil(
@@ -144,7 +144,7 @@ final class SessionPersistenceTests: XCTestCase {
             SessionPersistenceStore.save(
                 previousSnapshot,
                 fileURL: previousSnapshotURL,
-                sharedWindowGeometryHint: .skipForIsolatedSnapshot
+                sharedWindowGeometryHint: .skipForNonCurrentSnapshot
             )
         )
 
@@ -171,7 +171,7 @@ final class SessionPersistenceTests: XCTestCase {
             SessionPersistenceStore.save(
                 snapshot,
                 fileURL: snapshotURL,
-                sharedWindowGeometryHint: .skipForIsolatedSnapshot
+                sharedWindowGeometryHint: .skipForNonCurrentSnapshot
             )
         )
 
@@ -195,7 +195,7 @@ final class SessionPersistenceTests: XCTestCase {
             SessionPersistenceStore.save(
                 snapshot,
                 fileURL: snapshotURL,
-                sharedWindowGeometryHint: .skipForIsolatedSnapshot
+                sharedWindowGeometryHint: .skipForNonCurrentSnapshot
             )
         )
         let firstFileNumber = try fileNumber(for: snapshotURL)
@@ -204,7 +204,7 @@ final class SessionPersistenceTests: XCTestCase {
             SessionPersistenceStore.save(
                 snapshot,
                 fileURL: snapshotURL,
-                sharedWindowGeometryHint: .skipForIsolatedSnapshot
+                sharedWindowGeometryHint: .skipForNonCurrentSnapshot
             )
         )
         let secondFileNumber = try fileNumber(for: snapshotURL)
@@ -240,7 +240,7 @@ final class SessionPersistenceTests: XCTestCase {
             SessionPersistenceStore.save(
                 makeSnapshot(version: SessionSnapshotSchema.currentVersion + 1),
                 fileURL: snapshotURL,
-                sharedWindowGeometryHint: .skipForIsolatedSnapshot
+                sharedWindowGeometryHint: .skipForNonCurrentSnapshot
             )
         )
 

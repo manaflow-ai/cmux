@@ -176,7 +176,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             SessionPersistenceStore.save(
                 snapshot,
                 fileURL: snapshotURL,
-                sharedWindowGeometryHint: .skipForIsolatedSnapshot
+                sharedWindowGeometryHint: .skipForNonCurrentSnapshot
             )
         )
         let persistedTabManager = try XCTUnwrap(

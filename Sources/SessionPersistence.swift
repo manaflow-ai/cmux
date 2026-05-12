@@ -374,7 +374,7 @@ enum SessionPersistenceStore {
                 fileURL: fileURL,
                 writerBundleIdentifier: writerBundleIdentifier
             )
-        case .skipForIsolatedSnapshot:
+        case .skipForNonCurrentSnapshot:
             break
         }
     }
@@ -410,7 +410,11 @@ enum SessionPersistenceStore {
             removeSnapshot(fileURL: fileURL)
             return
         }
-        _ = save(snapshot, fileURL: fileURL)
+        _ = save(
+            snapshot,
+            fileURL: fileURL,
+            sharedWindowGeometryHint: .skipForNonCurrentSnapshot
+        )
     }
 
     static func defaultSnapshotFileURL(

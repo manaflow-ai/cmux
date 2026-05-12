@@ -317,7 +317,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             SessionPersistenceStore.save(
                 snapshot,
                 fileURL: snapshotURL,
-                sharedWindowGeometryHint: .skipForIsolatedSnapshot
+                sharedWindowGeometryHint: .skipForNonCurrentSnapshot
             )
         )
         let loadedAgent = try XCTUnwrap(

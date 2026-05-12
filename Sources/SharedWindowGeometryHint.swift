@@ -16,7 +16,7 @@ struct SharedWindowGeometryHint: Codable, Sendable {
 
 enum SharedWindowGeometryHintPersistence {
     case update(fileURL: URL?)
-    case skipForIsolatedSnapshot
+    case skipForNonCurrentSnapshot
 }
 
 enum SharedWindowGeometryHintStore {
