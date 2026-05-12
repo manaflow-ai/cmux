@@ -13553,7 +13553,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
 
         // Keep geometry available as a fallback for the next window placement.
-        persistWindowGeometry(from: window)
+        if !isTerminatingApp {
+            persistWindowGeometry(from: window)
+        }
 
         guard let removed = unregisterMainWindowContext(for: window) else { return }
         publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")

@@ -6155,6 +6155,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate private(set) var keyboardCopyModeActive = false
     private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
+    private var imeConsumedKeyUps: Set<UInt16> = []
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeViewportRow: Int?
     /// Tracks whether the user has explicitly entered visual selection mode (v).
@@ -7733,6 +7734,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // If the keyboard layout changed, an input method grabbed the event.
         // Sync preedit and return without sending the key to Ghostty.
         if !markedTextBefore, let kbBefore = keyboardIdBefore, kbBefore != KeyboardLayout.id {
+            imeConsumedKeyUps.insert(event.keyCode)
 #if DEBUG
             let syncPreeditStart = ProcessInfo.processInfo.systemUptime
 #endif
@@ -7755,7 +7757,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let accumulatedText = keyTextAccumulator ?? []
         if shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
             before: markedStateBefore, after: (markedText.string, markedSelectedRange), accumulatedText: accumulatedText
-        ) { return }
+        ) {
+            imeConsumedKeyUps.insert(event.keyCode)
+            return
+        }
 
         // Build the key event
         var keyEvent = ghostty_input_key_s()
@@ -7985,6 +7990,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         if keyboardCopyModeConsumedKeyUps.remove(event.keyCode) != nil {
+            return
+        }
+        if imeConsumedKeyUps.remove(event.keyCode) != nil {
             return
         }
 

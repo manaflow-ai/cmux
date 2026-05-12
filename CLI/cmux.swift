@@ -14639,9 +14639,17 @@ struct CMUXCLI {
                 cwd: parsedInput.cwd
             )
             let isClearSessionStart = isClaudeClearSessionStart(parsedInput)
+            let canReplaceStoppedSession = shouldReplaceStoppedClaudeSession(
+                sessionStore: sessionStore,
+                parsedInput: parsedInput,
+                workspaceId: workspaceId,
+                telemetry: telemetry
+            )
+            let shouldPromoteActiveSession = isClearSessionStart || canReplaceStoppedSession
             if let sessionId = parsedInput.sessionId {
                 // Non-clear SessionStart can arrive late from startup/resume/compact
-                // after /clear, so only /clear establishes a new active boundary.
+                // after /clear, so only /clear or replacement of a stopped owner
+                // establishes a new active boundary.
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -14649,7 +14657,7 @@ struct CMUXCLI {
                     cwd: parsedInput.cwd,
                     pid: claudePid,
                     launchCommand: launchCommand,
-                    markActive: isClearSessionStart,
+                    markActive: shouldPromoteActiveSession,
                     turnId: parsedInput.turnId
                 )
             }
@@ -14658,14 +14666,8 @@ struct CMUXCLI {
             // new active boundary and must keep the sidebar Running before
             // any late pre-clear Stop can write Idle.
             let shouldRegisterPID =
-                isClearSessionStart ||
+                shouldPromoteActiveSession ||
                 shouldApplyClaudeHookVisibleMutation(
-                    sessionStore: sessionStore,
-                    parsedInput: parsedInput,
-                    workspaceId: workspaceId,
-                    telemetry: telemetry
-                ) ||
-                shouldReplaceStoppedClaudeSession(
                     sessionStore: sessionStore,
                     parsedInput: parsedInput,
                     workspaceId: workspaceId,
@@ -17843,13 +17845,22 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
     private static func codexConfigTomlInstallingHooksFeature(in existingContent: String) -> String {
         var lines = tomlLines(from: existingContent)
-        if let existingKeyIndex = lines.firstIndex(where: { tomlLineDefinesCodexHooksKey($0) }) {
-            lines[existingKeyIndex] = "codex_hooks = true"
-            return tomlContent(from: lines)
-        }
-        if let existingDottedKeyIndex = lines.firstIndex(where: { tomlLineDefinesDottedCodexHooksKey($0) }) {
-            lines[existingDottedKeyIndex] = "features.codex_hooks = true"
-            return tomlContent(from: lines)
+        var currentTable: String?
+        for index in lines.indices {
+            let line = lines[index]
+            if let tableName = tomlTableName(in: line) {
+                currentTable = tableName
+                continue
+            }
+            if (currentTable == nil || currentTable == "features"),
+               tomlLineDefinesCodexHooksKey(line) {
+                lines[index] = "codex_hooks = true"
+                return tomlContent(from: lines)
+            }
+            if currentTable == nil, tomlLineDefinesDottedCodexHooksKey(line) {
+                lines[index] = "features.codex_hooks = true"
+                return tomlContent(from: lines)
+            }
         }
 
         if let featuresStart = lines.firstIndex(where: { tomlLineIsTable("features", line: $0) }) {
@@ -17865,11 +17876,25 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     private static func codexConfigTomlUninstallingHooksFeature(from existingContent: String) -> String {
-        var lines = tomlLines(from: existingContent)
-        lines.removeAll {
-            tomlLineDefinesCodexHooksKey($0) || tomlLineDefinesDottedCodexHooksKey($0)
+        let lines = tomlLines(from: existingContent)
+        var filteredLines: [String] = []
+        var currentTable: String?
+        for line in lines {
+            if let tableName = tomlTableName(in: line) {
+                currentTable = tableName
+                filteredLines.append(line)
+                continue
+            }
+            if (currentTable == nil || currentTable == "features"),
+               tomlLineDefinesCodexHooksKey(line) {
+                continue
+            }
+            if currentTable == nil, tomlLineDefinesDottedCodexHooksKey(line) {
+                continue
+            }
+            filteredLines.append(line)
         }
-        return tomlContent(from: lines)
+        return tomlContent(from: filteredLines)
     }
 
     private static func tomlLines(from content: String) -> [String] {
@@ -17906,6 +17931,20 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             of: #"^\s*\[\s*"# + escapedName + #"\s*\]\s*(#.*)?$"#,
             options: .regularExpression
         ) != nil
+    }
+
+    private static func tomlTableName(in line: String) -> String? {
+        let pattern = #"^\s*\[\s*([A-Za-z0-9_.-]+)\s*\]\s*(#.*)?$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(
+                  in: line,
+                  range: NSRange(line.startIndex..., in: line)
+              ),
+              match.numberOfRanges > 1,
+              let range = Range(match.range(at: 1), in: line) else {
+            return nil
+        }
+        return String(line[range])
     }
 
     // MARK: Generic hook handler

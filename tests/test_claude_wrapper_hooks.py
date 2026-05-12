@@ -510,16 +510,17 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
     expect("--session-id" not in real_argv, f"agents after global option passthrough: expected no --session-id injection, got {real_argv}", failures)
 
 
-def test_help_invocation_bypasses_hook_injection(failures: list[str]) -> None:
-    code, real_argv, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["--help"],
-    )
-    expect(code == 0, f"help passthrough: wrapper exited {code}: {stderr}", failures)
-    expect(real_argv == ["--help"], f"help passthrough: expected raw argv, got {real_argv}", failures)
-    expect("--settings" not in real_argv, f"help passthrough: expected no --settings injection, got {real_argv}", failures)
-    expect("--session-id" not in real_argv, f"help passthrough: expected no --session-id injection, got {real_argv}", failures)
-    expect(node_options == "__UNSET__", f"help passthrough: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
+def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:
+    for flag in ("--help", "--version", "-h", "-v"):
+        code, real_argv, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
+            socket_state="live",
+            argv=[flag],
+        )
+        expect(code == 0, f"{flag} passthrough: wrapper exited {code}: {stderr}", failures)
+        expect(real_argv == [flag], f"{flag} passthrough: expected raw argv, got {real_argv}", failures)
+        expect("--settings" not in real_argv, f"{flag} passthrough: expected no --settings injection, got {real_argv}", failures)
+        expect("--session-id" not in real_argv, f"{flag} passthrough: expected no --session-id injection, got {real_argv}", failures)
+        expect(node_options == "__UNSET__", f"{flag} passthrough: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
 
 
 def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures: list[str]) -> None:
@@ -969,7 +970,7 @@ def main() -> int:
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
-    test_help_invocation_bypasses_hook_injection(failures)
+    test_passthrough_flags_bypass_hook_injection(failures)
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
