@@ -207,6 +207,29 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(data["cmux_code"] as? String, "parse_error")
     }
 
+    func testNonObjectJSONRPCRequestUsesJSONRPCInvalidRequestEnvelope() throws {
+        let socketPath = makeSocketPath("jsonrpc-non-object")
+        let tabManager = TabManager()
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try sendRawSocketLine(#"["jsonrpc","2.0"]"#, to: socketPath)
+
+        XCTAssertEqual(response["jsonrpc"] as? String, "2.0", "Unexpected invalid request response: \(response)")
+        XCTAssertNil(response["ok"], "JSON-RPC invalid requests should not include legacy ok: \(response)")
+        XCTAssertTrue(response["id"] is NSNull, "JSON-RPC invalid requests should use id:null: \(response)")
+
+        let error = try XCTUnwrap(response["error"] as? [String: Any], "Expected JSON-RPC invalid request error")
+        XCTAssertEqual(error["code"] as? Int, -32600)
+        let data = try XCTUnwrap(error["data"] as? [String: Any], "Expected JSON-RPC error data")
+        XCTAssertEqual(data["cmux_code"] as? String, "invalid_request")
+    }
+
     private func runJSONRPCNotificationSocketSequence(
         to socketPath: String
     ) async throws -> (explicitNullIDResponse: [String: Any], followUpResponse: [String: Any]) {
