@@ -68,14 +68,22 @@ struct ConfigSourceEnvironment {
 
     func materializeCmuxConfigFileIfNeeded() throws -> URL {
         let url = cmuxConfigURL
-        guard !fileManager.fileExists(atPath: url.path) else { return url }
-        try writeCmuxConfigContents("", to: url)
+        // Preserve the selected editable URL even if a legacy config appears during existence checks.
+        _ = fileManager.fileExists(atPath: url.path)
+        try writeManagedAppearanceConfigIfNeeded(to: url)
         return url
     }
 
     func writeCmuxConfigContents(_ contents: String) throws {
         let url = cmuxConfigURL
         try writeCmuxConfigContents(contents, to: url)
+    }
+
+    @discardableResult
+    func writeManagedAppearanceConfigIfNeeded() throws -> URL {
+        let url = cmuxConfigURL
+        try writeManagedAppearanceConfigIfNeeded(to: url)
+        return url
     }
 
     private func writeCmuxConfigContents(_ contents: String, to url: URL) throws {
@@ -86,6 +94,21 @@ struct ConfigSourceEnvironment {
             attributes: nil
         )
         try contents.write(to: writeURL, atomically: true, encoding: .utf8)
+    }
+
+    private func writeManagedAppearanceConfigIfNeeded(to url: URL) throws {
+        let writeURL = configWriteURL(for: url)
+        let existingContents = (try? String(contentsOf: writeURL, encoding: .utf8)) ?? ""
+        let hasManagedBlock = CmuxManagedGhosttyThemeConfig.containsManagedBlock(in: existingContents)
+        if !hasManagedBlock,
+           !GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [writeURL.path]) {
+            return
+        }
+        let updatedContents = CmuxManagedGhosttyThemeConfig.contentsByInstallingManagedBlock(
+            in: existingContents
+        )
+        guard updatedContents != existingContents else { return }
+        try writeCmuxConfigContents(updatedContents, to: url)
     }
 
     func abbreviatedPath(for url: URL) -> String {
@@ -149,6 +172,52 @@ struct ConfigSourceEnvironment {
             destinationURL = url.deletingLastPathComponent().appendingPathComponent(destination)
         }
         return destinationURL.standardizedFileURL.resolvingSymlinksInPath()
+    }
+}
+
+enum CmuxManagedGhosttyThemeConfig {
+    private static let beginMarker = "# cmux-managed-theme: begin"
+    private static let endMarker = "# cmux-managed-theme: end"
+    static let themeDirective = "theme = light:Apple System Colors Light,dark:Apple System Colors"
+
+    static var managedBlock: String {
+        """
+        \(beginMarker)
+        # Managed by cmux Settings > Theme. Keep this block unless you want to own terminal theme config manually.
+        \(themeDirective)
+        \(endMarker)
+        """
+    }
+
+    static func containsManagedBlock(in contents: String) -> Bool {
+        contents.contains(beginMarker) || contents.contains(endMarker)
+    }
+
+    static func contentsByInstallingManagedBlock(in contents: String) -> String {
+        if let range = managedBlockRange(in: contents) {
+            return contents.replacingCharacters(in: range, with: managedBlock)
+        }
+
+        let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return managedBlock + "\n"
+        }
+
+        let separator = contents.hasPrefix("\n") ? "\n" : "\n\n"
+        return managedBlock + separator + contents
+    }
+
+    private static func managedBlockRange(in contents: String) -> Range<String.Index>? {
+        guard let begin = contents.range(of: beginMarker),
+              let end = contents.range(of: endMarker, range: begin.upperBound..<contents.endIndex) else {
+            return nil
+        }
+
+        var upperBound = end.upperBound
+        if upperBound < contents.endIndex, contents[upperBound] == "\n" {
+            upperBound = contents.index(after: upperBound)
+        }
+        return begin.lowerBound..<upperBound
     }
 }
 

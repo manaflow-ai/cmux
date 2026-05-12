@@ -56,6 +56,15 @@ enum AppearanceSettings {
                 },
                 systemAppearance: {
                     AppearanceSettings.systemNSAppearance()
+                },
+                writeManagedGhosttyConfig: { _, _, source in
+                    do {
+                        try ConfigSourceEnvironment.live().writeManagedAppearanceConfigIfNeeded()
+                    } catch {
+#if DEBUG
+                        cmuxDebugLog("appearance.managedGhosttyConfig.writeFailed source=\(source) error=\(error)")
+#endif
+                    }
                 }
             )
         }
@@ -182,6 +191,7 @@ enum AppearanceSettings {
             duringLaunch: duringLaunch,
             environment: environment
         )
+        environment.writeManagedGhosttyConfig(normalized, appearance, source)
         environment.setApplicationAppearance(appearance)
         if synchronizeTerminalTheme {
             environment.synchronizeTerminalThemeWithAppearance(appearance, source)
