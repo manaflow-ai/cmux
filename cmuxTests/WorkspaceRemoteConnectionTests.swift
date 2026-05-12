@@ -559,6 +559,44 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testRemoteTerminalReconnectingDoesNotOverwriteErrorState() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux@gateway.freestyle.sh",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: ["ControlMaster=no"],
+            localProxyPort: nil,
+            relayPort: 64043,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux@gateway.freestyle.sh",
+            skipDaemonBootstrap: true
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+
+        workspace.applyRemoteConnectionStateUpdate(
+            .error,
+            detail: "SSH daemon connection refused",
+            target: "cmux@gateway.freestyle.sh"
+        )
+        workspace.markRemoteTerminalSessionReconnecting(
+            surfaceId: panelID,
+            relayPort: 64043,
+            attempt: 1,
+            limit: 2,
+            exitStatus: 255
+        )
+
+        XCTAssertEqual(workspace.remoteConnectionState, .error)
+        XCTAssertEqual(workspace.remoteConnectionDetail, "SSH daemon connection refused")
+        XCTAssertEqual(workspace.remoteStatusPayload()["state"] as? String, "error")
+    }
+
+    @MainActor
     func testForegroundSSHAuthReadyBeforeRemoteConfigureStartsDeferredConnect() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
