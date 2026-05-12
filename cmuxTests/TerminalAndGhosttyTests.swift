@@ -2207,6 +2207,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         let hostedView = surface.hostedView
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
+        hostedView.setActive(false)
 
         let surfaceReady = expectation(description: "runtime surface ready")
         let readyObserver = NotificationCenter.default.addObserver(
@@ -2218,6 +2219,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
                   readySurfaceId == surface.id else { return }
             surfaceReady.fulfill()
         }
+        surface.resetDebugForceRefreshCount()
         contentView.addSubview(hostedView)
         defer { NotificationCenter.default.removeObserver(readyObserver) }
 
@@ -2230,18 +2232,6 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         XCTAssertNotNil(
             surface.surface,
             "Expected runtime surface before measuring readiness redraws"
-        )
-
-        hostedView.setActive(false)
-        surface.resetDebugForceRefreshCount()
-
-        NotificationCenter.default.post(
-            name: .terminalSurfaceDidBecomeReady,
-            object: surface,
-            userInfo: [
-                "surfaceId": surface.id,
-                "workspaceId": surface.tabId
-            ]
         )
 
         let drained = expectation(description: "surface-ready redraw drained")
