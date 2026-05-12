@@ -9796,7 +9796,7 @@ final class TerminalTimestampStore {
 }
 
 private final class TerminalTimestampGutterView: NSView {
-    private static let formatter: DateFormatter = {
+    private let formatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .none
         formatter.timeStyle = .medium
@@ -9868,7 +9868,7 @@ private final class TerminalTimestampGutterView: NSView {
             let textY = floor(rowTopFromBottom + ((cellHeight - lineHeight) / 2))
             let textRect = NSRect(x: 4, y: textY, width: textWidth, height: lineHeight)
             guard textRect.intersects(dirtyRect) else { continue }
-            Self.formatter.string(from: row.timestamp).draw(in: textRect, withAttributes: attributes)
+            formatter.string(from: row.timestamp).draw(in: textRect, withAttributes: attributes)
         }
     }
 }
@@ -12961,13 +12961,6 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func handleTerminalTimestampsPreferenceChange() {
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { [weak self] in
-                self?.handleTerminalTimestampsPreferenceChange()
-            }
-            return
-        }
-
         if TerminalTimestampsSettings.isVisible(), let scrollbar = surfaceView.scrollbar {
             timestampStore.record(
                 scrollbar: TerminalTimestampScrollbarState(scrollbar),
