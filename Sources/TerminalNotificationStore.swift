@@ -714,6 +714,7 @@ final class TerminalNotificationStore: ObservableObject {
     private var hasRequestedAutomaticAuthorization = false
     private var hasDeferredAuthorizationRequest = false
     private var hasPromptedForSettings = false
+    private var initialAuthorizationRefreshObserver: NSObjectProtocol?
     private var userDefaultsObserver: NSObjectProtocol?
     private let settingsPromptWindowRetryDelay: TimeInterval = 0.5
     private let settingsPromptWindowRetryLimit = 20
@@ -756,10 +757,13 @@ final class TerminalNotificationStore: ObservableObject {
             self?.refreshDockBadge()
         }
         refreshDockBadge()
-        refreshAuthorizationStatus()
+        scheduleInitialAuthorizationRefresh()
     }
 
     deinit {
+        if let initialAuthorizationRefreshObserver {
+            NotificationCenter.default.removeObserver(initialAuthorizationRefreshObserver)
+        }
         if let userDefaultsObserver {
             NotificationCenter.default.removeObserver(userDefaultsObserver)
         }
@@ -818,7 +822,7 @@ final class TerminalNotificationStore: ObservableObject {
         center.getNotificationSettings { [weak self] settings in
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.authorizationState = Self.authorizationState(from: settings.authorizationStatus)
+                self.setAuthorizationState(Self.authorizationState(from: settings.authorizationStatus))
                 self.logAuthorization(
                     "refresh status=\(Self.authorizationStatusLabel(settings.authorizationStatus)) mapped=\(self.authorizationState.statusLabel)"
                 )
@@ -1305,7 +1309,7 @@ final class TerminalNotificationStore: ObservableObject {
                     return
                 }
 
-                self.authorizationState = Self.authorizationState(from: settings.authorizationStatus)
+                self.setAuthorizationState(Self.authorizationState(from: settings.authorizationStatus))
                 self.logAuthorization(
                     "ensure status origin=\(origin.rawValue) status=\(Self.authorizationStatusLabel(settings.authorizationStatus)) mapped=\(self.authorizationState.statusLabel) appActive=\(AppFocusState.isAppActive())"
                 )
@@ -1363,7 +1367,7 @@ final class TerminalNotificationStore: ObservableObject {
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
             DispatchQueue.main.async {
                 if granted {
-                    self.authorizationState = .authorized
+                    self.setAuthorizationState(.authorized)
                 } else {
                     self.refreshAuthorizationStatus()
                 }
@@ -1448,6 +1452,35 @@ final class TerminalNotificationStore: ObservableObject {
     ) -> Bool {
         guard origin == .notificationDelivery else { return false }
         return shouldDeferAutomaticAuthorizationRequest(status: status, isAppActive: isAppActive)
+    }
+
+    private func setAuthorizationState(_ nextState: NotificationAuthorizationState) {
+        guard authorizationState != nextState else { return }
+        authorizationState = nextState
+    }
+
+    private func scheduleInitialAuthorizationRefresh() {
+        guard !AppIconLaunchState.isApplicationFinishedLaunching() else {
+            DispatchQueue.main.async { [weak self] in
+                self?.refreshAuthorizationStatus()
+            }
+            return
+        }
+
+        initialAuthorizationRefreshObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didFinishLaunchingNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            if let initialAuthorizationRefreshObserver {
+                NotificationCenter.default.removeObserver(initialAuthorizationRefreshObserver)
+                self.initialAuthorizationRefreshObserver = nil
+            }
+            DispatchQueue.main.async { [weak self] in
+                self?.refreshAuthorizationStatus()
+            }
+        }
     }
 
     private static func buildIndexes(for notifications: [TerminalNotification]) -> NotificationIndexes {
