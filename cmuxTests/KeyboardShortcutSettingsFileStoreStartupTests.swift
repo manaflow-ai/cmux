@@ -461,6 +461,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: key) as? Bool, false)
     }
 
+    @MainActor
     func testSettingsFileStoreAppliesFileExplorerGitStatusColors() throws {
         let defaults = UserDefaults.standard
         let key = FileExplorerGitStatusColorSettings.userDefaultsKey
@@ -521,6 +522,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testFileExplorerGitStatusColorsIgnoreMalformedPersistedEntries() throws {
         let suiteName = "cmux-file-explorer-git-colors-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

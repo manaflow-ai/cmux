@@ -10,6 +10,7 @@ enum FileExplorerGitStatusColorSettings {
         return name
     }
 
+    @MainActor
     static func resolvedColor(
         for status: GitFileStatus,
         fallback: NSColor,
@@ -19,14 +20,12 @@ enum FileExplorerGitStatusColorSettings {
     }
 }
 
+@MainActor
 private final class FileExplorerGitStatusColorPalette {
     static let shared = FileExplorerGitStatusColorPalette()
 
     private let defaults: UserDefaults
     private let notificationCenter: NotificationCenter
-    // Keep FileExplorerStyle.gitColor(for:) synchronous while protecting cache reloads
-    // from style/defaults notifications that may be posted off-main.
-    private let lock = NSLock()
     private var colorsByStatus: [String: NSColor] = [:]
     private var styleObserver: NSObjectProtocol?
 
@@ -42,7 +41,9 @@ private final class FileExplorerGitStatusColorPalette {
             object: nil,
             queue: nil
         ) { [weak self] _ in
-            self?.reload()
+            MainActor.assumeIsolated {
+                self?.reload()
+            }
         }
     }
 
@@ -60,16 +61,12 @@ private final class FileExplorerGitStatusColorPalette {
         guard requestedDefaults === defaults else {
             return Self.loadedColors(from: requestedDefaults)[status.rawValue] ?? fallback
         }
-        lock.lock()
-        defer { lock.unlock() }
         let color = colorsByStatus[status.rawValue]
         return color ?? fallback
     }
 
     private func reload() {
         let colors = Self.loadedColors(from: defaults)
-        lock.lock()
-        defer { lock.unlock() }
         colorsByStatus = colors
     }
 

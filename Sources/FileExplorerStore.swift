@@ -147,6 +147,7 @@ enum FileExplorerStyle: Int, CaseIterable {
         }
     }
 
+    @MainActor
     func gitColor(for status: GitFileStatus) -> NSColor {
         FileExplorerGitStatusColorSettings.resolvedColor(
             for: status,
