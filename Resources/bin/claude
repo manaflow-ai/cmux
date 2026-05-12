@@ -343,18 +343,69 @@ function installClaudeChildHookPropagation() {
     return "";
   }
 
+  function isCmuxHookCommand(command) {
+    if (typeof command !== "string") {
+      return false;
+    }
+    const trimmed = command.trim();
+    return trimmed.startsWith("\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude ")
+      || trimmed === "\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude"
+      || trimmed.startsWith("cmux hooks claude ")
+      || trimmed === "cmux hooks feed --source claude";
+  }
+
+  function settingsJsonHasCmuxHooks(value) {
+    let settings;
+    try {
+      settings = JSON.parse(value);
+    } catch {
+      return false;
+    }
+    const hooks = settings && typeof settings === "object" && !Array.isArray(settings)
+      ? settings.hooks
+      : undefined;
+    if (!hooks || typeof hooks !== "object" || Array.isArray(hooks)) {
+      return false;
+    }
+    for (const groups of Object.values(hooks)) {
+      if (!Array.isArray(groups)) {
+        continue;
+      }
+      for (const group of groups) {
+        const hookEntries = group && typeof group === "object" && !Array.isArray(group)
+          ? group.hooks
+          : undefined;
+        if (!Array.isArray(hookEntries)) {
+          continue;
+        }
+        for (const hook of hookEntries) {
+          if (
+            hook
+            && typeof hook === "object"
+            && !Array.isArray(hook)
+            && hook.type === "command"
+            && isCmuxHookCommand(hook.command)
+          ) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
   function hasCmuxHookSettings(args, startIndex) {
     for (let index = startIndex; index < args.length; index += 1) {
       const arg = String(args[index]);
       if (arg.startsWith("--settings=")) {
-        if (arg.includes("hooks claude") || arg.includes("claude-hook")) {
+        if (settingsJsonHasCmuxHooks(arg.slice("--settings=".length))) {
           return true;
         }
         continue;
       }
       if (arg === "--settings" && index + 1 < args.length) {
         const value = String(args[index + 1]);
-        if (value.includes("hooks claude") || value.includes("claude-hook")) {
+        if (settingsJsonHasCmuxHooks(value)) {
           return true;
         }
         index += 1;
@@ -489,7 +540,10 @@ function installClaudeChildHookPropagation() {
     const hadArgs = Array.isArray(args);
     const originalOptions = hadArgs ? options : args;
     const patched = patchClaudeChild(file, hadArgs ? args : [], originalOptions);
-    return originalExecFileSync.call(this, file, patched.args, patched.options);
+    if (hadArgs || patched.patched) {
+      return originalExecFileSync.call(this, file, patched.args, patched.options);
+    }
+    return originalExecFileSync.call(this, file, originalOptions);
   };
 
   const originalFork = childProcess.fork;
