@@ -340,13 +340,70 @@ encode_launch_argv() {
     } | base64 | tr -d '\n'
 }
 
-# Pass through subcommands that don't support session/hook flags.
-case "${1:-}" in
-    mcp|config|api-key|rc|remote-control)
-        clear_inherited_claude_auth_selection_env
-        exec "$REAL_CLAUDE" "$@"
-        ;;
-esac
+claude_option_consumes_value() {
+    case "$1" in
+        --add-dir|--agent|--agents|--allowedTools|--allowed-tools|\
+        --append-system-prompt|--betas|--debug-file|--disallowedTools|\
+        --disallowed-tools|--effort|--fallback-model|--file|\
+        --input-format|--json-schema|--max-budget-usd|--mcp-config|\
+        --model|-m|-n|--name|--output-format|--permission-mode|--plugin-dir|\
+        --plugin-url|--remote-control-session-name-prefix|--setting-sources|\
+        --settings|--system-prompt|--tools)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+claude_interactive_entry_flag() {
+    case "$1" in
+        --print|--print=*|-p|--resume|--resume=*|-r|--continue|-c|\
+        --session-id|--session-id=*|--remote-control|--remote-control=*|\
+        --from-pr|--from-pr=*|--worktree|--worktree=*|-w|-w=*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+should_inject_claude_hooks() {
+    (( $# == 0 )) && return 0
+
+    local arg
+    local skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        case "$arg" in
+            --)
+                return 0
+                ;;
+            -*)
+                if claude_interactive_entry_flag "$arg"; then
+                    return 0
+                fi
+                if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
+                    skip_next=true
+                fi
+                continue
+                ;;
+            *)
+                return 1
+                ;;
+        esac
+    done
+
+    return 0
+}
+
+# Only inject hooks for Claude session entrypoints. Other command-like
+# invocations pass through so new Claude subcommands do not need cmux changes.
+if ! should_inject_claude_hooks "$@"; then
+    clear_inherited_claude_auth_selection_env
+    exec "$REAL_CLAUDE" "$@"
+fi
 
 # Unset CLAUDECODE to avoid "nested session" detection — cmux terminals are
 # independent sessions even when the parent shell was launched from Claude Code.

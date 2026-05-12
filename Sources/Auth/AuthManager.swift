@@ -2,10 +2,16 @@ import AppKit
 import AuthenticationServices
 import CMUXAuthCore
 import Foundation
+import os
 import StackAuth
 #if canImport(Security)
 import Security
 #endif
+
+nonisolated private let authLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    category: "AuthManager"
+)
 
 private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
     static let shared = AuthPresentationContext()
@@ -145,6 +151,7 @@ final class AuthManager: ObservableObject {
     private let tokenStore: any StackAuthTokenStoreProtocol
     private let settingsStore: AuthSettingsStore
     private let urlOpener: (URL) -> Void
+    private let usesSystemWebAuthenticationSession: () -> Bool
 
     /// Resolves when the on-launch session restoration finishes (success or failure).
     /// Any probe that needs a definitive `isAuthenticated` value must `await` this
@@ -157,12 +164,16 @@ final class AuthManager: ObservableObject {
         client: (any AuthClientProtocol)? = nil,
         tokenStore: any StackAuthTokenStoreProtocol = KeychainStackTokenStore(),
         settingsStore: AuthSettingsStore = AuthSettingsStore(),
-        urlOpener: ((URL) -> Void)? = nil
+        urlOpener: ((URL) -> Void)? = nil,
+        usesSystemWebAuthenticationSession: (() -> Bool)? = nil
     ) {
         self.tokenStore = tokenStore
         self.settingsStore = settingsStore
         self.client = client ?? Self.makeDefaultClient(tokenStore: tokenStore)
         self.urlOpener = urlOpener ?? Self.defaultURLOpener
+        self.usesSystemWebAuthenticationSession = usesSystemWebAuthenticationSession ?? {
+            Self.shouldUseSystemWebAuthenticationSession()
+        }
         let cachedUser = settingsStore.cachedUser()
         self.currentUser = cachedUser
         self.selectedTeamID = settingsStore.selectedTeamID
@@ -182,15 +193,52 @@ final class AuthManager: ObservableObject {
         await bootstrapTask.value
     }
 
-    private var loginPollTask: Task<Void, Never>?
     private var webAuthSession: ASWebAuthenticationSession?
 
     func beginSignIn() {
-        loginPollTask?.cancel()
+        beginSignIn(keepLoadingForExternalBrowser: false)
+    }
+
+    private func beginSignIn(keepLoadingForExternalBrowser: Bool) {
         webAuthSession?.cancel()
         webAuthSession = nil
-        isLoading = true
 
+        if usesSystemWebAuthenticationSession() {
+            isLoading = true
+            beginSystemWebAuthenticationSession()
+            return
+        }
+
+        let signInURL = AuthEnvironment.signInURL()
+        authLog("beginSignIn: opening external browser url=\(signInURL.absoluteString)")
+        urlOpener(signInURL)
+
+        if keepLoadingForExternalBrowser {
+            isLoading = true
+        } else if isLoading {
+            isLoading = false
+        }
+    }
+
+    static func shouldUseSystemWebAuthenticationSession(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        let value = environment["CMUX_AUTH_USE_ASWEB_AUTH_SESSION"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        switch value {
+        case "0", "false", "no":
+            return false
+        case "1", "true", "yes":
+            return true
+        default:
+            // ASWebAuthenticationSession scopes callbacks to the initiating
+            // session even when parallel debug apps share the same URL scheme.
+            return true
+        }
+    }
+
+    private func beginSystemWebAuthenticationSession() {
         let signInURL = AuthEnvironment.signInURL()
         let callbackScheme = AuthEnvironment.callbackScheme
 
@@ -205,14 +253,14 @@ final class AuthManager: ObservableObject {
                     self.webAuthSession = nil
                 }
                 if let error {
-                    NSLog("auth.webauth failed: %@", "\(error)")
+                    authLogger.error("ASWebAuthenticationSession failed: \(String(describing: error), privacy: .private)")
                     return
                 }
                 guard let callbackURL else { return }
                 do {
                     try await self.handleCallbackURL(callbackURL)
                 } catch {
-                    NSLog("auth.webauth callback failed: %@", "\(error)")
+                    authLogger.error("ASWebAuthenticationSession callback failed: \(String(describing: error), privacy: .private)")
                 }
             }
         }
@@ -222,20 +270,24 @@ final class AuthManager: ObservableObject {
         if session.start() {
             webAuthSession = session
         } else {
-            NSLog("auth.webauth: session.start() returned false")
+            authLogger.warning("ASWebAuthenticationSession start returned false")
             isLoading = false
         }
     }
 
-    /// Starts the ASWebAuthenticationSession popup and awaits the user's
+    /// Starts sign-in and awaits the user's
     /// completion by observing isAuthenticated AND isLoading. Resolves when
-    /// authenticated, when the sign-in attempt settles unsuccessfully (popup
-    /// dismissed/cancelled/error), or when the deadline elapses. No polling
+    /// authenticated, when the sign-in attempt settles unsuccessfully
+    /// (popup dismissed/cancelled/error), or when the deadline elapses. No polling
     /// — the $isAuthenticated / $isLoading AsyncPublishers drive the wait.
     func beginSignInAndAwait(timeout: TimeInterval) async -> Bool {
         if isAuthenticated { return true }
-        beginSignIn()
-        return await waitForSignInSettled(timeout: timeout)
+        beginSignIn(keepLoadingForExternalBrowser: true)
+        let signedIn = await waitForSignInSettled(timeout: timeout)
+        if !signedIn && isLoading && !isAuthenticated {
+            isLoading = false
+        }
+        return signedIn
     }
 
     /// Signs out and awaits the state to flip. signOut() is already async and
@@ -398,6 +450,11 @@ final class AuthManager: ObservableObject {
             throw AuthManagerError.invalidCallback
         }
 
+        // System web-auth callbacks arrive from the session completion handler,
+        // so there is no active presentation to cancel on this shared callback path.
+        // The external-browser path never creates an ASWebAuthenticationSession.
+        webAuthSession = nil
+        lastKnownAccessToken = nil
         isLoading = true
         defer { isLoading = false }
 
@@ -406,6 +463,7 @@ final class AuthManager: ObservableObject {
             refreshToken: payload.refreshToken
         )
         try await refreshSession()
+        lastKnownAccessToken = payload.accessToken
         didCompleteBrowserSignIn = true
     }
 
@@ -573,6 +631,10 @@ final class AuthManager: ObservableObject {
     }
 
     func signOut() async {
+        webAuthSession?.cancel()
+        webAuthSession = nil
+        isLoading = false
+        lastKnownAccessToken = nil
         try? await client.signOut()
         await tokenStore.clear()
         clearSessionState(clearSelectedTeam: true)
