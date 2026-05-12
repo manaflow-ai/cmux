@@ -767,6 +767,11 @@ private enum CLISocketPathResolver {
     private static let fallbackSocketPath = "/tmp/cmux-debug.sock"
     private static let stagingSocketPath = "/tmp/cmux-staging.sock"
     private static let legacyLastSocketPathFile = "/tmp/cmux-last-socket-path"
+    private enum SocketProbeResult {
+        case cmux
+        case notCmux
+        case unavailable
+    }
 
     static var defaultSocketPath: String {
         let stablePath: String? = stableSocketDirectoryURL()?
@@ -791,14 +796,24 @@ private enum CLISocketPathResolver {
         }
 
         let candidates = dedupe(candidatePaths(requestedPath: requestedPath, environment: environment))
+        var rejectedPaths: Set<String> = []
 
-        // Prefer sockets that are currently accepting connections.
-        for path in candidates where canConnect(to: path) {
-            return path
+        // Prefer sockets that prove they speak the cmux protocol. A different
+        // daemon can squat on a Unix socket path and accept connections.
+        for path in candidates {
+            switch probeCmuxSocket(at: path) {
+            case .cmux:
+                return path
+            case .notCmux:
+                rejectedPaths.insert(path)
+            case .unavailable:
+                break
+            }
         }
 
-        // If the listener is still starting, prefer existing socket files.
-        for path in candidates where isSocketFile(path) {
+        // If the listener is still starting, prefer existing socket files that
+        // were not proven to belong to another process/protocol.
+        for path in candidates where !rejectedPaths.contains(path) && isSocketFile(path) {
             return path
         }
 
@@ -881,15 +896,18 @@ private enum CLISocketPathResolver {
         return lstat(path, &st) == 0 && (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK)
     }
 
-    private static func canConnect(to path: String) -> Bool {
-        guard isSocketFile(path) else { return false }
+    private static func probeCmuxSocket(at path: String) -> SocketProbeResult {
+        guard isSocketFile(path) else { return .unavailable }
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { return false }
+        guard fd >= 0 else { return .unavailable }
         defer { Darwin.close(fd) }
+        configureSocketTimeouts(fd, timeout: 0.35)
+        configureNoSigPipe(fd)
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
         let maxLength = MemoryLayout.size(ofValue: addr.sun_path)
+        guard path.utf8CString.count <= maxLength else { return .unavailable }
         path.withCString { ptr in
             withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
                 let buf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
@@ -902,7 +920,76 @@ private enum CLISocketPathResolver {
                 Darwin.connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        return result == 0
+        guard result == 0 else { return .unavailable }
+        guard writeAll(Data("ping\n".utf8), to: fd) else { return .notCmux }
+        guard let response = readFirstLine(from: fd) else { return .notCmux }
+        return response == "PONG" ? .cmux : .notCmux
+    }
+
+    private static func configureSocketTimeouts(_ fd: Int32, timeout: TimeInterval) {
+        let clamped = max(timeout, 0.01)
+        var socketTimeout = timeval(
+            tv_sec: Int(clamped),
+            tv_usec: Int32((clamped - floor(clamped)) * 1_000_000)
+        )
+        _ = withUnsafePointer(to: &socketTimeout) { ptr in
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, ptr, socklen_t(MemoryLayout<timeval>.size))
+        }
+        _ = withUnsafePointer(to: &socketTimeout) { ptr in
+            setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, ptr, socklen_t(MemoryLayout<timeval>.size))
+        }
+    }
+
+    private static func configureNoSigPipe(_ fd: Int32) {
+#if os(macOS)
+        var noSigPipe: Int32 = 1
+        _ = withUnsafePointer(to: &noSigPipe) { ptr in
+            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, ptr, socklen_t(MemoryLayout<Int32>.size))
+        }
+#else
+        _ = fd
+#endif
+    }
+
+    private static func writeAll(_ data: Data, to fd: Int32) -> Bool {
+        data.withUnsafeBytes { rawBuffer in
+            guard var cursor = rawBuffer.baseAddress else { return true }
+            var remaining = rawBuffer.count
+            while remaining > 0 {
+                let written = Darwin.write(fd, cursor, remaining)
+                if written < 0 {
+                    if errno == EINTR { continue }
+                    return false
+                }
+                guard written > 0 else { return false }
+                remaining -= written
+                cursor = cursor.advanced(by: written)
+            }
+            return true
+        }
+    }
+
+    private static func readFirstLine(from fd: Int32) -> String? {
+        var bytes: [UInt8] = []
+        var buffer = [UInt8](repeating: 0, count: 128)
+        while bytes.count < 512 {
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            if count < 0 {
+                if errno == EINTR { continue }
+                return nil
+            }
+            guard count > 0 else { break }
+            bytes.append(contentsOf: buffer.prefix(count))
+            if bytes.contains(0x0A) { break }
+        }
+        guard !bytes.isEmpty,
+              let response = String(bytes: bytes, encoding: .utf8) else {
+            return nil
+        }
+        return response
+            .components(separatedBy: .newlines)
+            .first
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
     }
 
     private static func sanitizeTagSlug(_ raw: String) -> String {
