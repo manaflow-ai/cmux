@@ -464,6 +464,7 @@ private struct RestorableAgentHookSessionRecord: Codable, Sendable {
     var workspaceId: String
     var surfaceId: String
     var cwd: String?
+    var pid: Int?
     var launchCommand: AgentLaunchCommandSnapshot?
     var updatedAt: TimeInterval
 }
@@ -548,7 +549,8 @@ struct RestorableAgentSessionIndex: Sendable {
                 let normalizedSessionId = record.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !normalizedSessionId.isEmpty,
                       let workspaceId = UUID(uuidString: record.workspaceId),
-                      let panelId = UUID(uuidString: record.surfaceId) else {
+                      let panelId = UUID(uuidString: record.surfaceId),
+                      hookRecordStillBelongsToLiveAgent(record, workspaceId: workspaceId, panelId: panelId) else {
                     continue
                 }
 
@@ -585,7 +587,34 @@ struct RestorableAgentSessionIndex: Sendable {
         return rawValue
     }
 
+    private static func hookRecordStillBelongsToLiveAgent(
+        _ record: RestorableAgentHookSessionRecord,
+        workspaceId: UUID,
+        panelId: UUID
+    ) -> Bool {
+        guard let pid = record.pid else {
+            return true
+        }
+        guard pid > 0,
+              let process = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: pid),
+              process.environmentUUID(forKey: "CMUX_WORKSPACE_ID") == workspaceId,
+              process.environmentUUID(forKey: "CMUX_SURFACE_ID") == panelId else {
+            return false
+        }
+        return true
+    }
+
     private init(snapshotsByPanel: [PanelKey: SessionRestorableAgentSnapshot]) {
         self.snapshotsByPanel = snapshotsByPanel
+    }
+}
+
+private extension CmuxTopProcessArguments {
+    func environmentUUID(forKey key: String) -> UUID? {
+        guard let rawValue = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawValue.isEmpty else {
+            return nil
+        }
+        return UUID(uuidString: rawValue)
     }
 }
