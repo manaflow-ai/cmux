@@ -93,8 +93,13 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
             NoMarkedIMEKeyProbe(name: "End", text: "\u{F72B}", keyCode: UInt16(kVK_End)),
             NoMarkedIMEKeyProbe(name: "PageUp", text: "\u{F72C}", keyCode: UInt16(kVK_PageUp)),
             NoMarkedIMEKeyProbe(name: "PageDown", text: "\u{F72D}", keyCode: UInt16(kVK_PageDown)),
+            NoMarkedIMEKeyProbe(name: "Tab", text: "\t", keyCode: UInt16(kVK_Tab)),
             NoMarkedIMEKeyProbe(name: "Space", text: " ", keyCode: UInt16(kVK_Space)),
         ]
+    }
+
+    private var pinyinCandidateCommandProbeNames: Set<String> {
+        ["Left", "Right", "Up", "Down", "PageUp", "PageDown", "Tab"]
     }
 
     private func assertInputSourceDoesNotSwallowNoMarkedIMECommandKeys(
@@ -502,16 +507,26 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
-    func testSimplifiedChinesePinyinForwardsUnhandledNavigationAndSpaceKeysWithoutComposition() throws {
+    private func assertApplePinyinInputSourceForwardsUnhandledNavigationAndSpaceKeysWithoutComposition(
+        _ inputSourceId: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
         try assertInputSourceForwardsUnhandledNoMarkedIMECommandKeys(
-            "com.apple.inputmethod.SCIM.ITABC"
+            inputSourceId,
+            file: file,
+            line: line
         )
     }
 
-    func testSimplifiedChinesePinyinHandledCandidateArrowStaysInTextInputWithoutMarkedText() throws {
+    private func assertApplePinyinInputSourceHandledCandidateCommandsStayInTextInputWithoutMarkedText(
+        _ inputSourceId: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
         let view = GhosttyNSView(frame: .zero)
 
-        for probe in noMarkedNavigationKeyProbes where ["Left", "Right", "Up", "Down"].contains(probe.name) {
+        for probe in noMarkedNavigationKeyProbes where pinyinCandidateCommandProbeNames.contains(probe.name) {
             let event = try keyEvent(text: probe.text, keyCode: probe.keyCode, windowNumber: 0)
 
             XCTAssertTrue(
@@ -523,14 +538,20 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
                     accumulatedText: [],
                     event: event,
                     textInputHandledEvent: true,
-                    inputSourceId: "com.apple.inputmethod.SCIM.ITABC"
+                    inputSourceId: inputSourceId
                 ),
-                "Simplified Chinese Pinyin candidate \(probe.name) handled by NSTextInputContext must not leak to Ghostty"
+                "\(inputSourceId) candidate \(probe.name) handled by NSTextInputContext must not leak to Ghostty",
+                file: file,
+                line: line
             )
         }
     }
 
-    func testRoutesSimplifiedChinesePinyinCandidateArrowKeyEquivalentThroughKeyDownWithoutMarkedText() throws {
+    private func assertRoutesApplePinyinCandidateArrowKeyEquivalentThroughKeyDownWithoutMarkedText(
+        _ inputSourceId: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
         let view = GhosttyNSView(frame: .zero)
         let event = try keyEvent(
             text: "\u{F701}",
@@ -541,9 +562,47 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         XCTAssertTrue(
             view.shouldRouteTextInputKeyEquivalentToKeyDown(
                 event,
-                inputSourceId: "com.apple.inputmethod.SCIM.ITABC"
+                inputSourceId: inputSourceId
             ),
-            "Simplified Chinese Pinyin candidate arrows should reach NSTextInputContext before terminal routing"
+            "\(inputSourceId) candidate arrows should reach NSTextInputContext before terminal routing",
+            file: file,
+            line: line
+        )
+    }
+
+    func testSimplifiedChinesePinyinForwardsUnhandledNavigationAndSpaceKeysWithoutComposition() throws {
+        try assertApplePinyinInputSourceForwardsUnhandledNavigationAndSpaceKeysWithoutComposition(
+            "com.apple.inputmethod.SCIM.ITABC"
+        )
+    }
+
+    func testTraditionalChinesePinyinForwardsUnhandledNavigationAndSpaceKeysWithoutComposition() throws {
+        try assertApplePinyinInputSourceForwardsUnhandledNavigationAndSpaceKeysWithoutComposition(
+            "com.apple.inputmethod.TCIM.Pinyin"
+        )
+    }
+
+    func testSimplifiedChinesePinyinHandledCandidateCommandsStayInTextInputWithoutMarkedText() throws {
+        try assertApplePinyinInputSourceHandledCandidateCommandsStayInTextInputWithoutMarkedText(
+            "com.apple.inputmethod.SCIM.ITABC"
+        )
+    }
+
+    func testTraditionalChinesePinyinHandledCandidateCommandsStayInTextInputWithoutMarkedText() throws {
+        try assertApplePinyinInputSourceHandledCandidateCommandsStayInTextInputWithoutMarkedText(
+            "com.apple.inputmethod.TCIM.Pinyin"
+        )
+    }
+
+    func testRoutesSimplifiedChinesePinyinCandidateArrowKeyEquivalentThroughKeyDownWithoutMarkedText() throws {
+        try assertRoutesApplePinyinCandidateArrowKeyEquivalentThroughKeyDownWithoutMarkedText(
+            "com.apple.inputmethod.SCIM.ITABC"
+        )
+    }
+
+    func testRoutesTraditionalChinesePinyinCandidateArrowKeyEquivalentThroughKeyDownWithoutMarkedText() throws {
+        try assertRoutesApplePinyinCandidateArrowKeyEquivalentThroughKeyDownWithoutMarkedText(
+            "com.apple.inputmethod.TCIM.Pinyin"
         )
     }
 
