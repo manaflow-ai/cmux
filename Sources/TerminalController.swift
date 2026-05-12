@@ -3142,8 +3142,15 @@ class TerminalController {
             surfaceId: surfaceId,
             paneId: paneId
         )
-        guard case .ok(let scopedParams) = scopedResult else {
+        guard case .ok(let payload) = scopedResult else {
             return extensionBridgeEnvelope(scopedResult)
+        }
+        guard let scopedParams = payload as? [String: Any] else {
+            return extensionBridgeEnvelope(.err(
+                code: "internal_error",
+                message: "Extension bridge scope resolution returned an invalid payload",
+                data: nil
+            ))
         }
         v2MainSync { self.v2RefreshKnownRefs() }
         return withSocketCommandPolicy(commandKey: method, isV2: true, params: scopedParams) {
