@@ -74,6 +74,7 @@ class TerminalController {
     private nonisolated static let socketClientWriteTimeout: TimeInterval = 5
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
     private nonisolated static let socketListenerFailureCaptureLock = NSLock()
+    nonisolated static let v2ResolvedExtensionBundleParamKey = "__cmux_resolved_extension_bundle"
     private nonisolated(unsafe) static var socketListenerFailureLastCapturedAt: [String: Date] = [:]
     private nonisolated static let unixSocketPathMaxLength: Int = {
         var addr = sockaddr_un()
@@ -3123,7 +3124,7 @@ class TerminalController {
         ]
     }
 
-    func performExtensionBridgeRPC(
+    nonisolated func performExtensionBridgeRPC(
         method: String,
         params: [String: Any],
         workspaceId: UUID,
@@ -3165,59 +3166,121 @@ class TerminalController {
         guard case .ok(let payload) = scopedResult else {
             return extensionBridgeEnvelope(scopedResult)
         }
-        guard let scopedParams = payload as? [String: Any] else {
+        guard var scopedParams = payload as? [String: Any] else {
             return extensionBridgeEnvelope(.err(
                 code: "internal_error",
                 message: "Extension bridge scope resolution returned an invalid payload",
                 data: nil
             ))
         }
-        v2MainSync { self.v2RefreshKnownRefs() }
-        return withSocketCommandPolicy(commandKey: method, isV2: true, params: scopedParams) {
-            let result: V2CallResult
-            switch method {
-            case "system.capabilities":
-                result = .ok(v2Capabilities())
-            case "system.tree":
-                result = v2SystemTree(params: scopedParams)
-            case "workspace.list":
-                result = v2WorkspaceList(params: scopedParams)
-            case "workspace.current":
-                result = v2WorkspaceCurrent(params: scopedParams)
-            case "pane.list":
-                result = v2PaneList(params: scopedParams)
-            case "pane.surfaces":
-                result = v2PaneSurfaces(params: scopedParams)
-            case "pane.create":
-                result = v2PaneCreate(params: scopedParams)
-            case "surface.list":
-                result = v2SurfaceList(params: scopedParams)
-            case "surface.current":
-                result = v2SurfaceCurrent(params: scopedParams)
-            case "surface.focus":
-                result = v2SurfaceFocus(params: scopedParams)
-            case "surface.create":
-                result = v2SurfaceCreate(params: scopedParams)
-            case "surface.split":
-                result = v2SurfaceSplit(params: scopedParams)
-            case "surface.close":
-                result = v2SurfaceClose(params: scopedParams)
-            case "surface.send_text":
-                result = v2SurfaceSendText(params: scopedParams)
-            case "surface.send_key":
-                result = v2SurfaceSendKey(params: scopedParams)
-            default:
-                result = .err(
-                    code: "method_not_allowed",
-                    message: "Extension bridge method is not allowed: \(method)",
-                    data: nil
-                )
+        let preparedResult = extensionBridgeParamsByResolvingBundleIfNeeded(method: method, params: scopedParams)
+        guard case .ok(let preparedPayload) = preparedResult else {
+            return extensionBridgeEnvelope(preparedResult)
+        }
+        guard let preparedParams = preparedPayload as? [String: Any] else {
+            return extensionBridgeEnvelope(.err(
+                code: "internal_error",
+                message: "Extension bridge bundle resolution returned an invalid payload",
+                data: nil
+            ))
+        }
+        scopedParams = preparedParams
+
+        return v2MainSync {
+            self.v2RefreshKnownRefs()
+            return self.withSocketCommandPolicy(commandKey: method, isV2: true, params: scopedParams) {
+                let result: V2CallResult
+                switch method {
+                case "system.capabilities":
+                    result = .ok(self.v2Capabilities())
+                case "system.tree":
+                    result = self.v2SystemTree(params: scopedParams)
+                case "workspace.list":
+                    result = self.v2WorkspaceList(params: scopedParams)
+                case "workspace.current":
+                    result = self.v2WorkspaceCurrent(params: scopedParams)
+                case "pane.list":
+                    result = self.v2PaneList(params: scopedParams)
+                case "pane.surfaces":
+                    result = self.v2PaneSurfaces(params: scopedParams)
+                case "pane.create":
+                    result = self.v2PaneCreate(params: scopedParams)
+                case "surface.list":
+                    result = self.v2SurfaceList(params: scopedParams)
+                case "surface.current":
+                    result = self.v2SurfaceCurrent(params: scopedParams)
+                case "surface.focus":
+                    result = self.v2SurfaceFocus(params: scopedParams)
+                case "surface.create":
+                    result = self.v2SurfaceCreate(params: scopedParams)
+                case "surface.split":
+                    result = self.v2SurfaceSplit(params: scopedParams)
+                case "surface.close":
+                    result = self.v2SurfaceClose(params: scopedParams)
+                case "surface.send_text":
+                    result = self.v2SurfaceSendText(params: scopedParams)
+                case "surface.send_key":
+                    result = self.v2SurfaceSendKey(params: scopedParams)
+                default:
+                    result = .err(
+                        code: "method_not_allowed",
+                        message: "Extension bridge method is not allowed: \(method)",
+                        data: nil
+                    )
+                }
+                return self.extensionBridgeEnvelope(result)
             }
-            return extensionBridgeEnvelope(result)
         }
     }
 
-    private func extensionBridgeScopedParams(
+    private nonisolated func extensionBridgeParamsByResolvingBundleIfNeeded(
+        method: String,
+        params: [String: Any]
+    ) -> V2CallResult {
+        let extensionCreationMethods: Set<String> = [
+            "pane.create",
+            "surface.create",
+            "surface.split"
+        ]
+        guard extensionCreationMethods.contains(method),
+              Self.extensionBridgePanelType(params["type"]) == .extensionPane else {
+            return .ok(params)
+        }
+        guard let bundlePath = Self.extensionBridgeTrimmedString(params["bundle"])
+            ?? Self.extensionBridgeTrimmedString(params["bundle_path"]) else {
+            return .err(code: "invalid_params", message: "Missing bundle path for extension surface", data: nil)
+        }
+        do {
+            var preparedParams = params
+            preparedParams[Self.v2ResolvedExtensionBundleParamKey] = try ExtensionBundleDescriptor.resolveUserSelected(path: bundlePath)
+            return .ok(preparedParams)
+        } catch {
+            return .err(
+                code: "invalid_params",
+                message: error.localizedDescription,
+                data: ["bundle": bundlePath]
+            )
+        }
+    }
+
+    private nonisolated static func extensionBridgePanelType(_ rawValue: Any?) -> PanelType {
+        guard let rawType = extensionBridgeTrimmedString(rawValue) else {
+            return .terminal
+        }
+        let normalized = rawType
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .lowercased()
+        return PanelType(rawValue: normalized) ?? .terminal
+    }
+
+    private nonisolated static func extensionBridgeTrimmedString(_ rawValue: Any?) -> String? {
+        guard let string = rawValue as? String else { return nil }
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private nonisolated func extensionBridgeScopedParams(
         method: String,
         params: [String: Any],
         workspaceId: UUID,
@@ -3311,7 +3374,7 @@ class TerminalController {
         return .ok(scopedParams)
     }
 
-    private func extensionBridgeEnvelope(_ result: V2CallResult) -> [String: Any] {
+    private nonisolated func extensionBridgeEnvelope(_ result: V2CallResult) -> [String: Any] {
         switch result {
         case .ok(let payload):
             return [

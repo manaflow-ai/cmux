@@ -182,6 +182,9 @@ extension TerminalController {
         panelType: PanelType
     ) -> (bundle: ExtensionBundleDescriptor?, error: V2CallResult?) {
         guard panelType == .extensionPane else { return (nil, nil) }
+        if let resolvedBundle = params[Self.v2ResolvedExtensionBundleParamKey] as? ExtensionBundleDescriptor {
+            return (resolvedBundle, nil)
+        }
         guard let bundlePath = v2OptionalTrimmedRawString(params, "bundle")
             ?? v2OptionalTrimmedRawString(params, "bundle_path") else {
             return (

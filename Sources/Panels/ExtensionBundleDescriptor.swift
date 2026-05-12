@@ -24,13 +24,13 @@ enum ExtensionBundleResolveError: Error, LocalizedError {
     }
 }
 
-struct ExtensionBundleManifest: Equatable {
+struct ExtensionBundleManifest: Equatable, Sendable {
     let identifier: String?
     let name: String?
     let version: String?
 }
 
-struct ExtensionBundleDescriptor: Equatable {
+struct ExtensionBundleDescriptor: Equatable, Sendable {
     let bundleURL: URL
     let indexURL: URL
     let displayName: String
