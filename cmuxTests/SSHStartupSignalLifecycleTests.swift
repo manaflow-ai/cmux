@@ -123,7 +123,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             )
 
             XCTAssertFalse(result.timedOut, result.stderr)
-            XCTAssertEqual(result.status, expectedStatuses[signal], result.stderr)
+            let expectedStatus = try XCTUnwrap(expectedStatuses[signal])
+            XCTAssertEqual(result.status, expectedStatus, result.stderr)
             XCTAssertTrue(
                 waitForSSHSignalLifecycleLog(childSignalLog) { contents in
                     contents.contains("child-completed") ||
