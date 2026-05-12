@@ -110580,6 +110580,40 @@
         }
       }
     },
+    "remote.state.reconnecting.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnecting to %@ (attempt %lld/%lld after SSH exit %lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に再接続中 (試行 %lld/%lld、SSH 終了 %lld 後)"
+          }
+        }
+      }
+    },
+    "remote.state.targetFallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote host"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートホスト"
+          }
+        }
+      }
+    },
     "remote.disconnectBanner.sessionEnded": {
       "extractionState": "manual",
       "localizations": {

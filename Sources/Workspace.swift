@@ -9358,6 +9358,61 @@ final class Workspace: Identifiable, ObservableObject {
         untrackRemoteTerminalSurface(surfaceId)
     }
 
+    func markRemoteTerminalSessionReconnecting(
+        surfaceId: UUID,
+        relayPort: Int?,
+        attempt: Int,
+        limit: Int,
+        exitStatus: Int
+    ) {
+        guard remoteTerminalLifecycleMatches(surfaceId: surfaceId, relayPort: relayPort) else { return }
+        let target = remoteConfiguration?.displayTarget ?? String(
+            localized: "remote.state.targetFallback",
+            defaultValue: "remote host"
+        )
+        let detailFormat = String(
+            localized: "remote.state.reconnecting.terminal",
+            defaultValue: "Reconnecting to %@ (attempt %lld/%lld after SSH exit %lld)"
+        )
+        let detail = String(format: detailFormat, target, Int64(attempt), Int64(limit), Int64(exitStatus))
+        applyRemoteConnectionStateUpdate(.reconnecting, detail: detail, target: target)
+    }
+
+    func markRemoteTerminalSessionConnected(surfaceId: UUID, relayPort: Int?) {
+        guard remoteTerminalLifecycleMatches(surfaceId: surfaceId, relayPort: relayPort) else { return }
+        guard remoteConnectionState == .connecting || remoteConnectionState == .reconnecting else { return }
+        let target = remoteConfiguration?.displayTarget ?? String(
+            localized: "remote.state.targetFallback",
+            defaultValue: "remote host"
+        )
+        if remoteConfiguration?.skipDaemonBootstrap == true,
+           remoteConfiguration?.daemonWebSocketEndpoint == nil {
+            let detailFormat = String(
+                localized: "remote.state.connected.vmNoProxy",
+                defaultValue: "Connected to %@ (VM, proxy disabled)"
+            )
+            applyRemoteConnectionStateUpdate(
+                .connected,
+                detail: String(format: detailFormat, target),
+                target: target
+            )
+            return
+        }
+
+        guard remoteProxyEndpoint != nil || remoteDaemonStatus.state == .ready else { return }
+        applyRemoteConnectionStateUpdate(.connected, detail: nil, target: target)
+    }
+
+    private func remoteTerminalLifecycleMatches(surfaceId: UUID, relayPort: Int?) -> Bool {
+        guard let relayPort,
+              relayPort > 0,
+              remoteConfiguration?.relayPort == relayPort else {
+            return false
+        }
+        return activeRemoteTerminalSurfaceIds.contains(surfaceId)
+            || pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId)
+    }
+
     func teardownRemoteConnection() {
         disconnectRemoteConnection(clearConfiguration: true)
     }
