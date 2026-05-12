@@ -125,7 +125,12 @@ clear_inherited_claude_auth_selection_env() {
         local key
         for key in "${CLAUDE_AUTH_SELECTION_ENV_KEYS[@]}"; do
             should_preserve_claude_auth_selection_key "$key" && continue
-            unset "$key"
+            # TerminalStartupEnvironment masks auth selection inherited from the
+            # cmux process as empty values. Remove those sentinels, but keep
+            # non-empty values exported by the user's shell startup files.
+            if [[ ${!key+x} && -z "${!key}" ]]; then
+                unset "$key"
+            fi
         done
     fi
     # Safe outside cmux: this only rewrites an existing subrouter path when the account alias exists.

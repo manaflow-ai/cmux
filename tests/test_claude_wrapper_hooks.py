@@ -519,18 +519,32 @@ def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures
         inherited_env=inherited,
     )
     expect(code == 0, f"fresh auth env: wrapper exited {code}: {stderr}", failures)
-    expect(auth_env.get("CLAUDE_CONFIG_DIR") == "/tmp/claude-config", f"fresh auth env: expected CLAUDE_CONFIG_DIR preserved, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
-    expect(auth_env.get("ANTHROPIC_AUTH_TOKEN") == "third-party-auth-token", f"fresh auth env: expected ANTHROPIC_AUTH_TOKEN preserved, got {auth_env.get('ANTHROPIC_AUTH_TOKEN')!r}", failures)
-    expect(auth_env.get("ANTHROPIC_BASE_URL") == "https://api.example.test", f"fresh auth env: expected ANTHROPIC_BASE_URL preserved, got {auth_env.get('ANTHROPIC_BASE_URL')!r}", failures)
-    for key in [
+    for key, value in inherited.items():
+        expect(auth_env.get(key) == value, f"fresh auth env: expected {key}={value!r}, got {auth_env.get(key)!r}", failures)
+    expect("--session-id" in real_argv, f"fresh auth env: expected session injection, got {real_argv}", failures)
+
+
+def test_live_socket_drops_masked_empty_claude_auth_selection_env(failures: list[str]) -> None:
+    masked_keys = [
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_MODEL",
         "ANTHROPIC_SMALL_FAST_MODEL",
         "CLAUDE_CODE_USE_BEDROCK",
         "CLAUDE_CODE_USE_VERTEX",
-    ]:
-        expect(auth_env.get(key) == "__UNSET__", f"fresh auth env: expected {key} unset, got {auth_env.get(key)!r}", failures)
-    expect("--session-id" in real_argv, f"fresh auth env: expected session injection, got {real_argv}", failures)
+    ]
+    inherited = {
+        "CLAUDE_CONFIG_DIR": "/tmp/claude-config",
+        **{key: "" for key in masked_keys},
+    }
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["--print", "hello"],
+        inherited_env=inherited,
+    )
+    expect(code == 0, f"masked auth env: wrapper exited {code}: {stderr}", failures)
+    expect(auth_env.get("CLAUDE_CONFIG_DIR") == "/tmp/claude-config", f"masked auth env: expected CLAUDE_CONFIG_DIR preserved, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
+    for key in masked_keys:
+        expect(auth_env.get(key) == "__UNSET__", f"masked auth env: expected {key} unset, got {auth_env.get(key)!r}", failures)
+    expect("--session-id" in real_argv, f"masked auth env: expected session injection, got {real_argv}", failures)
 
 
 def test_live_socket_preserves_vertex_auth_env_for_shell_configured_launch(failures: list[str]) -> None:
@@ -595,7 +609,7 @@ def test_live_socket_preserves_claude_auth_for_resume_launch(failures: list[str]
 def test_live_socket_preserves_only_listed_claude_auth_keys(failures: list[str]) -> None:
     inherited = {
         "CLAUDE_CONFIG_DIR": "/tmp/claude-config",
-        "ANTHROPIC_API_KEY": "stale-api-key",
+        "ANTHROPIC_API_KEY": "",
         "ANTHROPIC_MODEL": "resume-model",
         "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV": "1",
         "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS": "ANTHROPIC_MODEL",
@@ -607,7 +621,7 @@ def test_live_socket_preserves_only_listed_claude_auth_keys(failures: list[str])
     expect(code == 0, f"listed auth env: wrapper exited {code}: {stderr}", failures)
     expect(auth_env.get("ANTHROPIC_MODEL") == "resume-model", f"listed auth env: expected model preserved, got {auth_env.get('ANTHROPIC_MODEL')!r}", failures)
     expect(auth_env.get("CLAUDE_CONFIG_DIR") == "/tmp/claude-config", f"listed auth env: expected CLAUDE_CONFIG_DIR preserved, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
-    expect(auth_env.get("ANTHROPIC_API_KEY") == "__UNSET__", f"listed auth env: expected unlisted ANTHROPIC_API_KEY unset, got {auth_env.get('ANTHROPIC_API_KEY')!r}", failures)
+    expect(auth_env.get("ANTHROPIC_API_KEY") == "__UNSET__", f"listed auth env: expected masked ANTHROPIC_API_KEY unset, got {auth_env.get('ANTHROPIC_API_KEY')!r}", failures)
     expect("--session-id" not in real_argv, f"listed auth env: expected no injected session id, got {real_argv}", failures)
 
 
@@ -767,6 +781,7 @@ def main() -> int:
     test_value_options_before_print_do_not_hide_interactive_entry(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)
+    test_live_socket_drops_masked_empty_claude_auth_selection_env(failures)
     test_live_socket_preserves_vertex_auth_env_for_shell_configured_launch(failures)
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
