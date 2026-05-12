@@ -3302,6 +3302,7 @@ private struct FeedInlineTextField: NSViewRepresentable {
         var parent: FeedInlineTextField
         var isProgrammaticMutation = false
         weak var view: FeedInlineTextEditorView?
+        var lastRenderedIsFocused: Bool?
 
         init(parent: FeedInlineTextField) {
             self.parent = parent
@@ -3410,9 +3411,18 @@ private struct FeedInlineTextField: NSViewRepresentable {
         guard let window = nsView.window else { return }
         let firstResponder = window.firstResponder
         let isFirstResponder = firstResponder === nsView.textView
+        let didRequestFocus = isFocused && context.coordinator.lastRenderedIsFocused != true
+        defer {
+            context.coordinator.lastRenderedIsFocused = isFocused
+        }
 
         if isFocused, isEnabled, !isFirstResponder {
-            nsView.focusIfNeeded()
+            let ownsSidebarFocus = firstResponder.map {
+                AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.ownsRightSidebarFocus($0) == true
+            } ?? true
+            if didRequestFocus || ownsSidebarFocus {
+                nsView.focusIfNeeded()
+            }
         } else if !isEnabled, isFirstResponder {
             window.makeFirstResponder(nil)
         }
