@@ -6996,6 +6996,86 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // MARK: - Input Handling
 
+    @IBAction override func selectAll(_ sender: Any?) {
+        _ = selectCommandLineAtCursorOrAll()
+    }
+
+    @discardableResult
+    private func selectCommandLineAtCursorOrAll() -> Bool {
+        guard let surface = ensureSurfaceReadyForInput() else {
+            requestInputRecoveryAfterSurfaceMiss(reason: "selectAll.missingSurface")
+            return false
+        }
+
+        if selectCommandLineAtCursor(surface: surface) {
+            invalidateTextInputCoordinates(selectionChanged: true)
+            return true
+        }
+
+        let selected = performBindingAction("select_all")
+        if selected {
+            invalidateTextInputCoordinates(selectionChanged: true)
+        }
+        return selected
+    }
+
+    private func selectCommandLineAtCursor(surface: ghostty_surface_t) -> Bool {
+        guard !ghostty_surface_mouse_captured(surface) else { return false }
+        guard bounds.width > 0, bounds.height > 0 else { return false }
+
+        var x: Double = 0
+        var y: Double = 0
+        var width: Double = cellSize.width
+        var height: Double = cellSize.height
+        ghostty_surface_ime_point(surface, &x, &y, &width, &height)
+
+        let clickX = clampSurfaceClickCoordinate(
+            x + max(width, cellSize.width, 1) * 0.5,
+            upperBound: bounds.width
+        )
+        let clickY = clampSurfaceClickCoordinate(
+            y + max(height, cellSize.height, 1) * 0.5,
+            upperBound: bounds.height
+        )
+        let resetX = clickX > max(cellSize.width * 2, 2) ? 0 : max(bounds.width - 1, 0)
+        let resetY = clickY > max(cellSize.height * 2, 2) ? 0 : max(bounds.height - 1, 0)
+
+        let mods = ghostty_input_mods_e(rawValue: GHOSTTY_MODS_NONE.rawValue) ?? GHOSTTY_MODS_NONE
+        _ = ghostty_surface_clear_selection_compat(surface)
+
+        // Force Ghostty's multi-click state to restart before issuing the triple
+        // click that reaches Screen.selectLine and its OSC 133 input boundaries.
+        guard sendSurfaceLeftClick(surface: surface, x: resetX, y: resetY, mods: mods) else {
+            return false
+        }
+
+        for _ in 0 ..< 3 {
+            guard sendSurfaceLeftClick(surface: surface, x: clickX, y: clickY, mods: mods) else {
+                return false
+            }
+        }
+
+        return ghostty_surface_has_selection(surface)
+    }
+
+    private func clampSurfaceClickCoordinate(_ value: Double, upperBound: Double) -> Double {
+        guard upperBound > 0 else { return 0 }
+        return min(max(value, 0), max(upperBound - 1, 0))
+    }
+
+    private func sendSurfaceLeftClick(
+        surface: ghostty_surface_t,
+        x: Double,
+        y: Double,
+        mods: ghostty_input_mods_e
+    ) -> Bool {
+        ghostty_surface_mouse_pos(surface, x, y, mods)
+        guard ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods) else {
+            return false
+        }
+        return ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
+    }
+
     @IBAction func copy(_ sender: Any?) {
         _ = performBindingAction("copy_to_clipboard")
     }

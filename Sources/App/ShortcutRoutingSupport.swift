@@ -360,6 +360,16 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
         literalChars: literalChars
     ) != nil
 }
+
+func shouldRouteTerminalSelectAllToNaturalTextEngine(_ event: NSEvent) -> Bool {
+    guard event.type == .keyDown else { return false }
+    let flags = event.modifierFlags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    guard flags == [.command] else { return false }
+    return event.charactersIgnoringModifiers?.lowercased() == "a"
+}
+
 @discardableResult
 func startOrFocusTerminalSearch(
     _ terminalSurface: TerminalSurface,
