@@ -22,22 +22,21 @@ final class GlobalSearchCoordinator {
 
     private let maxIndexedTextCharacters = 400_000
     private let browserCaptureDebounceMilliseconds = 250
-    private var browserCaptureTimers: [UUID: DispatchSourceTimer] = [:]
+    private let markdownCaptureDebounceMilliseconds = 250
     private var browserCaptureTasks: [UUID: Task<Void, Never>] = [:]
     private var browserCaptureTaskIDs: [UUID: UUID] = [:]
     private var markdownCaptureTasks: [UUID: Task<Void, Never>] = [:]
     private var markdownCaptureTaskIDs: [UUID: UUID] = [:]
     private var startupIndexTask: Task<Void, Never>?
-    private var index: SearchIndex?
-    private var indexCreationFailed = false
+    private var indexState: SearchIndexState = .idle
     private lazy var popover = MenubarSearchPopover(coordinator: self)
 
     private init() {}
 
     func start() {
-        guard let index = ensureIndex() else { return }
         startupIndexTask?.cancel()
         startupIndexTask = Task { @MainActor [weak self] in
+            guard let self, let index = await self.ensureIndex() else { return }
             do {
                 try await index.deleteAll()
             } catch {
@@ -46,7 +45,7 @@ final class GlobalSearchCoordinator {
 #endif
             }
 
-            guard let self, !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return }
             await self.refreshLiveIndex()
             if !Task.isCancelled {
                 self.startupIndexTask = nil
@@ -67,7 +66,7 @@ final class GlobalSearchCoordinator {
     }
 
     func search(query: String) async -> [SearchIndexHit] {
-        guard let index = ensureIndex() else { return [] }
+        guard let index = await ensureIndex() else { return [] }
         do {
             return try await index.search(query, limit: 20)
         } catch {
@@ -84,7 +83,7 @@ final class GlobalSearchCoordinator {
     }
 
     func refreshLiveIndex() async {
-        guard let index = ensureIndex(), let appDelegate = AppDelegate.shared else { return }
+        guard let index = await ensureIndex(), let appDelegate = AppDelegate.shared else { return }
 
         for context in appDelegate.globalSearchPanelContexts() {
             guard !Task.isCancelled else { return }
@@ -122,48 +121,42 @@ final class GlobalSearchCoordinator {
     func captureBrowserPanel(_ panel: BrowserPanel) {
         let panelID = panel.id
         let taskID = UUID()
-        browserCaptureTimers[panelID]?.cancel()
         browserCaptureTasks[panelID]?.cancel()
         browserCaptureTaskIDs[panelID] = taskID
 
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(
-            deadline: .now() + .milliseconds(browserCaptureDebounceMilliseconds),
-            leeway: .milliseconds(25)
-        )
-        timer.setEventHandler { [weak self, weak panel] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.browserCaptureTimers[panelID]?.cancel()
-                self.browserCaptureTimers[panelID] = nil
-                guard let panel else { return }
-                guard self.browserCaptureTaskIDs[panelID] == taskID else { return }
-
-                let task = Task { @MainActor [weak self, weak panel] in
-                    guard let self, let panel else { return }
-                    guard !Task.isCancelled, self.browserCaptureTaskIDs[panelID] == taskID else { return }
-                    await self.indexBrowserPanel(panel)
-                    if self.browserCaptureTaskIDs[panelID] == taskID {
-                        self.browserCaptureTasks[panelID] = nil
-                        self.browserCaptureTaskIDs[panelID] = nil
-                    }
-                }
+        let task = Task { @MainActor [weak self, weak panel] in
+            guard let self else { return }
+            defer {
                 if self.browserCaptureTaskIDs[panelID] == taskID {
-                    self.browserCaptureTasks[panelID] = task
+                    self.browserCaptureTasks[panelID] = nil
+                    self.browserCaptureTaskIDs[panelID] = nil
                 }
             }
+
+            do {
+                try await Task.sleep(for: .milliseconds(browserCaptureDebounceMilliseconds))
+            } catch {
+                return
+            }
+
+            guard !Task.isCancelled,
+                  self.browserCaptureTaskIDs[panelID] == taskID,
+                  let panel else {
+                return
+            }
+
+            await self.indexBrowserPanel(panel)
         }
-        browserCaptureTimers[panelID] = timer
-        timer.resume()
+        browserCaptureTasks[panelID] = task
     }
 
     func captureMarkdownPanel(_ panel: MarkdownPanel) {
         let panelID = panel.id
         guard !panel.isFileUnavailable else {
-            guard let index = ensureIndex() else { return }
             cancelMarkdownCapture(forPanelID: panelID)
             Task { @MainActor [weak self] in
-                await self?.purgeMarkdownDocument(forPanelID: panelID, index: index)
+                guard let self, let index = await self.ensureIndex() else { return }
+                await self.purgeMarkdownDocument(forPanelID: panelID, index: index)
             }
             return
         }
@@ -172,17 +165,34 @@ final class GlobalSearchCoordinator {
             forPanelID: panel.id,
             preferredWorkspaceID: panel.workspaceId
         ),
-            let document = markdownDocument(for: panel, context: context),
-            let index = ensureIndex() else {
+            let document = markdownDocument(for: panel, context: context) else {
             return
         }
 
         let taskID = UUID()
         markdownCaptureTasks[panelID]?.cancel()
         markdownCaptureTaskIDs[panelID] = taskID
-        markdownCaptureTasks[panelID] = Task { @MainActor [weak self] in
+        let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            guard !Task.isCancelled, self.markdownCaptureTaskIDs[panelID] == taskID else { return }
+            defer {
+                if self.markdownCaptureTaskIDs[panelID] == taskID {
+                    self.markdownCaptureTasks[panelID] = nil
+                    self.markdownCaptureTaskIDs[panelID] = nil
+                }
+            }
+
+            do {
+                try await Task.sleep(for: .milliseconds(markdownCaptureDebounceMilliseconds))
+            } catch {
+                return
+            }
+
+            guard !Task.isCancelled,
+                  self.markdownCaptureTaskIDs[panelID] == taskID,
+                  let index = await self.ensureIndex() else {
+                return
+            }
+
             do {
                 try await index.upsert(document)
             } catch {
@@ -191,22 +201,17 @@ final class GlobalSearchCoordinator {
                 cmuxDebugLog("globalSearch.markdown.capture failed panel=\(panelID.uuidString.prefix(5)) error=\(error.localizedDescription)")
 #endif
             }
-            if self.markdownCaptureTaskIDs[panelID] == taskID {
-                self.markdownCaptureTasks[panelID] = nil
-                self.markdownCaptureTaskIDs[panelID] = nil
-            }
         }
+        markdownCaptureTasks[panelID] = task
     }
 
     func purgePanel(id panelID: UUID) {
-        browserCaptureTimers[panelID]?.cancel()
-        browserCaptureTimers[panelID] = nil
         browserCaptureTasks[panelID]?.cancel()
         browserCaptureTasks[panelID] = nil
         browserCaptureTaskIDs[panelID] = nil
         cancelMarkdownCapture(forPanelID: panelID)
-        guard let index = ensureIndex() else { return }
-        Task {
+        Task { @MainActor [weak self] in
+            guard let self, let index = await self.ensureIndex() else { return }
             do {
                 try await index.deletePanel(panelID)
             } catch {
@@ -234,16 +239,32 @@ final class GlobalSearchCoordinator {
         }
     }
 
-    private func ensureIndex() -> SearchIndex? {
-        if let index { return index }
-        guard !indexCreationFailed else { return nil }
+    private func ensureIndex() async -> SearchIndex? {
+        switch indexState {
+        case .ready(let index):
+            return index
+        case .failed:
+            return nil
+        case .opening(let task):
+            return await resolveIndexOpeningTask(task)
+        case .idle:
+            let task = Task { try await SearchIndex.open() }
+            indexState = .opening(task)
+            return await resolveIndexOpeningTask(task)
+        }
+    }
 
+    private func resolveIndexOpeningTask(_ task: Task<SearchIndex, Error>) async -> SearchIndex? {
         do {
-            let created = try SearchIndex()
-            index = created
+            let created = try await task.value
+            if case .opening = indexState {
+                indexState = .ready(created)
+            }
             return created
         } catch {
-            indexCreationFailed = true
+            if case .opening = indexState {
+                indexState = .failed
+            }
 #if DEBUG
             cmuxDebugLog("globalSearch.index.open failed error=\(error.localizedDescription)")
 #endif
@@ -256,10 +277,11 @@ final class GlobalSearchCoordinator {
             forPanelID: panel.id,
             preferredWorkspaceID: panel.workspaceId
         ),
-            let index = ensureIndex() else {
+            let index = await ensureIndex() else {
             return
         }
 
+        guard !Task.isCancelled else { return }
         let payload = await browserPagePayload(for: panel)
         guard !Task.isCancelled else { return }
         let fallbackTitle = panel.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -380,6 +402,13 @@ final class GlobalSearchCoordinator {
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty }
     }
+}
+
+private enum SearchIndexState {
+    case idle
+    case opening(Task<SearchIndex, Error>)
+    case ready(SearchIndex)
+    case failed
 }
 
 private struct BrowserPagePayload: Decodable {
@@ -535,18 +564,33 @@ extension AppDelegate {
         if let panelID = hit.panelID, workspace.panels[panelID] != nil {
             tabManager.focusSurface(tabId: workspace.id, surfaceId: panelID)
             if let browserPanel = workspace.browserPanel(for: panelID) {
-                applyBrowserInlineSearch(query: query, to: browserPanel)
+                applyBrowserInlineSearch(query: query, hit: hit, to: browserPanel)
             }
         }
     }
 
-    private func applyBrowserInlineSearch(query: String, to panel: BrowserPanel) {
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !needle.isEmpty else { return }
+    private func applyBrowserInlineSearch(query: String, hit: SearchIndexHit, to panel: BrowserPanel) {
+        guard let needle = GlobalSearchInlineSearch.browserNeedle(for: query, hit: hit) else { return }
         if let searchState = panel.searchState {
             searchState.needle = needle
         } else {
             panel.searchState = BrowserSearchState(needle: needle)
         }
+    }
+}
+
+enum GlobalSearchInlineSearch {
+    static func browserNeedle(for query: String, hit: SearchIndexHit) -> String? {
+        let tokens = SearchIndex.queryTokens(for: query)
+        guard !tokens.isEmpty else { return nil }
+
+        let hitText = [
+            hit.snippet,
+            hit.title,
+            hit.location,
+            hit.anchor
+        ].joined(separator: "\n").lowercased()
+
+        return tokens.first { hitText.contains($0) } ?? tokens[0]
     }
 }

@@ -109,6 +109,13 @@ actor SearchIndex {
 
     private var database: OpaquePointer?
 
+    nonisolated static func open(databaseURL: URL = .cmuxSearchDatabaseURL) async throws -> SearchIndex {
+        // Actor initializers run on the caller executor, so open SQLite off the MainActor.
+        try await Task.detached(priority: .utility) {
+            try SearchIndex(databaseURL: databaseURL)
+        }.value
+    }
+
     init(databaseURL: URL = .cmuxSearchDatabaseURL) throws {
         try Self.ensureParentDirectoryExists(for: databaseURL)
 
@@ -162,13 +169,13 @@ actor SearchIndex {
             if let panelID = document.panelID {
                 try bind(panelID.uuidString, at: 4, in: statement)
             } else {
-                sqlite3_bind_null(statement, 4)
+                try bindNull(at: 4, in: statement)
             }
             try bind(document.kind.rawValue, at: 5, in: statement)
             try bind(document.title, at: 6, in: statement)
             try bind(document.location, at: 7, in: statement)
             try bind(document.anchor, at: 8, in: statement)
-            sqlite3_bind_double(statement, 9, document.timestamp.timeIntervalSince1970)
+            try bind(document.timestamp.timeIntervalSince1970, at: 9, in: statement)
             try bind(document.text, at: 10, in: statement)
             try stepDone(statement)
         }
@@ -376,6 +383,20 @@ actor SearchIndex {
         }
     }
 
+    private func bind(_ value: Double, at index: Int32, in statement: OpaquePointer) throws {
+        let result = sqlite3_bind_double(statement, index, value)
+        guard result == SQLITE_OK else {
+            throw SearchIndexError.bindFailed(Self.sqliteMessage(database) ?? "bind failed with code \(result)")
+        }
+    }
+
+    private func bindNull(at index: Int32, in statement: OpaquePointer) throws {
+        let result = sqlite3_bind_null(statement, index)
+        guard result == SQLITE_OK else {
+            throw SearchIndexError.bindFailed(Self.sqliteMessage(database) ?? "bind failed with code \(result)")
+        }
+    }
+
     private func stepDone(_ statement: OpaquePointer) throws {
         let result = sqlite3_step(statement)
         guard result == SQLITE_DONE else {
@@ -417,16 +438,22 @@ actor SearchIndex {
         )
     }
 
-    private static func matchQuery(for rawQuery: String) -> String? {
+    static func queryTokens(for rawQuery: String) -> [String] {
         let tokens = rawQuery
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+            .map { $0.lowercased() }
+
+        return tokens
+    }
+
+    private static func matchQuery(for rawQuery: String) -> String? {
+        let tokens = queryTokens(for: rawQuery)
         guard !tokens.isEmpty else { return nil }
 
         return tokens.map { token in
-            let lowercasedToken = token.lowercased()
-            return "\(lowercasedToken)*"
+            "\(token)*"
         }.joined(separator: " AND ")
     }
 

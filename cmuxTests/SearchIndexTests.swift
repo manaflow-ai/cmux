@@ -172,6 +172,34 @@ final class SearchIndexTests: XCTestCase {
         XCTAssertEqual(hits.map(\.id), ["operator-doc"])
     }
 
+    func testQueryTokensMatchSearchTokenization() {
+        XCTAssertEqual(
+            SearchIndex.queryTokens(for: "  Alpha-beta AND gamma_delta  "),
+            ["alpha", "beta", "and", "gamma", "delta"]
+        )
+    }
+
+    func testBrowserInlineNeedleUsesMatchingSearchToken() {
+        let hit = SearchIndexHit(
+            id: "browser-doc",
+            windowID: UUID(),
+            workspaceID: UUID(),
+            panelID: UUID(),
+            kind: .browser,
+            title: "Result",
+            location: "https://example.test",
+            anchor: "https://example.test",
+            snippet: "The rendered page contains bar but not the complete raw query.",
+            rank: 0,
+            timestamp: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(
+            GlobalSearchInlineSearch.browserNeedle(for: "foo bar", hit: hit),
+            "bar"
+        )
+    }
+
     func testDeletePanelRemovesIndexedDocuments() async throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }

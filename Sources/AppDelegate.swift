@@ -7384,7 +7384,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         menuBarExtraController?.removeFromMenuBar()
         menuBarExtraController = nil
-        removeTransientGlobalSearchMenuBarExtraController()
     }
 
     @MainActor
@@ -12937,7 +12936,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .subtracting([.numericPad, .function, .capsLock])
         guard flags.contains(.command) else { return false }
 
-        for action in KeyboardShortcutSettings.Action.allCases where isMenuBackedShortcutAction(action) {
+        for action in KeyboardShortcutSettings.Action.allCases {
             let currentShortcut = KeyboardShortcutSettings.shortcut(for: action)
             if matchesKeyboardShortcutEvent(event, action: action, shortcut: currentShortcut) {
                 return false

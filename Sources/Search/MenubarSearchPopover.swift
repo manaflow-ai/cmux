@@ -59,7 +59,6 @@ private struct GlobalSearchPaletteView: View {
     @State private var selectedIndex = 0
     @State private var isSearching = false
     @State private var searchGeneration = 0
-    @State private var searchTimer: DispatchSourceTimer?
     @State private var searchTask: Task<Void, Never>?
     @State private var refreshTask: Task<Void, Never>?
     @State private var keyMonitor: Any?
@@ -124,9 +123,12 @@ private struct GlobalSearchPaletteView: View {
         .onAppear {
             searchFieldFocused = true
             installKeyMonitorIfNeeded()
+            resetResultsForPopoverOpen()
             refreshTask?.cancel()
-            refreshTask = Task {
+            refreshTask = Task { @MainActor in
                 await coordinator.refreshLiveIndex()
+                guard !Task.isCancelled else { return }
+                scheduleSearch(query)
             }
         }
         .onDisappear {
@@ -154,35 +156,45 @@ private struct GlobalSearchPaletteView: View {
 
         isSearching = true
 
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + .milliseconds(searchDebounceMilliseconds), leeway: .milliseconds(10))
-        timer.setEventHandler {
-            MainActor.assumeIsolated {
-                searchTimer?.cancel()
-                searchTimer = nil
-                guard searchGeneration == generation else { return }
-                searchTask = Task {
-                    let hits = await coordinator.search(query: trimmed)
-                    await MainActor.run {
-                        guard searchGeneration == generation, !Task.isCancelled else { return }
-                        results = hits.enumerated().map { offset, hit in
-                            GlobalSearchResultRow(hit: hit, query: trimmed, index: offset)
-                        }
-                        selectedIndex = min(selectedIndex, max(results.count - 1, 0))
-                        isSearching = false
-                    }
+        searchTask = Task { @MainActor in
+            defer {
+                if searchGeneration == generation {
+                    searchTask = nil
                 }
             }
+
+            do {
+                try await Task.sleep(for: .milliseconds(searchDebounceMilliseconds))
+            } catch {
+                return
+            }
+
+            guard searchGeneration == generation, !Task.isCancelled else { return }
+            let hits = await coordinator.search(query: trimmed)
+            guard searchGeneration == generation, !Task.isCancelled else { return }
+            results = hits.enumerated().map { offset, hit in
+                GlobalSearchResultRow(hit: hit, query: trimmed, index: offset)
+            }
+            selectedIndex = min(selectedIndex, max(results.count - 1, 0))
+            isSearching = false
         }
-        searchTimer = timer
-        timer.resume()
     }
 
     private func cancelSearchWork() {
-        searchTimer?.cancel()
-        searchTimer = nil
         searchTask?.cancel()
         searchTask = nil
+    }
+
+    private func resetResultsForPopoverOpen() {
+        selectedIndex = 0
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            results = []
+            isSearching = false
+        } else {
+            results = []
+            isSearching = true
+        }
     }
 
     private func installKeyMonitorIfNeeded() {
