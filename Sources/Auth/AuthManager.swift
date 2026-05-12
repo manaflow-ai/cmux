@@ -185,6 +185,12 @@ final class AuthManager: ObservableObject {
     private var loginPollTask: Task<Void, Never>?
     private var webAuthSession: ASWebAuthenticationSession?
 
+    #if DEBUG
+    func markBrowserSignInLoadingForTesting() {
+        isLoading = true
+    }
+    #endif
+
     func beginSignIn() {
         loginPollTask?.cancel()
         webAuthSession?.cancel()

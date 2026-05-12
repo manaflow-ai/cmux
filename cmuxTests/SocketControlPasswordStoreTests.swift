@@ -1,4 +1,5 @@
 import XCTest
+import CMUXAuthCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -238,6 +239,79 @@ final class SocketControlPasswordStoreTests: XCTestCase {
         XCTAssertEqual(lookupCount, 1)
         XCTAssertEqual(deleteCount, 1)
         XCTAssertEqual(try SocketControlPasswordStore.loadPassword(fileURL: fileURL), "legacy-secret")
+    }
+}
+
+@MainActor
+final class AuthManagerSignOutTests: XCTestCase {
+    func testSignOutClearsInFlightBrowserSignInLoadingState() async {
+        let suiteName = "cmux-auth-manager-sign-out-tests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create isolated defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let manager = AuthManager(
+            client: AuthManagerSignOutTestClient(),
+            tokenStore: AuthManagerSignOutTestTokenStore(),
+            settingsStore: AuthSettingsStore(userDefaults: defaults)
+        )
+        await manager.awaitBootstrapped()
+
+        manager.markBrowserSignInLoadingForTesting()
+        XCTAssertTrue(manager.isLoading)
+
+        await manager.signOut()
+
+        XCTAssertFalse(manager.isLoading)
+    }
+}
+
+private struct AuthManagerSignOutTestClient: AuthClientProtocol {
+    func currentUser() async throws -> CMUXAuthUser? {
+        nil
+    }
+
+    func listTeams() async throws -> [AuthTeamSummary] {
+        []
+    }
+
+    func signOut() async throws {}
+}
+
+private actor AuthManagerSignOutTestTokenStore: StackAuthTokenStoreProtocol {
+    private var accessToken: String?
+    private var refreshToken: String?
+
+    func getStoredAccessToken() async -> String? {
+        accessToken
+    }
+
+    func getStoredRefreshToken() async -> String? {
+        refreshToken
+    }
+
+    func setTokens(accessToken: String?, refreshToken: String?) async {
+        self.accessToken = accessToken
+        self.refreshToken = refreshToken
+    }
+
+    func clearTokens() async {
+        accessToken = nil
+        refreshToken = nil
+    }
+
+    func compareAndSet(
+        compareRefreshToken: String,
+        newRefreshToken: String?,
+        newAccessToken: String?
+    ) async {
+        guard refreshToken == compareRefreshToken else { return }
+        refreshToken = newRefreshToken
+        accessToken = newAccessToken
     }
 }
 
