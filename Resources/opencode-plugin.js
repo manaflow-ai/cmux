@@ -13,10 +13,9 @@ const SOCKET_PATH = process.env.CMUX_SOCKET_PATH || DEFAULT_SOCKET;
 const REPLY_TIMEOUT_MS = 120_000;
 const MAX_PLAN_BYTES = 128 * 1024;
 const COMPLETE_NOTIFICATION_DEDUPE_MS = 1000;
-const CMUX_FEED_PLUGIN_ACTIVE_KEY = Symbol.for("cmux.feed.plugin.active");
+const CMUX_SESSION_RESTORE_PLUGIN_INSTALLED_KEY = Symbol.for("cmux.session.restore.plugin.installed");
 
 export const CMUXFeed = async (ctx) => {
-  globalThis[CMUX_FEED_PLUGIN_ACTIVE_KEY] = true;
   let client = null;
   let buffered = "";
   const pending = new Map();
@@ -529,6 +528,7 @@ export const CMUXFeed = async (ctx) => {
   };
 
   const pushCompletionNotification = (sessionId) => {
+    if (globalThis[CMUX_SESSION_RESTORE_PLUGIN_INSTALLED_KEY] === true) return;
     const state = sessionState(sessionId);
     const now = Date.now();
     if (now - state.lastCompletionNotificationAt < COMPLETE_NOTIFICATION_DEDUPE_MS) return;

@@ -204,7 +204,6 @@ await hooks.event({
     properties: { sessionID: "opencode-session-test" }
   }
 });
-globalThis[Symbol.for("cmux.feed.plugin.active")] = true;
 await hooks.event({
   event: {
     type: "session.idle",
@@ -249,10 +248,10 @@ await hooks.event({
             print(f"FAIL: expected two OpenCode idle hook payloads, got {stop_payloads!r} from {stdin_log!r}")
             return 1
         if '"suppress_notification":true' in stop_payloads[0]:
-            print(f"FAIL: legacy OpenCode stop suppressed notification without active feed plugin: {stop_payloads[0]!r}")
+            print(f"FAIL: legacy OpenCode stop unexpectedly suppressed notification: {stop_payloads[0]!r}")
             return 1
-        if '"suppress_notification":true' not in stop_payloads[1]:
-            print(f"FAIL: OpenCode stop did not suppress legacy notification with active feed plugin: {stop_payloads[1]!r}")
+        if '"suppress_notification":true' in stop_payloads[1]:
+            print(f"FAIL: legacy OpenCode stop unexpectedly suppressed notification: {stop_payloads[1]!r}")
             return 1
         if '"session_id":"opencode-session-test-active"' not in stop_payloads[1]:
             print(f"FAIL: OpenCode stop did not resolve top-level event id: {stop_payloads[1]!r}")

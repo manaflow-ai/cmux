@@ -16688,7 +16688,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 const CMUX_PLUGIN_INSTALLED_KEY = Symbol.for("cmux.session.restore.plugin.installed");
-const CMUX_FEED_PLUGIN_ACTIVE_KEY = Symbol.for("cmux.feed.plugin.active");
 
 function firstString(...values) {
   for (const value of values) {
@@ -16823,12 +16822,6 @@ function sendHook(subcommand, ctx, event, extra = {}) {
   } catch (_) {}
 }
 
-function stopHookExtra() {
-  return globalThis[CMUX_FEED_PLUGIN_ACTIVE_KEY] === true
-    ? { suppress_notification: true }
-    : {};
-}
-
 const CMUXSessionRestore = async (ctx) => {
   if (globalThis[CMUX_PLUGIN_INSTALLED_KEY]) return {};
   globalThis[CMUX_PLUGIN_INSTALLED_KEY] = true;
@@ -16848,11 +16841,11 @@ const CMUXSessionRestore = async (ctx) => {
           break;
         case "session.status":
           if (props.status && props.status.type === "idle") {
-            sendHook("stop", ctx, event, stopHookExtra());
+            sendHook("stop", ctx, event);
           }
           break;
         case "session.idle":
-          sendHook("stop", ctx, event, stopHookExtra());
+          sendHook("stop", ctx, event);
           break;
         case "session.deleted":
           sendHook("session-end", ctx, event);
@@ -17764,15 +17757,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     )
                 }
 
-                let suppressNotification =
-                    (input.rawObject?["suppress_notification"] as? Bool == true)
-                    || (input.rawObject?["suppressNotification"] as? Bool == true)
-                    || (input.object?["suppress_notification"] as? Bool == true)
-                    || (input.object?["suppressNotification"] as? Bool == true)
-                if !suppressNotification {
-                    let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
-                    _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
-                }
+                let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
+                _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 if let codexFailure {
                     _ = try? sendV1Command(
                         "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
