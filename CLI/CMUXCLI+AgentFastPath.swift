@@ -361,16 +361,17 @@ extension CMUXCLI {
 
         case "capture", "read", "read-screen":
             let parsedFlags = agentFastPathExtractFlags(
-                ["--raw"],
+                ["--raw", "--scrollback"],
                 from: rawArgs,
                 valueOptions: ["--workspace", "--surface", "--lines"]
             )
             let rawOutput = parsedFlags.present.contains("--raw")
+            let includeScrollback = parsedFlags.present.contains("--scrollback")
             let args = parsedFlags.remaining
             let (workspaceArg, rem0) = parseOption(args, name: "--workspace")
             let (surfaceArg, rem1) = parseOption(rem0, name: "--surface")
             let (linesArg, rem2) = parseOption(rem1, name: "--lines")
-            let trailing = rem2.filter { $0 != "--scrollback" && $0 != "--" }
+            let trailing = rem2.filter { $0 != "--" }
             if !trailing.isEmpty {
                 throw CLIError(message: "agent capture: unexpected arguments: \(trailing.joined(separator: " "))")
             }
@@ -378,7 +379,7 @@ extension CMUXCLI {
             let payload = try agentFastPathCapturePayload(
                 workspaceRaw: workspaceArg,
                 surfaceRaw: surfaceArg,
-                scrollback: rem2.contains("--scrollback"),
+                scrollback: includeScrollback,
                 lines: lines,
                 client: client,
                 windowOverride: windowOverride
