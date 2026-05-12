@@ -13,10 +13,14 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `22fa801f8`, based on `495316732`, with the
-manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53.
-This head keeps the cmux theme picker hooks and exposes the manual surface IO
-needed by libghostty iOS clients.
+Current cmux pinned fork head: `fe972c095`, based on `41ab6c5ab`, with the
+manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53
+plus the Metal renderer row rebuild guard for cmux issue #3369. This head keeps
+the cmux theme picker hooks, exposes the manual surface IO needed by libghostty
+iOS clients, and bounds shaped glyph iteration during IME/preedit row rebuilds.
+The corresponding prebuilt archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fe972c09579a7943f6fe9607fdd24f0f7c999cb1
+and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
 
@@ -169,12 +173,29 @@ tend to conflict together during rebases.
     render-now C API, or output C API. Upstream already has internal
     `Termio.processOutput`, so prefer an upstream C bridge if one lands.
 
+### 11) Metal renderer preedit row rebuild guard
+
+- Commits:
+  - `70b95dada` (Expose unsafe preedit catch-up in renderer rows)
+  - `fe972c095` (Bound renderer preedit catch-up to shaped glyphs)
+- Files:
+  - `src/renderer/generic.zig`
+- Summary:
+  - Adds a regression test for the row-rebuild path where IME/preedit covers the
+    only shaped glyph in a row and the remaining terminal cells are empty.
+  - Bounds the shaped glyph cursor before reading from the shaped-cell slice, so
+    `GenericRenderer(Metal).rebuildRow` no longer assumes terminal cells and
+    shaped glyph cells have one-to-one cardinality.
+  - The first commit intentionally preserves the panic so cmux can keep the
+    required failing-test-then-fix history for issue #3369.
+
 The current cmux pin is the head listed above. It is reachable from
-`manaflow-ai/ghostty` `main` through https://github.com/manaflow-ai/ghostty/pull/53.
-Published `xcframework-22fa801f88f96fa842e54ecce6c34a5d36003d19` and pinned
-its archive checksum in `scripts/ghosttykit-checksums.txt`. The release and
-checksum pin must be regenerated whenever this commit changes, even for
-comment-only amends, because the release tag is keyed by the Ghostty commit SHA.
+`manaflow-ai/ghostty` through the `xcframework-fe972c09579a7943f6fe9607fdd24f0f7c999cb1`
+release tag and branch `issue-3369-metal-renderer-crash`.
+Published `xcframework-fe972c09579a7943f6fe9607fdd24f0f7c999cb1` and pinned its
+archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
+pin must be regenerated whenever this commit changes, even for comment-only
+amends, because the release tag is keyed by the Ghostty commit SHA.
 
 ## Upstreamed fork changes
 
