@@ -15981,12 +15981,10 @@ struct CMUXCLI {
     }
 
     private static func ignoredClaudeNotificationTypes() -> Set<String> {
-        let env = ProcessInfo.processInfo.environment[claudeIgnoredNotificationTypesEnvKey] ?? ""
-        let envTypes = normalizedClaudeNotificationTypes(
-            env.components(separatedBy: CharacterSet(charactersIn: ", \n\t"))
-        )
-        if !envTypes.isEmpty {
-            return envTypes
+        if let env = ProcessInfo.processInfo.environment[claudeIgnoredNotificationTypesEnvKey] {
+            return normalizedClaudeNotificationTypes(
+                env.components(separatedBy: CharacterSet(charactersIn: ", \n\t"))
+            )
         }
 
         if let stored = UserDefaults.standard.array(forKey: claudeIgnoredNotificationTypesDefaultsKey) as? [String] {
@@ -16018,8 +16016,7 @@ struct CMUXCLI {
 
     private static func claudeNotificationTypeValues(in object: [String: Any]) -> [String] {
         [
-            "event", "event_name", "hook_event_name", "type", "kind",
-            "notification_type", "matcher", "reason"
+            "notification_type", "matcher", "reason", "type", "kind"
         ].compactMap { key in
             object[key] as? String
         }

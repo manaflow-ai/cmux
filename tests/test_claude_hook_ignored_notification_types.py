@@ -208,6 +208,33 @@ def main() -> int:
             print(f"new_commands={new_commands!r}")
             return 1
 
+        hook_event_env = env.copy()
+        hook_event_env["CMUX_CLAUDE_IGNORED_NOTIFICATION_TYPES"] = "notification"
+        before_hook_event_count = len(server.commands)
+        hook_event = run_notification_hook(
+            cli_path,
+            server,
+            hook_event_env,
+            {
+                "session_id": f"sess-{uuid.uuid4().hex}",
+                "hook_event_name": "Notification",
+                "notification_type": "permission_prompt",
+                "message": "Approve another command?",
+            },
+        )
+        if hook_event.returncode != 0:
+            print("FAIL: hook_event_name-only ignored type case failed")
+            print(f"stdout={hook_event.stdout!r}")
+            print(f"stderr={hook_event.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        hook_event_commands = server.commands[before_hook_event_count:]
+        if not any(line.startswith("notify_target_async ") for line in hook_event_commands):
+            print("FAIL: hook_event_name Notification was treated as a notification type")
+            print(f"hook_event_commands={hook_event_commands!r}")
+            return 1
+
     print("PASS: Claude ignored notification types suppress only matching hook notifications")
     return 0
 

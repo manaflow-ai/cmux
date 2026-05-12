@@ -46,7 +46,6 @@ extension CmuxSettingsFileStore {
         "notifications.customSoundFilePath",
         "notifications.command",
         "notifications.ignoredClaudeNotificationTypes",
-        "notifications.suppressClaudeIdlePrompt",
         "sidebar.hideAllDetails",
         "sidebar.branchLayout",
         "sidebar.showNotificationMessage",

@@ -451,24 +451,6 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("ignoredClaudeNotificationTypes") {
             logInvalid("notifications.ignoredClaudeNotificationTypes", sourcePath: sourcePath)
         }
-        if let value = jsonBool(section["suppressClaudeIdlePrompt"]) {
-            let key = ClaudeCodeIntegrationSettings.ignoredNotificationTypesKey
-            let existing: [String]
-            if case .stringArray(let values)? = snapshot.managedUserDefaults[key] {
-                existing = values
-            } else {
-                existing = ClaudeCodeIntegrationSettings.defaultIgnoredNotificationTypes
-            }
-            let idlePromptType = "idle_prompt"
-            let updated = value
-                ? existing + [idlePromptType]
-                : existing.filter { $0 != idlePromptType }
-            snapshot.managedUserDefaults[key] = .stringArray(
-                ClaudeCodeIntegrationSettings.normalizedIgnoredNotificationTypes(updated)
-            )
-        } else if section.keys.contains("suppressClaudeIdlePrompt") {
-            logInvalid("notifications.suppressClaudeIdlePrompt", sourcePath: sourcePath)
-        }
     }
 
     private func parseTerminalSection(
