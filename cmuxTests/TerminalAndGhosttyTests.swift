@@ -4493,6 +4493,25 @@ final class GhosttyModifierFlagsChangedActionTests: XCTestCase {
 }
 
 
+final class GhosttyInputModifierMappingTests: XCTestCase {
+    func testRightOptionCarriesGhosttyRightAltSideBit() {
+        let flags = NSEvent.ModifierFlags(
+            rawValue: NSEvent.ModifierFlags.option.rawValue | UInt(NX_DEVICERALTKEYMASK)
+        )
+        let mods = cmuxGhosttyInputMods(from: flags)
+
+        XCTAssertEqual(
+            mods.rawValue & GHOSTTY_MODS_ALT.rawValue,
+            GHOSTTY_MODS_ALT.rawValue
+        )
+        XCTAssertEqual(
+            mods.rawValue & GHOSTTY_MODS_ALT_RIGHT.rawValue,
+            GHOSTTY_MODS_ALT_RIGHT.rawValue
+        )
+    }
+}
+
+
 final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     func testStableSocketBindPermissionFailureFallsBackToUserScopedSocket() {
         XCTAssertEqual(
