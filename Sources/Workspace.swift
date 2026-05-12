@@ -7883,7 +7883,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpStalledAttemptCount = 0
     private enum LayoutFollowUpTargetUpdate {
         case mergePendingTargets
-        case replaceSelectionTargets
+        case replaceSelectionTargets(panelId: UUID)
     }
     private var portalRenderingEnabled = true
     private var isAttemptingLayoutFollowUp = false
@@ -11801,9 +11801,12 @@ final class Workspace: Identifiable, ObservableObject {
     ) {
         guard portalRenderingEnabled else { return }
         layoutFollowUpReason = reason
-        if targetUpdate == .replaceSelectionTargets {
+        if case .replaceSelectionTargets(let selectedPanelId) = targetUpdate {
             layoutFollowUpBrowserPanelId = nil
             layoutFollowUpTerminalFocusPanelId = nil
+            if layoutFollowUpBrowserExitFocusPanelId != selectedPanelId {
+                layoutFollowUpBrowserExitFocusPanelId = nil
+            }
         }
         if let browserPanelId {
             layoutFollowUpBrowserPanelId = browserPanelId
@@ -11846,7 +11849,7 @@ final class Workspace: Identifiable, ObservableObject {
             browserPanelId: browserPanelId,
             terminalFocusPanelId: terminalPanelId,
             includeGeometry: true,
-            targetUpdate: .replaceSelectionTargets
+            targetUpdate: .replaceSelectionTargets(panelId: panelId)
         )
     }
 
