@@ -15350,6 +15350,18 @@ class TerminalController {
         sendKeyEvent(surface: surface, keycode: 0, text: text)
     }
 
+    private func sendPasteTextEvent(surface: ghostty_surface_t, text: String) {
+        guard terminalSurfaceAcceptsInput(surface),
+              let data = text.data(using: .utf8),
+              !data.isEmpty else {
+            return
+        }
+        data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
+            ghostty_surface_text(surface, baseAddress, UInt(rawBuffer.count))
+        }
+    }
+
     private func terminalSurfaceAcceptsInput(_ surface: ghostty_surface_t) -> Bool {
         guard !ghostty_surface_process_exited(surface) else {
 #if DEBUG
@@ -15363,6 +15375,17 @@ class TerminalController {
     enum SocketTextChunk: Equatable {
         case text(String)
         case control(UnicodeScalar)
+    }
+
+    enum SocketTextDelivery: Equatable {
+        case keyEvent
+        case paste
+    }
+
+    nonisolated static let socketPasteTextThresholdBytes = 256
+
+    nonisolated static func socketTextDelivery(forTextChunk text: String) -> SocketTextDelivery {
+        text.utf8.count >= socketPasteTextThresholdBytes ? .paste : .keyEvent
     }
 
     nonisolated static func socketTextChunks(_ text: String) -> [SocketTextChunk] {
@@ -15474,7 +15497,12 @@ class TerminalController {
         for chunk in chunks {
             switch chunk {
             case .text(let value):
-                sendTextEvent(surface: surface, text: value)
+                switch Self.socketTextDelivery(forTextChunk: value) {
+                case .keyEvent:
+                    sendTextEvent(surface: surface, text: value)
+                case .paste:
+                    sendPasteTextEvent(surface: surface, text: value)
+                }
             case .control(let scalar):
                 _ = handleControlScalar(scalar, surface: surface)
             }

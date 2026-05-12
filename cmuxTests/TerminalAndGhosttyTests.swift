@@ -4351,6 +4351,17 @@ final class TerminalControllerSocketTextChunkTests: XCTestCase {
             ]
         )
     }
+
+    func testSocketTextDeliveryUsesPasteForLargePlainChunks() {
+        XCTAssertEqual(
+            TerminalController.socketTextDelivery(forTextChunk: String(repeating: "x", count: 255)),
+            .keyEvent
+        )
+        XCTAssertEqual(
+            TerminalController.socketTextDelivery(forTextChunk: String(repeating: "x", count: 256)),
+            .paste
+        )
+    }
 }
 
 
