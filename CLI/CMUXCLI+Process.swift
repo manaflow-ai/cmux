@@ -337,11 +337,11 @@ extension CMUXCLI {
 
     func runSIGPIPEInspect(commandArgs: [String]) throws {
         let outputPath: String?
-        switch commandArgs {
-        case []:
+        switch commandArgs.count {
+        case 0:
             outputPath = nil
-        case ["--out", let path]:
-            outputPath = path
+        case 2 where commandArgs[0] == "--out":
+            outputPath = commandArgs[1]
         default:
             throw CLIError(message: "Unknown SIGPIPE inspect arguments. Expected no args or --out <path>.")
         }
