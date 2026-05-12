@@ -741,7 +741,17 @@ struct PairingView: View {
                         RoundedRectangle(cornerRadius: 24, style: .continuous)
                             .stroke(AddDevicePalette.stroke, lineWidth: 1)
                     )
-                    .accessibilityIdentifier("MobileAddDeviceForm")
+                    .overlay(alignment: .topLeading) {
+                        #if DEBUG
+                        if UITestConfig.mockDataEnabled {
+                            Color.clear
+                                .frame(width: 1, height: 1)
+                                .accessibilityElement(children: .ignore)
+                                .accessibilityLabel(L10n.string("mobile.addDevice.formAccessibilityLabel", defaultValue: "Add device form"))
+                                .accessibilityIdentifier("MobileAddDeviceForm")
+                        }
+                        #endif
+                    }
 
                     Button {
                         pair()

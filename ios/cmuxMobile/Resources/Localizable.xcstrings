@@ -1,6 +1,13 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "mobile.addDevice.formAccessibilityLabel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Add device form" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "デバイス追加フォーム" } }
+      }
+    },
     "mobile.addDevice.help" : {
       "extractionState" : "manual",
       "localizations" : {
