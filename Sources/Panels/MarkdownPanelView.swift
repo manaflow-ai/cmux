@@ -48,7 +48,7 @@ struct MarkdownPanelView: View {
 
     private var markdownContentView: some View {
         let sourceDirectoryURL = panel.sourceDirectoryURL
-        ScrollView {
+        return ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 // File path breadcrumb
                 filePathHeader
@@ -552,10 +552,6 @@ private struct MarkdownMermaidWebView: NSViewRepresentable {
         if webView.responds(to: Selector(("setDrawsBackground:"))) {
             webView.setValue(false, forKey: "drawsBackground")
         }
-        webView.scrollView.drawsBackground = false
-        webView.scrollView.hasVerticalScroller = false
-        webView.scrollView.hasHorizontalScroller = false
-        webView.scrollView.autohidesScrollers = true
         webView.loadHTMLString(MarkdownMermaidHTMLDocument.html(source: source, isDark: isDark), baseURL: nil)
         context.coordinator.loadedSource = source
         context.coordinator.loadedIsDark = isDark
