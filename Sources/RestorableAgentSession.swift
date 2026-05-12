@@ -550,7 +550,12 @@ struct RestorableAgentSessionIndex: Sendable {
                 guard !normalizedSessionId.isEmpty,
                       let workspaceId = UUID(uuidString: record.workspaceId),
                       let panelId = UUID(uuidString: record.surfaceId),
-                      hookRecordStillBelongsToLiveAgent(record, workspaceId: workspaceId, panelId: panelId) else {
+                      hookRecordStillBelongsToLiveAgent(
+                          record,
+                          kind: kind,
+                          workspaceId: workspaceId,
+                          panelId: panelId
+                      ) else {
                     continue
                 }
 
@@ -589,6 +594,7 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private static func hookRecordStillBelongsToLiveAgent(
         _ record: RestorableAgentHookSessionRecord,
+        kind: RestorableAgentKind,
         workspaceId: UUID,
         panelId: UUID
     ) -> Bool {
@@ -601,7 +607,35 @@ struct RestorableAgentSessionIndex: Sendable {
               process.environmentUUID(forKey: "CMUX_SURFACE_ID") == panelId else {
             return false
         }
-        return true
+
+        if let liveKind = normalizedProcessValue(process.environment["CMUX_AGENT_LAUNCH_KIND"]),
+           liveKind.compare(kind.rawValue, options: [.caseInsensitive, .literal]) != .orderedSame {
+            return false
+        }
+
+        guard let recordedExecutable = recordedExecutableBasename(record),
+              let liveExecutable = process.arguments.first.map(executableBasename) else {
+            return true
+        }
+        return liveExecutable.compare(recordedExecutable, options: [.caseInsensitive, .literal]) == .orderedSame
+    }
+
+    private static func recordedExecutableBasename(_ record: RestorableAgentHookSessionRecord) -> String? {
+        let executable = normalizedProcessValue(record.launchCommand?.executablePath)
+            ?? normalizedProcessValue(record.launchCommand?.arguments.first)
+        return executable.map(executableBasename)
+    }
+
+    private static func executableBasename(_ value: String) -> String {
+        (value as NSString).lastPathComponent
+    }
+
+    private static func normalizedProcessValue(_ value: String?) -> String? {
+        guard let rawValue = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawValue.isEmpty else {
+            return nil
+        }
+        return rawValue
     }
 
     private init(snapshotsByPanel: [PanelKey: SessionRestorableAgentSnapshot]) {
