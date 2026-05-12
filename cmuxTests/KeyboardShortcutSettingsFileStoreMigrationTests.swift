@@ -14,6 +14,24 @@ private final class ShortcutSettingsLookupRecorder: @unchecked Sendable {
     var actions: [String] = []
 }
 
+private final class CountingFileManager: FileManager, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _contentsReadCount = 0
+
+    var contentsReadCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return _contentsReadCount
+    }
+
+    override func contents(atPath path: String) -> Data? {
+        lock.lock()
+        _contentsReadCount += 1
+        lock.unlock()
+        return super.contents(atPath: path)
+    }
+}
+
 final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
     func testBootstrapMigratesLegacySettingsIntoCanonicalConfig() throws {
         let directoryURL = try makeTemporaryDirectory()
@@ -341,6 +359,46 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         }
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: primaryURL.path))
+    }
+
+    func testInvalidPrimaryConfigDoesNotAttemptWriteBackAfterUIEdit() throws {
+        let defaultsKey = "sidebarMatchTerminalBackground"
+        let defaults = UserDefaults.standard
+        let originalSetting = defaults.object(forKey: defaultsKey)
+        let originalBackups = defaults.object(forKey: "cmux.settingsFile.backups.v1")
+        defer {
+            restoreDefaultsValue(originalSetting, forKey: defaultsKey)
+            restoreDefaultsValue(originalBackups, forKey: "cmux.settingsFile.backups.v1")
+        }
+
+        defaults.set(false, forKey: defaultsKey)
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile("{\n  \"schemaVersion\": 1,\n", to: primaryURL)
+
+        let fileManager = CountingFileManager()
+        let notificationCenter = NotificationCenter()
+        var store: KeyboardShortcutSettingsFileStore?
+        defer { store = nil }
+        store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            fileManager: fileManager,
+            notificationCenter: notificationCenter,
+            startWatching: true
+        )
+        XCTAssertEqual(store?.activeSourcePath, primaryURL.path)
+        let readCountAfterInvalidReload = fileManager.contentsReadCount
+
+        waitForNoSettingsFileChange(on: notificationCenter) {
+            defaults.set(true, forKey: defaultsKey)
+            notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        }
+
+        XCTAssertEqual(fileManager.contentsReadCount, readCountAfterInvalidReload)
+        XCTAssertEqual(try String(contentsOf: primaryURL, encoding: .utf8), "{\n  \"schemaVersion\": 1,\n")
     }
 
     func testProjectConfigManagedDefaultWriteBackPreservesJSONCComments() throws {
