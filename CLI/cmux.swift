@@ -9317,7 +9317,7 @@ struct CMUXCLI {
               --layout <json>      Create workspace with a predefined split layout (inline JSON).
                                    Uses the same schema as cmux.json layout definitions.
                                    Surfaces can be terminal, browser, or markdown.
-                                   Markdown surfaces use "path" for the file to open.
+                                   Markdown surfaces require a non-empty "path" for the file to open.
                                    When provided, --command is ignored (layout surfaces define their own commands).
               --focus <true|false> Focus the new workspace (default: false)
 
