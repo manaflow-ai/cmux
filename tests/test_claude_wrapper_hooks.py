@@ -989,11 +989,16 @@ def run_wrapper_pty_probe(
     *,
     argv: list[str],
     socket_state: str = "live",
+    force_pty: str | None = None,
 ) -> tuple[int, str, str]:
     """
     Drive the wrapper with stdin=/dev/null (non-TTY) and capture whether the
     fake real claude saw a TTY on its own stdin. Mirrors run_wrapper's faked
     PATH layout but trims the parts that aren't relevant to the PTY check.
+
+    When ``force_pty`` is ``None`` the env var is cleared so the wrapper's
+    default path is exercised; pass an explicit value (e.g. ``"0"``) to drive
+    the documented opt-out.
     """
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-pty-") as td:
         tmp = Path(td)
@@ -1053,7 +1058,10 @@ exit 0
         env["FAKE_CMUX_LOG"] = str(cmux_log)
         env["FAKE_CMUX_PING_OK"] = "1" if socket_state == "live" else "0"
         env.pop("NODE_OPTIONS", None)
-        env.pop("CMUX_CLAUDE_FORCE_PTY", None)
+        if force_pty is None:
+            env.pop("CMUX_CLAUDE_FORCE_PTY", None)
+        else:
+            env["CMUX_CLAUDE_FORCE_PTY"] = force_pty
 
         try:
             proc = subprocess.run(
@@ -1105,6 +1113,26 @@ def test_inside_cmux_without_tty_allocates_pty_for_real_claude(failures: list[st
         )
 
 
+def test_force_pty_opt_out_skips_pty_allocation(failures: list[str]) -> None:
+    """
+    The wrapper documents ``CMUX_CLAUDE_FORCE_PTY=0`` as the escape hatch for
+    callers that need the real claude to see the wrapper's original (non-TTY)
+    stdin — e.g. piping data into ``claude --print``. Verify the opt-out
+    actually disables the PTY allocation instead of being a documented no-op.
+    """
+    code, tty_state, stderr = run_wrapper_pty_probe(argv=[], force_pty="0")
+    expect(
+        code == 0,
+        f"force-pty opt-out: wrapper exited {code}: {stderr}",
+        failures,
+    )
+    expect(
+        tty_state == "not_a_tty",
+        f"force-pty opt-out: expected real claude stdin to remain non-tty, got {tty_state!r}",
+        failures,
+    )
+
+
 def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
@@ -1131,6 +1159,7 @@ def main() -> int:
     test_disabled_integration_skips_hook_injection(failures)
     test_stale_socket_skips_hook_injection(failures)
     test_inside_cmux_without_tty_allocates_pty_for_real_claude(failures)
+    test_force_pty_opt_out_skips_pty_allocation(failures)
 
     if failures:
         print("FAIL: claude wrapper regression checks failed")
