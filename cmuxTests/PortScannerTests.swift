@@ -39,7 +39,7 @@ final class PortScannerProcessCaptureTests: XCTestCase {
 
 
 final class SidebarWorkspaceResourceResolverTests: XCTestCase {
-    func testResolveAggregatesTTYAgentAndBrowserProcessTreesPerWorkspace() {
+    func testResolveAggregatesTTYAgentAndBrowserProcessTreesPerWorkspace() throws {
         let workspaceA = UUID()
         let workspaceB = UUID()
 
@@ -54,6 +54,7 @@ final class SidebarWorkspaceResourceResolverTests: XCTestCase {
             41: sample(pid: 41, parentPID: 40, name: "codex", ttyDevice: 200, residentBytes: 600, totalCPUTimeNanos: 250_000_000),
             999: sample(pid: 999, parentPID: 1, name: "cmux", ttyDevice: nil, residentBytes: 800, totalCPUTimeNanos: 150_000_000),
         ]
+        let previousCPUTimeByPID = Dictionary(uniqueKeysWithValues: processes.keys.map { ($0, UInt64(0)) })
 
         let result = SidebarWorkspaceResourceResolver.resolve(
             workspaces: [
@@ -70,20 +71,23 @@ final class SidebarWorkspaceResourceResolverTests: XCTestCase {
             ],
             processes: processes,
             appPID: 999,
-            previousCPUTimeByPID: [:],
+            previousCPUTimeByPID: previousCPUTimeByPID,
             elapsedNanoseconds: 1_000_000_000
         )
+        let workspaceAUsage = try XCTUnwrap(result.workspaces[workspaceA])
+        let workspaceBUsage = try XCTUnwrap(result.workspaces[workspaceB])
+        let totalUsage = try XCTUnwrap(result.total)
 
-        XCTAssertEqual(result.workspaces[workspaceA]?.residentBytes, 1_850)
-        XCTAssertEqual(result.workspaces[workspaceB]?.residentBytes, 700)
-        XCTAssertEqual(result.total?.residentBytes, 3_350)
+        XCTAssertEqual(workspaceAUsage.residentBytes, 1_850)
+        XCTAssertEqual(workspaceBUsage.residentBytes, 700)
+        XCTAssertEqual(totalUsage.residentBytes, 3_350)
 
-        XCTAssertEqual(result.workspaces[workspaceA]?.cpuPercent, 115, accuracy: 0.001)
-        XCTAssertEqual(result.workspaces[workspaceB]?.cpuPercent, 27, accuracy: 0.001)
-        XCTAssertEqual(result.total?.cpuPercent, 157, accuracy: 0.001)
+        XCTAssertEqual(workspaceAUsage.cpuPercent, 115, accuracy: 0.001)
+        XCTAssertEqual(workspaceBUsage.cpuPercent, 27, accuracy: 0.001)
+        XCTAssertEqual(totalUsage.cpuPercent, 157, accuracy: 0.001)
 
         let workspaceAKinds = Dictionary(
-            uniqueKeysWithValues: (result.workspaces[workspaceA]?.processes ?? []).map { ($0.pid, $0.kind) }
+            uniqueKeysWithValues: workspaceAUsage.processes.map { ($0.pid, $0.kind) }
         )
         XCTAssertEqual(workspaceAKinds[10], .shell)
         XCTAssertEqual(workspaceAKinds[20], .agent)
@@ -93,7 +97,7 @@ final class SidebarWorkspaceResourceResolverTests: XCTestCase {
         XCTAssertEqual(workspaceAKinds[31], .helper)
     }
 
-    func testResolveUsesPreviousCPUTimeTotalsToComputeDeltaPercentages() {
+    func testResolveUsesPreviousCPUTimeTotalsToComputeDeltaPercentages() throws {
         let workspace = UUID()
         let result = SidebarWorkspaceResourceResolver.resolve(
             workspaces: [
@@ -118,7 +122,37 @@ final class SidebarWorkspaceResourceResolverTests: XCTestCase {
             elapsedNanoseconds: 2_000_000_000
         )
 
-        XCTAssertEqual(result.workspaces[workspace]?.cpuPercent, 25, accuracy: 0.001)
+        let usage = try XCTUnwrap(result.workspaces[workspace])
+        XCTAssertEqual(usage.cpuPercent, 25, accuracy: 0.001)
+    }
+
+    func testResolveReportsZeroCPUUntilPreviousBaselineExists() throws {
+        let workspace = UUID()
+        let result = SidebarWorkspaceResourceResolver.resolve(
+            workspaces: [
+                workspace: SidebarWorkspaceResourceTrackingRoots(
+                    ttyDevices: [300],
+                    agentRoots: [],
+                    browserRootPIDs: []
+                ),
+            ],
+            processes: [
+                50: sample(
+                    pid: 50,
+                    parentPID: 1,
+                    name: "zsh",
+                    ttyDevice: 300,
+                    residentBytes: 256,
+                    totalCPUTimeNanos: 1_500_000_000
+                ),
+            ],
+            appPID: 999,
+            previousCPUTimeByPID: [:],
+            elapsedNanoseconds: 2_000_000_000
+        )
+
+        let usage = try XCTUnwrap(result.workspaces[workspace])
+        XCTAssertEqual(usage.cpuPercent, 0, accuracy: 0.001)
     }
 
     private func sample(

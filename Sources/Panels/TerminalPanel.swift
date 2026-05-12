@@ -94,9 +94,11 @@ final class TerminalPanel: Panel, ObservableObject {
         workingDirectory: String? = nil,
         portOrdinal: Int = 0,
         initialCommand: String? = nil,
+        tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
-        additionalEnvironment: [String: String] = [:]
+        additionalEnvironment: [String: String] = [:],
+        focusPlacement: TerminalSurfaceFocusPlacement = .workspace
     ) {
         let surface = TerminalSurface(
             tabId: workspaceId,
@@ -104,9 +106,11 @@ final class TerminalPanel: Panel, ObservableObject {
             configTemplate: configTemplate,
             workingDirectory: workingDirectory,
             initialCommand: initialCommand,
+            tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
-            additionalEnvironment: additionalEnvironment
+            additionalEnvironment: additionalEnvironment,
+            focusPlacement: focusPlacement
         )
         surface.portOrdinal = portOrdinal
         self.init(workspaceId: workspaceId, surface: surface)
@@ -137,10 +141,18 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func focus() {
-        surface.setFocus(true)
         // `unfocus()` force-disables active state to stop stale retries from stealing focus.
         // Re-enable it immediately for explicit focus requests (socket/UI) so ensureFocus can run.
         hostedView.setActive(true)
+        guard AppDelegate.shared?.allowsTerminalKeyboardFocus(
+            workspaceId: workspaceId,
+            panelId: id,
+            in: hostedView.window
+        ) != false else {
+            surface.setFocus(false)
+            return
+        }
+        surface.setFocus(true)
         hostedView.ensureFocus(for: workspaceId, surfaceId: id)
     }
 

@@ -1,0 +1,156 @@
+name: Cloud VM DB migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Migration target
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: cloud-vm-migrate-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: refs/heads/main
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Cloud VM migration preflight
+        run: bun run cloud-vm:preflight -- --schema-only .
+
+  migrate-staging:
+    if: ${{ inputs.target == 'staging' || inputs.target == 'production' }}
+    runs-on: ubuntu-latest
+    needs: preflight
+    environment: cloud-vm-staging
+    defaults:
+      run:
+        working-directory: web
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
+      AWS_ROLE_ARN: ${{ secrets.AWS_MIGRATION_ROLE_ARN }}
+      CMUX_CLOUD_VM_ENV_SOURCE: process
+      CMUX_DB_DRIVER: aws-rds-iam
+      CMUX_DB_SSL_REJECT_UNAUTHORIZED: ${{ vars.CMUX_DB_SSL_REJECT_UNAUTHORIZED || 'true' }}
+      PGDATABASE: ${{ vars.PGDATABASE }}
+      PGHOST: ${{ vars.PGHOST }}
+      PGPORT: ${{ vars.PGPORT || '5432' }}
+      PGUSER: ${{ vars.PGUSER }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: refs/heads/main
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Prepare AWS web identity credentials
+        run: |
+          set -euo pipefail
+          if [ -z "${AWS_ROLE_ARN:-}" ]; then
+            echo "::error::Missing cloud-vm-staging secret AWS_MIGRATION_ROLE_ARN"
+            exit 1
+          fi
+          for key in PGHOST PGPORT PGUSER PGDATABASE AWS_REGION; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Missing cloud-vm-staging variable $key"
+              exit 1
+            fi
+          done
+          token_file="$RUNNER_TEMP/aws-web-identity-token"
+          curl -fsSL \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" \
+            | jq -e -r '.value' > "$token_file"
+          echo "AWS_WEB_IDENTITY_TOKEN_FILE=$token_file" >> "$GITHUB_ENV"
+          echo "AWS_ROLE_ARN=$AWS_ROLE_ARN" >> "$GITHUB_ENV"
+          echo "AWS_REGION=$AWS_REGION" >> "$GITHUB_ENV"
+          export AWS_WEB_IDENTITY_TOKEN_FILE="$token_file"
+          aws sts get-caller-identity --no-cli-pager >/dev/null
+
+      - name: Apply staging migration
+        run: bun run cloud-vm:migrate -- staging
+
+  migrate-production:
+    if: ${{ inputs.target == 'production' }}
+    runs-on: ubuntu-latest
+    needs: migrate-staging
+    environment: cloud-vm-production
+    defaults:
+      run:
+        working-directory: web
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
+      AWS_ROLE_ARN: ${{ secrets.AWS_MIGRATION_ROLE_ARN }}
+      CMUX_CLOUD_VM_ENV_SOURCE: process
+      CMUX_DB_DRIVER: aws-rds-iam
+      CMUX_DB_SSL_REJECT_UNAUTHORIZED: ${{ vars.CMUX_DB_SSL_REJECT_UNAUTHORIZED || 'true' }}
+      PGDATABASE: ${{ vars.PGDATABASE }}
+      PGHOST: ${{ vars.PGHOST }}
+      PGPORT: ${{ vars.PGPORT || '5432' }}
+      PGUSER: ${{ vars.PGUSER }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: refs/heads/main
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Prepare AWS web identity credentials
+        run: |
+          set -euo pipefail
+          if [ -z "${AWS_ROLE_ARN:-}" ]; then
+            echo "::error::Missing cloud-vm-production secret AWS_MIGRATION_ROLE_ARN"
+            exit 1
+          fi
+          for key in PGHOST PGPORT PGUSER PGDATABASE AWS_REGION; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Missing cloud-vm-production variable $key"
+              exit 1
+            fi
+          done
+          token_file="$RUNNER_TEMP/aws-web-identity-token"
+          curl -fsSL \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" \
+            | jq -e -r '.value' > "$token_file"
+          echo "AWS_WEB_IDENTITY_TOKEN_FILE=$token_file" >> "$GITHUB_ENV"
+          echo "AWS_ROLE_ARN=$AWS_ROLE_ARN" >> "$GITHUB_ENV"
+          echo "AWS_REGION=$AWS_REGION" >> "$GITHUB_ENV"
+          export AWS_WEB_IDENTITY_TOKEN_FILE="$token_file"
+          aws sts get-caller-identity --no-cli-pager >/dev/null
+
+      - name: Apply production migration
+        run: bun run cloud-vm:migrate -- production

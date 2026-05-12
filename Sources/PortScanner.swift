@@ -883,7 +883,7 @@ enum SidebarWorkspaceResourceResolver {
         elapsedNanoseconds: UInt64
     ) -> Double {
         guard elapsedNanoseconds > 0 else { return 0 }
-        let baseline = previousTotalCPUTimeNanos ?? 0
+        guard let baseline = previousTotalCPUTimeNanos else { return 0 }
         let delta = currentTotalCPUTimeNanos >= baseline ? currentTotalCPUTimeNanos - baseline : 0
         return (Double(delta) / Double(elapsedNanoseconds)) * 100
     }
@@ -924,6 +924,27 @@ enum SidebarWorkspaceResourceResolver {
             || normalized.contains("language-server")
             || normalized.contains("langserver")
             || normalized.hasSuffix("lsp")
+    }
+}
+
+private enum MachAbsoluteTimeConverter {
+    private static let timebaseInfo: mach_timebase_info_data_t = {
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        return info
+    }()
+
+    static func nanoseconds(from ticks: UInt64) -> UInt64 {
+        guard ticks > 0 else { return 0 }
+        let numer = UInt64(timebaseInfo.numer)
+        let denom = UInt64(timebaseInfo.denom)
+        guard numer > 0, denom > 0 else { return ticks }
+        guard numer != denom else { return ticks }
+
+        let value = (Double(ticks) * Double(numer)) / Double(denom)
+        guard value.isFinite, value > 0 else { return 0 }
+        guard value < Double(UInt64.max) else { return UInt64.max }
+        return UInt64(value.rounded(.down))
     }
 }
 
@@ -1055,10 +1076,13 @@ final class SidebarWorkspaceResourceUsageStore: ObservableObject, @unchecked Sen
                 self.previousCPUTimeByPID = trackedCPUTimeByPID
                 self.hasEstablishedCPUBaseline = true
                 self.lastSampleUptimeNanoseconds = currentUptimeNanoseconds
-                self.snapshot = Snapshot(
+                let nextSnapshot = Snapshot(
                     workspaces: resolution.workspaces,
                     total: resolution.total
                 )
+                if nextSnapshot != self.snapshot {
+                    self.snapshot = nextSnapshot
+                }
             }
         }
     }
@@ -1202,8 +1226,9 @@ final class SidebarWorkspaceResourceUsageStore: ObservableObject, @unchecked Sen
             let residentBytes = taskInfoSize == MemoryLayout<proc_taskinfo>.size
                 ? taskInfo.pti_resident_size
                 : 0
+            let totalCPUTicks = taskInfo.pti_total_user &+ taskInfo.pti_total_system
             let totalCPUTimeNanos = taskInfoSize == MemoryLayout<proc_taskinfo>.size
-                ? taskInfo.pti_total_user + taskInfo.pti_total_system
+                ? MachAbsoluteTimeConverter.nanoseconds(from: totalCPUTicks)
                 : 0
             let name = string(from: bsdInfo.pbi_name).isEmpty
                 ? string(from: bsdInfo.pbi_comm)
@@ -1228,10 +1253,10 @@ final class SidebarWorkspaceResourceUsageStore: ObservableObject, @unchecked Sen
 
     nonisolated private static func string<T>(from fixedCString: T) -> String {
         withUnsafeBytes(of: fixedCString) { rawBuffer in
-            guard let baseAddress = rawBuffer.bindMemory(to: CChar.self).baseAddress else {
-                return ""
-            }
-            return String(cString: baseAddress)
+            let bytes = Array(rawBuffer)
+            let length = bytes.firstIndex(of: 0) ?? bytes.count
+            guard length > 0 else { return "" }
+            return String(decoding: bytes[..<length], as: UTF8.self)
         }
     }
 }

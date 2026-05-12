@@ -24,18 +24,7 @@ struct ConfigSettingsView: View {
         case .cmux:
             return String(
                 localized: "settings.config.banner.cmux",
-                defaultValue: "This is the config file cmux reads. Edit it here, then Save to reload cmux."
-            )
-        case .ghostty:
-            if currentSnapshot.hasBackingFile {
-                return String(
-                    localized: "settings.config.banner.ghostty",
-                    defaultValue: "This file belongs to standalone Ghostty. cmux does not read it, so edits here do not affect cmux."
-                )
-            }
-            return String(
-                localized: "settings.config.banner.ghosttyMissing",
-                defaultValue: "No standalone Ghostty config file was found at the preferred path. cmux still does not read standalone Ghostty config."
+                defaultValue: "This is the cmux Ghostty config selected for this build. Edit it here, then Save to reload cmux."
             )
         case .synced:
             if currentSnapshot.hasStandaloneGhosttyConfig {
@@ -46,7 +35,7 @@ struct ConfigSettingsView: View {
             }
             return String(
                 localized: "settings.config.banner.syncedNoGhostty",
-                defaultValue: "This is a generated preview of the effective config. No standalone Ghostty config file was found, so only cmux overrides are shown."
+                defaultValue: "This is a generated preview of the effective config. No base Ghostty config file was found, so only cmux overrides are shown."
             )
         }
     }
@@ -114,13 +103,13 @@ struct ConfigSettingsView: View {
 
                 Spacer(minLength: 0)
 
-                Button(String(localized: "settings.config.action.openEditor", defaultValue: "Open in Editor…")) {
+                Button(openEditorButtonTitle) {
                     openCurrentSourceInEditor()
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
 
-                Button(String(localized: "settings.config.action.revealFinder", defaultValue: "Reveal in Finder")) {
+                Button(revealFinderButtonTitle) {
                     revealCurrentSourceInFinder()
                 }
                 .buttonStyle(.bordered)
@@ -165,6 +154,26 @@ struct ConfigSettingsView: View {
             .fill(Color(nsColor: .textBackgroundColor))
     }
 
+    private var openEditorButtonTitle: String {
+        if configSource == .synced {
+            return String(
+                localized: "settings.config.action.openActiveEditor",
+                defaultValue: "Open Active Config…"
+            )
+        }
+        return String(localized: "settings.config.action.openEditor", defaultValue: "Open in Editor…")
+    }
+
+    private var revealFinderButtonTitle: String {
+        if configSource == .synced {
+            return String(
+                localized: "settings.config.action.revealActiveFinder",
+                defaultValue: "Reveal Active Config in Finder"
+            )
+        }
+        return String(localized: "settings.config.action.revealFinder", defaultValue: "Reveal in Finder")
+    }
+
     private func configureWindow(_ window: NSWindow) {
         window.identifier = NSUserInterfaceItemIdentifier("cmux.configEditor")
         window.minSize = NSSize(width: 700, height: 500)
@@ -203,15 +212,9 @@ struct ConfigSettingsView: View {
 
     private func saveCmuxConfig() {
         let environment = ConfigSourceEnvironment.live()
-        let url = environment.cmuxConfigURL
 
         do {
-            try FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(),
-                withIntermediateDirectories: true,
-                attributes: nil
-            )
-            try cmuxDraft.write(to: url, atomically: true, encoding: .utf8)
+            try environment.writeCmuxConfigContents(cmuxDraft)
             cmuxLastLoadedContents = cmuxDraft
             refreshSnapshots(preserveCmuxDraft: true)
             GhosttyApp.shared.reloadConfiguration(source: "settings.configWindow.save")
@@ -231,11 +234,12 @@ struct ConfigSettingsView: View {
     }
 
     private func openCurrentSourceInEditor() {
-        PreferredEditorSettings.open(materializedCurrentURL())
+        guard let url = materializedCmuxConfigURL() else { return }
+        PreferredEditorSettings.open(url)
     }
 
     private func revealCurrentSourceInFinder() {
-        let url = materializedCurrentURL()
+        guard let url = materializedCmuxConfigURL() else { return }
         if FileManager.default.fileExists(atPath: url.path) {
             NSWorkspace.shared.activateFileViewerSelecting([url])
         } else {
@@ -243,31 +247,18 @@ struct ConfigSettingsView: View {
         }
     }
 
-    private func materializedCurrentURL() -> URL {
-        switch configSource {
-        case .cmux:
-            let url = ConfigSourceEnvironment.live().cmuxConfigURL
-            materializeEmptyFileIfNeeded(at: url)
-            return url
-        case .ghostty:
-            return currentSnapshot.primaryURL
-        case .synced:
-            refreshSnapshots(preserveCmuxDraft: true)
-            return snapshots[.synced]?.primaryURL ?? currentSnapshot.primaryURL
-        }
-    }
-
-    private func materializeEmptyFileIfNeeded(at url: URL) {
-        guard !FileManager.default.fileExists(atPath: url.path) else { return }
+    private func materializedCmuxConfigURL() -> URL? {
+        let environment = ConfigSourceEnvironment.live()
         do {
-            try FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(),
-                withIntermediateDirectories: true,
-                attributes: nil
-            )
-            try "".write(to: url, atomically: true, encoding: .utf8)
+            return try environment.materializeCmuxConfigFileIfNeeded()
         } catch {
             NSSound.beep()
+            statusMessage = String(
+                localized: "settings.config.status.openFailed",
+                defaultValue: "Couldn't open the cmux config."
+            )
+            statusIsError = true
+            return nil
         }
     }
 }
@@ -369,8 +360,6 @@ private extension ConfigSource {
         switch self {
         case .cmux:
             return String(localized: "settings.config.source.cmux", defaultValue: "cmux")
-        case .ghostty:
-            return String(localized: "settings.config.source.ghostty", defaultValue: "ghostty")
         case .synced:
             return String(localized: "settings.config.source.synced", defaultValue: "synced")
         }

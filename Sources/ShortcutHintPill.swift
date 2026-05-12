@@ -1,5 +1,20 @@
 import SwiftUI
 
+enum ShortcutHintAnimation {
+    static let visibility: Animation = .easeOut(duration: 0.12)
+    static let transition: AnyTransition = .opacity
+}
+
+extension View {
+    func shortcutHintTransition() -> some View {
+        transition(ShortcutHintAnimation.transition)
+    }
+
+    func shortcutHintVisibilityAnimation<Value: Equatable>(value: Value) -> some View {
+        animation(ShortcutHintAnimation.visibility, value: value)
+    }
+}
+
 struct ShortcutHintPillBackground: View {
     var emphasis: Double = 1.0
 
