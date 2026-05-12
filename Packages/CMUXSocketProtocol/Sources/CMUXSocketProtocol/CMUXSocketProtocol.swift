@@ -48,6 +48,23 @@ public enum CMUXSocketProtocol {
         (dict["jsonrpc"] as? String) == "2.0"
     }
 
+    public static func malformedRequestUsesJSONRPC(_ command: String) -> Bool {
+        command.range(
+            of: #""jsonrpc"\s*:\s*"2\.0""#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    public static func malformedRequestError(command: String, code: String, message: String) -> String {
+        if malformedRequestUsesJSONRPC(command) {
+            return error(id: nil, jsonRPC: true, code: code, message: message)
+        }
+        return encode([
+            "ok": false,
+            "error": ["code": code, "message": message]
+        ])
+    }
+
     public static func isJSONRPCNotification(_ command: String) -> Bool {
         guard let request = parseV2SocketRequest(command) else {
             return false
@@ -170,10 +187,6 @@ public enum CMUXSocketProtocol {
     }
 
     public static func error(id: Any?, jsonRPC: Bool, code: String, message: String, data: Any? = nil) -> String {
-        var err: [String: Any] = ["code": code, "message": message]
-        if let data {
-            err["data"] = data
-        }
         if jsonRPC {
             var jsonRPCErrorData: [String: Any] = ["cmux_code": code]
             if let data {
@@ -189,6 +202,11 @@ public enum CMUXSocketProtocol {
                 ]
             ])
         }
+
+        var err: [String: Any] = ["code": code, "message": message]
+        if let data {
+            err["data"] = data
+        }
         return encode([
             "id": orNull(id),
             "ok": false,
@@ -198,7 +216,7 @@ public enum CMUXSocketProtocol {
 
     public static func jsonRPCErrorCode(for code: String) -> Int {
         switch code {
-        case "parse_error":
+        case "parse_error", "invalid_utf8":
             return -32700
         case "invalid_request":
             return -32600

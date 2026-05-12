@@ -2394,18 +2394,30 @@ class TerminalController {
         // to which v1 command without parsing, so parse first and then apply allow-list.
 
         guard let data = jsonLine.data(using: .utf8) else {
-            return v2Encode(["ok": false, "error": ["code": "invalid_utf8", "message": "Invalid UTF-8"]])
+            return CMUXSocketProtocol.malformedRequestError(
+                command: jsonLine,
+                code: "invalid_utf8",
+                message: "Invalid UTF-8"
+            )
         }
 
         let object: Any
         do {
             object = try JSONSerialization.jsonObject(with: data, options: [])
         } catch {
-            return v2Encode(["ok": false, "error": ["code": "parse_error", "message": "Invalid JSON"]])
+            return CMUXSocketProtocol.malformedRequestError(
+                command: jsonLine,
+                code: "parse_error",
+                message: "Invalid JSON"
+            )
         }
 
         guard let dict = object as? [String: Any] else {
-            return v2Encode(["ok": false, "error": ["code": "invalid_request", "message": "Expected JSON object"]])
+            return CMUXSocketProtocol.malformedRequestError(
+                command: jsonLine,
+                code: "invalid_request",
+                message: "Expected JSON object"
+            )
         }
 
         let id: Any? = dict["id"]

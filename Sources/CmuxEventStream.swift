@@ -21,11 +21,20 @@ extension TerminalController {
         guard let data = line.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             if writeInitialResponse {
-                _ = writeEventsStreamLine([
-                    "type": "error",
-                    "ok": false,
-                    "error": ["code": "invalid_request", "message": "events.stream requires a JSON object"]
-                ], socket: socket)
+                if CMUXSocketProtocol.malformedRequestUsesJSONRPC(line) {
+                    let response = CMUXSocketProtocol.malformedRequestError(
+                        command: line,
+                        code: "invalid_request",
+                        message: "events.stream requires a JSON object"
+                    )
+                    _ = Self.writeAllToSocket(Data((response + "\n").utf8), to: socket)
+                } else {
+                    _ = writeEventsStreamLine([
+                        "type": "error",
+                        "ok": false,
+                        "error": ["code": "invalid_request", "message": "events.stream requires a JSON object"]
+                    ], socket: socket)
+                }
             }
             return
         }
