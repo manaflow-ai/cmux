@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CMUXAgentVault
 import SQLite3
 import SwiftUI
 import UniformTypeIdentifiers
@@ -209,6 +210,26 @@ struct SessionIndexView: View {
     }
 }
 
+private struct AgentIconImage: View, Equatable {
+    let agent: SessionAgent
+    let size: CGFloat
+
+    var body: some View {
+        if let assetName = agent.assetName {
+            Image(assetName)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+        } else {
+            Image(systemName: agent.systemImageName ?? "person.crop.circle")
+                .font(.system(size: max(size - 2, 10), weight: .regular))
+                .foregroundColor(.secondary)
+                .frame(width: size, height: size)
+        }
+    }
+}
+
 private struct GroupingButton: View {
     let mode: SessionGrouping
     let isSelected: Bool
@@ -394,11 +415,7 @@ private struct IndexSectionView: View, Equatable {
     private var sectionIconView: some View {
         switch section.icon {
         case .agent(let agent):
-            Image(agent.assetName)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 14, height: 14)
+            AgentIconImage(agent: agent, size: 14)
         case .folder:
             Image(systemName: "folder")
                 .font(.system(size: 12, weight: .regular))
@@ -497,11 +514,7 @@ private struct SessionRow: View, Equatable {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(entry.agent.assetName)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 12, height: 12)
+            AgentIconImage(agent: entry.agent, size: 12)
             Text(entry.displayTitle)
                 .font(.system(size: 13))
                 .foregroundColor(.primary.opacity(0.92))
@@ -529,11 +542,7 @@ private struct SessionRow: View, Equatable {
             sessionDragItemProvider(for: entry)
         } preview: {
             HStack(spacing: 6) {
-                Image(entry.agent.assetName)
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 12, height: 12)
+                AgentIconImage(agent: entry.agent, size: 12)
                 Text(entry.displayTitle)
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
@@ -630,12 +639,14 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
             Text(String(localized: "sessionIndex.row.copyPath", defaultValue: "Copy File Path"))
         }
     }
-    Button {
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setString(entry.resumeCommandWithCwd, forType: .string)
-    } label: {
-        Text(String(localized: "sessionIndex.row.copyResume", defaultValue: "Copy Resume Command"))
+    if let resumeCommand = entry.resumeCommand {
+        Button {
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.setString(resumeCommand, forType: .string)
+        } label: {
+            Text(String(localized: "sessionIndex.row.copyResume", defaultValue: "Copy Resume Command"))
+        }
     }
     if let cwd = entry.cwd, !cwd.isEmpty {
         Button {
@@ -688,11 +699,7 @@ private struct SessionTranscriptPreviewView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(entry.agent.assetName)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 14, height: 14)
+            AgentIconImage(agent: entry.agent, size: 14)
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.displayTitle)
                     .font(.system(size: 13, weight: .semibold))
@@ -985,64 +992,6 @@ private enum SessionTranscriptPreviewState: Equatable {
     case loaded([SessionTranscriptDisplayRow])
 }
 
-private struct SessionTranscriptTurn: Identifiable, Equatable, Sendable {
-    let id: Int
-    let role: SessionTranscriptRole
-    let text: String
-}
-
-private enum SessionTranscriptRole: Equatable, Sendable {
-    case user
-    case assistant
-    case system
-    case tool
-    case event
-
-    var label: String {
-        switch self {
-        case .user:
-            return String(localized: "sessionIndex.preview.role.user", defaultValue: "You")
-        case .assistant:
-            return String(localized: "sessionIndex.preview.role.assistant", defaultValue: "Agent")
-        case .system:
-            return String(localized: "sessionIndex.preview.role.system", defaultValue: "System")
-        case .tool:
-            return String(localized: "sessionIndex.preview.role.tool", defaultValue: "Tool")
-        case .event:
-            return String(localized: "sessionIndex.preview.role.event", defaultValue: "Event")
-        }
-    }
-
-    var foregroundColor: Color {
-        switch self {
-        case .user: return .accentColor
-        case .assistant: return .green
-        case .system: return .secondary
-        case .tool: return .orange
-        case .event: return .secondary
-        }
-    }
-
-    var backgroundColor: Color {
-        switch self {
-        case .user: return Color.accentColor.opacity(0.035)
-        case .assistant: return Color.green.opacity(0.035)
-        case .system: return Color.primary.opacity(0.025)
-        case .tool: return Color.orange.opacity(0.035)
-        case .event: return Color.primary.opacity(0.02)
-        }
-    }
-
-    var bodyFont: Font {
-        switch self {
-        case .tool, .system:
-            return .system(size: 11, design: .monospaced)
-        case .user, .assistant, .event:
-            return .system(size: 12)
-        }
-    }
-}
-
 private enum SessionTranscriptLoader {
     private static let streamChunkSize = 256 * 1024
     private static let maxPreviewRecordBytes = 2 * 1024 * 1024
@@ -1082,6 +1031,12 @@ private enum SessionTranscriptLoader {
             // the main actor so presenting the popover only flips UI state.
             return try await Task.detached(priority: .userInitiated) {
                 try loadOpenCodeSynchronously(sessionId: sessionId)
+            }.value
+        }
+        if entry.agent == .hermesAgent {
+            let sessionId = entry.sessionId
+            return try await Task.detached(priority: .userInitiated) {
+                try loadHermesAgentSynchronously(sessionId: sessionId)
             }.value
         }
         guard let url = entry.fileURL else {
@@ -1275,6 +1230,33 @@ private enum SessionTranscriptLoader {
         return coalesce(turns)
     }
 
+    private static func loadHermesAgentSynchronously(sessionId: String) throws -> [SessionTranscriptTurn] {
+        do {
+            let turns = try HermesAgentIndex.loadTranscript(sessionId: sessionId, limit: maxPreviewTurns + 1)
+            let didHitTurnLimit = turns.count > maxPreviewTurns
+            var previewTurns: [SessionTranscriptTurn] = turns.prefix(maxPreviewTurns).enumerated().compactMap { index, turn -> SessionTranscriptTurn? in
+                let role: SessionTranscriptRole = (turn.toolName?.isEmpty == false) ? .tool : (transcriptRole(from: turn.role) ?? .event)
+                let text: String
+                if role == .tool, let toolName = turn.toolName, !toolName.isEmpty {
+                    text = [toolName, turn.content].joined(separator: "\n\n")
+                } else {
+                    text = turn.content
+                }
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return nil }
+                return SessionTranscriptTurn(id: index, role: role, text: truncatedText(trimmed, role: role))
+            }
+            if didHitTurnLimit {
+                appendTurnLimitMarker(to: &previewTurns, id: previewTurns.count)
+            }
+            return coalesce(previewTurns)
+        } catch HermesAgentIndexError.missingDatabase {
+            throw SessionTranscriptLoadError.missingFile
+        } catch let HermesAgentIndexError.sqlite(message) {
+            throw SessionTranscriptLoadError.databaseError(message)
+        }
+    }
+
     private static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? { sqlite3_column_text(stmt, index).map { String(cString: $0) } }
 
     private static func sqliteMessage(_ db: OpaquePointer?) -> String? {
@@ -1305,8 +1287,10 @@ private enum SessionTranscriptLoader {
             return parseClaudeLine(object, id: id)
         case .codex:
             return parseCodexLine(object, id: id)
-        case .opencode, .rovodev:
+        case .opencode, .rovodev, .registered:
             return parseGenericLine(object, agent: agent, id: id)
+        case .hermesAgent:
+            return nil
         }
     }
 
@@ -1374,7 +1358,8 @@ private enum SessionTranscriptLoader {
         agent: SessionAgent,
         id: Int
     ) -> SessionTranscriptTurn? {
-        guard let role = transcriptRole(from: object["role"] as? String) else {
+        let fallbackRole: SessionTranscriptRole? = { if case .registered = agent { return .event }; return nil }()
+        guard let role = transcriptRole(from: object["role"] as? String) ?? fallbackRole else {
             return nil
         }
         let content = object["content"] ?? object["text"] ?? object["message"]
@@ -1587,6 +1572,10 @@ private enum SessionTranscriptLoader {
                 && containsAny(data, needles: codexPreviewNeedles)
         case .opencode, .rovodev:
             return containsAny(data, needles: genericRoleNeedles)
+        case .registered:
+            return true
+        case .hermesAgent:
+            return false
         }
     }
 
@@ -1599,7 +1588,7 @@ private enum SessionTranscriptLoader {
             if containsAny(data, needles: [Data(#""type":"user""#.utf8), Data(#""type": "user""#.utf8)]) {
                 return .user
             }
-        case .codex, .opencode, .rovodev:
+        case .codex, .opencode, .rovodev, .registered:
             if containsAny(data, needles: [Data(#""role":"assistant""#.utf8), Data(#""role": "assistant""#.utf8)]) {
                 return .assistant
             }
@@ -1609,6 +1598,8 @@ private enum SessionTranscriptLoader {
             if containsAny(data, needles: [Data(#""type":"function_call""#.utf8), Data(#""type": "function_call""#.utf8)]) {
                 return .tool
             }
+        case .hermesAgent:
+            return nil
         }
         return nil
     }
@@ -2172,11 +2163,7 @@ private struct SectionPopoverView: View {
     private var sectionIconView: some View {
         switch section.icon {
         case .agent(let agent):
-            Image(agent.assetName)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 14, height: 14)
+            AgentIconImage(agent: agent, size: 14)
         case .folder:
             Image(systemName: "folder")
                 .font(.system(size: 12, weight: .regular))
@@ -2224,11 +2211,7 @@ private struct PopoverRow: View, Equatable {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(entry.agent.assetName)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 12, height: 12)
+            AgentIconImage(agent: entry.agent, size: 12)
             // Flatten newlines so titles containing `<command-message>…\n…`
             // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
             // always constrain a Text that has hard line breaks in the
@@ -2333,6 +2316,7 @@ private func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Da
 /// bonsplit's external-drop decoder reads from that pasteboard directly
 /// and SwiftUI's NSItemProvider bridge doesn't always surface custom
 /// UTTypes there reliably.
+@MainActor
 private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider {
     let dragId = SessionDragRegistry.shared.register(entry)
     let provider = NSItemProvider()
@@ -2345,12 +2329,10 @@ private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider 
             completion(data, nil)
             return nil
         }
-        DispatchQueue.main.async {
-            let pb = NSPasteboard(name: .drag)
-            let type = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
-            pb.addTypes([type], owner: nil)
-            pb.setData(data, forType: type)
-        }
+        let pb = NSPasteboard(name: .drag)
+        let type = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
+        pb.addTypes([type], owner: nil)
+        pb.setData(data, forType: type)
     }
 
     provider.suggestedName = entry.displayTitle

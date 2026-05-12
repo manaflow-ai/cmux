@@ -944,6 +944,29 @@ final class RemoteLoopbackHTTPRequestRewriterTests: XCTestCase {
         XCTAssertFalse(text.contains("cmux-loopback.localtest.me"))
     }
 
+    func testRewritesLoopbackSubdomainAliasHostHeadersToOriginalLocalhostSubdomain() {
+        let original = Data(
+            (
+                "GET /demo HTTP/1.1\r\n" +
+                "Host: api.cmux-loopback.localtest.me:3000\r\n" +
+                "Origin: http://api.cmux-loopback.localtest.me:3000\r\n" +
+                "Referer: http://api.cmux-loopback.localtest.me:3000/app\r\n" +
+                "\r\n"
+            ).utf8
+        )
+
+        let rewritten = RemoteLoopbackHTTPRequestRewriter.rewriteIfNeeded(
+            data: original,
+            aliasHost: "cmux-loopback.localtest.me"
+        )
+
+        let text = String(decoding: rewritten, as: UTF8.self)
+        XCTAssertTrue(text.contains("Host: api.localhost:3000"))
+        XCTAssertTrue(text.contains("Origin: http://api.localhost:3000"))
+        XCTAssertTrue(text.contains("Referer: http://api.localhost:3000/app"))
+        XCTAssertFalse(text.contains("api.cmux-loopback.localtest.me"))
+    }
+
     func testRewritesAbsoluteFormRequestLineForLoopbackAlias() {
         let original = Data(
             (
@@ -1061,6 +1084,48 @@ final class RemoteLoopbackHTTPRequestRewriterTests: XCTestCase {
         XCTAssertTrue(text.contains("Location: http://cmux-loopback.localtest.me:3000/login"))
         XCTAssertTrue(text.contains("Access-Control-Allow-Origin: http://cmux-loopback.localtest.me:3000"))
         XCTAssertTrue(text.contains("Set-Cookie: sid=1; Domain=cmux-loopback.localtest.me; Path=/"))
+    }
+
+    func testRewritesLoopbackSubdomainResponseHeadersBackToAliasSubdomain() {
+        let original = Data(
+            (
+                "HTTP/1.1 302 Found\r\n" +
+                "Location: http://api.localhost:3000/login\r\n" +
+                "Access-Control-Allow-Origin: http://api.localhost:3000\r\n" +
+                "Set-Cookie: sid=1; Domain=api.localhost; Path=/\r\n" +
+                "\r\n"
+            ).utf8
+        )
+
+        let rewritten = RemoteLoopbackHTTPResponseRewriter.rewriteIfNeeded(
+            data: original,
+            aliasHost: "cmux-loopback.localtest.me"
+        )
+
+        let text = String(decoding: rewritten, as: UTF8.self)
+        XCTAssertTrue(text.contains("Location: http://api.cmux-loopback.localtest.me:3000/login"))
+        XCTAssertTrue(text.contains("Access-Control-Allow-Origin: http://api.cmux-loopback.localtest.me:3000"))
+        XCTAssertTrue(text.contains("Set-Cookie: sid=1; Domain=api.cmux-loopback.localtest.me; Path=/"))
+    }
+
+    func testRewritesLeadingDotLoopbackCookieDomainsBackToAliasDomains() {
+        let original = Data(
+            (
+                "HTTP/1.1 200 OK\r\n" +
+                "Set-Cookie: root=1; Domain=.localhost; Path=/\r\n" +
+                "Set-Cookie: api=1; Domain=.api.localhost; Path=/\r\n" +
+                "\r\n"
+            ).utf8
+        )
+
+        let rewritten = RemoteLoopbackHTTPResponseRewriter.rewriteIfNeeded(
+            data: original,
+            aliasHost: "cmux-loopback.localtest.me"
+        )
+
+        let text = String(decoding: rewritten, as: UTF8.self)
+        XCTAssertTrue(text.contains("Set-Cookie: root=1; Domain=.cmux-loopback.localtest.me; Path=/"))
+        XCTAssertTrue(text.contains("Set-Cookie: api=1; Domain=.api.cmux-loopback.localtest.me; Path=/"))
     }
 }
 
@@ -1188,6 +1253,68 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         XCTAssertEqual(panel.webView.url?.host, "cmux-loopback.localtest.me")
     }
 
+    func testRemoteWorkspacePreservesLocalhostSubdomainWhenAliasingLoopbackURL() {
+        let remoteWorkspaceId = UUID()
+        let url = URL(string: "http://api.localhost:3000/demo")!
+        let panel = BrowserPanel(
+            workspaceId: remoteWorkspaceId,
+            initialURL: url,
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
+        )
+
+        XCTAssertEqual(panel.preferredURLStringForOmnibar(), url.absoluteString)
+        XCTAssertNil(panel.webView.url)
+
+        panel.setRemoteProxyEndpoint(BrowserProxyEndpoint(host: "127.0.0.1", port: 9876))
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.url == nil, RunLoop.main.run(mode: .default, before: deadline), Date() < deadline {}
+
+        XCTAssertEqual(panel.preferredURLStringForOmnibar(), url.absoluteString)
+        XCTAssertEqual(panel.webView.url?.host, "api.cmux-loopback.localtest.me")
+    }
+
+    func testRemoteWorkspaceRuntimeBridgeAliasesMultipleLoopbackPortsFromSamePage() async throws {
+        let remoteWorkspaceId = UUID()
+        let panel = BrowserPanel(
+            workspaceId: remoteWorkspaceId,
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
+        )
+        let baseURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:3000/"))
+
+        panel.webView.loadHTMLString(
+            "<!doctype html><html><body>remote loopback bridge</body></html>",
+            baseURL: baseURL
+        )
+        try await waitForBrowserWebViewLoad(panel.webView)
+
+        let result = try await panel.evaluateJavaScript(
+            """
+            (() => {
+              const rewrite = window.__cmuxRewriteRemoteLoopbackURL;
+              if (typeof rewrite !== 'function') {
+                return 'missing bridge';
+              }
+              return JSON.stringify([
+                rewrite('http://localhost:3000/frontend'),
+                rewrite('http://localhost:8000/api'),
+                rewrite('http://api.localhost:8000/v1'),
+                rewrite('ws://localhost:5173/hmr'),
+                rewrite('wss://localhost:5173/hmr'),
+                rewrite('https://localhost:9443/secure')
+              ]);
+            })()
+            """
+        ) as? String
+
+        XCTAssertEqual(
+            result,
+            #"["http://cmux-loopback.localtest.me:3000/frontend","http://cmux-loopback.localtest.me:8000/api","http://api.cmux-loopback.localtest.me:8000/v1","ws://cmux-loopback.localtest.me:5173/hmr","wss://localhost:5173/hmr","https://localhost:9443/secure"]"#
+        )
+    }
+
     func testRemoteWorkspaceKeepsHTTPSLoopbackUnaliased() {
         let remoteWorkspaceId = UUID()
         let url = URL(string: "https://localhost:3443/demo")!
@@ -1208,6 +1335,17 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
 
         XCTAssertEqual(panel.preferredURLStringForOmnibar(), url.absoluteString)
         XCTAssertEqual(panel.webView.url?.host, "localhost")
+    }
+
+    private func waitForBrowserWebViewLoad(_ webView: WKWebView, timeout: TimeInterval = 2.0) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while webView.isLoading {
+            if Date() >= deadline {
+                XCTFail("Timed out waiting for browser web view to finish loading")
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
     }
 
     func testBrowserMoveIntoRemoteWorkspaceRebuildsWebsiteDataStoreScope() throws {

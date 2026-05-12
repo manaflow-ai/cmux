@@ -35,7 +35,7 @@ enum AuthCallbackRouter {
 
     private static func isAllowedScheme(_ scheme: String?) -> Bool {
         guard let normalized = scheme?.lowercased() else { return false }
-        if normalized == "cmux" || normalized == "cmux-dev" {
+        if normalized == "cmux" || normalized == "cmux-nightly" || normalized == "cmux-dev" {
             return true
         }
         // Honor the runtime override so any AuthEnvironment.callbackScheme

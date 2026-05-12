@@ -17,6 +17,9 @@ final class FeedCoordinatorTests: XCTestCase {
 
         XCTAssertTrue(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .opencode))
         XCTAssertTrue(FeedPermissionActionPolicy.supportsBypassPermissions(source: .opencode))
+
+        XCTAssertFalse(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .hermesAgent))
+        XCTAssertFalse(FeedPermissionActionPolicy.supportsBypassPermissions(source: .hermesAgent))
     }
 
     func testBlockingIngestExpiresItemWhenHookTimesOut() async {

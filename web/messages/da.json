@@ -298,7 +298,7 @@
       "browserLinkBehavior": "Browser-linkadfærd",
       "browserLinkDesc": "Under Indstillinger > Browser eksponerer cmux to værtslister med forskellige formål:",
       "browserHostsEmbed": "Værter til åbning i indbygget browser: gælder for links klikket fra terminaloutput. Værter på denne liste åbnes i cmux; andre værter åbnes i din standardbrowser. Understøtter én vært eller wildcard per linje (for eksempel: example.com, *.internal.example).",
-      "browserHostsHttp": "HTTP-værter tilladt i indbygget browser: gælder kun for HTTP (ikke-HTTPS) URL'er. Værter på denne liste kan åbnes i cmux uden en advarsel. Standard inkluderer localhost, 127.0.0.1, ::1, 0.0.0.0 og *.localtest.me.",
+      "browserHostsHttp": "HTTP-værter tilladt i indbygget browser: gælder kun for HTTP (ikke-HTTPS) URL'er. Værter på denne liste kan åbnes i cmux uden en advarsel. Standard inkluderer localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 og *.localtest.me.",
       "exampleConfig": "Eksempelkonfiguration",
       "metaTitle": "Konfiguration"
     },

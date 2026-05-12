@@ -298,7 +298,7 @@
       "browserLinkBehavior": "Zachowanie linków w przeglądarce",
       "browserLinkDesc": "W Ustawieniach > Przeglądarka cmux udostępnia dwie listy hostów o różnych zastosowaniach:",
       "browserHostsEmbed": "Hosty do otwarcia we wbudowanej przeglądarce: dotyczy linków klikniętych z wyjścia terminala. Hosty na tej liście otwierają się w cmux; pozostałe hosty otwierają się w domyślnej przeglądarce. Obsługuje jeden host lub wildcard na linię (na przykład: example.com, *.internal.example).",
-      "browserHostsHttp": "Hosty HTTP dozwolone we wbudowanej przeglądarce: dotyczy tylko URL-i HTTP (nie-HTTPS). Hosty na tej liście mogą otwierać się w cmux bez monitu ostrzegawczego. Domyślnie obejmuje localhost, 127.0.0.1, ::1, 0.0.0.0 i *.localtest.me.",
+      "browserHostsHttp": "Hosty HTTP dozwolone we wbudowanej przeglądarce: dotyczy tylko URL-i HTTP (nie-HTTPS). Hosty na tej liście mogą otwierać się w cmux bez monitu ostrzegawczego. Domyślnie obejmuje localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0 i *.localtest.me.",
       "exampleConfig": "Przykładowa konfiguracja",
       "metaTitle": "Konfiguracja"
     },

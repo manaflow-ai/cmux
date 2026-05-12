@@ -14,11 +14,17 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "CMUXAgentVault"
+            name: "CMUXAgentVault",
+            linkerSettings: [
+                .linkedLibrary("sqlite3"),
+            ]
         ),
         .testTarget(
             name: "CMUXAgentVaultTests",
-            dependencies: ["CMUXAgentVault"]
+            dependencies: ["CMUXAgentVault"],
+            linkerSettings: [
+                .linkedLibrary("sqlite3"),
+            ]
         ),
     ]
 )

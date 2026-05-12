@@ -49,6 +49,17 @@ When you click Allow / Deny / Submit (either in Feed or in the notification's in
 
 All events (actionable and telemetry) are appended to `~/.cmuxterm/workstream.jsonl` for audit. Memory holds the most recent 2000 items in a ring; older items remain available in the JSONL audit log.
 
+The reconnectable [events stream](events.md) also publishes Feed and agent-hook
+activity as it happens:
+
+```bash
+cmux events --category feed --category agent --cursor-file ~/.cache/cmux/feed-events.seq --reconnect
+```
+
+Use `feed.item.received` to observe incoming hook work, `feed.item.completed`
+to observe the eventual hook result, and `agent.hook.<HookEventName>` to consume
+Claude Code, Codex, OpenCode, and other agent events by their native hook name.
+
 ## Installing hooks
 
 ```bash
@@ -117,7 +128,7 @@ Codex's `request_user_input` and `update_plan` currently surface through its app
 
 ## Timeout behavior
 
-Feed is advisory, not blocking. The hook waits at most 120 seconds for a user decision. On timeout the bridge emits `{}` (no decision) and the agent falls through to its own in-TUI prompt. This matches Vibe Island's "soft wait" model — it never freezes a workflow forever.
+Feed is advisory, not blocking. The hook waits at most 120 seconds for a user decision. On timeout the bridge emits `{}` (no decision) and the agent falls through to its own in-TUI prompt. This matches Vibe Island's "soft wait" model, it never freezes a workflow forever.
 
 Per-event timeout inside agent hook configs is raised to roughly 120 to 125 seconds for Feed bridge entries (Claude uses 125 seconds for PermissionRequest), so a user taking 30 seconds to approve something does not trip default 5 000 ms hook timeouts.
 

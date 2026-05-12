@@ -298,7 +298,7 @@
       "browserLinkBehavior": "浏览器链接行为",
       "browserLinkDesc": "在 Settings > Browser 中，cmux 提供两个用途不同的主机列表：",
       "browserHostsEmbed": "在内嵌浏览器中打开的主机：适用于从终端输出点击的链接。此列表中的主机在 cmux 中打开；其他主机在默认浏览器中打开。支持单个主机或通配符，每行一个（例如：example.com、*.internal.example）。",
-      "browserHostsHttp": "内嵌浏览器允许的 HTTP 主机：仅适用于 HTTP（非 HTTPS）URL。此列表中的主机可以在 cmux 中打开而不显示警告提示。默认包括 localhost、127.0.0.1、::1、0.0.0.0 和 *.localtest.me。",
+      "browserHostsHttp": "内嵌浏览器允许的 HTTP 主机：仅适用于 HTTP（非 HTTPS）URL。此列表中的主机可以在 cmux 中打开而不显示警告提示。默认包括 localhost、*.localhost、127.0.0.1、::1、0.0.0.0 和 *.localtest.me。",
       "exampleConfig": "配置示例",
       "metaTitle": "配置"
     },
