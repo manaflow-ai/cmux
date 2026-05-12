@@ -10,6 +10,57 @@ import XCTest
 
 @MainActor
 final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
+    func testCmdShiftReturnFocusedBrowserTogglesSplitZoom() {
+        withTemporaryShortcut(action: .toggleSplitZoom) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let manager = appDelegate.tabManagerFor(windowId: windowId),
+                  let workspace = manager.selectedWorkspace,
+                  let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
+                  let browserPanel = workspace.browserPanel(for: browserPanelId),
+                  let event = makeKeyDownEvent(key: "\r", modifiers: [.command, .shift], keyCode: 36, windowNumber: window.windowNumber) else {
+                XCTFail("Expected focused browser panel and Cmd+Shift+Return event")
+                return
+            }
+
+            workspace.focusPanel(browserPanel.id)
+            XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
+            XCTAssertFalse(workspace.bonsplitController.isSplitZoomed)
+
+            var didAttachForTest = false
+            if browserPanel.webView.superview == nil {
+                browserPanel.webView.frame = window.contentView?.bounds ?? .zero
+                window.contentView?.addSubview(browserPanel.webView)
+                didAttachForTest = true
+            }
+            defer {
+                if didAttachForTest { browserPanel.webView.removeFromSuperview() }
+            }
+
+            window.makeKeyAndOrderFront(nil)
+            XCTAssertTrue(window.makeFirstResponder(browserPanel.webView))
+            XCTAssertTrue(KeyboardShortcutSettings.shortcut(for: .toggleSplitZoom).matches(event: event))
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleShortcutMonitorEvent(event: event))
+            XCTAssertTrue(workspace.bonsplitController.isSplitZoomed)
+            XCTAssertTrue(workspace.clearSplitZoom())
+#else
+            XCTFail("debugHandleShortcutMonitorEvent is only available in DEBUG")
+#endif
+
+            XCTAssertTrue(browserPanel.webView.performKeyEquivalent(with: event))
+            XCTAssertTrue(workspace.bonsplitController.isSplitZoomed)
+        }
+    }
+
     func testConfiguredEqualizeSplitsShortcutBalancesWorkspaceDividers() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -147,6 +198,24 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             isARepeat: false,
             keyCode: keyCode
         )
+    }
+
+    private func withTemporaryShortcut(
+        action: KeyboardShortcutSettings.Action,
+        shortcut: StoredShortcut? = nil,
+        _ body: () -> Void
+    ) {
+        let hadPersistedShortcut = UserDefaults.standard.object(forKey: action.defaultsKey) != nil
+        let originalShortcut = KeyboardShortcutSettings.shortcut(for: action)
+        defer {
+            if hadPersistedShortcut {
+                KeyboardShortcutSettings.setShortcut(originalShortcut, for: action)
+            } else {
+                KeyboardShortcutSettings.resetShortcut(for: action)
+            }
+        }
+        KeyboardShortcutSettings.setShortcut(shortcut ?? action.defaultShortcut, for: action)
+        body()
     }
 
     private func window(withId windowId: UUID) -> NSWindow? {

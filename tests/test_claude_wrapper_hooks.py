@@ -228,7 +228,102 @@ def decode_nul_argv(encoded: str) -> list[str]:
     return [part.decode("utf-8") for part in parts]
 
 
-def test_live_socket_injects_supported_hooks(failures: list[str]) -> None:
+def run_wrapper_auth_env(
+    *,
+    argv: list[str],
+    inherited_env: dict[str, str],
+    setup_env=None,
+) -> tuple[int, dict[str, str], list[str], str]:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-auth-env-") as td:
+        tmp = Path(td)
+        wrapper_dir = tmp / "wrapper-bin"
+        real_dir = tmp / "real-bin"
+        wrapper_dir.mkdir(parents=True, exist_ok=True)
+        real_dir.mkdir(parents=True, exist_ok=True)
+
+        wrapper = wrapper_dir / "claude"
+        shutil.copy2(SOURCE_WRAPPER, wrapper)
+        wrapper.chmod(0o755)
+
+        auth_env_log = tmp / "auth-env.log"
+        args_log = tmp / "args.log"
+        socket_path = str(tmp / "cmux.sock")
+
+        make_executable(
+            real_dir / "claude",
+            """#!/usr/bin/env bash
+set -euo pipefail
+: > "$FAKE_AUTH_ENV_LOG"
+: > "$FAKE_ARGS_LOG"
+keys=(
+  ANTHROPIC_API_KEY
+  ANTHROPIC_AUTH_TOKEN
+  ANTHROPIC_BASE_URL
+  ANTHROPIC_MODEL
+  ANTHROPIC_SMALL_FAST_MODEL
+  CLAUDE_CODE_USE_BEDROCK
+  CLAUDE_CODE_USE_VERTEX
+  CLAUDE_CONFIG_DIR
+)
+for key in "${keys[@]}"; do
+  if [[ ${!key+x} ]]; then
+    printf '%s=%s\\n' "$key" "${!key}" >> "$FAKE_AUTH_ENV_LOG"
+  else
+    printf '%s=__UNSET__\\n' "$key" >> "$FAKE_AUTH_ENV_LOG"
+  fi
+done
+for arg in "$@"; do
+  printf '%s\\n' "$arg" >> "$FAKE_ARGS_LOG"
+done
+""",
+        )
+
+        make_executable(
+            wrapper_dir / "cmux",
+            """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--socket" ]]; then
+  shift 2
+fi
+if [[ "${1:-}" == "ping" ]]; then
+  exit 0
+fi
+exit 0
+""",
+        )
+
+        test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            test_socket.bind(socket_path)
+
+            env = os.environ.copy()
+            env.pop("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV", None)
+            env.pop("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS", None)
+            env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
+            env["CMUX_SURFACE_ID"] = "surface:test"
+            env["CMUX_SOCKET_PATH"] = socket_path
+            env["FAKE_AUTH_ENV_LOG"] = str(auth_env_log)
+            env["FAKE_ARGS_LOG"] = str(args_log)
+            if setup_env is not None:
+                env.update(setup_env(tmp))
+            env.update(inherited_env)
+
+            proc = subprocess.run(
+                ["claude", *argv],
+                cwd=tmp,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            test_socket.close()
+
+        auth_env = dict(line.split("=", 1) for line in read_lines(auth_env_log))
+        return proc.returncode, auth_env, read_lines(args_log), proc.stderr.strip()
+
+
+def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: list[str]) -> None:
     code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options, hook_cmux_bin, _ = run_wrapper(
         socket_state="live",
         argv=["hello"],
@@ -236,11 +331,12 @@ def test_live_socket_injects_supported_hooks(failures: list[str]) -> None:
     expect(code == 0, f"live socket: wrapper exited {code}: {stderr}", failures)
     expect("--settings" in real_argv, f"live socket: missing --settings in args: {real_argv}", failures)
     expect("--session-id" in real_argv, f"live socket: missing --session-id in args: {real_argv}", failures)
-    expect(
-        "--allow-dangerously-skip-permissions" in real_argv,
-        f"live socket: missing bypass availability flag in args: {real_argv}",
-        failures,
-    )
+    for flag in ("--allow-dangerously-skip-permissions", "--dangerously-skip-permissions"):
+        expect(
+            flag not in real_argv,
+            f"live socket: wrapper should not unlock bypass permissions via {flag}: {real_argv}",
+            failures,
+        )
     expect(real_argv[-1] == "hello", f"live socket: expected original arg to pass through, got {real_argv}", failures)
     expect(any(" ping" in line for line in cmux_log), f"live socket: expected cmux ping, got {cmux_log}", failures)
     expect(
@@ -320,6 +416,98 @@ def test_plain_claude_launch_argv_has_no_empty_argument(failures: list[str]) -> 
     expect(argv[0].endswith("/real-bin/claude"), f"plain claude: expected real claude executable, got {argv}", failures)
 
 
+def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures: list[str]) -> None:
+    inherited = {
+        "CLAUDE_CONFIG_DIR": "/tmp/claude-config",
+        "ANTHROPIC_API_KEY": "stale-api-key",
+        "ANTHROPIC_AUTH_TOKEN": "third-party-auth-token",
+        "ANTHROPIC_BASE_URL": "https://api.example.test",
+        "ANTHROPIC_MODEL": "stale-model",
+        "ANTHROPIC_SMALL_FAST_MODEL": "stale-small-model",
+        "CLAUDE_CODE_USE_BEDROCK": "1",
+        "CLAUDE_CODE_USE_VERTEX": "1",
+    }
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["hello"],
+        inherited_env=inherited,
+    )
+    expect(code == 0, f"fresh auth env: wrapper exited {code}: {stderr}", failures)
+    expect(auth_env.get("CLAUDE_CONFIG_DIR") == "/tmp/claude-config", f"fresh auth env: expected CLAUDE_CONFIG_DIR preserved, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
+    expect(auth_env.get("ANTHROPIC_AUTH_TOKEN") == "third-party-auth-token", f"fresh auth env: expected ANTHROPIC_AUTH_TOKEN preserved, got {auth_env.get('ANTHROPIC_AUTH_TOKEN')!r}", failures)
+    expect(auth_env.get("ANTHROPIC_BASE_URL") == "https://api.example.test", f"fresh auth env: expected ANTHROPIC_BASE_URL preserved, got {auth_env.get('ANTHROPIC_BASE_URL')!r}", failures)
+    for key in [
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_MODEL",
+        "ANTHROPIC_SMALL_FAST_MODEL",
+        "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CODE_USE_VERTEX",
+    ]:
+        expect(auth_env.get(key) == "__UNSET__", f"fresh auth env: expected {key} unset, got {auth_env.get(key)!r}", failures)
+    expect("--session-id" in real_argv, f"fresh auth env: expected session injection, got {real_argv}", failures)
+
+
+def test_live_socket_normalizes_subrouter_claude_config_dir(failures: list[str]) -> None:
+    expected: dict[str, str] = {}
+
+    def setup(tmp: Path) -> dict[str, str]:
+        home = tmp / "home"
+        legacy = home / ".subrouter" / "codex" / "claude" / "_p1775010019397"
+        legacy.mkdir(parents=True)
+        (home / ".codex-accounts").symlink_to(home / ".subrouter" / "codex", target_is_directory=True)
+        expected["path"] = str(home / ".codex-accounts" / "claude" / "_p1775010019397")
+        return {"HOME": str(home)}
+
+    code, auth_env, _, stderr = run_wrapper_auth_env(
+        argv=["--dangerously-skip-permissions"],
+        inherited_env={},
+        setup_env=lambda tmp: {
+            **setup(tmp),
+            "CLAUDE_CONFIG_DIR": str(tmp / "home" / ".subrouter" / "codex" / "claude" / "_p1775010019397"),
+        },
+    )
+    expect(code == 0, f"normalize config dir: wrapper exited {code}: {stderr}", failures)
+    expect(auth_env.get("CLAUDE_CONFIG_DIR") == expected["path"], f"normalize config dir: expected {expected['path']!r}, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
+
+
+def test_live_socket_preserves_claude_auth_for_resume_launch(failures: list[str]) -> None:
+    expected_auth_env = {
+        "CLAUDE_CONFIG_DIR": "/tmp/resume-claude-config",
+        "ANTHROPIC_MODEL": "resume-model",
+    }
+    inherited = {
+        **expected_auth_env,
+        "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV": "1",
+        "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS": "CLAUDE_CONFIG_DIR,ANTHROPIC_MODEL",
+    }
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["--resume", "claude-session-123"],
+        inherited_env=inherited,
+    )
+    expect(code == 0, f"resume auth env: wrapper exited {code}: {stderr}", failures)
+    for key, value in expected_auth_env.items():
+        expect(auth_env.get(key) == value, f"resume auth env: expected {key}={value!r}, got {auth_env.get(key)!r}", failures)
+    expect("--session-id" not in real_argv, f"resume auth env: expected no injected session id, got {real_argv}", failures)
+
+
+def test_live_socket_preserves_only_listed_claude_auth_keys(failures: list[str]) -> None:
+    inherited = {
+        "CLAUDE_CONFIG_DIR": "/tmp/claude-config",
+        "ANTHROPIC_API_KEY": "stale-api-key",
+        "ANTHROPIC_MODEL": "resume-model",
+        "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV": "1",
+        "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS": "ANTHROPIC_MODEL",
+    }
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["--resume", "claude-session-123"],
+        inherited_env=inherited,
+    )
+    expect(code == 0, f"listed auth env: wrapper exited {code}: {stderr}", failures)
+    expect(auth_env.get("ANTHROPIC_MODEL") == "resume-model", f"listed auth env: expected model preserved, got {auth_env.get('ANTHROPIC_MODEL')!r}", failures)
+    expect(auth_env.get("CLAUDE_CONFIG_DIR") == "/tmp/claude-config", f"listed auth env: expected CLAUDE_CONFIG_DIR preserved, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
+    expect(auth_env.get("ANTHROPIC_API_KEY") == "__UNSET__", f"listed auth env: expected unlisted ANTHROPIC_API_KEY unset, got {auth_env.get('ANTHROPIC_API_KEY')!r}", failures)
+    expect("--session-id" not in real_argv, f"listed auth env: expected no injected session id, got {real_argv}", failures)
+
+
 def test_live_socket_enforces_heap_cap_for_space_separated_flag(failures: list[str]) -> None:
     existing = "--max-old-space-size 2048 --trace-warnings"
     restored = "--max-old-space-size=2048 --trace-warnings"
@@ -364,14 +552,25 @@ def test_live_socket_tmpdir_failure_skips_node_options_injection(failures: list[
     expect(child_node_options == "__UNSET__", f"tmpdir failure: expected child NODE_OPTIONS passthrough, got {child_node_options!r}", failures)
 
 
-def test_live_socket_does_not_duplicate_bypass_availability_flag(failures: list[str]) -> None:
-    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["--allow-dangerously-skip-permissions", "hello"],
-    )
-    expect(code == 0, f"bypass flag dedupe: wrapper exited {code}: {stderr}", failures)
-    count = real_argv.count("--allow-dangerously-skip-permissions")
-    expect(count == 1, f"bypass flag dedupe: expected one allow flag, got {count} in {real_argv}", failures)
+def test_live_socket_preserves_explicit_bypass_availability_flag(failures: list[str]) -> None:
+    cases = [
+        ("allow/plain", ["--allow-dangerously-skip-permissions", "hello"], True, "--allow-dangerously-skip-permissions"),
+        ("allow/resume", ["--allow-dangerously-skip-permissions", "--resume", "some-session-id"], False, "--allow-dangerously-skip-permissions"),
+        ("short/plain", ["--dangerously-skip-permissions", "hello"], True, "--dangerously-skip-permissions"),
+        ("short/resume", ["--dangerously-skip-permissions", "--resume", "some-session-id"], False, "--dangerously-skip-permissions"),
+    ]
+    for label, argv, expects_session_id, expected_flag in cases:
+        code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+            socket_state="live",
+            argv=argv,
+        )
+        expect(code == 0, f"explicit bypass flag ({label}): wrapper exited {code}: {stderr}", failures)
+        count = real_argv.count(expected_flag)
+        expect(count == 1, f"explicit bypass flag ({label}): expected one {expected_flag}, got {count} in {real_argv}", failures)
+        if expects_session_id:
+            expect("--session-id" in real_argv, f"explicit bypass flag ({label}): expected injected session id, got {real_argv}", failures)
+        else:
+            expect("--session-id" not in real_argv, f"explicit bypass flag ({label}): expected no injected session id, got {real_argv}", failures)
 
 
 def test_live_socket_stale_mktemp_literal_does_not_warn(failures: list[str]) -> None:
@@ -457,11 +656,15 @@ def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
 
 def main() -> int:
     failures: list[str] = []
-    test_live_socket_injects_supported_hooks(failures)
+    test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
+    test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)
+    test_live_socket_normalizes_subrouter_claude_config_dir(failures)
+    test_live_socket_preserves_claude_auth_for_resume_launch(failures)
+    test_live_socket_preserves_only_listed_claude_auth_keys(failures)
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
     test_live_socket_tmpdir_failure_skips_node_options_injection(failures)
-    test_live_socket_does_not_duplicate_bypass_availability_flag(failures)
+    test_live_socket_preserves_explicit_bypass_availability_flag(failures)
     test_live_socket_stale_mktemp_literal_does_not_warn(failures)
     test_missing_socket_skips_hook_injection(failures)
     test_disabled_integration_skips_hook_injection(failures)

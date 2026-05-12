@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import {
+  DEFAULT_FREE_INITIAL_CREATE_CREDITS,
   DEFAULT_FREE_CREATE_CREDIT_ITEM_ID,
+  FREE_INITIAL_CREATE_CREDITS_REASON,
   makeStackVmBillingGateway,
   type VmBillingGatewayShape,
 } from "../services/vms/billingGateway";
@@ -31,6 +33,38 @@ beforeEach(() => {
 });
 
 describe("Stack VM billing gateway", () => {
+  test("resolves the default free-plan initial create-credit grant", () => {
+    const gateway = makeStackVmBillingGateway({});
+
+    expect(gateway.resolveInitialCreateCreditGrant(createInput())).toEqual({
+      kind: "stack_item",
+      itemId: DEFAULT_FREE_CREATE_CREDIT_ITEM_ID,
+      customerType: "team",
+      customerId: "team-billing",
+      amount: DEFAULT_FREE_INITIAL_CREATE_CREDITS,
+      reason: FREE_INITIAL_CREATE_CREDITS_REASON,
+    });
+  });
+
+  test("applies a Stack Auth create-credit grant", async () => {
+    const gateway = makeStackVmBillingGateway({});
+
+    await Effect.runPromise(gateway.applyCreateCreditGrant({
+      kind: "stack_item",
+      itemId: DEFAULT_FREE_CREATE_CREDIT_ITEM_ID,
+      customerType: "team",
+      customerId: "team-billing",
+      amount: 20,
+      reason: FREE_INITIAL_CREATE_CREDITS_REASON,
+    }));
+
+    expect(getItem).toHaveBeenCalledWith({
+      teamId: "team-billing",
+      itemId: DEFAULT_FREE_CREATE_CREDIT_ITEM_ID,
+    });
+    expect(increaseQuantity).toHaveBeenCalledWith(20);
+  });
+
   test("consumes the default free-plan Stack Auth create-credit item", async () => {
     const gateway = makeStackVmBillingGateway({});
 

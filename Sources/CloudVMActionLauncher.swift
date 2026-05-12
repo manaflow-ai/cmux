@@ -113,7 +113,7 @@ final class CloudVMActionLauncher {
     }
 }
 
-private final class ProcessOutputCollector: @unchecked Sendable {
+final class ProcessOutputCollector: @unchecked Sendable {
     private enum Stream {
         case stdout
         case stderr

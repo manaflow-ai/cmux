@@ -1,6 +1,10 @@
 # Swift Unified Logging
 
 Flag production Swift logging that bypasses Apple's unified logging system.
+Do not require new logs for new code paths. This rule only checks logging that
+the diff adds or materially changes. Temporary debug probes belong in the
+dogfood debug loop and should be removed before merge unless the PR explicitly
+states that a sparse permanent diagnostic is intended.
 
 Report a failure when the diff introduces or materially expands:
 

@@ -24,10 +24,11 @@ Run this workflow to prepare and publish a cmux release.
 - Build a deduplicated list of all contributor `@handle`s.
 
 4. Update changelogs:
-- Update `CHANGELOG.md`.
-- Do not edit a separate docs changelog file; `web/app/docs/changelog/page.tsx` renders from `CHANGELOG.md`.
-- Use categories `Added`, `Changed`, `Fixed`, `Removed`.
+- `CHANGELOG.md` is the source of truth: `web/app/[locale]/docs/changelog/page.tsx` renders the per-version bullet lists directly from it.
+- Update `CHANGELOG.md` using categories `Added`, `Changed`, `Fixed`, `Removed`.
 - **Credit contributors inline** (see Contributor Credits below).
+- **Confirm shipped scope with the user before drafting user-facing entries.** A merged PR is not the same as a shipped feature: features can be behind beta toggles, internal flags, partially landed, reverted later, or otherwise not user-ready. Before writing the `Added`/`Changed` sections, list the candidate user-facing items and ask the user which are actually ready to ship in this version. Drop anything they say is not ready, plus any entries that depend on it. Re-confirm if the version, scope, or shipped surface changes mid-release.
+- Mirror the curated highlights in `web/app/[locale]/docs/changelog/changelog-media.ts` to the same shipped scope. The docs changelog page reads its hero title and feature highlights from this file (bullets still come from `CHANGELOG.md`). If the user drops a feature, also remove it from the version's `features` and update its `title` so the highlights match the bullets.
 - If no user-facing changes exist, confirm with the user before continuing.
 
 5. Bump app version metadata:
@@ -65,7 +66,7 @@ Run this workflow to prepare and publish a cmux release.
 
 ## Changelog Rules
 
-- Include only user-visible changes.
+- Include only user-visible changes that actually ship in this version. A merged PR alone is not enough: confirm with the user that each candidate feature is shipped (not behind a beta toggle, not partially landed, not deferred). When in doubt, ask before listing it.
 - Exclude internal-only changes (CI, tests, docs-only edits, refactors without behavior changes).
 - Write concise user-facing bullets in present tense.
 

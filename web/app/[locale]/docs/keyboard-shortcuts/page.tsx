@@ -12,7 +12,9 @@ const shortcutChordExample = `{
       "newSurface": ["ctrl+b", "c"],
       "showNotifications": ["ctrl+b", "i"],
       "toggleSidebar": "cmd+b",
-      "splitRight": ""
+      "toggleFileExplorer": "cmd+opt+b",
+      "splitRight": "",
+      "commandPalettePrevious": null
     }
   }
 }`;

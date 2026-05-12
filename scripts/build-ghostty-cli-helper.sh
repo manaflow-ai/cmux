@@ -21,6 +21,67 @@ OUTPUT_PATH=""
 TARGET_TRIPLE=""
 UNIVERSAL="false"
 
+zig_binary_arch() {
+  local zig_path="$1"
+  file "$zig_path" 2>/dev/null | grep -oE '(arm64|x86_64)' | head -1 || true
+}
+
+target_arch_for_triple() {
+  case "${1:-}" in
+    aarch64-macos) echo "arm64" ;;
+    x86_64-macos) echo "x86_64" ;;
+  esac
+}
+
+select_zig_for_target() {
+  local target="${1:-}"
+  local desired_arch
+  desired_arch="$(target_arch_for_triple "$target")"
+
+  if [[ -n "${CMUX_ZIG:-}" ]]; then
+    if [[ ! -x "$CMUX_ZIG" ]]; then
+      echo "error: CMUX_ZIG is not executable: $CMUX_ZIG" >&2
+      return 1
+    fi
+    echo "$CMUX_ZIG"
+    return 0
+  fi
+
+  local -a candidates=()
+  local path_zig=""
+  path_zig="$(command -v zig 2>/dev/null || true)"
+  [[ -n "$path_zig" ]] && candidates+=("$path_zig")
+  candidates+=("/opt/homebrew/bin/zig" "/usr/local/bin/zig")
+
+  local fallback=""
+  local seen=" "
+  local candidate=""
+  local canonical=""
+  local arch=""
+  for candidate in "${candidates[@]}"; do
+    [[ -x "$candidate" ]] || continue
+    canonical="$(cd "$(dirname "$candidate")" && pwd)/$(basename "$candidate")"
+    [[ "$seen" == *" $canonical "* ]] && continue
+    seen="${seen}${canonical} "
+    [[ -z "$fallback" ]] && fallback="$canonical"
+    if [[ -n "$desired_arch" ]]; then
+      arch="$(zig_binary_arch "$canonical")"
+      if [[ "$arch" == "$desired_arch" ]]; then
+        echo "$canonical"
+        return 0
+      fi
+    fi
+  done
+
+  if [[ -n "$fallback" ]]; then
+    echo "$fallback"
+    return 0
+  fi
+
+  echo "error: zig is required to build the Ghostty CLI helper" >&2
+  return 1
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --universal)
@@ -78,59 +139,7 @@ if [[ -n "$TARGET_TRIPLE" ]]; then
       exit 1
       ;;
   esac
-
-  # When the requested target matches zig's native output arch, drop -Dtarget
-  # so zig uses native compilation. This avoids cross-linker issues on newer
-  # SDKs (e.g., macOS Tahoe + zig 0.15.x). Note: zig may run under Rosetta,
-  # so we detect native output arch from the zig binary itself, not uname -m.
-  ZIG_ARCH="$(file "$(command -v zig)" 2>/dev/null | grep -oE '(arm64|x86_64)' | head -1)"
-  case "$TARGET_TRIPLE" in
-    aarch64-macos) [[ "$ZIG_ARCH" == "arm64" ]] && TARGET_TRIPLE="" ;;
-    x86_64-macos)  [[ "$ZIG_ARCH" == "x86_64" ]] && TARGET_TRIPLE="" ;;
-  esac
 fi
-
-if ! command -v zig >/dev/null 2>&1; then
-  echo "error: zig is required to build the Ghostty CLI helper" >&2
-  exit 1
-fi
-
-zig_binary_arch() {
-  local zig_bin="$1"
-  file "$zig_bin" 2>/dev/null | grep -oE '(arm64|x86_64)' | head -1 || true
-}
-
-zig_binary_for_arch() {
-  local desired_arch="$1"
-  local default_zig
-  default_zig="$(command -v zig 2>/dev/null || true)"
-
-  local candidates=(
-    /opt/homebrew/bin/zig
-    /usr/local/bin/zig
-    "$default_zig"
-  )
-  local candidate=""
-  local seen=" "
-  for candidate in "${candidates[@]}"; do
-    [[ -n "$candidate" && -x "$candidate" ]] || continue
-    if [[ "$seen" == *" $candidate "* ]]; then
-      continue
-    fi
-    seen="${seen}${candidate} "
-    if [[ "$(zig_binary_arch "$candidate")" == "$desired_arch" ]]; then
-      echo "$candidate"
-      return 0
-    fi
-  done
-
-  if [[ -n "$default_zig" ]]; then
-    echo "$default_zig"
-    return 0
-  fi
-
-  return 1
-}
 
 if [[ ! -f "$GHOSTTY_DIR/build.zig" ]]; then
   echo "error: Ghostty submodule is missing at $GHOSTTY_DIR" >&2
@@ -141,24 +150,23 @@ build_helper() {
   local prefix="$1"
   local target="${2:-}"
   local zig_bin
-  local target_arch=""
-
-  case "$target" in
-    aarch64-macos) target_arch="arm64" ;;
-    x86_64-macos) target_arch="x86_64" ;;
-  esac
-
-  if [[ -n "$target_arch" ]]; then
-    zig_bin="$(zig_binary_for_arch "$target_arch")"
-    if [[ "$(zig_binary_arch "$zig_bin")" == "$target_arch" ]]; then
-      target=""
-    fi
-  else
-    zig_bin="$(command -v zig)"
+  if ! zig_bin="$(select_zig_for_target "$target")"; then
+    exit 1
+  fi
+  local zig_arch
+  zig_arch="$(zig_binary_arch "$zig_bin")"
+  local desired_arch
+  desired_arch="$(target_arch_for_triple "$target")"
+  local effective_target="$target"
+  if [[ -n "$desired_arch" && "$zig_arch" == "$desired_arch" ]]; then
+    # Native compilation avoids Zig 0.15.x cross-linker failures against newer
+    # macOS SDKs while still producing the requested helper architecture.
+    effective_target=""
   fi
 
   local args=(
-    "$zig_bin" build
+    "$zig_bin"
+    build
     cli-helper
     -Dapp-runtime=none
     -Demit-macos-app=false
@@ -168,10 +176,11 @@ build_helper() {
     "$prefix"
   )
 
-  if [[ -n "$target" ]]; then
-    args+=("-Dtarget=$target")
+  if [[ -n "$effective_target" ]]; then
+    args+=("-Dtarget=$effective_target")
   fi
 
+  echo "Building Ghostty CLI helper with $zig_bin${target:+ for $target}"
   (
     cd "$GHOSTTY_DIR"
     "${args[@]}"
@@ -186,7 +195,8 @@ mkdir -p "$(dirname "$OUTPUT_PATH")"
 if [[ "$UNIVERSAL" == "true" ]]; then
   ARM64_PREFIX="$TMP_DIR/arm64"
   X86_PREFIX="$TMP_DIR/x86_64"
-  ZIG_ARCH="$(file "$(command -v zig)" 2>/dev/null | grep -oE '(arm64|x86_64)' | head -1)"
+  NATIVE_ZIG="$(select_zig_for_target "")"
+  ZIG_ARCH="$(zig_binary_arch "$NATIVE_ZIG")"
   # Use native compilation for the matching arch to avoid cross-linker issues
   if [[ "$ZIG_ARCH" == "arm64" ]]; then
     build_helper "$ARM64_PREFIX" ""

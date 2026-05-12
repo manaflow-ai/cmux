@@ -54,4 +54,3 @@ extension WorkspaceContentView {
         ].joined(separator: "|")
     }
 }
-

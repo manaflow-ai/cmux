@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import glob
+import json
 import os
 import shutil
 import socket
@@ -133,6 +134,20 @@ def close_after_command_handler(conn: socket.socket, stop_event: threading.Event
     conn.close()
 
 
+def capabilities_response_handler(conn: socket.socket, stop_event: threading.Event) -> None:
+    command = read_one_command(conn, stop_event)
+    try:
+        request = json.loads(command.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return
+    if not isinstance(request, dict) or request.get("method") != "system.capabilities":
+        return
+    conn.sendall(
+        b'{"ok":true,"result":{"socket_path":"/tmp/cmux.sock","protocol":"cmux-socket",'
+        b'"access_mode":"cmuxOnly","version":"test","methods":["zeta","alpha"]}}\n'
+    )
+
+
 def run_cli(cli_path: str, socket_path: str, timeout: float = 3.0, args: tuple[str, ...] = ("ping",)) -> RunResult:
     env = dict(os.environ)
     env["CMUX_SOCKET_PATH"] = socket_path
@@ -201,6 +216,42 @@ def main() -> int:
                 failures.append("EOF-before-v2-reply socket unexpectedly succeeded")
             if "Socket closed before reply" not in merged:
                 failures.append(f"EOF-before-v2-reply socket did not surface socket closure: {merged!r}")
+
+        for index in range(8):
+            with FakeUnixServer(capabilities_response_handler) as server:
+                result = run_cli(cli_path, server.path, args=("capabilities",))
+            if result.returncode != 0:
+                failures.append(
+                    f"capabilities sorted-key run {index} failed: "
+                    f"rc={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r}"
+                )
+                break
+            try:
+                top_level_pairs = json.loads(result.stdout, object_pairs_hook=list)
+            except json.JSONDecodeError as exc:
+                failures.append(f"capabilities sorted-key run {index} emitted invalid JSON: {exc}: {result.stdout!r}")
+                break
+            if not isinstance(top_level_pairs, list):
+                failures.append(
+                    f"capabilities sorted-key run {index} top-level was not a JSON object: {result.stdout!r}"
+                )
+                break
+            if not all(
+                isinstance(pair, (list, tuple)) and len(pair) == 2 and isinstance(pair[0], str)
+                for pair in top_level_pairs
+            ):
+                failures.append(
+                    f"capabilities sorted-key run {index} top-level pairs were malformed: {top_level_pairs!r}"
+                )
+                break
+            top_level_keys = [key for key, _ in top_level_pairs]
+            expected_keys = ["access_mode", "methods", "protocol", "socket_path", "version"]
+            if top_level_keys != expected_keys:
+                failures.append(
+                    f"capabilities sorted-key run {index} emitted unstable key order: "
+                    f"{top_level_keys!r}\nstdout={result.stdout!r}"
+                )
+                break
 
         expected_closed_peer_errors = (
             "Failed to write to socket",

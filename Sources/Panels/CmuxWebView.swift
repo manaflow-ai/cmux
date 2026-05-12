@@ -102,11 +102,11 @@ enum BrowserImageCopyPasteboardBuilder {
     }
 }
 
-/// WKWebView tends to consume some Command-key equivalents (e.g. Cmd+N/Cmd+W),
+/// WKWebView tends to consume some app command equivalents,
 /// preventing the app menu/SwiftUI Commands from receiving them. Route app/menu
 /// shortcuts first by default, but allow browser content to try browser-local
-/// Find-family shortcuts. Cmd+F stays app-owned so cmux can choose browser find
-/// or right-sidebar file search from the current focus owner.
+/// Find-family shortcuts. The configured Find shortcut stays app-owned so cmux can
+/// choose browser find or right-sidebar file search from the current focus owner.
 final class CmuxWebView: WKWebView {
     // Some sites/WebKit paths report middle-click link activations as
     // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
@@ -591,22 +591,22 @@ final class CmuxWebView: WKWebView {
                 extra: "handled=\(handled ? 1 : 0)"
             )
         }
+        func finish(_ result: Bool) -> Bool {
+            handled = result
+            return result
+        }
+#else
+        func finish(_ result: Bool) -> Bool { result }
 #endif
         if event.keyCode == 36 || event.keyCode == 76 {
-            // Always bypass app/menu key-equivalent routing for Return/Enter so WebKit
-            // receives the keyDown path used by form submission handlers.
-            return false
+            return finish(AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true)
         }
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         // Menu/app shortcut routing is only needed for Command equivalents
         // (New Tab, Close Tab, tab switching, split commands, etc).
         guard flags.contains(.command) else {
-            let result = super.performKeyEquivalent(with: event)
-#if DEBUG
-            handled = result
-#endif
-            return result
+            return finish(super.performKeyEquivalent(with: event))
         }
 
         if Self.isPasteAsPlainTextCommandEquivalent(event) {
@@ -619,10 +619,7 @@ final class CmuxWebView: WKWebView {
             if result {
                 lastPasteAsPlainTextPerformKeyEventTimestamp = nil
             }
-#if DEBUG
-            handled = result
-#endif
-            return result
+            return finish(result)
         }
 
         var replayedBrowserFindShortcutIntoWebContent = false
@@ -633,34 +630,21 @@ final class CmuxWebView: WKWebView {
         ) {
             replayedBrowserFindShortcutIntoWebContent = true
             let result = super.performKeyEquivalent(with: event)
-#if DEBUG
-            handled = result
-#endif
             if result {
-                return true
+                return finish(true)
             }
         }
 
         if !shouldRouteCommandEquivalentDirectlyToMainMenu(event) {
-            let result = super.performKeyEquivalent(with: event)
-#if DEBUG
-            handled = result
-#endif
-            return result
+            return finish(super.performKeyEquivalent(with: event))
         }
 
         if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalentBeforeMainMenu(event) == true {
-#if DEBUG
-            handled = true
-#endif
-            return true
+            return finish(true)
         }
 
         if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
-#if DEBUG
-            handled = true
-#endif
-            return true
+            return finish(true)
         }
 
         let result: Bool
@@ -671,10 +655,7 @@ final class CmuxWebView: WKWebView {
         } else {
             result = super.performKeyEquivalent(with: event)
         }
-#if DEBUG
-        handled = result
-#endif
-        return result
+        return finish(result)
     }
 
     override func keyDown(with event: NSEvent) {

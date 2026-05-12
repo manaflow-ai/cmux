@@ -235,8 +235,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var workingDirectory: String?
     var scrollback: String?
     var agent: SessionRestorableAgentSnapshot?
+    var tmuxStartCommand: String?
 }
-
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var urlString: String?
     var profileID: UUID?
@@ -246,7 +246,6 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var backHistoryURLStrings: [String]?
     var forwardHistoryURLStrings: [String]?
 }
-
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
@@ -358,6 +357,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var logEntries: [SessionLogEntrySnapshot]
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
+    var remote: SessionRemoteWorkspaceSnapshot?
 }
 
 struct SessionTabManagerSnapshot: Codable, Sendable {

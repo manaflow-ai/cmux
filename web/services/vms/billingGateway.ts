@@ -19,7 +19,26 @@ export type VmCreateCreditReservation =
       readonly amount: number;
     };
 
+export type VmCreateCreditGrant =
+  | { readonly kind: "none" }
+  | {
+      readonly kind: "stack_item";
+      readonly itemId: string;
+      readonly customerType: BillingCustomerType;
+      readonly customerId: string;
+      readonly amount: number;
+      readonly reason: string;
+    };
+
 export type VmBillingGatewayShape = {
+  readonly resolveInitialCreateCreditGrant: (input: {
+    readonly userId: string;
+    readonly billingCustomerType: BillingCustomerType;
+    readonly billingTeamId: string;
+    readonly billingPlanId: string;
+    readonly provider: ProviderId;
+  }) => VmCreateCreditGrant;
+  readonly applyCreateCreditGrant: (grant: VmCreateCreditGrant) => Effect.Effect<void, VmBillingError>;
   readonly reserveCreate: (input: {
     readonly userId: string;
     readonly billingCustomerType: BillingCustomerType;
@@ -40,6 +59,8 @@ export class VmBillingGateway extends Context.Tag("cmux/VmBillingGateway")<
 >() {}
 
 export const DEFAULT_FREE_CREATE_CREDIT_ITEM_ID = "cmux-vm-create-credit";
+export const DEFAULT_FREE_INITIAL_CREATE_CREDITS = 20;
+export const FREE_INITIAL_CREATE_CREDITS_REASON = "free-plan-initial-create-credits";
 
 export const VmBillingGatewayLive = Layer.succeed(
   VmBillingGateway,
@@ -50,21 +71,41 @@ export function makeStackVmBillingGateway(
   env: Record<string, string | undefined>,
 ): VmBillingGatewayShape {
   return {
+    resolveInitialCreateCreditGrant: (input) => {
+      if (normalizedPlanId(input.billingPlanId) !== "free") return { kind: "none" };
+      const itemId = createCreditItemId(input.billingPlanId, env);
+      if (!itemId) return { kind: "none" };
+      const customer = billingCustomer(input);
+      return {
+        kind: "stack_item",
+        itemId,
+        customerType: customer.type,
+        customerId: customer.id,
+        amount: initialCreateCreditGrantAmount(input.billingPlanId, env),
+        reason: FREE_INITIAL_CREATE_CREDITS_REASON,
+      };
+    },
+
+    applyCreateCreditGrant: (grant) => {
+      if (grant.kind === "none") return Effect.void;
+      return Effect.tryPromise({
+        try: async () => {
+          const item = await stackItem(grant.customerType, grant.customerId, grant.itemId);
+          await item.increaseQuantity(grant.amount);
+        },
+        catch: (cause) => new VmBillingError({ operation: "applyCreateCreditGrant", cause }),
+      });
+    },
+
     reserveCreate: (input) =>
       Effect.tryPromise({
         try: async () => {
           const itemId = createCreditItemId(input.billingPlanId, env);
           if (!itemId) return { kind: "none" };
 
-          const { getStackServerApp, isStackConfigured } = await import("../../app/lib/stack");
-          if (!isStackConfigured()) {
-            throw new Error(`Stack Auth is required for Cloud VM create credits (${itemId})`);
-          }
           const amount = createCreditCost(input.billingPlanId, input.provider, env);
           const customer = billingCustomer(input);
-          const item = customer.type === "team"
-            ? await getStackServerApp().getItem({ teamId: customer.id, itemId })
-            : await getStackServerApp().getItem({ userId: customer.id, itemId });
+          const item = await stackItem(customer.type, customer.id, itemId);
           const reserved = await item.tryDecreaseQuantity(amount);
           if (!reserved) {
             throw new VmCreateCreditsInsufficientError({
@@ -91,10 +132,7 @@ export function makeStackVmBillingGateway(
       if (reservation.kind === "none") return Effect.void;
       return Effect.tryPromise({
         try: async () => {
-          const { getStackServerApp } = await import("../../app/lib/stack");
-          const item = reservation.customerType === "team"
-            ? await getStackServerApp().getItem({ teamId: reservation.customerId, itemId: reservation.itemId })
-            : await getStackServerApp().getItem({ userId: reservation.customerId, itemId: reservation.itemId });
+          const item = await stackItem(reservation.customerType, reservation.customerId, reservation.itemId);
           await item.increaseQuantity(reservation.amount);
         },
         catch: (cause) => new VmBillingError({ operation: "refundCreate", cause }),
@@ -105,9 +143,28 @@ export function makeStackVmBillingGateway(
 
 export function noOpVmBillingGateway(): VmBillingGatewayShape {
   return {
+    resolveInitialCreateCreditGrant: () => ({ kind: "none" }),
+    applyCreateCreditGrant: () => Effect.void,
     reserveCreate: () => Effect.succeed({ kind: "none" }),
     refundCreate: () => Effect.void,
   };
+}
+
+async function stackItem(
+  customerType: BillingCustomerType,
+  customerId: string,
+  itemId: string,
+): Promise<{
+  readonly tryDecreaseQuantity: (amount: number) => Promise<boolean>;
+  readonly increaseQuantity: (amount: number) => Promise<void>;
+}> {
+  const { getStackServerApp, isStackConfigured } = await import("../../app/lib/stack");
+  if (!isStackConfigured()) {
+    throw new Error(`Stack Auth is required for Cloud VM create credits (${itemId})`);
+  }
+  return customerType === "team"
+    ? await getStackServerApp().getItem({ teamId: customerId, itemId })
+    : await getStackServerApp().getItem({ userId: customerId, itemId });
 }
 
 function billingCustomer(input: {
@@ -172,13 +229,22 @@ function createCreditCost(
   const raw = configured?.value ?? "1";
   const key = configured?.key ??
     `${planProviderKey} or ${planKeyDefault} or ${providerKey} or CMUX_VM_CREATE_CREDIT_COST`;
-  const value = raw.trim();
-  if (!/^\d+$/.test(value)) throw new Error(`${key} must be a positive integer`);
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    throw new Error(`${key} must be a positive integer`);
-  }
-  return parsed;
+  return positiveInteger(raw, key);
+}
+
+function initialCreateCreditGrantAmount(
+  planId: string,
+  env: Record<string, string | undefined>,
+): number {
+  const planKey = planEnvKey(planId);
+  const configured = firstConfiguredEnv(env, [
+    `CMUX_VM_PLAN_${planKey}_INITIAL_CREATE_CREDITS`,
+    "CMUX_VM_INITIAL_CREATE_CREDITS",
+  ]);
+  return positiveInteger(
+    configured?.value ?? String(DEFAULT_FREE_INITIAL_CREATE_CREDITS),
+    configured?.key ?? `CMUX_VM_PLAN_${planKey}_INITIAL_CREATE_CREDITS or CMUX_VM_INITIAL_CREATE_CREDITS`,
+  );
 }
 
 function firstConfiguredEnv(
@@ -199,4 +265,14 @@ function normalizedPlanId(planId: string): string {
 
 function planEnvKey(planId: string): string {
   return normalizedPlanId(planId).replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
+}
+
+function positiveInteger(raw: string, key: string): number {
+  const value = raw.trim();
+  if (!/^\d+$/.test(value)) throw new Error(`${key} must be a positive integer`);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`${key} must be a positive integer`);
+  }
+  return parsed;
 }
