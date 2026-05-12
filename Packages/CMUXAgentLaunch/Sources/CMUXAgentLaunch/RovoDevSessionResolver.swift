@@ -1,6 +1,12 @@
+import CMUXAgentVault
 import Foundation
 
 public enum RovoDevSessionResolver {
+    private struct RovoDevSessionCandidate {
+        let sessionId: String
+        let modified: Date
+    }
+
     public static func inferredRovoDevSessionId(cwd: String?, env: [String: String]) -> String? {
         let sessionsRoot = rovoDevSessionsRoot(env: env)
         let rootURL = URL(fileURLWithPath: sessionsRoot, isDirectory: true)
@@ -13,10 +19,8 @@ public enum RovoDevSessionResolver {
             return nil
         }
 
-        let normalizedCwd = cwd.map {
-            URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath).standardizedFileURL.path
-        }
-        var candidates: [String] = []
+        let normalizedCwd = RovoDevIndex.normalizedPath(cwd)
+        var candidates: [RovoDevSessionCandidate] = []
         candidates.reserveCapacity(sessionURLs.count)
         for sessionURL in sessionURLs {
             guard (try? sessionURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
@@ -27,18 +31,30 @@ public enum RovoDevSessionResolver {
                   let metadata = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 continue
             }
-            let workspace = (metadata["workspace_path"] as? String)
-                ?? (metadata["workspacePath"] as? String)
-            let normalizedWorkspace = workspace.map {
-                URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath).standardizedFileURL.path
-            }
+            let workspace = RovoDevMetadataFields.workspacePath(from: metadata)
+            let normalizedWorkspace = RovoDevIndex.normalizedPath(workspace)
             guard rovoDevWorkspace(normalizedWorkspace, matches: normalizedCwd) else {
                 continue
             }
-            candidates.append(sessionURL.lastPathComponent)
+            let sessionContextURL = sessionURL.appendingPathComponent("session_context.json", isDirectory: false)
+            let modified = max(
+                RovoDevIndex.contentModificationDate(ofRegularFile: metadataURL) ?? Date.distantPast,
+                RovoDevIndex.contentModificationDate(ofRegularFile: sessionContextURL) ?? Date.distantPast
+            )
+            candidates.append(RovoDevSessionCandidate(
+                sessionId: sessionURL.lastPathComponent,
+                modified: modified
+            ))
         }
-        guard candidates.count == 1 else { return nil }
-        return candidates.first
+        candidates.sort {
+            if $0.modified == $1.modified {
+                // Rovo session IDs are time-ordered, so descending sessionId
+                // keeps equal modified times stable while preferring newer sessions.
+                return $0.sessionId > $1.sessionId
+            }
+            return $0.modified > $1.modified
+        }
+        return candidates.first?.sessionId
     }
 
     public static func rovoDevSessionsRoot(env: [String: String]) -> String {
@@ -56,7 +72,7 @@ public enum RovoDevSessionResolver {
         return rovoDevExpandedPath(persistenceDir, env: env)
     }
 
-    public static func rovoDevWorkspace(_ workspace: String?, matches cwd: String?) -> Bool {
+    private static func rovoDevWorkspace(_ workspace: String?, matches cwd: String?) -> Bool {
         guard let cwd, !cwd.isEmpty else { return false }
         guard let workspace, !workspace.isEmpty else { return false }
         return cwd == workspace

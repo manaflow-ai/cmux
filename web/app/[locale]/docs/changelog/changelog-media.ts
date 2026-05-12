@@ -26,28 +26,38 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
-  "0.64.0": {
-    title: "Feed, Vault, Cloud VMs, Dock, Passkeys, File Explorer",
+  "0.64.4": {
+    title: "SSH Files Polish, Vault Pi & Hermes, Browser Cookie Import",
     features: [
       {
-        title: "Feed",
+        title: "SSH Files Polish",
         description:
-          "A new Feed mode in the right sidebar surfaces actionable agent events inline: permission requests, plan approvals, and questions land where you can answer them. Ships with cmux feed-hook and an OpenCode plugin so any agent plugs into the same flow.",
+          "The Files sidebar now follows SSH workspaces and shows the remote root instead of the local macOS path. SSH workspace descriptors restore on relaunch, and new guarded cmux://ssh deep links prompt before launching ssh so unfamiliar links can't run arbitrary commands.",
       },
       {
-        title: "Vault",
+        title: "Vault Pi and Hermes",
         description:
-          "The Sessions panel (renamed Vault) restores prior panes and resumes Claude Code, Codex, OpenCode, Gemini, and Rovo Dev sessions across relaunch. Sessions also persist when you close the last window via the red X.",
+          "Pi sessions now restore across relaunch via Vault, and Hermes Agent hooks pipe into the sidebar like Claude, Codex, OpenCode, Gemini, and Rovo Dev. Per-agent toggles let you hide individual agent session restores from Vault.",
       },
       {
-        title: "cmux Cloud VMs",
+        title: "Browser Cookie Import",
         description:
-          "cmux vm new, cmux vm shell, and cmux vm attach spin up Freestyle-backed cloud workspaces from the terminal. The image bakes cmuxd-remote and a systemd-activated socket so connections come up clean.",
+          "A new cmux browser cookies import CLI brings cookies from other browsers into cmux's browser panes so logged-in sessions follow you over.",
       },
       {
-        title: "Dock",
+        title: "Quality-of-life Polish",
         description:
-          "Mount any TUI as a right-sidebar control surface, configurable per project in .cmux/dock.json or globally in ~/.config/cmux/dock.json. Ships with the cmux feed TUI as the first built-in Dock control.",
+          "Welcome sidebar toggle shortcuts, Insert Path and Insert Relative Path in the file explorer right-click menu, a warnBeforeClosingTab toggle to opt back into the close confirmation prompt, plus fixes for IME, command palette Escape, modified Backspace in the omnibar, and stale terminal colors after theme switches.",
+      },
+    ],
+  },
+  "0.64.0": {
+    title: "Session Restore on Quit, Passkeys, File Explorer, Task Manager",
+    features: [
+      {
+        title: "Session Restore on Quit",
+        description:
+          "Closing the last window with the red X no longer drops your work. cmux restores prior panes on relaunch and resumes Claude Code, Codex, OpenCode, Gemini, and Rovo Dev sessions where you left off.",
       },
       {
         title: "Passkeys, WebAuthn, and FIDO2",

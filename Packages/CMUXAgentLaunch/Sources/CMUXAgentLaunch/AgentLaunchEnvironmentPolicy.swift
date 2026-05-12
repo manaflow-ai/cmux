@@ -50,8 +50,15 @@ public enum AgentLaunchEnvironmentPolicy {
         "COPILOT_PROVIDER_WIRE_MODEL",
         "GEMINI_CLI_HOME",
         "GH_HOST",
+        "HERMES_HOME",
         "NODE_OPTIONS",
         "OPENCODE_CONFIG_DIR",
+        "PI_CACHE_RETENTION",
+        "PI_CODING_AGENT_DIR",
+        "PI_CODING_AGENT_SESSION_DIR",
+        "PI_OFFLINE",
+        "PI_PACKAGE_DIR",
+        "PI_SKIP_VERSION_CHECK",
         "QODER_CONFIG_DIR",
         "USE_BUILTIN_RIPGREP"
     ]

@@ -55,14 +55,14 @@ extension AuthManager {
         category: "auth"
     )
 
-    static func signInError(from error: Error) -> AuthSignInError {
+    nonisolated static func signInError(from error: Error) -> AuthSignInError {
         if let authError = error as? AuthManagerError {
             return .authManager(authError)
         }
         return .message((error as NSError).localizedDescription)
     }
 
-    static func shouldSuppressWebAuthError(_ error: NSError) -> Bool {
+    nonisolated static func shouldSuppressWebAuthError(_ error: NSError) -> Bool {
         error.domain == ASWebAuthenticationSessionError.errorDomain
             && error.code == ASWebAuthenticationSessionError.canceledLogin.rawValue
     }

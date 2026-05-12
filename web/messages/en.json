@@ -343,7 +343,7 @@
       "browserLinkBehavior": "Browser link behavior",
       "browserLinkDesc": "In Settings > Browser, cmux exposes two host lists with different purposes:",
       "browserHostsEmbed": "Hosts to Open in Embedded Browser: applies to links clicked from terminal output. Hosts in this list open in cmux; other hosts open in your default browser. Supports one host or wildcard per line (for example: example.com, *.internal.example).",
-      "browserHostsHttp": "HTTP Hosts Allowed in Embedded Browser: applies only to HTTP (non-HTTPS) URLs. Hosts in this list can open in cmux without a warning prompt. Defaults include localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me.",
+      "browserHostsHttp": "HTTP Hosts Allowed in Embedded Browser: applies only to HTTP (non-HTTPS) URLs. Hosts in this list can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me.",
       "settingsFile": "cmux.json",
       "settingsFileDesc": "cmux.json stores cmux-owned app settings, shortcuts, actions, commands, and workspace layouts.",
       "settingsFilePrecedence": "Shortcuts defined in cmux.json override the in-app Settings value. Managed shortcuts stay visible in Settings but become read-only there.",
