@@ -1259,6 +1259,15 @@ final class TerminalNotificationStore: ObservableObject {
                 focusedReadIndicatorByTabId[destinationTabId] = surfaceId
             }
         }
+
+        if var sourceBells = bellRangSurfacesByTab[sourceTabId], sourceBells.remove(surfaceId) != nil {
+            if sourceBells.isEmpty {
+                bellRangSurfacesByTab.removeValue(forKey: sourceTabId)
+            } else {
+                bellRangSurfacesByTab[sourceTabId] = sourceBells
+            }
+            bellRangSurfacesByTab[destinationTabId, default: []].insert(surfaceId)
+        }
     }
 
     func clearNotifications(forTabId tabId: UUID, discardQueuedNotifications: Bool = true) {

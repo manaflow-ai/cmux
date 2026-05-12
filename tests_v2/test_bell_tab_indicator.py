@@ -23,7 +23,7 @@ code path, not a test-only shortcut.
 import os
 import sys
 import time
-from typing import List, Optional
+from typing import List, Optional, Tuple, Type
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -70,7 +70,12 @@ def wait_for_bell(client: cmux, surface_id: str, present: bool, timeout: float =
     return False
 
 
-def wait_until(predicate, timeout: float = 2.0, interval: float = 0.05) -> bool:
+def wait_until(
+    predicate,
+    timeout: float = 2.0,
+    interval: float = 0.05,
+    allowed_exceptions: Tuple[Type[BaseException], ...] = (cmuxError, RuntimeError),
+) -> bool:
     """Poll `predicate()` until it returns truthy or `timeout` seconds elapse.
 
     Used in place of fixed sleeps for async UI transitions
@@ -78,13 +83,18 @@ def wait_until(predicate, timeout: float = 2.0, interval: float = 0.05) -> bool:
     advances as soon as cmux's state has settled rather than after a
     pessimistic delay. Avoids the flakiness CI runners would see on
     slower hardware where 0.2-0.5s waits are not always enough.
+
+    Only `allowed_exceptions` are swallowed (defaults cover the transient
+    socket/lookup errors that happen mid-transition); anything else
+    propagates so genuine test defects fail fast instead of disguising
+    themselves as opaque timeouts.
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
             if predicate():
                 return True
-        except Exception:
+        except allowed_exceptions:
             pass
         time.sleep(interval)
     return False
