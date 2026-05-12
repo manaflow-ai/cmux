@@ -122,6 +122,43 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertNotNil(response["result"], "Unexpected v2 response: \(response)")
     }
 
+    func testJSONRPCNotificationsDoNotWritePasswordAuthResponses() async throws {
+        let socketPath = makeSocketPath("jsonrpc-auth-notification")
+        let tabManager = TabManager()
+        let password = "jsonrpc-secret-\(UUID().uuidString)"
+        let originalPassword = getenv(SocketControlSettings.socketPasswordEnvKey).map { String(cString: $0) }
+
+        setenv(SocketControlSettings.socketPasswordEnvKey, password, 1)
+        defer {
+            if let originalPassword {
+                setenv(SocketControlSettings.socketPasswordEnvKey, originalPassword, 1)
+            } else {
+                unsetenv(SocketControlSettings.socketPasswordEnvKey)
+            }
+        }
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .password
+        )
+        try waitForSocket(at: socketPath)
+
+        let (explicitNullIDResponse, followUpResponse) = try await runJSONRPCAuthNotificationSocketSequence(
+            to: socketPath,
+            password: password
+        )
+
+        XCTAssertTrue(explicitNullIDResponse["id"] is NSNull, "Unexpected v2 response: \(explicitNullIDResponse)")
+        let error = try XCTUnwrap(explicitNullIDResponse["error"] as? [String: Any], "Expected auth error")
+        let data = try XCTUnwrap(error["data"] as? [String: Any], "Expected JSON-RPC error data")
+        XCTAssertEqual(data["cmux_code"] as? String, "auth_required")
+
+        XCTAssertEqual(followUpResponse["jsonrpc"] as? String, "2.0", "Unexpected v2 response: \(followUpResponse)")
+        XCTAssertEqual(followUpResponse["id"] as? String, "after-auth-notification", "Unexpected v2 response: \(followUpResponse)")
+        XCTAssertNotNil(followUpResponse["result"], "Unexpected v2 response: \(followUpResponse)")
+    }
+
     private func runJSONRPCNotificationSocketSequence(
         to socketPath: String
     ) async throws -> (explicitNullIDResponse: [String: Any], followUpResponse: [String: Any]) {
@@ -189,6 +226,69 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         )
 
         return (explicitNullIDResponse, response)
+    }
+
+    private func runJSONRPCAuthNotificationSocketSequence(
+        to socketPath: String,
+        password: String
+    ) async throws -> (explicitNullIDResponse: [String: Any], followUpResponse: [String: Any]) {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let result = try self.runJSONRPCAuthNotificationSocketSequenceSync(
+                        to: socketPath,
+                        password: password
+                    )
+                    continuation.resume(returning: result)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private nonisolated func runJSONRPCAuthNotificationSocketSequenceSync(
+        to socketPath: String,
+        password: String
+    ) throws -> (explicitNullIDResponse: [String: Any], followUpResponse: [String: Any]) {
+        let fd = try connect(to: socketPath)
+        defer { Darwin.close(fd) }
+
+        let unauthenticatedNotification: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "system.ping",
+            "params": [String: Any]()
+        ]
+        try writeJSONLine(unauthenticatedNotification, to: fd)
+        XCTAssertNil(try readLineIfAvailable(from: fd, timeoutMilliseconds: 250))
+
+        let explicitNullID: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": NSNull(),
+            "method": "system.ping",
+            "params": [String: Any]()
+        ]
+        try writeJSONLine(explicitNullID, to: fd)
+        let explicitNullIDResponse = try readJSONObjectLine(from: fd)
+
+        let authNotification: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "auth.login",
+            "params": ["password": password]
+        ]
+        try writeJSONLine(authNotification, to: fd)
+        XCTAssertNil(try readLineIfAvailable(from: fd, timeoutMilliseconds: 250))
+
+        let followUp: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": "after-auth-notification",
+            "method": "system.ping",
+            "params": [String: Any]()
+        ]
+        try writeJSONLine(followUp, to: fd)
+        let followUpResponse = try readJSONObjectLine(from: fd)
+
+        return (explicitNullIDResponse, followUpResponse)
     }
 
     func testSocketCommandPolicyDistinguishesFocusIntent() throws {
@@ -950,6 +1050,16 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         }
     }
 
+    private nonisolated func writeJSONLine(_ object: [String: Any], to fd: Int32) throws {
+        let data = try JSONSerialization.data(withJSONObject: object)
+        guard let line = String(data: data, encoding: .utf8) else {
+            throw NSError(domain: NSCocoaErrorDomain, code: 0, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to encode JSON request"
+            ])
+        }
+        try writeLine(line, to: fd)
+    }
+
     private nonisolated func readLine(from fd: Int32) throws -> String {
         var buffer = [UInt8](repeating: 0, count: 1)
         var data = Data()
@@ -970,6 +1080,15 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             ])
         }
         return line
+    }
+
+    private nonisolated func readJSONObjectLine(from fd: Int32) throws -> [String: Any] {
+        let line = try readLine(from: fd)
+        let data = Data(line.utf8)
+        return try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            "Expected JSON object response"
+        )
     }
 
     private nonisolated func readLineIfAvailable(from fd: Int32, timeoutMilliseconds: Int32) throws -> String? {
