@@ -457,6 +457,13 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.showScrollBar", sourcePath: sourcePath)
         }
 
+        if let rawTerm = jsonString(section["term"]),
+           let term = TerminalSurface.normalizedTerminalType(rawTerm) {
+            snapshot.managedUserDefaults[TerminalTermSettings.termKey] = .string(term)
+        } else if section.keys.contains("term") {
+            logInvalid("terminal.term", sourcePath: sourcePath)
+        }
+
         if let value = jsonBool(section["autoResumeAgentSessions"]) {
             snapshot.managedUserDefaults[AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey] = .bool(value)
         } else if section.keys.contains("autoResumeAgentSessions") {

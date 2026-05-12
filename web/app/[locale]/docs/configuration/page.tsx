@@ -61,6 +61,7 @@ const settingsFileExample = `{
 
   // "terminal": {
   //   "showScrollBar": false,
+  //   "term": "xterm-ghostty",
   //   "autoResumeAgentSessions": true
   // },
 
@@ -302,7 +303,9 @@ working-directory = ~/code`}</CodeBlock>
       <p>
         This reference covers every supported global settings key in <code>cmux.json</code>. The embedded
         browser, terminal, sidebar, notifications, automation, and cmux-owned keyboard shortcuts
-        all live here. Actions and workspace commands are documented on the{" "}
+        all live here. The <code>terminal.term</code> setting controls the <code>TERM</code> value
+        for new local terminal surfaces; use <code>xterm-ghostty</code> only when that terminfo is
+        installed and your shell/tmux configuration expects it. Actions and workspace commands are documented on the{" "}
         <Link href="/docs/custom-commands">custom commands page</Link>.
       </p>
 

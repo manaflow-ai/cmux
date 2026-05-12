@@ -16,14 +16,23 @@ extension TerminalSurface {
 
     static func applyManagedTerminalIdentityEnvironment(
         to environment: inout [String: String],
-        protectedKeys: inout Set<String>
+        protectedKeys: inout Set<String>,
+        configuredTerminalType: String? = nil
     ) {
-        environment["TERM"] = managedTerminalType
+        environment["TERM"] = normalizedTerminalType(configuredTerminalType) ?? managedTerminalType
         protectedKeys.insert("TERM")
         environment["COLORTERM"] = managedColorTerm
         protectedKeys.insert("COLORTERM")
         environment["TERM_PROGRAM"] = managedTerminalProgram
         protectedKeys.insert("TERM_PROGRAM")
+    }
+
+    static func normalizedTerminalType(_ rawValue: String?) -> String? {
+        guard let rawValue else { return nil }
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard trimmed.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else { return nil }
+        return trimmed
     }
 
     static func mergedStartupEnvironment(

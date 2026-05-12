@@ -38,10 +38,25 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
 
         TerminalSurface.applyManagedTerminalIdentityEnvironment(
             to: &environment,
-            protectedKeys: &protectedKeys
+            protectedKeys: &protectedKeys,
+            configuredTerminalType: "xterm-ghostty"
         )
 
         XCTAssertEqual(environment["TERM"], "xterm-ghostty")
+        XCTAssertTrue(protectedKeys.contains("TERM"))
+    }
+
+    func testApplyManagedTerminalIdentityEnvironmentIgnoresInvalidConfiguredTerminalType() {
+        var environment: [String: String] = [:]
+        var protectedKeys: Set<String> = []
+
+        TerminalSurface.applyManagedTerminalIdentityEnvironment(
+            to: &environment,
+            protectedKeys: &protectedKeys,
+            configuredTerminalType: "xterm ghostty"
+        )
+
+        XCTAssertEqual(environment["TERM"], TerminalSurface.managedTerminalType)
         XCTAssertTrue(protectedKeys.contains("TERM"))
     }
 
