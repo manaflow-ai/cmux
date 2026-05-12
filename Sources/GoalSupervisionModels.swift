@@ -63,12 +63,6 @@ struct GoalSupervisionRecord: Codable, Hashable, Identifiable, Sendable {
         self.activeSince = nil
     }
 
-    func activeDuration(at date: Date) -> TimeInterval {
-        guard status == .active, let activeSince else {
-            return accumulatedActiveSeconds
-        }
-        return accumulatedActiveSeconds + max(0, date.timeIntervalSince(activeSince))
-    }
 }
 
 struct GoalSupervisionSnapshot: Equatable, Identifiable, Sendable {
