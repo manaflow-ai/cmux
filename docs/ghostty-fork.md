@@ -13,12 +13,16 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `a0078f919`, based on `41ab6c5ab`, with the
-manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53
-and the cmux alternate-screen scrollback patch.
-This head keeps the cmux theme picker hooks, exposes the manual surface IO
-needed by libghostty iOS clients, and keeps TUI output scrollable in the
-alternate screen.
+Current cmux pinned fork head: `f66517a01`, based on `fe972c095`, with the
+manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
+the Metal renderer row rebuild guard for cmux issue #3369, and the
+alternate-screen scrollback patch for cmux issue #2334. This head keeps the
+cmux theme picker hooks, exposes the manual surface IO needed by libghostty iOS
+clients, bounds shaped glyph iteration during IME/preedit row rebuilds, and
+keeps TUI output scrollable in the alternate screen.
+The corresponding prebuilt archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f66517a01ebdefefdbb77841925d132c44bf1e79
+and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
 
@@ -171,9 +175,25 @@ tend to conflict together during rebases.
     render-now C API, or output C API. Upstream already has internal
     `Termio.processOutput`, so prefer an upstream C bridge if one lands.
 
-### 11) Alternate-screen scrollback for TUI output
+### 11) Metal renderer preedit row rebuild guard
 
-- Commit: `a0078f919` (terminal: retain scrollback for alternate screen)
+- Commits:
+  - `70b95dada` (Expose unsafe preedit catch-up in renderer rows)
+  - `fe972c095` (Bound renderer preedit catch-up to shaped glyphs)
+- Files:
+  - `src/renderer/generic.zig`
+- Summary:
+  - Adds a regression test for the row-rebuild path where IME/preedit covers the
+    only shaped glyph in a row and the remaining terminal cells are empty.
+  - Bounds the shaped glyph cursor before reading from the shaped-cell slice, so
+    `GenericRenderer(Metal).rebuildRow` no longer assumes terminal cells and
+    shaped glyph cells have one-to-one cardinality.
+  - The first commit intentionally preserves the panic so cmux can keep the
+    required failing-test-then-fix history for issue #3369.
+
+### 12) Alternate-screen scrollback for TUI output
+
+- Commit: `f66517a01` (terminal: retain scrollback for alternate screen)
 - Files:
   - `src/terminal/Terminal.zig`
 - Summary:
@@ -186,12 +206,12 @@ tend to conflict together during rebases.
     reachable through viewport scrolling.
 
 The current cmux pin is the head listed above. It is reachable from
-`manaflow-ai/ghostty` branch `issue-2334-alt-screen-scrollback` and release tag
-`xcframework-a0078f9192ecc85b24980f608c64403af08782ad`. Published
-`xcframework-a0078f9192ecc85b24980f608c64403af08782ad` and pinned its archive
-checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum pin
-must be regenerated whenever this commit changes, even for comment-only amends,
-because the release tag is keyed by the Ghostty commit SHA.
+`manaflow-ai/ghostty` through the `xcframework-f66517a01ebdefefdbb77841925d132c44bf1e79`
+release tag and branch `issue-2334-alt-screen-scrollback`.
+Published `xcframework-f66517a01ebdefefdbb77841925d132c44bf1e79` and pinned its
+archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
+pin must be regenerated whenever this commit changes, even for comment-only
+amends, because the release tag is keyed by the Ghostty commit SHA.
 
 ## Upstreamed fork changes
 
