@@ -9125,6 +9125,8 @@ struct VerticalTabsSidebar: View {
         let allSelectedRemoteContextMenuTargetsConnecting: Bool
         let allSelectedRemoteContextMenuTargetsDisconnected: Bool
         let workspaceTerminalScrollBarHiddenById: [UUID: Bool]
+        let renderedWorkspaceIds: [UUID]
+        let workspaceOrderSignature: Int
 
         var workspaceIds: [UUID] {
             groupingPlan.visibleWorkspaceIds
@@ -9132,6 +9134,14 @@ struct VerticalTabsSidebar: View {
 
         var groupIds: [String] {
             groupingPlan.folderGroups.map(\.id)
+        }
+
+        func previousRenderedWorkspaceId(before workspaceId: UUID) -> UUID? {
+            guard let index = renderedWorkspaceIds.firstIndex(of: workspaceId),
+                  index > 0 else {
+                return nil
+            }
+            return renderedWorkspaceIds[index - 1]
         }
     }
 
@@ -9154,6 +9164,14 @@ struct VerticalTabsSidebar: View {
                     isPinned: $0.isPinned
                 )
             }
+        )
+        let renderedWorkspaceIds = Self.renderedWorkspaceIds(
+            for: groupingPlan,
+            collapsedGroupIds: collapsedGroups
+        )
+        let workspaceOrderSignature = Self.workspaceOrderSignature(
+            visibleWorkspaceIds: groupingPlan.visibleWorkspaceIds,
+            renderedWorkspaceIds: renderedWorkspaceIds
         )
         let workspaceById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         let workspaceCount = tabs.count
@@ -9189,7 +9207,9 @@ struct VerticalTabsSidebar: View {
             selectedRemoteContextMenuWorkspaceIds: selectedRemoteContextMenuWorkspaceIds,
             allSelectedRemoteContextMenuTargetsConnecting: allSelectedRemoteContextMenuTargetsConnecting,
             allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
-            workspaceTerminalScrollBarHiddenById: workspaceTerminalScrollBarHiddenById
+            workspaceTerminalScrollBarHiddenById: workspaceTerminalScrollBarHiddenById,
+            renderedWorkspaceIds: renderedWorkspaceIds,
+            workspaceOrderSignature: workspaceOrderSignature
         )
 
         ZStack(alignment: .bottomLeading) {
@@ -9326,7 +9346,8 @@ struct VerticalTabsSidebar: View {
                         .background(TitlebarDoubleClickMonitorView())
                 }
                 .overlay(alignment: .top) {
-                    if draggedTabId != nil, let firstWorkspaceId = renderContext.workspaceIds.first {
+                    if draggedTabId != nil,
+                       let firstWorkspaceId = renderContext.renderedWorkspaceIds.first ?? renderContext.workspaceIds.first {
                         Color.clear
                             .contentShape(Rectangle())
                             .frame(height: scrollInsets.top + 8)
@@ -9396,7 +9417,7 @@ struct VerticalTabsSidebar: View {
             workspaceRows(renderContext: renderContext)
 
             SidebarEmptyArea(
-                lastWorkspaceId: renderContext.workspaceIds.last,
+                lastWorkspaceId: renderContext.renderedWorkspaceIds.last ?? renderContext.workspaceIds.last,
                 rowSpacing: tabRowSpacing,
                 selection: $selection,
                 selectedTabIds: $selectedTabIds,
@@ -9608,7 +9629,10 @@ struct VerticalTabsSidebar: View {
             notificationStore: notificationStore,
             tab: tab,
             index: index,
-            visualWorkspaceIds: renderContext.workspaceIds,
+            previousRenderedWorkspaceId: renderContext.previousRenderedWorkspaceId(before: tab.id),
+            workspaceOrderSignature: renderContext.workspaceOrderSignature,
+            visualWorkspaceIdsForActions: { renderContext.workspaceIds },
+            renderedWorkspaceIdsForSelection: { renderContext.renderedWorkspaceIds },
             isActive: tabManager.selectedTabId == tab.id,
             workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
                 at: index,
@@ -9644,6 +9668,32 @@ struct VerticalTabsSidebar: View {
         .anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
             [tab.id: anchor]
         }
+    }
+
+    private static func renderedWorkspaceIds(
+        for groupingPlan: SidebarWorkspaceGroupingPlan,
+        collapsedGroupIds: Set<String>
+    ) -> [UUID] {
+        let showsFolderHeaders = groupingPlan.folderGroups.count > 1
+        groupingPlan.bookmarkIds + groupingPlan.folderGroups.flatMap { group in
+            showsFolderHeaders && collapsedGroupIds.contains(group.id) ? [] : group.workspaceIds
+        }
+    }
+
+    private static func workspaceOrderSignature(
+        visibleWorkspaceIds: [UUID],
+        renderedWorkspaceIds: [UUID]
+    ) -> Int {
+        var hasher = Hasher()
+        hasher.combine(visibleWorkspaceIds.count)
+        for workspaceId in visibleWorkspaceIds {
+            hasher.combine(workspaceId)
+        }
+        hasher.combine(renderedWorkspaceIds.count)
+        for workspaceId in renderedWorkspaceIds {
+            hasher.combine(workspaceId)
+        }
+        return hasher.finalize()
     }
 
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
@@ -12165,7 +12215,8 @@ private struct TabItemView: View, Equatable {
     nonisolated static func == (lhs: TabItemView, rhs: TabItemView) -> Bool {
         lhs.tab === rhs.tab &&
         lhs.index == rhs.index &&
-        lhs.visualWorkspaceIds == rhs.visualWorkspaceIds &&
+        lhs.previousRenderedWorkspaceId == rhs.previousRenderedWorkspaceId &&
+        lhs.workspaceOrderSignature == rhs.workspaceOrderSignature &&
         lhs.isActive == rhs.isActive &&
         lhs.workspaceShortcutDigit == rhs.workspaceShortcutDigit &&
         lhs.workspaceShortcutModifierSymbol == rhs.workspaceShortcutModifierSymbol &&
@@ -12192,7 +12243,10 @@ private struct TabItemView: View, Equatable {
     @Environment(\.colorScheme) private var colorScheme
     let tab: Tab
     let index: Int
-    let visualWorkspaceIds: [UUID]
+    let previousRenderedWorkspaceId: UUID?
+    let workspaceOrderSignature: Int
+    let visualWorkspaceIdsForActions: () -> [UUID]
+    let renderedWorkspaceIdsForSelection: () -> [UUID]
     let isActive: Bool
     let workspaceShortcutDigit: Int?
     let workspaceShortcutModifierSymbol: String
@@ -13099,15 +13153,17 @@ private struct TabItemView: View, Equatable {
 
         Divider()
 
+        let renderedWorkspaceIds = renderedWorkspaceIdsForSelection()
+        let renderedWorkspaceIndex = renderedWorkspaceIds.firstIndex(of: tab.id)
         Button(String(localized: "contextMenu.moveUp", defaultValue: "Move Up")) {
             moveBy(-1)
         }
-        .disabled(index == 0)
+        .disabled(renderedWorkspaceIndex == nil || renderedWorkspaceIndex == 0)
 
         Button(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")) {
             moveBy(1)
         }
-        .disabled(index >= tabManager.tabs.count - 1)
+        .disabled(renderedWorkspaceIndex == nil || renderedWorkspaceIndex == renderedWorkspaceIds.count - 1)
 
         Button(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")) {
             tabManager.moveTabsToTop(Set(targetIds))
@@ -13244,12 +13300,11 @@ private struct TabItemView: View, Equatable {
         }
 
         guard indicator.edge == .bottom,
-              let currentIndex = visualWorkspaceIds.firstIndex(of: tab.id),
-              currentIndex > 0
+              let previousRenderedWorkspaceId
         else {
             return false
         }
-        return visualWorkspaceIds[currentIndex - 1] == indicator.tabId
+        return previousRenderedWorkspaceId == indicator.tabId
     }
 
     private var accessibilityTitle: String {
@@ -13257,15 +13312,20 @@ private struct TabItemView: View, Equatable {
     }
 
     private func moveBy(_ delta: Int) {
-        let targetIndex = index + delta
-        guard targetIndex >= 0, targetIndex < visualWorkspaceIds.count else { return }
+        let renderedWorkspaceIds = renderedWorkspaceIdsForSelection()
+        guard let currentRenderedIndex = renderedWorkspaceIds.firstIndex(of: tab.id) else { return }
+        let targetRenderedIndex = currentRenderedIndex + delta
+        guard renderedWorkspaceIds.indices.contains(targetRenderedIndex) else { return }
+        let targetTabId = renderedWorkspaceIds[targetRenderedIndex]
+        let visualWorkspaceIds = visualWorkspaceIdsForActions()
+        guard let targetIndex = visualWorkspaceIds.firstIndex(of: targetTabId) else { return }
         guard tabManager.moveWorkspaceInSidebarVisualOrder(
             tabId: tab.id,
             toVisibleIndex: targetIndex,
             initialDirectory: nil
         ) else { return }
         selectedTabIds = [tab.id]
-        lastSidebarSelectionIndex = targetIndex
+        lastSidebarSelectionIndex = sidebarVisualIndex(of: tab.id, in: tabManager)
         tabManager.selectTab(tab)
         setSelectionToTabs()
     }
@@ -13285,13 +13345,18 @@ private struct TabItemView: View, Equatable {
         let isShift = modifiers.contains(.shift)
         let wasSelected = tabManager.selectedTabId == tab.id
 
+        let visualWorkspaceIds = visualWorkspaceIdsForActions()
+        let renderedWorkspaceIds = renderedWorkspaceIdsForSelection()
+        let renderedWorkspaceIdSet = Set(renderedWorkspaceIds)
+        let currentVisualIndex = visualWorkspaceIds.firstIndex(of: tab.id) ?? index
+
         if isShift,
            let lastIndex = lastSidebarSelectionIndex,
            visualWorkspaceIds.indices.contains(lastIndex),
-           visualWorkspaceIds.indices.contains(index) {
-            let lower = min(lastIndex, index)
-            let upper = max(lastIndex, index)
-            let rangeIds = Array(visualWorkspaceIds[lower...upper])
+           visualWorkspaceIds.indices.contains(currentVisualIndex) {
+            let lower = min(lastIndex, currentVisualIndex)
+            let upper = max(lastIndex, currentVisualIndex)
+            let rangeIds = visualWorkspaceIds[lower...upper].filter { renderedWorkspaceIdSet.contains($0) }
             if isCommand {
                 selectedTabIds.formUnion(rangeIds)
             } else {
@@ -13307,7 +13372,7 @@ private struct TabItemView: View, Equatable {
             selectedTabIds = [tab.id]
         }
 
-        lastSidebarSelectionIndex = index
+        lastSidebarSelectionIndex = currentVisualIndex
         tabManager.selectTab(tab)
         if wasSelected, !isCommand, !isShift {
             tabManager.dismissNotificationOnDirectInteraction(

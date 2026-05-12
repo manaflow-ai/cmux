@@ -2986,7 +2986,7 @@ final class WorkspaceReorderTests: XCTestCase {
         XCTAssertTrue(
             manager.moveWorkspaceToInitialDirectoryGroupEnd(
                 tabId: workspace.id,
-                directory: "/alpha"
+                directory: "/beta"
             )
         )
 
