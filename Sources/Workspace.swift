@@ -7632,6 +7632,11 @@ final class Workspace: Identifiable, ObservableObject {
             appearance: appearance
         )
         self.bonsplitController = BonsplitController(configuration: config)
+        bonsplitController.onTabZoomToggleRequest = { [weak self] tabId, _ in
+            guard let self,
+                  let panelId = self.panelIdFromSurfaceId(tabId) else { return false }
+            return self.toggleSplitZoom(panelId: panelId)
+        }
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
 
         // Remove the default "Welcome" tab that bonsplit creates
