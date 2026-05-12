@@ -9042,11 +9042,12 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> [SidebarBranchOrdering.BranchDirectoryEntry] {
         let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
         let defaultDirectory: String? = {
-            if let focusedPanelId,
-               let location = panelTerminalLocations[focusedPanelId] {
-                return normalizedSidebarDirectory(location.displayDirectory)
+            guard let focusedPanelId else {
+                return normalizedSidebarDirectory(currentDirectory)
             }
-            return normalizedSidebarDirectory(currentDirectory)
+            return resolvedDirectories[focusedPanelId]
+                ?? sidebarResolvedDirectory(for: focusedPanelId)
+                ?? normalizedSidebarDirectory(currentDirectory)
         }()
         return SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
             orderedPanelIds: orderedPanelIds,

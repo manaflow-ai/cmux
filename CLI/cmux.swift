@@ -4654,6 +4654,11 @@ struct CMUXCLI {
     }
 
     private func runRemoteShellInit(commandArgs: [String]) throws {
+        if commandArgs.count == 1,
+           commandArgs[0] == "--help" || commandArgs[0] == "-h" {
+            print(subcommandUsage("remote-shell-init") ?? "Usage: cmux remote-shell-init")
+            return
+        }
         guard commandArgs.isEmpty else {
             throw CLIError(
                 message: String(
