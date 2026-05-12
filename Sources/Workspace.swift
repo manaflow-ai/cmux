@@ -7107,6 +7107,7 @@ struct ClosedBrowserPanelRestoreSnapshot {
     let workspaceId: UUID
     let panelType: PanelType
     let url: URL?
+    let directoryURL: URL?
     let profileID: UUID?
     let originalPaneId: UUID
     let originalTabIndex: Int
@@ -10295,7 +10296,11 @@ final class Workspace: Identifiable, ObservableObject {
         bypassInsecureHTTPHostOnce: String? = nil,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated
     ) -> BrowserPanel? {
-        let resolvedPanelType: PanelType = panelType == .codeEditor ? .codeEditor : .browser
+        precondition(
+            panelType == .browser || panelType == .codeEditor,
+            "Browser surfaces only support .browser and .codeEditor panel types"
+        )
+        let resolvedPanelType = panelType
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard resolvedPanelType == .codeEditor || browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
             if let externalURL = url ?? initialRequest?.url {
@@ -10403,6 +10408,7 @@ final class Workspace: Identifiable, ObservableObject {
         ) else {
             return nil
         }
+        panel.setCodeEditorDirectoryURL(resolvedDirectoryURL)
         if url == nil {
             navigateCodeEditorPanel(panel, directoryURL: resolvedDirectoryURL)
         }
@@ -10431,6 +10437,7 @@ final class Workspace: Identifiable, ObservableObject {
         ) else {
             return nil
         }
+        panel.setCodeEditorDirectoryURL(resolvedDirectoryURL)
         if url == nil {
             navigateCodeEditorPanel(panel, directoryURL: resolvedDirectoryURL)
         }
@@ -10453,8 +10460,10 @@ final class Workspace: Identifiable, ObservableObject {
             return
         }
 
-        VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { [weak panel] serveWebURL in
-            guard let panel else { return }
+        Task { [weak panel] in
+            let serveWebURL = await VSCodeServeWebController.shared.ensureServeWebURL(
+                vscodeApplicationURL: vscodeApplicationURL
+            )
             guard let serveWebURL,
                   let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
                     baseWebUIURL: serveWebURL,
@@ -10463,6 +10472,7 @@ final class Workspace: Identifiable, ObservableObject {
                 NSSound.beep()
                 return
             }
+            guard let panel else { return }
             panel.navigate(to: openFolderURL)
         }
     }
@@ -11040,11 +11050,15 @@ final class Workspace: Identifiable, ObservableObject {
         )
         let resolvedURL = browserPanel.currentURL
             ?? browserPanel.preferredURLStringForOmnibar().flatMap(URL.init(string:))
+        let codeEditorDirectoryURL = browserPanel.panelType == .codeEditor
+            ? browserPanel.codeEditorDirectoryURL
+            : nil
 
         pendingClosedBrowserRestoreSnapshots[tab.id] = ClosedBrowserPanelRestoreSnapshot(
             workspaceId: id,
             panelType: browserPanel.panelType,
             url: resolvedURL,
+            directoryURL: codeEditorDirectoryURL,
             profileID: browserPanel.profileID,
             originalPaneId: pane.id,
             originalTabIndex: tabIndex,

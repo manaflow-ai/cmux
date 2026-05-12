@@ -6265,7 +6265,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ directoryURL: URL,
         tabManager preferredTabManager: TabManager? = nil
     ) -> Bool {
-        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
+        guard TerminalDirectoryOpenTarget.vscodeInline.applicationURL() != nil else {
             return false
         }
 
@@ -6280,25 +6280,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ?? targetTabManager.addWorkspace(select: true).id
         let normalizedDirectoryURL = directoryURL.standardizedFileURL
 
-        VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
-            guard let serveWebURL,
-                  let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
-                      baseWebUIURL: serveWebURL,
-                      directoryPath: normalizedDirectoryURL.path
-                  ) else {
-                NSSound.beep()
-                return
-            }
-
-            guard targetTabManager.openCodeEditor(
-                inWorkspace: targetWorkspaceId,
-                directoryURL: normalizedDirectoryURL,
-                url: openFolderURL,
-                preferSplitRight: true
-            ) != nil else {
-                NSSound.beep()
-                return
-            }
+        guard targetTabManager.openCodeEditor(
+            inWorkspace: targetWorkspaceId,
+            directoryURL: normalizedDirectoryURL,
+            preferSplitRight: true
+        ) != nil else {
+            NSSound.beep()
+            return false
         }
 
         return true

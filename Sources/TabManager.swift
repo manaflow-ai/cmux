@@ -581,6 +581,15 @@ struct RecentlyClosedBrowserStack {
     mutating func pop() -> ClosedBrowserPanelRestoreSnapshot? {
         entries.popLast()
     }
+
+    mutating func popMostRecent(
+        where shouldPop: (ClosedBrowserPanelRestoreSnapshot) -> Bool
+    ) -> ClosedBrowserPanelRestoreSnapshot? {
+        guard let index = entries.indices.reversed().first(where: { shouldPop(entries[$0]) }) else {
+            return nil
+        }
+        return entries.remove(at: index)
+    }
 }
 
 #if DEBUG
@@ -5737,21 +5746,6 @@ class TabManager: ObservableObject {
         )?.id
     }
 
-    /// Create a new code editor surface in a pane.
-    func newCodeEditorSurface(
-        tabId: UUID,
-        inPane paneId: PaneID,
-        directoryURL: URL? = nil,
-        url: URL? = nil
-    ) -> UUID? {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newCodeEditorSurface(
-            inPane: paneId,
-            directoryURL: directoryURL,
-            url: url
-        )?.id
-    }
-
     /// Get a browser panel by ID
     func browserPanel(tabId: UUID, panelId: UUID) -> BrowserPanel? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
@@ -5925,8 +5919,9 @@ class TabManager: ObservableObject {
     func reopenMostRecentlyClosedBrowserPanel() -> Bool {
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
 
-        while let snapshot = recentlyClosedBrowsers.pop() {
-            guard snapshot.panelType != .browser || browserEnabled else { continue }
+        while let snapshot = recentlyClosedBrowsers.popMostRecent(where: {
+            $0.panelType != .browser || browserEnabled
+        }) {
             guard let targetWorkspace =
                 tabs.first(where: { $0.id == snapshot.workspaceId })
                 ?? selectedWorkspace
@@ -6047,7 +6042,12 @@ class TabManager: ObservableObject {
         workspace: Workspace
     ) -> BrowserPanel? {
         if snapshot.panelType == .codeEditor {
-            return workspace.newCodeEditorSurface(inPane: paneId, url: snapshot.url, focus: true)
+            return workspace.newCodeEditorSurface(
+                inPane: paneId,
+                directoryURL: snapshot.directoryURL,
+                url: snapshot.url,
+                focus: true
+            )
         }
         return workspace.newBrowserSurface(
             inPane: paneId,
@@ -6068,6 +6068,7 @@ class TabManager: ObservableObject {
                 from: panelId,
                 orientation: orientation,
                 insertFirst: snapshot.fallbackSplitInsertFirst,
+                directoryURL: snapshot.directoryURL,
                 url: snapshot.url
             )
         }

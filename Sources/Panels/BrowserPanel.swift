@@ -2009,6 +2009,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     let id: UUID
     let panelType: PanelType
+    private(set) var codeEditorDirectoryURL: URL?
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
@@ -2446,6 +2447,12 @@ final class BrowserPanel: Panel, ObservableObject {
                     return folderName
                 }
             }
+            if let codeEditorDirectoryURL {
+                let folderName = codeEditorDirectoryURL.lastPathComponent
+                if !folderName.isEmpty {
+                    return folderName
+                }
+            }
             return String(localized: "codeEditor.newTab", defaultValue: "Code Editor")
         }
         if let url = currentURL {
@@ -2464,6 +2471,10 @@ final class BrowserPanel: Panel, ObservableObject {
 
     var currentBrowserThemeMode: BrowserThemeMode {
         browserThemeMode
+    }
+
+    func setCodeEditorDirectoryURL(_ directoryURL: URL?) {
+        codeEditorDirectoryURL = directoryURL?.standardizedFileURL
     }
 
     /// Popups inherit this panel's exact WebKit storage and process context.
@@ -2796,7 +2807,11 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteWebsiteDataStoreIdentifier: UUID? = nil
     ) {
         self.id = UUID()
-        self.panelType = panelType == .codeEditor ? .codeEditor : .browser
+        precondition(
+            panelType == .browser || panelType == .codeEditor,
+            "BrowserPanel only supports .browser and .codeEditor panel types"
+        )
+        self.panelType = panelType
         self.workspaceId = workspaceId
         let requestedProfileID = profileID ?? BrowserProfileStore.shared.effectiveLastUsedProfileID
         let resolvedProfileID = BrowserProfileStore.shared.profileDefinition(id: requestedProfileID) != nil

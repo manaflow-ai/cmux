@@ -1810,11 +1810,33 @@ final class RecentlyClosedBrowserStackTests: XCTestCase {
         XCTAssertNil(stack.pop())
     }
 
-    private func makeSnapshot(index: Int) -> ClosedBrowserPanelRestoreSnapshot {
+    func testPopMostRecentLeavesUnmatchedEntriesInPlace() {
+        var stack = RecentlyClosedBrowserStack(capacity: 20)
+        stack.push(makeSnapshot(index: 1, panelType: .browser))
+        stack.push(makeSnapshot(index: 2, panelType: .codeEditor))
+        stack.push(makeSnapshot(index: 3, panelType: .browser))
+
+        XCTAssertEqual(
+            stack.popMostRecent(where: { $0.panelType == .codeEditor })?.originalTabIndex,
+            2
+        )
+        XCTAssertEqual(stack.pop()?.originalTabIndex, 3)
+        XCTAssertEqual(stack.pop()?.originalTabIndex, 1)
+        XCTAssertNil(stack.pop())
+    }
+
+    private func makeSnapshot(
+        index: Int,
+        panelType: PanelType = .browser
+    ) -> ClosedBrowserPanelRestoreSnapshot {
+        let directoryURL = panelType == .codeEditor
+            ? URL(fileURLWithPath: "/tmp/editor-\(index)", isDirectory: true)
+            : nil
         ClosedBrowserPanelRestoreSnapshot(
             workspaceId: UUID(),
-            panelType: .browser,
+            panelType: panelType,
             url: URL(string: "https://example.com/\(index)"),
+            directoryURL: directoryURL,
             profileID: nil,
             originalPaneId: UUID(),
             originalTabIndex: index,

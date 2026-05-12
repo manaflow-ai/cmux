@@ -488,6 +488,14 @@ final class VSCodeServeWebController {
         }
     }
 
+    func ensureServeWebURL(vscodeApplicationURL: URL) async -> URL? {
+        await withCheckedContinuation { continuation in
+            ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
+                continuation.resume(returning: serveWebURL)
+            }
+        }
+    }
+
     func stop() {
         let (processes, tokenFileURLs, completions): ([Process], [URL], [(URL?) -> Void]) = queue.sync {
             self.lifecycleGeneration &+= 1
