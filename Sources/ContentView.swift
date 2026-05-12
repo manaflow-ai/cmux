@@ -1045,6 +1045,15 @@ func titlebarShortcutHintShouldShow(
     !shortcut.isUnbound && (alwaysShowShortcutHints || (shortcut.command && modifierPressed))
 }
 
+@MainActor
+private final class SurfaceFrameChangePublishCoordinator {
+    private let windowMoveCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
+
+    func scheduleWindowMove(_ action: @escaping () -> Void) {
+        windowMoveCoalescer.signal(action)
+    }
+}
+
 struct ContentView: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     let windowId: UUID
@@ -1081,7 +1090,7 @@ struct ContentView: View {
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
-    @State private var isSurfaceFrameMovePublishScheduled = false
+    @State private var surfaceFrameChangePublishCoordinator = SurfaceFrameChangePublishCoordinator()
     @State private var sidebarResizerCursorReleaseWorkItem: DispatchWorkItem?
     @State private var sidebarResizerPointerMonitor: Any?
     @State private var isResizerBandActive = false
@@ -2353,16 +2362,9 @@ struct ContentView: View {
         }
     }
 
-    private func publishVisibleSurfaceFrameChanges(origin: String) {
-        tabManager.selectedWorkspace?.publishCmuxSurfaceFrameChanges(origin: origin)
-    }
-
     private func scheduleVisibleSurfaceFrameChangesAfterWindowMove() {
-        guard !isSurfaceFrameMovePublishScheduled else { return }
-        isSurfaceFrameMovePublishScheduled = true
-        DispatchQueue.main.async {
-            isSurfaceFrameMovePublishScheduled = false
-            publishVisibleSurfaceFrameChanges(origin: "window_move")
+        surfaceFrameChangePublishCoordinator.scheduleWindowMove { [tabManager] in
+            tabManager.selectedWorkspace?.publishCmuxSurfaceFrameChanges(origin: "window_move")
         }
     }
 

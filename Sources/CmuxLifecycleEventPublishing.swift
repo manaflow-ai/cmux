@@ -216,7 +216,6 @@ extension TabManager {
             index: tabs.firstIndex(where: { $0.id == workspace.id }),
             tabCount: tabs.count
         )
-        publishCmuxSelectedWorkspaceSurfaceFrameChanges(workspace)
     }
 
     func publishCmuxWorkspaceSelectedChange(from previousWorkspaceId: UUID?) {
@@ -231,13 +230,6 @@ extension TabManager {
             index: tabs.firstIndex(where: { $0.id == workspace.id }),
             tabCount: tabs.count
         )
-        publishCmuxSelectedWorkspaceSurfaceFrameChanges(workspace)
-    }
-
-    private func publishCmuxSelectedWorkspaceSurfaceFrameChanges(_ workspace: Workspace) {
-        DispatchQueue.main.async { [weak workspace] in
-            workspace?.publishCmuxSurfaceFrameChanges(origin: "workspace_selected")
-        }
     }
 }
 
@@ -306,6 +298,9 @@ extension Workspace {
             origin: origin
         )
         CmuxSelectionEventState.clearPane(workspaceId: id, paneId: paneId.id)
+        for surfaceId in closedPanelIds {
+            CmuxSurfaceFrameEventState.clearSurface(workspaceId: id, surfaceId: surfaceId)
+        }
     }
 
     func publishCmuxFocusedSelection(paneId: PaneID, surfaceId: UUID, origin: String) {
