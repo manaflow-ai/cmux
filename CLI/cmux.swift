@@ -2494,7 +2494,9 @@ struct CMUXCLI {
         chmod(brokerSocketPath, mode_t(S_IRUSR | S_IWUSR))
 
         let workerQueue = DispatchQueue(label: "com.cmux.hot-path-broker.worker")
+        let telemetryQueue = DispatchQueue(label: "com.cmux.hot-path-broker.telemetry")
         var sharedClient: SocketClient?
+        var sharedTelemetryClient: SocketClient?
         var lastActivity = Date()
         let processEnvironment = ProcessInfo.processInfo.environment
         let idleTimeout = hotPathBrokerIdleTimeout(from: processEnvironment)
@@ -2527,6 +2529,33 @@ struct CMUXCLI {
             }
         }
 
+        func withTelemetryClient<T>(_ body: (SocketClient) throws -> T) throws -> T {
+            if sharedTelemetryClient == nil {
+                let client = SocketClient(path: socketPath, keepRelayConnectionOpen: true)
+                try client.connect()
+                var didShareClient = false
+                defer {
+                    if !didShareClient {
+                        client.close()
+                    }
+                }
+                try authenticateClientIfNeeded(
+                    client,
+                    explicitPassword: explicitPassword,
+                    socketPath: socketPath
+                )
+                sharedTelemetryClient = client
+                didShareClient = true
+            }
+            do {
+                return try body(sharedTelemetryClient!)
+            } catch {
+                sharedTelemetryClient?.close()
+                sharedTelemetryClient = nil
+                throw error
+            }
+        }
+
         func performWorkerSync<T>(_ body: @escaping () throws -> T) throws -> T {
             var result: Result<T, Error>!
             workerQueue.sync {
@@ -2539,6 +2568,13 @@ struct CMUXCLI {
             workerQueue.sync {
                 sharedClient?.close()
                 sharedClient = nil
+            }
+        }
+
+        func closeTelemetryClientSync() {
+            telemetryQueue.sync {
+                sharedTelemetryClient?.close()
+                sharedTelemetryClient = nil
             }
         }
 
@@ -2555,9 +2591,9 @@ struct CMUXCLI {
                 let params = request["params"] as? [String: Any] ?? [:]
 
                 if method == "surface.telemetry" {
-                    workerQueue.async {
+                    telemetryQueue.async {
                         do {
-                            _ = try withHotClient { client in
+                            _ = try withTelemetryClient { client in
                                 try client.sendV2(method: method, params: params)
                             }
                         } catch {}
@@ -2706,6 +2742,11 @@ struct CMUXCLI {
             }
         }
 
+        defer {
+            closeHotClientSync()
+            closeTelemetryClientSync()
+        }
+
         while true {
             var pollFD = pollfd(fd: listenerFD, events: Int16(POLLIN), revents: 0)
             let ready = poll(&pollFD, 1, 1000)
@@ -2716,6 +2757,7 @@ struct CMUXCLI {
             if ready == 0 {
                 if Date().timeIntervalSince(lastActivity) >= idleTimeout {
                     closeHotClientSync()
+                    closeTelemetryClientSync()
                     return
                 }
                 continue
