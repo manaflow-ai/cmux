@@ -87,11 +87,15 @@ extension CMUXCLI {
             summary: "Agent hook integrations, Feed approvals, notifications, and session restore.",
             webURL: "https://cmux.com/docs/agent-integrations/oh-my-codex",
             rawResources: [
+                DocsResource(label: "agent fast-path CLI docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/agent-cli-fast-path.md"),
                 DocsResource(label: "agent hook docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/agent-hooks.md"),
                 DocsResource(label: "feed docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/feed.md"),
                 DocsResource(label: "notifications docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/notifications.md"),
             ],
             commands: [
+                "cmux agent --help",
+                "cmux agent capture --scrollback --lines 200 --raw",
+                "cmux agent batch '[{\"op\":\"list-panes\"},{\"op\":\"capture\",\"scrollback\":true,\"lines\":200}]'",
                 "cmux hooks setup",
                 "cmux hooks setup <agent>",
                 "cmux hooks hermes-agent install",
