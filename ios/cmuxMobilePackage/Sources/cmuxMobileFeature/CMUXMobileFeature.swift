@@ -1689,8 +1689,12 @@ struct TerminalPreviewSurface: View {
             }
         }
         .foregroundStyle(TerminalPalette.foreground)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("MobileTerminalSurface")
+        .overlay {
+            Color.clear
+                .accessibilityElement(children: .ignore)
+                .accessibilityIdentifier("MobileTerminalSurface")
+                .allowsHitTesting(false)
+        }
     }
 
     private func cursor(forRenderedRowAt index: Int) -> MobileTerminalGhosttyCursor? {

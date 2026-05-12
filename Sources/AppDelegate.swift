@@ -784,8 +784,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didSetupTerminalCmdClickUITest = false
     private var didSetupGotoSplitUITest = false
     private var didSetupBonsplitTabDragUITest = false
+    private var didSetupTerminalViewportUITest = false
     private var terminalCmdClickUITestPoller: DispatchSourceTimer?
     private var bonsplitTabDragUITestRecorder: DispatchSourceTimer?
+    private var terminalViewportUITestRecorder: DispatchSourceTimer?
     private var gotoSplitUITestRecorder: DispatchSourceTimer?
     private var gotoSplitUITestObservers: [NSObjectProtocol] = []
     private var didSetupMultiWindowNotificationsUITest = false
@@ -1601,6 +1603,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         setupTerminalCmdClickUITestIfNeeded()
         setupGotoSplitUITestIfNeeded()
         setupBonsplitTabDragUITestIfNeeded()
+        setupTerminalViewportUITestIfNeeded()
         setupMultiWindowNotificationsUITestIfNeeded()
         setupDisplayResolutionUITestDiagnosticsIfNeeded()
         setupPortalStatsUITestDiagnosticsIfNeeded()
@@ -8820,6 +8823,149 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard self != nil else { return }
             runSetupWhenWindowReady()
         }
+    }
+
+    private func setupTerminalViewportUITestIfNeeded() {
+        guard !didSetupTerminalViewportUITest else { return }
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_TERMINAL_VIEWPORT_SETUP"] == "1" else { return }
+        guard env["CMUX_UI_TEST_TERMINAL_VIEWPORT_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return
+        }
+        didSetupTerminalViewportUITest = true
+
+        let initialWindowSize = parseTerminalViewportUITestWindowSize(
+            env["CMUX_UI_TEST_TERMINAL_VIEWPORT_WINDOW_SIZE"]
+        )
+        let hideSidebar = env["CMUX_UI_TEST_TERMINAL_VIEWPORT_HIDE_SIDEBAR"] == "1"
+        let hideRightSidebar = env["CMUX_UI_TEST_TERMINAL_VIEWPORT_HIDE_RIGHT_SIDEBAR"] == "1"
+        let deadline = Date().addingTimeInterval(20)
+
+        terminalViewportUITestRecorder?.cancel()
+        terminalViewportUITestRecorder = nil
+
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(100))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            guard Date() < deadline else {
+                self.writeTerminalViewportUITestData(["terminalViewportSetupError": "Timed out waiting for terminal viewport"])
+                self.terminalViewportUITestRecorder?.cancel()
+                self.terminalViewportUITestRecorder = nil
+                return
+            }
+            guard let (window, context, terminalPanel) = self.terminalViewportUITestContext() else {
+                return
+            }
+
+            let testData = self.loadTerminalViewportUITestData()
+            let requestedWindowSize = self.parseTerminalViewportUITestWindowSize(
+                testData["terminalViewportRequestedWindowSize"]
+            ) ?? initialWindowSize
+
+            if hideSidebar {
+                context.sidebarState.isVisible = false
+            }
+            if hideRightSidebar {
+                context.fileExplorerState?.setVisible(false)
+            }
+            if let requestedWindowSize {
+                self.setTerminalViewportUITestWindowSize(requestedWindowSize, on: window)
+            }
+
+            window.contentView?.layoutSubtreeIfNeeded()
+            terminalPanel.hostedView.superview?.layoutSubtreeIfNeeded()
+            terminalPanel.hostedView.layoutSubtreeIfNeeded()
+            terminalPanel.surface.forceRefresh(reason: "uiTest.terminalViewport")
+
+            self.writeTerminalViewportUITestData([
+                "terminalViewportReady": "1",
+                "terminalViewportWindowWidth": String(format: "%.3f", Double(window.frame.width)),
+                "terminalViewportWindowHeight": String(format: "%.3f", Double(window.frame.height)),
+                "terminalViewportSidebarVisible": context.sidebarState.isVisible ? "1" : "0",
+                "terminalViewportRightSidebarVisible": context.fileExplorerState?.isVisible == true ? "1" : "0",
+                "terminalViewportRequestedWindowSize": requestedWindowSize.map { "\(Int($0.width))x\(Int($0.height))" } ?? "",
+                "terminalViewportWorkspaceId": terminalPanel.workspaceId.uuidString,
+            ])
+        }
+        terminalViewportUITestRecorder = timer
+        timer.resume()
+    }
+
+    private func terminalViewportUITestContext() -> (window: NSWindow, context: MainWindowContext, terminalPanel: TerminalPanel)? {
+        for context in mainWindowContexts.values {
+            guard let window = context.window else { continue }
+            guard let workspace = context.tabManager.selectedWorkspace ?? context.tabManager.tabs.first else { continue }
+            guard let terminalPanel = workspace.focusedTerminalPanel
+                    ?? workspace.panels.values.compactMap({ $0 as? TerminalPanel }).first else {
+                continue
+            }
+            guard terminalPanel.hostedView.window != nil,
+                  terminalPanel.hostedView.bounds.width > 0,
+                  terminalPanel.hostedView.bounds.height > 0 else {
+                continue
+            }
+            return (window, context, terminalPanel)
+        }
+        return nil
+    }
+
+    private func parseTerminalViewportUITestWindowSize(_ rawValue: String?) -> NSSize? {
+        guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawValue.isEmpty else { return nil }
+        let parts = rawValue
+            .split(separator: "x", maxSplits: 1)
+            .compactMap { Double(String($0).trimmingCharacters(in: .whitespacesAndNewlines)) }
+        guard parts.count == 2 else { return nil }
+        return NSSize(width: max(320, parts[0]), height: max(240, parts[1]))
+    }
+
+    private func setTerminalViewportUITestWindowSize(_ requestedSize: NSSize, on window: NSWindow) {
+        let screenFrame = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+        let clampedSize: NSSize
+        if let screenFrame {
+            clampedSize = NSSize(
+                width: min(requestedSize.width, screenFrame.width - 80),
+                height: min(requestedSize.height, screenFrame.height - 80)
+            )
+        } else {
+            clampedSize = requestedSize
+        }
+        let origin = NSPoint(
+            x: screenFrame.map { $0.minX + 40 } ?? window.frame.minX,
+            y: screenFrame.map { $0.maxY - 40 - clampedSize.height } ?? window.frame.minY
+        )
+        let frame = NSRect(origin: origin, size: clampedSize)
+        if !window.frame.equalTo(frame) {
+            window.setFrame(frame, display: true)
+        }
+    }
+
+    private func writeTerminalViewportUITestData(_ updates: [String: String]) {
+        _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_TERMINAL_VIEWPORT_PATH") { payload in
+            for (key, value) in updates {
+                payload[key] = value
+            }
+        }
+    }
+
+    private func terminalViewportUITestDataPath() -> String? {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_TERMINAL_VIEWPORT_SETUP"] == "1",
+              let path = env["CMUX_UI_TEST_TERMINAL_VIEWPORT_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty else {
+            return nil
+        }
+        return path
+    }
+
+    private func loadTerminalViewportUITestData() -> [String: String] {
+        guard let path = terminalViewportUITestDataPath(),
+              let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
+        return object
     }
 
     private func bonsplitTabDragUITestDataPath() -> String? {
