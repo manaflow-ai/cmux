@@ -562,10 +562,16 @@ enum SessionScrollbackReplayStore {
                 skipCSISequence(using: &iterator)
             } else if introducer.value == 0x5D {
                 skipOSCSequence(using: &iterator)
+            } else if isStringTerminatedEscapeIntroducer(introducer) {
+                skipStringTerminatedSequence(using: &iterator)
             }
         }
 
         return String(output)
+    }
+
+    private static func isStringTerminatedEscapeIntroducer(_ scalar: Unicode.Scalar) -> Bool {
+        scalar.value == 0x50 || scalar.value == 0x5E || scalar.value == 0x5F
     }
 
     private static func skipCSISequence(using iterator: inout String.UnicodeScalarView.Iterator) {
@@ -577,9 +583,16 @@ enum SessionScrollbackReplayStore {
     }
 
     private static func skipOSCSequence(using iterator: inout String.UnicodeScalarView.Iterator) {
+        skipStringTerminatedSequence(using: &iterator, allowsBellTerminator: true)
+    }
+
+    private static func skipStringTerminatedSequence(
+        using iterator: inout String.UnicodeScalarView.Iterator,
+        allowsBellTerminator: Bool = false
+    ) {
         var previousWasEscape = false
         while let scalar = iterator.next() {
-            if scalar.value == 0x07 {
+            if allowsBellTerminator, scalar.value == 0x07 {
                 return
             }
             if previousWasEscape, scalar.value == 0x5C {
