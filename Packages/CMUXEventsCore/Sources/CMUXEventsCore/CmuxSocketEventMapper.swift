@@ -1,7 +1,7 @@
 import Foundation
 
-enum CmuxSocketEventMapper {
-    static func publish(command: String, response: String) {
+public enum CmuxSocketEventMapper {
+    public static func publish(command: String, response: String) {
         if publishV2(command: command, response: response) {
             return
         }
@@ -197,7 +197,7 @@ enum CmuxSocketEventMapper {
         return out
     }
 
-    static func redactedNotificationParams(_ params: [String: Any]) -> [String: Any] {
+    public static func redactedNotificationParams(_ params: [String: Any]) -> [String: Any] {
         var out = params
         var redactedFields = (out["redacted_fields"] as? [String]) ?? []
         for key in ["title", "subtitle", "body"] {

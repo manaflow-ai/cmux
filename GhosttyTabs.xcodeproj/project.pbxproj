@@ -82,6 +82,8 @@
 		D7AB34400000000000000003 /* GhosttyTerminalViewVisibilityPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34400000000000000004 /* GhosttyTerminalViewVisibilityPolicyTests.swift */; };
 		5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 29813FE5A6CBC1019289A251 /* CMUXAuthCore */; };
 		AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */ = {isa = PBXBuildFile; productRef = AA11BB22CC33DD44EE550002 /* CMUXWorkstream */; };
+		3674E0000000000000000001 /* CMUXEventsCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3674E0000000000000000002 /* CMUXEventsCore */; };
+		3674E0000000000000000004 /* CMUXEventsCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3674E0000000000000000002 /* CMUXEventsCore */; };
 		3069F1D10000000000000005 /* CMUXPasteboardFidelity in Frameworks */ = {isa = PBXBuildFile; productRef = 3069F1D10000000000000006 /* CMUXPasteboardFidelity */; };
 		F53000A0A1B2C3D4E5F60718 /* CMUXAgentVault in Frameworks */ = {isa = PBXBuildFile; productRef = F53000A2A1B2C3D4E5F60718 /* CMUXAgentVault */; };
 		A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
@@ -172,13 +174,10 @@
 		D3284101A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3284102A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift */; };
 		D7AB00000000000000000005 /* GhosttyNSView+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000006 /* GhosttyNSView+MoveTabToNewWorkspace.swift */; };
 		A5001006 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A5001016 /* GhosttyKit.xcframework */; };
-		E7E000000000000000000005 /* CmuxEventBus.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000006 /* CmuxEventBus.swift */; };
-		E7E00000000000000000000D /* CmuxEventLogWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000E /* CmuxEventLogWriter.swift */; };
 		E7E00000000000000000000B /* CmuxLifecycleEventPublishing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */; };
 		E7E000000000000000000007 /* CmuxEventPublishing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000008 /* CmuxEventPublishing.swift */; };
 		A5001007 /* TerminalController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001019 /* TerminalController.swift */; };
 		E7E000000000000000000001 /* CmuxEventStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000002 /* CmuxEventStream.swift */; };
-		E7E000000000000000000009 /* CmuxSocketEventMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000A /* CmuxSocketEventMapper.swift */; };
 		D7AB0000000000000000000B /* TerminalController+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */; };
 		C7A50A000000000000000002 /* TerminalControllerPaneResizeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50A000000000000000001 /* TerminalControllerPaneResizeSupport.swift */; };
 		C7A50B000000000000000002 /* TerminalControllerV2ParamParsingSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000001 /* TerminalControllerV2ParamParsingSupport.swift */; };
@@ -656,12 +655,9 @@
 		A5001017 /* ghostty.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ghostty.h; sourceTree = "<group>"; };
 		A5001018 /* cmux-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cmux-Bridging-Header.h"; sourceTree = "<group>"; };
 		A5001019 /* TerminalController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalController.swift; sourceTree = "<group>"; };
-		E7E000000000000000000006 /* CmuxEventBus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventBus.swift; sourceTree = "<group>"; };
-		E7E00000000000000000000E /* CmuxEventLogWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventLogWriter.swift; sourceTree = "<group>"; };
 		E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxLifecycleEventPublishing.swift; sourceTree = "<group>"; };
 		E7E000000000000000000008 /* CmuxEventPublishing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventPublishing.swift; sourceTree = "<group>"; };
 		E7E000000000000000000002 /* CmuxEventStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventStream.swift; sourceTree = "<group>"; };
-		E7E00000000000000000000A /* CmuxSocketEventMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSocketEventMapper.swift; sourceTree = "<group>"; };
 		D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		C7A50A000000000000000001 /* TerminalControllerPaneResizeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerPaneResizeSupport.swift; sourceTree = "<group>"; };
 		C7A50B000000000000000001 /* TerminalControllerV2ParamParsingSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerV2ParamParsingSupport.swift; sourceTree = "<group>"; };
@@ -937,6 +933,7 @@
 				A5001290 /* MarkdownUI in Frameworks */,
 				5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */,
 				AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */,
+				3674E0000000000000000001 /* CMUXEventsCore in Frameworks */,
 				3069F1D10000000000000005 /* CMUXPasteboardFidelity in Frameworks */,
 				F53000A0A1B2C3D4E5F60718 /* CMUXAgentVault in Frameworks */,
 				A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
@@ -972,6 +969,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3674E0000000000000000004 /* CMUXEventsCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1191,13 +1189,10 @@
 				A5001533 /* BrowserWindowPortal.swift */,
 				D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */,
 					D0B10011A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift */,
-					E7E000000000000000000006 /* CmuxEventBus.swift */,
-					E7E00000000000000000000E /* CmuxEventLogWriter.swift */,
 					E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */,
 					E7E000000000000000000008 /* CmuxEventPublishing.swift */,
 					A5001019 /* TerminalController.swift */,
 					E7E000000000000000000002 /* CmuxEventStream.swift */,
-					E7E00000000000000000000A /* CmuxSocketEventMapper.swift */,
 						A5001440A5001440A5001440 /* FileOpenSocketSupport.swift */,
 						D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */,
 						C7A50A000000000000000001 /* TerminalControllerPaneResizeSupport.swift */,
@@ -1506,6 +1501,7 @@
 				A5001291 /* MarkdownUI */,
 				29813FE5A6CBC1019289A251 /* CMUXAuthCore */,
 				AA11BB22CC33DD44EE550002 /* CMUXWorkstream */,
+				3674E0000000000000000002 /* CMUXEventsCore */,
 				3069F1D10000000000000006 /* CMUXPasteboardFidelity */,
 				F53000A2A1B2C3D4E5F60718 /* CMUXAgentVault */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
@@ -1587,6 +1583,7 @@
 			name = cmuxTests;
 			packageProductDependencies = (
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
+				3674E0000000000000000002 /* CMUXEventsCore */,
 			);
 			productName = cmuxTests;
 			productReference = F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */;
@@ -1636,6 +1633,7 @@
 				A5001260 /* XCLocalSwiftPackageReference "bonsplit" */,
 				40B63BB4A170F0BD2D1DEFD1 /* XCLocalSwiftPackageReference "CMUXAuthCore" */,
 				AA11BB22CC33DD44EE550003 /* XCLocalSwiftPackageReference "CMUXWorkstream" */,
+				3674E0000000000000000003 /* XCLocalSwiftPackageReference "CMUXEventsCore" */,
 				3069F1D10000000000000007 /* XCLocalSwiftPackageReference "CMUXPasteboardFidelity" */,
 				F53000A1A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentVault" */,
 				A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */,
@@ -1827,13 +1825,10 @@
 				A5001534 /* BrowserWindowPortal.swift in Sources */,
 				D0B10002A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift in Sources */,
 				D0B10010A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift in Sources */,
-					E7E000000000000000000005 /* CmuxEventBus.swift in Sources */,
-					E7E00000000000000000000D /* CmuxEventLogWriter.swift in Sources */,
 					E7E00000000000000000000B /* CmuxLifecycleEventPublishing.swift in Sources */,
 					E7E000000000000000000007 /* CmuxEventPublishing.swift in Sources */,
 					A5001007 /* TerminalController.swift in Sources */,
 					E7E000000000000000000001 /* CmuxEventStream.swift in Sources */,
-					E7E000000000000000000009 /* CmuxSocketEventMapper.swift in Sources */,
 					A5001441A5001441A5001441 /* FileOpenSocketSupport.swift in Sources */,
 					D7AB0000000000000000000B /* TerminalController+MoveTabToNewWorkspace.swift in Sources */,
 					C7A50A000000000000000002 /* TerminalControllerPaneResizeSupport.swift in Sources */,
@@ -2550,6 +2545,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXWorkstream;
 		};
+		3674E0000000000000000003 /* XCLocalSwiftPackageReference "CMUXEventsCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CMUXEventsCore;
+		};
 		3069F1D10000000000000007 /* XCLocalSwiftPackageReference "CMUXPasteboardFidelity" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXPasteboardFidelity;
@@ -2617,6 +2616,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = AA11BB22CC33DD44EE550003 /* XCLocalSwiftPackageReference "CMUXWorkstream" */;
 			productName = CMUXWorkstream;
+		};
+		3674E0000000000000000002 /* CMUXEventsCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3674E0000000000000000003 /* XCLocalSwiftPackageReference "CMUXEventsCore" */;
+			productName = CMUXEventsCore;
 		};
 		3069F1D10000000000000006 /* CMUXPasteboardFidelity */ = {
 			isa = XCSwiftPackageProductDependency;

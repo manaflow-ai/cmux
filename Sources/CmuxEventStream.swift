@@ -1,4 +1,5 @@
 import Darwin
+import CMUXEventsCore
 import Foundation
 
 extension TerminalController {

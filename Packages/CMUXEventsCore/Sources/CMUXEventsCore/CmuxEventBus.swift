@@ -1,13 +1,13 @@
 import Foundation
 
-struct CmuxEventSubscriptionSnapshot {
-    let subscription: CmuxEventSubscription
-    let replay: [[String: Any]]
-    let ack: [String: Any]
+public struct CmuxEventSubscriptionSnapshot {
+    public let subscription: CmuxEventSubscription
+    public let replay: [[String: Any]]
+    public let ack: [String: Any]
 }
 
 // Sendable safety: every mutable field is protected by `lock`; `semaphore` only wakes `next(timeout:)`.
-final class CmuxEventSubscription: @unchecked Sendable {
+public final class CmuxEventSubscription: @unchecked Sendable {
     let id: UUID
     let names: Set<String>
     let categories: Set<String>
@@ -36,13 +36,13 @@ final class CmuxEventSubscription: @unchecked Sendable {
         return true
     }
 
-    var isClosed: Bool {
+    public var isClosed: Bool {
         lock.lock()
         defer { lock.unlock() }
         return closed
     }
 
-    var closeReason: String? {
+    public var closeReason: String? {
         lock.lock()
         defer { lock.unlock() }
         return closedReason
@@ -73,7 +73,7 @@ final class CmuxEventSubscription: @unchecked Sendable {
         return accepted
     }
 
-    func next(timeout: TimeInterval) -> [String: Any]? {
+    public func next(timeout: TimeInterval) -> [String: Any]? {
         lock.lock()
         if !queue.isEmpty {
             let event = queue.removeFirst()
@@ -108,20 +108,20 @@ final class CmuxEventSubscription: @unchecked Sendable {
 }
 
 // Sendable safety: event state is protected by `lock`; disk appends are delegated to `CmuxEventLogWriter`.
-final class CmuxEventBus: @unchecked Sendable {
-    static let shared = CmuxEventBus(eventLogURL: defaultEventLogURL())
-    static let protocolName = "cmux-events"
-    static let protocolVersion = 1
-    static let defaultHeartbeatIntervalSeconds: TimeInterval = 15
-    static let defaultRetainedEventLimit = 4_096
-    static let defaultMaxEventLineBytes = 16 * 1024
-    static let defaultMaxEventLogBytes: UInt64 = 16 * 1024 * 1024
-    static let defaultMaxPendingEventLogLines = CmuxEventLogWriter.defaultMaxPendingLines
-    static let defaultMaxPendingEventsPerSubscription = 1_024
-    static let maxSanitizedStringBytes = 8 * 1024
-    static let maxSanitizedArrayItems = 256
-    static let maxSanitizedObjectEntries = 256
-    static let maxSanitizedDepth = 12
+public final class CmuxEventBus: @unchecked Sendable {
+    public static let shared = CmuxEventBus(eventLogURL: defaultEventLogURL())
+    public static let protocolName = "cmux-events"
+    public static let protocolVersion = 1
+    public static let defaultHeartbeatIntervalSeconds: TimeInterval = 15
+    public static let defaultRetainedEventLimit = 4_096
+    public static let defaultMaxEventLineBytes = 16 * 1024
+    public static let defaultMaxEventLogBytes: UInt64 = 16 * 1024 * 1024
+    public static let defaultMaxPendingEventLogLines = 1_024
+    public static let defaultMaxPendingEventsPerSubscription = 1_024
+    public static let maxSanitizedStringBytes = 8 * 1024
+    public static let maxSanitizedArrayItems = 256
+    public static let maxSanitizedObjectEntries = 256
+    public static let maxSanitizedDepth = 12
     private static let isoFormatter: ISO8601DateFormatter = { let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return formatter }()
     private static let isoFormatterLock = NSLock()
 
@@ -135,7 +135,7 @@ final class CmuxEventBus: @unchecked Sendable {
     private var retained: [[String: Any]] = []
     private var subscriptions: [UUID: CmuxEventSubscription] = [:]
 
-    init(
+    public init(
         retainedEventLimit: Int = CmuxEventBus.defaultRetainedEventLimit,
         eventLogURL: URL? = nil,
         maxEventLogBytes: UInt64 = CmuxEventBus.defaultMaxEventLogBytes,
@@ -155,13 +155,13 @@ final class CmuxEventBus: @unchecked Sendable {
         }
     }
 
-    var latestSequence: Int64 {
+    public var latestSequence: Int64 {
         lock.lock()
         defer { lock.unlock() }
         return nextSequence - 1
     }
 
-    func publish(
+    public func publish(
         name: String,
         category: String,
         source: String,
@@ -214,7 +214,7 @@ final class CmuxEventBus: @unchecked Sendable {
         }
     }
 
-    func subscribe(
+    public func subscribe(
         afterSequence: Int64?,
         names: Set<String>,
         categories: Set<String>
@@ -277,7 +277,7 @@ final class CmuxEventBus: @unchecked Sendable {
         return CmuxEventSubscriptionSnapshot(subscription: subscription, replay: replay, ack: ack)
     }
 
-    func unsubscribe(_ subscription: CmuxEventSubscription) {
+    public func unsubscribe(_ subscription: CmuxEventSubscription) {
         lock.lock()
         subscriptions.removeValue(forKey: subscription.id)
         lock.unlock()
@@ -292,7 +292,7 @@ final class CmuxEventBus: @unchecked Sendable {
         lock.unlock()
     }
 
-    func heartbeat(subscription: CmuxEventSubscription) -> [String: Any] {
+    public func heartbeat(subscription: CmuxEventSubscription) -> [String: Any] {
         [
             "type": "heartbeat",
             "protocol": Self.protocolName,
@@ -304,14 +304,14 @@ final class CmuxEventBus: @unchecked Sendable {
         ]
     }
 
-    func retainedSnapshot() -> [[String: Any]] {
+    public func retainedSnapshot() -> [[String: Any]] {
         lock.lock()
         defer { lock.unlock() }
         return retained
     }
 
     #if DEBUG
-    func resetForTesting() {
+    public func resetForTesting() {
         lock.lock()
         nextSequence = 1
         retained.removeAll()
@@ -322,26 +322,26 @@ final class CmuxEventBus: @unchecked Sendable {
         eventLogWriter?.resetForTesting()
     }
 
-    func flushEventLogForTesting() {
+    public func flushEventLogForTesting() {
         eventLogWriter?.flushForTesting()
     }
 
-    func setEventLogFlushSuspendedForTesting(_ suspended: Bool) {
+    public func setEventLogFlushSuspendedForTesting(_ suspended: Bool) {
         eventLogWriter?.setFlushSuspendedForTesting(suspended)
     }
 
-    func eventLogBacklogSnapshotForTesting() -> (pending: Int, dropped: Int) {
+    public func eventLogBacklogSnapshotForTesting() -> (pending: Int, dropped: Int) {
         eventLogWriter?.backlogSnapshotForTesting() ?? (0, 0)
     }
     #endif
 
-    static func defaultEventLogURL() -> URL {
+    public static func defaultEventLogURL() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("events.jsonl")
     }
 
-    static func encodeLine(_ object: [String: Any]) -> String? {
+    public static func encodeLine(_ object: [String: Any]) -> String? {
         let clean = sanitizedJSONValue(object)
         guard JSONSerialization.isValidJSONObject(clean),
               let data = try? JSONSerialization.data(withJSONObject: clean, options: [.sortedKeys]),
@@ -351,7 +351,7 @@ final class CmuxEventBus: @unchecked Sendable {
         return string.replacingOccurrences(of: "\n", with: "\\n")
     }
 
-    static func int64(_ value: Any?) -> Int64? {
+    public static func int64(_ value: Any?) -> Int64? {
         if let string = value as? String { return Int64(string) }
         guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
         let type = String(cString: number.objCType)
@@ -360,7 +360,7 @@ final class CmuxEventBus: @unchecked Sendable {
         return number.compare(NSNumber(value: int64)) == .orderedSame ? int64 : nil
     }
 
-    static func sanitizedJSONValue(_ value: Any) -> Any {
+    public static func sanitizedJSONValue(_ value: Any) -> Any {
         sanitizedJSONValue(value, depth: 0)
     }
 
@@ -466,5 +466,5 @@ final class CmuxEventBus: @unchecked Sendable {
         return result + suffix
     }
 
-    static func isoTimestamp(_ date: Date) -> String { isoFormatterLock.lock(); defer { isoFormatterLock.unlock() }; return isoFormatter.string(from: date) }
+    public static func isoTimestamp(_ date: Date) -> String { isoFormatterLock.lock(); defer { isoFormatterLock.unlock() }; return isoFormatter.string(from: date) }
 }

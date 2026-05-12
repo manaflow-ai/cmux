@@ -105,6 +105,9 @@ jobs:
             sleep $((attempt * 5))
           done
 
+      - name: Run CMUXEventsCore package tests
+        run: swift test --package-path Packages/CMUXEventsCore
+
       - name: Run unit tests
         env:
           CMUX_SKIP_ZIG_BUILD: ${{ matrix.skip_zig && '1' || '0' }}

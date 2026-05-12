@@ -1,4 +1,5 @@
 import AppKit
+import CMUXEventsCore
 import Foundation
 import UserNotifications
 import Bonsplit
