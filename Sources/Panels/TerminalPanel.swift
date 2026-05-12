@@ -3,7 +3,7 @@ import Combine
 import AppKit
 import Bonsplit
 
-struct TerminalSidekickState: Codable, Equatable, Sendable {
+nonisolated struct TerminalSidekickState: Codable, Equatable, Sendable {
     static let defaultSplitRatio = 0.4
     private static let minimumSplitRatio = 0.25
     private static let maximumSplitRatio = 0.7
@@ -81,11 +81,16 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published var viewReattachToken: UInt64 = 0
 
     @Published private(set) var sidekickState = TerminalSidekickState()
-    @Published private(set) var sidekickBrowserPanel: BrowserPanel?
+    @Published private(set) var sidekickBrowserPanel: BrowserPanel? {
+        didSet {
+            observeSidekickBrowserPanelChanges()
+        }
+    }
 
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
 
     private var cancellables = Set<AnyCancellable>()
+    private var sidekickBrowserPanelCancellable: AnyCancellable?
 
     var displayTitle: String {
         title.isEmpty ? "Terminal" : title
@@ -301,6 +306,14 @@ final class TerminalPanel: Panel, ObservableObject {
         TerminalSidekickState.normalizedURLString(
             sidekickBrowserPanel?.preferredURLStringForOmnibar() ?? sidekickState.urlString
         )
+    }
+
+    private func observeSidekickBrowserPanelChanges() {
+        sidekickBrowserPanelCancellable = sidekickBrowserPanel?.objectWillChange.sink { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.objectWillChange.send()
+            }
+        }
     }
 
     @discardableResult

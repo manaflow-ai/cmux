@@ -221,7 +221,7 @@ struct SessionGitBranchSnapshot: Codable, Sendable {
     var isDirty: Bool
 }
 
-struct SessionTerminalSidekickSnapshot: Codable, Equatable, Sendable {
+nonisolated struct SessionTerminalSidekickSnapshot: Codable, Equatable, Sendable {
     var urlString: String?
     var isOpen: Bool
     var splitRatio: Double

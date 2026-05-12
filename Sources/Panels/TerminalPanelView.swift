@@ -18,42 +18,58 @@ struct TerminalPanelView: View {
     let hasUnreadNotification: Bool
     let onFocus: () -> Void
     let onTriggerFlash: () -> Void
+    @State private var containerSize: CGSize = .zero
 
     var body: some View {
-        GeometryReader { proxy in
-            if panel.sidekickState.isOpen, let sidekickPanel = panel.sidekickBrowserPanel {
-                HStack(spacing: 0) {
-                    terminalSurface
-                        .frame(
-                            width: TerminalSidekickLayout.terminalWidth(
-                                totalWidth: proxy.size.width,
-                                splitRatio: panel.sidekickState.splitRatio
-                            )
-                        )
-                    Rectangle()
-                        .fill(appearance.dividerColor.opacity(0.9))
-                        .frame(width: TerminalSidekickLayout.dividerWidth)
-                    TerminalSidekickView(
-                        browserPanel: sidekickPanel,
-                        onNavigate: { panel.navigateSidekick(input: $0) },
-                        onRecordCurrentURL: { panel.recordSidekickCurrentURL($0) },
-                        onClose: { panel.closeSidekick() }
-                    )
-                    .frame(
-                        width: TerminalSidekickLayout.sidekickWidth(
-                            totalWidth: proxy.size.width,
-                            splitRatio: panel.sidekickState.splitRatio
-                        )
-                    )
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                }
-                .frame(width: proxy.size.width, height: proxy.size.height)
-            } else {
-                terminalSurface
-                    .frame(width: proxy.size.width, height: proxy.size.height)
-            }
+        ZStack(alignment: .leading) {
+            content
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onGeometryChange(for: CGSize.self) { proxy in
+            proxy.size
+        } action: { newSize in
+            containerSize = newSize
         }
         .animation(.easeInOut(duration: 0.16), value: panel.sidekickState.isOpen)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if panel.sidekickState.isOpen, let sidekickPanel = panel.sidekickBrowserPanel {
+            let terminalWidth = TerminalSidekickLayout.terminalWidth(
+                totalWidth: containerSize.width,
+                splitRatio: panel.sidekickState.splitRatio
+            )
+            let sidekickWidth = TerminalSidekickLayout.sidekickWidth(
+                totalWidth: containerSize.width,
+                splitRatio: panel.sidekickState.splitRatio
+            )
+
+            HStack(spacing: 0) {
+                terminalSurface
+                    .frame(width: terminalWidth, maxHeight: .infinity)
+                Rectangle()
+                    .fill(appearance.dividerColor.opacity(0.9))
+                    .frame(width: TerminalSidekickLayout.dividerWidth)
+                TerminalSidekickView(
+                    snapshot: TerminalSidekickBrowserSnapshot(browserPanel: sidekickPanel),
+                    webView: sidekickPanel.webView,
+                    onGoBack: { sidekickPanel.goBack() },
+                    onGoForward: { sidekickPanel.goForward() },
+                    onReload: { sidekickPanel.reload() },
+                    onStopLoading: { sidekickPanel.stopLoading() },
+                    onNavigate: { panel.navigateSidekick(input: $0) },
+                    onRecordCurrentURL: { panel.recordSidekickCurrentURL($0) },
+                    onClose: { panel.closeSidekick() }
+                )
+                .frame(width: sidekickWidth, maxHeight: .infinity)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            terminalSurface
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 
     private var terminalSurface: some View {
@@ -102,8 +118,33 @@ private enum TerminalSidekickLayout {
     }
 }
 
+private struct TerminalSidekickBrowserSnapshot: Equatable {
+    let canGoBack: Bool
+    let canGoForward: Bool
+    let isLoading: Bool
+    let shouldRenderWebView: Bool
+    let currentURL: URL?
+    let preferredAddressText: String?
+    let webViewInstanceID: UUID
+
+    init(browserPanel: BrowserPanel) {
+        self.canGoBack = browserPanel.canGoBack
+        self.canGoForward = browserPanel.canGoForward
+        self.isLoading = browserPanel.isLoading
+        self.shouldRenderWebView = browserPanel.shouldRenderWebView
+        self.currentURL = browserPanel.currentURL
+        self.preferredAddressText = browserPanel.preferredURLStringForOmnibar()
+        self.webViewInstanceID = browserPanel.webViewInstanceID
+    }
+}
+
 private struct TerminalSidekickView: View {
-    @ObservedObject var browserPanel: BrowserPanel
+    let snapshot: TerminalSidekickBrowserSnapshot
+    let webView: WKWebView
+    let onGoBack: () -> Void
+    let onGoForward: () -> Void
+    let onReload: () -> Void
+    let onStopLoading: () -> Void
     let onNavigate: (String) -> Void
     let onRecordCurrentURL: (URL?) -> Void
     let onClose: () -> Void
@@ -122,18 +163,22 @@ private struct TerminalSidekickView: View {
         .accessibilityIdentifier("TerminalSidekickDrawer")
         .accessibilityLabel(String(localized: "terminalSidekick.accessibilityLabel", defaultValue: "Terminal sidekick browser"))
         .onAppear {
-            syncAddressFromPanel()
+            syncAddressFromSnapshot()
         }
-        .onChange(of: browserPanel.currentURL) { _, url in
+        .onChange(of: snapshot.currentURL) { _, url in
             onRecordCurrentURL(url)
             guard !addressFocused else { return }
-            syncAddressFromPanel()
+            syncAddressFromSnapshot()
+        }
+        .onChange(of: snapshot.preferredAddressText) { _, _ in
+            guard !addressFocused else { return }
+            syncAddressFromSnapshot()
         }
         .onChange(of: addressFocused) { _, focused in
             if focused {
-                addressText = browserPanel.preferredURLStringForOmnibar() ?? addressText
+                addressText = snapshot.preferredAddressText ?? addressText
             } else {
-                syncAddressFromPanel()
+                syncAddressFromSnapshot()
             }
         }
     }
@@ -143,29 +188,29 @@ private struct TerminalSidekickView: View {
             toolbarButton(
                 systemName: "chevron.left",
                 help: String(localized: "browser.goBack", defaultValue: "Go Back"),
-                action: { browserPanel.goBack() }
+                action: onGoBack
             )
-            .disabled(!browserPanel.canGoBack)
-            .opacity(browserPanel.canGoBack ? 1 : 0.4)
+            .disabled(!snapshot.canGoBack)
+            .opacity(snapshot.canGoBack ? 1 : 0.4)
 
             toolbarButton(
                 systemName: "chevron.right",
                 help: String(localized: "browser.goForward", defaultValue: "Go Forward"),
-                action: { browserPanel.goForward() }
+                action: onGoForward
             )
-            .disabled(!browserPanel.canGoForward)
-            .opacity(browserPanel.canGoForward ? 1 : 0.4)
+            .disabled(!snapshot.canGoForward)
+            .opacity(snapshot.canGoForward ? 1 : 0.4)
 
             toolbarButton(
-                systemName: browserPanel.isLoading ? "xmark" : "arrow.clockwise",
-                help: browserPanel.isLoading
+                systemName: snapshot.isLoading ? "xmark" : "arrow.clockwise",
+                help: snapshot.isLoading
                     ? String(localized: "browser.stop", defaultValue: "Stop")
                     : String(localized: "browser.reload", defaultValue: "Reload"),
                 action: {
-                    if browserPanel.isLoading {
-                        browserPanel.stopLoading()
+                    if snapshot.isLoading {
+                        onStopLoading()
                     } else {
-                        browserPanel.reload()
+                        onReload()
                     }
                 }
             )
@@ -207,9 +252,9 @@ private struct TerminalSidekickView: View {
 
     @ViewBuilder
     private var content: some View {
-        if browserPanel.shouldRenderWebView {
-            TerminalSidekickWebViewRepresentable(browserPanel: browserPanel)
-                .id(browserPanel.webViewInstanceID)
+        if snapshot.shouldRenderWebView {
+            TerminalSidekickWebViewRepresentable(webView: webView)
+                .id(snapshot.webViewInstanceID)
                 .accessibilityIdentifier("TerminalSidekickWebView")
         } else {
             Color(nsColor: .textBackgroundColor)
@@ -239,8 +284,8 @@ private struct TerminalSidekickView: View {
         addressFocused = false
     }
 
-    private func syncAddressFromPanel() {
-        addressText = browserPanel.preferredURLStringForOmnibar() ?? ""
+    private func syncAddressFromSnapshot() {
+        addressText = snapshot.preferredAddressText ?? ""
     }
 }
 
@@ -256,10 +301,10 @@ private struct TerminalSidekickToolbarButtonStyle: ButtonStyle {
 }
 
 private struct TerminalSidekickWebViewRepresentable: NSViewRepresentable {
-    let browserPanel: BrowserPanel
+    let webView: WKWebView
 
     func makeNSView(context: Context) -> WKWebView {
-        browserPanel.webView
+        webView
     }
 
     func updateNSView(_ nsView: WKWebView, context: Context) {
