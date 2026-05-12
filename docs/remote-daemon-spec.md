@@ -1,6 +1,6 @@
 # Remote SSH Living Spec
 
-Last updated: March 12, 2026
+Last updated: May 12, 2026
 Tracking issue: https://github.com/manaflow-ai/cmux/issues/151
 Primary PR: https://github.com/manaflow-ai/cmux/pull/1296
 CLI relay PR: https://github.com/manaflow-ai/cmux/pull/374
@@ -147,6 +147,7 @@ Recompute effective size on:
 | T-003 | no `--name` | DONE |
 | T-004 | reconnect API success/error paths | DONE |
 | T-005 | retry count visible in daemon error detail | DONE |
+| T-006 | Cloud VM sleep/network interruption manual smoke | DOCUMENTED |
 
 ### 7.2 CLI Relay
 
@@ -212,3 +213,13 @@ Before declaring browser proxying complete:
 1. `CMUX_SSH_TEST_DOCKER_HOST` sets the SSH destination host/IP used by docker-backed SSH fixtures (default `127.0.0.1`).
 2. `CMUX_SSH_TEST_DOCKER_BIND_ADDR` sets the bind address used in fixture container publish mappings (default `127.0.0.1`).
 3. Defaults preserve loopback behavior on a single host; override both when docker runs on a different host (for example VM -> host OrbStack).
+
+### 10.4 Manual Cloud VM Sleep/Network Smoke
+Use this smoke when validating Cloud VM SSH resilience against a real provider VM:
+
+1. Create or select a running Cloud VM and open it with `cmux vm ssh <vm-id>` from the tagged app build under test.
+2. In the remote terminal, start a durable sentinel command such as `while :; do date; sleep 2; done` and verify output is advancing.
+3. Interrupt the local client network path without destroying the VM: sleep the Mac, disable Wi-Fi, or block outbound network briefly.
+4. Verify the terminal pane and remote status payload enter `reconnecting`, with detail that includes the SSH retry attempt and exit status.
+5. Restore the network or wake the Mac. Verify the same pane returns to `connected`, the sentinel command continues or the shell remains usable, and browser panels in the same remote workspace keep using the remote proxy path.
+6. Repeat with the VM stopped or destroyed during reconnect. Verify retries exhaust into `disconnected` or `error`, the pane shows the final SSH status instead of falling back to a local prompt, and `workspace.remote.status` clearly reports that the remote session ended.
