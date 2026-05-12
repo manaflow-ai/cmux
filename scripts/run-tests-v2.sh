@@ -52,11 +52,12 @@ launch_and_wait() {
   # Force socket mode for deterministic automation runs, independent of prior user settings.
   defaults write com.cmuxterm.app.debug socketControlMode -string full >/dev/null 2>&1 || true
 
+  SOCK="$HOME/Library/Application Support/cmux/com.cmuxterm.app.dev.${RUN_TAG}.sock"
+  rm -f "$SOCK"
+
   # Launch directly with UI test mode enabled so startup follows deterministic test codepaths.
   CMUX_TAG="$RUN_TAG" CMUX_UI_TEST_MODE=1 "$APP/Contents/MacOS/cmux DEV" >/dev/null 2>&1 &
 
-  SOCK="$HOME/Library/Application Support/cmux/com.cmuxterm.app.dev.${RUN_TAG}.sock"
-  rm -f "$SOCK"
   for _ in {1..120}; do
     if [ -n "$SOCK" ] && [ -S "$SOCK" ]; then
       break

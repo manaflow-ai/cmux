@@ -37,7 +37,15 @@ import json
 import base64
 import glob
 import re
+import sys
 from typing import Optional, List, Tuple, Union
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_SCRIPTS_DIR = os.path.join(_REPO_ROOT, "scripts")
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+from cmux_socket_paths import socket_path_for_file_name as _shared_socket_path_for_file_name  # noqa: E402
 
 
 class cmuxError(Exception):
@@ -54,7 +62,6 @@ _LAST_SOCKET_PATH_FILES = [
     "/tmp/cmux-last-socket-path",
 ]
 _DEFAULT_DEBUG_BUNDLE_ID = "com.cmuxterm.app.debug"
-_UNIX_SOCKET_PATH_MAX_LENGTH = 103
 
 
 def _sanitize_tag_slug(raw: str) -> str:
@@ -71,29 +78,8 @@ def _sanitize_bundle_suffix(raw: str) -> str:
     return cleaned or "agent"
 
 
-def _fnv1a32_hex(value: str) -> str:
-    hash_value = 2_166_136_261
-    for byte in value.encode("utf-8"):
-        hash_value ^= byte
-        hash_value = (hash_value * 16_777_619) & 0xFFFFFFFF
-    return f"{hash_value:08x}"
-
-
 def _socket_path_for_file_name(file_name: str) -> str:
-    candidate = os.path.join(_APP_SUPPORT_DIR, file_name)
-    if len(candidate.encode("utf-8")) <= _UNIX_SOCKET_PATH_MAX_LENGTH:
-        return candidate
-
-    budget = _UNIX_SOCKET_PATH_MAX_LENGTH - len(_APP_SUPPORT_DIR.encode("utf-8")) - 1
-    suffix = ".sock"
-    stem = file_name[:-len(suffix)] if file_name.endswith(suffix) else file_name
-    hash_suffix = f"-{_fnv1a32_hex(file_name)}"
-    stem_budget = budget - len(hash_suffix.encode("utf-8")) - len(suffix.encode("utf-8"))
-    if stem_budget < 1:
-        return candidate
-
-    shortened_stem = stem[:stem_budget].strip(".-") or "cmux"
-    return os.path.join(_APP_SUPPORT_DIR, f"{shortened_stem}{hash_suffix}{suffix}")
+    return str(_shared_socket_path_for_file_name(file_name))
 
 
 def _quote_option_value(value: str) -> str:

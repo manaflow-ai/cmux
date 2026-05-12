@@ -165,4 +165,4 @@ jobs:
         run: |
           pkill -f "cmux DEV ${PERF_TAG}.app/Contents/MacOS/cmux DEV" || true
           rm -f "/tmp/cmux-debug-${PERF_TAG}.sock"
-          rm -f "$HOME/Library/Application Support/cmux/com.cmuxterm.app.dev.${PERF_TAG}.sock"
+          rm -f "$(python3 scripts/cmux_socket_paths.py "com.cmuxterm.app.dev.${PERF_TAG}.sock")"

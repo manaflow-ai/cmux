@@ -13,6 +13,8 @@ import tempfile
 import time
 import xml.etree.ElementTree as ET
 
+from cmux_socket_paths import socket_path_for_file_name
+
 
 def sanitize_bundle(raw: str) -> str:
     cleaned = re.sub(r"[^a-z0-9]+", ".", raw.lower()).strip(".")
@@ -24,32 +26,6 @@ def sanitize_path(raw: str) -> str:
     cleaned = re.sub(r"[^a-z0-9]+", "-", raw.lower()).strip("-")
     cleaned = re.sub(r"-+", "-", cleaned)
     return cleaned or "perf"
-
-
-def fnv1a32_hex(value: str) -> str:
-    hash_value = 2_166_136_261
-    for byte in value.encode("utf-8"):
-        hash_value ^= byte
-        hash_value = (hash_value * 16_777_619) & 0xFFFFFFFF
-    return f"{hash_value:08x}"
-
-
-def socket_path_for_file_name(file_name: str) -> pathlib.Path:
-    directory = pathlib.Path(os.path.expanduser("~/Library/Application Support/cmux"))
-    candidate = directory / file_name
-    max_path_length = 103
-    if len(str(candidate).encode("utf-8")) <= max_path_length:
-        return candidate
-
-    budget = max_path_length - len(str(directory).encode("utf-8")) - 1
-    suffix = ".sock"
-    stem = file_name[:-len(suffix)] if file_name.endswith(suffix) else file_name
-    hash_suffix = f"-{fnv1a32_hex(file_name)}"
-    stem_budget = budget - len(hash_suffix.encode("utf-8")) - len(suffix)
-    if stem_budget < 1:
-        return candidate
-    shortened_stem = stem[:stem_budget].strip(".-") or "cmux"
-    return directory / f"{shortened_stem}{hash_suffix}{suffix}"
 
 
 def now_ms() -> float:

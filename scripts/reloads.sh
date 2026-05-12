@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="cmux STAGING"
 BUNDLE_ID="com.cmuxterm.app.staging"
 BASE_APP_NAME="cmux"
@@ -198,7 +199,7 @@ if [[ -f "$INFO_PLIST" ]]; then
   STAGING_SLUG="${TAG_SLUG:-staging}"
   APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
   CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-${STAGING_SLUG}.sock"
-  CMUX_SOCKET_PATH_VALUE="${APP_SUPPORT_DIR}/com.cmuxterm.app.staging.sock"
+  CMUX_SOCKET_PATH_VALUE="$(python3 "$SCRIPT_DIR/cmux_socket_paths.py" "com.cmuxterm.app.staging.sock")"
   write_last_socket_path "$CMUX_SOCKET_PATH_VALUE"
   /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
   /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUXD_UNIX_PATH \"${CMUXD_SOCKET}\"" "$INFO_PLIST" 2>/dev/null \

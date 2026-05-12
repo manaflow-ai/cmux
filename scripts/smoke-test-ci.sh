@@ -2,7 +2,8 @@
 # Smoke test for CI: launch the app, send a command, verify it stays alive for 15 seconds.
 set -euo pipefail
 
-SOCKET_PATH="$HOME/Library/Application Support/cmux/com.cmuxterm.app.dev.sock"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SOCKET_PATH="$(python3 "$SCRIPT_DIR/cmux_socket_paths.py" "com.cmuxterm.app.dev.sock")"
 STABILITY_WAIT=15
 
 echo "=== Smoke Test ==="

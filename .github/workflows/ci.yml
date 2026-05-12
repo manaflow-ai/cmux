@@ -466,7 +466,7 @@ jobs:
           fi
 
           TAG="ci-lag"
-          SOCK="$HOME/Library/Application Support/cmux/com.cmuxterm.app.dev.${TAG}.sock"
+          SOCK="$(python3 scripts/cmux_socket_paths.py "com.cmuxterm.app.dev.${TAG}.sock")"
           BUNDLE_ID="$(
             /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist" 2>/dev/null \
               || echo 'com.cmuxterm.app.debug'
