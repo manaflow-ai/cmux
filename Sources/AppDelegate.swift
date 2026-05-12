@@ -3238,7 +3238,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func saveSessionSnapshot(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false,
-        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        includeRecoverableRoutes: Bool? = nil
     ) -> Bool {
         if Self.shouldSkipSessionSaveDuringRestore(
             isApplyingSessionRestore: isApplyingSessionRestore,
@@ -3265,9 +3266,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
+        let shouldIncludeRecoverableRoutes = includeRecoverableRoutes ?? Self.shouldIncludeRecoverableRoutesInSessionSnapshot(
+            isTerminatingApp: isTerminatingApp
+        )
         guard let snapshot = buildSessionSnapshot(
             includeScrollback: includeScrollback,
-            restorableAgentIndex: restorableAgentIndex
+            restorableAgentIndex: restorableAgentIndex,
+            includeRecoverableRoutes: shouldIncludeRecoverableRoutes
         ) else {
             persistSessionSnapshot(
                 nil,
@@ -3291,13 +3296,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
     func debugBenchmarkSessionSnapshot(
         includeScrollback: Bool,
-        persist: Bool
+        persist: Bool,
+        includeRecoverableRoutes: Bool = true
     ) -> [String: Any] {
         SessionSnapshotDebugBenchmark.run(
             includeScrollback: includeScrollback,
             persist: persist,
             buildSnapshot: { [self] includeScrollback in
-                buildSessionSnapshot(includeScrollback: includeScrollback)
+                buildSessionSnapshot(
+                    includeScrollback: includeScrollback,
+                    includeRecoverableRoutes: includeRecoverableRoutes
+                )
             },
             persistSnapshot: { [self] snapshot in
                 persistSessionSnapshot(
@@ -3322,6 +3331,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     nonisolated static func shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: Bool) -> Bool {
         !isTerminatingApp
+    }
+
+    nonisolated static func shouldIncludeRecoverableRoutesInSessionSnapshot(isTerminatingApp: Bool) -> Bool {
+        isTerminatingApp
     }
 
     nonisolated static func shouldSkipSessionSaveDuringRestore(
@@ -3539,9 +3552,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func buildSessionSnapshot(
         includeScrollback: Bool,
-        restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil
+        restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        includeRecoverableRoutes: Bool = true
     ) -> AppSessionSnapshot? {
-        let routes = sortedMainWindowRoutesForSessionSnapshot()
+        let routes = sortedMainWindowRoutesForSessionSnapshot(
+            includeRecoverableRoutes: includeRecoverableRoutes
+        )
 
         guard !routes.isEmpty else { return nil }
         let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()

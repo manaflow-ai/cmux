@@ -174,7 +174,8 @@ extension AppDelegate {
     }
 
     private func sortedMainWindowRoutesForSessionSnapshot(
-        registeredRouteOrdering: RegisteredMainWindowSessionRouteOrdering
+        registeredRouteOrdering: RegisteredMainWindowSessionRouteOrdering,
+        includeRecoverableRoutes: Bool
     ) -> [SessionSnapshotMainWindowRoute] {
         var seen: Set<UUID> = []
         var routes: [SessionSnapshotMainWindowRoute] = []
@@ -184,19 +185,29 @@ extension AppDelegate {
             routes.append(route)
         }
 
-        for route in recoverableMainWindowRoutesForSessionSnapshot() where seen.insert(route.windowId).inserted {
-            routes.append(route)
+        if includeRecoverableRoutes {
+            for route in recoverableMainWindowRoutesForSessionSnapshot() where seen.insert(route.windowId).inserted {
+                routes.append(route)
+            }
         }
 
         return routes
     }
 
-    func sortedMainWindowRoutesForSessionSnapshot() -> [SessionSnapshotMainWindowRoute] {
-        sortedMainWindowRoutesForSessionSnapshot(registeredRouteOrdering: .keyWindowFirst)
+    func sortedMainWindowRoutesForSessionSnapshot(
+        includeRecoverableRoutes: Bool = true
+    ) -> [SessionSnapshotMainWindowRoute] {
+        sortedMainWindowRoutesForSessionSnapshot(
+            registeredRouteOrdering: .keyWindowFirst,
+            includeRecoverableRoutes: includeRecoverableRoutes
+        )
     }
 
     func sortedMainWindowRoutesForSessionAutosaveFingerprint() -> [SessionSnapshotMainWindowRoute] {
-        sortedMainWindowRoutesForSessionSnapshot(registeredRouteOrdering: .stableWindowId)
+        sortedMainWindowRoutesForSessionSnapshot(
+            registeredRouteOrdering: .stableWindowId,
+            includeRecoverableRoutes: false
+        )
     }
 
     func retireRecoverableMainWindowRoutesWithoutRegisteredTerminalSurfaces(reason: String) {

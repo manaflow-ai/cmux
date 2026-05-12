@@ -320,10 +320,72 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
         TerminalController.shared.setActiveTabManager(nil)
 
-        let payload = app.debugBenchmarkSessionSnapshot(includeScrollback: false, persist: false)
+        let payload = app.debugBenchmarkSessionSnapshot(
+            includeScrollback: false,
+            persist: false,
+            includeRecoverableRoutes: true
+        )
         let shape = try XCTUnwrap(payload["shape"] as? [String: Any])
         XCTAssertEqual(shape["windows"] as? Int, 2)
         XCTAssertEqual(shape["workspaces"] as? Int, 2)
+    }
+
+    func testSessionSnapshotExcludesRecoveredWindowRouteDuringNormalCloseSave() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let registeredWindowId = UUID()
+        let recoveredWindowId = UUID()
+        let registeredWindow = makeMainWindow(id: registeredWindowId)
+        let recoveredWindow = makeMainWindow(id: recoveredWindowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: registeredWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
+            registeredWindow.orderOut(nil)
+            recoveredWindow.orderOut(nil)
+        }
+
+        let registeredManager = TabManager()
+        let recoveredManager = TabManager()
+        app.registerMainWindow(
+            registeredWindow,
+            windowId: registeredWindowId,
+            tabManager: registeredManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.registerMainWindow(
+            recoveredWindow,
+            windowId: recoveredWindowId,
+            tabManager: recoveredManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        let recoveredWorkspace = try XCTUnwrap(recoveredManager.selectedWorkspace)
+        let recoveredTerminal = try XCTUnwrap(recoveredWorkspace.focusedTerminalPanel)
+        XCTAssertTrue(TerminalSurfaceRegistry.shared.surface(id: recoveredTerminal.id) === recoveredTerminal.surface)
+        XCTAssertFalse(AppDelegate.shouldIncludeRecoverableRoutesInSessionSnapshot(isTerminatingApp: false))
+        XCTAssertTrue(AppDelegate.shouldIncludeRecoverableRoutesInSessionSnapshot(isTerminatingApp: true))
+
+        app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
+        TerminalController.shared.setActiveTabManager(nil)
+
+        let payload = app.debugBenchmarkSessionSnapshot(
+            includeScrollback: false,
+            persist: false,
+            includeRecoverableRoutes: false
+        )
+        let shape = try XCTUnwrap(payload["shape"] as? [String: Any])
+        XCTAssertEqual(shape["windows"] as? Int, 1)
+        XCTAssertEqual(shape["workspaces"] as? Int, 1)
     }
 
     func testSessionAutosaveFingerprintIgnoresKeyWindowOrdering() throws {
