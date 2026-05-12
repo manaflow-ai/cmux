@@ -583,7 +583,7 @@ private struct FeedListView: View {
                               defaultValue: "Task-spawned subagents will appear here as parent and child activity arrives.")
         }
 
-        VStack(spacing: 4) {
+        return VStack(spacing: 4) {
             Text(title)
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
