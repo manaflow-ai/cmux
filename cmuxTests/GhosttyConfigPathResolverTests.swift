@@ -175,9 +175,35 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
 
             XCTAssertEqual(materializedURL, configGhosttyURL)
             XCTAssertTrue(FileManager.default.fileExists(atPath: configGhosttyURL.path))
-            XCTAssertEqual(try String(contentsOf: configGhosttyURL, encoding: .utf8), "")
+            let contents = try String(contentsOf: configGhosttyURL, encoding: .utf8)
+            XCTAssertFalse(contents.isEmpty)
+            XCTAssertTrue(
+                contents.contains("theme = light:Apple System Colors Light,dark:Apple System Colors"),
+                contents
+            )
             XCTAssertEqual(try String(contentsOf: legacyConfigURL, encoding: .utf8), "background = #000000\n")
             XCTAssertNil(fileManager.creationError)
+        }
+    }
+
+    func testMaterializeWritesManagedThemeConfigForCleanCmuxConfigDirectory() throws {
+        try withTemporaryHomeDirectory { homeDirectory in
+            let environment = ConfigSourceEnvironment(
+                homeDirectoryURL: homeDirectory,
+                currentBundleIdentifier: "com.cmuxterm.app"
+            )
+
+            let materializedURL = try environment.materializeCmuxConfigFileIfNeeded()
+            let contents = try String(contentsOf: materializedURL, encoding: .utf8)
+
+            XCTAssertEqual(materializedURL.lastPathComponent, "config.ghostty")
+            XCTAssertFalse(contents.isEmpty)
+            XCTAssertTrue(contents.contains("# cmux-managed-theme: begin"), contents)
+            XCTAssertTrue(
+                contents.contains("theme = light:Apple System Colors Light,dark:Apple System Colors"),
+                contents
+            )
+            XCTAssertTrue(contents.contains("# cmux-managed-theme: end"), contents)
         }
     }
 

@@ -182,6 +182,136 @@ final class AppearanceSettingsTests: XCTestCase {
         XCTAssertEqual(synchronizedSource, "settings.themePicker")
     }
 
+    func testSelectingAppearanceWritesManagedGhosttyConfigBeforeTerminalRefresh() throws {
+        let fakeSurface = try XCTUnwrap(UnsafeMutableRawPointer(bitPattern: 0x3827))
+
+        try withTemporaryHomeDirectory { homeDirectory in
+            let environment = ConfigSourceEnvironment(
+                homeDirectoryURL: homeDirectory,
+                currentBundleIdentifier: "com.cmuxterm.app"
+            )
+            let suiteName = "AppearanceSettingsTests.ManagedGhosttyConfig.\(UUID().uuidString)"
+            guard let defaults = UserDefaults(suiteName: suiteName) else {
+                XCTFail("Failed to create isolated UserDefaults suite")
+                return
+            }
+            defer { defaults.removePersistentDomain(forName: suiteName) }
+
+            for mode in [AppearanceMode.light, .dark, .system] {
+                try? FileManager.default.removeItem(at: environment.cmuxConfigURL)
+                var events: [String] = []
+                let liveEnvironment = AppearanceSettings.LiveApplyEnvironment(
+                    setApplicationAppearance: { appearance in
+                        events.append("app:\(Self.appearanceLabel(appearance))")
+                    },
+                    synchronizeTerminalThemeWithAppearance: { _, source in
+                        events.append("sync:\(source)")
+                        GhosttySurfaceConfigurationRefresh.applyAfterAppConfigReload(
+                            to: fakeSurface,
+                            source: source,
+                            reloadSurfaceConfiguration: { surface, soft, source in
+                                XCTAssertEqual(surface, fakeSurface)
+                                XCTAssertTrue(soft)
+                                events.append("surface-reload:\(source)")
+                            },
+                            refreshHostBackground: {
+                                events.append("host-background")
+                            },
+                            forceRefresh: { reason in
+                                events.append("force-refresh:\(reason)")
+                            }
+                        )
+                    },
+                    systemAppearance: {
+                        NSAppearance(named: .aqua)
+                    },
+                    writeManagedGhosttyConfig: { selectedMode, _, source in
+                        XCTAssertEqual(selectedMode, mode)
+                        events.append("write:\(source)")
+                        try? environment.writeCmuxConfigContents(Self.managedGhosttyThemeFixture)
+                    }
+                )
+
+                let selected = AppearanceSettings.selectMode(
+                    mode,
+                    defaults: defaults,
+                    source: "settings.themePicker",
+                    environment: liveEnvironment
+                )
+
+                XCTAssertEqual(selected, mode)
+                let contents = try String(contentsOf: environment.cmuxConfigURL, encoding: .utf8)
+                XCTAssertFalse(contents.isEmpty)
+                XCTAssertTrue(contents.contains(Self.expectedManagedThemeDirective), contents)
+                XCTAssertEqual(events.first, "write:settings.themePicker")
+                XCTAssertTrue(events.contains("surface-reload:settings.themePicker"))
+                XCTAssertTrue(
+                    events.contains("force-refresh:\(GhosttySurfaceConfigurationRefresh.forceRefreshReason)")
+                )
+            }
+        }
+    }
+
+    func testSystemAppearanceLaunchWritesManagedGhosttyConfigForLightAndDarkSystemAppearances() throws {
+        try withTemporaryHomeDirectory { homeDirectory in
+            let environment = ConfigSourceEnvironment(
+                homeDirectoryURL: homeDirectory,
+                currentBundleIdentifier: "com.cmuxterm.app"
+            )
+            let suiteName = "AppearanceSettingsTests.SystemManagedGhosttyConfig.\(UUID().uuidString)"
+            guard let defaults = UserDefaults(suiteName: suiteName) else {
+                XCTFail("Failed to create isolated UserDefaults suite")
+                return
+            }
+            defer { defaults.removePersistentDomain(forName: suiteName) }
+
+            let cases: [(label: String, systemAppearance: NSAppearance.Name?, expectedApplied: NSAppearance.Name)] = [
+                ("light-system", nil, .aqua),
+                ("dark-system", .darkAqua, .darkAqua),
+            ]
+
+            for testCase in cases {
+                try? FileManager.default.removeItem(at: environment.cmuxConfigURL)
+                var events: [String] = []
+                let liveEnvironment = AppearanceSettings.LiveApplyEnvironment(
+                    setApplicationAppearance: { appearance in
+                        events.append("app:\(Self.appearanceLabel(appearance))")
+                    },
+                    synchronizeTerminalThemeWithAppearance: { appearance, source in
+                        events.append("sync:\(Self.appearanceLabel(appearance)):\(source)")
+                    },
+                    systemAppearance: {
+                        if let systemAppearance = testCase.systemAppearance {
+                            return NSAppearance(named: systemAppearance)
+                        }
+                        return NSAppearance(named: .aqua)
+                    },
+                    writeManagedGhosttyConfig: { selectedMode, _, source in
+                        XCTAssertEqual(selectedMode, .system)
+                        events.append("write:\(source)")
+                        try? environment.writeCmuxConfigContents(Self.managedGhosttyThemeFixture)
+                    }
+                )
+
+                let applied = AppearanceSettings.applyStoredMode(
+                    rawValue: AppearanceMode.system.rawValue,
+                    defaults: defaults,
+                    source: testCase.label,
+                    duringLaunch: true,
+                    environment: liveEnvironment
+                )
+
+                XCTAssertEqual(applied, .system)
+                let contents = try String(contentsOf: environment.cmuxConfigURL, encoding: .utf8)
+                XCTAssertFalse(contents.isEmpty)
+                XCTAssertTrue(contents.contains(Self.expectedManagedThemeDirective), contents)
+                XCTAssertEqual(events.first, "write:\(testCase.label)")
+                XCTAssertTrue(events.contains("app:\(testCase.expectedApplied.rawValue)"))
+                XCTAssertTrue(events.contains("sync:\(testCase.expectedApplied.rawValue):\(testCase.label)"))
+            }
+        }
+    }
+
     func testSelectingSystemModeClearsRuntimeAppearanceOverrideForSystemFollow() {
         let suiteName = "AppearanceSettingsTests.SelectSystem.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -254,5 +384,28 @@ final class AppearanceSettingsTests: XCTestCase {
         } else {
             defaults.removeObject(forKey: key)
         }
+    }
+
+    private func withTemporaryHomeDirectory(_ body: (URL) throws -> Void) throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-appearance-home-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        try body(directory)
+    }
+
+    private static let expectedManagedThemeDirective =
+        "theme = light:Apple System Colors Light,dark:Apple System Colors"
+
+    private static let managedGhosttyThemeFixture = """
+    # cmux-managed-theme: begin
+    \(expectedManagedThemeDirective)
+    # cmux-managed-theme: end
+
+    """
+
+    private static func appearanceLabel(_ appearance: NSAppearance?) -> String {
+        appearance?.bestMatch(from: [.darkAqua, .aqua])?.rawValue ?? "nil"
     }
 }

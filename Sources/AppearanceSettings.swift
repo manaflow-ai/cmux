@@ -32,6 +32,19 @@ enum AppearanceSettings {
         let setApplicationAppearance: (NSAppearance?) -> Void
         let synchronizeTerminalThemeWithAppearance: (NSAppearance?, String) -> Void
         let systemAppearance: () -> NSAppearance?
+        let writeManagedGhosttyConfig: (AppearanceMode, NSAppearance?, String) -> Void
+
+        init(
+            setApplicationAppearance: @escaping (NSAppearance?) -> Void,
+            synchronizeTerminalThemeWithAppearance: @escaping (NSAppearance?, String) -> Void,
+            systemAppearance: @escaping () -> NSAppearance?,
+            writeManagedGhosttyConfig: @escaping (AppearanceMode, NSAppearance?, String) -> Void = { _, _, _ in }
+        ) {
+            self.setApplicationAppearance = setApplicationAppearance
+            self.synchronizeTerminalThemeWithAppearance = synchronizeTerminalThemeWithAppearance
+            self.systemAppearance = systemAppearance
+            self.writeManagedGhosttyConfig = writeManagedGhosttyConfig
+        }
 
         static var live: LiveApplyEnvironment {
             LiveApplyEnvironment(
