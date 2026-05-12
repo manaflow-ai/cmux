@@ -122,6 +122,7 @@ extension CMUXCLI {
         } else {
             detectedCommand = nil
         }
+        let initialCommand = try detectedCommand.map { try writeUseLaunchCommandScript($0.command) }
 
         try withUseSocketClient(socketPath: socketPath, explicitPassword: explicitPassword) { client, launched in
             var initialEnv: [String: String] = [
@@ -146,8 +147,8 @@ extension CMUXCLI {
                let normalizedWindow = try normalizeWindowHandle(windowOverride, client: client) {
                 params["window_id"] = normalizedWindow
             }
-            if let detectedCommand {
-                params["initial_command"] = detectedCommand.command
+            if let initialCommand {
+                params["initial_command"] = initialCommand
             }
 
             let response = try client.sendV2(method: "workspace.create", params: params)
@@ -261,6 +262,36 @@ extension CMUXCLI {
         guard process.terminationStatus == 0 else {
             throw CLIError(message: "cmux use install command failed: exit \(process.terminationStatus)")
         }
+    }
+
+    private func writeUseLaunchCommandScript(_ command: String) throws -> String {
+        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedCommand.isEmpty else {
+            throw CLIError(message: "cmux use launch command is empty")
+        }
+
+        let scriptURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-use-launch-\(UUID().uuidString.lowercased()).sh",
+            isDirectory: false
+        )
+        let encodedCommand = shellQuote(Data(trimmedCommand.utf8).base64EncodedString())
+        let script = """
+        #!/bin/sh
+        if ! cmux_use_command="$(printf %s \(encodedCommand) | base64 -d 2>/dev/null || printf %s \(encodedCommand) | base64 -D 2>/dev/null)"; then
+          printf '\\n[cmux] failed to decode launch command; starting a shell.\\n' >&2 || true
+          rm -f -- "$0" 2>/dev/null || true
+          exec "${SHELL:-/bin/zsh}" -l
+        fi
+        rm -f -- "$0" 2>/dev/null || true
+        /bin/zsh -lc "$cmux_use_command"
+        cmux_use_status=$?
+        printf '\\n[cmux] command exited with status %s; starting a shell.\\n' "$cmux_use_status" >&2 || true
+        unset cmux_use_command cmux_use_status
+        exec "${SHELL:-/bin/zsh}" -l
+        """
+        try script.appending("\n").write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
+        return shellQuote(scriptURL.path)
     }
 
     private func ensureUseCheckout(
