@@ -55,6 +55,10 @@ public enum CMUXSocketProtocol {
         return request.isJSONRPCNotification
     }
 
+    public static func shouldWriteResponse(for command: String) -> Bool {
+        !isJSONRPCNotification(command)
+    }
+
     public static func parseV2SocketRequest(_ command: String) -> V2SocketRequest? {
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedCommand.hasPrefix("{"),
@@ -111,9 +115,41 @@ public enum CMUXSocketProtocol {
         guard JSONSerialization.isValidJSONObject(object),
               let data = try? JSONSerialization.data(withJSONObject: object, options: []),
               var string = String(data: data, encoding: .utf8) else {
-            return "{\"ok\":false,\"error\":{\"code\":\"encode_error\",\"message\":\"Failed to encode JSON\"}}"
+            return encodeFailure(for: object)
         }
 
+        string = string.replacingOccurrences(of: "\n", with: "\\n")
+        return string
+    }
+
+    private static func encodeFailure(for object: Any) -> String {
+        if let responseObject = object as? [String: Any], usesJSONRPC(responseObject) {
+            return fallbackJSONString([
+                "jsonrpc": "2.0",
+                "id": validJSONValueOrNull(responseObject["id"]),
+                "error": [
+                    "code": -32603,
+                    "message": "Failed to encode JSON",
+                    "data": ["cmux_code": "encode_error"]
+                ]
+            ])
+        }
+        return "{\"ok\":false,\"error\":{\"code\":\"encode_error\",\"message\":\"Failed to encode JSON\"}}"
+    }
+
+    private static func validJSONValueOrNull(_ value: Any?) -> Any {
+        guard let value else { return NSNull() }
+        guard JSONSerialization.isValidJSONObject(["value": value]) else {
+            return NSNull()
+        }
+        return value
+    }
+
+    private static func fallbackJSONString(_ object: [String: Any]) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: []),
+              var string = String(data: data, encoding: .utf8) else {
+            return "{\"ok\":false,\"error\":{\"code\":\"encode_error\",\"message\":\"Failed to encode JSON\"}}"
+        }
         string = string.replacingOccurrences(of: "\n", with: "\\n")
         return string
     }

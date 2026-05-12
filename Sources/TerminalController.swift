@@ -1933,8 +1933,10 @@ class TerminalController {
 
                 if isEventsStreamRequest(trimmed) {
                     if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
-                        guard writeSocketResponse(response, to: socket) else {
-                            return
+                        if CMUXSocketProtocol.shouldWriteResponse(for: trimmed) {
+                            guard writeSocketResponse(response, to: socket) else {
+                                return
+                            }
                         }
                         continue
                     }
@@ -1960,16 +1962,16 @@ class TerminalController {
         authenticated: Bool
     ) -> SocketLineProcessingResult {
         var nextAuthenticated = authenticated
+        let shouldWriteResponse = CMUXSocketProtocol.shouldWriteResponse(for: command)
         if let response = authResponseIfNeeded(for: command, authenticated: &nextAuthenticated) {
             return SocketLineProcessingResult(
                 response: response,
                 authenticated: nextAuthenticated,
-                shouldWriteResponse: true
+                shouldWriteResponse: shouldWriteResponse
             )
         }
 
         let response = processCommandUsingSocketExecutionPolicy(command)
-        let shouldWriteResponse = !CMUXSocketProtocol.isJSONRPCNotification(command)
         return SocketLineProcessingResult(
             response: response,
             authenticated: nextAuthenticated,
@@ -2010,7 +2012,7 @@ class TerminalController {
     /// its auth/policy wrappers.
     nonisolated func handleSocketLine(_ line: String) -> String {
         let response = processCommandUsingSocketExecutionPolicy(line)
-        return CMUXSocketProtocol.isJSONRPCNotification(line) ? "" : response
+        return CMUXSocketProtocol.shouldWriteResponse(for: line) ? response : ""
     }
 
     private func processCommand(_ command: String) -> String {
