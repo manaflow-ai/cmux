@@ -93,6 +93,82 @@ enum WindowBackdropPolicy {
     }
 }
 
+enum TerminalSurfaceBackgroundFillOwner: Equatable {
+    case surfaceHostLayer
+    case sharedWindowBackdrop
+    case bonsplitPaneBackdrop
+    case ghosttyNativeRenderer
+}
+
+struct TerminalSurfaceBackgroundFillPlan {
+    let owner: TerminalSurfaceBackgroundFillOwner
+    let hostLayerColor: NSColor
+
+    var usesHostLayerFill: Bool {
+        owner == .surfaceHostLayer
+    }
+
+    var logBackdropLabel: String {
+        switch owner {
+        case .surfaceHostLayer:
+            return "terminal"
+        case .sharedWindowBackdrop:
+            return "shared"
+        case .bonsplitPaneBackdrop:
+            return "bonsplit-pane"
+        case .ghosttyNativeRenderer:
+            return "ghostty-native"
+        }
+    }
+
+    func logSource(hasSurfaceOverride: Bool) -> String {
+        switch owner {
+        case .surfaceHostLayer:
+            return hasSurfaceOverride ? "surfaceOverride" : "defaultBackground"
+        case .sharedWindowBackdrop:
+            return "sharedWindowBackdrop"
+        case .bonsplitPaneBackdrop:
+            return "bonsplitPaneBackdrop"
+        case .ghosttyNativeRenderer:
+            return "ghosttyNativeBackground"
+        }
+    }
+
+    static func resolve(
+        renderingMode: GhosttyTerminalBackdropRenderingMode,
+        surfaceBackgroundColor: NSColor?,
+        defaultBackgroundColor: NSColor,
+        backgroundOpacity: Double,
+        sharesWindowBackdrop: Bool,
+        usesBonsplitPaneBackdrop: Bool
+    ) -> Self {
+        let resolvedColor = (surfaceBackgroundColor ?? defaultBackgroundColor)
+            .withAlphaComponent(WindowAppearanceSnapshot.clampedOpacity(backgroundOpacity))
+        let owner: TerminalSurfaceBackgroundFillOwner
+        if renderingMode.usesWindowHostBackdrop && !sharesWindowBackdrop && !usesBonsplitPaneBackdrop {
+            owner = .surfaceHostLayer
+        } else if sharesWindowBackdrop {
+            owner = .sharedWindowBackdrop
+        } else if usesBonsplitPaneBackdrop {
+            owner = .bonsplitPaneBackdrop
+        } else {
+            owner = .ghosttyNativeRenderer
+        }
+        return Self(
+            owner: owner,
+            hostLayerColor: owner == .surfaceHostLayer ? resolvedColor : .clear
+        )
+    }
+
+    static func windowRootSnapshot(
+        from snapshot: WindowAppearanceSnapshot,
+        surfaceBackgroundColor: NSColor?
+    ) -> WindowAppearanceSnapshot {
+        guard let surfaceBackgroundColor else { return snapshot }
+        return snapshot.replacingTerminalBackgroundColor(surfaceBackgroundColor)
+    }
+}
+
 struct SidebarBackdropSettingsSnapshot {
     let materialRawValue: String
     let blendModeRawValue: String

@@ -124,6 +124,49 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertTrue(plan.usesWindowGlass)
     }
 
+    func testOSCOverrideUsesSurfaceHostFillWhenWindowRootBackdropIsShared() {
+        let plan = TerminalSurfaceBackgroundFillPlan.resolve(
+            renderingMode: .windowHostBackdrop,
+            surfaceBackgroundColor: NSColor(hex: "#D2EEF9"),
+            defaultBackgroundColor: NSColor(hex: "#272822") ?? .black,
+            backgroundOpacity: 1.0,
+            sharesWindowBackdrop: true,
+            usesBonsplitPaneBackdrop: false
+        )
+
+        XCTAssertEqual(plan.owner, .surfaceHostLayer)
+        XCTAssertEqual(plan.hostLayerColor.hexString(includeAlpha: true), "#D2EEF9FF")
+    }
+
+    func testTranslucentOSCOverrideUsesOneSurfaceHostFillWithConfiguredOpacity() {
+        let plan = TerminalSurfaceBackgroundFillPlan.resolve(
+            renderingMode: .windowHostBackdrop,
+            surfaceBackgroundColor: NSColor(hex: "#E2D2F0"),
+            defaultBackgroundColor: NSColor(hex: "#272822") ?? .black,
+            backgroundOpacity: 0.42,
+            sharesWindowBackdrop: true,
+            usesBonsplitPaneBackdrop: false
+        )
+
+        XCTAssertEqual(plan.owner, .surfaceHostLayer)
+        XCTAssertEqual(plan.hostLayerColor.hexString(), "#E2D2F0")
+        XCTAssertEqual(plan.hostLayerColor.alphaComponent, 0.42, accuracy: 0.0001)
+    }
+
+    func testSurfaceOverrideDoesNotReplaceWindowRootBackdropColor() {
+        let snapshot = makeSnapshot(
+            unifySurfaceBackdrops: true,
+            backgroundOpacity: 0.42
+        )
+        let rootSnapshot = TerminalSurfaceBackgroundFillPlan.windowRootSnapshot(
+            from: snapshot,
+            surfaceBackgroundColor: NSColor(hex: "#D2EEF9")
+        )
+
+        XCTAssertEqual(rootSnapshot.terminalBackgroundColor.hexString(), "#272822")
+        XCTAssertEqual(rootSnapshot.terminalBackgroundOpacity, 0.42, accuracy: 0.0001)
+    }
+
     private func makeSnapshot(
         unifySurfaceBackdrops: Bool,
         backgroundOpacity: CGFloat = 0.6,
