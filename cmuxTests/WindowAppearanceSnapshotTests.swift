@@ -153,7 +153,10 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             terminalBackgroundColor: NSColor(hex: "#272822") ?? .black,
             terminalBackgroundOpacity: backgroundOpacity,
             terminalBackgroundBlur: backgroundBlur,
-            terminalRenderingMode: .windowHostBackdrop,
+            terminalRenderingMode: WindowAppearanceSnapshot.terminalRenderingMode(
+                backgroundOpacity: Double(backgroundOpacity),
+                backgroundBlur: backgroundBlur
+            ),
             unifySurfaceBackdrops: unifySurfaceBackdrops,
             sidebarSettings: SidebarBackdropSettingsSnapshot(
                 materialRawValue: SidebarMaterialOption.sidebar.rawValue,

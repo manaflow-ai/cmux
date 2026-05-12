@@ -285,6 +285,28 @@ struct WindowAppearanceSnapshot {
         usesHostLayerBackground ? .windowHostBackdrop : .ghosttyRendererOwnedBackgroundImage
     }
 
+    static func usesHostLayerBackground(
+        backgroundOpacity: Double,
+        backgroundBlur: GhosttyBackgroundBlur
+    ) -> Bool {
+        if backgroundBlur != .disabled {
+            return true
+        }
+        return clampedOpacity(backgroundOpacity) < 0.999
+    }
+
+    static func terminalRenderingMode(
+        backgroundOpacity: Double,
+        backgroundBlur: GhosttyBackgroundBlur
+    ) -> GhosttyTerminalBackdropRenderingMode {
+        terminalRenderingMode(
+            usesHostLayerBackground: usesHostLayerBackground(
+                backgroundOpacity: backgroundOpacity,
+                backgroundBlur: backgroundBlur
+            )
+        )
+    }
+
     var compositedTerminalBackgroundColor: NSColor {
         terminalBackgroundColor.withAlphaComponent(terminalBackgroundOpacity)
     }
