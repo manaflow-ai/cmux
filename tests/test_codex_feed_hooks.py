@@ -672,6 +672,7 @@ def main() -> int:
             test_codex_stop_without_turn_keeps_session_wide_monitor(cli_path, root)
             test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path, root)
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
+            test_codex_monitor_exits_when_owner_process_is_gone(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_permission_reply_uses_codex_permission_request_schema(cli_path, root)

@@ -118,6 +118,10 @@ class FakeJSONRPCSocketServer:
         with self._lock:
             return len(self.methods)
 
+    def methods_snapshot(self) -> list[str]:
+        with self._lock:
+            return list(self.methods)
+
     def wait_for_method_count(self, expected: int, timeout: float) -> bool:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -166,7 +170,7 @@ def main() -> int:
                             "surface.telemetry",
                             params,
                         ],
-                        stdout=subprocess.PIPE,
+                        stdout=subprocess.DEVNULL,
                         stderr=subprocess.PIPE,
                         text=True,
                         env=env,
@@ -175,16 +179,14 @@ def main() -> int:
 
             for index, proc in enumerate(procs):
                 try:
-                    stdout, stderr = proc.communicate(timeout=15.0)
+                    _, stderr = proc.communicate(timeout=15.0)
                 except subprocess.TimeoutExpired:
                     proc.kill()
-                    stdout, stderr = proc.communicate()
-                    failures.append(f"request {index} timed out: stdout={stdout!r} stderr={stderr!r}")
+                    _, stderr = proc.communicate()
+                    failures.append(f"request {index} timed out: stderr={stderr!r}")
                     continue
                 if proc.returncode != 0:
-                    failures.append(
-                        f"request {index} exited {proc.returncode}: stdout={stdout!r} stderr={stderr!r}"
-                    )
+                    failures.append(f"request {index} exited {proc.returncode}: stderr={stderr!r}")
 
             if server.max_active_connections > 4:
                 failures.append(
@@ -199,10 +201,10 @@ def main() -> int:
 
             if not server.wait_for_method_count(100, timeout=8.0):
                 failures.append(f"expected 100 telemetry methods, got {server.method_count()}")
-            elif not server.methods:
-                failures.append("fake app socket did not receive any methods")
-            elif set(server.methods) != {"surface.telemetry"}:
-                failures.append(f"expected only surface.telemetry, got {server.methods!r}")
+            else:
+                methods = server.methods_snapshot()
+                if set(methods) != {"surface.telemetry"}:
+                    failures.append(f"expected only surface.telemetry, got {methods!r}")
         finally:
             server.stop()
 

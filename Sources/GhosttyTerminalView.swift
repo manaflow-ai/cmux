@@ -9991,6 +9991,25 @@ final class GhosttySurfaceScrollView: NSView {
         return image
     }
 
+    private func updateKeyboardCopyModeBadgeIconImage() {
+        let keyboardCopyModeBadgeSymbolConfiguration = NSImage.SymbolConfiguration(
+            pointSize: 13,
+            weight: .regular,
+            scale: .medium
+        )
+        keyboardCopyModeBadgeIconView.image = Self.renderedSymbolImage(
+            systemName: "keyboard.badge.ellipsis",
+            configuration: keyboardCopyModeBadgeSymbolConfiguration,
+            size: NSSize(width: 18, height: 18),
+            tintColor: NSColor.secondaryLabelColor
+        )
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateKeyboardCopyModeBadgeIconImage()
+    }
+
     init(surfaceView: GhosttyNSView) {
         #if DEBUG
         dispatchPrecondition(condition: .onQueue(.main))
@@ -10102,17 +10121,7 @@ final class GhosttySurfaceScrollView: NSView {
         keyboardCopyModeBadgeView.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
         keyboardCopyModeBadgeView.alphaValue = 0.97
         keyboardCopyModeBadgeIconView.translatesAutoresizingMaskIntoConstraints = false
-        let keyboardCopyModeBadgeSymbolConfiguration = NSImage.SymbolConfiguration(
-            pointSize: 13,
-            weight: .regular,
-            scale: .medium
-        )
-        keyboardCopyModeBadgeIconView.image = Self.renderedSymbolImage(
-            systemName: "keyboard.badge.ellipsis",
-            configuration: keyboardCopyModeBadgeSymbolConfiguration,
-            size: NSSize(width: 18, height: 18),
-            tintColor: NSColor.secondaryLabelColor
-        )
+        updateKeyboardCopyModeBadgeIconImage()
         keyboardCopyModeBadgeIconView.setAccessibilityLabel(terminalKeyTableIndicatorAccessibilityLabel)
         keyboardCopyModeBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
         keyboardCopyModeBadgeLabel.textColor = NSColor.labelColor

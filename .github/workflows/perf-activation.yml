@@ -84,6 +84,14 @@ jobs:
           APP_BIN="$APP_PATH/Contents/MacOS/cmux DEV"
           SOCK="/tmp/cmux-debug-${PERF_TAG}.sock"
           BUNDLE_ID="com.cmuxterm.app.debug.${PERF_TAG}"
+          PRESSURE_LOG="/tmp/cmux-pressure-${PERF_TAG}.log"
+          mkdir -p perf-results
+
+          copy_pressure_log() {
+            if [ -f "$PRESSURE_LOG" ]; then
+              cp "$PRESSURE_LOG" "perf-results/cmux-pressure-${PERF_TAG}.log" || true
+            fi
+          }
 
           test -x "$CLI_BIN"
           test -x "$APP_BIN"
@@ -99,9 +107,9 @@ jobs:
           CMUX_TAG="$PERF_TAG" \
           CMUX_SOCKET_PATH="$SOCK" \
           CMUX_UI_TEST_MODE=1 \
-          "$APP_BIN" >/tmp/cmux-pressure-${PERF_TAG}.log 2>&1 &
+          "$APP_BIN" >"$PRESSURE_LOG" 2>&1 &
           APP_PID=$!
-          trap 'kill "$APP_PID" >/dev/null 2>&1 || true; rm -f "$SOCK"' EXIT
+          trap 'kill "$APP_PID" >/dev/null 2>&1 || true; wait "$APP_PID" 2>/dev/null || true; copy_pressure_log; rm -f "$SOCK"' EXIT
 
           for _ in {1..240}; do
             [ -S "$SOCK" ] && break
@@ -114,6 +122,7 @@ jobs:
 
           kill "$APP_PID" >/dev/null 2>&1 || true
           wait "$APP_PID" 2>/dev/null || true
+          copy_pressure_log
           rm -f "$SOCK"
           trap - EXIT
 

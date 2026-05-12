@@ -1971,11 +1971,24 @@ struct CMUXCLI {
         guard savedStdout >= 0 else {
             throw CLIError(message: "Failed to duplicate stdout for hot-path capture")
         }
+        let savedStderr = dup(STDERR_FILENO)
+        guard savedStderr >= 0 else {
+            Darwin.close(savedStdout)
+            throw CLIError(message: "Failed to duplicate stderr for hot-path capture")
+        }
 
         fflush(stdout)
+        fflush(stderr)
         guard dup2(writeFD, STDOUT_FILENO) >= 0 else {
             Darwin.close(savedStdout)
+            Darwin.close(savedStderr)
             throw CLIError(message: "Failed to redirect stdout for hot-path capture")
+        }
+        guard dup2(writeFD, STDERR_FILENO) >= 0 else {
+            _ = dup2(savedStdout, STDOUT_FILENO)
+            Darwin.close(savedStdout)
+            Darwin.close(savedStderr)
+            throw CLIError(message: "Failed to redirect stderr for hot-path capture")
         }
 
         let bodyResult: Result<Void, Error>
@@ -1987,8 +2000,11 @@ struct CMUXCLI {
         }
 
         fflush(stdout)
+        fflush(stderr)
         _ = dup2(savedStdout, STDOUT_FILENO)
+        _ = dup2(savedStderr, STDERR_FILENO)
         Darwin.close(savedStdout)
+        Darwin.close(savedStderr)
         try pipe.fileHandleForWriting.close()
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         try bodyResult.get()
@@ -2298,7 +2314,7 @@ struct CMUXCLI {
         if let ok = response["ok"] as? Bool, ok {
             let stdout = response["stdout"] as? String ?? ""
             if !stdout.isEmpty {
-                print(stdout, terminator: "")
+                CMUXCLIOutput.writeStandardOutput(stdout)
             }
             return
         }
