@@ -230,12 +230,12 @@ extension CMUXCLI {
         var backupURLToFinalize: URL?
         var shouldFinalizeBackup = true
         defer {
-            guard shouldFinalizeBackup,
-                  let backupURL = backupURLToFinalize else { return }
-            if fm.fileExists(atPath: installURL.path) {
-                try? fm.removeItem(at: backupURL)
-            } else if fm.fileExists(atPath: backupURL.path) {
-                try? fm.moveItem(at: backupURL, to: installURL)
+            if shouldFinalizeBackup, let backupURL = backupURLToFinalize {
+                if fm.fileExists(atPath: installURL.path) {
+                    try? fm.removeItem(at: backupURL)
+                } else if fm.fileExists(atPath: backupURL.path) {
+                    try? fm.moveItem(at: backupURL, to: installURL)
+                }
             }
         }
 
