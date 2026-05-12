@@ -172,7 +172,13 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 ),
             ]
         )
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        XCTAssertTrue(
+            SessionPersistenceStore.save(
+                snapshot,
+                fileURL: snapshotURL,
+                sharedWindowGeometryHint: .skipForNonCurrentSnapshot
+            )
+        )
         let persistedTabManager = try XCTUnwrap(
             SessionPersistenceStore.load(fileURL: snapshotURL)?.windows.first?.tabManager
         )

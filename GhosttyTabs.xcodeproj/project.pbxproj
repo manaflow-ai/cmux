@@ -183,6 +183,10 @@
 		C7A50A000000000000000002 /* TerminalControllerPaneResizeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50A000000000000000001 /* TerminalControllerPaneResizeSupport.swift */; };
 		C7A50B000000000000000002 /* TerminalControllerV2ParamParsingSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000001 /* TerminalControllerV2ParamParsingSupport.swift */; };
 		A5001093 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001090 /* AppDelegate.swift */; };
+		D3529A00000000000000002 /* WindowGeometryResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3529A00000000000000001 /* WindowGeometryResolver.swift */; };
+		D3529A00000000000000004 /* SharedWindowGeometryHint.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3529A00000000000000003 /* SharedWindowGeometryHint.swift */; };
+		D3529A00000000000000006 /* WindowGeometryHintTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3529A00000000000000005 /* WindowGeometryHintTests.swift */; };
+		D3529A00000000000000008 /* SessionRestorePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3529A00000000000000007 /* SessionRestorePolicy.swift */; };
 		C3677002000000000000001 /* CmuxSSHURLRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677002000000000000002 /* CmuxSSHURLRequest.swift */; };
 		A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */; };
 		D7AB00000000000000000001 /* AppDelegate+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */; };
@@ -684,6 +688,9 @@
 		C7A504000000000000000001 /* TaskManagerTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerTypes.swift; sourceTree = "<group>"; };
 		C7A505000000000000000001 /* TerminalControllerTopSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerTopSupport.swift; sourceTree = "<group>"; };
 		A5001090 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		D3529A00000000000000001 /* WindowGeometryResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowGeometryResolver.swift; sourceTree = "<group>"; };
+		D3529A00000000000000003 /* SharedWindowGeometryHint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedWindowGeometryHint.swift; sourceTree = "<group>"; };
+		D3529A00000000000000007 /* SessionRestorePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRestorePolicy.swift; sourceTree = "<group>"; };
 		C3677002000000000000002 /* CmuxSSHURLRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSSHURLRequest.swift; sourceTree = "<group>"; };
 		C3677004000000000000002 /* AppDelegate+CmuxSSHURL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CmuxSSHURL.swift"; sourceTree = "<group>"; };
 		E3309A02 /* AppDelegate+EqualizeSplitsShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+EqualizeSplitsShortcut.swift"; sourceTree = "<group>"; };
@@ -888,6 +895,7 @@
 		F4200001A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAppearanceSnapshotTests.swift; sourceTree = "<group>"; };
 		F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScannerTests.swift; sourceTree = "<group>"; };
 		F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceTests.swift; sourceTree = "<group>"; };
+		D3529A00000000000000005 /* WindowGeometryHintTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowGeometryHintTests.swift; sourceTree = "<group>"; };
 		B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiVaultAgentPersistenceTests.swift; sourceTree = "<group>"; };
 		F5410001A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentHookProviderResumeTests.swift; sourceTree = "<group>"; };
 		F5410005A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentHookProviderHermesTests.swift; sourceTree = "<group>"; };
@@ -1226,6 +1234,7 @@
 				A5001620 /* AppleScriptSupport.swift */,
 				D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */,
 				A5001090 /* AppDelegate.swift */,
+				D3529A00000000000000001 /* WindowGeometryResolver.swift */,
 				C3677002000000000000002 /* CmuxSSHURLRequest.swift */,
 				C3677004000000000000002 /* AppDelegate+CmuxSSHURL.swift */,
 				E3309A02 /* AppDelegate+EqualizeSplitsShortcut.swift */,
@@ -1284,7 +1293,9 @@
 				A5001219 /* WindowToolbarController.swift */,
 				A5001241 /* WindowDecorationsController.swift */,
 				A5001222 /* WindowAccessor.swift */,
+				D3529A00000000000000007 /* SessionRestorePolicy.swift */,
 				A5001611 /* SessionPersistence.swift */,
+				D3529A00000000000000003 /* SharedWindowGeometryHint.swift */,
 				A5001671 /* SessionRestoredTerminalCommandStore.swift */,
 				A5001661 /* RestorableAgentSession.swift */,
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
@@ -1379,6 +1390,7 @@
 				F4200001A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift */,
 					F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */,
 					F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */,
+					D3529A00000000000000005 /* WindowGeometryHintTests.swift */,
 					B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */,
 					D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */,
 					F5410001A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift */,
@@ -1864,6 +1876,7 @@
 				A5001601 /* SentryHelper.swift in Sources */,
 				A5001621 /* AppleScriptSupport.swift in Sources */,
 				A5001093 /* AppDelegate.swift in Sources */,
+				D3529A00000000000000002 /* WindowGeometryResolver.swift in Sources */,
 				C3677002000000000000001 /* CmuxSSHURLRequest.swift in Sources */,
 				C3677004000000000000001 /* AppDelegate+CmuxSSHURL.swift in Sources */,
 				A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */,
@@ -1923,7 +1936,9 @@
 				A5001209 /* WindowToolbarController.swift in Sources */,
 				A5001240 /* WindowDecorationsController.swift in Sources */,
 				A500120C /* WindowAccessor.swift in Sources */,
+				D3529A00000000000000008 /* SessionRestorePolicy.swift in Sources */,
 				A5001610 /* SessionPersistence.swift in Sources */,
+				D3529A00000000000000004 /* SharedWindowGeometryHint.swift in Sources */,
 				A5001670 /* SessionRestoredTerminalCommandStore.swift in Sources */,
 				A5001660 /* RestorableAgentSession.swift in Sources */,
 				A5001640 /* RemoteRelayZshBootstrap.swift in Sources */,
@@ -2058,6 +2073,7 @@
 				F4200000A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift in Sources */,
 					F4100000A1B2C3D4E5F60718 /* PortScannerTests.swift in Sources */,
 					F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
+					D3529A00000000000000006 /* WindowGeometryHintTests.swift in Sources */,
 					B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */,
 					D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */,
 					F5410000A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift in Sources */,

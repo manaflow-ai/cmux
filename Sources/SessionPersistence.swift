@@ -12,6 +12,8 @@ enum SessionPersistencePolicy {
     static let maximumSidebarWidth: Double = 600
     static let minimumWindowWidth: Double = 300
     static let minimumWindowHeight: Double = 200
+    static let minimumFreshWindowWidth: Double = 800
+    static let minimumFreshWindowHeight: Double = 600
     static let autosaveInterval: TimeInterval = 8.0
     static let maxWindowsPerSnapshot: Int = 12
     static let maxWorkspacesPerWindow: Int = 128
@@ -82,57 +84,6 @@ enum SessionPersistencePolicy {
             index = text.index(after: index)
         }
         return nil
-    }
-}
-
-enum SessionRestorePolicy {
-    static func isRunningUnderAutomatedTests(
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> Bool {
-        if environment["CMUX_UI_TEST_MODE"] == "1" {
-            return true
-        }
-        if environment.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") }) {
-            return true
-        }
-        if environment["XCTestConfigurationFilePath"] != nil {
-            return true
-        }
-        if environment["XCTestBundlePath"] != nil {
-            return true
-        }
-        if environment["XCTestSessionIdentifier"] != nil {
-            return true
-        }
-        if environment["XCInjectBundle"] != nil {
-            return true
-        }
-        if environment["XCInjectBundleInto"] != nil {
-            return true
-        }
-        if environment["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true {
-            return true
-        }
-        return false
-    }
-
-    static func shouldAttemptRestore(
-        arguments: [String] = CommandLine.arguments,
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> Bool {
-        if environment["CMUX_DISABLE_SESSION_RESTORE"] == "1" {
-            return false
-        }
-        if isRunningUnderAutomatedTests(environment: environment) {
-            return false
-        }
-
-        let extraArgs = arguments
-            .dropFirst()
-            .filter { !$0.hasPrefix("-psn_") }
-
-        // Any explicit launch argument is treated as an explicit open intent.
-        return extraArgs.isEmpty
     }
 }
 
@@ -380,19 +331,51 @@ enum SessionPersistenceStore {
     }
 
     @discardableResult
-    static func save(_ snapshot: AppSessionSnapshot, fileURL: URL? = nil) -> Bool {
+    static func save(
+        _ snapshot: AppSessionSnapshot,
+        fileURL: URL? = nil,
+        sharedWindowGeometryHint: SharedWindowGeometryHintPersistence,
+        writerBundleIdentifier: String? = Bundle.main.bundleIdentifier
+    ) -> Bool {
         guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return false }
         let directory = fileURL.deletingLastPathComponent()
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
             let data = try encodedSnapshotData(snapshot)
             if let existingData = try? Data(contentsOf: fileURL), existingData == data {
+                persistSharedWindowGeometryHint(
+                    from: snapshot,
+                    using: sharedWindowGeometryHint,
+                    writerBundleIdentifier: writerBundleIdentifier
+                )
                 return true
             }
             try data.write(to: fileURL, options: .atomic)
+            persistSharedWindowGeometryHint(
+                from: snapshot,
+                using: sharedWindowGeometryHint,
+                writerBundleIdentifier: writerBundleIdentifier
+            )
             return true
         } catch {
             return false
+        }
+    }
+
+    private static func persistSharedWindowGeometryHint(
+        from snapshot: AppSessionSnapshot,
+        using persistence: SharedWindowGeometryHintPersistence,
+        writerBundleIdentifier: String?
+    ) {
+        switch persistence {
+        case .update(let fileURL):
+            _ = SharedWindowGeometryHintStore.save(
+                from: snapshot,
+                fileURL: fileURL,
+                writerBundleIdentifier: writerBundleIdentifier
+            )
+        case .skipForNonCurrentSnapshot:
+            break
         }
     }
 
@@ -427,7 +410,11 @@ enum SessionPersistenceStore {
             removeSnapshot(fileURL: fileURL)
             return
         }
-        _ = save(snapshot, fileURL: fileURL)
+        _ = save(
+            snapshot,
+            fileURL: fileURL,
+            sharedWindowGeometryHint: .skipForNonCurrentSnapshot
+        )
     }
 
     static func defaultSnapshotFileURL(
