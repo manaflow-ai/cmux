@@ -807,6 +807,26 @@ final class FileSearchControllerTests: XCTestCase {
         XCTAssertEqual(executable?.url.path, nixProfilePath)
     }
 
+    func testRipgrepResolverRejectsNonExecutableConfiguredBinaryPath() {
+        let configuredPath = "/nix/store/missing-ripgrep/bin/rg"
+        let fallbackPath = "/usr/local/bin/rg"
+
+        let resolution = RipgrepExecutableResolver.resolution(
+            configuredPath: configuredPath,
+            environment: ["PATH": ""],
+            userName: "nixuser",
+            isExecutable: { $0 == fallbackPath }
+        )
+
+        XCTAssertEqual(resolution, .configuredPathNotExecutable(configuredPath))
+        XCTAssertNil(RipgrepExecutableResolver.resolve(
+            configuredPath: configuredPath,
+            environment: ["PATH": ""],
+            userName: "nixuser",
+            isExecutable: { $0 == fallbackPath }
+        ))
+    }
+
     private static func searchResult(relativePath: String) -> FileSearchResult {
         FileSearchResult(
             path: "/tmp/cmux-find-content-revision-test/\(relativePath)",

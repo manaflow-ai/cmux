@@ -86350,6 +86350,29 @@
         }
       }
     },
+    "fileExplorer.search.rgConfiguredPathNotExecutable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configured ripgrep path is not executable: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定されたripgrepパスは実行できません: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정된 ripgrep 경로를 실행할 수 없습니다: %@"
+          }
+        }
+      }
+    },
     "fileExplorer.search.unsupported": {
       "extractionState": "manual",
       "localizations": {

@@ -75,6 +75,12 @@ struct FileSearchRipgrepExecutable: Equatable, Sendable {
     let prefixArguments: [String]
 }
 
+enum RipgrepExecutableResolution: Equatable, Sendable {
+    case found(FileSearchRipgrepExecutable)
+    case configuredPathNotExecutable(String)
+    case notFound
+}
+
 enum RipgrepExecutableResolver {
     static func resolve(
         configuredPath: String? = UserDefaults.standard.string(forKey: RipgrepIntegrationSettings.customRipgrepPathKey),
@@ -82,24 +88,43 @@ enum RipgrepExecutableResolver {
         userName: String = NSUserName(),
         isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
     ) -> FileSearchRipgrepExecutable? {
+        guard case .found(let executable) = resolution(
+            configuredPath: configuredPath,
+            environment: environment,
+            userName: userName,
+            isExecutable: isExecutable
+        ) else {
+            return nil
+        }
+        return executable
+    }
+
+    static func resolution(
+        configuredPath: String? = UserDefaults.standard.string(forKey: RipgrepIntegrationSettings.customRipgrepPathKey),
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        userName: String = NSUserName(),
+        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+    ) -> RipgrepExecutableResolution {
         if let configuredPath = configuredPath?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !configuredPath.isEmpty,
-           isExecutable(configuredPath) {
-            return FileSearchRipgrepExecutable(url: URL(fileURLWithPath: configuredPath), prefixArguments: [])
+           !configuredPath.isEmpty {
+            if isExecutable(configuredPath) {
+                return .found(FileSearchRipgrepExecutable(url: URL(fileURLWithPath: configuredPath), prefixArguments: []))
+            }
+            return .configuredPathNotExecutable(configuredPath)
         }
 
         for path in defaultSearchPaths(userName: userName) where isExecutable(path) {
-            return FileSearchRipgrepExecutable(url: URL(fileURLWithPath: path), prefixArguments: [])
+            return .found(FileSearchRipgrepExecutable(url: URL(fileURLWithPath: path), prefixArguments: []))
         }
 
         let pathValue = environment["PATH"] ?? ""
         for directory in pathValue.split(separator: ":", omittingEmptySubsequences: true) {
             let path = URL(fileURLWithPath: String(directory)).appendingPathComponent("rg").path
             if isExecutable(path) {
-                return FileSearchRipgrepExecutable(url: URL(fileURLWithPath: path), prefixArguments: [])
+                return .found(FileSearchRipgrepExecutable(url: URL(fileURLWithPath: path), prefixArguments: []))
             }
         }
-        return nil
+        return .notFound
     }
 
     private static func defaultSearchPaths(userName: String) -> [String] {
@@ -412,7 +437,18 @@ final class FileSearchController: FileSearchControlling {
             emit(status: .noMatches, isSearching: false)
             return
         }
-        guard let executable = RipgrepExecutableResolver.resolve() else {
+        let resolution = RipgrepExecutableResolver.resolution()
+        let executable: FileSearchRipgrepExecutable
+        switch resolution {
+        case .found(let resolvedExecutable):
+            executable = resolvedExecutable
+        case .configuredPathNotExecutable(let path):
+            emit(
+                status: .failed(String(localized: "fileExplorer.search.rgConfiguredPathNotExecutable", defaultValue: "Configured ripgrep path is not executable: \(path)")),
+                isSearching: false
+            )
+            return
+        case .notFound:
             emit(
                 status: .failed(String(localized: "fileExplorer.search.rgNotInstalled", defaultValue: "ripgrep (rg) is not installed or is not on PATH.")),
                 isSearching: false
