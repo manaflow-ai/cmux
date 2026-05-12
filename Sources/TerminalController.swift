@@ -23,6 +23,10 @@ nonisolated private struct SocketLineProcessingResult: Sendable {
 /// Allows automated testing and external control of terminal tabs
 @MainActor
 class TerminalController {
+#if DEBUG
+    static var socketReloadConfigurationHandlerForTesting: (@MainActor (String) -> Void)?
+#endif
+
     struct SocketListenerHealth: Sendable {
         let isRunning: Bool
         let acceptLoopAlive: Bool
@@ -1984,11 +1988,17 @@ class TerminalController {
     ) -> SocketLineProcessingResult {
         var nextAuthenticated = authenticated
         if let response = authResponseIfNeeded(for: command, authenticated: &nextAuthenticated) {
-            return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+            return SocketLineProcessingResult(
+                response: response,
+                authenticated: nextAuthenticated
+            )
         }
 
         let response = processCommandUsingSocketExecutionPolicy(command)
-        return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+        return SocketLineProcessingResult(
+            response: response,
+            authenticated: nextAuthenticated
+        )
     }
 
     private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String {
@@ -17306,9 +17316,19 @@ class TerminalController {
         }
 
         v2MainSync {
-            GhosttyApp.shared.reloadConfiguration(source: "socket.reload_config")
+            Self.performSocketReloadConfiguration(source: "socket.reload_config")
         }
         return "OK Reloaded config"
+    }
+
+    private static func performSocketReloadConfiguration(source: String) {
+#if DEBUG
+        if let handler = socketReloadConfigurationHandlerForTesting {
+            handler(source)
+            return
+        }
+#endif
+        GhosttyApp.shared.reloadConfiguration(source: source)
     }
 
     private func refreshSurfaces() -> String {
