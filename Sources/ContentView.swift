@@ -10504,9 +10504,11 @@ private struct SidebarFooter: View {
 private struct SidebarFooterButtons: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     @ObservedObject var fileExplorerState: FileExplorerState
+    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     let onSendFeedback: () -> Void
 
     var body: some View {
+        let _ = keyboardShortcutSettingsObserver.revision
         HStack(spacing: 4) {
             SidebarFileExplorerButton(
                 isSelected: fileExplorerState.isVisible && fileExplorerState.mode == .files,
