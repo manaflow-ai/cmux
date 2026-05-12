@@ -76,13 +76,13 @@ final class TerminalTimestampStore {
             }
         }
 
+        prune(forTotalRows: scrollbar.total)
+
         if markVisibleRows {
             for row in visibleRange(for: scrollbar) where timestampsByRow[row] == nil {
                 recordTimestamp(for: row, at: date)
             }
         }
-
-        prune(forTotalRows: scrollbar.total)
         lastScrollbar = scrollbar
     }
 
