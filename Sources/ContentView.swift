@@ -9170,6 +9170,11 @@ struct VerticalTabsSidebar: View {
             SidebarFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .overlay {
+            FirstMouseGatedHostingOverlay()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityHidden(true)
+        }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
         .overlay(alignment: .trailing) {
@@ -12514,7 +12519,10 @@ private struct TabItemView: View, Equatable {
         .contentShape(Rectangle())
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
-            SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
+            SidebarWorkspaceRowHoverTracker(
+                rowInteractionState: $rowInteractionState,
+                onMenuTrackingEnded: flushWorkspaceContextMenuFreezeIfLive
+            )
         }
         .overlay {
             MiddleClickCapture {
@@ -12634,8 +12642,7 @@ private struct TabItemView: View, Equatable {
                 }
                 .onDisappear {
                     rowInteractionState.contextMenuDidDisappear()
-                    frozenPresentation = nil
-                    flushDeferredWorkspaceObservationInvalidation()
+                    flushWorkspaceContextMenuFreezeIfLive()
                 }
         }
     }
@@ -12646,7 +12653,7 @@ private struct TabItemView: View, Equatable {
             current: workspaceSnapshotStorage,
             next: nextSnapshot,
             force: force,
-            contextMenuVisible: rowInteractionState.contextMenuVisible
+            freezesSidebarWorkspaceDetails: rowInteractionState.freezesSidebarWorkspaceDetails
         )
 
         if workspaceSnapshotStorage != decision.workspaceSnapshotStorage {
@@ -12667,6 +12674,12 @@ private struct TabItemView: View, Equatable {
             workspaceSnapshotStorage = pendingSnapshot
         }
         contextMenuState.pendingWorkspaceSnapshot = nil
+    }
+
+    private func flushWorkspaceContextMenuFreezeIfLive() {
+        guard !rowInteractionState.freezesSidebarWorkspaceDetails else { return }
+        frozenPresentation = nil
+        flushDeferredWorkspaceObservationInvalidation()
     }
 
     private func contextMenuLabel(multi: String, single: String, isMulti: Bool) -> String {
