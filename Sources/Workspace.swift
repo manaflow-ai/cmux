@@ -9850,6 +9850,9 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
+    // Single terminal split lifecycle entry point: every TerminalPanel that enters a
+    // newly assigned split pane must publish its model event and start the layout
+    // follow-up here so portal attachment, Ghostty geometry, and focus converge together.
     private func beginTerminalSplitPaneLifecycle(
         newPaneId: PaneID,
         sourcePaneId: PaneID,
@@ -9871,6 +9874,28 @@ final class Workspace: Identifiable, ObservableObject {
         )
         // Brand-new terminal split panes must enter the shared layout follow-up here so
         // their portal attachment, Ghostty geometry, and optional focus converge together.
+        beginEventDrivenLayoutFollowUp(
+            reason: layoutReason,
+            terminalFocusPanelId: terminalFocusPanelId,
+            includeGeometry: true
+        )
+    }
+
+    private func beginTerminalSplitSurfaceLifecycle(
+        panelId: UUID,
+        paneId: PaneID,
+        origin: String,
+        focused: Bool,
+        layoutReason: String,
+        terminalFocusPanelId: UUID?
+    ) {
+        publishCmuxSurfaceCreated(
+            panelId,
+            paneId: paneId,
+            kind: "terminal",
+            origin: origin,
+            focused: focused
+        )
         beginEventDrivenLayoutFollowUp(
             reason: layoutReason,
             terminalFocusPanelId: terminalFocusPanelId,
@@ -13812,7 +13837,14 @@ extension Workspace: BonsplitDelegate {
                         isLoading: false,
                         isPinned: false
                     )
-                    publishCmuxSurfaceCreated(replacementPanel.id, paneId: originalPane, kind: "terminal", origin: "placeholder_repair", focused: false)
+                    beginTerminalSplitSurfaceLifecycle(
+                        panelId: replacementPanel.id,
+                        paneId: originalPane,
+                        origin: "placeholder_repair",
+                        focused: false,
+                        layoutReason: "terminal.placeholderRepair",
+                        terminalFocusPanelId: nil
+                    )
 
                     for extraPlaceholder in placeholderTabs.dropFirst() {
                         bonsplitController.closeTab(extraPlaceholder.id)
@@ -13824,7 +13856,12 @@ extension Workspace: BonsplitDelegate {
                         "fallback=createTerminalAndDropPlaceholders"
                     )
 #endif
-                    _ = newTerminalSurface(inPane: originalPane, focus: false)
+                    if newTerminalSurface(inPane: originalPane, focus: false) != nil {
+                        beginEventDrivenLayoutFollowUp(
+                            reason: "terminal.placeholderRepairFallback",
+                            includeGeometry: true
+                        )
+                    }
                     for tab in controller.tabs(inPane: originalPane) {
                         if panelIdFromSurfaceId(tab.id) == nil {
                             bonsplitController.closeTab(tab.id)

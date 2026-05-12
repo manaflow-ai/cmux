@@ -123,6 +123,14 @@ def _assert_no_transient_detach_or_hide(
         )
 
 
+def _terminal_panel_ids(c: cmux) -> set[str]:
+    return {
+        str(row.get("id"))
+        for row in c.surface_health()
+        if row.get("type") == "terminal" and row.get("id")
+    }
+
+
 def main() -> int:
     with cmux(SOCKET_PATH) as c:
         # Run on a fresh workspace to avoid state carry-over from restored sessions.
@@ -165,6 +173,7 @@ def main() -> int:
         if not drag_panel_id:
             raise cmuxError("drag split setup selected panel has no panelId")
         drag_panes_before = len(drag_before.get("layout", {}).get("panes") or [])
+        drag_terminals_before = _terminal_panel_ids(c)
 
         c.reset_empty_panel_count()
         c.drag_surface_to_split(drag_panel_id, "right")
@@ -181,6 +190,15 @@ def main() -> int:
                 f"Expected drag split to add a pane: before={drag_panes_before} after={drag_panes_after}"
             )
         _assert_selected_panels_healthy(drag_after)
+        drag_terminals_after = _terminal_panel_ids(c)
+        replacement_terminal_ids = drag_terminals_after - drag_terminals_before
+        if len(replacement_terminal_ids) != 1:
+            raise cmuxError(
+                f"Expected drag split placeholder repair to create one terminal: "
+                f"before={sorted(drag_terminals_before)} after={sorted(drag_terminals_after)}"
+            )
+        assert_split_terminal_renders_output(c, drag_panel_id)
+        assert_split_terminal_renders_output(c, next(iter(replacement_terminal_ids)))
 
         # Browser split should also avoid EmptyPanelView flashes.
         c.reset_empty_panel_count()
