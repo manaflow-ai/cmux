@@ -13,10 +13,12 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `22fa801f8`, based on `495316732`, with the
-manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53.
-This head keeps the cmux theme picker hooks and exposes the manual surface IO
-needed by libghostty iOS clients.
+Current cmux pinned fork head: `a0078f919`, based on `41ab6c5ab`, with the
+manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53
+and the cmux alternate-screen scrollback patch.
+This head keeps the cmux theme picker hooks, exposes the manual surface IO
+needed by libghostty iOS clients, and keeps TUI output scrollable in the
+alternate screen.
 
 ### 1) macOS display link restart on display changes
 
@@ -169,12 +171,27 @@ tend to conflict together during rebases.
     render-now C API, or output C API. Upstream already has internal
     `Termio.processOutput`, so prefer an upstream C bridge if one lands.
 
+### 11) Alternate-screen scrollback for TUI output
+
+- Commit: `a0078f919` (terminal: retain scrollback for alternate screen)
+- Files:
+  - `src/terminal/Terminal.zig`
+- Summary:
+  - Initializes the alternate screen with the same scrollback limit as the
+    primary screen instead of forcing `scrollback-limit = 0`.
+  - Keeps long-running TUI output from tools like Claude Code and Codex
+    scrollable while they are in alternate-screen mode.
+  - Adds a terminal behavior test that enters mode 1049, writes enough
+    alternate-screen output to scroll, and verifies the earlier lines remain
+    reachable through viewport scrolling.
+
 The current cmux pin is the head listed above. It is reachable from
-`manaflow-ai/ghostty` `main` through https://github.com/manaflow-ai/ghostty/pull/53.
-Published `xcframework-22fa801f88f96fa842e54ecce6c34a5d36003d19` and pinned
-its archive checksum in `scripts/ghosttykit-checksums.txt`. The release and
-checksum pin must be regenerated whenever this commit changes, even for
-comment-only amends, because the release tag is keyed by the Ghostty commit SHA.
+`manaflow-ai/ghostty` branch `issue-2334-alt-screen-scrollback` and release tag
+`xcframework-a0078f9192ecc85b24980f608c64403af08782ad`. Published
+`xcframework-a0078f9192ecc85b24980f608c64403af08782ad` and pinned its archive
+checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum pin
+must be regenerated whenever this commit changes, even for comment-only amends,
+because the release tag is keyed by the Ghostty commit SHA.
 
 ## Upstreamed fork changes
 
