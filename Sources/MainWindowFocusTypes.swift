@@ -17,11 +17,6 @@ enum MainWindowKeyboardFocusIntent: Equatable {
     case rightSidebar(mode: RightSidebarMode)
 }
 
-enum MainWindowFocusToggleDestination: Equatable {
-    case terminal
-    case rightSidebar
-}
-
 enum MainWindowFindShortcutTarget: Equatable {
     case mainPanelFind
     case rightSidebarFileSearch
