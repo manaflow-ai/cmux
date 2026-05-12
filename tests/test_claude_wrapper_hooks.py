@@ -219,7 +219,7 @@ def run_wrapper_terminal_env_probe(
     argv: list[str],
     *,
     hooks_disabled: bool = False,
-) -> tuple[int, dict[str, str], list[str], str]:
+) -> tuple[int, dict[str, str], list[str], str, set[str]]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-env-probe-") as td:
         tmp = Path(td)
         wrapper_dir = tmp / "wrapper-bin"
@@ -312,7 +312,7 @@ exit 0
             test_socket.close()
 
         observed_env = dict(line.split("=", 1) for line in read_lines(env_log))
-        return proc.returncode, observed_env, read_lines(args_log), proc.stderr.strip()
+        return proc.returncode, observed_env, read_lines(args_log), proc.stderr.strip(), set(fingerprint_env)
 
 
 def expect(condition: bool, message: str, failures: list[str]) -> None:
@@ -649,9 +649,14 @@ def test_agents_subcommand_removes_cmux_terminal_fingerprint(failures: list[str]
         ("agents hooks-disabled env probe", {"hooks_disabled": True}),
     ]
     for label, kwargs in scenarios:
-        code, observed_env, real_argv, stderr = run_wrapper_terminal_env_probe(["agents"], **kwargs)
+        code, observed_env, real_argv, stderr, expected_keys = run_wrapper_terminal_env_probe(["agents"], **kwargs)
         expect(code == 0, f"{label}: wrapper exited {code}: {stderr}", failures)
         expect(real_argv == ["agents"], f"{label}: expected raw argv, got {real_argv}", failures)
+        expect(
+            set(observed_env) == expected_keys,
+            f"{label}: expected probed keys {sorted(expected_keys)}, got {sorted(observed_env)}",
+            failures,
+        )
 
         for key, value in observed_env.items():
             expect(
