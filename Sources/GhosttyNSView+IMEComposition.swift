@@ -1,6 +1,56 @@
 import AppKit
 import Carbon.HIToolbox
 
+/// Single routing policy for IME commands that AppKit handles before exposing marked text.
+private enum NoMarkedIMECommandPolicy {
+    case none
+    case bopomofo
+    case applePinyin
+
+    init(inputSourceId: String?) {
+        guard let inputSourceId else {
+            self = .none
+            return
+        }
+
+        let normalized = inputSourceId.lowercased()
+        if normalized.contains("zhuyin") || normalized.contains("bopomofo") {
+            self = .bopomofo
+            return
+        }
+
+        if normalized.hasPrefix("com.apple.inputmethod."),
+           (normalized == "com.apple.inputmethod.scim.itabc" || normalized.contains(".pinyin")) {
+            self = .applePinyin
+            return
+        }
+
+        self = .none
+    }
+
+    func keepsInsideTextInput(keyCode: UInt16) -> Bool {
+        switch self {
+        case .none:
+            return false
+        case .bopomofo:
+            switch Int(keyCode) {
+            case kVK_DownArrow, kVK_PageUp, kVK_PageDown, kVK_Space:
+                return true
+            default:
+                return false
+            }
+        case .applePinyin:
+            switch Int(keyCode) {
+            case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow,
+                 kVK_PageUp, kVK_PageDown, kVK_Tab, kVK_Space:
+                return true
+            default:
+                return false
+            }
+        }
+    }
+}
+
 extension GhosttyNSView {
     /// Clamps AppKit's marked-text selection into the active preedit buffer.
     func normalizedMarkedSelectionRange(_ range: NSRange, markedLength: Int) -> NSRange {
@@ -67,20 +117,6 @@ extension GhosttyNSView {
         return sourceId.localizedCaseInsensitiveContains("inputmethod")
     }
 
-    func isBopomofoInputSource(_ sourceId: String?) -> Bool {
-        guard let sourceId else { return false }
-        return sourceId.localizedCaseInsensitiveContains("Zhuyin")
-            || sourceId.localizedCaseInsensitiveContains("Bopomofo")
-    }
-
-    func isApplePinyinInputSource(_ sourceId: String?) -> Bool {
-        guard let sourceId else { return false }
-        let normalized = sourceId.lowercased()
-        guard normalized.hasPrefix("com.apple.inputmethod.") else { return false }
-        return normalized == "com.apple.inputmethod.scim.itabc"
-            || normalized.contains(".pinyin")
-    }
-
     func hasOnlyTextInputCommandModifiers(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags
             .intersection(.deviceIndependentFlagsMask)
@@ -92,26 +128,8 @@ extension GhosttyNSView {
         guard let event else { return false }
         guard hasOnlyTextInputCommandModifiers(event) else { return false }
 
-        if isBopomofoInputSource(inputSourceId) {
-            switch Int(event.keyCode) {
-            case kVK_DownArrow, kVK_PageUp, kVK_PageDown, kVK_Space:
-                return true
-            default:
-                return false
-            }
-        }
-
-        if isApplePinyinInputSource(inputSourceId) {
-            switch Int(event.keyCode) {
-            case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow,
-                 kVK_PageUp, kVK_PageDown, kVK_Tab, kVK_Space:
-                return true
-            default:
-                return false
-            }
-        }
-
-        return false
+        return NoMarkedIMECommandPolicy(inputSourceId: inputSourceId)
+            .keepsInsideTextInput(keyCode: event.keyCode)
     }
 
     /// Returns true when a window-level key-equivalent probe should re-enter

@@ -102,6 +102,10 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         ["Left", "Right", "Up", "Down", "PageUp", "PageDown", "Tab", "Space"]
     }
 
+    private var pinyinNonCandidateCommandProbeNames: Set<String> {
+        ["Home", "End"]
+    }
+
     private func assertInputSourceDoesNotSwallowNoMarkedIMECommandKeys(
         _ inputSourceId: String,
         file: StaticString = #filePath,
@@ -553,6 +557,77 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         }
     }
 
+    private func assertApplePinyinInputSourceHandledNonCandidateCommandsForwardToTerminalWithoutMarkedText(
+        _ inputSourceId: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let view = GhosttyNSView(frame: .zero)
+
+        for probe in noMarkedNavigationKeyProbes where pinyinNonCandidateCommandProbeNames.contains(probe.name) {
+            let event = try keyEvent(text: probe.text, keyCode: probe.keyCode, windowNumber: 0)
+
+            XCTAssertFalse(
+                view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                    markedTextBefore: "",
+                    markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
+                    markedTextAfter: "",
+                    markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                    accumulatedText: [],
+                    event: event,
+                    textInputHandledEvent: true,
+                    inputSourceId: inputSourceId
+                ),
+                "\(inputSourceId) handled non-candidate \(probe.name) should still reach Ghostty",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    private func assertPinyinLikeThirdPartyInputSourceDoesNotUseApplePinyinPolicy(
+        _ inputSourceId: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let view = GhosttyNSView(frame: .zero)
+
+        for probe in noMarkedNavigationKeyProbes where pinyinCandidateCommandProbeNames.contains(probe.name) {
+            let event = try keyEvent(text: probe.text, keyCode: probe.keyCode, windowNumber: 0)
+
+            XCTAssertFalse(
+                view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                    markedTextBefore: "",
+                    markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
+                    markedTextAfter: "",
+                    markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                    accumulatedText: [],
+                    event: event,
+                    textInputHandledEvent: true,
+                    inputSourceId: inputSourceId
+                ),
+                "\(inputSourceId) should not inherit Apple Pinyin no-marked-text suppression for \(probe.name)",
+                file: file,
+                line: line
+            )
+        }
+
+        let downArrow = try keyEvent(
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: 0
+        )
+        XCTAssertFalse(
+            view.shouldRouteTextInputKeyEquivalentToKeyDown(
+                downArrow,
+                inputSourceId: inputSourceId
+            ),
+            "\(inputSourceId) should not route no-marked-text candidate keys through keyDown as Apple Pinyin",
+            file: file,
+            line: line
+        )
+    }
+
     private func assertRoutesApplePinyinCandidateArrowKeyEquivalentThroughKeyDownWithoutMarkedText(
         _ inputSourceId: String,
         file: StaticString = #filePath,
@@ -603,6 +678,18 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
     func testFutureApplePinyinVariantHandledCandidateCommandsStayInTextInputWithoutMarkedText() throws {
         try assertApplePinyinInputSourceHandledCandidateCommandsStayInTextInputWithoutMarkedText(
             "com.apple.inputmethod.TCIM.PinyinExtended"
+        )
+    }
+
+    func testTraditionalChinesePinyinHandledHomeAndEndForwardWithoutMarkedText() throws {
+        try assertApplePinyinInputSourceHandledNonCandidateCommandsForwardToTerminalWithoutMarkedText(
+            "com.apple.inputmethod.TCIM.Pinyin"
+        )
+    }
+
+    func testPinyinLikeThirdPartyInputSourceDoesNotUseApplePinyinNoMarkedTextPolicy() throws {
+        try assertPinyinLikeThirdPartyInputSourceDoesNotUseApplePinyinPolicy(
+            "org.openvanilla.inputmethod.Pinyin"
         )
     }
 
