@@ -1237,11 +1237,12 @@ final class FileExplorerContainerView: NSView {
     }
 
     private func updateSearchLayoutForCurrentVisibility() {
-        let hasStatus = lastAppliedVisibility?.statusMessage?.isEmpty == false
-        let canShowTree = (lastAppliedVisibility?.hasContent ?? true) && !hasStatus
+        guard let lastAppliedVisibility else { return }
+        let hasStatus = lastAppliedVisibility.statusMessage?.isEmpty == false
+        let canShowTree = lastAppliedVisibility.hasContent && !hasStatus
         updateSearchLayout(
             hasContent: canShowTree,
-            isLoading: lastAppliedVisibility?.isLoading
+            isLoading: lastAppliedVisibility.isLoading
         )
     }
 
