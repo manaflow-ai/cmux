@@ -107,8 +107,6 @@ private func cliWaitForWritableFD(_ fd: Int32) -> Bool {
 @discardableResult
 func cliWrite(_ data: Data, to handle: FileHandle, onBrokenPipe: CLIBrokenPipeDisposition) -> Bool {
     guard !data.isEmpty else { return true }
-    cliStdioDispositionLock.lock()
-    defer { cliStdioDispositionLock.unlock() }
 
     return data.withUnsafeBytes { rawBuffer in
         guard let baseAddress = rawBuffer.bindMemory(to: UInt8.self).baseAddress else {
@@ -117,7 +115,11 @@ func cliWrite(_ data: Data, to handle: FileHandle, onBrokenPipe: CLIBrokenPipeDi
 
         var offset = 0
         while offset < rawBuffer.count {
+            cliStdioDispositionLock.lock()
             let written = Darwin.write(handle.fileDescriptor, baseAddress.advanced(by: offset), rawBuffer.count - offset)
+            let errorCode = written < 0 ? errno : 0
+            cliStdioDispositionLock.unlock()
+
             if written > 0 {
                 offset += written
                 continue
@@ -126,7 +128,6 @@ func cliWrite(_ data: Data, to handle: FileHandle, onBrokenPipe: CLIBrokenPipeDi
                 return false
             }
 
-            let errorCode = errno
             switch errorCode {
             case EINTR:
                 continue
@@ -377,7 +378,7 @@ extension CMUXCLI {
         let inspectionURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-sigpipe-\(UUID().uuidString).json")
         let inspectionPath = inspectionURL.path
-        let inspectArguments = ["__sigpipe-inspect", "--out", inspectionPath]
+        let inspectFileArguments = ["__sigpipe-inspect", "--out", inspectionPath]
         defer {
             try? FileManager.default.removeItem(at: inspectionURL)
         }
@@ -386,7 +387,7 @@ extension CMUXCLI {
         case "spawn":
             let process = Process()
             process.executableURL = URL(fileURLWithPath: cliPath)
-            process.arguments = inspectArguments
+            process.arguments = inspectFileArguments
             process.standardInput = FileHandle.nullDevice
             try cliRunProcess(process)
             process.waitUntilExit()
@@ -401,7 +402,7 @@ extension CMUXCLI {
         case "spawn-stderr":
             let process = Process()
             process.executableURL = URL(fileURLWithPath: cliPath)
-            process.arguments = inspectArguments
+            process.arguments = inspectFileArguments
             process.standardInput = FileHandle.nullDevice
             process.standardOutput = FileHandle.standardError
             process.standardError = FileHandle.standardError
@@ -416,7 +417,7 @@ extension CMUXCLI {
             cliWriteStdout(output + (output.hasSuffix("\n") ? "" : "\n"))
 
         case "exec":
-            var argv = ([cliPath] + inspectArguments).map { strdup($0) }
+            var argv: [UnsafeMutablePointer<CChar>?] = [cliPath, "__sigpipe-inspect"].map { strdup($0) }
             defer {
                 for item in argv {
                     free(item)
