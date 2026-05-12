@@ -90,6 +90,7 @@ export default function CustomCommandsPage() {
       <p>
         {t.rich("schemaIntro", {
           commands: (chunks) => <code>{chunks}</code>,
+          promptSnippets: (chunks) => <code>{chunks}</code>,
           actions: (chunks) => <code>{chunks}</code>,
         })}
       </p>
@@ -143,6 +144,15 @@ export default function CustomCommandsPage() {
       "keywords": ["dev", "start"],
       "workspace": { ... }
     }
+  ],
+  "promptSnippets": [
+    {
+      "id": "review-checklist",
+      "title": "Review Checklist",
+      "description": "Correctness, regressions, and missing tests",
+      "keywords": ["review", "tests"],
+      "text": "Review this change for correctness, regressions, and missing tests."
+    }
   ]
 }`}</CodeBlock>
       <h3>{t("nightlyActionRegistry")}</h3>
@@ -183,6 +193,44 @@ export default function CustomCommandsPage() {
           target: (chunks) => <code>{chunks}</code>,
         })}
       </p>
+
+      <h2>{t("promptSnippets")}</h2>
+      <p>
+        {t.rich("promptSnippetsDesc", {
+          promptSnippets: (chunks) => <code>{chunks}</code>,
+          commandPalette: (chunks) => <strong>{chunks}</strong>,
+        })}
+      </p>
+      <CodeBlock title="cmux.json" lang="json">{`{
+  "promptSnippets": [
+    {
+      "id": "bug-report",
+      "title": "Bug Report",
+      "description": "Summarize a reproducible issue",
+      "keywords": ["bug", "repro"],
+      "text": "Summarize the repro steps, observed behavior, expected behavior, and likely affected files."
+    },
+    {
+      "title": "Review Checklist",
+      "prompt": "Review this diff for correctness, regressions, security issues, and missing tests."
+    }
+  ]
+}`}</CodeBlock>
+      <h3>{t("promptSnippetFields")}</h3>
+      <ul>
+        <li><code>id</code>: {t("promptSnippetFieldID")}</li>
+        <li><code>title</code> / <code>name</code>: {t("promptSnippetFieldTitle")}</li>
+        <li><code>text</code> / <code>prompt</code> / <code>content</code> / <code>body</code>: {t("promptSnippetFieldText")}</li>
+        <li><code>description</code>: {t("promptSnippetFieldDescription")}</li>
+        <li><code>keywords</code>: {t("promptSnippetFieldKeywords")}</li>
+      </ul>
+      <Callout type="info">
+        {t.rich("promptSnippetPrecedence", {
+          local: (chunks) => <code>{chunks}</code>,
+          global: (chunks) => <code>{chunks}</code>,
+          reload: (chunks) => <code>{chunks}</code>,
+        })}
+      </Callout>
 
       <h2>{t("customActions")}</h2>
       <p>
