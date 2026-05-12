@@ -2685,6 +2685,13 @@ final class BrowserPanel: Panel, ObservableObject {
         )
         configuration.userContentController.addUserScript(
             WKUserScript(
+                source: Self.dialogTelemetryHookBootstrapScriptSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+        )
+        configuration.userContentController.addUserScript(
+            WKUserScript(
                 source: RemoteLoopbackRuntimeBridge.runtimeBridgeScriptSource,
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: false
