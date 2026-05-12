@@ -464,7 +464,7 @@ extension Workspace {
             browserSnapshot = nil
             markdownSnapshot = nil
             filePreviewSnapshot = nil
-        case .browser:
+        case .browser, .codeEditor:
             guard let browserPanel = panel as? BrowserPanel else { return nil }
             terminalSnapshot = nil
             let historySnapshot = browserPanel.sessionNavigationHistorySnapshot()
@@ -805,11 +805,12 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
             return terminalPanel.id
-        case .browser:
+        case .browser, .codeEditor:
             guard let browserPanel = newBrowserSurface(
                 inPane: paneId,
                 url: nil,
                 focus: false,
+                panelType: snapshot.type == .codeEditor ? .codeEditor : .browser,
                 preferredProfileID: snapshot.browser?.profileID,
                 creationPolicy: .restoration
             ) else {
@@ -1057,6 +1058,22 @@ extension Workspace {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
             }
+
+        case .editor:
+            let url = surface.url.flatMap { URL(string: $0) }
+            let directoryURL = CmuxConfigStore
+                .resolveCwd(surface.cwd, relativeTo: baseCwd)
+                .map { URL(fileURLWithPath: $0, isDirectory: true) }
+            if let panel = newCodeEditorSurface(
+                inPane: paneId,
+                directoryURL: directoryURL,
+                url: url,
+                focus: false
+            ) {
+                _ = closePanel(panelId, force: true)
+                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+                if surface.focus == true { focusPanelId = panel.id }
+            }
         }
     }
 
@@ -1087,6 +1104,21 @@ extension Workspace {
                 url: url,
                 focus: false,
                 creationPolicy: .restoration
+            ) {
+                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+                if surface.focus == true { focusPanelId = panel.id }
+            }
+
+        case .editor:
+            let url = surface.url.flatMap { URL(string: $0) }
+            let directoryURL = CmuxConfigStore
+                .resolveCwd(surface.cwd, relativeTo: baseCwd)
+                .map { URL(fileURLWithPath: $0, isDirectory: true) }
+            if let panel = newCodeEditorSurface(
+                inPane: paneId,
+                directoryURL: directoryURL,
+                url: url,
+                focus: false
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
@@ -6999,6 +7031,7 @@ enum SidebarBranchOrdering {
 
 struct ClosedBrowserPanelRestoreSnapshot {
     let workspaceId: UUID
+    let panelType: PanelType
     let url: URL?
     let profileID: UUID?
     let originalPaneId: UUID
@@ -7281,6 +7314,7 @@ final class Workspace: Identifiable, ObservableObject {
     enum SurfaceKind {
         static let terminal = "terminal"
         static let browser = "browser"
+        static let codeEditor = "editor"
         static let markdown = "markdown"
         static let filePreview = "filePreview"
     }
@@ -8109,6 +8143,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.terminal
         case .browser:
             return SurfaceKind.browser
+        case .codeEditor:
+            return SurfaceKind.codeEditor
         case .markdown:
             return SurfaceKind.markdown
         case .filePreview:
@@ -10068,13 +10104,15 @@ final class Workspace: Identifiable, ObservableObject {
         orientation: SplitOrientation,
         insertFirst: Bool = false,
         url: URL? = nil,
+        panelType: PanelType = .browser,
         preferredProfileID: UUID? = nil,
         focus: Bool = true,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         initialDividerPosition: CGFloat? = nil
     ) -> BrowserPanel? {
+        let resolvedPanelType: PanelType = panelType == .codeEditor ? .codeEditor : .browser
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
-        guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
+        guard resolvedPanelType == .codeEditor || browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
             if let url {
                 _ = NSWorkspace.shared.open(url)
             }
@@ -10097,12 +10135,13 @@ final class Workspace: Identifiable, ObservableObject {
         // Create browser panel
         let browserPanel = BrowserPanel(
             workspaceId: id,
+            panelType: resolvedPanelType,
             profileID: resolvedNewBrowserProfileID(
                 preferredProfileID: preferredProfileID,
                 sourcePanelId: panelId
             ),
             initialURL: url,
-            renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
+            renderInitialNavigation: resolvedPanelType == .codeEditor || browserEnabled || creationPolicy != .restoration,
             proxyEndpoint: remoteProxyEndpoint,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
@@ -10114,7 +10153,7 @@ final class Workspace: Identifiable, ObservableObject {
         let newTab = Bonsplit.Tab(
             title: browserPanel.displayTitle,
             icon: browserPanel.displayIcon,
-            kind: SurfaceKind.browser,
+            kind: surfaceKind(for: browserPanel),
             isDirty: browserPanel.isDirty,
             isLoading: browserPanel.isLoading,
             isPinned: false
@@ -10134,7 +10173,15 @@ final class Workspace: Identifiable, ObservableObject {
         }
         applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
         setPreferredBrowserProfileID(browserPanel.profileID)
-        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: browserPanel.id, kind: "browser", origin: "browser_split", focused: focus)
+        publishCmuxSplitCreated(
+            newPaneId,
+            sourcePaneId: paneId,
+            orientation: orientation,
+            surfaceId: browserPanel.id,
+            kind: surfaceKind(for: browserPanel),
+            origin: resolvedPanelType == .codeEditor ? "editor_split" : "browser_split",
+            focused: focus
+        )
 
         // See newTerminalSplit: suppress old view's becomeFirstResponder during reparenting.
         let previousHostedView = focusedTerminalPanel?.hostedView
@@ -10169,12 +10216,14 @@ final class Workspace: Identifiable, ObservableObject {
         initialRequest: URLRequest? = nil,
         focus: Bool? = nil,
         insertAtEnd: Bool = false,
+        panelType: PanelType = .browser,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated
     ) -> BrowserPanel? {
+        let resolvedPanelType: PanelType = panelType == .codeEditor ? .codeEditor : .browser
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
-        guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
+        guard resolvedPanelType == .codeEditor || browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
             if let externalURL = url ?? initialRequest?.url {
                 _ = NSWorkspace.shared.open(externalURL)
             }
@@ -10188,13 +10237,14 @@ final class Workspace: Identifiable, ObservableObject {
 
         let browserPanel = BrowserPanel(
             workspaceId: id,
+            panelType: resolvedPanelType,
             profileID: resolvedNewBrowserProfileID(
                 preferredProfileID: preferredProfileID,
                 sourcePanelId: sourcePanelId
             ),
             initialURL: url,
             initialRequest: initialRequest,
-            renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
+            renderInitialNavigation: resolvedPanelType == .codeEditor || browserEnabled || creationPolicy != .restoration,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             proxyEndpoint: remoteProxyEndpoint,
             isRemoteWorkspace: isRemoteWorkspace,
@@ -10206,7 +10256,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let newTabId = bonsplitController.createTab(
             title: browserPanel.displayTitle,
             icon: browserPanel.displayIcon,
-            kind: SurfaceKind.browser,
+            kind: surfaceKind(for: browserPanel),
             isDirty: browserPanel.isDirty,
             isLoading: browserPanel.isLoading,
             isPinned: false,
@@ -10225,7 +10275,13 @@ final class Workspace: Identifiable, ObservableObject {
             let targetIndex = max(0, bonsplitController.tabs(inPane: paneId).count - 1)
             _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
         }
-        publishCmuxSurfaceCreated(browserPanel.id, paneId: paneId, kind: "browser", origin: "browser_tab", focused: shouldFocusNewTab)
+        publishCmuxSurfaceCreated(
+            browserPanel.id,
+            paneId: paneId,
+            kind: surfaceKind(for: browserPanel),
+            origin: resolvedPanelType == .codeEditor ? "editor_tab" : "browser_tab",
+            focused: shouldFocusNewTab
+        )
 
         // Match terminal behavior: enforce deterministic selection + focus.
         if shouldFocusNewTab {
@@ -10245,6 +10301,96 @@ final class Workspace: Identifiable, ObservableObject {
         browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
 
         return browserPanel
+    }
+
+    @discardableResult
+    func newCodeEditorSplit(
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool = false,
+        directoryURL: URL? = nil,
+        url: URL? = nil,
+        focus: Bool = true,
+        initialDividerPosition: CGFloat? = nil
+    ) -> BrowserPanel? {
+        let resolvedDirectoryURL = codeEditorDirectoryURL(directoryURL)
+        guard url != nil || TerminalDirectoryOpenTarget.vscodeInline.applicationURL() != nil else {
+            NSSound.beep()
+            return nil
+        }
+        guard let panel = newBrowserSplit(
+            from: panelId,
+            orientation: orientation,
+            insertFirst: insertFirst,
+            url: url,
+            panelType: .codeEditor,
+            focus: focus,
+            initialDividerPosition: initialDividerPosition
+        ) else {
+            return nil
+        }
+        if url == nil {
+            navigateCodeEditorPanel(panel, directoryURL: resolvedDirectoryURL)
+        }
+        return panel
+    }
+
+    @discardableResult
+    func newCodeEditorSurface(
+        inPane paneId: PaneID,
+        directoryURL: URL? = nil,
+        url: URL? = nil,
+        focus: Bool? = nil,
+        insertAtEnd: Bool = false
+    ) -> BrowserPanel? {
+        let resolvedDirectoryURL = codeEditorDirectoryURL(directoryURL)
+        guard url != nil || TerminalDirectoryOpenTarget.vscodeInline.applicationURL() != nil else {
+            NSSound.beep()
+            return nil
+        }
+        guard let panel = newBrowserSurface(
+            inPane: paneId,
+            url: url,
+            focus: focus,
+            insertAtEnd: insertAtEnd,
+            panelType: .codeEditor
+        ) else {
+            return nil
+        }
+        if url == nil {
+            navigateCodeEditorPanel(panel, directoryURL: resolvedDirectoryURL)
+        }
+        return panel
+    }
+
+    private func codeEditorDirectoryURL(_ directoryURL: URL?) -> URL? {
+        if let directoryURL {
+            return directoryURL.standardizedFileURL
+        }
+        let trimmedDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDirectory.isEmpty else { return nil }
+        return URL(fileURLWithPath: trimmedDirectory, isDirectory: true).standardizedFileURL
+    }
+
+    private func navigateCodeEditorPanel(_ panel: BrowserPanel, directoryURL: URL?) {
+        guard let directoryURL else { return }
+        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
+            NSSound.beep()
+            return
+        }
+
+        VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { [weak panel] serveWebURL in
+            guard let panel else { return }
+            guard let serveWebURL,
+                  let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
+                    baseWebUIURL: serveWebURL,
+                    directoryPath: directoryURL.path
+                  ) else {
+                NSSound.beep()
+                return
+            }
+            panel.navigate(to: openFolderURL)
+        }
     }
 
     /// Open the markdown viewer for `filePath`, reusing an existing
@@ -10823,6 +10969,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         pendingClosedBrowserRestoreSnapshots[tab.id] = ClosedBrowserPanelRestoreSnapshot(
             workspaceId: id,
+            panelType: browserPanel.panelType,
             url: resolvedURL,
             profileID: browserPanel.profileID,
             originalPaneId: pane.id,
@@ -13851,6 +13998,8 @@ extension Workspace: BonsplitDelegate {
             _ = newTerminalSurface(inPane: pane)
         case "browser":
             _ = newBrowserSurface(inPane: pane)
+        case SurfaceKind.codeEditor, "codeEditor", "codeeditor":
+            _ = newCodeEditorSurface(inPane: pane)
         default:
             _ = newTerminalSurface(inPane: pane)
         }

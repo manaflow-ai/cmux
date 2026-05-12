@@ -3571,7 +3571,7 @@ class TerminalController {
                 "webviews": []
             ]
 
-            if panel.panelType == .browser, let browserPanel = panel as? BrowserPanel {
+            if (panel.panelType == .browser || panel.panelType == .codeEditor), let browserPanel = panel as? BrowserPanel {
                 let webContentPID = CmuxWebContentProcessIdentifier.pid(for: browserPanel.webView)
                 let url = browserPanel.currentURL?.absoluteString ?? ""
                 item["url"] = url
@@ -3748,7 +3748,7 @@ class TerminalController {
                 "tty": v2OrNull(workspace.surfaceTTYNames[panel.id])
             ]
 
-            if panel.panelType == .browser, let browserPanel = panel as? BrowserPanel {
+            if (panel.panelType == .browser || panel.panelType == .codeEditor), let browserPanel = panel as? BrowserPanel {
                 item["url"] = browserPanel.currentURL?.absoluteString ?? ""
             } else {
                 item["url"] = NSNull()
@@ -6071,6 +6071,16 @@ class TerminalController {
                     focus: focus,
                     initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
                 )?.id
+            } else if panelType == .codeEditor {
+                newId = ws.newCodeEditorSplit(
+                    from: targetSurfaceId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    directoryURL: workingDirectory.map { URL(fileURLWithPath: $0, isDirectory: true) },
+                    url: url,
+                    focus: focus,
+                    initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
+                )?.id
             } else {
                 newId = tabManager.newSplit(
                     tabId: ws.id,
@@ -6145,6 +6155,13 @@ class TerminalController {
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             if panelType == .browser {
                 newPanelId = ws.newBrowserSurface(inPane: paneId, url: url, focus: focus)?.id
+            } else if panelType == .codeEditor {
+                newPanelId = ws.newCodeEditorSurface(
+                    inPane: paneId,
+                    directoryURL: workingDirectory.map { URL(fileURLWithPath: $0, isDirectory: true) },
+                    url: url,
+                    focus: focus
+                )?.id
             } else {
                 newPanelId = ws.newTerminalSurface(
                     inPane: paneId,
@@ -7440,6 +7457,16 @@ class TerminalController {
                     from: sourcePanelId,
                     orientation: orientation,
                     insertFirst: insertFirst,
+                    url: url,
+                    focus: focus,
+                    initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
+                )?.id
+            } else if panelType == .codeEditor {
+                newPanelId = ws.newCodeEditorSplit(
+                    from: sourcePanelId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    directoryURL: workingDirectory.map { URL(fileURLWithPath: $0, isDirectory: true) },
                     url: url,
                     focus: focus,
                     initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
@@ -12929,8 +12956,8 @@ class TerminalController {
         Split & surface commands:
           new_split <direction> [panel]   - Split panel (left/right/up/down)
           drag_surface_to_split <id|idx> <direction> - Move surface into a new split (drag-to-edge)
-          new_pane [--type=terminal|browser] [--direction=left|right|up|down] [--url=...]
-          new_surface [--type=terminal|browser] [--pane=<pane-id|index>] [--url=...]
+          new_pane [--type=terminal|browser|editor] [--direction=left|right|up|down] [--url=...]
+          new_surface [--type=terminal|browser|editor] [--pane=<pane-id|index>] [--url=...]
           list_surfaces [workspace]       - List surfaces for workspace (current if omitted)
           list_panes                      - List all panes with IDs
           list_pane_surfaces [--pane=<pane-id|index>] - List surfaces in pane
@@ -15870,7 +15897,7 @@ class TerminalController {
     private func newPane(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
-        // Parse arguments: --type=terminal|browser --direction=left|right|up|down --url=...
+        // Parse arguments: --type=terminal|browser|editor --direction=left|right|up|down --url=...
         var panelType: PanelType = .terminal
         var direction: SplitDirection = .right
         var urlRaw: String? = nil
@@ -15882,7 +15909,7 @@ class TerminalController {
             let partStr = String(part)
             if partStr.hasPrefix("--type=") {
                 let typeStr = String(partStr.dropFirst(7))
-                panelType = typeStr == "browser" ? .browser : .terminal
+                panelType = PanelType.parse(typeStr) ?? .terminal
             } else if partStr.hasPrefix("--direction=") {
                 let dirStr = String(partStr.dropFirst(12))
                 if let parsed = parseSplitDirection(dirStr) {
@@ -15919,6 +15946,14 @@ class TerminalController {
             let newPanelId: UUID?
             if panelType == .browser {
                 newPanelId = tab.newBrowserSplit(
+                    from: focusedPanelId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    url: url,
+                    focus: focus
+                )?.id
+            } else if panelType == .codeEditor {
+                newPanelId = tab.newCodeEditorSplit(
                     from: focusedPanelId,
                     orientation: orientation,
                     insertFirst: insertFirst,
@@ -17489,7 +17524,7 @@ class TerminalController {
     private func newSurface(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
-        // Parse arguments: --type=terminal|browser --pane=<pane_id> --url=...
+        // Parse arguments: --type=terminal|browser|editor --pane=<pane_id> --url=...
         var panelType: PanelType = .terminal
         var paneArg: String? = nil
         var urlRaw: String? = nil
@@ -17500,7 +17535,7 @@ class TerminalController {
             let partStr = String(part)
             if partStr.hasPrefix("--type=") {
                 let typeStr = String(partStr.dropFirst(7))
-                panelType = typeStr == "browser" ? .browser : .terminal
+                panelType = PanelType.parse(typeStr) ?? .terminal
             } else if partStr.hasPrefix("--pane=") {
                 paneArg = String(partStr.dropFirst(7))
             } else if partStr.hasPrefix("--url=") {
@@ -17544,6 +17579,8 @@ class TerminalController {
             let newPanelId: UUID?
             if panelType == .browser {
                 newPanelId = tab.newBrowserSurface(inPane: targetPaneId, url: url, focus: focus)?.id
+            } else if panelType == .codeEditor {
+                newPanelId = tab.newCodeEditorSurface(inPane: targetPaneId, url: url, focus: focus)?.id
             } else {
                 newPanelId = tab.newTerminalSurface(inPane: targetPaneId, focus: focus)?.id
             }

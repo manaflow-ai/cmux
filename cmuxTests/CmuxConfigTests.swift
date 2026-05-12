@@ -1336,6 +1336,36 @@ final class CmuxConfigDecodingTests: XCTestCase {
         }
     }
 
+    func testDecodeEditorSurface() throws {
+        let json = """
+        {
+          "commands": [{
+            "name": "test",
+            "workspace": {
+              "layout": {
+                "pane": {
+                  "surfaces": [{
+                    "type": "editor",
+                    "name": "Code",
+                    "cwd": "./Sources"
+                  }]
+                }
+              }
+            }
+          }]
+        }
+        """
+        let config = try decode(json)
+        if case .pane(let pane) = config.commands[0].workspace!.layout! {
+            let s = pane.surfaces[0]
+            XCTAssertEqual(s.type, .editor)
+            XCTAssertEqual(s.name, "Code")
+            XCTAssertEqual(s.cwd, "./Sources")
+        } else {
+            XCTFail("Expected pane node")
+        }
+    }
+
     func testDecodeMultipleSurfacesInPane() throws {
         let json = """
         {

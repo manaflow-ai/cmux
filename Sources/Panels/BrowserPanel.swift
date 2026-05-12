@@ -2008,7 +2008,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     let id: UUID
-    let panelType: PanelType = .browser
+    let panelType: PanelType
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
@@ -2434,6 +2434,20 @@ final class BrowserPanel: Panel, ObservableObject {
         if !pageTitle.isEmpty {
             return pageTitle
         }
+        if panelType == .codeEditor {
+            if let url = currentURL,
+               let folderPath = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name == "folder" })?
+                .value,
+               !folderPath.isEmpty {
+                let folderName = URL(fileURLWithPath: folderPath, isDirectory: true).lastPathComponent
+                if !folderName.isEmpty {
+                    return folderName
+                }
+            }
+            return String(localized: "codeEditor.newTab", defaultValue: "Code Editor")
+        }
         if let url = currentURL {
             return url.host ?? url.absoluteString
         }
@@ -2624,7 +2638,12 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     var displayIcon: String? {
-        "globe"
+        switch panelType {
+        case .codeEditor:
+            return "chevron.left.forwardslash.chevron.right"
+        default:
+            return "globe"
+        }
     }
 
     var isDirty: Bool {
@@ -2766,6 +2785,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     init(
         workspaceId: UUID,
+        panelType: PanelType = .browser,
         profileID: UUID? = nil,
         initialURL: URL? = nil,
         initialRequest: URLRequest? = nil,
@@ -2776,6 +2796,7 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteWebsiteDataStoreIdentifier: UUID? = nil
     ) {
         self.id = UUID()
+        self.panelType = panelType == .codeEditor ? .codeEditor : .browser
         self.workspaceId = workspaceId
         let requestedProfileID = profileID ?? BrowserProfileStore.shared.effectiveLastUsedProfileID
         let resolvedProfileID = BrowserProfileStore.shared.profileDefinition(id: requestedProfileID) != nil

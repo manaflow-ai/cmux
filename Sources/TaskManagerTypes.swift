@@ -10,6 +10,7 @@ struct CmuxTaskManagerRow: Identifiable {
         case pane
         case terminalSurface
         case browserSurface
+        case codeEditorSurface
         case webview
         case process
 
@@ -21,6 +22,7 @@ struct CmuxTaskManagerRow: Identifiable {
             case .pane: return "square.split.2x1"
             case .terminalSurface: return "terminal"
             case .browserSurface: return "globe"
+            case .codeEditorSurface: return "chevron.left.forwardslash.chevron.right"
             case .webview: return "network"
             case .process: return "gearshape"
             }
@@ -34,6 +36,7 @@ struct CmuxTaskManagerRow: Identifiable {
             case .pane: return .secondary
             case .terminalSurface: return .green
             case .browserSurface: return .blue
+            case .codeEditorSurface: return .indigo
             case .webview: return .purple
             case .process: return .secondary
             }

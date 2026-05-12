@@ -5745,6 +5745,21 @@ class TabManager: ObservableObject {
         )?.id
     }
 
+    /// Create a new code editor surface in a pane.
+    func newCodeEditorSurface(
+        tabId: UUID,
+        inPane paneId: PaneID,
+        directoryURL: URL? = nil,
+        url: URL? = nil
+    ) -> UUID? {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
+        return tab.newCodeEditorSurface(
+            inPane: paneId,
+            directoryURL: directoryURL,
+            url: url
+        )?.id
+    }
+
     /// Get a browser panel by ID
     func browserPanel(tabId: UUID, panelId: UUID) -> BrowserPanel? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
@@ -5838,13 +5853,88 @@ class TabManager: ObservableObject {
         )
     }
 
+    /// Open a VS Code-backed editor screen in a specific workspace.
+    @discardableResult
+    func openCodeEditor(
+        inWorkspace tabId: UUID,
+        directoryURL: URL? = nil,
+        url: URL? = nil,
+        preferSplitRight: Bool = false,
+        insertAtEnd: Bool = false
+    ) -> UUID? {
+        guard let workspace = tabs.first(where: { $0.id == tabId }) else { return nil }
+        if selectedTabId != tabId {
+            selectedTabId = tabId
+        }
+
+        if preferSplitRight {
+            let splitSourcePanelId: UUID? = {
+                if let focusedPanelId = workspace.focusedPanelId,
+                   workspace.panels[focusedPanelId] != nil {
+                    return focusedPanelId
+                }
+                if let rememberedPanelId = lastFocusedPanelByTab[tabId],
+                   workspace.panels[rememberedPanelId] != nil {
+                    return rememberedPanelId
+                }
+                if let orderedPanelId = workspace.sidebarOrderedPanelIds().first(where: { workspace.panels[$0] != nil }) {
+                    return orderedPanelId
+                }
+                return workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }.first
+            }()
+
+            if let splitSourcePanelId,
+               let editorPanel = workspace.newCodeEditorSplit(
+                   from: splitSourcePanelId,
+                   orientation: .horizontal,
+                   directoryURL: directoryURL,
+                   url: url,
+                   focus: true
+               ) {
+                rememberFocusedSurface(tabId: tabId, surfaceId: editorPanel.id)
+                return editorPanel.id
+            }
+        }
+
+        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
+              let editorPanel = workspace.newCodeEditorSurface(
+                  inPane: paneId,
+                  directoryURL: directoryURL,
+                  url: url,
+                  focus: true,
+                  insertAtEnd: insertAtEnd
+              ) else {
+            return nil
+        }
+        rememberFocusedSurface(tabId: tabId, surfaceId: editorPanel.id)
+        return editorPanel.id
+    }
+
+    /// Open a VS Code-backed editor screen in the currently selected workspace.
+    @discardableResult
+    func openCodeEditor(
+        directoryURL: URL? = nil,
+        url: URL? = nil,
+        insertAtEnd: Bool = false
+    ) -> UUID? {
+        guard let tabId = selectedTabId else { return nil }
+        return openCodeEditor(
+            inWorkspace: tabId,
+            directoryURL: directoryURL,
+            url: url,
+            preferSplitRight: false,
+            insertAtEnd: insertAtEnd
+        )
+    }
+
     /// Reopen the most recently closed browser panel (Cmd+Shift+T).
     /// No-op when no browser panel restore snapshot is available.
     @discardableResult
     func reopenMostRecentlyClosedBrowserPanel() -> Bool {
-        guard BrowserAvailabilitySettings.isEnabled() else { return false }
+        let browserEnabled = BrowserAvailabilitySettings.isEnabled()
 
         while let snapshot = recentlyClosedBrowsers.pop() {
+            guard snapshot.panelType != .browser || browserEnabled else { continue }
             guard let targetWorkspace =
                 tabs.first(where: { $0.id == snapshot.workspaceId })
                 ?? selectedWorkspace
@@ -5931,12 +6021,7 @@ class TabManager: ObservableObject {
         in workspace: Workspace
     ) -> UUID? {
         if let originalPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == snapshot.originalPaneId }),
-           let browserPanel = workspace.newBrowserSurface(
-               inPane: originalPane,
-               url: snapshot.url,
-               focus: true,
-               preferredProfileID: snapshot.profileID
-           ) {
+           let browserPanel = reopenBrowserBackedSurface(snapshot, inPane: originalPane, workspace: workspace) {
             let tabCount = workspace.bonsplitController.tabs(inPane: originalPane).count
             let maxIndex = max(0, tabCount - 1)
             let targetIndex = min(max(snapshot.originalTabIndex, 0), maxIndex)
@@ -5949,12 +6034,11 @@ class TabManager: ObservableObject {
            let anchorPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == fallbackAnchorPaneId }),
            let anchorTab = workspace.bonsplitController.selectedTab(inPane: anchorPane) ?? workspace.bonsplitController.tabs(inPane: anchorPane).first,
            let anchorPanelId = workspace.panelIdFromSurfaceId(anchorTab.id),
-           let browserPanelId = workspace.newBrowserSplit(
+           let browserPanelId = reopenBrowserBackedSplit(
+               snapshot,
                from: anchorPanelId,
                orientation: orientation,
-               insertFirst: snapshot.fallbackSplitInsertFirst,
-               url: snapshot.url,
-               preferredProfileID: snapshot.profileID
+               workspace: workspace
            )?.id {
             return browserPanelId
         }
@@ -5962,12 +6046,46 @@ class TabManager: ObservableObject {
         guard let focusedPane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return nil
         }
+        return reopenBrowserBackedSurface(snapshot, inPane: focusedPane, workspace: workspace)?.id
+    }
+
+    private func reopenBrowserBackedSurface(
+        _ snapshot: ClosedBrowserPanelRestoreSnapshot,
+        inPane paneId: PaneID,
+        workspace: Workspace
+    ) -> BrowserPanel? {
+        if snapshot.panelType == .codeEditor {
+            return workspace.newCodeEditorSurface(inPane: paneId, url: snapshot.url, focus: true)
+        }
         return workspace.newBrowserSurface(
-            inPane: focusedPane,
+            inPane: paneId,
             url: snapshot.url,
             focus: true,
             preferredProfileID: snapshot.profileID
-        )?.id
+        )
+    }
+
+    private func reopenBrowserBackedSplit(
+        _ snapshot: ClosedBrowserPanelRestoreSnapshot,
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        workspace: Workspace
+    ) -> BrowserPanel? {
+        if snapshot.panelType == .codeEditor {
+            return workspace.newCodeEditorSplit(
+                from: panelId,
+                orientation: orientation,
+                insertFirst: snapshot.fallbackSplitInsertFirst,
+                url: snapshot.url
+            )
+        }
+        return workspace.newBrowserSplit(
+            from: panelId,
+            orientation: orientation,
+            insertFirst: snapshot.fallbackSplitInsertFirst,
+            url: snapshot.url,
+            preferredProfileID: snapshot.profileID
+        )
     }
 
     /// Flash the currently focused panel so the user can visually confirm focus.

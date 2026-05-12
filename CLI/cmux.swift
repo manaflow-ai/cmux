@@ -9371,7 +9371,7 @@ struct CMUXCLI {
               - workspace [selected]
               - pane [focused]
               - surface [selected]
-              Browser surfaces also include their current URL.
+              Browser and editor surfaces also include their current URL.
 
             Example:
               cmux tree
@@ -9424,10 +9424,10 @@ struct CMUXCLI {
             Create a new pane in the workspace.
 
             Flags:
-              --type <terminal|browser>           Pane type (default: terminal)
+              --type <terminal|browser|editor>    Pane type (default: terminal)
               --direction <left|right|up|down>    Split direction (default: right)
               --workspace <id|ref>                Target workspace (default: $CMUX_WORKSPACE_ID)
-              --url <url>                         URL for browser panes
+              --url <url>                         URL for browser/editor panes
               --focus <true|false>                Focus the new pane (default: false)
 
             Example:
@@ -9441,10 +9441,10 @@ struct CMUXCLI {
             Create a new surface (tab) in a pane.
 
             Flags:
-              --type <terminal|browser>   Surface type (default: terminal)
+              --type <terminal|browser|editor>   Surface type (default: terminal)
               --pane <id|ref>             Target pane
               --workspace <id|ref>        Target workspace (default: $CMUX_WORKSPACE_ID)
-              --url <url>                 URL for browser surfaces
+              --url <url>                 URL for browser/editor surfaces
               --focus <true|false>        Focus the new surface (default: false)
 
             Example:
@@ -10918,7 +10918,7 @@ struct CMUXCLI {
             surfaceNode["active"] = treeItemMatchesHandle(surfaceNode, handle: activePath.surfaceHandle)
 
             let surfaceType = ((surfaceNode["type"] as? String) ?? "").lowercased()
-            if surfaceType == "browser",
+            if (surfaceType == "browser" || surfaceType == "editor"),
                let url = treeBrowserURL(surface: surfaceNode, urlsByHandle: browserURLsByHandle),
                !url.isEmpty {
                 surfaceNode["url"] = url
@@ -11062,7 +11062,8 @@ struct CMUXCLI {
         client: SocketClient
     ) -> [String: String] {
         let hasBrowserSurfaces = surfaces.contains {
-            (($0["type"] as? String) ?? "").lowercased() == "browser"
+            let type = (($0["type"] as? String) ?? "").lowercased()
+            return type == "browser" || type == "editor"
         }
         guard hasBrowserSurfaces else { return [:] }
 
@@ -11087,7 +11088,8 @@ struct CMUXCLI {
         // Fallback for older servers that may not support browser.tab.list.
         var fallbackURLs: [String: String] = [:]
         for surface in surfaces {
-            guard ((surface["type"] as? String) ?? "").lowercased() == "browser" else { continue }
+            let type = ((surface["type"] as? String) ?? "").lowercased()
+            guard type == "browser" || type == "editor" else { continue }
             guard let surfaceHandle = treeItemHandle(surface) else { continue }
             guard let payload = try? client.sendV2(
                 method: "browser.url.get",
@@ -11219,7 +11221,7 @@ struct CMUXCLI {
         if let tty = surface["tty"] as? String, !tty.isEmpty {
             parts.append("tty=\(tty)")
         }
-        if surfaceType.lowercased() == "browser",
+        if ["browser", "editor"].contains(surfaceType.lowercased()),
            let url = surface["url"] as? String,
            !url.isEmpty {
             parts.append(url)
@@ -11382,7 +11384,7 @@ struct CMUXCLI {
             parts.append("webpid=\(pid)")
         }
         let url = topLabelText(surface["url"] as? String)
-        if surfaceType.lowercased() == "browser", !url.isEmpty {
+        if ["browser", "editor"].contains(surfaceType.lowercased()), !url.isEmpty {
             parts.append(url)
         }
         return parts.joined(separator: " ")
@@ -20850,8 +20852,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           tree [--all] [--workspace <id|ref|index>]
           top [--all] [--workspace <id|ref|index>] [--processes]
           focus-pane --pane <id|ref> [--workspace <id|ref>]
-          new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]
-          new-surface [--type <terminal|browser>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]
+          new-pane [--type <terminal|browser|editor>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]
+          new-surface [--type <terminal|browser|editor>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]
           close-surface [--surface <id|ref>] [--workspace <id|ref>]
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--focus <true|false>]

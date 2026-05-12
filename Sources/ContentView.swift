@@ -5843,6 +5843,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.terminal", defaultValue: "Terminal")
         case .browser:
             return String(localized: "commandPalette.kind.browser", defaultValue: "Browser")
+        case .codeEditor:
+            return String(localized: "commandPalette.kind.codeEditor", defaultValue: "Code Editor")
         case .markdown:
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
         case .filePreview:
@@ -5856,6 +5858,8 @@ struct ContentView: View {
             return ["terminal", "shell", "console"]
         case .browser:
             return ["browser", "web", "page"]
+        case .codeEditor:
+            return ["code", "editor", "vscode", "cursor"]
         case .markdown:
             return ["markdown", "note", "preview"]
         case .filePreview:
@@ -6230,6 +6234,15 @@ struct ContentView: View {
                 shortcutHint: "⌘⇧L",
                 keywords: ["new", "browser", "tab", "web"],
                 when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.newCodeEditorTab",
+                title: constant(String(localized: "command.newCodeEditorTab.title", defaultValue: "New Tab (Code Editor)")),
+                subtitle: constant(String(localized: "command.newCodeEditorTab.subtitle", defaultValue: "Tab")),
+                keywords: ["new", "code", "editor", "vscode", "cursor", "tab"],
+                when: { _ in TerminalDirectoryOpenTarget.vscodeInline.isAvailable() }
             )
         )
         contributions.append(
@@ -7135,6 +7148,15 @@ struct ContentView: View {
             // is not blocked by the palette visibility guard.
             DispatchQueue.main.async {
                 _ = AppDelegate.shared?.openBrowserAndFocusAddressBar()
+            }
+        }
+        registry.register(commandId: "palette.newCodeEditorTab") {
+            let directoryURL = tabManager.selectedWorkspace?.currentDirectory
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .nilIfEmpty
+                .map { URL(fileURLWithPath: $0, isDirectory: true) }
+            if tabManager.openCodeEditor(directoryURL: directoryURL, insertAtEnd: true) == nil {
+                NSSound.beep()
             }
         }
         registry.register(commandId: "palette.closeTab") {

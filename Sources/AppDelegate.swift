@@ -6290,8 +6290,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
-            guard targetTabManager.openBrowser(
+            guard targetTabManager.openCodeEditor(
                 inWorkspace: targetWorkspaceId,
+                directoryURL: normalizedDirectoryURL,
                 url: openFolderURL,
                 preferSplitRight: true
             ) != nil else {

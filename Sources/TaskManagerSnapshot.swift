@@ -153,7 +153,7 @@ struct CmuxTaskManagerSnapshot {
         }
         rows.append(row(
             surface,
-            kind: type == "browser" ? .browserSurface : .terminalSurface,
+            kind: surfaceKind(type),
             level: 3,
             title: title,
             detail: detailParts.joined(separator: " / "),
@@ -170,7 +170,7 @@ struct CmuxTaskManagerSnapshot {
             }
         }
         let processes = surface["processes"] as? [[String: Any]] ?? []
-        let context = rowID(surface, kind: type == "browser" ? .browserSurface : .terminalSurface)
+        let context = rowID(surface, kind: surfaceKind(type))
         for process in processes {
             appendProcess(
                 process,
@@ -350,12 +350,25 @@ struct CmuxTaskManagerSnapshot {
         switch type {
         case "browser":
             return String(localized: "taskManager.row.surfaceType.browser", defaultValue: "Browser")
+        case "editor":
+            return String(localized: "taskManager.row.surfaceType.editor", defaultValue: "Code Editor")
         case "terminal":
             return String(localized: "taskManager.row.surfaceType.terminal", defaultValue: "Terminal")
         case "unknown", "":
             return String(localized: "taskManager.row.surfaceType.unknown", defaultValue: "Unknown")
         default:
             return type
+        }
+    }
+
+    private static func surfaceKind(_ type: String) -> CmuxTaskManagerRow.Kind {
+        switch type {
+        case "browser":
+            return .browserSurface
+        case "editor":
+            return .codeEditorSurface
+        default:
+            return .terminalSurface
         }
     }
 

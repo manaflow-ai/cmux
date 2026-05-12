@@ -6,18 +6,30 @@ import AppKit
 public enum PanelType: String, Codable, Sendable {
     case terminal
     case browser
+    case codeEditor = "editor"
     case markdown
     case filePreview = "filepreview"
+
+    static func parse(_ rawValue: String) -> Self? {
+        let normalized = rawValue
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .lowercased()
+        switch normalized {
+        case Self.filePreview.rawValue:
+            return .filePreview
+        case Self.codeEditor.rawValue, "codeeditor", "vscode", "cursor":
+            return .codeEditor
+        default:
+            return Self(rawValue: normalized)
+        }
+    }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let rawValue = try container.decode(String.self)
-        if let type = Self(rawValue: rawValue) {
+        if let type = Self.parse(rawValue) {
             self = type
-            return
-        }
-        if rawValue.lowercased() == Self.filePreview.rawValue {
-            self = .filePreview
             return
         }
         throw DecodingError.dataCorruptedError(

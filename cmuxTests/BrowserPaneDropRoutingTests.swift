@@ -94,6 +94,15 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         XCTAssertEqual(legacy, .filePreview)
     }
 
+    func testCodeEditorPanelTypeUsesEditorRawValueWithAliases() throws {
+        XCTAssertEqual(PanelType.codeEditor.rawValue, "editor")
+        XCTAssertEqual(PanelType(rawValue: "editor"), .codeEditor)
+        XCTAssertEqual(PanelType.parse("code-editor"), .codeEditor)
+        XCTAssertEqual(PanelType.parse("VSCode"), .codeEditor)
+        let decoded = try JSONDecoder().decode(PanelType.self, from: Data("\"codeEditor\"".utf8))
+        XCTAssertEqual(decoded, .codeEditor)
+    }
+
     func testVerticalZonesFollowAppKitCoordinates() {
         let size = CGSize(width: 240, height: 180)
 

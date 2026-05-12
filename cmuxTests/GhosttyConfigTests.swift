@@ -1813,6 +1813,7 @@ final class RecentlyClosedBrowserStackTests: XCTestCase {
     private func makeSnapshot(index: Int) -> ClosedBrowserPanelRestoreSnapshot {
         ClosedBrowserPanelRestoreSnapshot(
             workspaceId: UUID(),
+            panelType: .browser,
             url: URL(string: "https://example.com/\(index)"),
             profileID: nil,
             originalPaneId: UUID(),

@@ -516,6 +516,10 @@ struct BrowserPanelView: View {
         "BrowserPanelContent.\(panel.id.uuidString)"
     }
 
+    private var showsBrowserChrome: Bool {
+        panel.panelType == .browser
+    }
+
     private var omnibarPillBackgroundColor: NSColor {
         browserChromeStyle.omnibarPillBackgroundColor
     }
@@ -553,8 +557,10 @@ struct BrowserPanelView: View {
         // Layering contract: browser find UI is mounted in the portal-hosted AppKit
         // container. Rendering it here can hide it behind the portal-hosted WKWebView.
         VStack(spacing: 0) {
-            addressBar
-                .fixedSize(horizontal: false, vertical: true)
+            if showsBrowserChrome {
+                addressBar
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             webView
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -585,7 +591,7 @@ struct BrowserPanelView: View {
                 .allowsHitTesting(false)
         }
         .overlay(alignment: .topLeading) {
-            if addressBarFocused, !omnibarState.suggestions.isEmpty, omnibarPillFrame.width > 0 {
+            if showsBrowserChrome, addressBarFocused, !omnibarState.suggestions.isEmpty, omnibarPillFrame.width > 0 {
                 OmnibarSuggestionsView(
                     engineName: searchEngine.displayName,
                     items: omnibarState.suggestions,
@@ -1269,7 +1275,7 @@ struct BrowserPanelView: View {
                     paneId: paneId,
                     shouldAttachWebView: isVisibleInUI && isCurrentPaneOwner && !useLocalInlineDeveloperToolsHosting,
                     useLocalInlineHosting: useLocalInlineDeveloperToolsHosting,
-                    shouldFocusWebView: isFocused && !addressBarFocused,
+                    shouldFocusWebView: isFocused && (!showsBrowserChrome || !addressBarFocused),
                     isPanelFocused: isFocused,
                     portalZPriority: portalPriority,
                     paneDropZone: paneDropZone,
@@ -1287,7 +1293,7 @@ struct BrowserPanelView: View {
                             onFieldDidFocus: { panel.noteFindFieldFocused() }
                         )
                     },
-                    paneTopChromeHeight: addressBarHeight
+                    paneTopChromeHeight: showsBrowserChrome ? addressBarHeight : 0
                 )
                 .accessibilityIdentifier("BrowserWebViewSurface")
                 // Keep the host stable for normal pane churn, but force a remount when
@@ -1748,6 +1754,12 @@ struct BrowserPanelView: View {
     }
 
     private func autoFocusOmnibarIfBlank() {
+        guard showsBrowserChrome else {
+#if DEBUG
+            logBrowserFocusState(event: "addressBarFocus.autoFocus.skip", detail: "reason=chrome_hidden")
+#endif
+            return
+        }
         guard isFocused else {
 #if DEBUG
             logBrowserFocusState(event: "addressBarFocus.autoFocus.skip", detail: "reason=panel_not_focused")

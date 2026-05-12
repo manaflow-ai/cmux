@@ -174,6 +174,6 @@ extension TerminalController {
         let normalized = s.replacingOccurrences(of: "-", with: "")
             .replacingOccurrences(of: "_", with: "")
             .lowercased()
-        return PanelType(rawValue: normalized)
+        return PanelType.parse(normalized)
     }
 }
