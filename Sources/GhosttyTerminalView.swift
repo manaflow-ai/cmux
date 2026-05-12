@@ -5580,6 +5580,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func runtimeSurfaceCanAcceptInput(_ surface: ghostty_surface_t, reason: String) -> Bool {
+        guard hasLiveSurface, self.surface == surface, cmuxSurfacePointerAppearsLive(surface) else {
+#if DEBUG
+            cmuxDebugLog(
+                "surface.input.drop surface=\(id.uuidString.prefix(8)) reason=\(reason) staleSurface=1"
+            )
+#endif
+            return false
+        }
         guard !ghostty_surface_process_exited(surface) else {
 #if DEBUG
             cmuxDebugLog(
@@ -5920,6 +5928,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     func performBindingAction(_ action: String) -> Bool {
         guard let surface = surface else { return false }
+        guard runtimeSurfaceCanAcceptInput(surface, reason: "bindingAction") else { return false }
         let handled = action.withCString { cString in
             ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
         }
@@ -6876,6 +6885,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     func performBindingAction(_ action: String) -> Bool {
         guard let surface = surface else { return false }
+        guard terminalSurface?.runtimeSurfaceCanAcceptInput(surface, reason: "view.bindingAction") == true else {
+            return false
+        }
         let handled = action.withCString { cString in
             ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
         }

@@ -8272,8 +8272,12 @@ final class Workspace: Identifiable, ObservableObject {
 
         return orderedTargets
     }
-    func requestBackgroundPrimeTerminalSurfaceStartIfNeeded() { backgroundPrimeTerminalPanels.forEach { $0.surface.requestBackgroundSurfaceStartIfNeeded() } }
-    func hasLoadedBackgroundPrimeTerminalSurface() -> Bool { backgroundPrimeTerminalPanels.allSatisfy { $0.surface.hasLiveSurface } }
+    func requestBackgroundPrimeTerminalSurfaceStartIfNeeded() {
+        backgroundPrimeTerminalPanels.first?.surface.requestBackgroundSurfaceStartIfNeeded()
+    }
+    func hasLoadedBackgroundPrimeTerminalSurface() -> Bool {
+        backgroundPrimeTerminalPanels.first?.surface.hasLiveSurface ?? true
+    }
     @discardableResult
     func preloadTerminalPanelForDebugStress(
         tabId: TabID,
@@ -9639,7 +9643,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let cached = terminalPanel.surface.lastKnownFontPointsForConfigInheritance, cached > 0 {
             return cached
         }
-        return lastTerminalConfigInheritanceFontPoints
+        return nil
     }
 
     private func rememberTerminalConfigInheritanceSource(_ terminalPanel: TerminalPanel) {

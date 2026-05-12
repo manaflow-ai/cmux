@@ -288,6 +288,7 @@ final class BackgroundWorkspacePrimeCoordinator {
     }
 
     private func evaluate(waiter: Waiter, workspaceId: UUID, tabManager: TabManager) {
+        guard !waiter.isResolved else { return }
         switch stepBackgroundWorkspacePrime(workspaceId: workspaceId, tabManager: tabManager) {
         case .pending:
             break

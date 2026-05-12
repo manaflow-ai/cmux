@@ -4036,6 +4036,13 @@ class TerminalController {
         }
     }
 
+    func v2LookupRef(kind: V2HandleKind, uuid: UUID?) -> Any {
+        guard let uuid else { return NSNull() }
+        return withV2HandleRefs {
+            v2RefByUUID[kind]?[uuid] ?? NSNull()
+        }
+    }
+
     func v2Ref(kind: V2HandleKind, uuid: UUID?) -> Any {
         guard let uuid else { return NSNull() }
         return v2EnsureHandleRef(kind: kind, uuid: uuid)
@@ -5186,9 +5193,9 @@ class TerminalController {
             message: "Workspace not found",
             data: [
                 "workspace_id": workspaceId.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                "workspace_ref": v2LookupRef(kind: .workspace, uuid: workspaceId),
                 "surface_id": v2OrNull(requestedSurfaceId?.uuidString),
-                "surface_ref": v2Ref(kind: .surface, uuid: requestedSurfaceId),
+                "surface_ref": v2LookupRef(kind: .surface, uuid: requestedSurfaceId),
             ]
         )
 
@@ -5205,7 +5212,7 @@ class TerminalController {
                 validSurfaceIds: validSurfaceIds
             )
             guard let surfaceId, validSurfaceIds.contains(surfaceId) else {
-                if tab.isRemoteWorkspace, validSurfaceIds.isEmpty {
+                if tab.isRemoteWorkspace {
                     if let normalizedTTYName {
                         tab.rememberPendingRemoteSurfaceTTY(
                             normalizedTTYName,
@@ -5222,7 +5229,7 @@ class TerminalController {
                         "workspace_id": workspaceId.uuidString,
                         "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
                         "surface_id": v2OrNull(requestedSurfaceId?.uuidString),
-                        "surface_ref": v2Ref(kind: .surface, uuid: requestedSurfaceId),
+                        "surface_ref": v2LookupRef(kind: .surface, uuid: requestedSurfaceId),
                         "tty_name": v2OrNull(normalizedTTYName),
                         "reason": v2OrNull(reason?.rawValue),
                         "pending": true,
@@ -5234,9 +5241,9 @@ class TerminalController {
                     message: "Surface not found",
                     data: [
                         "workspace_id": workspaceId.uuidString,
-                        "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                        "workspace_ref": v2LookupRef(kind: .workspace, uuid: workspaceId),
                         "surface_id": v2OrNull(requestedSurfaceId?.uuidString),
-                        "surface_ref": v2Ref(kind: .surface, uuid: requestedSurfaceId),
+                        "surface_ref": v2LookupRef(kind: .surface, uuid: requestedSurfaceId),
                     ]
                 )
                 return

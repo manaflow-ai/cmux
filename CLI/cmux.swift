@@ -2079,11 +2079,23 @@ struct CMUXCLI {
         Darwin.close(savedStderr)
         let stdoutData = (try? Data(contentsOf: stdoutURL)) ?? Data()
         let stderrData = (try? Data(contentsOf: stderrURL)) ?? Data()
-        try bodyResult.get()
-        return CapturedPrintedOutput(
+        let output = CapturedPrintedOutput(
             stdout: String(data: stdoutData, encoding: .utf8) ?? "",
             stderr: String(data: stderrData, encoding: .utf8) ?? ""
         )
+        if case .failure(let error) = bodyResult {
+            if let cliError = error as? CLIError {
+                throw CLIError(message: [output.stdout, output.stderr, cliError.description]
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n"), exitCode: cliError.exitCode)
+            }
+            throw CLIError(message: [output.stdout, output.stderr, String(describing: error)]
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n"))
+        }
+        return output
     }
 
     private func currentProcessEnvironment() -> [String: String] {
@@ -2100,7 +2112,7 @@ struct CMUXCLI {
         else {
             return Self.hotPathBrokerIdleTimeoutSeconds
         }
-        return min(parsed, Self.hotPathBrokerIdleTimeoutSeconds)
+        return min(max(parsed, 0.05), Self.hotPathBrokerIdleTimeoutSeconds)
     }
 
     private func hotPathBrokerClientReadTimeout(from environment: [String: String]) -> TimeInterval {
@@ -2330,8 +2342,22 @@ struct CMUXCLI {
         process.standardError = FileHandle.nullDevice
         try cliRunProcess(process)
 
-        let brokerClient = try SocketClient.waitForConnectableSocket(path: brokerSocketPath, timeout: 5.0)
-        brokerClient.close()
+        do {
+            let brokerClient = try SocketClient.waitForConnectableSocket(path: brokerSocketPath, timeout: 5.0)
+            brokerClient.close()
+        } catch {
+            if process.isRunning {
+                process.terminate()
+                for _ in 0..<20 where process.isRunning {
+                    usleep(50_000)
+                }
+                if process.isRunning {
+                    kill(process.processIdentifier, SIGKILL)
+                }
+                process.waitUntilExit()
+            }
+            throw error
+        }
     }
 
     private func runHotPath(
@@ -16839,6 +16865,17 @@ struct CMUXCLI {
     }
 
     private func processName(for pid: pid_t) -> String? {
+        var pathBuffer = [CChar](repeating: 0, count: 4096)
+        let pathLength = pathBuffer.withUnsafeMutableBufferPointer { buffer in
+            proc_pidpath(pid, buffer.baseAddress, UInt32(buffer.count))
+        }
+        if pathLength > 0 {
+            let output = String(cString: pathBuffer).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !output.isEmpty {
+                return URL(fileURLWithPath: output).lastPathComponent.lowercased()
+            }
+        }
+
         var nameBuffer = [CChar](repeating: 0, count: 1024)
         let nameLength = nameBuffer.withUnsafeMutableBufferPointer { buffer in
             proc_name(pid, buffer.baseAddress, UInt32(buffer.count))
@@ -16849,17 +16886,7 @@ struct CMUXCLI {
                 return URL(fileURLWithPath: output).lastPathComponent.lowercased()
             }
         }
-
-        var pathBuffer = [CChar](repeating: 0, count: 4096)
-        let pathLength = pathBuffer.withUnsafeMutableBufferPointer { buffer in
-            proc_pidpath(pid, buffer.baseAddress, UInt32(buffer.count))
-        }
-        guard pathLength > 0 else {
-            return nil
-        }
-        let output = String(cString: pathBuffer).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !output.isEmpty else { return nil }
-        return URL(fileURLWithPath: output).lastPathComponent.lowercased()
+        return nil
     }
 
     private func processArguments(for pid: pid_t) -> [String]? {
