@@ -1,3 +1,4 @@
+import CMUXSocketProtocol
 import Darwin
 import Foundation
 
@@ -23,7 +24,7 @@ extension TerminalController {
             return
         }
 
-        let usesJSONRPC = (object["jsonrpc"] as? String) == "2.0"
+        let usesJSONRPC = CMUXSocketProtocol.usesJSONRPC(object)
         let requestId: Any? = object["id"]
         let params = object["params"] as? [String: Any] ?? [:]
         let afterSequence = CmuxEventBus.int64(params["after_seq"] ?? params["after"])
@@ -78,35 +79,9 @@ extension TerminalController {
         jsonRPC: Bool = false,
         responseId: Any? = nil
     ) -> Bool {
-        let frame = jsonRPC ? jsonRPCEventStreamFrame(object, responseId: responseId) : object
+        let frame = jsonRPC ? CMUXSocketProtocol.eventStreamFrame(object, responseId: responseId) : object
         guard let line = CmuxEventBus.encodeLine(frame) else { return false }
         return Self.writeAllToSocket(Data((line + "\n").utf8), to: socket)
-    }
-
-    private nonisolated func jsonRPCEventStreamFrame(_ object: [String: Any], responseId: Any?) -> [String: Any] {
-        if object["type"] as? String == "ack" {
-            return [
-                "jsonrpc": "2.0",
-                "id": v2OrNull(responseId),
-                "result": object
-            ]
-        }
-
-        let type = object["type"] as? String
-        let method: String
-        if type == "event", let name = object["name"] as? String, !name.isEmpty {
-            method = name
-        } else if let type, !type.isEmpty {
-            method = "cmux.events.\(type)"
-        } else {
-            method = "cmux.events.message"
-        }
-
-        return [
-            "jsonrpc": "2.0",
-            "method": method,
-            "params": object
-        ]
     }
 
     private nonisolated static func stringSet(_ value: Any?) -> Set<String> {

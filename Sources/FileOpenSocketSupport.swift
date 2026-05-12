@@ -1,4 +1,5 @@
 import Bonsplit
+import CMUXSocketProtocol
 import Foundation
 
 extension TerminalController {

@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import CMUXSocketProtocol
 import CMUXWorkstream
 import Foundation
 import Bonsplit
@@ -1421,7 +1422,7 @@ class TerminalController {
             return "ERROR: Authentication required — send auth <password> first"
         }
         let id = dict["id"]
-        let usesJSONRPC = Self.usesJSONRPC(dict)
+        let usesJSONRPC = CMUXSocketProtocol.usesJSONRPC(dict)
         return v2Error(id: id, jsonRPC: usesJSONRPC, code: "auth_required", message: message)
     }
 
@@ -1457,7 +1458,7 @@ class TerminalController {
             return nil
         }
         let id = dict["id"]
-        let usesJSONRPC = Self.usesJSONRPC(dict)
+        let usesJSONRPC = CMUXSocketProtocol.usesJSONRPC(dict)
         let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard method == "auth.login" else {
             return nil
@@ -1505,81 +1506,9 @@ class TerminalController {
         return nil
     }
 
-    private enum SocketCommandExecutionPolicy: Equatable {
-        case mainActor
-        case socketWorker
-    }
-
-    private struct V2SocketRequest {
-        let id: Any?
-        let method: String
-        let params: [String: Any]
-        let usesJSONRPC: Bool
-    }
-
-    private nonisolated static func usesJSONRPC(_ dict: [String: Any]) -> Bool {
-        (dict["jsonrpc"] as? String) == "2.0"
-    }
-
-    private nonisolated static func isJSONRPCNotification(_ command: String) -> Bool {
-        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmedCommand.hasPrefix("{"),
-              let data = trimmedCommand.data(using: .utf8),
-              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
-            return false
-        }
-        return usesJSONRPC(dict) && !dict.keys.contains("id")
-    }
-
-    private nonisolated static let socketWorkerV2Methods: Set<String> = [
-        "auth.status",
-        "auth.begin_sign_in",
-        "auth.sign_out",
-        "feedback.submit",
-        "feed.push",
-        "feed.permission.reply",
-        "feed.question.reply",
-        "feed.exit_plan.reply",
-        "browser.profiles.list",
-        "browser.profiles.create",
-        "browser.profiles.rename",
-        "browser.profiles.clear",
-        "browser.profiles.delete",
-        "browser.import.cookies",
-        "system.top",
-    ]
-
-    private nonisolated static func executionPolicy(forV2Method method: String) -> SocketCommandExecutionPolicy {
-        if method.hasPrefix("vm.") || socketWorkerV2Methods.contains(method) {
-            return .socketWorker
-        }
-        return .mainActor
-    }
-
-    private nonisolated func parseV2SocketRequest(_ command: String) -> V2SocketRequest? {
-        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmedCommand.hasPrefix("{"),
-              let data = trimmedCommand.data(using: .utf8),
-              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
-            return nil
-        }
-
-        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !method.isEmpty else {
-            return nil
-        }
-
-        return V2SocketRequest(
-            id: dict["id"],
-            method: method,
-            params: dict["params"] as? [String: Any] ?? [:],
-            usesJSONRPC: Self.usesJSONRPC(dict)
-        )
-    }
-
     private nonisolated func socketWorkerV2ResponseIfNeeded(for command: String) -> String? {
-        guard let request = parseV2SocketRequest(command),
-              Self.executionPolicy(forV2Method: request.method) == .socketWorker else {
+        guard let request = CMUXSocketProtocol.parseV2SocketRequest(command),
+              CMUXSocketProtocol.executionPolicy(forV2Method: request.method) == .socketWorker else {
             return nil
         }
 
@@ -2031,7 +1960,7 @@ class TerminalController {
         authenticated: Bool
     ) -> SocketLineProcessingResult {
         var nextAuthenticated = authenticated
-        let shouldWriteResponse = !Self.isJSONRPCNotification(command)
+        let shouldWriteResponse = !CMUXSocketProtocol.isJSONRPCNotification(command)
         if let response = authResponseIfNeeded(for: command, authenticated: &nextAuthenticated) {
             return SocketLineProcessingResult(
                 response: response,
@@ -2050,8 +1979,8 @@ class TerminalController {
 
     private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String {
         if Thread.isMainThread,
-           let request = parseV2SocketRequest(command),
-           Self.executionPolicy(forV2Method: request.method) == .socketWorker {
+           let request = CMUXSocketProtocol.parseV2SocketRequest(command),
+           CMUXSocketProtocol.executionPolicy(forV2Method: request.method) == .socketWorker {
             return v2Error(
                 id: request.id,
                 jsonRPC: request.usesJSONRPC,
@@ -2081,7 +2010,7 @@ class TerminalController {
     /// its auth/policy wrappers.
     nonisolated func handleSocketLine(_ line: String) -> String {
         let response = processCommandUsingSocketExecutionPolicy(line)
-        return Self.isJSONRPCNotification(line) ? "" : response
+        return CMUXSocketProtocol.isJSONRPCNotification(line) ? "" : response
     }
 
     private func processCommand(_ command: String) -> String {
@@ -2473,7 +2402,7 @@ class TerminalController {
         }
 
         let id: Any? = dict["id"]
-        let usesJSONRPC = Self.usesJSONRPC(dict)
+        let usesJSONRPC = CMUXSocketProtocol.usesJSONRPC(dict)
         let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let params = dict["params"] as? [String: Any] ?? [:]
 
@@ -2481,7 +2410,7 @@ class TerminalController {
             return v2Error(id: id, jsonRPC: usesJSONRPC, code: "invalid_request", message: "Missing method")
         }
 
-        guard Self.executionPolicy(forV2Method: method) == .mainActor else {
+        guard CMUXSocketProtocol.executionPolicy(forV2Method: method) == .mainActor else {
             return v2Error(
                 id: id,
                 jsonRPC: usesJSONRPC,
@@ -3884,12 +3813,6 @@ class TerminalController {
         return result
     }
 
-    nonisolated func v2OrNull(_ value: Any?) -> Any {
-        // Avoid relying on `?? NSNull()` inference (Swift toolchains can disagree).
-        if let value { return value }
-        return NSNull()
-    }
-
     nonisolated func v2NonEmptyString(_ raw: String?) -> String? {
         guard let raw else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3912,139 +3835,6 @@ class TerminalController {
                 }
             }
         }
-    }
-
-    private nonisolated func v2Ok(id: Any?, jsonRPC: Bool, result: Any) -> String {
-        if jsonRPC {
-            return v2Encode([
-                "jsonrpc": "2.0",
-                "id": v2OrNull(id),
-                "result": result
-            ])
-        }
-        return v2Encode([
-            "id": v2OrNull(id),
-            "ok": true,
-            "result": result
-        ])
-    }
-
-    /// Bridge an async throws closure into a socket RPC response. Runs the work on a detached
-    /// Task (so VMClient's URLSession hops are free to use any actor) and blocks the socket
-    /// worker thread on a semaphore. Mirrors the auth.begin_sign_in pattern above.
-    nonisolated func v2VmCall(
-        id: Any?,
-        jsonRPC: Bool,
-        timeoutSeconds: TimeInterval = 17 * 60,
-        _ work: @escaping () async throws -> [String: Any]
-    ) -> String {
-        let semaphore = DispatchSemaphore(value: 0)
-        nonisolated(unsafe) var result: Result<[String: Any], Error>?
-        let task = Task {
-            do {
-                result = .success(try await work())
-            } catch {
-                result = .failure(error)
-            }
-            semaphore.signal()
-        }
-        if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
-            task.cancel()
-            return v2Error(
-                id: id,
-                jsonRPC: jsonRPC,
-                code: "timeout",
-                message: "VM request timed out after \(Int(timeoutSeconds)) seconds"
-            )
-        }
-        switch result {
-        case .success(let payload):
-            return v2Ok(id: id, jsonRPC: jsonRPC, result: payload)
-        case .failure(let error):
-            return v2Error(
-                id: id,
-                jsonRPC: jsonRPC,
-                code: "vm_error",
-                message: String(describing: error)
-            )
-        case nil:
-            return v2Error(
-                id: id,
-                jsonRPC: jsonRPC,
-                code: "vm_error",
-                message: "unknown vm error"
-            )
-        }
-    }
-
-    nonisolated func v2Error(id: Any?, jsonRPC: Bool, code: String, message: String, data: Any? = nil) -> String {
-        var err: [String: Any] = ["code": code, "message": message]
-        if let data {
-            err["data"] = data
-        }
-        if jsonRPC {
-            var jsonRPCErrorData: [String: Any] = ["cmux_code": code]
-            if let data {
-                jsonRPCErrorData["details"] = data
-            }
-            return v2Encode([
-                "jsonrpc": "2.0",
-                "id": v2OrNull(id),
-                "error": [
-                    "code": Self.jsonRPCErrorCode(for: code),
-                    "message": message,
-                    "data": jsonRPCErrorData
-                ]
-            ])
-        }
-        return v2Encode([
-            "id": v2OrNull(id),
-            "ok": false,
-            "error": err
-        ])
-    }
-
-    private nonisolated static func jsonRPCErrorCode(for code: String) -> Int {
-        switch code {
-        case "parse_error":
-            return -32700
-        case "invalid_request":
-            return -32600
-        case "invalid_dispatch":
-            return -32603
-        case "method_not_found":
-            return -32601
-        case "invalid_params":
-            return -32602
-        default:
-            return -32000
-        }
-    }
-
-    enum V2CallResult {
-        case ok(Any)
-        case err(code: String, message: String, data: Any?)
-    }
-
-    private nonisolated func v2Result(id: Any?, jsonRPC: Bool, _ res: V2CallResult) -> String {
-        switch res {
-        case .ok(let payload):
-            return v2Ok(id: id, jsonRPC: jsonRPC, result: payload)
-        case .err(let code, let message, let data):
-            return v2Error(id: id, jsonRPC: jsonRPC, code: code, message: message, data: data)
-        }
-    }
-
-    private nonisolated func v2Encode(_ object: Any) -> String {
-        guard JSONSerialization.isValidJSONObject(object),
-              let data = try? JSONSerialization.data(withJSONObject: object, options: []),
-              var s = String(data: data, encoding: .utf8) else {
-            return "{\"ok\":false,\"error\":{\"code\":\"encode_error\",\"message\":\"Failed to encode JSON\"}}"
-        }
-
-        // Ensure single-line responses for the line-oriented socket protocol.
-        s = s.replacingOccurrences(of: "\n", with: "\\n")
-        return s
     }
 
     private func v2EnsureHandleRef(kind: V2HandleKind, uuid: UUID) -> String {

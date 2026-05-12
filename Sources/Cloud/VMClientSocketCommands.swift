@@ -1,3 +1,4 @@
+import CMUXSocketProtocol
 import Foundation
 
 extension TerminalController {
