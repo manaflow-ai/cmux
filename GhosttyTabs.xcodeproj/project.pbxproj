@@ -239,6 +239,9 @@
 		B3770BA00000000000000001 /* BrowserAutomation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3770BA00000000000000002 /* BrowserAutomation.swift */; };
 		D7AB00000000000000000007 /* BrowserPanel+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000008 /* BrowserPanel+MoveTabToNewWorkspace.swift */; };
 		A39430010000000000000001 /* ExtensionPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A39430010000000000000002 /* ExtensionPanel.swift */; };
+		A39430010000000000000005 /* ExtensionBundleDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A39430010000000000000006 /* ExtensionBundleDescriptor.swift */; };
+		A39430010000000000000007 /* ExtensionBridgeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A39430010000000000000008 /* ExtensionBridgeSupport.swift */; };
+		A39430010000000000000009 /* ExtensionKVStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3943001000000000000000A /* ExtensionKVStore.swift */; };
 		A5001403 /* TerminalPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001413 /* TerminalPanelView.swift */; };
 		A5001404 /* BrowserPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001414 /* BrowserPanelView.swift */; };
 		A39430010000000000000003 /* ExtensionPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A39430010000000000000004 /* ExtensionPanelView.swift */; };
@@ -740,6 +743,9 @@
 		B3770BA00000000000000002 /* BrowserAutomation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAutomation.swift; sourceTree = "<group>"; };
 		D7AB00000000000000000008 /* BrowserPanel+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		A39430010000000000000002 /* ExtensionPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ExtensionPanel.swift; sourceTree = "<group>"; };
+		A39430010000000000000006 /* ExtensionBundleDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ExtensionBundleDescriptor.swift; sourceTree = "<group>"; };
+		A39430010000000000000008 /* ExtensionBridgeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ExtensionBridgeSupport.swift; sourceTree = "<group>"; };
+		A3943001000000000000000A /* ExtensionKVStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ExtensionKVStore.swift; sourceTree = "<group>"; };
 		A5001413 /* TerminalPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelView.swift; sourceTree = "<group>"; };
 		A5001414 /* BrowserPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanelView.swift; sourceTree = "<group>"; };
 		A39430010000000000000004 /* ExtensionPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ExtensionPanelView.swift; sourceTree = "<group>"; };
@@ -1251,6 +1257,9 @@
 				D7AB00000000000000000008 /* BrowserPanel+MoveTabToNewWorkspace.swift */,
 				A500RG00 /* ReactGrab.swift */,
 				A39430010000000000000002 /* ExtensionPanel.swift */,
+				A39430010000000000000006 /* ExtensionBundleDescriptor.swift */,
+				A39430010000000000000008 /* ExtensionBridgeSupport.swift */,
+				A3943001000000000000000A /* ExtensionKVStore.swift */,
 				A5001413 /* TerminalPanelView.swift */,
 				A5001414 /* BrowserPanelView.swift */,
 				A39430010000000000000004 /* ExtensionPanelView.swift */,
@@ -1891,6 +1900,9 @@
 				D7AB00000000000000000007 /* BrowserPanel+MoveTabToNewWorkspace.swift in Sources */,
 				A500RG01 /* ReactGrab.swift in Sources */,
 				A39430010000000000000001 /* ExtensionPanel.swift in Sources */,
+				A39430010000000000000005 /* ExtensionBundleDescriptor.swift in Sources */,
+				A39430010000000000000007 /* ExtensionBridgeSupport.swift in Sources */,
+				A39430010000000000000009 /* ExtensionKVStore.swift in Sources */,
 				A5001403 /* TerminalPanelView.swift in Sources */,
 				A5001404 /* BrowserPanelView.swift in Sources */,
 				A39430010000000000000003 /* ExtensionPanelView.swift in Sources */,

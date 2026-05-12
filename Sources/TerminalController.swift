@@ -3135,13 +3135,16 @@ class TerminalController {
             ))
         }
 
-        let scopedParams = extensionBridgeScopedParams(
+        let scopedResult = extensionBridgeScopedParams(
             method: method,
             params: params,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             paneId: paneId
         )
+        guard case .ok(let scopedParams) = scopedResult else {
+            return extensionBridgeEnvelope(scopedResult)
+        }
         v2MainSync { self.v2RefreshKnownRefs() }
         return withSocketCommandPolicy(commandKey: method, isV2: true, params: scopedParams) {
             let result: V2CallResult
@@ -3193,7 +3196,7 @@ class TerminalController {
         workspaceId: UUID,
         surfaceId: UUID,
         paneId: UUID?
-    ) -> [String: Any] {
+    ) -> V2CallResult {
         var scopedParams = params
         if scopedParams["workspace_id"] == nil {
             scopedParams["workspace_id"] = (scopedParams["workspace"] as? String) ?? workspaceId.uuidString
@@ -3212,6 +3215,61 @@ class TerminalController {
         }
         scopedParams.removeValue(forKey: "pane")
 
+        let workspaceString = workspaceId.uuidString
+        let surfaceString = surfaceId.uuidString
+        let paneString = paneId?.uuidString
+
+        func stringValue(_ value: Any?) -> String? {
+            guard let string = value as? String else { return nil }
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        func enforceScope(_ key: String, expected: String) -> V2CallResult? {
+            if let existing = stringValue(scopedParams[key]), existing != expected {
+                return .err(
+                    code: "forbidden_scope",
+                    message: "Extension bridge method \(method) cannot target a different \(key)",
+                    data: ["expected": expected, "received": existing]
+                )
+            }
+            scopedParams[key] = expected
+            return nil
+        }
+
+        let hostSurfaceMethods: Set<String> = [
+            "pane.create",
+            "surface.focus",
+            "surface.split",
+            "surface.close",
+            "surface.send_text",
+            "surface.send_key"
+        ]
+        let hostPaneMethods: Set<String> = [
+            "surface.create"
+        ]
+        if hostSurfaceMethods.contains(method) || hostPaneMethods.contains(method) {
+            if let error = enforceScope("workspace_id", expected: workspaceString) {
+                return error
+            }
+        }
+        if hostSurfaceMethods.contains(method),
+           let error = enforceScope("surface_id", expected: surfaceString) {
+            return error
+        }
+        if hostPaneMethods.contains(method) {
+            guard let paneString else {
+                return .err(
+                    code: "missing_scope",
+                    message: "Extension bridge method \(method) requires a host pane",
+                    data: nil
+                )
+            }
+            if let error = enforceScope("pane_id", expected: paneString) {
+                return error
+            }
+        }
+
         switch method {
         case "pane.create", "surface.split", "surface.close", "surface.focus", "surface.send_text", "surface.send_key":
             if scopedParams["surface_id"] == nil {
@@ -3225,7 +3283,7 @@ class TerminalController {
             break
         }
 
-        return scopedParams
+        return .ok(scopedParams)
     }
 
     private func extensionBridgeEnvelope(_ result: V2CallResult) -> [String: Any] {
@@ -16032,6 +16090,58 @@ class TerminalController {
         return PanelType(rawValue: normalized) ?? .terminal
     }
 
+    private func tokenizeSocketArguments(_ args: String) -> Result<[String], String> {
+        var tokens: [String] = []
+        var current = ""
+        var quote: Character?
+        var escaping = false
+
+        func emitCurrent() {
+            if !current.isEmpty {
+                tokens.append(current)
+                current = ""
+            }
+        }
+
+        for character in args {
+            if escaping {
+                current.append(character)
+                escaping = false
+                continue
+            }
+            if character == "\\" {
+                escaping = true
+                continue
+            }
+            if let activeQuote = quote {
+                if character == activeQuote {
+                    quote = nil
+                } else {
+                    current.append(character)
+                }
+                continue
+            }
+            if character == "\"" || character == "'" {
+                quote = character
+                continue
+            }
+            if character.isWhitespace {
+                emitCurrent()
+                continue
+            }
+            current.append(character)
+        }
+
+        if escaping {
+            current.append("\\")
+        }
+        guard quote == nil else {
+            return .failure("Unterminated quoted argument")
+        }
+        emitCurrent()
+        return .success(tokens)
+    }
+
     private func resolveSocketExtensionBundle(panelType: PanelType, bundlePath: String?) -> Result<ExtensionBundleDescriptor, String>? {
         guard panelType == .extensionPane else { return nil }
         guard let rawBundlePath = bundlePath?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -16039,7 +16149,7 @@ class TerminalController {
             return .failure("--bundle is required for extension panes")
         }
         do {
-            return .success(try ExtensionBundleDescriptor.resolve(path: rawBundlePath))
+            return .success(try ExtensionBundleDescriptor.resolveUserSelected(path: rawBundlePath))
         } catch {
             return .failure(error.localizedDescription)
         }
@@ -16056,9 +16166,14 @@ class TerminalController {
         var bundleRaw: String? = nil
         var invalidDirection = false
 
-        let parts = args.split(separator: " ")
-        for part in parts {
-            let partStr = String(part)
+        let parts: [String]
+        switch tokenizeSocketArguments(args) {
+        case .success(let parsed):
+            parts = parsed
+        case .failure(let message):
+            return "ERROR: \(message)"
+        }
+        for partStr in parts {
             if partStr.hasPrefix("--type=") {
                 let typeStr = String(partStr.dropFirst(7))
                 panelType = panelTypeForSocketArgument(typeStr)
@@ -17651,9 +17766,14 @@ class TerminalController {
         var url: URL? = nil
         var bundleRaw: String? = nil
 
-        let parts = args.split(separator: " ")
-        for part in parts {
-            let partStr = String(part)
+        let parts: [String]
+        switch tokenizeSocketArguments(args) {
+        case .success(let parsed):
+            parts = parsed
+        case .failure(let message):
+            return "ERROR: \(message)"
+        }
+        for partStr in parts {
             if partStr.hasPrefix("--type=") {
                 let typeStr = String(partStr.dropFirst(7))
                 panelType = panelTypeForSocketArgument(typeStr)

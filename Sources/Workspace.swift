@@ -832,11 +832,13 @@ extension Workspace {
             return browserPanel.id
         case .extensionPane:
             guard let bundlePath = snapshot.extensionPanel?.bundlePath,
-                  let descriptor = try? ExtensionBundleDescriptor.resolve(path: bundlePath),
+                  let descriptor = try? ExtensionBundleDescriptor.resolveUserSelected(path: bundlePath),
+                  ExtensionBundleTrustStore.shared.isTrusted(descriptor),
                   let extensionPanel = newExtensionSurface(
                     inPane: paneId,
                     bundle: descriptor,
-                    focus: false
+                    focus: false,
+                    trustBundle: false
                   ) else {
                 return nil
             }
@@ -1084,7 +1086,8 @@ extension Workspace {
             }
         case .extensionPane:
             guard let bundle = resolveExtensionBundle(surface: surface, baseCwd: baseCwd),
-                  let panel = newExtensionSurface(inPane: paneId, bundle: bundle, focus: false) else {
+                  ExtensionBundleTrustStore.shared.isTrusted(bundle),
+                  let panel = newExtensionSurface(inPane: paneId, bundle: bundle, focus: false, trustBundle: false) else {
                 return
             }
             _ = closePanel(panelId, force: true)
@@ -1126,7 +1129,8 @@ extension Workspace {
             }
         case .extensionPane:
             guard let bundle = resolveExtensionBundle(surface: surface, baseCwd: baseCwd),
-                  let panel = newExtensionSurface(inPane: paneId, bundle: bundle, focus: false) else {
+                  ExtensionBundleTrustStore.shared.isTrusted(bundle),
+                  let panel = newExtensionSurface(inPane: paneId, bundle: bundle, focus: false, trustBundle: false) else {
                 return
             }
             if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
@@ -1154,7 +1158,14 @@ extension Workspace {
                 .appendingPathComponent(expanded, isDirectory: false)
                 .path
         }
-        return try? ExtensionBundleDescriptor.resolve(path: resolvedPath)
+        var allowedRoots = ExtensionBundleDescriptor.defaultAllowedRootPaths()
+        let base = baseCwd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? currentDirectory
+            : baseCwd
+        if !base.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            allowedRoots.append(base)
+        }
+        return try? ExtensionBundleDescriptor.resolve(path: resolvedPath, allowedRoots: allowedRoots)
     }
 
     private func applyCustomDividerPositions(
@@ -10354,7 +10365,8 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool = false,
         bundle: ExtensionBundleDescriptor,
         focus: Bool = true,
-        initialDividerPosition: CGFloat? = nil
+        initialDividerPosition: CGFloat? = nil,
+        trustBundle: Bool = true
     ) -> ExtensionPanel? {
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
         var sourcePaneId: PaneID?
@@ -10417,6 +10429,9 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         installExtensionPanelSubscription(extensionPanel)
+        if trustBundle {
+            ExtensionBundleTrustStore.shared.trust(bundle)
+        }
         return extensionPanel
     }
 
@@ -10429,7 +10444,8 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         bundle: ExtensionBundleDescriptor,
         focus: Bool? = nil,
-        targetIndex: Int? = nil
+        targetIndex: Int? = nil,
+        trustBundle: Bool = true
     ) -> ExtensionPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -10476,6 +10492,9 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         installExtensionPanelSubscription(extensionPanel)
+        if trustBundle {
+            ExtensionBundleTrustStore.shared.trust(bundle)
+        }
         return extensionPanel
     }
 
@@ -11146,6 +11165,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
         guard bonsplitController.allPaneIds.contains(paneId) else { return false }
         guard bonsplitController.moveTab(tabId, toPane: paneId, atIndex: index) else { return false }
+        extensionPanel(for: panelId)?.updatePaneId(paneId.id)
 
         if focus {
             bonsplitController.focusPane(paneId)
@@ -13693,6 +13713,7 @@ extension Workspace: BonsplitDelegate {
         let movedPanelIdAfter = panelIdFromSurfaceId(tab.id)
 #endif
         if let movedPanelId = panelIdFromSurfaceId(tab.id) {
+            extensionPanel(for: movedPanelId)?.updatePaneId(destination.id)
             scheduleMovedTerminalRefresh(panelId: movedPanelId)
         }
 #if DEBUG

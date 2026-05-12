@@ -18,6 +18,10 @@ cmux new-surface --type browser --pane pane:1 --url https://example.com
 cmux new-surface --type extension --pane pane:1 --bundle ~/.cmux/extensions/file-tree
 ```
 
+Extension bundles are loaded from a local `index.html`. Bundles opened explicitly through
+the CLI are trusted by content hash; restored or layout-created extension panes only reload
+when that trusted hash still matches the files on disk.
+
 ## Focus and Close
 
 ```bash

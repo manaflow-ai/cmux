@@ -191,7 +191,7 @@ extension TerminalController {
         }
 
         do {
-            return (try ExtensionBundleDescriptor.resolve(path: bundlePath), nil)
+            return (try ExtensionBundleDescriptor.resolveUserSelected(path: bundlePath), nil)
         } catch {
             return (
                 nil,

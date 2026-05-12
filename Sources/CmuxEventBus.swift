@@ -8,6 +8,8 @@ struct CmuxEventSubscriptionSnapshot {
 
 // Sendable safety: every mutable field is protected by `lock`; `semaphore` only wakes `next(timeout:)`.
 final class CmuxEventSubscription: @unchecked Sendable {
+    typealias EventHandler = ([String: Any]) -> Void
+
     let id: UUID
     let names: Set<String>
     let categories: Set<String>
@@ -16,6 +18,7 @@ final class CmuxEventSubscription: @unchecked Sendable {
     private let lock = NSLock()
     private let semaphore = DispatchSemaphore(value: 0)
     private var queue: [[String: Any]] = []
+    private var eventHandlers: [UUID: EventHandler] = [:]
     private var closed = false
     private var closedReason: String?
 
@@ -52,25 +55,51 @@ final class CmuxEventSubscription: @unchecked Sendable {
         lock.lock()
         let shouldSignal: Bool
         let accepted: Bool
+        let handlers: [EventHandler]
         if closed {
             shouldSignal = false
             accepted = false
+            handlers = []
+        } else if !eventHandlers.isEmpty {
+            handlers = Array(eventHandlers.values)
+            shouldSignal = false
+            accepted = true
         } else if queue.count >= maxPendingEvents {
             closed = true
             closedReason = "pending event buffer exceeded \(maxPendingEvents) events"
             queue.removeAll()
             shouldSignal = true
             accepted = false
+            handlers = []
         } else {
             queue.append(event)
             shouldSignal = true
             accepted = true
+            handlers = []
         }
         lock.unlock()
         if shouldSignal {
             semaphore.signal()
         }
+        for handler in handlers {
+            handler(event)
+        }
         return accepted
+    }
+
+    func addEventHandler(_ handler: @escaping EventHandler) -> UUID? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !closed else { return nil }
+        let token = UUID()
+        eventHandlers[token] = handler
+        return token
+    }
+
+    func removeEventHandler(_ token: UUID) {
+        lock.lock()
+        eventHandlers.removeValue(forKey: token)
+        lock.unlock()
     }
 
     func next(timeout: TimeInterval) -> [String: Any]? {
@@ -102,6 +131,7 @@ final class CmuxEventSubscription: @unchecked Sendable {
             closedReason = reason
         }
         queue.removeAll()
+        eventHandlers.removeAll()
         lock.unlock()
         semaphore.signal()
     }
