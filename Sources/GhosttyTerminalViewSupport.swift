@@ -229,7 +229,8 @@ private final class TerminalStatusBarProcessWaitState: @unchecked Sendable {
     }
 }
 
-final class TerminalStatusBarCommandController: @unchecked Sendable {
+@MainActor
+final class TerminalStatusBarCommandController {
     private struct AppliedState: Equatable {
         let configuration: TerminalStatusBarConfiguration
         let active: Bool
@@ -243,7 +244,6 @@ final class TerminalStatusBarCommandController: @unchecked Sendable {
     private var contextProvider: (@MainActor () -> TerminalStatusBarExecutionContext?)?
     private var outputHandler: (@MainActor (String, Int) -> Void)?
 
-    @MainActor
     func apply(
         configuration: TerminalStatusBarConfiguration,
         active: Bool,
@@ -267,7 +267,6 @@ final class TerminalStatusBarCommandController: @unchecked Sendable {
         scheduleTimer(configuration: configuration, generation: currentGeneration)
     }
 
-    @MainActor
     func stop() {
         generation &+= 1
         appliedState = nil
@@ -280,7 +279,6 @@ final class TerminalStatusBarCommandController: @unchecked Sendable {
         task = nil
     }
 
-    @MainActor
     private func scheduleTimer(configuration: TerminalStatusBarConfiguration, generation: UInt64) {
         let timer = Timer(timeInterval: configuration.refreshInterval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
@@ -292,7 +290,6 @@ final class TerminalStatusBarCommandController: @unchecked Sendable {
         self.timer = timer
     }
 
-    @MainActor
     private func runCommand(configuration: TerminalStatusBarConfiguration, generation: UInt64) {
         guard self.generation == generation else { return }
         guard !isCommandRunning else { return }
