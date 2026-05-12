@@ -872,6 +872,19 @@ func TestCLIBrowserWaitUsesSurfaceEnvAndForwardsOptions(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserWaitRejectsInvalidTimeout(t *testing.T) {
+	sockPath, _ := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_SURFACE_ID", "env-sf")
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "wait",
+		"--timeout", "later",
+	})
+	if code != 2 {
+		t.Fatalf("browser wait with invalid timeout should return 2, got %d", code)
+	}
+}
+
 func TestCLIBrowserAutomationPositionals(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	t.Setenv("CMUX_SURFACE_ID", "env-sf")
@@ -902,6 +915,39 @@ func TestCLIBrowserAutomationPositionals(t *testing.T) {
 		}
 		if _, ok := params["value"]; ok {
 			t.Fatalf("browser.fill should not send value param: %#v", params)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser fill request")
+	}
+}
+
+func TestCLIBrowserAutomationPositionalsConsumeAfterFlaggedKey(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_SURFACE_ID", "env-sf")
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "fill",
+		"--selector", "input[name=email]",
+		"hello", "world",
+	})
+	if code != 0 {
+		t.Fatalf("browser fill should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.fill" {
+			t.Fatalf("expected browser.fill, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "env-sf" {
+			t.Fatalf("expected surface_id env-sf, got %v", got)
+		}
+		if got := params["selector"]; got != "input[name=email]" {
+			t.Fatalf("expected selector, got %v", got)
+		}
+		if got := params["text"]; got != "hello world" {
+			t.Fatalf("expected text to consume all remaining positionals, got %v", got)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for browser fill request")
