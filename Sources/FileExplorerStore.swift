@@ -222,12 +222,86 @@ enum FileExplorerGitStatusColorSettings {
         fallback: NSColor,
         defaults: UserDefaults = .standard
     ) -> NSColor {
-        guard let colors = defaults.dictionary(forKey: userDefaultsKey) as? [String: String],
-              let hex = colors[status.rawValue],
-              let color = NSColor(hex: hex) else {
-            return fallback
+        FileExplorerGitStatusColorPalette.shared.color(for: status, fallback: fallback, defaults: defaults)
+    }
+}
+
+private final class FileExplorerGitStatusColorPalette {
+    static let shared = FileExplorerGitStatusColorPalette()
+
+    private let defaults: UserDefaults
+    private let notificationCenter: NotificationCenter
+    private let lock = NSLock()
+    private var colorsByStatus: [String: NSColor] = [:]
+    private var styleObserver: NSObjectProtocol?
+    private var defaultsObserver: NSObjectProtocol?
+
+    init(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        self.defaults = defaults
+        self.notificationCenter = notificationCenter
+        reload()
+        styleObserver = notificationCenter.addObserver(
+            forName: .fileExplorerStyleDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.reload()
         }
-        return color
+        defaultsObserver = notificationCenter.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.reload()
+        }
+    }
+
+    deinit {
+        if let styleObserver {
+            notificationCenter.removeObserver(styleObserver)
+        }
+        if let defaultsObserver {
+            notificationCenter.removeObserver(defaultsObserver)
+        }
+    }
+
+    func color(
+        for status: GitFileStatus,
+        fallback: NSColor,
+        defaults requestedDefaults: UserDefaults
+    ) -> NSColor {
+        guard requestedDefaults === defaults else {
+            return Self.loadedColors(from: requestedDefaults)[status.rawValue] ?? fallback
+        }
+        lock.lock()
+        defer { lock.unlock() }
+        let color = colorsByStatus[status.rawValue]
+        return color ?? fallback
+    }
+
+    private func reload() {
+        let colors = Self.loadedColors(from: defaults)
+        lock.lock()
+        defer { lock.unlock() }
+        colorsByStatus = colors
+    }
+
+    private static func loadedColors(from defaults: UserDefaults) -> [String: NSColor] {
+        guard let colors = defaults.dictionary(
+            forKey: FileExplorerGitStatusColorSettings.userDefaultsKey
+        ) as? [String: String] else {
+            return [:]
+        }
+        return colors.reduce(into: [:]) { result, pair in
+            guard let status = FileExplorerGitStatusColorSettings.normalizedStatusName(pair.key),
+                  let color = NSColor(hex: pair.value) else {
+                return
+            }
+            result[status] = color
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import os
 
 @MainActor
 final class KeyboardShortcutSettingsObserver: ObservableObject {
@@ -18,6 +19,8 @@ final class KeyboardShortcutSettingsObserver: ObservableObject {
 
 final class CmuxSettingsFileStore {
     static let shared = CmuxSettingsFileStore()
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app", category: "CmuxSettingsFileStore")
 
     static let currentSchemaVersion = 1
     static let schemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json"
@@ -628,12 +631,16 @@ final class CmuxSettingsFileStore {
         var normalizedColors: [String: String] = [:]
         for (rawStatus, rawValue) in rawColors {
             guard let status = FileExplorerGitStatusColorSettings.normalizedStatusName(rawStatus) else {
-                NSLog("[CmuxSettingsFileStore] ignoring unknown file explorer git status '%@' in %@", rawStatus, sourcePath)
+                Self.logger.warning(
+                    "Ignoring unknown file explorer git status '\(rawStatus, privacy: .public)' in \(sourcePath, privacy: .public)"
+                )
                 continue
             }
             guard let rawHex = jsonString(rawValue),
                   let hex = WorkspaceTabColorSettings.normalizedHex(rawHex) else {
-                NSLog("[CmuxSettingsFileStore] ignoring invalid file explorer git status color '%@' in %@", rawStatus, sourcePath)
+                Self.logger.warning(
+                    "Ignoring invalid file explorer git status color '\(rawStatus, privacy: .public)' in \(sourcePath, privacy: .public)"
+                )
                 continue
             }
             normalizedColors[status] = hex
