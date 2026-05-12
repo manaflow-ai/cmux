@@ -84,7 +84,7 @@ enum WorkspaceIconPrompting {
 }
 
 private enum SidebarWorkspaceIconImageCache {
-    private struct DecodedImage: @unchecked Sendable {
+    struct DecodedImage: @unchecked Sendable {
         let image: NSImage
     }
 
