@@ -1636,9 +1636,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 body: String(
                     localized: "crashBreadcrumb.body",
                     defaultValue: "Diagnostic file saved to ~/.local/state/ghostty/crash/"
-                ),
-                cooldownKey: "ghosttyCrashBreadcrumb",
-                cooldownInterval: nil
+                )
             )
             GhosttyCrashBreadcrumb.markShown(pendingCrash)
         }
