@@ -300,14 +300,9 @@ struct SocketControlSettings {
     private static let socketDirectoryName = "cmux"
     private static let stableSocketFileName = "cmux.sock"
     static let legacyStableDefaultSocketPath = "/tmp/cmux.sock"
-    static let legacyLastSocketPathFile = SocketPathMarkerFiles.stableTmpPath
 
     static var stableDefaultSocketPath: String {
         stableSocketFileURL()?.path ?? legacyStableDefaultSocketPath
-    }
-
-    static var lastSocketPathFile: String {
-        lastSocketPathFiles().first ?? legacyLastSocketPathFile
     }
 
     enum StableDefaultSocketPathEntry: Equatable {
