@@ -381,7 +381,6 @@ nonisolated enum CmuxSettingsJSONPersistence {
         try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporaryURL.path)
         try replaceItem(at: fileURL, withPrivateTemporaryItemAt: temporaryURL)
         shouldRemoveTemporaryFile = false
-        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
     }
 
     private static func replaceItem(
