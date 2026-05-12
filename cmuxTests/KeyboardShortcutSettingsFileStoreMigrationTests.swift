@@ -504,6 +504,32 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         XCTAssertEqual(try sidebarAppearanceString("tintColor", in: patched), "#new")
     }
 
+    func testJSONCSettingsPatcherInsertsIntoInlineEmptySectionWithOwnerIndent() throws {
+        let source = """
+        {
+          "sidebarAppearance": {}
+        }
+        """
+
+        let patched = try JSONCSettingsPatcher.setting(
+            "sidebarAppearance.matchTerminalBackground",
+            to: true,
+            in: source
+        )
+
+        XCTAssertEqual(
+            patched,
+            """
+            {
+              "sidebarAppearance": {
+                "matchTerminalBackground": true
+              }
+            }
+            """
+        )
+        XCTAssertEqual(try sidebarAppearanceBool("matchTerminalBackground", in: patched), true)
+    }
+
     func testUnsupportedManagedCollectionReappliesInsteadOfDrifting() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -635,6 +661,13 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         let root = try XCTUnwrap(JSONSerialization.jsonObject(with: sanitized) as? [String: Any])
         let sidebarAppearance = try XCTUnwrap(root["sidebarAppearance"] as? [String: Any])
         return sidebarAppearance[key] as? String
+    }
+
+    private func sidebarAppearanceBool(_ key: String, in source: String) throws -> Bool? {
+        let sanitized = try JSONCParser.preprocess(data: Data(source.utf8))
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: sanitized) as? [String: Any])
+        let sidebarAppearance = try XCTUnwrap(root["sidebarAppearance"] as? [String: Any])
+        return sidebarAppearance[key] as? Bool
     }
 
     private func waitForDefaultString(_ expectedValue: String, key: String, defaults: UserDefaults) throws {

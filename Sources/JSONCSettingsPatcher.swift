@@ -39,8 +39,6 @@ nonisolated enum JSONCSettingsPatcher {
         in object: ObjectInfo,
         source: String
     ) throws -> String {
-        let indent = lineIndent(in: source, at: object.open)
-        let childIndent = indent + "  "
         if object.hasProperties {
             let closeIndent = lineIndent(in: source, at: object.close)
             let closeChildIndent = closeIndent + "  "
@@ -61,6 +59,8 @@ nonisolated enum JSONCSettingsPatcher {
             return replacing(closeIndentStart..<object.close, with: insertion, in: source)
         }
 
+        let indent = objectIndent(in: source, at: object.open)
+        let childIndent = indent + "  "
         let insertion = "\n\(childIndent)\(try renderString(key)): \(valueJSON)\n\(indent)"
         let insertAt = source.index(after: object.open)
         return replacing(insertAt..<insertAt, with: insertion, in: source)
@@ -79,6 +79,31 @@ nonisolated enum JSONCSettingsPatcher {
     private static func lineIndent(in source: String, at index: String.Index) -> String {
         let lineStart = lineIndentStart(in: source, at: index)
         return String(source[lineStart..<index])
+    }
+
+    private static func objectIndent(in source: String, at index: String.Index) -> String {
+        let directIndentStart = lineIndentStart(in: source, at: index)
+        if directIndentStart < index {
+            return String(source[directIndentStart..<index])
+        }
+        return lineLeadingIndent(in: source, at: index)
+    }
+
+    private static func lineLeadingIndent(in source: String, at index: String.Index) -> String {
+        var lineStart = index
+        while lineStart > source.startIndex {
+            let previous = source.index(before: lineStart)
+            if source[previous] == "\n" { break }
+            lineStart = previous
+        }
+
+        var cursor = lineStart
+        while cursor < source.endIndex {
+            let character = source[cursor]
+            guard character == " " || character == "\t" else { break }
+            cursor = source.index(after: cursor)
+        }
+        return String(source[lineStart..<cursor])
     }
 
     private static func lineIndentStart(in source: String, at index: String.Index) -> String.Index {
