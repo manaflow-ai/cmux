@@ -181,9 +181,11 @@ final class TerminalStatusBarView: NSView {
     }
 
     private func resolvedCGColor(_ color: NSColor, alpha: CGFloat) -> CGColor {
-        color.resolvedColor(with: effectiveAppearance)
-            .withAlphaComponent(alpha)
-            .cgColor
+        var resolvedColor = color.withAlphaComponent(alpha).cgColor
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            resolvedColor = color.withAlphaComponent(alpha).cgColor
+        }
+        return resolvedColor
     }
 
     private static func normalizedText(_ text: String, rowCount: Int) -> String {
@@ -227,7 +229,7 @@ private final class TerminalStatusBarProcessWaitState: @unchecked Sendable {
     }
 }
 
-final class TerminalStatusBarCommandController {
+final class TerminalStatusBarCommandController: @unchecked Sendable {
     private struct AppliedState: Equatable {
         let configuration: TerminalStatusBarConfiguration
         let active: Bool
