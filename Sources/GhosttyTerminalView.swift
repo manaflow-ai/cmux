@@ -9709,6 +9709,110 @@ private final class GhosttyFlashOverlayView: NSView {
     }
 }
 
+private struct TerminalRegexHighlightOverlayMetrics: Equatable {
+    var cellSize: CGSize = .zero
+    var rowCount: Int = 0
+    var columnCount: Int = 0
+    var xInset: CGFloat = 0
+    var yInset: CGFloat = 0
+}
+
+private final class TerminalRegexHighlightOverlayView: NSView {
+    private var runs: [TerminalRegexHighlightRun] = []
+    private var metrics = TerminalRegexHighlightOverlayMetrics()
+
+    override var acceptsFirstResponder: Bool { false }
+    override var isFlipped: Bool { true }
+    override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    func configure(
+        runs: [TerminalRegexHighlightRun],
+        metrics: TerminalRegexHighlightOverlayMetrics
+    ) {
+        guard self.runs != runs || self.metrics != metrics || isHidden != runs.isEmpty else {
+            return
+        }
+        self.runs = runs
+        self.metrics = metrics
+        isHidden = runs.isEmpty
+        needsDisplay = true
+    }
+
+    func clear() {
+        configure(runs: [], metrics: metrics)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        guard !runs.isEmpty,
+              metrics.cellSize.width > 0,
+              metrics.cellSize.height > 0,
+              metrics.rowCount > 0,
+              metrics.columnCount > 0 else {
+            return
+        }
+
+        for run in runs {
+            guard run.row >= 0,
+                  run.row < metrics.rowCount,
+                  run.column >= 0,
+                  run.column < metrics.columnCount,
+                  run.length > 0 else {
+                continue
+            }
+
+            let length = min(run.length, metrics.columnCount - run.column)
+            guard length > 0 else { continue }
+
+            let rect = CGRect(
+                x: metrics.xInset + CGFloat(run.column) * metrics.cellSize.width,
+                y: metrics.yInset + CGFloat(run.row) * metrics.cellSize.height,
+                width: CGFloat(length) * metrics.cellSize.width,
+                height: metrics.cellSize.height
+            ).insetBy(dx: 1, dy: 1)
+
+            TerminalRegexHighlightOverlayView.color(for: run.backgroundHex).setFill()
+            NSBezierPath(
+                roundedRect: rect,
+                xRadius: min(3, rect.height / 3),
+                yRadius: min(3, rect.height / 3)
+            ).fill()
+        }
+    }
+
+    private static func color(for hex: String) -> NSColor {
+        let trimmed = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        let raw = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
+        guard raw.count == 6 || raw.count == 8,
+              let value = UInt64(raw, radix: 16) else {
+            return NSColor.systemYellow.withAlphaComponent(0.5)
+        }
+
+        let red: CGFloat
+        let green: CGFloat
+        let blue: CGFloat
+        let alpha: CGFloat
+        if raw.count == 8 {
+            red = CGFloat((value >> 24) & 0xFF) / 255
+            green = CGFloat((value >> 16) & 0xFF) / 255
+            blue = CGFloat((value >> 8) & 0xFF) / 255
+            alpha = CGFloat(value & 0xFF) / 255
+        } else {
+            red = CGFloat((value >> 16) & 0xFF) / 255
+            green = CGFloat((value >> 8) & 0xFF) / 255
+            blue = CGFloat(value & 0xFF) / 255
+            alpha = 0.5
+        }
+
+        return NSColor(calibratedRed: red, green: green, blue: blue, alpha: alpha)
+    }
+}
+
 final class GhosttySurfaceScrollView: NSView {
     enum FlashStyle {
         case navigation
@@ -9748,6 +9852,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let paneDropTargetView = TerminalPaneDropTargetView(frame: .zero)
     private let notificationRingOverlayView: GhosttyFlashOverlayView
     private let notificationRingLayer: CAShapeLayer
+    private let regexHighlightOverlayView: TerminalRegexHighlightOverlayView
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
     var isRightSidebarDockSurface: Bool {
@@ -9769,6 +9874,8 @@ final class GhosttySurfaceScrollView: NSView {
     private let imageTransferCancelButton: NSButton
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlay>?
     private var deferredSearchOverlayMutationWorkItem: DispatchWorkItem?
+    private var regexHighlightRefreshWorkItem: DispatchWorkItem?
+    private var regexHighlightRules: [TerminalRegexHighlightRule] = []
     private var imageTransferIndicatorShowWorkItem: DispatchWorkItem?
     private var activeImageTransferOperation: TerminalImageTransferOperation?
     private var activeImageTransferCancelHandler: (() -> Void)?
@@ -9992,6 +10099,7 @@ final class GhosttySurfaceScrollView: NSView {
         dropZoneOverlayView = GhosttyFlashOverlayView(frame: .zero)
         notificationRingOverlayView = GhosttyFlashOverlayView(frame: .zero)
         notificationRingLayer = CAShapeLayer()
+        regexHighlightOverlayView = TerminalRegexHighlightOverlayView(frame: .zero)
         flashOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashLayer = CAShapeLayer()
         keyboardCopyModeBadgeContainerView = GhosttyFlashOverlayView(frame: .zero)
@@ -10027,6 +10135,10 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView.layer?.isOpaque = false
         addSubview(backgroundView)
         addSubview(scrollView)
+        regexHighlightOverlayView.wantsLayer = true
+        regexHighlightOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
+        regexHighlightOverlayView.isHidden = true
+        addSubview(regexHighlightOverlayView)
         paneDropTargetView.hostedView = self
         addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
         synchronizeScrollbarAppearance()
@@ -10286,6 +10398,7 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.synchronizeScrollView()
+            self?.scheduleRegexHighlightRefresh(reason: "cellSize")
         })
 
         observers.append(NotificationCenter.default.addObserver(
@@ -10305,6 +10418,15 @@ final class GhosttySurfaceScrollView: NSView {
         ) { [weak self] _ in
             self?.handleTerminalScrollBarPreferenceChange()
         })
+
+        observers.append(NotificationCenter.default.addObserver(
+            forName: TerminalRegexHighlightSettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.reloadRegexHighlightRules()
+        })
+        reloadRegexHighlightRules()
 
     }
 
@@ -10326,6 +10448,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         deferredSearchOverlayMutationWorkItem?.cancel()
+        regexHighlightRefreshWorkItem?.cancel()
         imageTransferIndicatorShowWorkItem?.cancel()
         dropZoneOverlayView.removeFromSuperview()
         cancelFocusRequest()
@@ -10454,6 +10577,7 @@ final class GhosttySurfaceScrollView: NSView {
             setDropZoneOverlay(zone: pending)
         }
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
+        _ = setFrameIfNeeded(regexHighlightOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
         if let overlay = searchOverlayHostingView {
             _ = setFrameIfNeeded(overlay, to: bounds)
@@ -10471,7 +10595,11 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeScrollView()
         synchronizeSurfaceView()
         let didCoreSurfaceChange = synchronizeCoreSurface()
-        return !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
+        let didGeometryChange = !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
+        if didGeometryChange {
+            scheduleRegexHighlightRefresh(reason: "geometry")
+        }
+        return didGeometryChange
     }
 
     @discardableResult
@@ -10606,7 +10734,10 @@ final class GhosttySurfaceScrollView: NSView {
         super.viewDidMoveToWindow()
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.removeAll()
-        guard let window else { return }
+        guard let window else {
+            regexHighlightOverlayView.clear()
+            return
+        }
         windowObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: window,
@@ -10642,6 +10773,7 @@ final class GhosttySurfaceScrollView: NSView {
         if window.isKeyWindow {
             scheduleAutomaticFirstResponderApply(reason: "viewDidMoveToWindow")
         }
+        scheduleRegexHighlightRefresh(reason: "viewDidMoveToWindow")
     }
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
@@ -10653,6 +10785,7 @@ final class GhosttySurfaceScrollView: NSView {
         // has produced a real host size instead of a transient 1x1 placeholder.
         guard bounds.width > 1, bounds.height > 1 else { return }
         _ = synchronizeGeometryAndContent()
+        scheduleRegexHighlightRefresh(reason: "attachSurface")
     }
 
     func setFocusHandler(_ handler: (() -> Void)?) {
@@ -11325,6 +11458,7 @@ final class GhosttySurfaceScrollView: NSView {
             )
         }
         if !visible {
+            regexHighlightOverlayView.clear()
             // If we were focused, yield first responder.
             if let window, let fr = window.firstResponder as? NSView,
                fr === surfaceView || fr.isDescendant(of: surfaceView) {
@@ -11335,6 +11469,7 @@ final class GhosttySurfaceScrollView: NSView {
             // without a portal frame delta or a focus handoff. Reuse the portal refresh
             // path so the Metal layer is nudged immediately on plain visibility restores.
             refreshSurfaceNow(reason: "setVisibleInUI")
+            scheduleRegexHighlightRefresh(reason: "setVisibleInUI")
             scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
         }
     }
@@ -12544,6 +12679,120 @@ final class GhosttySurfaceScrollView: NSView {
         return surfaceView.pushTargetSurfaceSize(CGSize(width: width, height: height))
     }
 
+    private func reloadRegexHighlightRules() {
+        regexHighlightRules = TerminalRegexHighlightSettings.rules()
+        if regexHighlightRules.isEmpty {
+            regexHighlightRefreshWorkItem?.cancel()
+            regexHighlightRefreshWorkItem = nil
+            regexHighlightOverlayView.clear()
+            return
+        }
+        scheduleRegexHighlightRefresh(reason: "settings")
+    }
+
+    private func scheduleRegexHighlightRefresh(reason: String) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.scheduleRegexHighlightRefresh(reason: reason)
+            }
+            return
+        }
+
+        regexHighlightRefreshWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.regexHighlightRefreshWorkItem = nil
+            self?.refreshRegexHighlightOverlay(reason: reason)
+        }
+        regexHighlightRefreshWorkItem = workItem
+        DispatchQueue.main.async(execute: workItem)
+    }
+
+    private func refreshRegexHighlightOverlay(reason: String) {
+        guard !regexHighlightRules.isEmpty else {
+            regexHighlightOverlayView.clear()
+            return
+        }
+        guard window != nil,
+              !isHidden,
+              surfaceView.isVisibleInUI,
+              bounds.width > 1,
+              bounds.height > 1,
+              let surface = surfaceView.terminalSurface?.surface,
+              cmuxSurfacePointerAppearsLive(surface) else {
+            regexHighlightOverlayView.clear()
+            return
+        }
+
+        let size = ghostty_surface_size(surface)
+        let rows = max(Int(size.rows), 1)
+        let columns = max(Int(size.columns), 1)
+        let resolvedCellWidth = surfaceView.cellSize.width > 0
+            ? surfaceView.cellSize.width
+            : CGFloat(size.cell_width_px)
+        let resolvedCellHeight = surfaceView.cellSize.height > 0
+            ? surfaceView.cellSize.height
+            : CGFloat(size.cell_height_px)
+        guard resolvedCellWidth > 0, resolvedCellHeight > 0 else {
+            regexHighlightOverlayView.clear()
+            return
+        }
+        guard let visibleText = readViewportText(surface: surface) else {
+            regexHighlightOverlayView.clear()
+            return
+        }
+
+        let visibleLines = cmuxVisibleTerminalLines(from: visibleText, rows: rows)
+        let rowOffset = max(0, rows - visibleLines.count)
+        let runs = TerminalRegexHighlightMatcher.runs(
+            in: visibleLines,
+            rules: regexHighlightRules,
+            rowOffset: rowOffset,
+            maxColumnCount: columns
+        )
+        let metrics = TerminalRegexHighlightOverlayMetrics(
+            cellSize: CGSize(width: resolvedCellWidth, height: resolvedCellHeight),
+            rowCount: rows,
+            columnCount: columns,
+            xInset: max(0, (bounds.width - (CGFloat(columns) * resolvedCellWidth)) / 2),
+            yInset: max(0, (bounds.height - (CGFloat(rows) * resolvedCellHeight)) / 2)
+        )
+        regexHighlightOverlayView.configure(runs: runs, metrics: metrics)
+    }
+
+    private func readViewportText(surface: ghostty_surface_t) -> String? {
+        let topLeft = ghostty_point_s(
+            tag: GHOSTTY_POINT_VIEWPORT,
+            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+            x: 0,
+            y: 0
+        )
+        let bottomRight = ghostty_point_s(
+            tag: GHOSTTY_POINT_VIEWPORT,
+            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+            x: 0,
+            y: 0
+        )
+        let selection = ghostty_selection_s(
+            top_left: topLeft,
+            bottom_right: bottomRight,
+            rectangle: false
+        )
+
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else {
+            return nil
+        }
+        defer {
+            ghostty_surface_free_text(surface, &text)
+        }
+
+        guard let ptr = text.text, text.text_len > 0 else {
+            return ""
+        }
+        let rawData = Data(bytes: ptr, count: Int(text.text_len))
+        return String(decoding: rawData, as: UTF8.self)
+    }
+
     private func updateNotificationRingPath() {
         updateOverlayRingPath(
             layer: notificationRingLayer,
@@ -12642,6 +12891,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func handleScrollChange() {
         synchronizeSurfaceView()
+        scheduleRegexHighlightRefresh(reason: "scroll")
     }
 
     private func handleLiveScroll() {
@@ -12680,9 +12930,11 @@ final class GhosttySurfaceScrollView: NSView {
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
             _ = synchronizeGeometryAndContent()
+            scheduleRegexHighlightRefresh(reason: "scrollbarAppearance")
             return
         }
         synchronizeScrollView()
+        scheduleRegexHighlightRefresh(reason: "scrollbar")
     }
 
     @discardableResult

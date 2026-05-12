@@ -305,6 +305,21 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit."
+        },
+        "regexHighlights": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ],
+          "default": "",
+          "description": "Regex-based automatic text highlights for visible terminal text. Use one pattern per entry, or prefix an entry with #RRGGBB or #RRGGBBAA and a tab to choose the highlight color."
         }
       }
     },

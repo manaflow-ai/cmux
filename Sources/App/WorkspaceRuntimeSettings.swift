@@ -152,6 +152,159 @@ enum AgentSessionAutoResumeSettings {
     }
 }
 
+struct TerminalRegexHighlightRule: Equatable {
+    static let defaultBackgroundHex = "#FFE06680"
+
+    let pattern: String
+    let backgroundHex: String
+}
+
+struct TerminalRegexHighlightRun: Equatable {
+    let row: Int
+    let column: Int
+    let length: Int
+    let backgroundHex: String
+}
+
+enum TerminalRegexHighlightSettings {
+    static let highlightsKey = "terminal.regexHighlights"
+    static let defaultHighlights = ""
+    static let didChangeNotification = Notification.Name("cmux.terminalRegexHighlightSettingsDidChange")
+
+    static func rawHighlights(defaults: UserDefaults = .standard) -> String {
+        defaults.string(forKey: highlightsKey) ?? defaultHighlights
+    }
+
+    static func rules(defaults: UserDefaults = .standard) -> [TerminalRegexHighlightRule] {
+        rules(from: rawHighlights(defaults: defaults))
+    }
+
+    static func rules(from rawValue: String) -> [TerminalRegexHighlightRule] {
+        rawValue
+            .split(whereSeparator: \.isNewline)
+            .compactMap { line in
+                let text = line.trimmingCharacters(in: .whitespaces)
+                guard !text.isEmpty else { return nil }
+                if let tabIndex = text.firstIndex(of: "\t") {
+                    let color = String(text[..<tabIndex]).trimmingCharacters(in: .whitespaces)
+                    let pattern = String(text[text.index(after: tabIndex)...])
+                        .trimmingCharacters(in: .whitespaces)
+                    if isSupportedHexColor(color), !pattern.isEmpty {
+                        return TerminalRegexHighlightRule(
+                            pattern: pattern,
+                            backgroundHex: normalizedHexColor(color)
+                        )
+                    }
+                }
+                return TerminalRegexHighlightRule(
+                    pattern: text,
+                    backgroundHex: TerminalRegexHighlightRule.defaultBackgroundHex
+                )
+            }
+    }
+
+    static func setRawHighlights(
+        _ rawValue: String,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        let previous = rawHighlights(defaults: defaults)
+        defaults.set(rawValue, forKey: highlightsKey)
+        if previous != rawValue {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+    }
+
+    @discardableResult
+    static func reset(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) -> Bool {
+        let previous = rawHighlights(defaults: defaults)
+        defaults.removeObject(forKey: highlightsKey)
+        let didChange = previous != rawHighlights(defaults: defaults)
+        if didChange {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+        return didChange
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+
+    private static func isSupportedHexColor(_ rawValue: String) -> Bool {
+        let normalized = normalizedHexColor(rawValue)
+        guard normalized.count == 7 || normalized.count == 9 else { return false }
+        return normalized.dropFirst().allSatisfy(\.isHexDigit)
+    }
+
+    private static func normalizedHexColor(_ rawValue: String) -> String {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let withPrefix = trimmed.hasPrefix("#") ? trimmed : "#\(trimmed)"
+        return withPrefix.uppercased()
+    }
+}
+
+enum TerminalRegexHighlightMatcher {
+    static let maxRuns = 512
+
+    static func runs(
+        in lines: [String],
+        rules: [TerminalRegexHighlightRule],
+        rowOffset: Int = 0,
+        maxColumnCount: Int? = nil
+    ) -> [TerminalRegexHighlightRun] {
+        let compiledRules = rules.compactMap { rule -> (TerminalRegexHighlightRule, NSRegularExpression)? in
+            guard let expression = try? NSRegularExpression(pattern: rule.pattern) else {
+                return nil
+            }
+            return (rule, expression)
+        }
+        guard !compiledRules.isEmpty else { return [] }
+
+        var runs: [TerminalRegexHighlightRun] = []
+        runs.reserveCapacity(min(32, maxRuns))
+
+        for (lineIndex, line) in lines.enumerated() {
+            guard !line.isEmpty else { continue }
+            let searchRange = NSRange(line.startIndex..<line.endIndex, in: line)
+            for (rule, expression) in compiledRules {
+                for match in expression.matches(in: line, range: searchRange) {
+                    guard match.range.length > 0,
+                          let range = Range(match.range, in: line) else {
+                        continue
+                    }
+                    let column = line.distance(from: line.startIndex, to: range.lowerBound)
+                    let length = line.distance(from: range.lowerBound, to: range.upperBound)
+                    guard length > 0 else { continue }
+
+                    let clippedLength: Int
+                    if let maxColumnCount {
+                        guard column < maxColumnCount else { continue }
+                        clippedLength = min(length, maxColumnCount - column)
+                    } else {
+                        clippedLength = length
+                    }
+                    guard clippedLength > 0 else { continue }
+
+                    runs.append(TerminalRegexHighlightRun(
+                        row: rowOffset + lineIndex,
+                        column: column,
+                        length: clippedLength,
+                        backgroundHex: rule.backgroundHex
+                    ))
+                    if runs.count >= maxRuns {
+                        return runs
+                    }
+                }
+            }
+        }
+
+        return runs
+    }
+}
+
 enum RightSidebarBetaFeatureSettings {
     static let feedEnabledKey = "rightSidebar.beta.feed.enabled"
     static let dockEnabledKey = "rightSidebar.beta.dock.enabled"

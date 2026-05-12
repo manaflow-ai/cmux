@@ -105483,6 +105483,40 @@
         }
       }
     },
+    "settings.terminal.regexHighlights": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic Text Highlights"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動テキストハイライト"
+          }
+        }
+      }
+    },
+    "settings.terminal.regexHighlights.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Highlights visible terminal text that matches a regex. One pattern per line; prefix with #RRGGBB and a tab to choose the highlight color."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正規表現に一致する表示中のターミナルテキストをハイライトします。1 行に 1 パターンを入力し、#RRGGBB とタブを先頭に付けると色を指定できます。"
+          }
+        }
+      }
+    },
     "settings.app.openMarkdownInCmuxViewer": {
       "extractionState": "manual",
       "localizations": {

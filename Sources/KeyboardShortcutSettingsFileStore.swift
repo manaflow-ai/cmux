@@ -462,6 +462,16 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("autoResumeAgentSessions") {
             logInvalid("terminal.autoResumeAgentSessions", sourcePath: sourcePath)
         }
+
+        if let raw = jsonString(section["regexHighlights"]) {
+            snapshot.managedUserDefaults[TerminalRegexHighlightSettings.highlightsKey] = .string(raw)
+        } else if let values = jsonStringArray(section["regexHighlights"]) {
+            snapshot.managedUserDefaults[TerminalRegexHighlightSettings.highlightsKey] = .string(
+                values.joined(separator: "\n")
+            )
+        } else if section.keys.contains("regexHighlights") {
+            logInvalid("terminal.regexHighlights", sourcePath: sourcePath)
+        }
     }
 
     private func parseSidebarSection(
@@ -1190,6 +1200,7 @@ final class CmuxSettingsFileStore {
     ) -> ManagedDefaultBatchSideEffects {
         let notificationCenter = notificationCenter
         let notifyScrollBar = defaultsKey == TerminalScrollBarSettings.showScrollBarKey
+        let notifyRegexHighlights = defaultsKey == TerminalRegexHighlightSettings.highlightsKey
         var sideEffects = ManagedDefaultBatchSideEffects()
         sideEffects.agentSessionAutoResumeDidChange =
             defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
@@ -1200,6 +1211,10 @@ final class CmuxSettingsFileStore {
         let apply = {
             if notifyScrollBar {
                 TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+
+            if notifyRegexHighlights {
+                TerminalRegexHighlightSettings.notifyDidChange(notificationCenter: notificationCenter)
             }
 
             if let language {

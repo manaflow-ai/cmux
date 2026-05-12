@@ -61,7 +61,8 @@ const settingsFileExample = `{
 
   // "terminal": {
   //   "showScrollBar": false,
-  //   "autoResumeAgentSessions": true
+  //   "autoResumeAgentSessions": true,
+  //   "regexHighlights": ["#FFE06680\\tERROR", "#FF6B6B80\\tpanic|fatal"]
   // },
 
   // "browser": {

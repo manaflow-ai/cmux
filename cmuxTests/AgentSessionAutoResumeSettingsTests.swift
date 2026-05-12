@@ -139,3 +139,85 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         return RestorableAgentSessionIndex.load(homeDirectory: home.path)
     }
 }
+
+final class TerminalRegexHighlightSettingsTests: XCTestCase {
+    func testParsesPlainAndColorPrefixedRegexRules() throws {
+        let suiteName = "cmux-terminal-regex-highlights-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let notificationCenter = NotificationCenter()
+        var notificationCount = 0
+        let observer = notificationCenter.addObserver(
+            forName: TerminalRegexHighlightSettings.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer { notificationCenter.removeObserver(observer) }
+
+        TerminalRegexHighlightSettings.setRawHighlights(
+            """
+            ERROR|WARN
+            #ff6b6b80\tpanic|fatal
+            """,
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+
+        let rules = TerminalRegexHighlightSettings.rules(defaults: defaults)
+        XCTAssertEqual(
+            rules,
+            [
+                TerminalRegexHighlightRule(
+                    pattern: "ERROR|WARN",
+                    backgroundHex: TerminalRegexHighlightRule.defaultBackgroundHex
+                ),
+                TerminalRegexHighlightRule(
+                    pattern: "panic|fatal",
+                    backgroundHex: "#FF6B6B80"
+                ),
+            ]
+        )
+        XCTAssertEqual(notificationCount, 1)
+
+        TerminalRegexHighlightSettings.setRawHighlights(
+            TerminalRegexHighlightSettings.rawHighlights(defaults: defaults),
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+        XCTAssertEqual(notificationCount, 1)
+
+        TerminalRegexHighlightSettings.reset(defaults: defaults, notificationCenter: notificationCenter)
+        XCTAssertEqual(TerminalRegexHighlightSettings.rules(defaults: defaults), [])
+        XCTAssertEqual(notificationCount, 2)
+    }
+
+    func testMatcherReturnsClippedRunsAndSkipsInvalidPatterns() {
+        let rules = [
+            TerminalRegexHighlightRule(pattern: "ERR\\d+", backgroundHex: "#FFE06680"),
+            TerminalRegexHighlightRule(pattern: "[", backgroundHex: "#FF000080"),
+            TerminalRegexHighlightRule(pattern: "WARN", backgroundHex: "#7BD88F80"),
+        ]
+
+        let runs = TerminalRegexHighlightMatcher.runs(
+            in: [
+                "ok",
+                "ERR12 WARN ERR345",
+            ],
+            rules: rules,
+            rowOffset: 3,
+            maxColumnCount: 12
+        )
+
+        XCTAssertEqual(
+            runs,
+            [
+                TerminalRegexHighlightRun(row: 4, column: 0, length: 5, backgroundHex: "#FFE06680"),
+                TerminalRegexHighlightRun(row: 4, column: 11, length: 1, backgroundHex: "#FFE06680"),
+                TerminalRegexHighlightRun(row: 4, column: 6, length: 4, backgroundHex: "#7BD88F80"),
+            ]
+        )
+    }
+}
