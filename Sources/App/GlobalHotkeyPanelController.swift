@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 
+@MainActor
 enum GlobalHotkeyPanelLayout {
     static func panelFrame(in screenFrame: NSRect) -> NSRect {
         let margin = max(20, min(56, screenFrame.height * 0.045))
@@ -18,6 +19,7 @@ enum GlobalHotkeyPanelLayout {
     }
 }
 
+@MainActor
 enum GlobalHotkeyPanelConfiguration {
     static let styleMask: NSWindow.StyleMask = [
         .nonactivatingPanel,
@@ -63,7 +65,7 @@ final class GlobalHotkeyPanel: NSPanel {
 
     override func keyDown(with event: NSEvent) {
         if ShortcutStroke.isEscapeCancelEvent(event) {
-            onCancel?()
+            cancelOperation(nil)
             return
         }
         super.keyDown(with: event)
