@@ -560,6 +560,49 @@ func TestCLINotifyDefaultOutputPrintsOKForEmptyResult(t *testing.T) {
 	}
 }
 
+func TestCLINotifyInTmuxUsesCallerTargeting(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	workspaceID := "11111111-1111-1111-1111-111111111111"
+	surfaceID := "22222222-2222-2222-2222-222222222222"
+	t.Setenv("CMUX_WORKSPACE_ID", workspaceID)
+	t.Setenv("CMUX_SURFACE_ID", surfaceID)
+	t.Setenv("CMUX_CLI_TTY_NAME", "/dev/ttys777")
+	t.Setenv("TMUX", "/tmp/tmux-current,123,0")
+
+	code := runCLI([]string{"--socket", sockPath, "--json", "notify", "--title", "Remote", "--body", "done"})
+	if code != 0 {
+		t.Fatalf("notify should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "notification.create_for_caller" {
+			t.Fatalf("expected notification.create_for_caller, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["preferred_workspace_id"]; got != workspaceID {
+			t.Fatalf("expected preferred_workspace_id %s, got %v", workspaceID, got)
+		}
+		if got := params["preferred_surface_id"]; got != surfaceID {
+			t.Fatalf("expected preferred_surface_id %s, got %v", surfaceID, got)
+		}
+		if got := params["caller_tty"]; got != "ttys777" {
+			t.Fatalf("expected caller_tty ttys777, got %v", got)
+		}
+		if got := params["prefer_tty"]; got != true {
+			t.Fatalf("expected prefer_tty true, got %v", got)
+		}
+		if got := params["title"]; got != "Remote" {
+			t.Fatalf("expected title Remote, got %v", got)
+		}
+		if got := params["body"]; got != "done" {
+			t.Fatalf("expected body done, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for notify request")
+	}
+}
+
 func TestCLIRPCPassthrough(t *testing.T) {
 	sockPath := startMockV2Socket(t)
 	code := runCLI([]string{"--socket", sockPath, "rpc", "system.capabilities"})
