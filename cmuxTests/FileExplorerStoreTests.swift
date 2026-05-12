@@ -827,6 +827,15 @@ final class FileSearchControllerTests: XCTestCase {
         ))
     }
 
+    func testConfiguredRipgrepPathErrorMessageSubstitutesPath() {
+        let configuredPath = "/nix/store/missing-ripgrep/bin/rg"
+
+        let message = FileExplorerSearchMessages.configuredRipgrepPathNotExecutable(configuredPath)
+
+        XCTAssertTrue(message.contains(configuredPath))
+        XCTAssertFalse(message.contains("%@"))
+    }
+
     private static func searchResult(relativePath: String) -> FileSearchResult {
         FileSearchResult(
             path: "/tmp/cmux-find-content-revision-test/\(relativePath)",

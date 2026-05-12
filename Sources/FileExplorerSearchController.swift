@@ -140,6 +140,18 @@ enum RipgrepExecutableResolver {
     }
 }
 
+enum FileExplorerSearchMessages {
+    static func configuredRipgrepPathNotExecutable(_ path: String) -> String {
+        String(
+            format: String(
+                localized: "fileExplorer.search.rgConfiguredPathNotExecutable",
+                defaultValue: "Configured ripgrep path is not executable: %@"
+            ),
+            path
+        )
+    }
+}
+
 @MainActor
 protocol FileSearchControlling: AnyObject {
     var onSnapshotChanged: ((FileSearchSnapshot) -> Void)? { get set }
@@ -444,7 +456,7 @@ final class FileSearchController: FileSearchControlling {
             executable = resolvedExecutable
         case .configuredPathNotExecutable(let path):
             emit(
-                status: .failed(String(localized: "fileExplorer.search.rgConfiguredPathNotExecutable", defaultValue: "Configured ripgrep path is not executable: \(path)")),
+                status: .failed(FileExplorerSearchMessages.configuredRipgrepPathNotExecutable(path)),
                 isSearching: false
             )
             return
