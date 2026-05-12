@@ -333,7 +333,7 @@ private struct FeedListView: View {
             isFocusActive: focusSnapshot.isKeyboardActive && focusSnapshot.selectedItemId == snapshot.id,
             showsDivider: showsDivider,
             onPressSelect: {
-                selectRow(snapshot.id, focusFeed: true)
+                selectRow(snapshot.id, focusFeed: false)
             },
             onControlFocus: {
                 selectRow(snapshot.id, focusFeed: false)
@@ -1208,8 +1208,6 @@ struct FeedItemRow: View, Equatable {
             )
         case .stop:
             StopActionArea(
-                workstreamId: snapshot.workstreamId,
-                isRowSelected: isSelected,
                 onFocusRow: onControlFocus,
                 onBlurRow: onControlBlur,
                 onSend: { text in actions.sendText(snapshot.workstreamId, text) }
@@ -2552,7 +2550,8 @@ private struct QuestionActionArea: View {
     // non-empty, wins over preset option selections for that
     // question — mirrors Claude's TUI fallback.
     @State private var freeTexts: [String: String] = [:]
-    @State private var focusedCustomAnswerId: String?
+    @State private var customAnswerFocusKey: String?
+    @State private var customAnswerFocusRequest = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -2709,7 +2708,7 @@ private struct QuestionActionArea: View {
                 )
             customAnswerField(
                 text: customAnswerBinding(questionId: questionId, multi: multi),
-                isFocused: customAnswerFocusBinding(focusKey),
+                focusRequest: focusRequest(forCustomAnswerKey: focusKey),
                 font: font,
                 onFocus: {
                     onFocusRow()
@@ -2738,7 +2737,7 @@ private struct QuestionActionArea: View {
             guard status.isPending else { return }
             onFocusRow()
             selectCustomAnswer(questionId: questionId, multi: multi)
-            focusedCustomAnswerId = focusKey
+            requestCustomAnswerFocus(focusKey)
         }
         .feedIBeamCursorOnHover(enabled: status.isPending)
         .disabled(!status.isPending)
@@ -2802,7 +2801,7 @@ private struct QuestionActionArea: View {
         let font = NSFont.systemFont(ofSize: 11)
         return customAnswerField(
             text: customAnswerBinding(questionId: questionId, multi: multi),
-            isFocused: customAnswerFocusBinding(focusKey),
+            focusRequest: focusRequest(forCustomAnswerKey: focusKey),
             font: font,
             onFocus: {
                 onFocusRow()
@@ -2826,20 +2825,20 @@ private struct QuestionActionArea: View {
             guard status.isPending else { return }
             onFocusRow()
             selectCustomAnswer(questionId: questionId, multi: multi)
-            focusedCustomAnswerId = focusKey
+            requestCustomAnswerFocus(focusKey)
         }
     }
 
     private func customAnswerField(
         text: Binding<String>,
-        isFocused: Binding<Bool>,
+        focusRequest: Int?,
         font: NSFont,
         onFocus: @escaping () -> Void,
         onBlur: @escaping () -> Void
     ) -> some View {
         FeedInlineTextField(
             text: text,
-            isFocused: isFocused,
+            focusRequest: focusRequest,
             placeholder: String(localized: "feed.question.typeSomething",
                                 defaultValue: "Type something..."),
             isEnabled: status.isPending,
@@ -2874,21 +2873,17 @@ private struct QuestionActionArea: View {
         )
     }
 
-    private func customAnswerFocusBinding(_ focusKey: String) -> Binding<Bool> {
-        Binding<Bool>(
-            get: { focusedCustomAnswerId == focusKey },
-            set: { focused in
-                if focused {
-                    focusedCustomAnswerId = focusKey
-                } else if focusedCustomAnswerId == focusKey {
-                    focusedCustomAnswerId = nil
-                }
-            }
-        )
-    }
-
     private func customAnswerFocusKey(_ questionId: String) -> String {
         "\(questionId)::custom"
+    }
+
+    private func focusRequest(forCustomAnswerKey focusKey: String) -> Int? {
+        customAnswerFocusKey == focusKey ? customAnswerFocusRequest : nil
+    }
+
+    private func requestCustomAnswerFocus(_ focusKey: String) {
+        customAnswerFocusKey = focusKey
+        customAnswerFocusRequest += 1
     }
 
     private func selectCustomAnswer(questionId: String, multi: Bool) {
@@ -2902,7 +2897,7 @@ private struct QuestionActionArea: View {
     }
 
     private func clearCustomAnswerFocus() {
-        focusedCustomAnswerId = nil
+        customAnswerFocusKey = nil
     }
 
     private func optionPill(
@@ -3289,8 +3284,8 @@ private final class FeedInlineTextEditorView: NSView {
 
 private struct FeedInlineTextField: NSViewRepresentable {
     @Binding var text: String
-    @Binding var isFocused: Bool
 
+    let focusRequest: Int?
     let placeholder: String
     let isEnabled: Bool
     let font: NSFont
@@ -3302,10 +3297,11 @@ private struct FeedInlineTextField: NSViewRepresentable {
         var parent: FeedInlineTextField
         var isProgrammaticMutation = false
         weak var view: FeedInlineTextEditorView?
-        var lastRenderedIsFocused: Bool?
+        var lastAppliedFocusRequest: Int?
 
         init(parent: FeedInlineTextField) {
             self.parent = parent
+            self.lastAppliedFocusRequest = parent.focusRequest
         }
 
         func activateField() {
@@ -3313,15 +3309,9 @@ private struct FeedInlineTextField: NSViewRepresentable {
             dlog("feed.editor.activateField")
 #endif
             parent.onFocus()
-            if !parent.isFocused {
-                parent.isFocused = true
-            }
         }
 
         func blurField() {
-            if parent.isFocused {
-                parent.isFocused = false
-            }
             guard let view, let window = view.window, window.firstResponder === view.textView else {
                 return
             }
@@ -3353,9 +3343,6 @@ private struct FeedInlineTextField: NSViewRepresentable {
         func textDidEndEditing(_ notification: Notification) {
             if !isProgrammaticMutation, let textView = notification.object as? NSTextView {
                 parent.text = textView.string
-            }
-            if parent.isFocused {
-                parent.isFocused = false
             }
             guard let window = view?.window else {
                 parent.onBlur()
@@ -3409,20 +3396,15 @@ private struct FeedInlineTextField: NSViewRepresentable {
         }
 
         guard let window = nsView.window else { return }
-        let firstResponder = window.firstResponder
-        let isFirstResponder = firstResponder === nsView.textView
-        let didRequestFocus = isFocused && context.coordinator.lastRenderedIsFocused != true
-        defer {
-            context.coordinator.lastRenderedIsFocused = isFocused
-        }
-
-        if isFocused, isEnabled, !isFirstResponder {
-            let ownsSidebarFocus = firstResponder.map {
-                AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.ownsRightSidebarFocus($0) == true
-            } ?? true
-            if didRequestFocus || ownsSidebarFocus {
-                nsView.focusIfNeeded()
+        let isFirstResponder = window.firstResponder === nsView.textView
+        if let focusRequest,
+           focusRequest != context.coordinator.lastAppliedFocusRequest {
+            guard isEnabled else {
+                context.coordinator.lastAppliedFocusRequest = focusRequest
+                return
             }
+            context.coordinator.lastAppliedFocusRequest = focusRequest
+            nsView.focusIfNeeded()
         } else if !isEnabled, isFirstResponder {
             window.makeFirstResponder(nil)
         }
@@ -3553,14 +3535,12 @@ private struct FlowLayout: Layout {
 /// types the reply into the agent's terminal surface and presses
 /// Return — so the user can reply without switching focus.
 private struct StopActionArea: View {
-    let workstreamId: String
-    let isRowSelected: Bool
     let onFocusRow: () -> Void
     let onBlurRow: () -> Void
     let onSend: (String) -> Void
 
     @State private var reply: String = ""
-    @State private var replyFocused: Bool = false
+    @State private var replyFocusRequest = 0
 
     private var trimmed: String {
         reply.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3580,7 +3560,7 @@ private struct StopActionArea: View {
             }
             FeedInlineTextField(
                 text: $reply,
-                isFocused: $replyFocused,
+                focusRequest: replyFocusRequest == 0 ? nil : replyFocusRequest,
                 placeholder: String(localized: "feed.stop.placeholder", defaultValue: "Reply to Claude…"),
                 isEnabled: true,
                 font: replyFont,
@@ -3607,7 +3587,7 @@ private struct StopActionArea: View {
             .feedIBeamCursorOnHover(enabled: true)
             .onTapGesture {
                 onFocusRow()
-                replyFocused = true
+                requestReplyFocus()
             }
             FeedButton(
                 label: String(localized: "feed.stop.send", defaultValue: "Send to Claude"),
@@ -3622,11 +3602,10 @@ private struct StopActionArea: View {
                 sendReply()
             }
         }
-        .onChange(of: isRowSelected) { _, selected in
-            if !selected {
-                replyFocused = false
-            }
-        }
+    }
+
+    private func requestReplyFocus() {
+        replyFocusRequest += 1
     }
 
     private func sendReply() {
