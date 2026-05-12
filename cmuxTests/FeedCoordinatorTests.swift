@@ -38,7 +38,7 @@ final class FeedCoordinatorTests: XCTestCase {
             requestId: "timeout-request"
         )
 
-        let done = DispatchSemaphore(value: 0)
+        let done = expectation(description: "blocking ingest timed out")
         let resultBox = IngestResultBox()
 
         DispatchQueue.global(qos: .userInitiated).async {
@@ -46,10 +46,10 @@ final class FeedCoordinatorTests: XCTestCase {
                 event: event,
                 waitTimeout: 0.05
             )
-            done.signal()
+            done.fulfill()
         }
 
-        XCTAssertEqual(done.wait(timeout: .now() + 2), .success)
+        await fulfillment(of: [done], timeout: 2)
 
         guard case .timedOut = resultBox.value else {
             XCTFail("expected feed.push to time out")
@@ -94,7 +94,7 @@ final class FeedCoordinatorTests: XCTestCase {
             requestId: requestId
         )
 
-        let done = DispatchSemaphore(value: 0)
+        let done = expectation(description: "blocking ingest resolved")
         let resultBox = IngestResultBox()
 
         DispatchQueue.global(qos: .userInitiated).async {
@@ -102,16 +102,12 @@ final class FeedCoordinatorTests: XCTestCase {
                 event: event,
                 waitTimeout: 1
             )
-            done.signal()
+            done.fulfill()
         }
 
-        XCTAssertEqual(done.wait(timeout: .now() + 2), .success)
+        await fulfillment(of: [done], timeout: 2)
 
-        let mainQueueDrained = DispatchSemaphore(value: 0)
-        DispatchQueue.main.async {
-            mainQueueDrained.signal()
-        }
-        XCTAssertEqual(mainQueueDrained.wait(timeout: .now() + 2), .success)
+        await MainActor.run {}
 
         if case .resolved(_, .permission(.once)) = resultBox.value {
             // ok

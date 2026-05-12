@@ -141,9 +141,11 @@ final class FeedCoordinator: @unchecked Sendable {
             if let decision = w?.decision {
                 return .resolved(itemId: itemIdSlot.value, decision: decision)
             }
+            cancelFeedNotification(requestId: requestId)
             expireTimedOutItem(itemIdSlot.value)
             return .timedOut(itemId: itemIdSlot.value)
         case .timedOut:
+            cancelFeedNotification(requestId: requestId)
             expireTimedOutItem(itemIdSlot.value)
             return .timedOut(itemId: itemIdSlot.value)
         }
@@ -414,8 +416,14 @@ private func postFeedNotification(event: WorkstreamEvent, requestId: String) {
         }
 
         #if DEBUG
-        if let observer = FeedCoordinatorTestHooks.notificationPostObserver {
-            observer(event, requestId)
+        let handledByTestObserver = MainActor.assumeIsolated {
+            if let observer = FeedCoordinatorTestHooks.notificationPostObserver {
+                observer(event, requestId)
+                return true
+            }
+            return false
+        }
+        if handledByTestObserver {
             return
         }
         #endif
