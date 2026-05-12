@@ -10,6 +10,7 @@ fileprivate struct QueuedTerminalNotification: Sendable {
     let title: String
     let subtitle: String
     let body: String
+    let deliverySequence: UInt64
 }
 
 fileprivate enum TerminalSocketMutation {
@@ -50,12 +51,12 @@ final class TerminalMutationBus: @unchecked Sendable {
         subtitle: String,
         body: String
     ) {
-        enqueueNotification(QueuedTerminalNotification(
+        enqueueNotification(
             key: QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId),
             title: title,
             subtitle: subtitle,
             body: body
-        ))
+        )
     }
 
     nonisolated func enqueueClearAllNotifications() {
@@ -80,41 +81,74 @@ final class TerminalMutationBus: @unchecked Sendable {
         return boundary
     }
 
+    nonisolated func reserveNotificationDeliverySequence() -> UInt64 {
+        lock.lock()
+        nextSequence &+= 1
+        let sequence = nextSequence
+        lock.unlock()
+        return sequence
+    }
+
     nonisolated func discardPendingNotifications(forTabId tabId: UUID, through boundary: UInt64) {
-        discardPendingNotifications { notification, generation in
+        discardPendingNotifications { notification, generation, _ in
             notification.key.tabId == tabId && generation <= boundary
         }
     }
 
     nonisolated func discardPendingNotifications() {
-        discardPendingNotifications(advanceGeneration: true) { _, _ in true }
+        discardPendingNotifications(advanceGeneration: true) { _, _, _ in true }
     }
 
     nonisolated func discardPendingNotifications(forTabId tabId: UUID) {
-        discardPendingNotifications { notification, _ in
+        discardPendingNotifications { notification, _, _ in
             notification.key.tabId == tabId
         }
     }
 
     nonisolated func discardPendingNotifications(forTabId tabId: UUID, surfaceId: UUID?) {
-        discardPendingNotifications { notification, _ in
+        discardPendingNotifications { notification, _, _ in
             notification.key.tabId == tabId && notification.key.surfaceId == surfaceId
         }
     }
 
-    private func enqueueNotification(_ notification: QueuedTerminalNotification) {
+    nonisolated func discardPendingNotifications(
+        forTabId tabId: UUID,
+        surfaceId: UUID?,
+        throughDeliverySequence deliverySequence: UInt64
+    ) {
+        discardPendingNotifications { notification, _, sequence in
+            notification.key.tabId == tabId &&
+                notification.key.surfaceId == surfaceId &&
+                sequence <= deliverySequence
+        }
+    }
+
+    private func enqueueNotification(
+        key: QueuedTerminalNotificationKey,
+        title: String,
+        subtitle: String,
+        body: String
+    ) {
         let shouldScheduleDrain: Bool
         lock.lock()
         let coalescingKey = TerminalNotificationCoalescingKey(
             generation: currentNotificationGeneration,
-            notificationKey: notification.key
+            notificationKey: key
         )
         pending.removeAll { entry in
             entry.notificationCoalescingKey == coalescingKey
         }
         nextSequence &+= 1
+        let sequence = nextSequence
+        let notification = QueuedTerminalNotification(
+            key: key,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            deliverySequence: sequence
+        )
         pending.append(TerminalSocketMutationEntry(
-            sequence: nextSequence,
+            sequence: sequence,
             mutation: .deliverNotification(notification),
             notificationCoalescingKey: coalescingKey
         ))
@@ -177,7 +211,7 @@ final class TerminalMutationBus: @unchecked Sendable {
 
     private func discardPendingNotifications(
         advanceGeneration: Bool = false,
-        where shouldDiscard: (QueuedTerminalNotification, UInt64) -> Bool
+        where shouldDiscard: (QueuedTerminalNotification, UInt64, UInt64) -> Bool
     ) {
         lock.lock()
         pending.removeAll { entry in
@@ -185,7 +219,7 @@ final class TerminalMutationBus: @unchecked Sendable {
                   let coalescingKey = entry.notificationCoalescingKey else {
                 return false
             }
-            return shouldDiscard(notification, coalescingKey.generation)
+            return shouldDiscard(notification, coalescingKey.generation, entry.sequence)
         }
         if advanceGeneration {
             currentNotificationGeneration &+= 1
@@ -304,13 +338,19 @@ extension TerminalController {
         subtitle: String,
         body: String
     ) {
-        TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId, surfaceId: surfaceId)
+        let deliverySequence = TerminalMutationBus.shared.reserveNotificationDeliverySequence()
+        TerminalMutationBus.shared.discardPendingNotifications(
+            forTabId: tabId,
+            surfaceId: surfaceId,
+            throughDeliverySequence: deliverySequence
+        )
         TerminalNotificationStore.shared.addNotification(
             tabId: tabId,
             surfaceId: surfaceId,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            deliverySequence: deliverySequence
         )
     }
 }
@@ -323,7 +363,8 @@ extension TerminalNotificationStore {
             surfaceId: notification.key.surfaceId,
             title: notification.title,
             subtitle: notification.subtitle,
-            body: notification.body
+            body: notification.body,
+            deliverySequence: notification.deliverySequence
         )
     }
 

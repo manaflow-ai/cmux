@@ -663,6 +663,7 @@ struct TerminalNotification: Identifiable, Hashable {
     let subtitle: String
     let body: String
     let createdAt: Date
+    let deliverySequence: UInt64 = 0
     var isRead: Bool
 }
 
@@ -742,6 +743,7 @@ final class TerminalNotificationStore: ObservableObject {
         store.playSuppressedNotificationFeedback(for: notification)
     }
     private var lastNotificationDateByCooldownKey: [String: Date] = [:]
+    private var latestNotificationDeliverySequenceByTarget: [TabSurfaceKey: UInt64] = [:]
     private var indexes = NotificationIndexes()
 
     private init() {
@@ -944,7 +946,8 @@ final class TerminalNotificationStore: ObservableObject {
         subtitle: String,
         body: String,
         cooldownKey: String? = nil,
-        cooldownInterval: TimeInterval? = nil
+        cooldownInterval: TimeInterval? = nil,
+        deliverySequence: UInt64? = nil
     ) {
         let now = Date()
         let resolvedCooldownInterval: TimeInterval?
@@ -959,6 +962,14 @@ final class TerminalNotificationStore: ObservableObject {
            now.timeIntervalSince(lastNotificationDate) < resolvedCooldownInterval {
             return
         }
+
+        let resolvedDeliverySequence = deliverySequence ?? TerminalMutationBus.shared.reserveNotificationDeliverySequence()
+        let notificationTarget = TabSurfaceKey(tabId: tabId, surfaceId: surfaceId)
+        if let latestDeliverySequence = latestNotificationDeliverySequenceByTarget[notificationTarget],
+           resolvedDeliverySequence < latestDeliverySequence {
+            return
+        }
+        latestNotificationDeliverySequenceByTarget[notificationTarget] = resolvedDeliverySequence
 
         var updated = notifications
         var idsToClear: [String] = []
@@ -995,6 +1006,7 @@ final class TerminalNotificationStore: ObservableObject {
             subtitle: subtitle,
             body: body,
             createdAt: now,
+            deliverySequence: resolvedDeliverySequence,
             isRead: false
         )
         updated.insert(notification, at: 0)
@@ -1184,11 +1196,26 @@ final class TerminalNotificationStore: ObservableObject {
                 subtitle: notification.subtitle,
                 body: notification.body,
                 createdAt: notification.createdAt,
+                deliverySequence: notification.deliverySequence,
                 isRead: notification.isRead
             )
         }
         if didMoveNotification {
             notifications = updated
+            let sourceKey = TabSurfaceKey(tabId: sourceTabId, surfaceId: surfaceId)
+            let destinationKey = TabSurfaceKey(tabId: destinationTabId, surfaceId: surfaceId)
+            let movedSequence = updated
+                .filter { $0.tabId == destinationTabId && $0.surfaceId == surfaceId }
+                .map(\.deliverySequence)
+                .max()
+            let sourceSequence = latestNotificationDeliverySequenceByTarget[sourceKey]
+            if movedSequence != nil || sourceSequence != nil {
+                let movedSequence = max(movedSequence ?? 0, sourceSequence ?? 0)
+                latestNotificationDeliverySequenceByTarget[destinationKey] = max(
+                    latestNotificationDeliverySequenceByTarget[destinationKey] ?? 0,
+                    movedSequence
+                )
+            }
         }
 
         if focusedReadIndicatorByTabId[sourceTabId] == surfaceId {
@@ -1467,6 +1494,15 @@ final class TerminalNotificationStore: ObservableObject {
         return indexes
     }
 
+    private static func buildLatestDeliverySequences(for notifications: [TerminalNotification]) -> [TabSurfaceKey: UInt64] {
+        var latestSequences: [TabSurfaceKey: UInt64] = [:]
+        for notification in notifications {
+            let key = TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)
+            latestSequences[key] = max(latestSequences[key] ?? 0, notification.deliverySequence)
+        }
+        return latestSequences
+    }
+
 #if DEBUG
     func configureNotificationSettingsPromptHooksForTesting(
         windowProvider: @escaping () -> NSWindow?,
@@ -1526,6 +1562,7 @@ final class TerminalNotificationStore: ObservableObject {
     func replaceNotificationsForTesting(_ notifications: [TerminalNotification]) {
         TerminalMutationBus.shared.discardPendingNotifications()
         self.notifications = notifications
+        latestNotificationDeliverySequenceByTarget = Self.buildLatestDeliverySequences(for: notifications)
         clearWorkspaceManualUnread()
         focusedReadIndicatorByTabId.removeAll()
     }
