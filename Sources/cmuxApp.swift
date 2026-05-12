@@ -4651,6 +4651,8 @@ enum ClaudeCodeIntegrationSettings {
     static let hooksEnabledKey = "claudeCodeHooksEnabled"
     static let defaultHooksEnabled = true
     static let customClaudePathKey = "claudeCodeCustomClaudePath"
+    static let ignoredNotificationTypesKey = "claudeCodeIgnoredNotificationTypes"
+    static let defaultIgnoredNotificationTypes: [String] = []
 
     static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: hooksEnabledKey) == nil {
@@ -4663,6 +4665,36 @@ enum ClaudeCodeIntegrationSettings {
         let value = defaults.string(forKey: customClaudePathKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return value.isEmpty ? nil : value
+    }
+
+    static func ignoredNotificationTypes(defaults: UserDefaults = .standard) -> [String] {
+        guard let stored = defaults.array(forKey: ignoredNotificationTypesKey) as? [String] else {
+            return defaultIgnoredNotificationTypes
+        }
+        return normalizedIgnoredNotificationTypes(stored)
+    }
+
+    static func normalizedIgnoredNotificationTypes(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        return values.compactMap { raw in
+            guard let normalized = normalizedNotificationType(raw),
+                  seen.insert(normalized).inserted else {
+                return nil
+            }
+            return normalized
+        }
+    }
+
+    static func normalizedNotificationType(_ raw: String) -> String? {
+        let collapsedWhitespace = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: "_")
+        let normalized = collapsedWhitespace
+            .replacingOccurrences(of: "-", with: "_")
+            .lowercased()
+        return normalized.isEmpty ? nil : normalized
     }
 }
 

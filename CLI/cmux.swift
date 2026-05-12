@@ -14327,6 +14327,15 @@ struct CMUXCLI {
 
         case "notification", "notify":
             telemetry.breadcrumb("claude-hook.notification")
+            let notificationTypes = Self.claudeNotificationTypes(parsedInput: parsedInput)
+            if Self.shouldSuppressClaudeNotification(types: notificationTypes) {
+                telemetry.breadcrumb(
+                    "claude-hook.notification.suppressed",
+                    data: ["types": notificationTypes.sorted().joined(separator: ",")]
+                )
+                print("OK")
+                return
+            }
             var summary = summarizeClaudeHookNotification(parsedInput: parsedInput)
 
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
@@ -15958,6 +15967,78 @@ struct CMUXCLI {
             return ("Attention", message)
         }
         return ("Attention", "Claude needs your attention")
+    }
+
+    private static let claudeIgnoredNotificationTypesDefaultsKey = "claudeCodeIgnoredNotificationTypes"
+    private static let claudeIgnoredNotificationTypesEnvKey = "CMUX_CLAUDE_IGNORED_NOTIFICATION_TYPES"
+
+    private static func shouldSuppressClaudeNotification(types: Set<String>) -> Bool {
+        let ignoredTypes = ignoredClaudeNotificationTypes()
+        guard !ignoredTypes.isEmpty, !types.isEmpty else {
+            return false
+        }
+        return !ignoredTypes.isDisjoint(with: types)
+    }
+
+    private static func ignoredClaudeNotificationTypes() -> Set<String> {
+        let env = ProcessInfo.processInfo.environment[claudeIgnoredNotificationTypesEnvKey] ?? ""
+        let envTypes = normalizedClaudeNotificationTypes(
+            env.components(separatedBy: CharacterSet(charactersIn: ", \n\t"))
+        )
+        if !envTypes.isEmpty {
+            return envTypes
+        }
+
+        if let stored = UserDefaults.standard.array(forKey: claudeIgnoredNotificationTypesDefaultsKey) as? [String] {
+            return normalizedClaudeNotificationTypes(stored)
+        }
+        if let stored = UserDefaults.standard.string(forKey: claudeIgnoredNotificationTypesDefaultsKey) {
+            return normalizedClaudeNotificationTypes(
+                stored.components(separatedBy: CharacterSet(charactersIn: ", \n\t"))
+            )
+        }
+        return []
+    }
+
+    private static func claudeNotificationTypes(parsedInput: ClaudeHookParsedInput) -> Set<String> {
+        var rawValues: [String] = []
+        if let object = parsedInput.object {
+            rawValues.append(contentsOf: claudeNotificationTypeValues(in: object))
+            for key in ["notification", "data"] {
+                if let nested = object[key] as? [String: Any] {
+                    rawValues.append(contentsOf: claudeNotificationTypeValues(in: nested))
+                }
+            }
+        }
+        if let fallback = parsedInput.rawFallback {
+            rawValues.append(fallback)
+        }
+        return normalizedClaudeNotificationTypes(rawValues)
+    }
+
+    private static func claudeNotificationTypeValues(in object: [String: Any]) -> [String] {
+        [
+            "event", "event_name", "hook_event_name", "type", "kind",
+            "notification_type", "matcher", "reason"
+        ].compactMap { key in
+            object[key] as? String
+        }
+    }
+
+    private static func normalizedClaudeNotificationTypes(_ values: [String]) -> Set<String> {
+        Set(values.compactMap { normalizedClaudeNotificationType($0) })
+    }
+
+    private static func normalizedClaudeNotificationType(_ raw: String) -> String? {
+        let collapsedWhitespace = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: "_")
+        let normalized = collapsedWhitespace
+            .replacingOccurrences(of: "-", with: "_")
+            .lowercased()
+        return normalized.isEmpty ? nil : normalized
     }
 
     private func firstString(in object: [String: Any], keys: [String]) -> String? {

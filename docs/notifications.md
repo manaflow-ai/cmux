@@ -60,6 +60,18 @@ cmux notify --title "Done" --tab 0 --panel 1
 
 See the [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code) for hook configuration.
 
+To keep Claude Code integration on but suppress recurring idle prompt notifications, add this to `~/.config/cmux/cmux.json`:
+
+```json
+{
+  "notifications": {
+    "ignoredClaudeNotificationTypes": ["idle_prompt"]
+  }
+}
+```
+
+This only skips Claude Code `Notification` hook rendering for matching notification types. Stop notifications and per-workspace running/stopped status still work.
+
 ### GitHub Copilot CLI
 
 Copilot CLI supports [hooks](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/use-hooks) that run shell commands at key lifecycle events. Add to `~/.copilot/config.json`:
