@@ -211,6 +211,87 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
+    func testSSHStartupRemovesStaleCmuxControlSocketBeforeLaunchingPaneSSH() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-stale-control-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let logFile = root.appendingPathComponent("ssh.log")
+        let staleControlPath = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-ssh-\(getuid())-\(UUID().uuidString.prefix(8)).sock")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            try? fileManager.removeItem(at: root)
+            unlink(staleControlPath.path)
+        }
+
+        let staleSocketFD = try bindUnixSocket(at: staleControlPath.path)
+        Darwin.close(staleSocketFD)
+        XCTAssertTrue(fileManager.fileExists(atPath: staleControlPath.path))
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SESSION_END_LOG}\"",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SSH_LOG}\"",
+            "for arg in \"$@\"; do",
+            "  if [ \"$arg\" = '-G' ]; then",
+            "    printf 'controlpath %s\\n' \"${CMUX_TEST_CONTROL_PATH}\"",
+            "    exit 0",
+            "  fi",
+            "done",
+            "previous_arg=",
+            "for arg in \"$@\"; do",
+            "  if [ \"$previous_arg\" = '-O' ] && [ \"$arg\" = 'check' ]; then",
+            "    exit 255",
+            "  fi",
+            "  previous_arg=\"$arg\"",
+            "done",
+            "if [ -e \"${CMUX_TEST_CONTROL_PATH}\" ]; then",
+            "  printf 'ControlSocket %s already exists, disabling multiplexing\\n' \"${CMUX_TEST_CONTROL_PATH}\" >&2",
+            "  exit 99",
+            "fi",
+            "exit 0",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+
+        let startupCommand = try generatedSSHStartupCommand(sshOptions: [
+            "ControlMaster auto",
+            "ControlPersist 600",
+            "ControlPath \(staleControlPath.path)",
+        ])
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_CONTROL_PATH"] = staleControlPath.path
+        environment["CMUX_TEST_SESSION_END_LOG"] = root.appendingPathComponent("ssh-session-end.log").path
+        environment["CMUX_TEST_SSH_LOG"] = logFile.path
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(fileManager.fileExists(atPath: staleControlPath.path))
+
+        let sshLog = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
+        XCTAssertTrue(sshLog.contains("-G"), sshLog)
+        XCTAssertTrue(sshLog.contains("-O check"), sshLog)
+    }
+
     func testSSHStartupStopsAtConfiguredReconnectLimit() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -475,7 +556,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(result.stderr.contains("[cmux] press Enter to close this pane."), result.stderr)
     }
 
-    private func generatedSSHStartupCommand() throws -> String {
+    private func generatedSSHStartupCommand(
+        sshOptions: [String] = [
+            "ControlMaster no",
+            "ControlPath /tmp/cmux-ssh-%C",
+        ]
+    ) throws -> String {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("ssh-pane-close")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -536,16 +622,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
+        var arguments = [
+            "ssh",
+            "--no-focus",
+            "--port", "2222",
+        ]
+        for option in sshOptions {
+            arguments += ["--ssh-option", option]
+        }
+        arguments.append("cmux-macmini")
+
         let result = runProcess(
             executablePath: cliPath,
-            arguments: [
-                "ssh",
-                "--no-focus",
-                "--port", "2222",
-                "--ssh-option", "ControlMaster no",
-                "--ssh-option", "ControlPath /tmp/cmux-ssh-%C",
-                "cmux-macmini",
-            ],
+            arguments: arguments,
             environment: environment,
             timeout: 5
         )
