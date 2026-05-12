@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -416,6 +417,16 @@ extension CMUXCLI {
     }
 
     private func shouldLaunchAppAfterSocketConnectFailure(socketPath: String) -> Bool {
-        socketPath.hasPrefix("/") && !FileManager.default.fileExists(atPath: socketPath)
+        guard socketPath.hasPrefix("/") else {
+            return false
+        }
+
+        var metadata = stat()
+        guard stat(socketPath, &metadata) == 0 else {
+            return true
+        }
+
+        let fileType = metadata.st_mode & mode_t(S_IFMT)
+        return fileType == mode_t(S_IFSOCK) && metadata.st_uid == getuid()
     }
 }

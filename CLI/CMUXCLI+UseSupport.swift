@@ -4,9 +4,15 @@ import CMUXRepoDetection
 nonisolated struct CmuxUseRepository: Equatable {
     let owner: String
     let name: String
+    let cloneURL: String
+
+    init(owner: String, name: String, cloneURL: String? = nil) {
+        self.owner = owner
+        self.name = name
+        self.cloneURL = cloneURL ?? "https://github.com/\(owner)/\(name).git"
+    }
 
     var fullName: String { "\(owner)/\(name)" }
-    var cloneURL: String { "https://github.com/\(fullName).git" }
     var webURL: String { "https://github.com/\(fullName)" }
 }
 
@@ -42,7 +48,7 @@ nonisolated enum CmuxUseSupport {
         }
 
         if let scpStylePath = gitHubSCPStylePath(trimmed) {
-            return try parseGitHubPath(scpStylePath)
+            return try parseGitHubPath(scpStylePath, cloneURL: trimmed)
         }
 
         let candidate: String = {
@@ -56,7 +62,9 @@ nonisolated enum CmuxUseSupport {
         if let components = URLComponents(string: candidate),
            let host = components.host?.lowercased(),
            host == "github.com" || host == "www.github.com" {
-            return try parseGitHubPath(components.path)
+            let scheme = components.scheme?.lowercased()
+            let cloneURL = scheme == "ssh" ? trimmed : nil
+            return try parseGitHubPath(components.path, cloneURL: cloneURL)
         }
 
         return try parseGitHubPath(trimmed)
@@ -223,7 +231,7 @@ nonisolated enum CmuxUseSupport {
         return runtimeLaunchCommand(in: checkoutURL)
     }
 
-    private static func parseGitHubPath(_ rawPath: String) throws -> CmuxUseRepository {
+    private static func parseGitHubPath(_ rawPath: String, cloneURL: String? = nil) throws -> CmuxUseRepository {
         let cleanedPath = rawPath
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -241,7 +249,7 @@ nonisolated enum CmuxUseSupport {
             throw CLIError(message: "Invalid GitHub repository: \(rawPath)")
         }
 
-        return CmuxUseRepository(owner: owner, name: name)
+        return CmuxUseRepository(owner: owner, name: name, cloneURL: cloneURL)
     }
 
     private static func gitHubSCPStylePath(_ raw: String) -> String? {
