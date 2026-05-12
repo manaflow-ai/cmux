@@ -2377,6 +2377,9 @@ final class BrowserPanel: Panel, ObservableObject {
     private var downloadDelegate: BrowserDownloadDelegate?
     private var webViewObservers: [NSKeyValueObservation] = []
     private var activeDownloadCount: Int = 0
+    /// Browser close is a one-shot resource teardown: it severs WebKit callbacks
+    /// and swaps the heavy page web view for an inert placeholder, so repeated
+    /// close requests from stale SwiftUI/AppKit teardown paths must be ignored.
     private var isClosed = false
 
     // Avoid flickering the loading indicator for very fast navigations.
@@ -3594,6 +3597,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         navigationDelegate = nil
         uiDelegate = nil
+        downloadDelegate = nil
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         faviconTask?.cancel()
