@@ -261,6 +261,7 @@ merge_node_options() {
         return 0
     fi
 
+    existing="$(normalize_node_options_for_restore "$existing")"
     read -r -a tokens <<<"$existing"
     for token in "${tokens[@]}"; do
         if (( skip_next )); then
@@ -285,16 +286,57 @@ merge_node_options() {
     printf ' %s' "${filtered[@]}"
 }
 
+is_cmux_node_options_restore_module_path() {
+    local value="$1"
+    value="${value#\"}"
+    value="${value%\"}"
+    value="${value#\'}"
+    value="${value%\'}"
+    [[ "$(basename "$value")" == "restore-node-options.cjs" ]] || return 1
+    [[ "$value" == *"/cmux-"* || "$value" == *"/.claude/cmux/"* ]]
+}
+
+inline_require_option_path() {
+    case "$1" in
+        --require=*|-r=*) printf '%s' "${1#*=}" ;;
+    esac
+}
+
 normalize_node_options_for_restore() {
     local existing="${1:-}"
     local -a tokens=()
     local -a normalized=()
     local token
     local index=0
+    local drop_injected_heap_cap=0
 
     read -r -a tokens <<<"$existing"
     while (( index < ${#tokens[@]} )); do
         token="${tokens[$index]}"
+        if (( drop_injected_heap_cap )); then
+            drop_injected_heap_cap=0
+            if [[ "$token" == "--max-old-space-size" && $((index + 1)) -lt ${#tokens[@]} && "${tokens[$((index + 1))]}" == "4096" ]]; then
+                index=$((index + 2))
+                continue
+            fi
+            if [[ "$token" == "--max-old-space-size=4096" ]]; then
+                index=$((index + 1))
+                continue
+            fi
+        fi
+        if [[ ( "$token" == "--require" || "$token" == "-r" ) && $((index + 1)) -lt ${#tokens[@]} ]] && \
+            is_cmux_node_options_restore_module_path "${tokens[$((index + 1))]}"; then
+            index=$((index + 2))
+            drop_injected_heap_cap=1
+            continue
+        fi
+        local inline_path
+        inline_path="$(inline_require_option_path "$token")"
+        if [[ -n "$inline_path" ]] && is_cmux_node_options_restore_module_path "$inline_path"; then
+            index=$((index + 1))
+            drop_injected_heap_cap=1
+            continue
+        fi
         if [[ "$token" == "--max-old-space-size" && $((index + 1)) -lt ${#tokens[@]} ]]; then
             normalized+=("--max-old-space-size=${tokens[$((index + 1))]}")
             index=$((index + 2))
@@ -414,8 +456,14 @@ export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "$@")"
 export CMUX_AGENT_LAUNCH_CWD="$PWD"
 if GUARD_PATH="$(ensure_node_options_restore_module)"; then
     if [[ ${NODE_OPTIONS+x} ]]; then
-        export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=1
-        export CMUX_ORIGINAL_NODE_OPTIONS="$(normalize_node_options_for_restore "$NODE_OPTIONS")"
+        ORIGINAL_NODE_OPTIONS="$(normalize_node_options_for_restore "$NODE_OPTIONS")"
+        if [[ -n "$ORIGINAL_NODE_OPTIONS" ]]; then
+            export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=1
+            export CMUX_ORIGINAL_NODE_OPTIONS="$ORIGINAL_NODE_OPTIONS"
+        else
+            export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=0
+            unset CMUX_ORIGINAL_NODE_OPTIONS
+        fi
     else
         export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=0
         unset CMUX_ORIGINAL_NODE_OPTIONS
