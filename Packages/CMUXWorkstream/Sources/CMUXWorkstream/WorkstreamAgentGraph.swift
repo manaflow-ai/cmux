@@ -1,0 +1,499 @@
+import Foundation
+
+public enum WorkstreamAgentNodeKind: String, Codable, Sendable, Equatable {
+    case session
+    case spawnRequest
+}
+
+public enum WorkstreamAgentNodeStatus: String, Codable, Sendable, Equatable {
+    case running
+    case waiting
+    case idle
+    case done
+    case unknown
+}
+
+public struct WorkstreamAgentTreeNode: Identifiable, Codable, Sendable, Equatable {
+    public let id: String
+    public let kind: WorkstreamAgentNodeKind
+    public let workstreamId: String?
+    public let focusWorkstreamId: String?
+    public let source: WorkstreamSource?
+    public let workspaceId: String?
+    public let title: String
+    public let model: String?
+    public let subagentType: String?
+    public let status: WorkstreamAgentNodeStatus
+    public let taskDescription: String?
+    public let childCount: Int
+    public let children: [WorkstreamAgentTreeNode]
+
+    public init(
+        id: String,
+        kind: WorkstreamAgentNodeKind,
+        workstreamId: String?,
+        focusWorkstreamId: String?,
+        source: WorkstreamSource?,
+        workspaceId: String?,
+        title: String,
+        model: String?,
+        subagentType: String?,
+        status: WorkstreamAgentNodeStatus,
+        taskDescription: String?,
+        childCount: Int,
+        children: [WorkstreamAgentTreeNode]
+    ) {
+        self.id = id
+        self.kind = kind
+        self.workstreamId = workstreamId
+        self.focusWorkstreamId = focusWorkstreamId
+        self.source = source
+        self.workspaceId = workspaceId
+        self.title = title
+        self.model = model
+        self.subagentType = subagentType
+        self.status = status
+        self.taskDescription = taskDescription
+        self.childCount = childCount
+        self.children = children
+    }
+}
+
+public struct WorkstreamAgentGraphSnapshot: Codable, Sendable, Equatable {
+    public let roots: [WorkstreamAgentTreeNode]
+    public let nodeCount: Int
+    public let edgeCount: Int
+    public let maxDepth: Int
+
+    public var isEmpty: Bool { roots.isEmpty }
+
+    public init(
+        roots: [WorkstreamAgentTreeNode],
+        nodeCount: Int,
+        edgeCount: Int,
+        maxDepth: Int
+    ) {
+        self.roots = roots
+        self.nodeCount = nodeCount
+        self.edgeCount = edgeCount
+        self.maxDepth = maxDepth
+    }
+}
+
+public enum WorkstreamAgentGraphBuilder {
+    public static func snapshot(from items: [WorkstreamItem]) -> WorkstreamAgentGraphSnapshot {
+        var records: [String: SessionRecord] = [:]
+        var creationOrder: [String] = []
+        var pendingSpawnsByParent: [String: [SpawnRecord]] = [:]
+
+        func ensureRecord(
+            workstreamId: String,
+            source: WorkstreamSource,
+            createdAt: Date,
+            workspaceId: String? = nil
+        ) {
+            if records[workstreamId] == nil {
+                records[workstreamId] = SessionRecord(
+                    workstreamId: workstreamId,
+                    source: source,
+                    workspaceId: workspaceId,
+                    createdAt: createdAt,
+                    updatedAt: createdAt
+                )
+                creationOrder.append(workstreamId)
+            } else if let workspaceId, records[workstreamId]?.workspaceId == nil {
+                var record = records[workstreamId]
+                record?.workspaceId = workspaceId
+                records[workstreamId] = record
+            }
+        }
+
+        func updateRecord(_ workstreamId: String, _ body: (inout SessionRecord) -> Void) {
+            guard var record = records[workstreamId] else { return }
+            body(&record)
+            records[workstreamId] = record
+        }
+
+        for item in items.sorted(by: { $0.createdAt < $1.createdAt }) {
+            ensureRecord(
+                workstreamId: item.workstreamId,
+                source: item.source,
+                createdAt: item.createdAt,
+                workspaceId: item.workspaceId
+            )
+            updateRecord(item.workstreamId) { record in
+                record.absorb(item)
+            }
+
+            let metadata = AgentGraphMetadata(item: item)
+            if let parentWorkstreamId = metadata.parentWorkstreamId(source: item.source) {
+                updateRecord(item.workstreamId) { record in
+                    record.parentWorkstreamId = parentWorkstreamId
+                    record.merge(metadata: metadata)
+                }
+            }
+
+            if let childWorkstreamId = metadata.childWorkstreamId(source: item.source) {
+                ensureRecord(
+                    workstreamId: childWorkstreamId,
+                    source: metadata.childSource ?? item.source,
+                    createdAt: item.createdAt,
+                    workspaceId: item.workspaceId
+                )
+                updateRecord(childWorkstreamId) { record in
+                    record.parentWorkstreamId = item.workstreamId
+                    record.merge(metadata: metadata)
+                }
+            } else if let spawn = SpawnRecord(item: item, metadata: metadata) {
+                pendingSpawnsByParent[item.workstreamId, default: []].append(spawn)
+            }
+        }
+
+        var childrenByParent: [String: [String]] = [:]
+        for record in records.values {
+            guard let parent = record.parentWorkstreamId,
+                  records[parent] != nil,
+                  parent != record.workstreamId
+            else { continue }
+            childrenByParent[parent, default: []].append(record.workstreamId)
+        }
+
+        for parent in childrenByParent.keys {
+            childrenByParent[parent]?.sort { lhs, rhs in
+                let l = records[lhs]?.updatedAt ?? .distantPast
+                let r = records[rhs]?.updatedAt ?? .distantPast
+                return l > r
+            }
+        }
+
+        let childIds = Set(childrenByParent.values.flatMap { $0 })
+        let roots = creationOrder
+            .filter { !childIds.contains($0) }
+            .sorted {
+                let lhs = records[$0]?.updatedAt ?? .distantPast
+                let rhs = records[$1]?.updatedAt ?? .distantPast
+                return lhs > rhs
+            }
+
+        var visited: Set<String> = []
+        var nodeCount = 0
+        var edgeCount = 0
+        var maxDepth = 0
+
+        func makeNode(_ workstreamId: String, depth: Int) -> WorkstreamAgentTreeNode? {
+            guard let record = records[workstreamId], visited.insert(workstreamId).inserted else {
+                return nil
+            }
+
+            var children: [WorkstreamAgentTreeNode] = []
+            for childId in childrenByParent[workstreamId] ?? [] {
+                if let child = makeNode(childId, depth: depth + 1) {
+                    children.append(child)
+                    edgeCount += 1
+                }
+            }
+
+            for spawn in pendingSpawnsByParent[workstreamId] ?? [] {
+                children.append(spawn.node(parent: record))
+                nodeCount += 1
+                edgeCount += 1
+                maxDepth = max(maxDepth, depth + 1)
+            }
+
+            nodeCount += 1
+            maxDepth = max(maxDepth, depth)
+            return record.node(children: children)
+        }
+
+        let treeRoots = roots.compactMap { makeNode($0, depth: 0) }
+
+        return WorkstreamAgentGraphSnapshot(
+            roots: treeRoots,
+            nodeCount: nodeCount,
+            edgeCount: edgeCount,
+            maxDepth: maxDepth
+        )
+    }
+}
+
+private struct SessionRecord {
+    let workstreamId: String
+    let source: WorkstreamSource
+    var workspaceId: String?
+    var title: String?
+    var model: String?
+    var subagentType: String?
+    var taskDescription: String?
+    var parentWorkstreamId: String?
+    var status: WorkstreamAgentNodeStatus = .unknown
+    let createdAt: Date
+    var updatedAt: Date
+
+    mutating func absorb(_ item: WorkstreamItem) {
+        updatedAt = max(updatedAt, item.updatedAt)
+        if workspaceId == nil {
+            workspaceId = item.workspaceId
+        }
+        if let cwd = item.cwd, title == nil {
+            title = Self.basename(cwd)
+        }
+
+        switch item.status {
+        case .pending:
+            status = .waiting
+        case .resolved, .expired, .telemetry:
+            updateStatus(from: item.payload)
+        }
+
+        switch item.payload {
+        case .userPrompt(let text):
+            mergeTaskDescription(text)
+        case .toolUse(let toolName, let toolInputJSON):
+            let metadata = AgentGraphMetadata(
+                source: item.source,
+                extraFieldsJSON: item.extraFieldsJSON,
+                toolName: toolName,
+                toolInputJSON: toolInputJSON
+            )
+            merge(metadata: metadata)
+            if Self.isSpawnTool(toolName) {
+                mergeTaskDescription(metadata.taskDescription)
+            }
+        default:
+            break
+        }
+
+        if let context = item.context {
+            mergeTaskDescription(context.lastUserMessage)
+        }
+    }
+
+    mutating func merge(metadata: AgentGraphMetadata) {
+        if let model = metadata.model, !model.isEmpty {
+            self.model = model
+        }
+        if let subagentType = metadata.subagentType, !subagentType.isEmpty {
+            self.subagentType = subagentType
+        }
+        mergeTaskDescription(metadata.taskDescription)
+        if let description = metadata.description, !description.isEmpty, title == nil {
+            title = description
+        }
+    }
+
+    func node(children: [WorkstreamAgentTreeNode]) -> WorkstreamAgentTreeNode {
+        WorkstreamAgentTreeNode(
+            id: "session:\(workstreamId)",
+            kind: .session,
+            workstreamId: workstreamId,
+            focusWorkstreamId: workstreamId,
+            source: source,
+            workspaceId: workspaceId,
+            title: title ?? source.rawValue,
+            model: model,
+            subagentType: subagentType,
+            status: status,
+            taskDescription: taskDescription,
+            childCount: children.count,
+            children: children
+        )
+    }
+
+    private mutating func mergeTaskDescription(_ value: String?) {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return }
+        taskDescription = value
+    }
+
+    private mutating func updateStatus(from payload: WorkstreamPayload) {
+        switch payload {
+        case .sessionEnd:
+            status = .done
+        case .stop:
+            if status != .done {
+                status = .idle
+            }
+        case .sessionStart, .userPrompt, .toolUse, .toolResult, .todos, .assistantMessage:
+            if status != .waiting && status != .done {
+                status = .running
+            }
+        case .permissionRequest, .exitPlan, .question:
+            if status != .waiting && status != .done {
+                status = .running
+            }
+        }
+    }
+
+    private static func basename(_ path: String) -> String {
+        let trimmed = path.hasSuffix("/") ? String(path.dropLast()) : path
+        let name = (trimmed as NSString).lastPathComponent
+        return name.isEmpty ? path : name
+    }
+
+    static func isSpawnTool(_ toolName: String) -> Bool {
+        let normalized = toolName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "task" || normalized == "agent"
+    }
+}
+
+private struct SpawnRecord {
+    let id: String
+    let source: WorkstreamSource
+    let workspaceId: String?
+    let title: String
+    let model: String?
+    let subagentType: String?
+    let taskDescription: String?
+    let createdAt: Date
+
+    init?(item: WorkstreamItem, metadata: AgentGraphMetadata) {
+        guard case .toolUse(let toolName, _) = item.payload,
+              SessionRecord.isSpawnTool(toolName)
+        else { return nil }
+        self.id = "spawn:\(item.id.uuidString)"
+        self.source = item.source
+        self.workspaceId = item.workspaceId
+        self.title = metadata.description
+            ?? metadata.subagentType
+            ?? String(toolName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(40))
+        self.model = metadata.model
+        self.subagentType = metadata.subagentType
+        self.taskDescription = metadata.taskDescription
+        self.createdAt = item.createdAt
+    }
+
+    func node(parent: SessionRecord) -> WorkstreamAgentTreeNode {
+        WorkstreamAgentTreeNode(
+            id: id,
+            kind: .spawnRequest,
+            workstreamId: nil,
+            focusWorkstreamId: parent.workstreamId,
+            source: source,
+            workspaceId: workspaceId ?? parent.workspaceId,
+            title: title,
+            model: model,
+            subagentType: subagentType,
+            status: .running,
+            taskDescription: taskDescription,
+            childCount: 0,
+            children: []
+        )
+    }
+}
+
+private struct AgentGraphMetadata {
+    let source: WorkstreamSource
+    let extra: [String: Any]
+    let toolInput: [String: Any]
+
+    init(item: WorkstreamItem) {
+        let toolName: String?
+        let toolInputJSON: String?
+        if case .toolUse(let name, let json) = item.payload {
+            toolName = name
+            toolInputJSON = json
+        } else if case .permissionRequest(_, let name, let json, _) = item.payload {
+            toolName = name
+            toolInputJSON = json
+        } else {
+            toolName = nil
+            toolInputJSON = nil
+        }
+        self.init(
+            source: item.source,
+            extraFieldsJSON: item.extraFieldsJSON,
+            toolName: toolName,
+            toolInputJSON: toolInputJSON
+        )
+    }
+
+    init(
+        source: WorkstreamSource,
+        extraFieldsJSON: String?,
+        toolName: String?,
+        toolInputJSON: String?
+    ) {
+        self.source = source
+        self.extra = Self.dictionary(from: extraFieldsJSON)
+        let parsedToolInput = Self.dictionary(from: toolInputJSON)
+        if let toolName, SessionRecord.isSpawnTool(toolName) {
+            self.toolInput = parsedToolInput
+        } else {
+            self.toolInput = parsedToolInput
+        }
+    }
+
+    var childSource: WorkstreamSource? {
+        string(keys: ["child_source", "childSource", "subagent_source", "subagentSource"])
+            .flatMap(WorkstreamSource.init(wireName:))
+    }
+
+    var model: String? {
+        string(keys: ["model", "subagent_model", "subagentModel"])
+    }
+
+    var subagentType: String? {
+        string(keys: ["subagent_type", "subagentType", "agent_type", "agentType"])
+    }
+
+    var description: String? {
+        string(keys: ["description", "title", "name"])
+    }
+
+    var taskDescription: String? {
+        string(keys: ["task_description", "taskDescription", "prompt", "message", "description"])
+    }
+
+    func parentWorkstreamId(source: WorkstreamSource) -> String? {
+        if let value = string(keys: ["parent_workstream_id", "parentWorkstreamId", "parent_workstream", "parentWorkstream"]) {
+            return value
+        }
+        if let sessionId = string(keys: ["parent_session_id", "parentSessionId", "parentSessionID"]) {
+            return "\(source.rawValue)-\(sessionId)"
+        }
+        return nil
+    }
+
+    func childWorkstreamId(source: WorkstreamSource) -> String? {
+        if let value = string(keys: ["child_workstream_id", "childWorkstreamId", "subagent_workstream_id", "subagentWorkstreamId"]) {
+            return value
+        }
+        if let sessionId = string(keys: ["child_session_id", "childSessionId", "childSessionID", "subagent_session_id", "subagentSessionId"]) {
+            return "\((childSource ?? source).rawValue)-\(sessionId)"
+        }
+        return nil
+    }
+
+    private func string(keys: [String]) -> String? {
+        for key in keys {
+            if let value = normalizedString(extra[key]) {
+                return value
+            }
+            if let value = normalizedString(toolInput[key]) {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private static func dictionary(from json: String?) -> [String: Any] {
+        guard let json,
+              let data = json.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
+              let dict = object as? [String: Any]
+        else { return [:] }
+        return dict
+    }
+
+    private func normalizedString(_ value: Any?) -> String? {
+        guard let value else { return nil }
+        if let string = value as? String {
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if let number = value as? NSNumber {
+            return number.stringValue
+        }
+        return nil
+    }
+}

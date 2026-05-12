@@ -560,7 +560,13 @@ enum FeedSocketEncoding {
             "updated_at": isoFormatter.string(from: item.updatedAt),
         ]
         if let cwd = item.cwd { dict["cwd"] = cwd }
+        if let workspaceId = item.workspaceId { dict["workspace_id"] = workspaceId }
         if let title = item.title { dict["title"] = title }
+        if let extraFieldsJSON = item.extraFieldsJSON,
+           let data = extraFieldsJSON.data(using: .utf8),
+           let extra = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) {
+            dict["extra_fields"] = extra
+        }
         switch item.status {
         case .pending:
             dict["status"] = "pending"

@@ -204,11 +204,13 @@ public final class WorkstreamStore {
             kind: kind,
             createdAt: event.receivedAt,
             updatedAt: event.receivedAt,
+            workspaceId: event.workspaceId,
             cwd: event.cwd,
             title: defaultTitle(for: event),
             status: status,
             payload: payload,
             context: context(for: event, payload: payload),
+            extraFieldsJSON: event.extraFieldsJSON,
             ppid: event.ppid
         )
     }

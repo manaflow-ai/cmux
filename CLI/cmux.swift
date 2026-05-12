@@ -14822,7 +14822,11 @@ struct CMUXCLI {
             "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble",
             "event", "event_name", "hook_event_name", "type", "kind", "notification_type", "matcher", "reason",
             "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
-            "additional_details", "additionalDetails", "description",
+            "additional_details", "additionalDetails", "description", "model",
+            "parent_workstream_id", "parentWorkstreamId", "parent_session_id", "parentSessionId", "parentSessionID",
+            "child_workstream_id", "childWorkstreamId", "child_session_id", "childSessionId", "childSessionID",
+            "subagent_workstream_id", "subagentWorkstreamId", "subagent_session_id", "subagentSessionId",
+            "subagent_type", "subagentType", "agent_type", "agentType",
         ] {
             if let value = compactClaudeHookValue(object[key], key: key) {
                 compact[key] = value
@@ -14831,7 +14835,14 @@ struct CMUXCLI {
 
         if let toolInput = object["tool_input"] as? [String: Any] {
             var compactToolInput: [String: Any] = [:]
-            for key in ["file_path", "command", "pattern", "description", "query", "plan", "planFilePath"] {
+            for key in [
+                "file_path", "command", "pattern", "description", "query", "plan", "planFilePath",
+                "prompt", "message", "model",
+                "parent_workstream_id", "parentWorkstreamId", "parent_session_id", "parentSessionId", "parentSessionID",
+                "child_workstream_id", "childWorkstreamId", "child_session_id", "childSessionId", "childSessionID",
+                "subagent_workstream_id", "subagentWorkstreamId", "subagent_session_id", "subagentSessionId",
+                "subagent_type", "subagentType", "agent_type", "agentType",
+            ] {
                 if let value = compactClaudeHookToolInputValue(toolInput[key], key: key) {
                     compactToolInput[key] = value
                 }
@@ -14898,10 +14909,12 @@ struct CMUXCLI {
 
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
         switch key {
-        case "tool_name", "turn_id", "turnId", "event", "event_name", "hook_event_name", "type", "kind", "notification_type", "matcher", "reason":
+        case "tool_name", "turn_id", "turnId", "event", "event_name", "hook_event_name", "type", "kind", "notification_type", "matcher", "reason", "model", "subagent_model", "subagentModel", "subagent_type", "subagentType", "agent_type", "agentType":
             return 80
         case "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description":
             return 240
+        case "parent_workstream_id", "parentWorkstreamId", "parent_session_id", "parentSessionId", "parentSessionID", "child_workstream_id", "childWorkstreamId", "child_session_id", "childSessionId", "childSessionID", "subagent_workstream_id", "subagentWorkstreamId", "subagent_session_id", "subagentSessionId":
+            return 160
         default:
             return 160
         }
@@ -17504,6 +17517,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         ) {
             event["context"] = context
         }
+        copyAgentGraphMetadata(to: &event, rawObject: parsedInput.object, toolName: toolName)
         enrichUserPromptSubmitFeedEvent(
             &event,
             hookEventName: hookEventName,
@@ -17593,6 +17607,52 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         default:
             return false
         }
+    }
+
+    private func copyAgentGraphMetadata(
+        to event: inout [String: Any],
+        rawObject: [String: Any]?,
+        toolName: String?
+    ) {
+        guard let rawObject else { return }
+        let keys = [
+            "parent_workstream_id", "parentWorkstreamId", "parent_workstream", "parentWorkstream",
+            "parent_session_id", "parentSessionId", "parentSessionID",
+            "child_workstream_id", "childWorkstreamId", "subagent_workstream_id", "subagentWorkstreamId",
+            "child_session_id", "childSessionId", "childSessionID", "subagent_session_id", "subagentSessionId",
+            "child_source", "childSource", "subagent_source", "subagentSource",
+            "subagent_type", "subagentType", "agent_type", "agentType",
+            "model", "subagent_model", "subagentModel",
+            "task_description", "taskDescription", "description", "title", "name",
+        ]
+
+        func copyValue(_ raw: Any?, key: String) {
+            guard event[key] == nil else { return }
+            if let value = raw as? String {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    event[key] = trimmed
+                }
+            } else if let value = raw as? NSNumber {
+                event[key] = value.stringValue
+            }
+        }
+
+        for key in keys {
+            copyValue(rawObject[key], key: key)
+        }
+
+        guard let toolName, isAgentSpawnToolName(toolName),
+              let toolInput = feedToolInputDictionary(rawObject["tool_input"])
+        else { return }
+        for key in keys + ["prompt", "message"] {
+            copyValue(toolInput[key], key: key)
+        }
+    }
+
+    private func isAgentSpawnToolName(_ toolName: String) -> Bool {
+        let normalized = toolName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "task" || normalized == "agent"
     }
 
     private func feedPromptText(from object: [String: Any]?) -> String? {
@@ -19404,6 +19464,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         ) {
             eventDict["context"] = context
         }
+        copyAgentGraphMetadata(to: &eventDict, rawObject: stdinObj, toolName: toolName)
         enrichUserPromptSubmitFeedEvent(
             &eventDict,
             hookEventName: hookEventName,
