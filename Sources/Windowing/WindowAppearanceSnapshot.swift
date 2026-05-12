@@ -213,6 +213,11 @@ struct WindowGlassSettingsSnapshot {
 }
 
 struct WindowAppearanceSnapshot {
+    /// Treat opacity values within floating-point round-trip tolerance of 1.0
+    /// as opaque so user-configured `1.0` does not accidentally trigger host
+    /// ownership after Double/CGFloat conversions.
+    private static let opaqueBackgroundOwnershipThreshold: CGFloat = 0.999
+
     let terminalBackgroundColor: NSColor
     let terminalBackgroundOpacity: CGFloat
     let terminalBackgroundBlur: GhosttyBackgroundBlur
@@ -292,7 +297,7 @@ struct WindowAppearanceSnapshot {
         if backgroundBlur != .disabled {
             return true
         }
-        return clampedOpacity(backgroundOpacity) < 0.999
+        return clampedOpacity(backgroundOpacity) < opaqueBackgroundOwnershipThreshold
     }
 
     static func terminalRenderingMode(
