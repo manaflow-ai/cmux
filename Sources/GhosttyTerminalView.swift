@@ -10443,6 +10443,13 @@ final class GhosttySurfaceScrollView: NSView {
     /// layout while the hosting tree is already being rendered; the next main turn still
     /// refreshes the Metal surface promptly, but after the current layout transaction settles.
     func scheduleSurfaceRefresh(reason: String = "portal.scheduleSurfaceRefresh") {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.scheduleSurfaceRefresh(reason: reason)
+            }
+            return
+        }
+
         pendingSurfaceRefreshReason = reason
         guard !pendingSurfaceRefreshQueued else { return }
         pendingSurfaceRefreshQueued = true
