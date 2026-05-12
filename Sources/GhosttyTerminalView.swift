@@ -4353,6 +4353,19 @@ final class TerminalSurfaceRegistry {
     }
 }
 
+private final class TerminalSharedBackdropCutoutFilter: CIFilter {
+    @objc dynamic var inputImage: CIImage?
+    @objc dynamic var inputBackgroundImage: CIImage?
+
+    override var outputImage: CIImage? {
+        guard let inputImage, let inputBackgroundImage else { return inputImage }
+        return CIBlendKernel.destinationOut.apply(
+            foreground: inputImage,
+            background: inputBackgroundImage
+        )
+    }
+}
+
 // MARK: - Terminal Surface (owns the ghostty_surface_t lifecycle)
 
 enum TerminalSurfaceFocusPlacement: Equatable {
@@ -9682,7 +9695,6 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private let sharedBackdropCutoutView: NSView
-    private let sharedBackdropCutoutAvailable: Bool
     private let backgroundView: NSView
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
@@ -9930,9 +9942,9 @@ final class GhosttySurfaceScrollView: NSView {
         #endif
 
         self.surfaceView = surfaceView
-        let sharedBackdropCutoutFilter = CIFilter(name: "CIDestinationOutCompositing")
+        let sharedBackdropCutoutFilter = TerminalSharedBackdropCutoutFilter()
+        sharedBackdropCutoutFilter.name = "terminalSharedBackdropCutout"
         sharedBackdropCutoutView = NSView(frame: .zero)
-        sharedBackdropCutoutAvailable = sharedBackdropCutoutFilter != nil
         backgroundView = NSView(frame: .zero)
         scrollView = GhosttyScrollView()
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
@@ -10635,11 +10647,10 @@ final class GhosttySurfaceScrollView: NSView {
 
     func setBackgroundColor(_ color: NSColor, clearsSharedWindowBackdrop: Bool) {
         guard let layer = backgroundView.layer else { return }
-        let showsSharedBackdropCutout = clearsSharedWindowBackdrop && sharedBackdropCutoutAvailable
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        sharedBackdropCutoutView.layerUsesCoreImageFilters = showsSharedBackdropCutout
-        sharedBackdropCutoutView.isHidden = !showsSharedBackdropCutout
+        sharedBackdropCutoutView.layerUsesCoreImageFilters = clearsSharedWindowBackdrop
+        sharedBackdropCutoutView.isHidden = !clearsSharedWindowBackdrop
         layer.backgroundColor = color.cgColor
         layer.isOpaque = color.alphaComponent >= 1.0
         CATransaction.commit()
