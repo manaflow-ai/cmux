@@ -1601,8 +1601,9 @@ struct CmuxPromptSnippetDefinition: Codable, Sendable, Hashable, Identifiable {
     ) throws -> String {
         for key in keys where container.contains(key) {
             let raw = try container.decode(String.self, forKey: key)
-            guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
-            return raw
+            let sanitized = removingDangerousScalars(from: raw)
+            guard !sanitized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            return sanitized
         }
         throw DecodingError.dataCorrupted(
             DecodingError.Context(
@@ -1644,15 +1645,19 @@ struct CmuxPromptSnippetDefinition: Codable, Sendable, Hashable, Identifiable {
         return result
     }
 
+    private static let dangerousScalars: Set<Unicode.Scalar> = [
+        "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
+        "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",
+        "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}",
+        "\u{FEFF}",
+    ]
+
+    private static func removingDangerousScalars(from text: String) -> String {
+        String(text.unicodeScalars.filter { !dangerousScalars.contains($0) })
+    }
+
     private static func sanitizedString(_ text: String) -> String {
-        let dangerous: Set<Unicode.Scalar> = [
-            "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
-            "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",
-            "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}",
-            "\u{FEFF}",
-        ]
-        let filtered = String(text.unicodeScalars.filter { !dangerous.contains($0) })
-        return filtered.trimmingCharacters(in: .whitespacesAndNewlines)
+        removingDangerousScalars(from: text).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func generatedID(for title: String) -> String {

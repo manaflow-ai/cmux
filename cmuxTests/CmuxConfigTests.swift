@@ -92,7 +92,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
             {
               "id": " review-template ",
               "name": " Code Review ",
-              "prompt": "\\nReview this change for correctness and missing tests.\\n",
+              "prompt": "\\u202E\\nReview this change for correctness and missing tests.\\u200B\\n",
               "description": " Review checklist ",
               "keywords": ["review", "tests", " review ", ""]
             },
@@ -118,7 +118,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         let json = """
         {
           "promptSnippets": [
-            { "title": "Empty", "text": "   " }
+            { "title": "Empty", "text": " \\u202E\\u200B  " }
           ]
         }
         """
