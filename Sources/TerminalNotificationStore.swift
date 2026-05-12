@@ -714,6 +714,10 @@ final class TerminalNotificationStore: ObservableObject {
     private var hasPromptedForSettings = false
     private var initialAuthorizationRefreshObserver: NSObjectProtocol?
     private var userDefaultsObserver: NSObjectProtocol?
+    // Notification permission callbacks can complete from cached system state during
+    // launch; delay published updates so they cannot join an active AppKit layout pass.
+    private static let initialAuthorizationRefreshDelay: TimeInterval = 0.2
+    private static let authorizationStateRefreshApplyDelay: TimeInterval = 0.05
     private let settingsPromptWindowRetryDelay: TimeInterval = 0.5
     private let settingsPromptWindowRetryLimit = 20
     private var notificationSettingsWindowProvider: () -> NSWindow? = {
@@ -818,7 +822,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func refreshAuthorizationStatus() {
         center.getNotificationSettings { [weak self] settings in
-            DispatchQueue.main.async {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.authorizationStateRefreshApplyDelay) {
                 guard let self else { return }
                 self.setAuthorizationState(Self.authorizationState(from: settings.authorizationStatus))
                 self.logAuthorization(
@@ -1459,7 +1463,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func scheduleInitialAuthorizationRefresh() {
         guard !AppIconLaunchState.isApplicationFinishedLaunching() else {
-            DispatchQueue.main.async { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.initialAuthorizationRefreshDelay) { [weak self] in
                 self?.refreshAuthorizationStatus()
             }
             return
@@ -1475,7 +1479,7 @@ final class TerminalNotificationStore: ObservableObject {
                 NotificationCenter.default.removeObserver(initialAuthorizationRefreshObserver)
                 self.initialAuthorizationRefreshObserver = nil
             }
-            DispatchQueue.main.async { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.initialAuthorizationRefreshDelay) { [weak self] in
                 self?.refreshAuthorizationStatus()
             }
         }
