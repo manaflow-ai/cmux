@@ -9763,6 +9763,7 @@ final class Workspace: Identifiable, ObservableObject {
             if config.fontSize > 0 {
                 lastTerminalConfigInheritanceFontPoints = config.fontSize
             }
+            lastTerminalConfigInheritancePanelId = terminalPanel.id
 #if DEBUG
             cmuxDebugLog(
                 "zoom.inherit context=split source=cached font=\(String(format: "%.2f", config.fontSize))"

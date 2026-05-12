@@ -10501,6 +10501,7 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
+        guard window != nil else { return }
         surfaceView.terminalSurface?.forceRefresh(reason: reason)
     }
 
@@ -10521,6 +10522,10 @@ final class GhosttySurfaceScrollView: NSView {
         pendingSurfaceRefreshQueued = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            guard self.window != nil else {
+                self.pendingSurfaceRefreshQueued = false
+                return
+            }
             self.pendingSurfaceRefreshQueued = false
             self.refreshSurfaceNow(reason: self.pendingSurfaceRefreshReason)
         }
