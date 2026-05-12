@@ -74,13 +74,18 @@ struct DiffReviewPanelView: View {
 
     @ViewBuilder
     private var content: some View {
-        if directory == nil {
+        switch DiffReviewPanelContentState.resolve(
+            directory: directory,
+            snapshot: store.snapshot,
+            phase: store.phase
+        ) {
+        case .noWorkspace:
             DiffReviewEmptyStateView(
                 systemImage: "folder.badge.questionmark",
                 title: String(localized: "diffReview.empty.noWorkspace.title", defaultValue: "Open a local git workspace"),
                 subtitle: String(localized: "diffReview.empty.noWorkspace.subtitle", defaultValue: "Review is available for local git repositories.")
             )
-        } else if let snapshot = store.snapshot {
+        case .files(let snapshot):
             DiffReviewFileListView(
                 snapshot: snapshot,
                 revertingHunkIDs: store.revertingHunkIDs,
@@ -88,13 +93,10 @@ struct DiffReviewPanelView: View {
                     revertHunk: { store.revertHunk($0) }
                 )
             )
-        } else {
-            switch store.phase {
-            case .idle, .loading, .loaded:
-                DiffReviewLoadingView()
-            case .failed(let message):
-                DiffReviewErrorView(message: message, retry: store.refresh)
-            }
+        case .loading:
+            DiffReviewLoadingView()
+        case .error(let message):
+            DiffReviewErrorView(message: message, retry: store.refresh)
         }
     }
 

@@ -41,10 +41,13 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Sendable {
     }
 
     var commandTitle: String {
-        if let shortcutAction {
+        switch self {
+        case .review:
+            return String(localized: "command.rightSidebarMode.review.title", defaultValue: "Show Sidebar Review")
+        case .files, .find, .sessions, .feed, .dock:
+            guard let shortcutAction else { return label }
             return shortcutAction.label
         }
-        return String(localized: "command.rightSidebarMode.review.title", defaultValue: "Show Sidebar Review")
     }
 
     var shortcutAction: KeyboardShortcutSettings.Action? {
