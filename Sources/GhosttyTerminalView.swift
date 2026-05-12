@@ -3724,6 +3724,7 @@ class GhosttyApp {
         let callbackContext = Self.callbackContext(from: ghostty_surface_userdata(target.target.surface))
         let callbackTabId = callbackContext?.tabId
         let callbackSurfaceId = callbackContext?.surfaceId
+        let callbackTerminalSurface = callbackContext?.terminalSurface
 
         if action.tag == GHOSTTY_ACTION_SHOW_CHILD_EXITED {
             // The child (shell) exited. Ghostty will fall back to printing
@@ -3735,9 +3736,6 @@ class GhosttyApp {
                 "surface.action.showChildExited tab=\(callbackTabId?.uuidString.prefix(5) ?? "nil") " +
                 "surface=\(callbackSurfaceId?.uuidString.prefix(5) ?? "nil")"
             )
-            Task { @MainActor in
-                GhosttyApp.debugShowChildExitedActionObserver?(callbackTabId, callbackSurfaceId)
-            }
 #endif
 #if DEBUG
             cmuxWriteChildExitProbe(
@@ -3750,7 +3748,11 @@ class GhosttyApp {
 #endif
             // Keep host-close async to avoid re-entrant close/deinit while Ghostty is still
             // dispatching this action callback.
-            DispatchQueue.main.async {
+            Task { @MainActor in
+                callbackTerminalSurface?.markChildProcessExited(reason: "ghostty.childExited")
+#if DEBUG
+                GhosttyApp.debugShowChildExitedActionObserver?(callbackTabId, callbackSurfaceId)
+#endif
                 guard let app = AppDelegate.shared else { return }
                 if let callbackTabId,
                    let callbackSurfaceId,
@@ -4412,6 +4414,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    private enum InputLifecycleState: String {
+        case accepting
+        case childExited
+        case closed
+    }
+
     private(set) var surface: ghostty_surface_t?
     private weak var attachedView: GhosttyNSView?
 
@@ -4467,6 +4475,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var pendingSocketInputQueue: [PendingSocketInput] = []
     private var pendingSocketInputBytes: Int = 0
     private let maxPendingSocketInputBytes = 1_048_576
+    private var inputLifecycleState: InputLifecycleState = .accepting
     private var backgroundSurfaceStartQueued = false
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     /// The desired focus state for the Ghostty C surface. May be set before the
@@ -4840,13 +4849,67 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    var canAcceptInput: Bool {
+        inputLifecycleState == .accepting && portalLifecycleState == .live
+    }
+
+    func markChildProcessExited(reason: String) {
+        guard inputLifecycleState == .accepting else { return }
+        inputLifecycleState = .childExited
+        clearPendingSocketInput(reason: reason)
+#if DEBUG
+        cmuxDebugLog(
+            "surface.input.child_exited surface=\(id.uuidString.prefix(5)) " +
+            "workspace=\(tabId.uuidString.prefix(5)) reason=\(reason)"
+        )
+#endif
+    }
+
+    private func markInputClosed(reason: String) {
+        guard inputLifecycleState != .closed else { return }
+        inputLifecycleState = .closed
+        clearPendingSocketInput(reason: reason)
+#if DEBUG
+        cmuxDebugLog(
+            "surface.input.closed surface=\(id.uuidString.prefix(5)) " +
+            "workspace=\(tabId.uuidString.prefix(5)) reason=\(reason)"
+        )
+#endif
+    }
+
+    private func clearPendingSocketInput(reason: String) {
+        guard !pendingSocketInputQueue.isEmpty || pendingSocketInputBytes != 0 else { return }
+        let droppedItems = pendingSocketInputQueue.count
+        let droppedBytes = pendingSocketInputBytes
+        pendingSocketInputQueue.removeAll(keepingCapacity: false)
+        pendingSocketInputBytes = 0
+#if DEBUG
+        cmuxDebugLog(
+            "surface.socket_input.drop_pending surface=\(id.uuidString.prefix(8)) " +
+            "reason=\(reason) items=\(droppedItems) bytes=\(droppedBytes)"
+        )
+#endif
+    }
+
+    private func logDroppedInput(reason: String, bytes: Int? = nil) {
+#if DEBUG
+        let byteText = bytes.map { " bytes=\($0)" } ?? ""
+        cmuxDebugLog(
+            "surface.input.drop surface=\(id.uuidString.prefix(5)) " +
+            "workspace=\(tabId.uuidString.prefix(5)) state=\(inputLifecycleState.rawValue) " +
+            "portal=\(portalLifecycleState.rawValue) reason=\(reason)\(byteText)"
+        )
+#endif
+    }
+
     private func allowsRuntimeSurfaceCreation() -> Bool {
-        portalLifecycleState == .live
+        canAcceptInput
     }
 
     func beginPortalCloseLifecycle(reason: String) {
         guard portalLifecycleState != .closed else { return }
         guard portalLifecycleState != .closing else { return }
+        markInputClosed(reason: reason)
         recordTeardownRequest(reason: reason)
         portalLifecycleState = .closing
         portalLifecycleGeneration &+= 1
@@ -4861,6 +4924,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     private func markPortalLifecycleClosed(reason: String) {
         guard portalLifecycleState != .closed else { return }
+        markInputClosed(reason: reason)
         portalLifecycleState = .closed
         portalLifecycleGeneration &+= 1
 #if DEBUG
@@ -5579,6 +5643,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     func sendText(_ text: String) {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return }
+        guard canAcceptInput else {
+            logDroppedInput(reason: "sendText.deadConsumer", bytes: data.count)
+            return
+        }
         guard let surface = surface else {
             enqueuePendingSocketInput(.text(data))
             requestBackgroundSurfaceStartIfNeeded()
@@ -5590,6 +5658,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @discardableResult
     func sendNamedKey(_ keyName: String) -> Bool {
         guard let event = pendingKeyEvent(for: keyName) else { return false }
+        guard canAcceptInput else {
+            logDroppedInput(reason: "sendNamedKey.deadConsumer", bytes: max(event.label.utf8.count, 1))
+            return true
+        }
         if let surface = surface {
             sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
         } else {
@@ -5603,6 +5675,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// events so the shell processes them, while regular text is sent via the
     /// normal key-text path.  Mirrors `TerminalController.sendSocketText`.
     func sendInput(_ text: String) {
+        guard canAcceptInput else {
+            logDroppedInput(reason: "sendInput.deadConsumer", bytes: text.utf8.count)
+            return
+        }
         guard let surface = surface else { return }
         var bufferedText = ""
         var previousWasCR = false
@@ -5872,7 +5948,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private func flushPendingSocketInputIfNeeded() {
-        guard let surface = surface, !pendingSocketInputQueue.isEmpty else { return }
+        guard !pendingSocketInputQueue.isEmpty else { return }
+        guard canAcceptInput else {
+            clearPendingSocketInput(reason: "flushPending.deadConsumer")
+            return
+        }
+        guard let surface = surface else { return }
         let queued = pendingSocketInputQueue
         let queuedBytes = pendingSocketInputBytes
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
@@ -6773,6 +6854,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @discardableResult
     private func ensureSurfaceReadyForInput() -> ghostty_surface_t? {
+        if let terminalSurface, !terminalSurface.canAcceptInput {
+#if DEBUG
+            cmuxDebugLog(
+                "surface.input.view_drop surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+                "reason=ensureSurfaceReadyForInput"
+            )
+#endif
+            return nil
+        }
         if let surface = surface {
             return surface
         }
@@ -6780,10 +6870,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         terminalSurface?.attachToView(self)
         updateSurfaceSize(size: bounds.size)
         applySurfaceColorScheme(force: true)
+        if let terminalSurface, !terminalSurface.canAcceptInput {
+            return nil
+        }
         return surface
     }
 
     private func requestInputRecoveryAfterSurfaceMiss(reason: String) {
+        guard terminalSurface?.canAcceptInput != false else { return }
         terminalSurface?.requestBackgroundSurfaceStartIfNeeded()
 #if DEBUG
         cmuxDebugLog(
@@ -7545,6 +7639,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let ensureSurfaceStart = ProcessInfo.processInfo.systemUptime
 #endif
         guard let surface = ensureSurfaceReadyForInput() else {
+            if terminalSurface?.canAcceptInput == false { return }
             requestInputRecoveryAfterSurfaceMiss(reason: "keyDown.missingSurface")
 #if DEBUG
             ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
@@ -8013,6 +8108,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         guard let surface = ensureSurfaceReadyForInput() else {
+            if terminalSurface?.canAcceptInput == false { return }
             super.keyUp(with: event)
             return
         }
@@ -8042,7 +8138,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func flagsChanged(with event: NSEvent) {
-        guard let surface = surface else {
+        guard terminalSurface?.canAcceptInput != false, let surface = surface else {
             super.flagsChanged(with: event)
             return
         }

@@ -6782,6 +6782,18 @@ class TerminalController {
                 result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
                 return
             }
+            guard terminalPanel.surface.canAcceptInput else {
+                result = .ok([
+                    "workspace_id": ws.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                    "surface_id": surfaceId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                    "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager)),
+                    "dropped": true
+                ])
+                return
+            }
             #if DEBUG
             let sendStart = ProcessInfo.processInfo.systemUptime
             #endif
@@ -6842,7 +6854,7 @@ class TerminalController {
                 result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
                 return
             }
-            let surfaceWasReady = terminalPanel.surface.surface != nil
+            let surfaceWasReady = terminalPanel.surface.canAcceptInput && terminalPanel.surface.surface != nil
             guard terminalPanel.surface.sendNamedKey(key) else {
                 result = .err(code: "invalid_params", message: "Unknown key", data: ["key": key])
                 return
@@ -14995,6 +15007,7 @@ class TerminalController {
     }
 
     private func waitForTerminalSurface(_ terminalPanel: TerminalPanel, waitUpTo timeout: TimeInterval = 0.6) -> ghostty_surface_t? {
+        guard terminalPanel.surface.canAcceptInput else { return nil }
         if let surface = terminalPanel.surface.surface { return surface }
 
         let terminalSurface = terminalPanel.surface
@@ -15025,17 +15038,18 @@ class TerminalController {
                 queue: .main
             ) { _ in
                 Task { @MainActor in
-                    if terminalSurface.surface != nil {
+                    if terminalSurface.canAcceptInput, terminalSurface.surface != nil {
                         finishOnce()
                     }
                 }
             }
 
-            if terminalSurface.surface != nil {
+            if terminalSurface.canAcceptInput, terminalSurface.surface != nil {
                 finishOnce()
             }
         }
 
+        guard terminalPanel.surface.canAcceptInput else { return nil }
         return terminalPanel.surface.surface
     }
 
@@ -15314,6 +15328,7 @@ class TerminalController {
             // payload does not hold the control-socket response open in CI.
             TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
                 guard let self else { return }
+                guard terminalPanel.surface.canAcceptInput else { return }
                 if let surface = terminalPanel.surface.surface {
                     self.sendSocketText(unescaped, surface: surface)
                 } else {
