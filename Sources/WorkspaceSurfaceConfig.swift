@@ -82,7 +82,16 @@ func cmuxCurrentSurfaceFontSizePoints(_ surface: ghostty_surface_t) -> Float? {
 func cmuxInheritedSurfaceConfig(
     sourceSurface: ghostty_surface_t,
     context: ghostty_surface_context_e
-) -> CmuxSurfaceConfigTemplate {
+) -> CmuxSurfaceConfigTemplate? {
+    guard cmuxSurfacePointerAppearsLive(sourceSurface) else {
+#if DEBUG
+        cmuxDebugLog(
+            "zoom.inherit skipped context=\(cmuxSurfaceContextName(context)) reason=staleSurface"
+        )
+#endif
+        return nil
+    }
+
     let inherited = ghostty_surface_inherited_config(sourceSurface, context)
     var config = CmuxSurfaceConfigTemplate(cConfig: inherited)
 
