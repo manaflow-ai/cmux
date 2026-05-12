@@ -220,6 +220,12 @@ private final class TerminalStatusBarProcessWaitState: @unchecked Sendable {
         lock.unlock()
     }
 
+    func shouldTerminateAfterLaunch() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return didTimeout && !didResume
+    }
+
     func finish() -> (shouldResume: Bool, timedOut: Bool) {
         lock.lock()
         defer { lock.unlock() }
@@ -228,6 +234,16 @@ private final class TerminalStatusBarProcessWaitState: @unchecked Sendable {
         }
         didResume = true
         return (true, didTimeout)
+    }
+
+    func terminateProcessIfRunning() {
+        guard process.isRunning else { return }
+        process.terminate()
+    }
+
+    func killProcessIfRunning() {
+        guard process.isRunning else { return }
+        kill(process.processIdentifier, SIGKILL)
     }
 }
 
@@ -296,13 +312,11 @@ final class TerminalStatusBarCommandController {
         guard let context = contextProvider?() else { return }
         isCommandRunning = true
         commandTask = Task { @MainActor [weak self] in
-            let output = await Task.detached(priority: .utility) {
-                await Self.runStatusCommand(
-                    configuration.command,
-                    context: context,
-                    timeout: min(5, max(1, configuration.refreshInterval))
-                )
-            }.value
+            let output = await Self.runStatusCommand(
+                configuration.command,
+                context: context,
+                timeout: min(5, max(1, configuration.refreshInterval))
+            )
             guard let self else { return }
             guard self.generation == generation else { return }
             self.isCommandRunning = false
@@ -349,6 +363,8 @@ final class TerminalStatusBarCommandController {
         context: TerminalStatusBarExecutionContext,
         timeout: TimeInterval
     ) async -> String {
+        guard !Task.isCancelled else { return "" }
+
         let process = Process()
         let shell = resolvedShell()
         let outputURL = FileManager.default.temporaryDirectory
@@ -373,6 +389,7 @@ final class TerminalStatusBarCommandController {
         process.currentDirectoryURL = validatedDirectory(context.workingDirectory)
 
         _ = await runAndWaitForTermination(process: process, timeout: timeout)
+        guard !Task.isCancelled else { return "" }
         outputHandle.synchronizeFile()
         guard let readHandle = try? FileHandle(forReadingFrom: outputURL) else {
             return ""
@@ -390,49 +407,70 @@ final class TerminalStatusBarCommandController {
         timeout: TimeInterval
     ) async -> Bool {
         let state = TerminalStatusBarProcessWaitState(process: process)
+        let timerQueue = DispatchQueue.global(qos: .utility)
 
-        return await withCheckedContinuation { continuation in
-            let timerQueue = DispatchQueue.global(qos: .utility)
-            let timeoutSource = DispatchSource.makeTimerSource(queue: timerQueue)
-            let killSource = DispatchSource.makeTimerSource(queue: timerQueue)
-            process.terminationHandler = { terminatedProcess in
-                terminatedProcess.terminationHandler = nil
-                timeoutSource.cancel()
-                killSource.cancel()
-                let result = state.finish()
-                if result.shouldResume {
-                    continuation.resume(returning: result.timedOut)
+        return await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                let timeoutSource = DispatchSource.makeTimerSource(queue: timerQueue)
+                let killSource = DispatchSource.makeTimerSource(queue: timerQueue)
+                process.terminationHandler = { terminatedProcess in
+                    terminatedProcess.terminationHandler = nil
+                    timeoutSource.cancel()
+                    killSource.cancel()
+                    let result = state.finish()
+                    if result.shouldResume {
+                        continuation.resume(returning: result.timedOut)
+                    }
+                }
+                killSource.setEventHandler {
+                    state.killProcessIfRunning()
+                    killSource.cancel()
+                }
+                killSource.schedule(deadline: .distantFuture)
+                killSource.resume()
+
+                timeoutSource.setEventHandler {
+                    state.markTimedOut()
+                    state.terminateProcessIfRunning()
+                    killSource.schedule(deadline: .now() + 0.5)
+                }
+                timeoutSource.schedule(deadline: .now() + timeout)
+                timeoutSource.resume()
+
+                do {
+                    if Task.isCancelled {
+                        timeoutSource.cancel()
+                        killSource.cancel()
+                        process.terminationHandler = nil
+                        let result = state.finish()
+                        if result.shouldResume {
+                            continuation.resume(returning: result.timedOut)
+                        }
+                        return
+                    }
+
+                    try process.run()
+                    if state.shouldTerminateAfterLaunch() {
+                        state.terminateProcessIfRunning()
+                        killSource.schedule(deadline: .now() + 0.5)
+                    }
+                } catch {
+                    timeoutSource.cancel()
+                    killSource.cancel()
+                    process.terminationHandler = nil
+                    let result = state.finish()
+                    if result.shouldResume {
+                        continuation.resume(returning: true)
+                    }
                 }
             }
-            killSource.setEventHandler {
-                if state.process.isRunning {
-                    kill(state.process.processIdentifier, SIGKILL)
-                }
-                killSource.cancel()
+        }, onCancel: {
+            state.markTimedOut()
+            state.terminateProcessIfRunning()
+            timerQueue.asyncAfter(deadline: .now() + 0.5) {
+                state.killProcessIfRunning()
             }
-            killSource.schedule(deadline: .distantFuture)
-            killSource.resume()
-
-            timeoutSource.setEventHandler {
-                state.markTimedOut()
-                state.process.terminate()
-                killSource.schedule(deadline: .now() + 0.5)
-            }
-            timeoutSource.schedule(deadline: .now() + timeout)
-            timeoutSource.resume()
-
-            do {
-                try process.run()
-            } catch {
-                timeoutSource.cancel()
-                killSource.cancel()
-                process.terminationHandler = nil
-                let result = state.finish()
-                if result.shouldResume {
-                    continuation.resume(returning: true)
-                }
-            }
-        }
+        })
     }
 
     private nonisolated static func resolvedShell() -> String {

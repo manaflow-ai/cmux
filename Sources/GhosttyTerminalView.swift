@@ -11137,7 +11137,7 @@ final class GhosttySurfaceScrollView: NSView {
                     guard let self, let overlay else { return }
                     overlay.removeFromSuperview()
                     overlay.frame = self.currentStatusBarLayout().terminalFrame
-                    overlay.autoresizingMask = [.width, .height]
+                    overlay.autoresizingMask = []
                     self.addSubview(overlay)
                     self.updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
                     self.requestMountedSearchFieldFocus(
@@ -11156,7 +11156,7 @@ final class GhosttySurfaceScrollView: NSView {
         searchFocusTarget = .searchField
         let overlay = NSHostingView(rootView: rootView)
         overlay.frame = currentStatusBarLayout().terminalFrame
-        overlay.autoresizingMask = [.width, .height]
+        overlay.autoresizingMask = []
         searchOverlayHostingView = overlay
         lastSearchOverlayStateID = searchStateID
         scheduleDeferredSearchOverlayMutation(generation: mutationGeneration) { [weak self, weak overlay] in
@@ -11164,7 +11164,7 @@ final class GhosttySurfaceScrollView: NSView {
             guard self.searchOverlayHostingView === overlay else { return }
             overlay.removeFromSuperview()
             overlay.frame = self.currentStatusBarLayout().terminalFrame
-            overlay.autoresizingMask = [.width, .height]
+            overlay.autoresizingMask = []
             self.addSubview(overlay)
             self.updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
             self.requestMountedSearchFieldFocus(
