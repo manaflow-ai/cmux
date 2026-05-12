@@ -328,7 +328,7 @@ Events command:
 
 | Option | Contract |
 | --- | --- |
-| `status [--reset-counters]` | Print event-bus diagnostics as JSON. With `--reset-counters`, cumulative disk-only drop counters are reset after the snapshot is captured. |
+| `status [--reset-counters]` | Print event-bus diagnostics as JSON. With `--reset-counters`, cumulative event diagnostics counters are reset after the snapshot is captured. |
 | `--after <seq>`, `--after-seq <seq>` | Subscribe to retained events after a sequence number. |
 | `--cursor-file <path>` | Read the starting sequence from a file and update it after every event. |
 | `--name <event>` | Filter by event name. Repeatable. |
