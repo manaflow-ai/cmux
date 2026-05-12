@@ -11856,7 +11856,7 @@ enum SidebarPathFormatter {
     }
 }
 
-private extension View {
+extension View {
     @ViewBuilder
     func applyIf(_ condition: Bool, transform: (Self) -> some View) -> some View {
         if condition {
@@ -12035,13 +12035,16 @@ private enum SidebarResourceUsageFormatter {
 
         let remainingProcessCount = usage.processes.count - visibleProcesses.count
         if remainingProcessCount > 0 {
+            let moreProcessesKey = remainingProcessCount == 1
+                ? "sidebar.resourceUsage.moreProcesses.one"
+                : "sidebar.resourceUsage.moreProcesses.other"
+            let moreProcessesDefaultValue = remainingProcessCount == 1
+                ? "+%lld more process"
+                : "+%lld more processes"
             lines.append(
-                String(
-                    format: String(
-                        localized: "sidebar.resourceUsage.moreProcesses",
-                        defaultValue: "+%lld more processes"
-                    ),
-                    locale: .current,
+                localizedFormat(
+                    moreProcessesKey,
+                    defaultValue: moreProcessesDefaultValue,
                     Int64(remainingProcessCount)
                 )
             )

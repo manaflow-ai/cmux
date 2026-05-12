@@ -114818,7 +114818,24 @@
         }
       }
     },
-    "settings.app.sidebarResourceUsageSampleInterval.option": {
+    "settings.app.sidebarResourceUsageSampleInterval.option.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ second"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@秒"
+          }
+        }
+      }
+    },
+    "settings.app.sidebarResourceUsageSampleInterval.option.other": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -115039,7 +115056,24 @@
         }
       }
     },
-    "sidebar.resourceUsage.moreProcesses": {
+    "sidebar.resourceUsage.moreProcesses.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+%1$lld more process"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "さらに%1$lld個のプロセス"
+          }
+        }
+      }
+    },
+    "sidebar.resourceUsage.moreProcesses.other": {
       "extractionState": "manual",
       "localizations": {
         "en": {

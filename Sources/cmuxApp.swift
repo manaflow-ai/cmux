@@ -5252,11 +5252,13 @@ struct SettingsView: View {
         formatter.maximumFractionDigits = interval.rounded() == interval ? 0 : 1
         let numberText = formatter.string(from: NSNumber(value: interval))
             ?? String(format: "%.1f", interval)
+        let labelKey = interval == 1
+            ? "settings.app.sidebarResourceUsageSampleInterval.option.one"
+            : "settings.app.sidebarResourceUsageSampleInterval.option.other"
+        let defaultValue = interval == 1 ? "%1$@ second" : "%1$@ seconds"
+        let format = Bundle.main.localizedString(forKey: labelKey, value: defaultValue, table: nil)
         return String(
-            format: String(
-                localized: "settings.app.sidebarResourceUsageSampleInterval.option",
-                defaultValue: "%1$@ seconds"
-            ),
+            format: format,
             locale: .current,
             numberText
         )
@@ -7730,17 +7732,6 @@ enum SettingsConfigurationReview: Equatable {
             file: file,
             line: line
         )
-    }
-}
-
-private extension View {
-    @ViewBuilder
-    func applyIf(_ condition: Bool, transform: (Self) -> some View) -> some View {
-        if condition {
-            transform(self)
-        } else {
-            self
-        }
     }
 }
 

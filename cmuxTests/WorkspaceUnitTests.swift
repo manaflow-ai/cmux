@@ -1121,6 +1121,9 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let previousEnabled = defaults.object(forKey: SidebarWorkspaceResourceUsageSettings.enabledKey)
         let previousInterval = defaults.object(forKey: SidebarWorkspaceResourceUsageSettings.sampleIntervalKey)
         let previousSortMode = defaults.object(forKey: SidebarWorkspaceResourceUsageSettings.sortModeKey)
+        defaults.removeObject(forKey: SidebarWorkspaceResourceUsageSettings.enabledKey)
+        defaults.removeObject(forKey: SidebarWorkspaceResourceUsageSettings.sampleIntervalKey)
+        defaults.removeObject(forKey: SidebarWorkspaceResourceUsageSettings.sortModeKey)
         defer {
             if let previousEnabled {
                 defaults.set(previousEnabled, forKey: SidebarWorkspaceResourceUsageSettings.enabledKey)
