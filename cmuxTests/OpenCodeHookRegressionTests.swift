@@ -9,6 +9,64 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let timedOut: Bool
     }
 
+    func testOpenCodeFeedPluginEmitsCompletionNotificationOnSessionIdle() throws {
+        let fileManager = FileManager.default
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let pluginURL = repoRoot.appendingPathComponent("Resources/opencode-plugin.js", isDirectory: false)
+        XCTAssertTrue(fileManager.fileExists(atPath: pluginURL.path), "Missing bundled OpenCode plugin at \(pluginURL.path)")
+
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-opencode-feed-\(UUID().uuidString)", isDirectory: true)
+        let worktree = root.appendingPathComponent("opencode-completion-project", isDirectory: true)
+        try fileManager.createDirectory(at: worktree, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let socketPath = "/tmp/cmux-opencode-feed-\(UUID().uuidString).sock"
+        defer { unlink(socketPath) }
+
+        let harnessURL = root.appendingPathComponent("opencode-feed-notification-harness.js", isDirectory: false)
+        try Self.openCodeFeedNotificationHarness.write(to: harnessURL, atomically: true, encoding: .utf8)
+
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "node",
+                harnessURL.path,
+                pluginURL.path,
+                socketPath,
+                workspaceID,
+                surfaceID,
+                worktree.path,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let data = try XCTUnwrap(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8))
+        let frames = try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [[String: Any]])
+        let methods = frames.compactMap { $0["method"] as? String }
+        XCTAssertTrue(
+            methods.contains("notification.create_for_caller"),
+            "Expected OpenCode session.idle to create a notification frame; saw methods \(methods)"
+        )
+        let notificationFrame = try XCTUnwrap(frames.first { $0["method"] as? String == "notification.create_for_caller" })
+        let params = try XCTUnwrap(notificationFrame["params"] as? [String: Any])
+        XCTAssertEqual(params["title"] as? String, "OpenCode")
+        XCTAssertEqual(params["subtitle"] as? String, "Completed in opencode-completion-project")
+        XCTAssertEqual(params["body"] as? String, "OpenCode session completed")
+        XCTAssertEqual(params["preferred_workspace_id"] as? String, workspaceID)
+        XCTAssertEqual(params["preferred_surface_id"] as? String, surfaceID)
+    }
+
     func testOpenCodeInstallHooksIsIdempotentForLegacySetupAlias() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-opencode-hooks-\(UUID().uuidString)", isDirectory: true)
@@ -75,6 +133,86 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         }
         throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
     }
+
+    private static let openCodeFeedNotificationHarness = #"""
+const nodeNet = require("node:net");
+const nodeFs = require("node:fs");
+
+(async () => {
+  const [pluginPath, socketPath, workspaceId, surfaceId, worktree] = process.argv.slice(2);
+  try {
+    nodeFs.unlinkSync(socketPath);
+  } catch (_) {}
+
+  const frames = [];
+  const sockets = new Set();
+  const server = nodeNet.createServer((conn) => {
+    sockets.add(conn);
+    conn.setEncoding("utf8");
+    let buffered = "";
+    conn.on("data", (chunk) => {
+      buffered += chunk;
+      let idx;
+      while ((idx = buffered.indexOf("\n")) >= 0) {
+        const line = buffered.slice(0, idx);
+        buffered = buffered.slice(idx + 1);
+        if (!line.trim()) continue;
+        const frame = JSON.parse(line);
+        frames.push(frame);
+        conn.write(JSON.stringify({
+          id: frame.id,
+          ok: true,
+          result: { status: "acknowledged" },
+        }) + "\n");
+      }
+    });
+    conn.on("close", () => {
+      sockets.delete(conn);
+    });
+  });
+
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+
+  process.env.CMUX_SOCKET_PATH = socketPath;
+  process.env.CMUX_WORKSPACE_ID = workspaceId;
+  process.env.CMUX_SURFACE_ID = surfaceId;
+
+  const source = nodeFs.readFileSync(pluginPath, "utf8")
+    .replace("export const CMUXFeed = async", "globalThis.CMUXFeed = async");
+  eval(source);
+
+  const hooks = await globalThis.CMUXFeed({ directory: worktree, worktree });
+  await hooks.event({
+    event: {
+      type: "session.created",
+      properties: { info: { id: "ses-opencode-complete", directory: worktree } },
+    },
+  });
+  await hooks.event({
+    event: {
+      type: "session.idle",
+      properties: { sessionID: "ses-opencode-complete" },
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  for (const socket of sockets) socket.destroy();
+  await new Promise((resolve) => server.close(resolve));
+  try {
+    nodeFs.unlinkSync(socketPath);
+  } catch (_) {}
+  console.log(JSON.stringify(frames));
+})().catch((error) => {
+  console.error(error && error.stack ? error.stack : String(error));
+  process.exit(1);
+});
+"""#
 
     private func runProcess(
         executablePath: String,
