@@ -4197,221 +4197,219 @@ class GhosttyApp {
             #if DEBUG
             cmuxDebugLog("link.openURL raw=\(urlString)")
             #endif
-            let localFileResolutionContext: (cwd: String?, enabled: Bool) = performOnMain {
-                guard let termSurface = surfaceView.terminalSurface,
-                      let workspace = termSurface.owningWorkspace(),
-                      !workspace.isRemoteTerminalSurface(termSurface.id) else {
-                    return (nil, false)
-                }
-                return (
-                    cmuxResolvedTerminalWorkingDirectory(workspace: workspace, terminalSurface: termSurface),
-                    true
+            guard !urlString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+            Task { @MainActor [self, surfaceView, urlString, callbackTabId, callbackSurfaceId] in
+                _ = self.handleOpenURLAction(
+                    urlString,
+                    surfaceView: surfaceView,
+                    callbackTabId: callbackTabId,
+                    callbackSurfaceId: callbackSurfaceId
                 )
             }
-            let localFileExists: (String) -> Bool
-            if localFileResolutionContext.enabled {
-                localFileExists = { FileManager.default.fileExists(atPath: $0) }
-            } else {
-                localFileExists = { _ in false }
+            return true
+        default:
+            return false
+        }
+    }
+
+    @MainActor
+    private func handleOpenURLAction(
+        _ urlString: String,
+        surfaceView: GhosttyNSView,
+        callbackTabId: UUID?,
+        callbackSurfaceId: UUID?
+    ) -> Bool {
+        let localFileResolutionContext: (cwd: String?, enabled: Bool) = {
+            guard let termSurface = surfaceView.terminalSurface,
+                  let workspace = termSurface.owningWorkspace(),
+                  !workspace.isRemoteTerminalSurface(termSurface.id) else {
+                return (nil, false)
             }
-            guard let target = resolveTerminalOpenURLTarget(
-                urlString,
-                cwd: localFileResolutionContext.cwd,
-                fileExists: localFileExists
-            ) else {
+            return (
+                cmuxResolvedTerminalWorkingDirectory(workspace: workspace, terminalSurface: termSurface),
+                true
+            )
+        }()
+        let localFileExists: (String) -> Bool
+        if localFileResolutionContext.enabled {
+            localFileExists = { FileManager.default.fileExists(atPath: $0) }
+        } else {
+            localFileExists = { _ in false }
+        }
+        guard let target = resolveTerminalOpenURLTarget(
+            urlString,
+            cwd: localFileResolutionContext.cwd,
+            fileExists: localFileExists
+        ) else {
+            #if DEBUG
+            cmuxDebugLog("link.openURL resolve failed")
+            #endif
+            return false
+        }
+
+        // Route markdown file URLs into the cmux viewer when the toggle is
+        // on AND the link is local. URL fragments/queries are stripped (the
+        // panel only needs the file path), so links emitted by tools like
+        // Claude Code (`foo.md#L42`) still route into the viewer. Anything
+        // else (toggle off, hosted file URL, non-markdown, remote workspace,
+        // unreadable file, split creation failure) falls through to the
+        // existing NSWorkspace path below so the default-off behavior and
+        // URL semantics are preserved.
+        if CmdClickMarkdownRouteSettings.isEnabled(),
+           cmuxIsLocalFileURL(target.url),
+           CmdClickMarkdownRouteSettings.isMarkdownPath(target.url.path) {
+            let fileURL = target.url
+            // Remote-surface guard runs before shouldRoute so we never stat a
+            // local path for a remote workspace.
+            if let termSurface = surfaceView.terminalSurface,
+               let workspace = termSurface.owningWorkspace(),
+               !workspace.isRemoteTerminalSurface(termSurface.id),
+               CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path) {
+                // Defer the split creation. Ghostty's Surface.openUrl holds
+                // an internal os_unfair_lock when it dispatches into this
+                // Swift handler; opening a new panel synchronously triggers
+                // Surface.encodeKey on the focus path, which tries to
+                // acquire the same lock and aborts (recursive os_unfair_lock
+                // — see crash reports referenced in #3370).
+                //
+                // CAVEAT — timing-based mitigation: this works because the
+                // Ghostty C side currently releases the surface lock within
+                // the same runloop cycle that dispatches this callback,
+                // which is an undocumented Ghostty implementation detail.
+                // If a future Ghostty change moves the unlock to a later
+                // tick, every Swift caller that re-enters Surface state from
+                // the open-url handler can regress to the same crash. The
+                // structural fix is to dispatch the OPEN_URL callback
+                // asynchronously from C so the lock is always released before
+                // any Swift runs — tracked in #3560. Until that lands, do NOT
+                // remove this DispatchQueue.main.async.
+                let preferredWorkspaceId = workspace.id
+                let surfaceId = termSurface.id
+                DispatchQueue.main.async {
+                    // Re-resolve workspace at dispatch time: tabs can move
+                    // between workspaces in the runloop gap, so the captured
+                    // value may be stale. Mirrors the deferred browser path's
+                    // pattern.
+                    let resolvedWorkspace = AppDelegate.shared?.workspaceContainingPanel(
+                        panelId: surfaceId,
+                        preferredWorkspaceId: preferredWorkspaceId
+                    )?.workspace ?? workspace
+                    // Re-apply the remote-surface gate; panel may have moved.
+                    guard !resolvedWorkspace.isRemoteTerminalSurface(surfaceId) else {
+                        NSWorkspace.shared.open(fileURL)
+                        return
+                    }
+                    // TOCTOU re-check: file may have been removed/renamed
+                    // since the first gate. Fall through if so.
+                    guard CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path) else {
+                        NSWorkspace.shared.open(fileURL)
+                        return
+                    }
+                    guard resolvedWorkspace.openOrFocusMarkdownSplit(
+                        from: surfaceId,
+                        filePath: fileURL.path
+                    ) == nil else { return }
+                    // Split creation failed (source pane gone between commit
+                    // and dispatch) — surface via system opener so the click is
+                    // not silently lost.
+                    NSWorkspace.shared.open(fileURL)
+                }
+                return true
+            }
+            // Fall through to the existing NSWorkspace path below.
+        }
+
+        if cmuxIsLocalFileURL(target.url) {
+            #if DEBUG
+            cmuxDebugLog("link.openURL target=localFile, opening in preferred editor url=\(target.url)")
+            #endif
+            PreferredEditorSettings.open(target.url)
+            return true
+        }
+
+        if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
+            #if DEBUG
+            cmuxDebugLog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
+            #endif
+            return NSWorkspace.shared.open(target.url)
+        }
+
+        switch target {
+        case let .external(url):
+            #if DEBUG
+            cmuxDebugLog("link.openURL target=external, opening externally url=\(url)")
+            #endif
+            return NSWorkspace.shared.open(url)
+        case let .embeddedBrowser(url):
+            if BrowserLinkOpenSettings.shouldOpenExternally(url) {
                 #if DEBUG
-                cmuxDebugLog("link.openURL resolve failed, returning false")
+                cmuxDebugLog("link.openURL target=embedded but shouldOpenExternally=true url=\(url)")
+                #endif
+                return NSWorkspace.shared.open(url)
+            }
+            guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
+                #if DEBUG
+                cmuxDebugLog("link.openURL target=embedded but normalizeHost=nil host=\(url.host ?? "nil") url=\(url)")
+                #endif
+                return NSWorkspace.shared.open(url)
+            }
+
+            // If a host whitelist is configured and this host isn't in it, open externally.
+            if !BrowserLinkOpenSettings.hostMatchesWhitelist(host) {
+                #if DEBUG
+                cmuxDebugLog("link.openURL target=embedded but hostWhitelist miss host=\(host) url=\(url)")
+                #endif
+                return NSWorkspace.shared.open(url)
+            }
+            let sourceWorkspaceId = callbackTabId ?? surfaceView.tabId
+            let sourcePanelId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
+            guard let sourceWorkspaceId,
+                  let sourcePanelId else {
+                #if DEBUG
+                cmuxDebugLog("link.openURL target=embedded but tabId/surfaceId=nil")
                 #endif
                 return false
             }
-            // Route markdown file URLs into the cmux viewer when the toggle is
-            // on AND the link is local. URL fragments/queries are stripped (the
-            // panel only needs the file path), so links emitted by tools like
-            // Claude Code (`foo.md#L42`) still route into the viewer. Anything
-            // else (toggle off, hosted file URL, non-markdown, remote workspace,
-            // unreadable file, split creation failure) falls through to the
-            // existing NSWorkspace path below so the default-off behavior and
-            // URL semantics are preserved.
-            if CmdClickMarkdownRouteSettings.isEnabled(),
-               cmuxIsLocalFileURL(target.url),
-               CmdClickMarkdownRouteSettings.isMarkdownPath(target.url.path) {
-                let fileURL = target.url
-                let routed: Bool = performOnMain {
-                    // Remote-surface guard runs before shouldRoute so we never
-                    // stat a local path on the main thread for a remote workspace.
-                    guard let termSurface = surfaceView.terminalSurface,
-                          let workspace = termSurface.owningWorkspace(),
-                          !workspace.isRemoteTerminalSurface(termSurface.id),
-                          CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path) else {
-                        return false
-                    }
-                    // Defer the split creation. Ghostty's Surface.openUrl holds
-                    // an internal os_unfair_lock when it dispatches into this
-                    // Swift handler; opening a new panel synchronously triggers
-                    // Surface.encodeKey on the focus path, which tries to
-                    // acquire the same lock and aborts (recursive os_unfair_lock
-                    // — see crash reports referenced in #3370).
-                    //
-                    // CAVEAT — timing-based mitigation: this works because the
-                    // Ghostty C side currently releases the surface lock within
-                    // the same runloop cycle that dispatches this callback,
-                    // which is an undocumented Ghostty implementation detail.
-                    // If a future Ghostty change moves the unlock to a later
-                    // tick, every Swift caller that re-enters Surface state
-                    // from inside performOnMain (not just this one) will
-                    // silently regress to the same crash. The structural fix
-                    // is to dispatch the OPEN_URL callback asynchronously from
-                    // C so the lock is always released before any Swift runs
-                    // — tracked in #3560. Until that lands, do NOT remove
-                    // this DispatchQueue.main.async.
-                    let preferredWorkspaceId = workspace.id
-                    let surfaceId = termSurface.id
-                    DispatchQueue.main.async {
-                        // Re-resolve workspace at dispatch time: tabs can move
-                        // between workspaces in the runloop gap, so the
-                        // captured value may be stale. Mirrors the deferred
-                        // browser path's pattern.
-                        let resolvedWorkspace = AppDelegate.shared?.workspaceContainingPanel(
-                            panelId: surfaceId,
-                            preferredWorkspaceId: preferredWorkspaceId
-                        )?.workspace ?? workspace
-                        // Re-apply the sync remote-surface gate; panel may have moved.
-                        guard !resolvedWorkspace.isRemoteTerminalSurface(surfaceId) else {
-                            NSWorkspace.shared.open(fileURL)
-                            return
-                        }
-                        // TOCTOU re-check: file may have been removed/renamed
-                        // since the synchronous gate. Fall through if so.
-                        guard CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path) else {
-                            NSWorkspace.shared.open(fileURL)
-                            return
-                        }
-                        guard resolvedWorkspace.openOrFocusMarkdownSplit(
-                            from: surfaceId,
-                            filePath: fileURL.path
-                        ) == nil else { return }
-                        // Split creation failed (source pane gone between
-                        // commit and dispatch) — surface via system opener so
-                        // the click is not silently lost.
-                        NSWorkspace.shared.open(fileURL)
-                    }
-                    return true
-                }
-                if routed {
-                    return true
-                }
-                // Fall through to the existing NSWorkspace path below.
-            }
-
-            if cmuxIsLocalFileURL(target.url) {
-                #if DEBUG
-                cmuxDebugLog("link.openURL target=localFile, opening in preferred editor url=\(target.url)")
-                #endif
-                performOnMain {
-                    PreferredEditorSettings.open(target.url)
-                }
-                return true
-            }
-
-            if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
-                #if DEBUG
-                cmuxDebugLog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
-                #endif
-                return performOnMain {
-                    NSWorkspace.shared.open(target.url)
-                }
-            }
-            switch target {
-            case let .external(url):
-                #if DEBUG
-                cmuxDebugLog("link.openURL target=external, opening externally url=\(url)")
-                #endif
-                return performOnMain {
-                    NSWorkspace.shared.open(url)
-                }
-            case let .embeddedBrowser(url):
-                if BrowserLinkOpenSettings.shouldOpenExternally(url) {
-                    #if DEBUG
-                    cmuxDebugLog("link.openURL target=embedded but shouldOpenExternally=true url=\(url)")
-                    #endif
-                    return performOnMain {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-                guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
-                    #if DEBUG
-                    cmuxDebugLog("link.openURL target=embedded but normalizeHost=nil host=\(url.host ?? "nil") url=\(url)")
-                    #endif
-                    return performOnMain {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-
-                // If a host whitelist is configured and this host isn't in it, open externally.
-                if !BrowserLinkOpenSettings.hostMatchesWhitelist(host) {
-                    #if DEBUG
-                    cmuxDebugLog("link.openURL target=embedded but hostWhitelist miss host=\(host) url=\(url)")
-                    #endif
-                    return performOnMain {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-                let sourceWorkspaceId = callbackTabId ?? surfaceView.tabId
-                let sourcePanelId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
-                guard let sourceWorkspaceId,
-                      let sourcePanelId else {
-                    #if DEBUG
-                    cmuxDebugLog("link.openURL target=embedded but tabId/surfaceId=nil")
-                    #endif
-                    return false
-                }
+            #if DEBUG
+            cmuxDebugLog(
+                "link.openURL target=embedded, opening in browser pane " +
+                "host=\(host) url=\(url) tabId=\(sourceWorkspaceId) surfaceId=\(sourcePanelId)"
+            )
+            #endif
+            let canAttemptEmbeddedOpen = BrowserAvailabilitySettings.isEnabled() &&
+                AppDelegate.shared?.workspaceContainingPanel(
+                    panelId: sourcePanelId,
+                    preferredWorkspaceId: sourceWorkspaceId
+                ) != nil
+            guard canAttemptEmbeddedOpen else {
                 #if DEBUG
                 cmuxDebugLog(
-                    "link.openURL target=embedded, opening in browser pane " +
-                    "host=\(host) url=\(url) tabId=\(sourceWorkspaceId) surfaceId=\(sourcePanelId)"
+                    "link.openURL embedded preflight failed, opening externally " +
+                    "tabId=\(sourceWorkspaceId) surfaceId=\(sourcePanelId) url=\(url)"
                 )
                 #endif
-                let canAttemptEmbeddedOpen = performOnMain {
-                    BrowserAvailabilitySettings.isEnabled() &&
-                    AppDelegate.shared?.workspaceContainingPanel(
-                        panelId: sourcePanelId,
-                        preferredWorkspaceId: sourceWorkspaceId
-                    ) != nil
-                }
-                guard canAttemptEmbeddedOpen else {
-                    #if DEBUG
-                    cmuxDebugLog(
-                        "link.openURL embedded preflight failed, opening externally " +
-                        "tabId=\(sourceWorkspaceId) surfaceId=\(sourcePanelId) url=\(url)"
-                    )
-                    #endif
-                    return performOnMain {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-
-                // Browser split creation changes focus, which unfocuses the source terminal and
-                // calls back into Ghostty. Defer that work until this open_url callback returns.
-                // From here cmux owns the open attempt and the deferred path falls back externally.
-                Task { @MainActor [url, sourceWorkspaceId, sourcePanelId, host] in
-                    let didOpen = Self.openEmbeddedBrowserLink(
-                        url: url,
-                        sourceWorkspaceId: sourceWorkspaceId,
-                        sourcePanelId: sourcePanelId,
-                        host: host
-                    )
-                    guard didOpen else {
-                        #if DEBUG
-                        cmuxDebugLog("link.openURL deferred open failed url=\(url)")
-                        #endif
-                        NSSound.beep()
-                        return
-                    }
-                }
-                return true
+                return NSWorkspace.shared.open(url)
             }
-        default:
-            return false
+
+            // Browser split creation changes focus, which unfocuses the source terminal and
+            // calls back into Ghostty. Defer that work until this open_url callback returns.
+            // From here cmux owns the open attempt and the deferred path falls back externally.
+            Task { @MainActor [url, sourceWorkspaceId, sourcePanelId, host] in
+                let didOpen = Self.openEmbeddedBrowserLink(
+                    url: url,
+                    sourceWorkspaceId: sourceWorkspaceId,
+                    sourcePanelId: sourcePanelId,
+                    host: host
+                )
+                guard didOpen else {
+                    #if DEBUG
+                    cmuxDebugLog("link.openURL deferred open failed url=\(url)")
+                    #endif
+                    NSSound.beep()
+                    return
+                }
+            }
+            return true
         }
     }
 
