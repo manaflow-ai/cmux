@@ -2318,6 +2318,46 @@ final class WorkspaceSurfaceCreationPlacementTests: XCTestCase {
             .compactMap { workspace.panelIdFromSurfaceId($0.id) }
     }
 
+    private func v2Result(
+        method: String,
+        params: [String: Any],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> [String: Any] {
+        let request: [String: Any] = [
+            "id": method,
+            "method": method,
+            "params": params
+        ]
+        let requestData = try JSONSerialization.data(withJSONObject: request)
+        let requestLine = try XCTUnwrap(String(data: requestData, encoding: .utf8), file: file, line: line)
+        let raw = TerminalController.shared.handleSocketLine(requestLine)
+        let responseData = try XCTUnwrap(raw.data(using: .utf8), file: file, line: line)
+        let envelope = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+            raw,
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(envelope["ok"] as? Bool, true, raw, file: file, line: line)
+        return try XCTUnwrap(envelope["result"] as? [String: Any], raw, file: file, line: line)
+    }
+
+    private func withBrowserEnabled(run body: () throws -> Void) rethrows {
+        let defaults = UserDefaults.standard
+        let key = BrowserAvailabilitySettings.disabledKey
+        let previousValue = defaults.object(forKey: key)
+        defaults.set(false, forKey: key)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        try body()
+    }
+
     func testEndPlacementAppendsNewTerminalSurfaceToPaneEnd() throws {
         try withSurfacePlacement(.end) {
             let workspace = Workspace()
@@ -2412,6 +2452,118 @@ final class WorkspaceSurfaceCreationPlacementTests: XCTestCase {
                 "Expected context-menu browser creation to inherit the right-clicked tab profile, not the selected tab profile"
             )
             XCTAssertEqual(workspace.focusedPanelId, createdPanelId)
+        }
+    }
+
+    func testSocketNewBrowserRightUsesAnchorProfileWithEndPlacement() throws {
+        try withBrowserEnabled {
+            try withSurfacePlacement(.end) {
+                let manager = TabManager()
+                TerminalController.shared.setActiveTabManager(manager)
+                defer { TerminalController.shared.setActiveTabManager(nil) }
+
+                let workspace = try XCTUnwrap(manager.selectedWorkspace)
+                let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+                let initialPanelId = try XCTUnwrap(workspace.focusedPanelId)
+                let anchorProfile = try makeTemporaryBrowserProfile(named: "SocketAnchor")
+                let selectedProfile = try makeTemporaryBrowserProfile(named: "SocketSelected")
+                let anchorBrowser = try XCTUnwrap(
+                    workspace.newBrowserSurface(
+                        inPane: paneId,
+                        focus: true,
+                        preferredProfileID: anchorProfile.id,
+                        placementOverride: .end
+                    )
+                )
+                let selectedBrowser = try XCTUnwrap(
+                    workspace.newBrowserSurface(
+                        inPane: paneId,
+                        focus: true,
+                        preferredProfileID: selectedProfile.id,
+                        placementOverride: .end
+                    )
+                )
+
+                workspace.focusPanel(selectedBrowser.id)
+                let result = try v2Result(
+                    method: "surface.action",
+                    params: [
+                        "workspace_id": workspace.id.uuidString,
+                        "surface_id": anchorBrowser.id.uuidString,
+                        "action": "new_browser_right",
+                        "focus": true
+                    ]
+                )
+
+                let createdIDRaw = try XCTUnwrap(result["created_surface_id"] as? String)
+                let createdID = try XCTUnwrap(UUID(uuidString: createdIDRaw))
+                let createdBrowser = try XCTUnwrap(workspace.browserPanel(for: createdID))
+                XCTAssertEqual(
+                    orderedPanelIds(in: workspace, paneId: paneId),
+                    [initialPanelId, anchorBrowser.id, createdID, selectedBrowser.id]
+                )
+                XCTAssertEqual(
+                    createdBrowser.profileID,
+                    anchorProfile.id,
+                    "Expected socket new-browser-right to inherit the anchor surface profile, not the selected surface profile"
+                )
+            }
+        }
+    }
+
+    func testSocketDuplicateBrowserUsesDuplicatedProfileWithEndPlacement() throws {
+        try withBrowserEnabled {
+            try withSurfacePlacement(.end) {
+                let manager = TabManager()
+                TerminalController.shared.setActiveTabManager(manager)
+                defer { TerminalController.shared.setActiveTabManager(nil) }
+
+                let workspace = try XCTUnwrap(manager.selectedWorkspace)
+                let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+                let initialPanelId = try XCTUnwrap(workspace.focusedPanelId)
+                let anchorProfile = try makeTemporaryBrowserProfile(named: "DuplicateAnchor")
+                let selectedProfile = try makeTemporaryBrowserProfile(named: "DuplicateSelected")
+                let anchorBrowser = try XCTUnwrap(
+                    workspace.newBrowserSurface(
+                        inPane: paneId,
+                        focus: true,
+                        preferredProfileID: anchorProfile.id,
+                        placementOverride: .end
+                    )
+                )
+                let selectedBrowser = try XCTUnwrap(
+                    workspace.newBrowserSurface(
+                        inPane: paneId,
+                        focus: true,
+                        preferredProfileID: selectedProfile.id,
+                        placementOverride: .end
+                    )
+                )
+
+                workspace.focusPanel(selectedBrowser.id)
+                let result = try v2Result(
+                    method: "surface.action",
+                    params: [
+                        "workspace_id": workspace.id.uuidString,
+                        "surface_id": anchorBrowser.id.uuidString,
+                        "action": "duplicate",
+                        "focus": true
+                    ]
+                )
+
+                let createdIDRaw = try XCTUnwrap(result["created_surface_id"] as? String)
+                let createdID = try XCTUnwrap(UUID(uuidString: createdIDRaw))
+                let createdBrowser = try XCTUnwrap(workspace.browserPanel(for: createdID))
+                XCTAssertEqual(
+                    orderedPanelIds(in: workspace, paneId: paneId),
+                    [initialPanelId, anchorBrowser.id, createdID, selectedBrowser.id]
+                )
+                XCTAssertEqual(
+                    createdBrowser.profileID,
+                    anchorProfile.id,
+                    "Expected socket duplicate to preserve the duplicated browser profile"
+                )
+            }
         }
     }
 
