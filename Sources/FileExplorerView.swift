@@ -980,7 +980,6 @@ final class FileExplorerContainerView: NSView {
             if presentation == .find {
                 isSearchVisible = true
                 updateSearchLayoutForCurrentVisibility()
-                refreshSearchIfNeeded()
             }
             return
         }

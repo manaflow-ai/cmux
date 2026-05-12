@@ -1074,6 +1074,48 @@ final class FileSearchControllerTests: XCTestCase {
         XCTAssertEqual(searchController.searchRequests.last?.contentRevision, store.contentRevision)
     }
 
+    func testSameFindPresentationUpdateDoesNotRestartCompletedSearch() async throws {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let searchController = SpyFileSearchController()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .find,
+            searchController: searchController
+        )
+        store.provider = MockFileExplorerProvider(homePath: "/tmp")
+        store.setRootPath("/tmp/cmux-find-rerender-test")
+        container.updateHeader(store: store)
+        container.updatePresentation(.find)
+
+        let searchField = try XCTUnwrap(Self.findSearchField(in: container))
+        searchField.stringValue = "needle"
+        container.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: searchField))
+
+        try await waitForSearchRequestCount(1, in: searchController)
+        searchController.publish(FileSearchSnapshot(
+            query: "needle",
+            results: [Self.searchResult(relativePath: "first.txt")],
+            status: .matches,
+            isSearching: false
+        ))
+        let completedRequestCount = searchController.searchRequests.count
+
+        container.updateHeader(store: store)
+        container.updatePresentation(.find)
+
+        XCTAssertEqual(
+            searchController.searchRequests.count,
+            completedRequestCount,
+            "A same-presentation SwiftUI update must not clear and restart completed Find results."
+        )
+    }
+
     private static func searchResult(relativePath: String) -> FileSearchResult {
         FileSearchResult(
             path: "/tmp/cmux-find-content-revision-test/\(relativePath)",
