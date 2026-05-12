@@ -10014,6 +10014,11 @@ final class Workspace: Identifiable, ObservableObject {
                 previousHostedView: previousHostedView
             )
         }
+        beginEventDrivenLayoutFollowUp(
+            reason: "terminal.split",
+            terminalFocusPanelId: focus ? newPanel.id : nil,
+            includeGeometry: true
+        )
 #if DEBUG
         dlog(
             "split.timing workspace=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
@@ -12727,6 +12732,11 @@ final class Workspace: Identifiable, ObservableObject {
 
         bonsplitController.selectTab(newTab.id)
         newPanel.focus()
+        beginEventDrivenLayoutFollowUp(
+            reason: "terminal.splitPaneWithNewTerminal",
+            terminalFocusPanelId: newPanel.id,
+            includeGeometry: true
+        )
         return newPanel
     }
 
