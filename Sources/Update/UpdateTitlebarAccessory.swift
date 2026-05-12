@@ -355,6 +355,7 @@ struct TitlebarControlButton<Content: View>: View {
     var rightClickAction: ((NSView, NSEvent) -> Void)? = nil
     @ViewBuilder let content: () -> Content
     @State private var isHovering = false
+    @State private var pendingHoverState: Bool?
 
     var body: some View {
         let baseButton = Button(action: action) {
@@ -376,9 +377,23 @@ struct TitlebarControlButton<Content: View>: View {
         }
 
         if titlebarControlsShouldTrackButtonHover(config: config) {
-            baseButton.onHover { isHovering = $0 }
+            baseButton.onHover { hovering in
+                setHoveringDeferred(hovering)
+            }
         } else {
             baseButton
+        }
+    }
+
+    private func setHoveringDeferred(_ hovering: Bool) {
+        guard pendingHoverState != hovering else { return }
+        pendingHoverState = hovering
+        DispatchQueue.main.async {
+            guard pendingHoverState == hovering else { return }
+            pendingHoverState = nil
+            if isHovering != hovering {
+                isHovering = hovering
+            }
         }
     }
 
@@ -509,7 +524,11 @@ struct TitlebarControlsView: View {
                 .frame(width: 0, height: 0)
             )
             .onHover { hovering in
-                isHoveringControls = hovering
+                DispatchQueue.main.async {
+                    if isHoveringControls != hovering {
+                        isHoveringControls = hovering
+                    }
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
                 shortcutRefreshTick &+= 1
