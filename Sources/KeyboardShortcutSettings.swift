@@ -1178,6 +1178,10 @@ struct ShortcutStroke: Equatable, Hashable {
         case "\t":
             return String(localized: "shortcut.key.tab", defaultValue: "Tab")
         case "space": return String(localized: "shortcut.key.space", defaultValue: "Space")
+        case "pageUp", "pageup":
+            return String(localized: "shortcut.key.pageUp", defaultValue: "Page Up")
+        case "pageDown", "pagedown":
+            return String(localized: "shortcut.key.pageDown", defaultValue: "Page Down")
         case "\r":
             return "↩"
         case "media.brightnessDown":
@@ -1490,6 +1494,8 @@ struct ShortcutStroke: Equatable, Hashable {
         case 126: return "↑" // up arrow
         case 48: return "\t" // tab
         case 49: return "space" // kVK_Space
+        case 116: return "pageUp" // kVK_PageUp
+        case 121: return "pageDown" // kVK_PageDown
         case 36, 76: return "\r" // return, keypad enter
         case 33: return "["  // kVK_ANSI_LeftBracket
         case 30: return "]"  // kVK_ANSI_RightBracket
@@ -1658,6 +1664,8 @@ struct ShortcutStroke: Equatable, Hashable {
         case "media.next": return 17
         case "media.previous": return 18
         case "space": return 49
+        case "pageup": return 116
+        case "pagedown": return 121
         case "a": return 0
         case "s": return 1
         case "d": return 2
@@ -1717,7 +1725,12 @@ struct ShortcutStroke: Equatable, Hashable {
     }
 
     private static func usesDirectKeyCodeMatching(_ key: String) -> Bool {
-        key == "space" || functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
+        let normalized = key.lowercased()
+        return normalized == "space" ||
+            normalized == "pageup" ||
+            normalized == "pagedown" ||
+            functionKeyDisplayString(for: normalized) != nil ||
+            normalized.hasPrefix("media.")
     }
 
     private static func functionKeyDisplayString(for key: String) -> String? {
@@ -2096,6 +2109,10 @@ extension ShortcutStroke {
             return "\r"
         case "space", "spacebar", "<space>":
             return "space"
+        case "pageup", "page_up", "page-up", "<pageup>":
+            return "pageUp"
+        case "pagedown", "page_down", "page-down", "<pagedown>":
+            return "pageDown"
         case "comma":
             return ","
         case "period", "dot":
