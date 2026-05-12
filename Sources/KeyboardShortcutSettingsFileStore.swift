@@ -16,7 +16,9 @@ final class KeyboardShortcutSettingsObserver: ObservableObject {
     }
 }
 
-final class CmuxSettingsFileStore {
+// Sendable safety: mutable settings state is protected by `stateLock`;
+// watcher/cancellable lifetimes are owned by init/deinit on the creating thread.
+final class CmuxSettingsFileStore: @unchecked Sendable {
     static let shared = CmuxSettingsFileStore()
 
     static let currentSchemaVersion = 1
