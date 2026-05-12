@@ -2125,12 +2125,12 @@ final class WorkspaceCustomDescriptionTests: XCTestCase {
     }
 }
 final class WorkspacePlacementSettingsTests: XCTestCase {
-    func testCurrentPlacementDefaultsToAfterCurrentWhenUnset() throws {
+    func testCurrentPlacementDefaultsToEndWhenUnset() throws {
         let suiteName = "WorkspacePlacementSettingsTests.Default.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertEqual(WorkspacePlacementSettings.current(defaults: defaults), .afterCurrent)
+        XCTAssertEqual(WorkspacePlacementSettings.current(defaults: defaults), .end)
     }
 
     func testCurrentPlacementReadsStoredValidValueAndFallsBackForInvalid() throws {
@@ -2144,7 +2144,7 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
         }
 
         defaults.set("nope", forKey: WorkspacePlacementSettings.placementKey)
-        XCTAssertEqual(WorkspacePlacementSettings.current(defaults: defaults), .afterCurrent)
+        XCTAssertEqual(WorkspacePlacementSettings.current(defaults: defaults), .end)
     }
 
     func testInsertionIndexTopInsertsBeforeUnpinned() {
