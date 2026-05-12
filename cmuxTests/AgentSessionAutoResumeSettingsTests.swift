@@ -152,6 +152,7 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         )
         XCTAssertFalse(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
         XCTAssertNil(TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults))
+        XCTAssertNil(TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults))
 
         let notificationCenter = NotificationCenter()
         var notificationCount = 0
@@ -174,6 +175,10 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
             TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults),
             "copy-on-select = clipboard"
         )
+        XCTAssertEqual(
+            TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
+            "copy-on-select = clipboard"
+        )
         XCTAssertEqual(notificationCount, 1)
 
         TerminalCopyOnSelectSettings.setEnabled(
@@ -186,6 +191,10 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
             TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults),
             "copy-on-select = false"
         )
+        XCTAssertEqual(
+            TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
+            "copy-on-select = false"
+        )
         XCTAssertEqual(notificationCount, 2)
 
         TerminalCopyOnSelectSettings.reset(
@@ -194,6 +203,7 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         )
         XCTAssertFalse(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
         XCTAssertNil(TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults))
+        XCTAssertNil(TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults))
         XCTAssertEqual(notificationCount, 2)
     }
 }

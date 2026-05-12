@@ -163,6 +163,16 @@ enum TerminalCopyOnSelectSettings {
     }
 }
 
+enum TerminalManagedGhosttySettings {
+    static func ghosttyConfigContents(defaults: UserDefaults = .standard) -> String? {
+        let lines = [
+            TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults),
+        ].compactMap { $0 }
+        guard !lines.isEmpty else { return nil }
+        return lines.joined(separator: "\n")
+    }
+}
+
 enum AgentSessionAutoResumeSettings {
     static let autoResumeAgentSessionsKey = "terminal.autoResumeAgentSessions"
     static let defaultAutoResumeAgentSessions = true
