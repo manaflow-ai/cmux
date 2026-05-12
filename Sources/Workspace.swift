@@ -7881,6 +7881,10 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpAttemptScheduled = false
     private var layoutFollowUpAttemptVersion: Int = 0
     private var layoutFollowUpStalledAttemptCount = 0
+    private enum LayoutFollowUpTargetUpdate {
+        case mergePendingTargets
+        case replacePendingTargets
+    }
     private var portalRenderingEnabled = true
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
@@ -11792,10 +11796,16 @@ final class Workspace: Identifiable, ObservableObject {
         browserPanelId: UUID? = nil,
         browserExitFocusPanelId: UUID? = nil,
         terminalFocusPanelId: UUID? = nil,
-        includeGeometry: Bool = false
+        includeGeometry: Bool = false,
+        targetUpdate: LayoutFollowUpTargetUpdate = .mergePendingTargets
     ) {
         guard portalRenderingEnabled else { return }
         layoutFollowUpReason = reason
+        if targetUpdate == .replacePendingTargets {
+            layoutFollowUpBrowserPanelId = nil
+            layoutFollowUpBrowserExitFocusPanelId = nil
+            layoutFollowUpTerminalFocusPanelId = nil
+        }
         if let browserPanelId {
             layoutFollowUpBrowserPanelId = browserPanelId
         }
@@ -11836,7 +11846,8 @@ final class Workspace: Identifiable, ObservableObject {
             reason: "workspace.selection",
             browserPanelId: browserPanelId,
             terminalFocusPanelId: terminalPanelId,
-            includeGeometry: true
+            includeGeometry: true,
+            targetUpdate: .replacePendingTargets
         )
     }
 

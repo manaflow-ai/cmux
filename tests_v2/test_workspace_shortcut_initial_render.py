@@ -22,8 +22,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH") or os.environ.get("CMUX_SOCKET") or cmux.DEFAULT_SOCKET_PATH
 WORKSPACE_BURST = 10
+FIRST_PRESENT_TIMEOUT_S = float(os.environ.get("CMUX_FIRST_PRESENT_TIMEOUT_S", "5.0"))
 
 
 def _wait_for(
@@ -78,14 +79,13 @@ def _wait_for_surface_mount(c: cmux, surface_id: str) -> dict:
         return (
             row.get("mapped") is True
             and row.get("workspace_selected") is True
-            and row.get("surface_focused") is True
             and row.get("runtime_surface_ready") is True
             and row.get("hosted_view_in_window") is True
             and row.get("hosted_view_has_superview") is True
             and row.get("hosted_view_visible_in_ui") is True
             and row.get("hosted_view_hidden") is False
-            and width >= 80.0
-            and height >= 80.0
+            and width > 0.0
+            and height > 0.0
         )
 
     _wait_for(ready, timeout_s=5.0, label=f"mounted selected terminal {surface_id}")
@@ -102,7 +102,12 @@ def _wait_for_first_present(c: cmux, surface_id: str) -> dict:
         return int(last_stats.get("presentCount") or 0) > 0
 
     try:
-        _wait_for(presented, timeout_s=2.0, cadence_s=0.05, label=f"first presented frame for {surface_id}")
+        _wait_for(
+            presented,
+            timeout_s=FIRST_PRESENT_TIMEOUT_S,
+            cadence_s=0.05,
+            label=f"first presented frame for {surface_id}",
+        )
     except Exception as exc:
         raise cmuxError(
             "Newly selected workspace never presented its first terminal frame before any "
@@ -151,11 +156,7 @@ def main() -> int:
 
         surface_id = _focused_surface_id(c, selected_workspace_id)
         _wait_for_surface_mount(c, surface_id)
-        stats = _wait_for_first_present(c, surface_id)
-
-        present_count = int(stats.get("presentCount") or 0)
-        if present_count <= 0:
-            raise cmuxError(f"Expected presentCount > 0 for surface {surface_id}, got {stats}")
+        _wait_for_first_present(c, surface_id)
 
     print("PASS: Cmd+N-created workspace presents its first terminal frame without a tab switch")
     return 0

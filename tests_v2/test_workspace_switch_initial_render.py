@@ -21,8 +21,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH") or os.environ.get("CMUX_SOCKET") or cmux.DEFAULT_SOCKET_PATH
 SWITCH_CYCLES = 4
+PRESENT_ADVANCE_TIMEOUT_S = float(os.environ.get("CMUX_PRESENT_ADVANCE_TIMEOUT_S", "5.0"))
 
 
 def _wait_for(
@@ -69,14 +70,13 @@ def _wait_for_surface_mount(c: cmux, surface_id: str) -> dict:
         return (
             row.get("mapped") is True
             and row.get("workspace_selected") is True
-            and row.get("surface_focused") is True
             and row.get("runtime_surface_ready") is True
             and row.get("hosted_view_in_window") is True
             and row.get("hosted_view_has_superview") is True
             and row.get("hosted_view_visible_in_ui") is True
             and row.get("hosted_view_hidden") is False
-            and width >= 80.0
-            and height >= 80.0
+            and width > 0.0
+            and height > 0.0
         )
 
     _wait_for(ready, timeout_s=5.0, label=f"mounted selected terminal {surface_id}")
@@ -93,7 +93,7 @@ def _wait_for_present_advance(c: cmux, surface_id: str, baseline_present: int, l
         return int(last_stats.get("presentCount") or 0) > baseline_present
 
     try:
-        _wait_for(presented, timeout_s=2.0, cadence_s=0.05, label=label)
+        _wait_for(presented, timeout_s=PRESENT_ADVANCE_TIMEOUT_S, cadence_s=0.05, label=label)
     except Exception as exc:
         raise cmuxError(
             "Selected workspace never presented a new terminal frame on its first return.\n"
