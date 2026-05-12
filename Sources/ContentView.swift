@@ -2759,7 +2759,7 @@ struct ContentView: View {
         })
 
         // Prime background workspaces off-screen. Rendering them just to run a task
-        // mounts every keepAllAlive tab view and can materialize hidden terminals.
+        // can mount AppKit-backed panel views and materialize hidden terminals.
         view = AnyView(view.task(id: backgroundWorkspacePrimeCoordinator.taskKey(for: tabManager)) {
             await backgroundWorkspacePrimeCoordinator.primePendingBackgroundWorkspaces(tabManager: tabManager)
         })
