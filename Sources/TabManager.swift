@@ -3906,6 +3906,42 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
+    func moveWorkspaceInSidebarVisualOrder(
+        tabId: UUID,
+        toVisibleIndex targetIndex: Int,
+        initialDirectory directory: String?
+    ) -> Bool {
+        guard let workspace = tabs.first(where: { $0.id == tabId }) else { return false }
+
+        let nextInitialDirectory = directory.map { normalizedInitialDirectory($0) }
+        let directoryChanged = nextInitialDirectory.map { workspace.initialDirectory != $0 } ?? false
+        let currentVisibleIds = sidebarVisibleWorkspaceIds()
+        guard let currentVisibleIndex = currentVisibleIds.firstIndex(of: tabId),
+              currentVisibleIds.count == tabs.count else {
+            return false
+        }
+
+        var nextVisibleIds = currentVisibleIds
+        nextVisibleIds.remove(at: currentVisibleIndex)
+        let insertionIndex = max(0, min(targetIndex, nextVisibleIds.count))
+        nextVisibleIds.insert(tabId, at: insertionIndex)
+
+        let workspaceById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        let reorderedTabs = nextVisibleIds.compactMap { workspaceById[$0] }
+        guard reorderedTabs.count == tabs.count else { return false }
+
+        guard tabs.map(\.id) != nextVisibleIds || directoryChanged else {
+            return true
+        }
+
+        if let nextInitialDirectory, directoryChanged {
+            workspace.initialDirectory = nextInitialDirectory
+        }
+        tabs = reorderedTabs
+        return true
+    }
+
+    @discardableResult
     func reorderWorkspace(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil) -> Bool {
         guard tabs.contains(where: { $0.id == tabId }) else { return false }
         if let beforeId {
@@ -4011,11 +4047,6 @@ class TabManager: ObservableObject {
         var remainingTabs = tabs
         remainingTabs.remove(at: currentIndex)
 
-        if let nextInitialDirectory {
-            workspace.initialDirectory = nextInitialDirectory
-        }
-        workspace.isPinned = pinned
-
         let insertionIndex: Int
         switch placement {
         case .endOfDirectoryGroup:
@@ -4037,6 +4068,13 @@ class TabManager: ObservableObject {
         guard tabs.map(\.id) != remainingTabs.map(\.id) || directoryChanged || pinnedChanged else {
             return true
         }
+
+        if let nextInitialDirectory, directoryChanged {
+            workspace.initialDirectory = nextInitialDirectory
+        }
+        if pinnedChanged {
+            workspace.isPinned = pinned
+        }
         tabs = remainingTabs
         return true
     }
@@ -4044,7 +4082,19 @@ class TabManager: ObservableObject {
     private func normalizedInitialDirectory(_ directory: String) -> String {
         let normalized = normalizeDirectory(directory)
         let trimmed = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : normalized
+        return trimmed.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : trimmed
+    }
+
+    private func sidebarVisibleWorkspaceIds() -> [UUID] {
+        SidebarWorkspaceGroupingPlanner.plan(
+            for: tabs.map {
+                SidebarWorkspaceGroupingInput(
+                    id: $0.id,
+                    initialDirectory: $0.initialDirectory,
+                    isPinned: $0.isPinned
+                )
+            }
+        ).visibleWorkspaceIds
     }
 
     // MARK: - Surface Directory Updates (Backwards Compatibility)

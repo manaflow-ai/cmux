@@ -2927,6 +2927,73 @@ final class WorkspaceReorderTests: XCTestCase {
     }
 
     @MainActor
+    func testMoveWorkspaceInSidebarVisualOrderKeepsFolderRowsContiguous() {
+        let manager = TabManager()
+        let firstAlpha = manager.tabs[0]
+        XCTAssertTrue(manager.setWorkspaceInitialDirectory(tabId: firstAlpha.id, directory: "/alpha"))
+        let beta = manager.addWorkspace(workingDirectory: "/beta", placementOverride: .end)
+        let secondAlpha = manager.addWorkspace(workingDirectory: "/alpha", placementOverride: .end)
+
+        XCTAssertEqual(sidebarVisibleWorkspaceIds(in: manager), [firstAlpha.id, secondAlpha.id, beta.id])
+
+        XCTAssertTrue(
+            manager.moveWorkspaceInSidebarVisualOrder(
+                tabId: firstAlpha.id,
+                toVisibleIndex: 1,
+                initialDirectory: nil
+            )
+        )
+
+        XCTAssertEqual(manager.tabs.map(\.id), [secondAlpha.id, firstAlpha.id, beta.id])
+        XCTAssertEqual(sidebarVisibleWorkspaceIds(in: manager), [secondAlpha.id, firstAlpha.id, beta.id])
+    }
+
+    @MainActor
+    func testMoveWorkspaceInSidebarVisualOrderCanChangeFolderWithoutChangingVisualIndex() {
+        let manager = TabManager()
+        let firstAlpha = manager.tabs[0]
+        XCTAssertTrue(manager.setWorkspaceInitialDirectory(tabId: firstAlpha.id, directory: "/alpha"))
+        let beta = manager.addWorkspace(workingDirectory: "/beta", placementOverride: .end)
+        let secondAlpha = manager.addWorkspace(workingDirectory: "/alpha", placementOverride: .end)
+
+        XCTAssertEqual(sidebarVisibleWorkspaceIds(in: manager), [firstAlpha.id, secondAlpha.id, beta.id])
+
+        XCTAssertTrue(
+            manager.moveWorkspaceInSidebarVisualOrder(
+                tabId: beta.id,
+                toVisibleIndex: 2,
+                initialDirectory: "/alpha"
+            )
+        )
+
+        XCTAssertEqual(beta.initialDirectory, "/alpha")
+        XCTAssertEqual(manager.tabs.map(\.id), [firstAlpha.id, secondAlpha.id, beta.id])
+        XCTAssertEqual(sidebarVisibleWorkspaceIds(in: manager), [firstAlpha.id, secondAlpha.id, beta.id])
+    }
+
+    @MainActor
+    func testMoveWorkspaceToInitialDirectoryGroupEndNoOpDoesNotPublishWorkspaceChanges() {
+        let manager = TabManager()
+        let workspace = manager.tabs[0]
+        XCTAssertTrue(manager.setWorkspaceInitialDirectory(tabId: workspace.id, directory: "/alpha"))
+
+        var publishCount = 0
+        let cancellable = workspace.objectWillChange.sink { _ in
+            publishCount += 1
+        }
+
+        XCTAssertTrue(
+            manager.moveWorkspaceToInitialDirectoryGroupEnd(
+                tabId: workspace.id,
+                directory: "/alpha"
+            )
+        )
+
+        XCTAssertEqual(publishCount, 0)
+        withExtendedLifetime(cancellable) {}
+    }
+
+    @MainActor
     func testMoveWorkspaceToBookmarksEndPinsAfterExistingBookmarks() {
         let manager = TabManager()
         let firstPinned = manager.tabs[0]
@@ -2938,6 +3005,19 @@ final class WorkspaceReorderTests: XCTestCase {
 
         XCTAssertTrue(third.isPinned)
         XCTAssertEqual(manager.tabs.map(\.id), [firstPinned.id, third.id, second.id])
+    }
+
+    @MainActor
+    private func sidebarVisibleWorkspaceIds(in manager: TabManager) -> [UUID] {
+        SidebarWorkspaceGroupingPlanner.plan(
+            for: manager.tabs.map {
+                SidebarWorkspaceGroupingInput(
+                    id: $0.id,
+                    initialDirectory: $0.initialDirectory,
+                    isPinned: $0.isPinned
+                )
+            }
+        ).visibleWorkspaceIds
     }
 
     @MainActor

@@ -9417,7 +9417,7 @@ struct VerticalTabsSidebar: View {
 
         // Workspaces are bounded, so prefer a non-lazy stack here.
         // LazyVStack + drag-state invalidations can recurse through layout.
-        VStack(spacing: tabRowSpacing) {
+        return VStack(spacing: tabRowSpacing) {
             if !bookmarkTabs.isEmpty {
                 SidebarBookmarkHeader(
                     count: bookmarkTabs.count,
@@ -14655,13 +14655,14 @@ private struct SidebarTabDropDelegate: DropDelegate {
 #endif
             return false
         }
-        guard let fromIndex = tabManager.tabs.firstIndex(where: { $0.id == draggedTabId }) else {
+        let tabIds = planningTabIds()
+        guard let fromIndex = tabIds.firstIndex(of: draggedTabId),
+              let draggedWorkspace = tabManager.tabs.first(where: { $0.id == draggedTabId }) else {
 #if DEBUG
             cmuxDebugLog("sidebar.drop.abort reason=draggedTabMissing tab=\(draggedTabId.uuidString.prefix(5))")
 #endif
             return false
         }
-        let draggedWorkspace = tabManager.tabs[fromIndex]
         let targetInitialDirectory: String? = targetTabId.flatMap { targetTabId in
             guard let targetWorkspace = tabManager.tabs.first(where: { $0.id == targetTabId }),
                   !targetWorkspace.isPinned else {
@@ -14669,14 +14670,16 @@ private struct SidebarTabDropDelegate: DropDelegate {
             }
             return targetWorkspace.initialDirectory
         }
-        let tabIds = tabManager.tabs.map(\.id)
-        guard let targetIndex = SidebarDropPlanner.targetIndex(
+        let moveInitialDirectory = draggedWorkspace.isPinned ? nil : targetInitialDirectory
+        let changesInitialDirectory = moveInitialDirectory.map { draggedWorkspace.initialDirectory != $0 } ?? false
+        let plannedTargetIndex = SidebarDropPlanner.targetIndex(
             draggedTabId: draggedTabId,
             targetTabId: targetTabId,
             indicator: dropIndicator,
             tabIds: tabIds,
             pinnedTabIds: Set(tabManager.tabs.filter(\.isPinned).map(\.id))
-        ) else {
+        )
+        guard let targetIndex = plannedTargetIndex ?? (changesInitialDirectory ? fromIndex : nil) else {
 #if DEBUG
             cmuxDebugLog(
                 "sidebar.drop.abort reason=noTargetIndex tab=\(draggedTabId.uuidString.prefix(5)) " +
@@ -14686,30 +14689,23 @@ private struct SidebarTabDropDelegate: DropDelegate {
             return false
         }
 
-        let changedInitialDirectory: Bool = {
-            guard !draggedWorkspace.isPinned,
-                  let targetInitialDirectory,
-                  draggedWorkspace.initialDirectory != targetInitialDirectory else {
-                return false
-            }
-            return tabManager.setWorkspaceInitialDirectory(
-                tabId: draggedTabId,
-                directory: targetInitialDirectory
-            )
-        }()
-
-        guard fromIndex != targetIndex else {
+        guard tabManager.moveWorkspaceInSidebarVisualOrder(
+            tabId: draggedTabId,
+            toVisibleIndex: targetIndex,
+            initialDirectory: moveInitialDirectory
+        ) else {
 #if DEBUG
-            cmuxDebugLog("sidebar.drop.noop from=\(fromIndex) to=\(targetIndex) groupChanged=\(changedInitialDirectory ? 1 : 0)")
+            cmuxDebugLog("sidebar.drop.abort reason=moveFailed tab=\(draggedTabId.uuidString.prefix(5))")
 #endif
-            syncSidebarSelection()
-            return true
+            return false
         }
 
 #if DEBUG
-        cmuxDebugLog("sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) from=\(fromIndex) to=\(targetIndex)")
+        cmuxDebugLog(
+            "sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) " +
+            "from=\(fromIndex) to=\(targetIndex) groupChanged=\(changesInitialDirectory ? 1 : 0)"
+        )
 #endif
-        _ = tabManager.reorderWorkspace(tabId: draggedTabId, toIndex: targetIndex)
         if let selectedId = tabManager.selectedTabId {
             selectedTabIds = [selectedId]
             syncSidebarSelection(preferredSelectedTabId: selectedId)
@@ -14721,7 +14717,7 @@ private struct SidebarTabDropDelegate: DropDelegate {
     }
 
     private func updateDropIndicator(for info: DropInfo) {
-        let tabIds = tabManager.tabs.map(\.id)
+        let tabIds = planningTabIds()
         let pinnedTabIds = Set(tabManager.tabs.filter(\.isPinned).map(\.id))
         let nextIndicator = SidebarDropPlanner.indicator(
             draggedTabId: draggedTabId,
@@ -14735,10 +14731,22 @@ private struct SidebarTabDropDelegate: DropDelegate {
         dropIndicator = nextIndicator
     }
 
+    private func planningTabIds() -> [UUID] {
+        SidebarWorkspaceGroupingPlanner.plan(
+            for: tabManager.tabs.map {
+                SidebarWorkspaceGroupingInput(
+                    id: $0.id,
+                    initialDirectory: $0.initialDirectory,
+                    isPinned: $0.isPinned
+                )
+            }
+        ).visibleWorkspaceIds
+    }
+
     private func syncSidebarSelection(preferredSelectedTabId: UUID? = nil) {
         let selectedId = preferredSelectedTabId ?? tabManager.selectedTabId
         if let selectedId {
-            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+            lastSidebarSelectionIndex = planningTabIds().firstIndex(of: selectedId)
         } else {
             lastSidebarSelectionIndex = nil
         }
