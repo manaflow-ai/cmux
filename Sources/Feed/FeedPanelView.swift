@@ -338,6 +338,9 @@ private struct FeedListView: View {
             onControlFocus: {
                 selectRow(snapshot.id, focusFeed: false)
             },
+            onControlAction: {
+                selectRow(snapshot.id, focusFeed: true)
+            },
             onControlBlur: {
                 syncFeedFocusSnapshot()
             },
@@ -417,7 +420,7 @@ private struct FeedListView: View {
             "frBefore=\(feedDebugResponderSummary(window?.firstResponder))"
         )
 #endif
-        if focusFeed || selectionChanged {
+        if focusFeed {
             FeedInlineNativeTextView.blurActiveEditor()
         }
         let optimisticSnapshot = FeedFocusSnapshot(selectedItemId: id, isKeyboardActive: true)
@@ -579,6 +582,7 @@ private struct FeedRowSurface: View {
     let showsDivider: Bool
     let onPressSelect: () -> Void
     let onControlFocus: () -> Void
+    let onControlAction: () -> Void
     let onControlBlur: () -> Void
     let onActivate: () -> Void
 
@@ -592,6 +596,7 @@ private struct FeedRowSurface: View {
                 isSelected: isFocusActive,
                 onPressSelect: onPressSelect,
                 onControlFocus: onControlFocus,
+                onControlAction: onControlAction,
                 onControlBlur: onControlBlur,
                 onActivate: onActivate
             )
@@ -947,6 +952,7 @@ struct FeedItemRow: View, Equatable {
     let isSelected: Bool
     let onPressSelect: () -> Void
     let onControlFocus: () -> Void
+    let onControlAction: () -> Void
     let onControlBlur: () -> Void
     let onActivate: () -> Void
 
@@ -1177,6 +1183,7 @@ struct FeedItemRow: View, Equatable {
                 toolInputJSON: toolInputJSON,
                 source: snapshot.source,
                 status: snapshot.status,
+                onActionRow: onControlAction,
                 onApprove: { mode in
                     actions.approvePermission(snapshot.id, mode)
                 }
@@ -1188,6 +1195,7 @@ struct FeedItemRow: View, Equatable {
                 status: snapshot.status,
                 isRowSelected: isSelected,
                 onFocusRow: onControlFocus,
+                onActionRow: onControlAction,
                 onBlurRow: onControlBlur,
                 onApprove: { mode, feedback in
                     actions.approveExitPlan(snapshot.id, mode, feedback)
@@ -1200,6 +1208,7 @@ struct FeedItemRow: View, Equatable {
                 status: snapshot.status,
                 isRowSelected: isSelected,
                 onFocusRow: onControlFocus,
+                onActionRow: onControlAction,
                 onBlurRow: onControlBlur,
                 context: displayContext,
                 onReply: { selections in
@@ -1209,6 +1218,7 @@ struct FeedItemRow: View, Equatable {
         case .stop:
             StopActionArea(
                 onFocusRow: onControlFocus,
+                onActionRow: onControlAction,
                 onBlurRow: onControlBlur,
                 onSend: { text in actions.sendText(snapshot.workstreamId, text) }
             )
@@ -1366,6 +1376,7 @@ private struct PermissionActionArea: View {
     let toolInputJSON: String
     let source: WorkstreamSource
     let status: WorkstreamStatus
+    let onActionRow: () -> Void
     let onApprove: (WorkstreamPermissionMode) -> Void
 
     var body: some View {
@@ -1375,19 +1386,31 @@ private struct PermissionActionArea: View {
             if status.isPending {
                 HStack(spacing: 6) {
                     FeedButton(label: String(localized: "feed.permission.deny", defaultValue: "Deny"),
-                               kind: .dark, size: .medium, fullWidth: true) { onApprove(.deny) }
+                               kind: .dark, size: .medium, fullWidth: true) {
+                        onActionRow()
+                        onApprove(.deny)
+                    }
                         .accessibilityIdentifier("FeedPermissionDenyButton")
                     FeedButton(label: String(localized: "feed.permission.once", defaultValue: "Allow Once"),
-                               kind: .light, size: .medium, fullWidth: true) { onApprove(.once) }
+                               kind: .light, size: .medium, fullWidth: true) {
+                        onActionRow()
+                        onApprove(.once)
+                    }
                         .accessibilityIdentifier("FeedPermissionAllowOnceButton")
                     if FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: source) {
                         FeedButton(label: String(localized: "feed.permission.always", defaultValue: "Always Allow"),
-                                   kind: .primary, size: .medium, fullWidth: true) { onApprove(.always) }
+                                   kind: .primary, size: .medium, fullWidth: true) {
+                            onActionRow()
+                            onApprove(.always)
+                        }
                             .accessibilityIdentifier("FeedPermissionAlwaysAllowButton")
                     }
                     if FeedPermissionActionPolicy.supportsBypassPermissions(source: source) {
                         FeedButton(label: String(localized: "feed.permission.bypass", defaultValue: "Bypass"),
-                                   kind: .destructive, size: .medium, fullWidth: true) { onApprove(.bypass) }
+                                   kind: .destructive, size: .medium, fullWidth: true) {
+                            onActionRow()
+                            onApprove(.bypass)
+                        }
                             .accessibilityIdentifier("FeedPermissionBypassButton")
                     }
                 }
@@ -2130,6 +2153,7 @@ private struct ExitPlanActionArea: View {
     let status: WorkstreamStatus
     let isRowSelected: Bool
     let onFocusRow: () -> Void
+    let onActionRow: () -> Void
     let onBlurRow: () -> Void
     let onApprove: (WorkstreamExitPlanMode, String?) -> Void
 
@@ -2199,7 +2223,8 @@ private struct ExitPlanActionArea: View {
                         kind: hasFeedback ? .primary : .soft,
                         size: .medium, fullWidth: true
                     ) {
-                        onFocusRow()
+                        feedbackFocused = false
+                        onActionRow()
                         // Feedback always wins over mode; hook translates
                         // non-empty feedback into block+reason.
                         onApprove(hasFeedback ? .manual : .ultraplan, hasFeedback ? trimmedFeedback : nil)
@@ -2211,7 +2236,8 @@ private struct ExitPlanActionArea: View {
                         size: .medium, fullWidth: true,
                         dimmed: hasFeedback
                     ) {
-                        onFocusRow()
+                        feedbackFocused = false
+                        onActionRow()
                         onApprove(.manual, hasFeedback ? trimmedFeedback : nil)
                     }
                     FeedButton(
@@ -2221,7 +2247,8 @@ private struct ExitPlanActionArea: View {
                         size: .medium, fullWidth: true,
                         dimmed: hasFeedback
                     ) {
-                        onFocusRow()
+                        feedbackFocused = false
+                        onActionRow()
                         onApprove(.autoAccept, hasFeedback ? trimmedFeedback : nil)
                     }
                 }
@@ -2537,6 +2564,7 @@ private struct QuestionActionArea: View {
     let status: WorkstreamStatus
     let isRowSelected: Bool
     let onFocusRow: () -> Void
+    let onActionRow: () -> Void
     let onBlurRow: () -> Void
     let context: WorkstreamContext?
     let onReply: ([String]) -> Void
@@ -2633,7 +2661,7 @@ private struct QuestionActionArea: View {
         let selected = selections[questionId]?.contains(option.id) == true
         return Button {
             guard status.isPending else { return }
-            onFocusRow()
+            onActionRow()
             clearCustomAnswerFocus()
             var current = selections[questionId] ?? []
             if multi {
@@ -2918,7 +2946,7 @@ private struct QuestionActionArea: View {
             dimmed: !status.isPending
         ) {
             guard status.isPending else { return }
-            onFocusRow()
+            onActionRow()
             clearCustomAnswerFocus()
             var current = selections[questionId] ?? []
             if multi {
@@ -3007,7 +3035,7 @@ private struct QuestionActionArea: View {
             fullWidth: true,
             dimmed: !enabled
         ) {
-            onFocusRow()
+            onActionRow()
             // Selections carry human-readable answer strings (one per
             // answered question) so the hook can feed them straight
             // back to the agent as the user's reply.
@@ -3024,7 +3052,7 @@ private struct QuestionActionArea: View {
             size: .medium,
             fullWidth: true
         ) {
-            onFocusRow()
+            onActionRow()
             onReply([Self.skipInterviewAndPlanAnswer])
         }
     }
@@ -3536,6 +3564,7 @@ private struct FlowLayout: Layout {
 /// Return — so the user can reply without switching focus.
 private struct StopActionArea: View {
     let onFocusRow: () -> Void
+    let onActionRow: () -> Void
     let onBlurRow: () -> Void
     let onSend: (String) -> Void
 
@@ -3598,7 +3627,7 @@ private struct StopActionArea: View {
                 dimmed: !canSend
             ) {
                 guard canSend else { return }
-                onFocusRow()
+                onActionRow()
                 sendReply()
             }
         }

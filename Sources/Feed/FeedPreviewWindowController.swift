@@ -129,6 +129,7 @@ private struct FeedPreviewCardHost: View {
             isSelected: false,
             onPressSelect: {},
             onControlFocus: {},
+            onControlAction: {},
             onControlBlur: {},
             onActivate: {}
         )
