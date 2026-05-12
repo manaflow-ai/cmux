@@ -714,6 +714,7 @@ final class TerminalNotificationStore: ObservableObject {
     private var hasPromptedForSettings = false
     private var initialAuthorizationRefreshObserver: NSObjectProtocol?
     private var userDefaultsObserver: NSObjectProtocol?
+    private var authorizationRefreshGeneration: UInt64 = 0
     // Notification permission callbacks can complete from cached system state during
     // launch; delay published updates so they cannot join an active AppKit layout pass.
     private static let initialAuthorizationRefreshDelay: TimeInterval = 0.2
@@ -821,9 +822,12 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func refreshAuthorizationStatus() {
+        authorizationRefreshGeneration &+= 1
+        let generation = authorizationRefreshGeneration
         center.getNotificationSettings { [weak self] settings in
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.authorizationStateRefreshApplyDelay) {
                 guard let self else { return }
+                guard generation == self.authorizationRefreshGeneration else { return }
                 self.setAuthorizationState(Self.authorizationState(from: settings.authorizationStatus))
                 self.logAuthorization(
                     "refresh status=\(Self.authorizationStatusLabel(settings.authorizationStatus)) mapped=\(self.authorizationState.statusLabel)"
@@ -1311,6 +1315,7 @@ final class TerminalNotificationStore: ObservableObject {
                     return
                 }
 
+                self.invalidatePendingAuthorizationRefresh()
                 self.setAuthorizationState(Self.authorizationState(from: settings.authorizationStatus))
                 self.logAuthorization(
                     "ensure status origin=\(origin.rawValue) status=\(Self.authorizationStatusLabel(settings.authorizationStatus)) mapped=\(self.authorizationState.statusLabel) appActive=\(AppFocusState.isAppActive())"
@@ -1369,6 +1374,7 @@ final class TerminalNotificationStore: ObservableObject {
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
             DispatchQueue.main.async {
                 if granted {
+                    self.invalidatePendingAuthorizationRefresh()
                     self.setAuthorizationState(.authorized)
                 } else {
                     self.refreshAuthorizationStatus()
@@ -1459,6 +1465,10 @@ final class TerminalNotificationStore: ObservableObject {
     private func setAuthorizationState(_ nextState: NotificationAuthorizationState) {
         guard authorizationState != nextState else { return }
         authorizationState = nextState
+    }
+
+    private func invalidatePendingAuthorizationRefresh() {
+        authorizationRefreshGeneration &+= 1
     }
 
     private func scheduleInitialAuthorizationRefresh() {

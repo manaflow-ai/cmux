@@ -4,8 +4,9 @@ import Foundation
 let cliStdioDispositionLock = NSLock()
 
 @discardableResult
-func cliWriteIgnoringBrokenPipe(_ data: Data, to fd: Int32) -> Bool {
+func cliWriteIgnoringBrokenPipe(_ data: Data, to fd: Int32, timeout: TimeInterval? = nil) -> Bool {
     guard !data.isEmpty else { return true }
+    let deadline = timeout.map { Date().addingTimeInterval(max(0, $0)) }
 
     return data.withUnsafeBytes { rawBuffer in
         guard let baseAddress = rawBuffer.baseAddress else { return true }
@@ -35,11 +36,23 @@ func cliWriteIgnoringBrokenPipe(_ data: Data, to fd: Int32) -> Bool {
                 continue
             } else if bytesWritten == -1, writeErrno == EAGAIN || writeErrno == EWOULDBLOCK {
                 var pollFD = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
-                let ready = poll(&pollFD, 1, 250)
-                if ready > 0 {
-                    continue
+                while true {
+                    if let deadline, Date() >= deadline {
+                        return false
+                    }
+                    let ready = poll(&pollFD, 1, 250)
+                    if ready > 0 {
+                        break
+                    }
+                    if ready == -1, errno == EINTR {
+                        continue
+                    }
+                    if ready == 0 {
+                        continue
+                    }
+                    return false
                 }
-                return false
+                continue
             } else {
                 return false
             }
@@ -49,8 +62,8 @@ func cliWriteIgnoringBrokenPipe(_ data: Data, to fd: Int32) -> Bool {
 }
 
 @discardableResult
-func cliWriteIgnoringBrokenPipe(_ data: Data, to handle: FileHandle) -> Bool {
-    cliWriteIgnoringBrokenPipe(data, to: handle.fileDescriptor)
+func cliWriteIgnoringBrokenPipe(_ data: Data, to handle: FileHandle, timeout: TimeInterval? = nil) -> Bool {
+    cliWriteIgnoringBrokenPipe(data, to: handle.fileDescriptor, timeout: timeout)
 }
 
 func cliRunProcess(_ process: Process) throws {
@@ -104,7 +117,7 @@ enum CLIProcessRunner {
 
         if let stdinText, let stdinPipe {
             if let data = stdinText.data(using: .utf8) {
-                cliWriteIgnoringBrokenPipe(data, to: stdinPipe.fileHandleForWriting)
+                cliWriteIgnoringBrokenPipe(data, to: stdinPipe.fileHandleForWriting, timeout: timeout)
             }
             stdinPipe.fileHandleForWriting.closeFile()
         }

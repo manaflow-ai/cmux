@@ -2433,7 +2433,11 @@ struct CMUXCLI {
             }
             return
         }
-        throw CLIError(message: response["error"] as? String ?? "Hot-path request failed")
+        let errorMessage = response["error"] as? String ?? "Hot-path request failed"
+        if let exitCode = intFromAny(response["exitCode"]) ?? intFromAny(response["exit_code"]) {
+            throw CLIError(message: errorMessage, exitCode: Int32(exitCode))
+        }
+        throw CLIError(message: errorMessage)
     }
 
     private func runHotPathBroker(
@@ -2582,7 +2586,8 @@ struct CMUXCLI {
                                         client: client,
                                         telemetry: telemetry,
                                         rawInput: rawInput,
-                                        processEnv: requestEnv
+                                        processEnv: requestEnv,
+                                        callerParentPID: callerParentPID
                                     )
                                 } else if agentName == "feed" {
                                     try self.runFeedHook(
@@ -2746,7 +2751,10 @@ struct CMUXCLI {
                 let responseLine = try hotPathRequestLine(response) + "\n"
                 writeHotPathResponse(responseLine, to: clientFD)
             } catch {
-                let response: [String: Any] = ["ok": false, "error": String(describing: error)]
+                var response: [String: Any] = ["ok": false, "error": String(describing: error)]
+                if let cliError = error as? CLIError {
+                    response["exitCode"] = Int(cliError.exitCode)
+                }
                 let responseLine = ((try? hotPathRequestLine(response)) ?? #"{"ok":false,"error":"Hot-path broker failure"}"#) + "\n"
                 writeHotPathResponse(responseLine, to: clientFD)
             }
@@ -14969,7 +14977,7 @@ struct CMUXCLI {
                     .trimmingCharacters(in: .whitespacesAndNewlines),
                     let pid = Int(raw),
                     pid > 0 else {
-                    return nil
+                    return callerParentPID
                 }
                 return pid
             }()

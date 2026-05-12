@@ -8252,6 +8252,14 @@ final class Workspace: Identifiable, ObservableObject {
         var orderedTargets: [TerminalPanel] = []
         let renderedPaneIds = bonsplitController.zoomedPaneId.map { [$0] } ?? bonsplitController.allPaneIds
 
+        if let focusedPanelId,
+           let focusedPaneId = paneId(forPanelId: focusedPanelId),
+           renderedPaneIds.contains(where: { $0.id == focusedPaneId.id }),
+           seenPanelIds.insert(focusedPanelId).inserted,
+           let focusedTerminal = panels[focusedPanelId] as? TerminalPanel {
+            orderedTargets.append(focusedTerminal)
+        }
+
         for paneId in renderedPaneIds {
             guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id ?? bonsplitController.tabs(inPane: paneId).first?.id,
                   let panelId = panelIdFromSurfaceId(tabId),
@@ -8260,14 +8268,6 @@ final class Workspace: Identifiable, ObservableObject {
                 continue
             }
             orderedTargets.append(terminalPanel)
-        }
-
-        if let focusedPanelId,
-           let focusedPaneId = paneId(forPanelId: focusedPanelId),
-           renderedPaneIds.contains(where: { $0.id == focusedPaneId.id }),
-           seenPanelIds.insert(focusedPanelId).inserted,
-           let focusedTerminal = panels[focusedPanelId] as? TerminalPanel {
-            orderedTargets.append(focusedTerminal)
         }
 
         return orderedTargets
@@ -11957,9 +11957,32 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func requestWorkspaceWindowLayouts() {
-        for window in NSApp.windows where window.isVisible {
+        for window in workspaceWindows() where window.isVisible {
             window.contentView?.needsLayout = true
         }
+    }
+
+    private func workspaceWindows() -> [NSWindow] {
+        var seenWindowIds = Set<ObjectIdentifier>()
+        var windows: [NSWindow] = []
+
+        func append(_ window: NSWindow?) {
+            guard let window else { return }
+            let id = ObjectIdentifier(window)
+            guard seenWindowIds.insert(id).inserted else { return }
+            windows.append(window)
+        }
+
+        for panel in panels.values {
+            if let terminalPanel = panel as? TerminalPanel {
+                append(terminalPanel.hostedView.window)
+            } else if let browserPanel = panel as? BrowserPanel {
+                append(browserPanel.portalAnchorView.window)
+                append(browserPanel.webView.window)
+            }
+        }
+
+        return windows
     }
 
     private func browserPortalAnchorReady(for browserPanel: BrowserPanel) -> Bool {
@@ -12125,9 +12148,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         // Ask AppKit to settle pending layout naturally. Synchronously forcing layout here can
         // re-enter SwiftUI hosting views during display-link transaction flushes (#3873).
-        for window in NSApp.windows where window.isVisible {
-            window.contentView?.needsLayout = true
-        }
+        requestWorkspaceWindowLayouts()
 
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
