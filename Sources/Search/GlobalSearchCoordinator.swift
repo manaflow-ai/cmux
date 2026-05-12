@@ -98,6 +98,7 @@ final class GlobalSearchCoordinator {
 
             if let markdownPanel = context.panel as? MarkdownPanel {
                 if markdownPanel.isFileUnavailable {
+                    cancelMarkdownCapture(forPanelID: context.panelID)
                     await purgeMarkdownDocument(forPanelID: context.panelID, index: index)
                 } else if let document = markdownDocument(for: markdownPanel, context: context) {
                     do {
@@ -153,9 +154,10 @@ final class GlobalSearchCoordinator {
     }
 
     func captureMarkdownPanel(_ panel: MarkdownPanel) {
+        let panelID = panel.id
         guard !panel.isFileUnavailable else {
             guard let index = ensureIndex() else { return }
-            let panelID = panel.id
+            cancelMarkdownCapture(forPanelID: panelID)
             Task { @MainActor [weak self] in
                 await self?.purgeMarkdownDocument(forPanelID: panelID, index: index)
             }
@@ -171,7 +173,6 @@ final class GlobalSearchCoordinator {
             return
         }
 
-        let panelID = panel.id
         let taskID = UUID()
         markdownCaptureTasks[panelID]?.cancel()
         markdownCaptureTaskIDs[panelID] = taskID
@@ -199,9 +200,7 @@ final class GlobalSearchCoordinator {
         browserCaptureTasks[panelID]?.cancel()
         browserCaptureTasks[panelID] = nil
         browserCaptureTaskIDs[panelID] = nil
-        markdownCaptureTasks[panelID]?.cancel()
-        markdownCaptureTasks[panelID] = nil
-        markdownCaptureTaskIDs[panelID] = nil
+        cancelMarkdownCapture(forPanelID: panelID)
         guard let index = ensureIndex() else { return }
         Task {
             do {
@@ -212,6 +211,12 @@ final class GlobalSearchCoordinator {
 #endif
             }
         }
+    }
+
+    private func cancelMarkdownCapture(forPanelID panelID: UUID) {
+        markdownCaptureTasks[panelID]?.cancel()
+        markdownCaptureTasks[panelID] = nil
+        markdownCaptureTaskIDs[panelID] = nil
     }
 
     private func purgeMarkdownDocument(forPanelID panelID: UUID, index: SearchIndex) async {
