@@ -1,6 +1,7 @@
 import XCTest
 import Foundation
 import AppKit
+import Sparkle
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,17 +9,183 @@ import AppKit
 @testable import cmux
 #endif
 
+@MainActor
+final class UpdateViewModelLatestEmissionTests: XCTestCase {
+    func testPassiveDetectedUpdatePillFollowsEveryValidEmissionIncludingRollback() throws {
+        let model = UpdateViewModel()
+
+        let firstPollItem = try Self.appcastItem(displayVersion: "9.9.0")
+        model.recordDetectedUpdate(firstPollItem)
+        XCTAssertEqual(model.text, "Update Available: 9.9.0")
+        XCTAssertEqual(Self.visibleUpdateVersion(in: model), "9.9.0")
+
+        let newerPollItem = try Self.appcastItem(displayVersion: "9.9.1")
+        model.recordDetectedUpdate(newerPollItem)
+        XCTAssertEqual(model.text, "Update Available: 9.9.1")
+        XCTAssertEqual(Self.visibleUpdateVersion(in: model), "9.9.1")
+
+        // The pill follows the current appcast emission. If a newer release is yanked,
+        // keeping the unavailable version would be another stale first-signal cache.
+        let rollbackPollItem = try Self.appcastItem(displayVersion: "9.9.0")
+        model.recordDetectedUpdate(rollbackPollItem)
+        XCTAssertEqual(model.text, "Update Available: 9.9.0")
+        XCTAssertEqual(Self.visibleUpdateVersion(in: model), "9.9.0")
+    }
+
+    func testPassiveDetectionDoesNotReplaceInstallableStateWithoutMatchingReply() throws {
+        let model = UpdateViewModel()
+        let installedReply = UpdateChoiceRecorder()
+
+        model.recordAvailableUpdate(try Self.updateAvailable(
+            displayVersion: "9.9.0",
+            recorder: installedReply
+        ))
+
+        model.recordDetectedUpdate(try Self.appcastItem(displayVersion: "9.9.1"))
+
+        XCTAssertEqual(model.detectedUpdateVersion, "9.9.1")
+        XCTAssertEqual(Self.visibleUpdateVersion(in: model), "9.9.0")
+        XCTAssertEqual(model.text, "Update Available: 9.9.0")
+
+        guard case .updateAvailable(let update) = model.effectiveState else {
+            XCTFail("Expected installable state to remain updateAvailable")
+            return
+        }
+        update.reply(.install)
+
+        XCTAssertEqual(installedReply.count, 1)
+    }
+
+    func testAvailableUpdateRefreshUsesLatestReplyWhenOverrideIsVisible() throws {
+        let model = UpdateViewModel()
+        let staleReply = UpdateChoiceRecorder()
+        let latestReply = UpdateChoiceRecorder()
+
+        model.overrideState = .updateAvailable(try Self.updateAvailable(
+            displayVersion: "9.9.0",
+            recorder: staleReply
+        ))
+
+        model.recordAvailableUpdate(try Self.updateAvailable(
+            displayVersion: "9.9.1",
+            recorder: latestReply
+        ))
+
+        XCTAssertEqual(Self.visibleUpdateVersion(in: model), "9.9.1")
+
+        guard case .updateAvailable(let update) = model.effectiveState else {
+            XCTFail("Expected visible override to remain updateAvailable")
+            return
+        }
+        update.reply(.dismiss)
+
+        XCTAssertEqual(staleReply.count, 0)
+        XCTAssertEqual(latestReply.count, 1)
+    }
+
+    func testDismissDetectedAvailableUpdateClearsStaleInstallableStateAndRepliesOnce() throws {
+        let model = UpdateViewModel()
+        let reply = UpdateChoiceRecorder()
+        let update = try Self.updateAvailable(displayVersion: "9.9.0", recorder: reply)
+
+        model.recordAvailableUpdate(update)
+        model.overrideState = .updateAvailable(update)
+        XCTAssertTrue(model.showsPill)
+        XCTAssertEqual(model.detectedUpdateVersion, "9.9.0")
+
+        model.dismissDetectedAvailableUpdate()
+
+        XCTAssertEqual(model.state, .idle)
+        XCTAssertNil(model.overrideState)
+        XCTAssertNil(model.detectedUpdateVersion)
+        XCTAssertFalse(model.showsPill)
+        XCTAssertEqual(reply.count, 1)
+    }
+
+    func testCancelActiveStateForNewCheckPreventsQueuedDismissFromReplyingAgain() throws {
+        let model = UpdateViewModel()
+        let reply = UpdateChoiceRecorder()
+        let update = try Self.updateAvailable(displayVersion: "9.9.0", recorder: reply)
+
+        model.recordAvailableUpdate(update)
+        model.overrideState = .updateAvailable(update)
+
+        model.cancelActiveStateForNewCheck()
+        model.dismissDetectedAvailableUpdate()
+
+        XCTAssertEqual(model.state, .idle)
+        XCTAssertNil(model.overrideState)
+        XCTAssertEqual(reply.count, 1)
+    }
+
+    private static func visibleUpdateVersion(in model: UpdateViewModel) -> String? {
+        switch model.effectiveState {
+        case .idle:
+            return model.detectedUpdateVersion
+        case .updateAvailable(let update):
+            return update.appcastItem.displayVersionString
+        default:
+            return nil
+        }
+    }
+
+    private static func updateAvailable(
+        displayVersion: String,
+        recorder: UpdateChoiceRecorder? = nil
+    ) throws -> UpdateState.UpdateAvailable {
+        .init(
+            appcastItem: try appcastItem(displayVersion: displayVersion),
+            reply: { choice in recorder?.record(choice) }
+        )
+    }
+
+    private static func appcastItem(displayVersion: String) throws -> SUAppcastItem {
+        let enclosure: [String: Any] = [
+            "url": "https://example.com/cmux-\(displayVersion).zip",
+            "length": "1024",
+            "sparkle:version": displayVersion,
+            "sparkle:shortVersionString": displayVersion,
+        ]
+        let item: [String: Any] = [
+            "title": "cmux \(displayVersion)",
+            "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
+            "enclosure": enclosure,
+        ]
+        return try XCTUnwrap(SUAppcastItem(dictionary: item))
+    }
+
+    private final class UpdateChoiceRecorder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var recordedCount = 0
+
+        var count: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return recordedCount
+        }
+
+        func record(_: SPUUserUpdateChoice) {
+            lock.lock()
+            recordedCount += 1
+            lock.unlock()
+        }
+    }
+}
+
 final class BrowserInsecureHTTPSettingsTests: XCTestCase {
     func testDefaultAllowlistPatternsArePresent() {
         XCTAssertEqual(
             BrowserInsecureHTTPSettings.normalizedAllowlistPatterns(rawValue: nil),
-            ["localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]
+            ["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]
         )
     }
 
     func testWildcardAndExactHostMatching() {
         XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("localhost", rawAllowlist: nil))
+        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("a.localhost", rawAllowlist: nil))
+        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("deep.a.localhost", rawAllowlist: nil))
         XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("127.0.0.1", rawAllowlist: nil))
+        XCTAssertFalse(BrowserInsecureHTTPSettings.isHostAllowed("a.127.0.0.1", rawAllowlist: nil))
         XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("::1", rawAllowlist: nil))
         XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("0.0.0.0", rawAllowlist: nil))
         XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("api.localtest.me", rawAllowlist: nil))
@@ -46,6 +213,9 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
     func testBlockDecisionUsesAllowlistAndSchemeRules() throws {
         let localURL = try XCTUnwrap(URL(string: "http://foo.localtest.me:3000"))
         XCTAssertFalse(browserShouldBlockInsecureHTTPURL(localURL, rawAllowlist: nil))
+
+        let localhostSubdomainURL = try XCTUnwrap(URL(string: "http://a.localhost:3000"))
+        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(localhostSubdomainURL, rawAllowlist: nil))
 
         let insecureURL = try XCTUnwrap(URL(string: "http://neverssl.com"))
         XCTAssertTrue(browserShouldBlockInsecureHTTPURL(insecureURL, rawAllowlist: nil))
@@ -154,6 +324,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         let baseline = TitlebarControlsLayoutSnapshot(
             contentSize: NSSize(width: 128, height: 22),
             containerHeight: 28,
+            xOffset: 0,
             yOffset: 3
         )
         XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: nil, next: baseline))
@@ -162,9 +333,18 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         let changed = TitlebarControlsLayoutSnapshot(
             contentSize: NSSize(width: 132, height: 22),
             containerHeight: 28,
+            xOffset: 0,
             yOffset: 3
         )
         XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: changed))
+
+        let offsetChanged = TitlebarControlsLayoutSnapshot(
+            contentSize: NSSize(width: 128, height: 22),
+            containerHeight: 28,
+            xOffset: 1,
+            yOffset: 3
+        )
+        XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: offsetChanged))
     }
 
     func testShortcutHintVerticalOffsetKeepsPillInsideButtonLane() {

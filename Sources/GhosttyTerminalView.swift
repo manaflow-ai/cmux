@@ -299,6 +299,12 @@ enum GhosttyPasteboardHelper {
         case rejectedImagePayload
     }
 
+    enum ImageFileListMaterializationResult {
+        case saved([URL])
+        case noDecodableImagePayload
+        case rejectedImagePayload
+    }
+
     private static let selectionPasteboard = NSPasteboard(
         name: NSPasteboard.Name("com.mitchellh.ghostty.selection")
     )
@@ -348,6 +354,14 @@ enum GhosttyPasteboardHelper {
                PasteboardTextFidelity.shouldPreferPlainText(plainText, overRichText: richText) {
                 return plainText
             }
+            return richText
+        }
+
+        if let plainText,
+           PasteboardTextFidelity.shouldInspectRichTextForPlainTextLoss(plainText),
+           types.contains(where: isRichTextType),
+           let richText = richTextContents(from: pasteboard),
+           PasteboardTextFidelity.shouldPreferRichText(richText, overPlainText: plainText) {
             return richText
         }
 
@@ -473,6 +487,10 @@ enum GhosttyPasteboardHelper {
         return utType.conforms(to: .plainText)
     }
 
+    private static func isRichTextType(_ type: NSPasteboard.PasteboardType) -> Bool {
+        type == .html || type == .rtf || type == .rtfd
+    }
+
     private static func attributedString(
         from pasteboard: NSPasteboard,
         type: NSPasteboard.PasteboardType,
@@ -493,20 +511,34 @@ enum GhosttyPasteboardHelper {
         )
     }
 
-    private static func rtfdAttachmentImageRepresentation(
-        in pasteboard: NSPasteboard
-    ) -> (data: Data, fileExtension: String)? {
-        guard let attributed = attributedString(
-            from: pasteboard,
-            type: .rtfd,
-            documentType: .rtfd
-        ) else { return nil }
+    private static func attributedString(
+        from item: NSPasteboardItem,
+        type: NSPasteboard.PasteboardType,
+        documentType: NSAttributedString.DocumentType
+    ) -> NSAttributedString? {
+        let data =
+            item.data(forType: type)
+            ?? item.string(forType: type)?.data(using: .utf8)
+        guard let data else { return nil }
 
-        var result: (data: Data, fileExtension: String)?
+        return try? NSAttributedString(
+            data: data,
+            options: [
+                .documentType: documentType,
+                .characterEncoding: String.Encoding.utf8.rawValue
+            ],
+            documentAttributes: nil
+        )
+    }
+
+    private static func rtfdAttachmentImageRepresentations(
+        from attributed: NSAttributedString
+    ) -> [(data: Data, fileExtension: String)] {
+        var results: [(data: Data, fileExtension: String)] = []
         attributed.enumerateAttribute(
             .attachment,
             in: NSRange(location: 0, length: attributed.length)
-        ) { value, _, stop in
+        ) { value, _, _ in
             guard let attachment = value as? NSTextAttachment else { return }
 
             if let fileWrapper = attachment.fileWrapper,
@@ -515,12 +547,33 @@ enum GhosttyPasteboardHelper {
                 data: data,
                 preferredFilename: fileWrapper.preferredFilename
                ) {
-                result = imageRepresentation
-                stop.pointee = true
+                results.append(imageRepresentation)
             }
         }
 
-        return result
+        return results
+    }
+
+    private static func rtfdAttachmentImageRepresentations(
+        in pasteboard: NSPasteboard
+    ) -> [(data: Data, fileExtension: String)] {
+        guard let attributed = attributedString(
+            from: pasteboard,
+            type: .rtfd,
+            documentType: .rtfd
+        ) else { return [] }
+        return rtfdAttachmentImageRepresentations(from: attributed)
+    }
+
+    private static func rtfdAttachmentImageRepresentations(
+        in item: NSPasteboardItem
+    ) -> [(data: Data, fileExtension: String)] {
+        guard let attributed = attributedString(
+            from: item,
+            type: .rtfd,
+            documentType: .rtfd
+        ) else { return [] }
+        return rtfdAttachmentImageRepresentations(from: attributed)
     }
 
     private static func imageAttachmentRepresentation(
@@ -533,6 +586,9 @@ enum GhosttyPasteboardHelper {
         if let type = !pathExtension.isEmpty ? UTType(filenameExtension: pathExtension) : nil,
            type.conforms(to: .image),
            let fileExtension = type.preferredFilenameExtension ?? nonEmpty(pathExtension) {
+            if isTIFFType(type) {
+                return normalizedPNGRepresentation(from: data)
+            }
             return (data, fileExtension)
         }
 
@@ -541,7 +597,36 @@ enum GhosttyPasteboardHelper {
               let type = UTType(typeIdentifier),
               type.conforms(to: .image),
               let fileExtension = type.preferredFilenameExtension else { return nil }
+        if isTIFFType(type) {
+            return normalizedPNGRepresentation(from: data)
+        }
         return (data, fileExtension)
+    }
+
+    private static func imageDataRepresentation(
+        data: Data,
+        type: NSPasteboard.PasteboardType
+    ) -> (data: Data, fileExtension: String)? {
+        guard let utType = UTType(type.rawValue),
+              utType.conforms(to: .image),
+              let fileExtension = utType.preferredFilenameExtension,
+              !fileExtension.isEmpty else { return nil }
+        if isTIFFType(utType) {
+            return normalizedPNGRepresentation(from: data)
+        }
+        return (data, fileExtension)
+    }
+
+    private static func isTIFFType(_ type: UTType) -> Bool {
+        type == .tiff || type.conforms(to: .tiff)
+    }
+
+    private static func normalizedPNGRepresentation(from data: Data) -> (data: Data, fileExtension: String)? {
+        guard let image = NSImage(data: data),
+              let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else { return nil }
+        return (pngData, "png")
     }
 
     private static func nonEmpty(_ value: String) -> String? {
@@ -570,16 +655,182 @@ enum GhosttyPasteboardHelper {
 
         for type in pasteboard.types ?? [] {
             guard type != .png,
-                  type != .tiff,
-                  let utType = UTType(type.rawValue),
-                  utType.conforms(to: .image),
                   let imageData = pasteboard.data(forType: type),
-                  let fileExtension = utType.preferredFilenameExtension,
-                  !fileExtension.isEmpty else { continue }
-            return (imageData, fileExtension)
+                  let representation = imageDataRepresentation(data: imageData, type: type) else { continue }
+            return representation
         }
 
         return nil
+    }
+
+    private static func directImageRepresentation(
+        in item: NSPasteboardItem
+    ) -> (data: Data, fileExtension: String)? {
+        if let pngData = item.data(forType: .png) {
+            return (pngData, "png")
+        }
+
+        for type in item.types {
+            guard type != .png,
+                  let imageData = item.data(forType: type),
+                  let representation = imageDataRepresentation(data: imageData, type: type) else { continue }
+            return representation
+        }
+
+        return nil
+    }
+
+    private static func fallbackImageRepresentation(
+        in item: NSPasteboardItem
+    ) -> (data: Data, fileExtension: String)? {
+        for type in item.types {
+            guard let utType = UTType(type.rawValue),
+                  utType.conforms(to: .image),
+                  let data = item.data(forType: type),
+                  let normalized = normalizedPNGRepresentation(from: data) else { continue }
+            return normalized
+        }
+        return nil
+    }
+
+    private static func fallbackImageRepresentation(
+        in pasteboard: NSPasteboard
+    ) -> (data: Data, fileExtension: String)? {
+        guard hasImageData(in: pasteboard),
+              let tiffData = NSImage(pasteboard: pasteboard)?.tiffRepresentation else { return nil }
+        return normalizedPNGRepresentation(from: tiffData)
+    }
+
+    private static func imageRepresentations(
+        in item: NSPasteboardItem
+    ) -> [(data: Data, fileExtension: String)] {
+        if let directImage = directImageRepresentation(in: item) {
+            return [directImage]
+        }
+        let rtfdAttachments = rtfdAttachmentImageRepresentations(in: item)
+        if !rtfdAttachments.isEmpty {
+            return rtfdAttachments
+        }
+        if let fallbackImage = fallbackImageRepresentation(in: item) {
+            return [fallbackImage]
+        }
+        return []
+    }
+
+    private static func pasteboardFallbackImageRepresentations(
+        for item: NSPasteboardItem
+    ) -> [(data: Data, fileExtension: String)] {
+        guard let copiedItem = copiedPasteboardItem(from: item) else { return [] }
+
+        let pasteboard = NSPasteboard(name: .init("cmux-single-image-item-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
+        guard pasteboard.writeObjects([copiedItem]) else { return [] }
+
+        if let directImage = directImageRepresentation(in: pasteboard) {
+            return [directImage]
+        }
+        let rtfdAttachments = rtfdAttachmentImageRepresentations(in: pasteboard)
+        if !rtfdAttachments.isEmpty {
+            return rtfdAttachments
+        }
+        if let fallbackImage = fallbackImageRepresentation(in: pasteboard) {
+            return [fallbackImage]
+        }
+        return []
+    }
+
+    private static func copiedPasteboardItem(from item: NSPasteboardItem) -> NSPasteboardItem? {
+        let copiedItem = NSPasteboardItem()
+        var copiedAnyType = false
+
+        for type in item.types {
+            if let data = item.data(forType: type) {
+                copiedAnyType = copiedItem.setData(data, forType: type) || copiedAnyType
+                continue
+            }
+
+            if let string = item.string(forType: type) {
+                copiedAnyType = copiedItem.setString(string, forType: type) || copiedAnyType
+            }
+        }
+
+        return copiedAnyType ? copiedItem : nil
+    }
+
+    private static func imageRepresentations(
+        in pasteboard: NSPasteboard
+    ) -> [(data: Data, fileExtension: String)] {
+        let itemRepresentations = (pasteboard.pasteboardItems ?? [])
+            .flatMap { item in
+                let representations = imageRepresentations(in: item)
+                if !representations.isEmpty {
+                    return representations
+                }
+                return pasteboardFallbackImageRepresentations(for: item)
+            }
+        if !itemRepresentations.isEmpty {
+            return itemRepresentations
+        }
+        if let directImage = directImageRepresentation(in: pasteboard) {
+            return [directImage]
+        }
+        let rtfdAttachments = rtfdAttachmentImageRepresentations(in: pasteboard)
+        if !rtfdAttachments.isEmpty {
+            return rtfdAttachments
+        }
+        if let fallbackImage = fallbackImageRepresentation(in: pasteboard) {
+            return [fallbackImage]
+        }
+        return []
+    }
+
+    private static func materializeImageFileURLs(
+        from representations: [(data: Data, fileExtension: String)]
+    ) -> ImageFileListMaterializationResult {
+        guard !representations.isEmpty else { return .noDecodableImagePayload }
+
+        let maxClipboardImageSize = 10 * 1024 * 1024  // 10 MB
+        var fileURLs: [URL] = []
+        for representation in representations {
+            guard representation.data.count <= maxClipboardImageSize else {
+#if DEBUG
+                cmuxDebugLog("terminal.paste.image.rejected reason=tooLarge bytes=\(representation.data.count)")
+#endif
+                cleanupTransferredTemporaryImageFiles(fileURLs)
+                return .rejectedImagePayload
+            }
+
+            let fileURL = temporaryImageFileURL(fileExtension: representation.fileExtension)
+
+            do {
+                try representation.data.write(to: fileURL)
+            } catch {
+#if DEBUG
+                cmuxDebugLog("terminal.paste.image.writeFailed error=\(error.localizedDescription)")
+#endif
+                try? FileManager.default.removeItem(at: fileURL)
+                cleanupTransferredTemporaryImageFiles(fileURLs)
+                return .rejectedImagePayload
+            }
+
+            registerOwnedTemporaryImageFile(fileURL)
+            fileURLs.append(fileURL)
+        }
+
+        return .saved(fileURLs)
+    }
+
+    private static func temporaryImageFileURL(fileExtension: String) -> URL {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        let timestamp = formatter.string(from: Date())
+        let filename = "\(temporaryImageFilenamePrefix)\(timestamp)-\(UUID().uuidString.prefix(8)).\(fileExtension)"
+        return FileManager.default.temporaryDirectory.appendingPathComponent(filename)
     }
 
     /// Attempts to materialize a decodable pasteboard image into a temporary file.
@@ -588,52 +839,34 @@ enum GhosttyPasteboardHelper {
     static func materializeImageFileURLIfNeeded(
         from pasteboard: NSPasteboard = .general
     ) -> ImageFileMaterializationResult {
-        let imageData: Data
-        let fileExtension: String
-        if let directImage = directImageRepresentation(in: pasteboard) {
-            imageData = directImage.data
-            fileExtension = directImage.fileExtension
-        } else if let rtfdAttachment = rtfdAttachmentImageRepresentation(in: pasteboard) {
-            imageData = rtfdAttachment.data
-            fileExtension = rtfdAttachment.fileExtension
-        } else {
-            guard hasImageData(in: pasteboard),
-                  let image = NSImage(pasteboard: pasteboard),
-                  let tiffData = image.tiffRepresentation,
-                  let bitmap = NSBitmapImageRep(data: tiffData),
-                  let pngData = bitmap.representation(using: .png, properties: [:]) else {
-                return .noDecodableImagePayload
-            }
-            imageData = pngData
-            fileExtension = "png"
-        }
-
-        let maxClipboardImageSize = 10 * 1024 * 1024  // 10 MB
-        guard imageData.count <= maxClipboardImageSize else {
-#if DEBUG
-            cmuxDebugLog("terminal.paste.image.rejected reason=tooLarge bytes=\(imageData.count)")
-#endif
+        let representations = Array(imageRepresentations(in: pasteboard).prefix(1))
+        switch materializeImageFileURLs(from: representations) {
+        case .saved(let fileURLs):
+            guard let fileURL = fileURLs.first else { return .noDecodableImagePayload }
+            return .saved(fileURL)
+        case .noDecodableImagePayload:
+            return .noDecodableImagePayload
+        case .rejectedImagePayload:
             return .rejectedImagePayload
         }
+    }
 
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        let timestamp = formatter.string(from: Date())
-        let filename = "\(temporaryImageFilenamePrefix)\(timestamp)-\(UUID().uuidString.prefix(8)).\(fileExtension)"
-        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+    static func materializeImageFileURLsIfNeeded(
+        from pasteboard: NSPasteboard = .general
+    ) -> ImageFileListMaterializationResult {
+        materializeImageFileURLs(from: imageRepresentations(in: pasteboard))
+    }
 
-        do {
-            try imageData.write(to: fileURL)
-        } catch {
-#if DEBUG
-            cmuxDebugLog("terminal.paste.image.writeFailed error=\(error.localizedDescription)")
-#endif
-            return .rejectedImagePayload
+    static func saveImageFileURLsIfNeeded(
+        from pasteboard: NSPasteboard = .general,
+        assumeNoText: Bool = false
+    ) -> [URL] {
+        if !assumeNoText && stringContents(from: pasteboard) != nil { return [] }
+
+        guard case .saved(let fileURLs) = materializeImageFileURLsIfNeeded(from: pasteboard) else {
+            return []
         }
-
-        registerOwnedTemporaryImageFile(fileURL)
-        return .saved(fileURL)
+        return fileURLs
     }
 
     /// When the clipboard contains only image data (or rich text that resolves to
@@ -670,6 +903,17 @@ enum GhosttyPasteboardHelper {
                 continue
             }
             try? FileManager.default.removeItem(at: normalizedURL)
+        }
+    }
+
+    static func cleanupAllOwnedTemporaryImageFiles() {
+        temporaryImageOwnershipLock.lock()
+        let paths = ownedTemporaryImagePaths
+        ownedTemporaryImagePaths.removeAll()
+        temporaryImageOwnershipLock.unlock()
+
+        for path in paths {
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: path))
         }
     }
 
@@ -1866,8 +2110,9 @@ class GhosttyApp {
                 return
             }
 
+            let fallbackShouldUseHostLayerBackground = usesHostLayerBackground(for: fallbackConfig)
             loadInlineGhosttyConfig(
-                "macos-background-from-layer = true",
+                "macos-background-from-layer = \(fallbackShouldUseHostLayerBackground)",
                 into: fallbackConfig,
                 prefix: "cmux-renderer-bg",
                 logLabel: "renderer background (fallback)"
@@ -1880,7 +2125,7 @@ class GhosttyApp {
             )
             loadCmuxOwnedGhosttyKeybindOverrides(fallbackConfig)
             let fallbackRenderingModeChanged = setUsesHostLayerBackground(
-                true,
+                fallbackShouldUseHostLayerBackground,
                 source: "initialize.fallbackConfig"
             )
             ghostty_config_finalize(fallbackConfig)
@@ -2016,15 +2261,17 @@ class GhosttyApp {
         }
         #endif
         loadCJKFontFallbackIfNeeded(config)
+        let shouldUseHostLayerBackground = usesHostLayerBackground(for: config)
         let renderingModeChanged = setUsesHostLayerBackground(
-            true,
+            shouldUseHostLayerBackground,
             source: "loadDefaultConfigFilesWithLegacyFallback"
         )
-        // Let cmux own the window-level backdrop once, while Ghostty keeps
-        // rendering text, cell backgrounds, and background images. This avoids
-        // separate translucent fills for terminal and chrome surfaces.
+        // Let Ghostty paint solid opaque terminal backgrounds so default cells
+        // and explicit ANSI background cells share one renderer/compositor path.
+        // Host-layer ownership remains required for translucent and blurred
+        // terminal backgrounds.
         loadInlineGhosttyConfig(
-            "macos-background-from-layer = true",
+            "macos-background-from-layer = \(shouldUseHostLayerBackground)",
             into: config,
             prefix: "cmux-renderer-bg",
             logLabel: "renderer background"
@@ -2055,17 +2302,21 @@ class GhosttyApp {
     }
 
     private func loadCmuxOwnedGhosttyKeybindOverrides(_ config: ghostty_config_t) {
-        // cmux owns these split shortcuts through KeyboardShortcutSettings.
+        // cmux owns these split and close shortcuts through KeyboardShortcutSettings.
         // Remove Ghostty's default fallbacks so remapped or cleared shortcuts
-        // can reach the focused terminal instead of creating a split.
+        // can reach the focused terminal instead of splitting or closing outside
+        // the remappable shortcut layer.
         loadInlineGhosttyConfig(
             """
             keybind = super+d=unbind
             keybind = super+shift+d=unbind
+            keybind = super+w=unbind
+            keybind = super+alt+w=unbind
+            keybind = super+shift+w=unbind
             """,
             into: config,
-            prefix: "cmux-owned-split-keybind-overrides",
-            logLabel: "cmux-owned split keybind overrides"
+            prefix: "cmux-owned-keybind-overrides",
+            logLabel: "cmux-owned keybind overrides"
         )
     }
 
@@ -2978,10 +3229,7 @@ class GhosttyApp {
         let resolvedCursorText = ghosttyColorValue(from: config, key: "cursor-text", fallback: baseline.cursorTextColor)
         let resolvedSelectionBackground = ghosttyColorValue(from: config, key: "selection-background", fallback: baseline.selectionBackground)
         let resolvedSelectionForeground = ghosttyColorValue(from: config, key: "selection-foreground", fallback: baseline.selectionForeground)
-        var opacity = baseline.backgroundOpacity
-        let opacityKey = "background-opacity"
-        _ = ghostty_config_get(config, &opacity, opacityKey, UInt(opacityKey.lengthOfBytes(using: .utf8)))
-        opacity = min(1.0, max(0.0, opacity))
+        let opacity = defaultBackgroundOpacityValue(from: config)
         let backgroundBlur = defaultBackgroundBlurValue(from: config)
         applyDefaultBackground(
             color: resolvedColor,
@@ -2995,6 +3243,20 @@ class GhosttyApp {
             source: source,
             scope: scope,
             forceNotify: forceNotify
+        )
+    }
+
+    private func defaultBackgroundOpacityValue(from config: ghostty_config_t) -> Double {
+        var opacity = Self.fallbackAppearanceConfig.backgroundOpacity
+        let key = "background-opacity"
+        _ = ghostty_config_get(config, &opacity, key, UInt(key.lengthOfBytes(using: .utf8)))
+        return Double(WindowAppearanceSnapshot.clampedOpacity(opacity))
+    }
+
+    private func usesHostLayerBackground(for config: ghostty_config_t) -> Bool {
+        WindowAppearanceSnapshot.usesHostLayerBackground(
+            backgroundOpacity: defaultBackgroundOpacityValue(from: config),
+            backgroundBlur: defaultBackgroundBlurValue(from: config)
         )
     }
 
@@ -4180,12 +4442,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
     var portOrdinal: Int = 0
     /// Snapshotted once per app session so all workspaces use consistent values
     private static let sessionPortBase: Int = {
-        let val = UserDefaults.standard.integer(forKey: "cmuxPortBase")
-        return val > 0 ? val : 9100
+        let val = UserDefaults.standard.integer(forKey: AutomationSettings.portBaseKey)
+        return val > 0 ? val : AutomationSettings.defaultPortBase
     }()
     private static let sessionPortRangeSize: Int = {
-        let val = UserDefaults.standard.integer(forKey: "cmuxPortRange")
-        return val > 0 ? val : 10
+        let val = UserDefaults.standard.integer(forKey: AutomationSettings.portRangeKey)
+        return val > 0 ? val : AutomationSettings.defaultPortRange
     }()
     private let surfaceContext: ghostty_surface_context_e
     private let configTemplate: CmuxSurfaceConfigTemplate?
@@ -5934,6 +6196,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")
     }()
     static var debugGhosttySurfaceKeyEventObserver: ((ghostty_input_key_s) -> Void)?
+    @MainActor static var debugTextInputEventHandler: ((GhosttyNSView, NSEvent) -> Bool)?
 #endif
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
@@ -6938,6 +7201,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let result = super.becomeFirstResponder()
         var shouldApplySurfaceFocus = false
         if result {
+            imeSuppressedKeyUpKeyCodes.removeAll()
             if let terminalSurface,
                AppDelegate.shared?.allowsTerminalKeyboardFocus(
                    workspaceId: terminalSurface.tabId,
@@ -7017,6 +7281,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             if let displayID = window?.screen?.displayID, displayID != 0 {
                 ghostty_surface_set_display_id(surface, displayID)
             }
+            terminalSurface?.forceRefresh(reason: "focus.firstResponder")
         }
         return result
     }
@@ -7026,6 +7291,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if result {
             desiredFocus = false
             terminalSurface?.recordExternalFocusState(false)
+            imeSuppressedKeyUpKeyCodes.removeAll()
         }
         if result, let surface = surface {
             let now = CACurrentMediaTime()
@@ -7038,6 +7304,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // For NSTextInputClient - accumulates text during key events
     private(set) var keyTextAccumulator: [String]? = nil
+    private var imeSuppressedKeyUpKeyCodes: Set<UInt16> = []
     private var markedText = NSMutableAttributedString()
     private var markedSelectedRange = NSRange(location: NSNotFound, length: 0)
     private var lastPerformKeyEvent: TimeInterval?
@@ -7057,20 +7324,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var keyTextAccumulatorForTesting: [String]? {
         keyTextAccumulator
     }
+    func setIMETransientStateForTesting(suppressedKeyUpKeyCodes: Set<UInt16>) {
+        imeSuppressedKeyUpKeyCodes = suppressedKeyUpKeyCodes
+    }
+    var imeSuppressedKeyUpKeyCodesForTesting: Set<UInt16> {
+        imeSuppressedKeyUpKeyCodes
+    }
     func shouldSuppressShiftSpaceFallbackTextForTesting(event: NSEvent, markedTextBefore: Bool) -> Bool {
         shouldSuppressShiftSpaceFallbackText(event: event, markedTextBefore: markedTextBefore)
     }
-
     // Test-only IME point override so firstRect behavior can be regression tested.
     private var imePointOverrideForTesting: (x: Double, y: Double, width: Double, height: Double)?
-
-    func setIMEPointForTesting(x: Double, y: Double, width: Double, height: Double) {
-        imePointOverrideForTesting = (x, y, width, height)
-    }
-
-    func clearIMEPointForTesting() {
-        imePointOverrideForTesting = nil
-    }
+    func setIMEPointForTesting(x: Double, y: Double, width: Double, height: Double) { imePointOverrideForTesting = (x, y, width, height) }
+    func clearIMEPointForTesting() { imePointOverrideForTesting = nil }
 #endif
 
 #if DEBUG
@@ -7118,10 +7384,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
               fr === self || fr.isDescendant(of: self) else { return false }
         guard let surface = ensureSurfaceReadyForInput() else { return false }
 
-        // If the IME is composing (marked text present) and the key has no Cmd
-        // modifier, don't intercept — let it flow through to keyDown so the input
-        // method can process it normally. Cmd-based shortcuts should still work
-        // during composition since Cmd is never part of IME input sequences.
+        // Let non-Cmd keys flow to keyDown while IME is composing; Cmd shortcuts still work.
         if hasMarkedText(), !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
             return false
         }
@@ -7467,21 +7730,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let markedTextBefore = markedText.length > 0
         let markedStateBefore = (markedText.string, markedSelectedRange)
 
-        // Capture the keyboard layout ID before interpretation so we can
-        // detect if an IME changed it (e.g. toggling input methods).
-        // We only check when not already in a preedit state.
-        let keyboardIdBefore: String? = if (!markedTextBefore) {
-            KeyboardLayout.id
-        } else {
-            nil
-        }
+        // Capture the keyboard layout ID before interpretation so the IME
+        // forwarding decision uses the source that saw this key.
+        let keyboardIdBefore = KeyboardLayout.id
 
         // Let the input system handle the event (for IME, dead keys, etc.)
 #if DEBUG
         let interpretTimingStart = CmuxTypingTiming.start()
         let interpretPhaseStart = ProcessInfo.processInfo.systemUptime
 #endif
-        interpretKeyEvents([translationEvent])
+        let textInputHandledEvent = handleTextInputKeyEvent(translationEvent)
 #if DEBUG
         interpretMs = (ProcessInfo.processInfo.systemUptime - interpretPhaseStart) * 1000.0
         CmuxTypingTiming.logDuration(
@@ -7493,7 +7751,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         // If the keyboard layout changed, an input method grabbed the event.
         // Sync preedit and return without sending the key to Ghostty.
-        if !markedTextBefore, let kbBefore = keyboardIdBefore, kbBefore != KeyboardLayout.id {
+        if !markedTextBefore, keyboardIdBefore != KeyboardLayout.id {
+            imeSuppressedKeyUpKeyCodes.insert(event.keyCode)
 #if DEBUG
             let syncPreeditStart = ProcessInfo.processInfo.systemUptime
 #endif
@@ -7504,8 +7763,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
 
-        // Sync the preedit state with Ghostty so it can render the IME
-        // composition overlay (e.g. for Korean, Japanese, Chinese input).
+        // Sync preedit so Ghostty can render the IME composition overlay.
 #if DEBUG
         let syncPreeditStart = ProcessInfo.processInfo.systemUptime
 #endif
@@ -7516,8 +7774,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         let accumulatedText = keyTextAccumulator ?? []
         if shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
-            before: markedStateBefore, after: (markedText.string, markedSelectedRange), accumulatedText: accumulatedText
-        ) { return }
+            before: markedStateBefore,
+            after: (markedText.string, markedSelectedRange),
+            accumulatedText: accumulatedText,
+            event: translationEvent,
+            textInputHandledEvent: textInputHandledEvent,
+            inputSourceId: keyboardIdBefore
+        ) {
+            imeSuppressedKeyUpKeyCodes.insert(event.keyCode)
+            return
+        }
+
+        // A forwarded keyDown owns its keyUp. Clear any stale IME suppression
+        // entry left by an earlier suppressed repeat for the same physical key.
+        imeSuppressedKeyUpKeyCodes.remove(event.keyCode)
 
         // Build the key event
         var keyEvent = ghostty_input_key_s()
@@ -7528,12 +7798,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyEvent.consumed_mods = consumedModsFromFlags(translationMods)
         keyEvent.unshifted_codepoint = unshiftedCodepointFromEvent(event)
 
-        // We're composing if we have preedit (the obvious case). But we're also
-        // composing if we don't have preedit and we had marked text before,
-        // because this input probably just reset the preedit state. It shouldn't
-        // be encoded. Example: Japanese begin composing, then press backspace.
-        // This should only cancel the composing state but not actually delete
-        // the prior input characters (prior to the composing).
+        // Treat cleared preedit as composing too, so a composing Backspace cancels
+        // composition without deleting the preceding terminal input.
         keyEvent.composing = markedText.length > 0 || markedTextBefore
 
         // Use accumulated text from insertText (for IME), or compute text for key
@@ -7704,6 +7970,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     @discardableResult
+    private func handleTextInputKeyEvent(_ event: NSEvent) -> Bool {
+#if DEBUG
+        if let debugTextInputEventHandler = Self.debugTextInputEventHandler {
+            return debugTextInputEventHandler(self, event)
+        }
+#endif
+        guard let inputContext else {
+            interpretKeyEvents([event])
+            return false
+        }
+        return inputContext.handleEvent(event)
+    }
+
+    @discardableResult
     private func sendGhosttyKey(_ surface: ghostty_surface_t, _ keyEvent: ghostty_input_key_s) -> Bool {
 #if DEBUG
         Self.debugGhosttySurfaceKeyEventObserver?(keyEvent)
@@ -7735,6 +8015,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func keyUp(with event: NSEvent) {
+        if imeSuppressedKeyUpKeyCodes.remove(event.keyCode) != nil {
+            return
+        }
+
         guard let surface = ensureSurfaceReadyForInput() else {
             super.keyUp(with: event)
             return
@@ -9090,6 +9374,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ) {
         case .insertText(let text):
             return .insertText(text)
+        case .insertTextSegments(let segments, _):
+            return .insertText(segments.joined())
         case .uploadFiles(let fileURLs, _):
             return .uploadFiles(fileURLs)
         case .reject:
@@ -9240,18 +9526,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
-    fileprivate func handleDroppedFileURLs(_ urls: [URL]) -> Bool {
+    func handleDroppedFileURLs(_ urls: [URL]) -> Bool {
         executePreparedImageTransfer(
             .fileURLs(urls),
             onCancel: {}
         )
-    }
-
-    func handleDroppedFileURLsAsText(_ urls: [URL]) -> Bool {
-        let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
-        guard !text.isEmpty, let terminalSurface else { return false }
-        terminalSurface.sendText(text)
-        return true
     }
 
     @discardableResult
@@ -9279,22 +9558,52 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .fileURLs(let fileURLs):
             let plan = TerminalImageTransferPlanner.plan(
                 fileURLs: fileURLs,
-                target: resolvedImageTransferTarget()
+                target: resolvedImageTransferTarget(),
+                mode: .drop
             )
             return executeImageTransferPlan(plan, onCancel: onCancel)
         }
     }
 
 #if DEBUG
+    fileprivate enum DebugDropPayloadKind {
+        case fileURLs
+        case imageData
+    }
+
     @discardableResult
-    fileprivate func debugSimulateFileDrop(paths: [String]) -> Bool {
+    fileprivate func debugSimulateFileDrop(
+        paths: [String],
+        asImageData: Bool = false
+    ) -> Bool {
         guard !paths.isEmpty else { return false }
-        let urls = paths.map { URL(fileURLWithPath: $0) as NSURL }
         let pbName = NSPasteboard.Name("cmux.debug.drop.\(UUID().uuidString)")
         let pasteboard = NSPasteboard(name: pbName)
         pasteboard.clearContents()
-        pasteboard.writeObjects(urls)
+        switch asImageData ? DebugDropPayloadKind.imageData : .fileURLs {
+        case .fileURLs:
+            let urls = paths.map { URL(fileURLWithPath: $0) as NSURL }
+            pasteboard.writeObjects(urls)
+        case .imageData:
+            let items = paths.compactMap { path -> NSPasteboardItem? in
+                let url = URL(fileURLWithPath: path)
+                guard let data = try? Data(contentsOf: url),
+                      let type = debugImagePasteboardType(for: url) else { return nil }
+                let item = NSPasteboardItem()
+                item.setData(data, forType: type)
+                return item
+            }
+            guard items.count == paths.count else { return false }
+            pasteboard.writeObjects(items)
+        }
         return insertDroppedPasteboard(pasteboard)
+    }
+
+    private func debugImagePasteboardType(for url: URL) -> NSPasteboard.PasteboardType? {
+        let pathExtension = url.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let utType = UTType(filenameExtension: pathExtension),
+              utType.conforms(to: .image) else { return nil }
+        return NSPasteboard.PasteboardType(utType.identifier)
     }
 
     fileprivate func debugRegisteredDropTypes() -> [String] {
@@ -11161,8 +11470,8 @@ final class GhosttySurfaceScrollView: NSView {
 
 #if DEBUG
     @discardableResult
-    func debugSimulateFileDrop(paths: [String]) -> Bool {
-        surfaceView.debugSimulateFileDrop(paths: paths)
+    func debugSimulateFileDrop(paths: [String], asImageData: Bool = false) -> Bool {
+        surfaceView.debugSimulateFileDrop(paths: paths, asImageData: asImageData)
     }
 
     func debugPendingSurfaceSize() -> CGSize? {
@@ -11224,13 +11533,6 @@ final class GhosttySurfaceScrollView: NSView {
         cmuxDebugLog("terminal.swiftUIDrop surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") urls=\(urls.map(\.lastPathComponent))")
         #endif
         return surfaceView.handleDroppedFileURLs(urls)
-    }
-
-    func handleDroppedURLsAsText(_ urls: [URL]) -> Bool {
-        #if DEBUG
-        cmuxDebugLog("terminal.swiftUIDropAsText surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") urls=\(urls.map(\.lastPathComponent))")
-        #endif
-        return surfaceView.handleDroppedFileURLsAsText(urls)
     }
 
     func terminalViewForDrop(at point: NSPoint) -> GhosttyNSView? {

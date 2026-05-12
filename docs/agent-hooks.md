@@ -66,6 +66,6 @@ Pi uses Pi's extension system, not the legacy Pi hooks API. The installed extens
 
 Run `cmux hooks <agent> install --yes` to reinstall one integration. Run `cmux hooks <agent> uninstall --yes` before editing generated files by hand.
 
-If Feed shows nothing, confirm the terminal has `CMUX_SURFACE_ID` and the hook file contains a `cmux hooks feed --source <agent>` command or OpenCode feed plugin. Pi and Rovo Dev currently provide lifecycle and restore hooks only, so they do not create Feed approval cards.
+If Feed shows nothing, confirm the terminal has `CMUX_SURFACE_ID` and the hook file contains a `cmux hooks feed --source <agent>` command or OpenCode feed plugin. Pi, Rovo Dev, and Amp currently provide lifecycle and restore hooks only, so they do not create Feed approval cards.
 
 If relaunch does not resume an agent, check `~/.cmuxterm/<agent>-hook-sessions.json` for the saved session and verify the agent's resume command still works outside cmux.

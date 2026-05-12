@@ -639,7 +639,7 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
             Text(String(localized: "sessionIndex.row.copyPath", defaultValue: "Copy File Path"))
         }
     }
-    if let resumeCommand = entry.resumeCommandWithCwd {
+    if let resumeCommand = entry.resumeCommand {
         Button {
             let pb = NSPasteboard.general
             pb.clearContents()

@@ -51,6 +51,9 @@ jobs:
       - name: Validate Swift file length budget guard
         run: ./tests/test_ci_swift_file_length_budget.sh
 
+      - name: Validate auxiliary window close shortcut lint
+        run: ./tests/test_ci_auxiliary_window_close_shortcuts.sh
+
       - name: Validate CircleCI auto approval
         run: python3 tests/test_circleci_auto_approve.py
 

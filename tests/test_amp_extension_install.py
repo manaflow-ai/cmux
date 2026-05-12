@@ -28,6 +28,14 @@ def main() -> int:
     if node is None:
         print("SKIP: node not found")
         return 0
+    try:
+        raw_version = subprocess.check_output([node, "--version"], text=True).strip()
+        version_parts = tuple(int(part) for part in raw_version.lstrip("v").split(".")[:3])
+    except Exception:
+        version_parts = (0, 0, 0)
+    if version_parts < (22, 6, 0):
+        print("SKIP: node >= 22.6.0 required")
+        return 0
 
     try:
         cli_path = resolve_cmux_cli()
@@ -82,6 +90,7 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
   printf 'kind=%s\n' "${CMUX_AGENT_LAUNCH_KIND-}"
   printf 'cwd=%s\n' "${CMUX_AGENT_LAUNCH_CWD-}"
   printf 'argv=%s\n' "${CMUX_AGENT_LAUNCH_ARGV_B64-}"
+  printf 'amp_api_key=%s\n' "${AMP_API_KEY-}"
 } >> "$FAKE_CMUX_ENV_LOG"
 """,
         )
@@ -90,6 +99,7 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
         check_env["CMUX_TEST_AMP_EXTENSION_PATH"] = str(extension_path)
         check_env["CMUX_SURFACE_ID"] = "surface-amp-test"
         check_env["CMUX_AMP_CMUX_BIN"] = str(fake_cmux)
+        check_env["AMP_API_KEY"] = "secret-should-not-propagate"
         check_env["FAKE_CMUX_ARGS_LOG"] = str(fake_args_log)
         check_env["FAKE_CMUX_STDIN_LOG"] = str(fake_stdin_log)
         check_env["FAKE_CMUX_ENV_LOG"] = str(fake_env_log)
@@ -114,9 +124,11 @@ process.argv.splice(
   "--mode",
   "geppetto"
 );
-await handlers.get("session.start")({ thread: { id: "T-amp-session-test" } });
-await handlers.get("agent.start")({ prompt: "hello amp" });
-await handlers.get("agent.end")({ status: "done" });
+const thread = { id: "T-amp-session-test" };
+const ctx = { thread };
+await handlers.get("session.start")({ thread }, ctx);
+await handlers.get("agent.start")({ thread, message: "hello amp", id: "msg-user-1" }, ctx);
+await handlers.get("agent.end")({ thread, message: "hello amp", id: "msg-user-1", status: "done", messages: [] }, ctx);
 """
         check_script = root / "check.mjs"
         check_script.write_text(check_source, encoding="utf-8")
@@ -153,11 +165,15 @@ await handlers.get("agent.end")({ status: "done" });
         if "kind=amp" not in env_log or "cwd=/tmp/amp-project" not in env_log or "argv=" not in env_log:
             print(f"FAIL: plugin did not pass launch metadata environment, got {env_log!r}")
             return 1
+        if "amp_api_key=secret-should-not-propagate" in env_log:
+            print(f"FAIL: plugin propagated AMP_API_KEY into hook subprocess, got {env_log!r}")
+            return 1
         argv_line = next((line for line in env_log.splitlines() if line.startswith("argv=")), "")
         try:
+            argv_value = argv_line[len("argv="):] if argv_line.startswith("argv=") else argv_line
             decoded_argv = [
                 value
-                for value in base64.b64decode(argv_line.removeprefix("argv=")).decode("utf-8").split("\0")
+                for value in base64.b64decode(argv_value).decode("utf-8").split("\0")
                 if value
             ]
         except Exception as exc:

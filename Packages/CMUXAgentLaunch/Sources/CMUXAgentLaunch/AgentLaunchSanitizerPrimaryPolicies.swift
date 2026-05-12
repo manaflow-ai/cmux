@@ -10,6 +10,7 @@ extension AgentLaunchSanitizer {
             "--allowed-tools",
             "--append-system-prompt",
             "--betas",
+            "--dangerously-load-development-channels",
             "--debug-file",
             "--disallowedTools",
             "--disallowed-tools",
@@ -222,7 +223,7 @@ extension AgentLaunchSanitizer {
             "--effort",
             // --label takes a value; listed here AND in droppedOptions so the
             // sanitizer consumes the value too (otherwise it slips through as
-            // a positional). Same for -l.
+            // a positional).
             "--label",
             "--log-file",
             "--log-level",
@@ -254,8 +255,7 @@ extension AgentLaunchSanitizer {
             "--label",
             "--stream-json",
             "--stream-json-input",
-            "--stream-json-thinking",
-            "-l"
+            "--stream-json-thinking"
         ],
         rejectOptions: [
             "--execute",

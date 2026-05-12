@@ -237,7 +237,7 @@ extension SocketListenerAcceptPolicyTests {
                     "high"
                 ],
                 workingDirectory: "/tmp/amp repo",
-                environment: ["AMP_API_KEY": "secret", "OPENAI_API_KEY": "secret"],
+                environment: ["AMP_SETTINGS_FILE": "/tmp/amp-settings.json", "OPENAI_API_KEY": "secret"],
                 capturedAt: 123,
                 source: "process"
             )
@@ -266,7 +266,7 @@ extension SocketListenerAcceptPolicyTests {
         XCTAssertEqual(pi.resumeCommand, "cd '/tmp/pi repo' && 'env' 'PI_CODING_AGENT_DIR=/tmp/pi home' '/Users/example/.bun/bin/pi' '--session' 'pi-session-123' '--model' 'anthropic/claude-sonnet-4-5' '--thinking' 'high'")
         XCTAssertEqual(
             amp.resumeCommand,
-            "cd '/tmp/amp repo' && 'env' 'AMP_API_KEY=secret' '/Users/example/.local/bin/amp' 'threads' 'continue' '--mode' 'smart' '--effort' 'high' 'T-019e032c-c31a-77a9-ad87-8298ec47029f'"
+            "cd '/tmp/amp repo' && 'env' 'AMP_SETTINGS_FILE=/tmp/amp-settings.json' '/Users/example/.local/bin/amp' 'threads' 'continue' '--mode' 'smart' '--effort' 'high' 'T-019e032c-c31a-77a9-ad87-8298ec47029f'"
         )
     }
 
@@ -489,6 +489,29 @@ extension SocketListenerAcceptPolicyTests {
                 "/tmp/factory repo",
                 "--append-system-prompt",
                 "be terse"
+            ]
+        )
+        XCTAssertEqual(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Users/example/.local/bin/amp",
+                    "threads",
+                    "continue",
+                    "T-old-thread",
+                    "--mode",
+                    "smart",
+                    "--effort",
+                    "high"
+                ],
+                launcher: "amp",
+                fallbackKind: "amp"
+            ),
+            [
+                "/Users/example/.local/bin/amp",
+                "--mode",
+                "smart",
+                "--effort",
+                "high"
             ]
         )
         XCTAssertEqual(

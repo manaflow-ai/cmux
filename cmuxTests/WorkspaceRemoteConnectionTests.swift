@@ -593,6 +593,33 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testRemoteReconnectingStateIsExposedInStatusPayload() {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64033,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.applyRemoteConnectionStateUpdate(
+            .reconnecting,
+            detail: "Reconnecting to cmux-macmini",
+            target: "cmux-macmini"
+        )
+
+        XCTAssertEqual(workspace.remoteConnectionState, .reconnecting)
+        XCTAssertEqual(workspace.remoteStatusPayload()["state"] as? String, "reconnecting")
+    }
+
+    @MainActor
     func testForegroundSSHAuthReadyIgnoresMismatchedConfiguredToken() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1080,6 +1107,104 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let remotePath = WorkspaceRemoteSessionController.remoteDropPath(for: fileURL, uuid: uuid)
 
         XCTAssertEqual(remotePath, "/tmp/cmux-drop-12345678-1234-1234-1234-1234567890ab.png")
+    }
+
+    @MainActor
+    func testDaemonBootstrapUploadUsesAbsoluteHomePathForScpDestination() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-upload-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let fakeDaemonURL = directoryURL.appendingPathComponent("cmuxd-remote", isDirectory: false)
+        try Data("fake daemon".utf8).write(to: fakeDaemonURL)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeDaemonURL.path)
+
+        let previousAllowLocalBuild = getenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD").map { String(cString: $0) }
+        let previousDaemonBinary = getenv("CMUX_REMOTE_DAEMON_BINARY").map { String(cString: $0) }
+        setenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD", "1", 1)
+        setenv("CMUX_REMOTE_DAEMON_BINARY", fakeDaemonURL.path, 1)
+        defer {
+            if let previousAllowLocalBuild {
+                setenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD", previousAllowLocalBuild, 1)
+            } else {
+                unsetenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD")
+            }
+            if let previousDaemonBinary {
+                setenv("CMUX_REMOTE_DAEMON_BINARY", previousDaemonBinary, 1)
+            } else {
+                unsetenv("CMUX_REMOTE_DAEMON_BINARY")
+            }
+        }
+
+        let scpInvoked = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var scpDestination: String?
+        WorkspaceRemoteSessionController.runProcessOverrideForTesting = { executable, arguments, _, _ in
+            if executable == "/usr/bin/ssh" {
+                let command = arguments.last ?? ""
+                if command.contains("uname -s") {
+                    return (
+                        status: 0,
+                        stdout: """
+                        __CMUX_REMOTE_HOME__=/home/test
+                        __CMUX_REMOTE_OS__=Linux
+                        __CMUX_REMOTE_ARCH__=x86_64
+                        __CMUX_REMOTE_EXISTS__=no
+                        """,
+                        stderr: ""
+                    )
+                }
+                if command.contains("mkdir -p") {
+                    return (status: 0, stdout: "", stderr: "")
+                }
+                return (status: 0, stdout: "", stderr: "")
+            }
+            if executable == "/usr/bin/scp" {
+                lock.lock()
+                scpDestination = arguments.last
+                lock.unlock()
+                scpInvoked.signal()
+                return (status: 1, stdout: "", stderr: "intentional stop after upload destination capture")
+            }
+            XCTFail("unexpected executable \(executable)")
+            return (status: 1, stdout: "", stderr: "unexpected executable")
+        }
+        defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
+
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "test@hpc.example",
+            port: 2222,
+            identityFile: "/Users/test/.ssh/id_ed25519",
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: "ssh test@hpc.example"
+        )
+        defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
+
+        workspace.configureRemoteConnection(config, autoConnect: true)
+
+        XCTAssertEqual(scpInvoked.wait(timeout: .now() + 2), .success)
+        lock.lock()
+        let capturedDestination = scpDestination
+        lock.unlock()
+        let destination = try XCTUnwrap(capturedDestination)
+        XCTAssertTrue(
+            destination.hasPrefix("test@hpc.example:/home/test/.cmux/bin/cmuxd-remote/"),
+            "expected scp to target an absolute path under remote HOME, got \(destination)"
+        )
+        XCTAssertTrue(
+            destination.contains("/linux-amd64/cmuxd-remote.tmp-"),
+            "expected daemon platform temp path in \(destination)"
+        )
     }
 
     @MainActor
@@ -2682,7 +2807,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             if let data = line.data(using: .utf8),
                let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
             }
             return "OK"
         }
@@ -2762,7 +2887,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             if let data = line.data(using: .utf8),
                let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
             }
             return "OK"
         }
@@ -2845,7 +2970,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             if let data = line.data(using: .utf8),
                let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
             }
             return "OK"
         }
@@ -2925,7 +3050,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             if let data = line.data(using: .utf8),
                let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
             }
             return "OK"
         }

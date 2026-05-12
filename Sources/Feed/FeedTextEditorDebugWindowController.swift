@@ -16,6 +16,7 @@ final class FeedTextEditorDebugWindowController: NSWindowController, NSWindowDel
             localized: "feed.textEditorDebug.windowTitle",
             defaultValue: "Feed Text Editor Lab"
         )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.feedTextEditorDebug")
         window.center()
         window.contentView = NSHostingView(rootView: FeedTextEditorDebugView())
         super.init(window: window)

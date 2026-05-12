@@ -627,7 +627,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         #endif
 
-        func windowShouldClose(_ sender: NSWindow) -> Bool { shouldClose?() ?? true }
+        func windowShouldClose(_ sender: NSWindow) -> Bool {
+            let shouldClose = shouldClose?() ?? true
+            if shouldClose {
+                WebViewInspectorTeardown.closeAllInspectors(in: sender)
+            }
+            return shouldClose
+        }
     }
 
     struct ScriptableMainWindowState {
@@ -648,13 +654,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let display: SessionDisplaySnapshot?
     }
 
+    private nonisolated static let primaryMainWindowFrameAutosaveName: NSWindow.FrameAutosaveName =
+        "cmux.mainWindow.primary"
+    private nonisolated static let mainWindowFrameAutosaveNamePrefix = "cmux.mainWindow"
     nonisolated static let persistedWindowGeometrySchemaVersion = 2
     private nonisolated static let persistedWindowGeometryDefaultsKey = "cmux.session.lastWindowGeometry.v2"
 #if DEBUG
+    nonisolated static var debugPrimaryMainWindowFrameAutosaveName: NSWindow.FrameAutosaveName {
+        primaryMainWindowFrameAutosaveName
+    }
     nonisolated static var debugPersistedWindowGeometryDefaultsKey: String { persistedWindowGeometryDefaultsKey }
+    nonisolated static func debugRemoveLegacyPersistedWindowGeometry(
+        defaults: UserDefaults = .standard
+    ) {
+        removeLegacyPersistedWindowGeometry(defaults: defaults)
+    }
 #endif
     private nonisolated static let legacyPersistedWindowGeometryDefaultsKeys = [
-        "cmux.session.lastWindowGeometry.v1"
+        "cmux.session.lastWindowGeometry.v1",
+        persistedWindowGeometryDefaultsKey,
     ]
 
     weak var tabManager: TabManager?
@@ -839,7 +857,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastCascadePoint = NSPoint.zero
     private var startupSessionSnapshot: AppSessionSnapshot?
     private var didPrepareStartupSessionSnapshot = false
-    private var didAttemptStartupSessionRestore = false
+    var didAttemptStartupSessionRestore = false
     private var isApplyingSessionRestore = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
@@ -858,8 +876,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastSessionAutosaveFingerprint: Int?
     private var lastSessionAutosavePersistedAt: Date = .distantPast
     private var lastTypingActivityAt: TimeInterval = 0
-    private var didHandleExplicitOpenIntentAtStartup = false
+    var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
+    var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
     private var didBootstrapInitialMainWindow = false
     private var isTerminatingApp = false
     // Set to true when the user has already confirmed quit via the warning dialog,
@@ -935,6 +954,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
+        if handleCmuxSSHURLs(from: urls) {
+            return
+        }
+
         let authCallbacks = urls.filter(AuthCallbackRouter.isAuthCallbackURL)
         for url in authCallbacks {
             Task { @MainActor in
@@ -1482,18 +1505,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
         if SocketControlSettings.isTaggedDevBuild() {
+            closeAllWebInspectorsBeforeAppTeardown()
             return .terminateNow
         }
 
         // If the user already confirmed via the Cmd+Q shortcut warning dialog
         // (handleQuitShortcutWarning), skip the check to avoid a second alert.
         if isQuitWarningConfirmed {
+            closeAllWebInspectorsBeforeAppTeardown()
             return .terminateNow
         }
 
         // Respect the "Warn Before Quit" setting even when Cmd+Q arrives via
         // the Cmd+Tab app switcher, bypassing handleCustomShortcut.
         guard QuitWarningSettings.isEnabled() else {
+            closeAllWebInspectorsBeforeAppTeardown()
             return .terminateNow
         }
 
@@ -1517,6 +1543,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let shouldQuit = response == .alertFirstButtonReturn
             if shouldQuit {
                 self.isQuitWarningConfirmed = true
+                self.closeAllWebInspectorsBeforeAppTeardown()
             } else {
                 // Reset so that the next quit attempt can show the dialog again.
                 self.isTerminatingApp = false
@@ -1526,12 +1553,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return .terminateLater
     }
 
+    @discardableResult
+    private func closeAllWebInspectorsBeforeAppTeardown() -> Int {
+        WebViewInspectorTeardown.closeAllInspectors(in: NSApp.windows)
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         isTerminatingApp = true
+        closeAllWebInspectorsBeforeAppTeardown()
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
+        CmuxSSHURLProcessLauncher.shared.terminateAll()
         TerminalController.shared.stop()
+        GhosttyPasteboardHelper.cleanupAllOwnedTemporaryImageFiles()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
         if TelemetrySettings.enabledForCurrentLaunch {
@@ -2490,43 +2525,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startupSessionSnapshot = SessionPersistenceStore.load()
     }
 
-    private func persistedWindowGeometry(defaults: UserDefaults = .standard) -> PersistedWindowGeometry? {
-        Self.removeLegacyPersistedWindowGeometry(defaults: defaults)
-        guard let data = defaults.data(forKey: Self.persistedWindowGeometryDefaultsKey) else {
-            return nil
-        }
-        guard let payload = Self.decodedPersistedWindowGeometryData(data) else {
-            defaults.removeObject(forKey: Self.persistedWindowGeometryDefaultsKey)
-            return nil
-        }
-        return payload
-    }
-
-    private func persistWindowGeometry(
-        frame: SessionRectSnapshot?,
-        display: SessionDisplaySnapshot?,
-        defaults: UserDefaults = .standard
-    ) {
-        Self.removeLegacyPersistedWindowGeometry(defaults: defaults)
-        guard let data = Self.encodedPersistedWindowGeometryData(frame: frame, display: display) else {
-            return
-        }
-        defaults.set(data, forKey: Self.persistedWindowGeometryDefaultsKey)
-    }
-
-    private nonisolated static func encodedPersistedWindowGeometryData(
-        frame: SessionRectSnapshot?,
-        display: SessionDisplaySnapshot?
-    ) -> Data? {
-        guard let frame else { return nil }
-        let payload = PersistedWindowGeometry(
-            version: persistedWindowGeometrySchemaVersion,
-            frame: frame,
-            display: display
-        )
-        return try? JSONEncoder().encode(payload)
-    }
-
     nonisolated static func decodedPersistedWindowGeometryData(_ data: Data) -> PersistedWindowGeometry? {
         guard let payload = try? JSONDecoder().decode(PersistedWindowGeometry.self, from: data),
               payload.version == persistedWindowGeometrySchemaVersion else {
@@ -2539,14 +2537,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         defaults: UserDefaults = .standard
     ) {
         legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObject(forKey: $0) }
-    }
-
-    private func persistWindowGeometry(from window: NSWindow?) {
-        guard let window else { return }
-        persistWindowGeometry(
-            frame: SessionRectSnapshot(window.frame),
-            display: displaySnapshot(for: window)
-        )
     }
 
     private func currentDisplayGeometries() -> (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?) {
@@ -2565,17 +2555,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
         return (available, fallback)
-    }
-
-    private func resolvedPersistedWindowGeometryFrame() -> NSRect? {
-        let displays = currentDisplayGeometries()
-        let fallbackGeometry = persistedWindowGeometry()
-        return Self.resolvedWindowFrame(
-            from: fallbackGeometry?.frame,
-            display: fallbackGeometry?.display,
-            availableDisplays: displays.available,
-            fallbackDisplay: displays.fallback
-        )
     }
 
     private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) {
@@ -2600,18 +2579,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 to: primaryContext,
                 window: primaryWindow
             )
-        } else {
-            let displays = currentDisplayGeometries()
-            let fallbackGeometry = persistedWindowGeometry()
-            if let restoredFrame = Self.resolvedStartupPrimaryWindowFrame(
-                primarySnapshot: nil,
-                fallbackFrame: fallbackGeometry?.frame,
-                fallbackDisplaySnapshot: fallbackGeometry?.display,
-                availableDisplays: displays.available,
-                fallbackDisplay: displays.fallback
-            ) {
-                primaryWindow.setFrame(restoredFrame, display: true)
-            }
         }
 
         if let startupSnapshot {
@@ -3298,17 +3265,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             persistSessionSnapshot(
                 nil,
                 removeWhenEmpty: removeWhenEmpty,
-                persistedGeometryData: nil,
                 synchronously: writeSynchronously
             )
             return false
-        }
-
-        let persistedGeometryData = snapshot.windows.first.flatMap { primaryWindow in
-            Self.encodedPersistedWindowGeometryData(
-                frame: primaryWindow.frame,
-                display: primaryWindow.display
-            )
         }
 
 #if DEBUG
@@ -3317,7 +3276,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         persistSessionSnapshot(
             snapshot,
             removeWhenEmpty: false,
-            persistedGeometryData: persistedGeometryData,
             synchronously: writeSynchronously
         )
         return true
@@ -3334,19 +3292,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             buildSnapshot: { [self] includeScrollback in
                 buildSessionSnapshot(includeScrollback: includeScrollback)
             },
-            persistedGeometryData: { snapshot in
-                snapshot?.windows.first.flatMap { primaryWindow in
-                    Self.encodedPersistedWindowGeometryData(
-                        frame: primaryWindow.frame,
-                        display: primaryWindow.display
-                    )
-                }
-            },
-            persistSnapshot: { [self] snapshot, persistedGeometryData in
+            persistSnapshot: { [self] snapshot in
                 persistSessionSnapshot(
                     snapshot,
                     removeWhenEmpty: false,
-                    persistedGeometryData: persistedGeometryData,
                     synchronously: true
                 )
             }
@@ -3548,19 +3497,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func persistSessionSnapshot(
         _ snapshot: AppSessionSnapshot?,
         removeWhenEmpty: Bool,
-        persistedGeometryData: Data?,
         synchronously: Bool
     ) {
-        guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
+        guard snapshot != nil || removeWhenEmpty else { return }
 
         let writeBlock = {
             Self.removeLegacyPersistedWindowGeometry()
-            if let persistedGeometryData {
-                UserDefaults.standard.set(
-                    persistedGeometryData,
-                    forKey: Self.persistedWindowGeometryDefaultsKey
-                )
-            }
             if let snapshot {
                 _ = SessionPersistenceStore.save(snapshot)
             } else if removeWhenEmpty {
@@ -3786,14 +3728,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func registerMainWindowContextForTesting(
         windowId: UUID = UUID(),
-        tabManager: TabManager
+        tabManager: TabManager,
+        fileExplorerState: FileExplorerState? = nil
     ) -> UUID {
         mainWindowContexts[ObjectIdentifier(tabManager)] = MainWindowContext(
             windowId: windowId,
             tabManager: tabManager,
             sidebarState: SidebarState(),
             sidebarSelectionState: SidebarSelectionState(),
-            fileExplorerState: nil,
+            fileExplorerState: fileExplorerState,
             cmuxConfigStore: nil,
             window: nil
         )
@@ -4768,8 +4711,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func refreshTerminalSurfacesAfterGhosttyConfigReload(source: String) {
         var refreshedCount = 0
         forEachTerminalPanel { terminalPanel in
-            terminalPanel.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
-            terminalPanel.surface.forceRefresh(reason: "appDelegate.refreshAfterGhosttyConfigReload")
+            let liveSurface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
+                reason: "appDelegate.refreshAfterGhosttyConfigReload"
+            )
+            GhosttySurfaceConfigurationRefresh.applyAfterAppConfigReload(
+                to: liveSurface,
+                source: source,
+                reloadSurfaceConfiguration: { surface, soft, source in
+                    GhosttyApp.shared.reloadSurfaceConfiguration(surface, soft: soft, source: source)
+                },
+                refreshHostBackground: {
+                    terminalPanel.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
+                },
+                forceRefresh: { reason in
+                    terminalPanel.surface.forceRefresh(reason: reason)
+                }
+            )
             refreshedCount += 1
         }
 #if DEBUG
@@ -5516,6 +5473,131 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    func applyRightSidebarRemoteCommand(
+        _ command: RightSidebarRemoteCommand,
+        target: RightSidebarRemoteTarget = RightSidebarRemoteTarget()
+    ) -> RightSidebarRemoteApplyResult {
+        let context = rightSidebarRemoteContext(target: target)
+        if !target.isActiveTarget, context == nil {
+            return .failure(String(localized: "rightSidebar.remote.error.targetNotFound", defaultValue: "ERROR: Right sidebar target not found"))
+        }
+        let state: FileExplorerState?
+        if target.isActiveTarget {
+            state = context?.fileExplorerState ?? fileExplorerState
+        } else {
+            state = context?.fileExplorerState
+        }
+        guard let state else {
+            return .failure(String(localized: "rightSidebar.remote.error.stateUnavailable", defaultValue: "ERROR: Right sidebar state not available"))
+        }
+
+        let preferredWindow = context.flatMap { $0.window ?? windowForMainWindowId($0.windowId) }
+        let requiresWindowFocus: Bool
+        switch command {
+        case .focus:
+            requiresWindowFocus = true
+        case .setMode(_, let focus):
+            requiresWindowFocus = focus
+        case .toggle, .show, .hide, .getState:
+            requiresWindowFocus = false
+        }
+        if requiresWindowFocus, !target.isActiveTarget, preferredWindow == nil {
+            return .failure(String(localized: "rightSidebar.remote.error.targetNotFound", defaultValue: "ERROR: Right sidebar target not found"))
+        }
+
+        switch command {
+        case .toggle:
+            guard target.isActiveTarget || preferredWindow != nil else {
+                return .failure(String(localized: "rightSidebar.remote.error.targetNotFound", defaultValue: "ERROR: Right sidebar target not found"))
+            }
+            guard toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindow) else {
+                return .failure(String(localized: "rightSidebar.remote.error.unavailable", defaultValue: "ERROR: Right sidebar not available"))
+            }
+            return .ok
+
+        case .show:
+            guard !state.isVisible else {
+                return .ok
+            }
+            guard target.isActiveTarget || preferredWindow != nil else {
+                return .failure(String(localized: "rightSidebar.remote.error.targetNotFound", defaultValue: "ERROR: Right sidebar target not found"))
+            }
+            guard toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindow) else {
+                return .failure(String(localized: "rightSidebar.remote.error.unavailable", defaultValue: "ERROR: Right sidebar not available"))
+            }
+            return .ok
+
+        case .hide:
+            let wasVisible = state.isVisible
+            state.setVisible(false)
+            if wasVisible {
+                _ = context?.keyboardFocusCoordinator.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded()
+            }
+            return .ok
+
+        case .focus:
+            guard focusRightSidebarInActiveMainWindow(preferredWindow: preferredWindow) else {
+                return .failure(String(localized: "rightSidebar.remote.error.focusFailed", defaultValue: "ERROR: Failed to focus right sidebar"))
+            }
+            return .ok
+
+        case .setMode(let mode, let focus):
+            guard mode.isAvailable() else {
+                return .failure(String(localized: "rightSidebar.remote.error.modeUnavailable", defaultValue: "ERROR: Right sidebar mode '\(mode.rawValue)' is not available"))
+            }
+            if focus {
+                guard focusRightSidebarInActiveMainWindow(mode: mode, focusFirstItem: true, preferredWindow: preferredWindow) else {
+                    return .failure(String(localized: "rightSidebar.remote.error.focusFailed", defaultValue: "ERROR: Failed to focus right sidebar"))
+                }
+            } else {
+                state.setVisible(true)
+                state.mode = mode
+            }
+            return .ok
+
+        case .getState:
+            return .state(.init(visible: state.isVisible, mode: state.mode))
+        }
+    }
+
+    private func rightSidebarRemoteContext(target: RightSidebarRemoteTarget) -> MainWindowContext? {
+        if let windowId = target.windowId {
+            return mainWindowContexts.values.first(where: { $0.windowId == windowId })
+        }
+        if let workspaceId = target.workspaceId {
+            return mainWindowContexts.values.first { context in
+                context.tabManager.tabs.contains(where: { $0.id == workspaceId })
+            }
+        }
+        return preferredRegisteredMainWindowContext()
+    }
+
+    @discardableResult
+    func closeRightSidebarInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
+        guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else {
+            guard let fileExplorerState else {
+                return false
+            }
+            fileExplorerState.setVisible(false)
+            return true
+        }
+
+        let window = context.window ?? windowForMainWindowId(context.windowId)
+        if let window {
+            setActiveMainWindow(window)
+        }
+
+        guard let state = context.fileExplorerState ?? fileExplorerState else {
+            return false
+        }
+        let wasVisible = state.isVisible
+        state.setVisible(false)
+        if wasVisible && !state.isVisible {
+            _ = context.keyboardFocusCoordinator.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded()
+        }
+        return true
+    }
+
     @discardableResult
     func restoreTerminalFocusAfterRightSidebarHidden(in window: NSWindow?) -> Bool {
         let context = preferredRegisteredMainWindowContext(preferredWindow: window)
@@ -5901,7 +5983,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !didScheduleInitialMainWindowBootstrap else { return }
         didScheduleInitialMainWindowBootstrap = true
         DispatchQueue.main.async { [weak self] in
-            self?.bootstrapInitialMainWindowIfNeeded(debugSource: debugSource)
+            guard let self else { return }
+            if self.shouldDeferInitialMainWindowBootstrapForExternalConfirmation { self.didScheduleInitialMainWindowBootstrap = false; return }
+            self.bootstrapInitialMainWindowIfNeeded(debugSource: debugSource)
         }
     }
 
@@ -6333,24 +6417,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func prepareForExplicitOpenIntentAtStartup() {
+    func prepareForExplicitOpenIntentAtStartup() {
         didHandleExplicitOpenIntentAtStartup = true
         if !didAttemptStartupSessionRestore {
             startupSessionSnapshot = nil
             didAttemptStartupSessionRestore = true
-        }
-    }
-
-    private func claimAuthCallbackURLSchemes() {
-        // Pin the current build as the default for cmux://  and cmux-dev://
-        // so the auth-callback deeplink routes back to this app instead of an
-        // unrelated LaunchServices entry.
-        let bundleURL = Bundle.main.bundleURL
-        for scheme in ["cmux", "cmux-dev"] {
-            NSWorkspace.shared.setDefaultApplication(
-                at: bundleURL,
-                toOpenURLsWithScheme: scheme
-            ) { _ in }
         }
     }
 
@@ -6685,7 +6756,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if let eventWindow = resolvedShortcutEventWindow(event),
                cmuxWindowShouldOwnCloseShortcut(eventWindow) {
                 // Auxiliary cmux windows do not own a terminal tab manager. Let them fall back
-                // to the active main terminal window so app shortcuts like Cmd+W still route.
+                // to the active main terminal window so app shortcuts like Close Tab still route.
             } else {
 #if DEBUG
                 logWorkspaceCreationRouting(
@@ -6791,15 +6862,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    private func mainWindowFrameAutosaveName(windowId: UUID) -> NSWindow.FrameAutosaveName {
+        if !hasLivePrimaryMainWindowFrameAutosaveOwner() {
+            return Self.primaryMainWindowFrameAutosaveName
+        }
+        return "\(Self.mainWindowFrameAutosaveNamePrefix).\(windowId.uuidString)"
+    }
+
+    private func hasLivePrimaryMainWindowFrameAutosaveOwner(excluding excludedWindow: NSWindow? = nil) -> Bool {
+        NSApp.windows.contains { window in
+            if let excludedWindow, window === excludedWindow {
+                return false
+            }
+            return window.frameAutosaveName == Self.primaryMainWindowFrameAutosaveName
+        }
+    }
+
+    private func promotePrimaryMainWindowFrameAutosaveNameIfNeeded(excluding excludedWindow: NSWindow? = nil) {
+        guard !hasLivePrimaryMainWindowFrameAutosaveOwner(excluding: excludedWindow) else { return }
+        guard let survivor = sortedMainWindowContextsForSessionSnapshot()
+            .compactMap({ resolvedWindow(for: $0) })
+            .first(where: { window in
+                guard let excludedWindow else { return true }
+                return window !== excludedWindow
+            }) else {
+            return
+        }
+
+        let previousAutosaveName = survivor.frameAutosaveName
+        guard previousAutosaveName != Self.primaryMainWindowFrameAutosaveName else { return }
+        let survivorFrame = survivor.frame
+        // Registering an autosave name can reload its saved frame; seed it with the survivor first.
+        survivor.saveFrame(usingName: Self.primaryMainWindowFrameAutosaveName)
+        guard survivor.setFrameAutosaveName(Self.primaryMainWindowFrameAutosaveName) else { return }
+        if survivor.frame != survivorFrame {
+            survivor.setFrame(survivorFrame, display: false)
+        }
+        survivor.saveFrame(usingName: Self.primaryMainWindowFrameAutosaveName)
+
+        if !previousAutosaveName.isEmpty,
+           previousAutosaveName.hasPrefix("\(Self.mainWindowFrameAutosaveNamePrefix).") {
+            NSWindow.removeFrame(usingName: previousAutosaveName)
+        }
+    }
+
+    private func removeEphemeralMainWindowFrameAutosaveNameIfNeeded(_ window: NSWindow) {
+        let autosaveName = window.frameAutosaveName
+        guard !autosaveName.isEmpty,
+              autosaveName != Self.primaryMainWindowFrameAutosaveName,
+              autosaveName.hasPrefix("\(Self.mainWindowFrameAutosaveNamePrefix).") else {
+            return
+        }
+        _ = window.setFrameAutosaveName("")
+        NSWindow.removeFrame(usingName: autosaveName)
+    }
+
     @discardableResult
     func createMainWindow(
+        initialWorkspaceTitle: String? = nil,
         initialWorkingDirectory: String? = nil,
+        initialTerminalInput: String? = nil,
         sessionWindowSnapshot: SessionWindowSnapshot? = nil,
         shouldActivate: Bool = true,
         sourceWindow preferredSourceWindow: NSWindow? = nil
     ) -> UUID {
         let windowId = UUID()
-        let tabManager = TabManager(initialWorkingDirectory: initialWorkingDirectory)
+        let tabManager = TabManager(
+            initialWorkspaceTitle: initialWorkspaceTitle,
+            initialWorkingDirectory: initialWorkingDirectory,
+            initialTerminalInput: initialTerminalInput,
+            autoWelcomeIfNeeded: initialTerminalInput == nil
+        )
         if let tabManagerSnapshot = sessionWindowSnapshot?.tabManager {
             tabManager.restoreSessionSnapshot(tabManagerSnapshot)
         }
@@ -6825,7 +6958,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // ContentView.onAppear eventually runs syncTrafficLightInset (#2737).
         let initialTabBarLeadingInset: CGFloat =
             (WorkspacePresentationModeSettings.isMinimal() && !sidebarState.isVisible)
-                ? 80
+                ? MinimalModeTitlebarDebugSettings.trafficLightTabBarLeadingInset()
                 : 0
         tabManager.syncWorkspaceTabBarLeadingInset(initialTabBarLeadingInset)
         let notificationStore = TerminalNotificationStore.shared
@@ -6870,19 +7003,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let shouldTemporarilyDisallowFullScreenTiling =
             sessionWindowSnapshot == nil && sourceWindowIsNativeFullScreen
         let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
-        let persistedGeometryFrame = (restoredFrame == nil && sourceWindow == nil)
-            ? resolvedPersistedWindowGeometryFrame()
-            : nil
         let initialRect: NSRect
         if restoredFrame == nil, let existingFrame {
             // Convert frame rect to content rect so the new window matches the
             // source window's actual size (frame includes titlebar insets).
             initialRect = NSWindow.contentRect(forFrameRect: existingFrame, styleMask: styleMask)
-        } else if let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame {
+        } else if let explicitInitialFrame = restoredFrame {
             initialRect = NSWindow.contentRect(forFrameRect: explicitInitialFrame, styleMask: styleMask)
         } else {
             initialRect = CmuxMainWindow.defaultContentRect(styleMask: styleMask)
         }
+        let frameAutosaveName = mainWindowFrameAutosaveName(windowId: windowId)
 
         let window = CmuxMainWindow(
             contentRect: initialRect,
@@ -6904,10 +7035,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // restoration so the OS cannot resurrect stale duplicate main windows.
         window.isRestorable = false
         window.isMovableByWindowBackground = false
-        window.isMovable = false
-        let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame
+        // Keep background dragging disabled so app content gestures and titlebar
+        // controls still receive clicks, while the OS-level movable flag lets
+        // macOS tiling and window-management tools such as Swish treat cmux as
+        // a movable/resizable window. Empty titlebar drags are routed through
+        // WindowDragHandleView instead of background dragging.
+        window.isMovable = true
+        let didRegisterFrameAutosaveName = window.setFrameAutosaveName(frameAutosaveName)
+        let appKitSavedFrameApplied = didRegisterFrameAutosaveName
+            && restoredFrame == nil
+            && sourceWindow == nil
+            && window.setFrameUsingName(frameAutosaveName, force: true)
+        let explicitInitialFrame = restoredFrame
         if let explicitInitialFrame {
             window.setFrame(explicitInitialFrame, display: false)
+        } else if appKitSavedFrameApplied {
+            lastCascadePoint = NSPoint(x: window.frame.minX, y: window.frame.maxY)
         } else if let sourceWindow {
             positionNewMainWindow(window, relativeTo: sourceWindow)
         } else {
@@ -6970,7 +7113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             window.setFrame(explicitInitialFrame, display: true)
 #if DEBUG
             cmuxDebugLog(
-                "mainWindow.initialFrameApplied source=\(restoredFrame == nil ? "persistedGeometry" : "sessionSnapshot") window=\(windowId.uuidString.prefix(8)) " +
+                "mainWindow.initialFrameApplied source=sessionSnapshot window=\(windowId.uuidString.prefix(8)) " +
                     "applied={\(debugNSRectDescription(window.frame))}"
             )
 #endif
@@ -8106,7 +8249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if workspace.id == selectedWorkspaceId {
                     workspace.scheduleDebugStressTerminalGeometryReconcile()
                 } else {
-                    workspace.requestBackgroundTerminalSurfaceStartIfNeeded()
+                    workspace.panels.values.compactMap { $0 as? TerminalPanel }.forEach { $0.surface.requestBackgroundSurfaceStartIfNeeded() }
                 }
                 if workspace.panels.values.contains(where: { panel in
                     guard let terminalPanel = panel as? TerminalPanel else { return false }
@@ -10749,7 +10892,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 clearCommandPalettePendingOpen(for: paletteWindow)
                 beginCommandPaletteEscapeSuppression(for: paletteWindow)
-                NotificationCenter.default.post(name: .commandPaletteToggleRequested, object: paletteWindow)
+                NotificationCenter.default.post(name: .commandPaletteDismissRequested, object: paletteWindow)
 #if DEBUG
                 cmuxDebugLog("shortcut.escape paletteDismiss consumed=1 target={\(debugWindowToken(paletteWindow))}")
 #endif
@@ -11101,7 +11244,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .toggleFileExplorer) {
+        if matchConfiguredShortcut(event: event, action: .toggleRightSidebar) {
             // Escape AppKit's performKeyEquivalent animation context. Without
             // deferring the toggle, NSAnimationContext implicitly animates the
             // layout change.
@@ -11245,19 +11388,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Cmd+W must close the focused panel even if first-responder momentarily lags on a
-        // browser NSTextView during split focus transitions.
+        // The Close Tab shortcut must close the focused panel even if first-responder
+        // momentarily lags on a browser NSTextView during split focus transitions.
         if matchConfiguredShortcut(event: event, action: .closeTab) {
             let targetWindow = resolvedShortcutEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            // Browser popup windows primarily intercept Cmd+W in BrowserPopupPanel.
-            // This AppDelegate path is a fallback for cases where AppKit routes the
-            // event through the global shortcut handler first.
+            // Browser popup windows primarily intercept the configured Close Tab shortcut
+            // in BrowserPopupPanel. This AppDelegate path is a fallback for cases where
+            // AppKit routes the event through the global shortcut handler first.
             if let targetWindow = [targetWindow, NSApp.keyWindow]
                 .compactMap({ $0 })
                 .first(where: { $0.identifier?.rawValue == "cmux.browser-popup" }) {
 #if DEBUG
-                cmuxDebugLog("shortcut.cmdW route=browserPopup")
+                cmuxDebugLog("shortcut.closeTab route=browserPopup")
 #endif
                 targetWindow.performClose(nil)
                 return true
@@ -11269,7 +11412,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
                     let selectedWorkspace = routedManager.selectedWorkspace
                     cmuxDebugLog(
-                        "shortcut.cmdW route=workspaceModel workspace=\(selectedWorkspace?.id.uuidString.prefix(5) ?? "nil") " +
+                        "shortcut.closeTab route=workspaceModel workspace=\(selectedWorkspace?.id.uuidString.prefix(5) ?? "nil") " +
                         "panel=\(selectedWorkspace?.focusedPanelId?.uuidString.prefix(5) ?? "nil") " +
                         "selected=\(routedManager.selectedTabId?.uuidString.prefix(5) ?? "nil")"
                     )
@@ -11277,7 +11420,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     routedManager.closeCurrentPanelWithConfirmation()
                 } else {
 #if DEBUG
-                    cmuxDebugLog("shortcut.cmdW route=noManager")
+                    cmuxDebugLog("shortcut.closeTab route=noManager")
 #endif
                     return false
                 }
@@ -12294,9 +12437,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         handleCustomShortcut(event: event)
     }
 
-    /// WebKit can consume Cmd+F as a browser find key equivalent before SwiftUI
+    /// WebKit can consume the configured Find shortcut as a browser find key equivalent before SwiftUI
     /// command actions run. Keep this pre-menu route narrow so normal menu-backed
-    /// browser shortcuts such as Cmd+N, Cmd+W, and Cmd+R still use AppKit.
+    /// browser shortcuts such as New Workspace, Close Tab, and Reload Page still use AppKit.
     @discardableResult
     func handleBrowserSurfaceKeyEquivalentBeforeMainMenu(_ event: NSEvent) -> Bool {
         if matchConfiguredShortcut(event: event, action: .find) {
@@ -12416,6 +12559,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if findStaticText(in: subview, equals: text) {
                 return true
             }
+        }
+        return false
+    }
+
+    @discardableResult
+    func handleBrowserPopupCloseShortcutKeyEquivalent(event: NSEvent, popupWindow: NSWindow) -> Bool {
+        guard event.type == .keyDown else {
+            clearConfiguredShortcutChordState()
+            return false
+        }
+        guard !KeyboardShortcutRecorderActivity.isAnyRecorderActive else {
+            clearConfiguredShortcutChordState()
+            return false
+        }
+
+        let configuredShortcutEventWindowNumber = configuredShortcutChordWindowNumber(for: event)
+        if let pendingConfiguredShortcutChord,
+           pendingConfiguredShortcutChord.windowNumber == configuredShortcutEventWindowNumber {
+            activeConfiguredShortcutChordPrefixForCurrentEvent = pendingConfiguredShortcutChord.firstStroke
+        } else {
+            activeConfiguredShortcutChordPrefixForCurrentEvent = nil
+        }
+        pendingConfiguredShortcutChord = nil
+        defer {
+            activeConfiguredShortcutChordPrefixForCurrentEvent = nil
+            clearShortcutEventFocusContextCache(for: event)
+        }
+
+        if matchConfiguredShortcut(event: event, action: .closeTab) {
+#if DEBUG
+            cmuxDebugLog("popup.panel.closeShortcut close")
+#endif
+            popupWindow.performClose(nil)
+            return true
+        }
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           armConfiguredShortcutChordIfNeeded(event: event, actions: [.closeTab]) {
+#if DEBUG
+            cmuxDebugLog("popup.panel.closeShortcut armChord")
+#endif
+            return true
         }
         return false
     }
@@ -13347,10 +13531,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let frame = window.frame
         lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
 
-        // Keep geometry available as a fallback for the next window placement.
-        persistWindowGeometry(from: window)
+        let shouldReleasePrimaryFrameAutosaveName =
+            window.frameAutosaveName == Self.primaryMainWindowFrameAutosaveName
+        removeEphemeralMainWindowFrameAutosaveNameIfNeeded(window)
 
         guard let removed = unregisterMainWindowContext(for: window) else { return }
+        if shouldReleasePrimaryFrameAutosaveName {
+            _ = window.setFrameAutosaveName("")
+        }
+        promotePrimaryMainWindowFrameAutosaveNameIfNeeded(excluding: window)
         publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
         commandPaletteVisibilityByWindowId.removeValue(forKey: removed.windowId)
         commandPalettePendingOpenByWindowId.removeValue(forKey: removed.windowId)
@@ -13725,10 +13914,23 @@ private var cmuxFirstResponderGuardCurrentEventContext: NSEvent?
 private var cmuxFirstResponderGuardHitViewContext: NSView?
 private var cmuxFirstResponderGuardContextWindowNumber: Int?
 private var cmuxBrowserReturnForwardingDepth = 0
+private var cmuxBrowserForwardedReturnEvent: CmuxForwardedBrowserReturnEvent?
 private var cmuxBrowserArrowForwardingDepth = 0
 private var cmuxCommandPaletteArrowForwardingDepth = 0
 private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
+
+private struct CmuxForwardedBrowserReturnEvent: Equatable {
+    let keyCode: UInt16
+    let timestamp: TimeInterval
+    let charactersIgnoringModifiers: String?
+
+    init(_ event: NSEvent) {
+        keyCode = event.keyCode
+        timestamp = event.timestamp
+        charactersIgnoringModifiers = event.charactersIgnoringModifiers
+    }
+}
 
 @discardableResult
 func cmuxWithWindowFirstResponderBypass<T>(_ body: () -> T) -> T {
@@ -14146,14 +14348,18 @@ private extension NSWindow {
 
         let contentPoint = contentView.convert(event.locationInWindow, from: nil)
         let hitView = contentView.hitTest(contentPoint)
-        let previousMovableState = isMovable
-        if previousMovableState {
-            isMovable = false
+        let previousMovableState = temporarilyDisableWindowDragging(window: self)
+        defer {
+            restoreWindowDragging(window: self, previousMovableState: previousMovableState)
+            #if DEBUG
+            cmuxDebugLog("window.sendEvent.folderDown restore nowMovable=\(isMovable)")
+            #endif
         }
 
         #if DEBUG
         let hitDesc = hitView.map { String(describing: type(of: $0)) } ?? "nil"
-        cmuxDebugLog("window.sendEvent.folderDown suppress=1 hit=\(hitDesc) wasMovable=\(previousMovableState)")
+        let previousMovableDescription = previousMovableState.map { String($0) } ?? "nil"
+        cmuxDebugLog("window.sendEvent.folderDown suppress=1 hit=\(hitDesc) wasMovable=\(previousMovableDescription)")
         #endif
 
         cmux_sendEvent(event)
@@ -14162,14 +14368,6 @@ private extension NSWindow {
             originalDispatchMs = (ProcessInfo.processInfo.systemUptime - originalDispatchStart) * 1000.0
         }
 #endif
-
-        if previousMovableState {
-            isMovable = previousMovableState
-        }
-
-        #if DEBUG
-        cmuxDebugLog("window.sendEvent.folderDown restore nowMovable=\(isMovable)")
-        #endif
     }
 
     @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -14205,6 +14403,12 @@ private extension NSWindow {
         let firstResponderWebView = self.firstResponder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
+        let firstResponderEmbeddedWebView = self.firstResponder.flatMap {
+            Self.cmuxOwningEmbeddedWebView(for: $0)
+        }
+        let browserKeyDownTarget: NSResponder? = firstResponderWebView
+            ?? firstResponderEmbeddedWebView
+            ?? self.firstResponder
         let firstResponderHasMarkedText = browserResponderHasMarkedText(self.firstResponder)
         let firstResponderIsCommandPaletteFieldEditor = Self.cmuxCommandPaletteOwnsFieldEditor(
             self.firstResponder as? NSTextView,
@@ -14237,6 +14441,14 @@ private extension NSWindow {
         }
 
         if let ghosttyView = firstResponderGhosttyView {
+            if ghosttyView.shouldRouteTextInputKeyEquivalentToKeyDown(event) {
+                ghosttyView.keyDown(with: event)
+#if DEBUG
+                cmuxDebugLog("  → terminal text-input key equivalent routed to keyDown")
+#endif
+                return true
+            }
+
             // If the IME is composing and the key has no Cmd modifier, don't intercept —
             // let it flow through normal AppKit event dispatch so the input method can
             // process it. Cmd-based shortcuts should still work during composition since
@@ -14288,29 +14500,41 @@ private extension NSWindow {
         }
 
         // Web forms rely on Return/Enter flowing through keyDown. If the original
-        // NSWindow.performKeyEquivalent consumes Enter first, submission never reaches
-        // WebKit. Route Return/Enter directly to the current first responder and
-        // mark handled to avoid the AppKit alert sound path.
+        // NSWindow.performKeyEquivalent handles Enter as an unclaimed key equivalent,
+        // AppKit can play the alert sound even though WebKit submits the form. Route
+        // Return/Enter directly to the current WebKit first responder and mark handled.
         if shouldDispatchBrowserReturnViaFirstResponderKeyDown(
             keyCode: event.keyCode,
-            firstResponderIsBrowser: firstResponderWebView != nil,
+            firstResponderIsBrowser: firstResponderWebView != nil || firstResponderEmbeddedWebView != nil,
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
             // Forwarding keyDown can re-enter performKeyEquivalent in WebKit/AppKit internals.
-            // On re-entry, fall back to normal dispatch to avoid an infinite loop.
+            // Consume only the exact forwarded Return/Enter event. A different nested
+            // Return should continue through normal dispatch so AppKit can keep its own
+            // invalid-input feedback.
+            let forwardedReturnEvent = CmuxForwardedBrowserReturnEvent(event)
             if cmuxBrowserReturnForwardingDepth > 0 {
+                guard cmuxBrowserForwardedReturnEvent == forwardedReturnEvent else {
+                    return false
+                }
 #if DEBUG
-                cmuxDebugLog("  → browser Return/Enter reentry; using normal dispatch")
+                cmuxDebugLog("  → browser Return/Enter reentry; consumed during forwarded keyDown")
 #endif
-                return false
+                return true
             }
             cmuxBrowserReturnForwardingDepth += 1
-            defer { cmuxBrowserReturnForwardingDepth = max(0, cmuxBrowserReturnForwardingDepth - 1) }
+            cmuxBrowserForwardedReturnEvent = forwardedReturnEvent
+            defer {
+                cmuxBrowserReturnForwardingDepth = max(0, cmuxBrowserReturnForwardingDepth - 1)
+                if cmuxBrowserReturnForwardingDepth == 0 {
+                    cmuxBrowserForwardedReturnEvent = nil
+                }
+            }
 #if DEBUG
-            cmuxDebugLog("  → browser Return/Enter routed to firstResponder.keyDown")
+            cmuxDebugLog("  → browser Return/Enter routed to browser keyDown target")
 #endif
-            self.firstResponder?.keyDown(with: event)
+            browserKeyDownTarget?.keyDown(with: event)
             return true
         }
 
@@ -14319,7 +14543,7 @@ private extension NSWindow {
         // keyDown. Route those arrows directly to the first responder instead.
         if shouldDispatchBrowserArrowViaFirstResponderKeyDown(
             keyCode: event.keyCode,
-            firstResponderIsBrowser: firstResponderWebView != nil,
+            firstResponderIsBrowser: firstResponderWebView != nil || firstResponderEmbeddedWebView != nil,
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
@@ -14334,9 +14558,9 @@ private extension NSWindow {
             cmuxBrowserArrowForwardingDepth += 1
             defer { cmuxBrowserArrowForwardingDepth = max(0, cmuxBrowserArrowForwardingDepth - 1) }
 #if DEBUG
-            cmuxDebugLog("  → browser arrow routed to firstResponder.keyDown")
+            cmuxDebugLog("  → browser arrow routed to browser keyDown target")
 #endif
-            self.firstResponder?.keyDown(with: event)
+            browserKeyDownTarget?.keyDown(with: event)
             return true
         }
 
@@ -14507,6 +14731,84 @@ private extension NSWindow {
                     return nil
                 }
                 return portalWebView
+            }
+            current = candidate.superview
+        }
+
+        return nil
+    }
+
+    private static func cmuxOwningEmbeddedWebView(for responder: NSResponder) -> WKWebView? {
+        if let webView = responder as? WKWebView {
+            return webView
+        }
+
+        if let webView = cmuxOwningEmbeddedWebViewFromFieldEditorOwner(responder) {
+            return webView
+        }
+
+        if let view = responder as? NSView,
+           let webView = cmuxOwningEmbeddedWebView(for: view) {
+            return webView
+        }
+
+        // WebKit's active text responder is often an internal descendant or next
+        // responder rather than the WKWebView itself. Walk the AppKit responder
+        // chain so ASWebAuthenticationSession-hosted forms get the same Return
+        // handling as cmux-owned browser panels.
+        var current = responder.nextResponder
+        while let next = current {
+            if let webView = next as? WKWebView {
+                return webView
+            }
+            if let view = next as? NSView,
+               let webView = cmuxOwningEmbeddedWebView(for: view) {
+                return webView
+            }
+            current = next.nextResponder
+        }
+
+        return nil
+    }
+
+    private static func cmuxOwningEmbeddedWebViewFromFieldEditorOwner(_ responder: NSResponder) -> WKWebView? {
+        guard let fieldEditor = responder as? NSTextView,
+              fieldEditor.isFieldEditor,
+              let ownerView = cmuxFieldEditorOwnerView(fieldEditor) else {
+            return nil
+        }
+
+        if let webView = cmuxOwningEmbeddedWebView(for: ownerView) {
+            return webView
+        }
+
+        var current = ownerView.nextResponder
+        while let next = current {
+            if next === ownerView {
+                break
+            }
+            if let webView = next as? WKWebView {
+                return webView
+            }
+            if let view = next as? NSView,
+               let webView = cmuxOwningEmbeddedWebView(for: view) {
+                return webView
+            }
+            current = next.nextResponder
+        }
+
+        return nil
+    }
+
+    private static func cmuxOwningEmbeddedWebView(for view: NSView) -> WKWebView? {
+        if let webView = view as? WKWebView {
+            return webView
+        }
+
+        var current: NSView? = view.superview
+        while let candidate = current {
+            if let webView = candidate as? WKWebView {
+                return webView
             }
             current = candidate.superview
         }

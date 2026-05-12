@@ -1,3 +1,20 @@
+enum SidebarWorkspaceDetailDefaults {
+    static let showBranchDirectory = true
+    static let showPullRequests = true
+    static let showSSH = true
+    static let showPorts = true
+    static let showLog = true
+    static let showProgress = true
+    static let showCustomMetadata = true
+}
+
+enum AutomationSettings {
+    static let portBaseKey = "cmuxPortBase"
+    static let portRangeKey = "cmuxPortRange"
+    static let defaultPortBase = 9100
+    static let defaultPortRange = 10
+}
+
 extension CmuxSettingsFileStore {
     // Keep this in sync with the parser below and the web schema/docs. Settings UI rows
     // validate against this set so new persisted settings need an explicit cmux.json review.
@@ -16,6 +33,7 @@ extension CmuxSettingsFileStore {
         "app.reorderOnNotification",
         "app.sendAnonymousTelemetry",
         "app.warnBeforeQuit",
+        "app.warnBeforeClosingTab",
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
         "terminal.showScrollBar",
@@ -69,7 +87,6 @@ extension CmuxSettingsFileStore {
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
         "browser.showImportHintOnBlankTabs",
         "browser.reactGrabVersion",
-        "shortcuts.showModifierHoldHints",
         "shortcuts.bindings",
     ]
 }

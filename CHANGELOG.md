@@ -2,9 +2,76 @@
 
 All notable changes to cmux are documented here.
 
+## [0.64.4] - 2026-05-11
+
+### Added
+- Add `warnBeforeClosingTab` close-warning toggle to opt back into the close confirmation prompt ([#2808](https://github.com/manaflow-ai/cmux/pull/2808)) -- thanks @dandaka for the report!
+- Add `cmux browser cookies import` CLI for bringing cookies into cmux browser panes ([#3770](https://github.com/manaflow-ai/cmux/pull/3770))
+- Add guarded `cmux://ssh` deep links that prompt before launching SSH ([#3677](https://github.com/manaflow-ai/cmux/pull/3677))
+- Restore Vault Pi agent sessions across relaunch ([#3582](https://github.com/manaflow-ai/cmux/pull/3582), [#3636](https://github.com/manaflow-ai/cmux/pull/3636)) -- thanks @garizs for the report!
+- Add Hermes Agent hook support ([#3585](https://github.com/manaflow-ai/cmux/pull/3585))
+- Per-agent toggles for hiding Claude, Codex, OpenCode, Gemini, and Rovo Dev session restore ([#3616](https://github.com/manaflow-ai/cmux/pull/3616))
+- Add Insert Path and Insert Relative Path context menu items in the file explorer ([#3620](https://github.com/manaflow-ai/cmux/pull/3620))
+- Restore SSH workspace descriptors on relaunch ([#3576](https://github.com/manaflow-ai/cmux/pull/3576))
+- Follow SSH workspaces in the Files sidebar so the remote root replaces the local macOS path ([#3721](https://github.com/manaflow-ai/cmux/pull/3721)) -- thanks @Lots-ninety-nine for the report!
+- Add Welcome sidebar toggle shortcuts ([#3748](https://github.com/manaflow-ai/cmux/pull/3748))
+
+### Changed
+- File drop routing now defaults to text with Shift used as the split override.
+- Allow HTTP localhost subdomains in browser panes ([#3764](https://github.com/manaflow-ai/cmux/pull/3764))
+- Make browser find shortcuts respect remaps ([#3728](https://github.com/manaflow-ai/cmux/pull/3728))
+- Make Close Tab remaps own browser popup close ([#3830](https://github.com/manaflow-ai/cmux/pull/3830))
+- Alias top-level auth commands so `cmux signin` and `cmux signout` work without the `auth` prefix.
+
+### Fixed
+- Fix stale terminal foreground after theme switch leaving white-on-white text in running sessions ([#3852](https://github.com/manaflow-ai/cmux/pull/3852))
+- Fix managed defaults replay overriding user changes after every `cmux.json` reload ([#3847](https://github.com/manaflow-ai/cmux/pull/3847))
+- Preserve the Claude wrapper dev channel resume flag ([#3752](https://github.com/manaflow-ai/cmux/pull/3752)) -- thanks @Clean-Cole!
+- Fix SSH browser loopback fetches reaching backends on second forwarded ports ([#3820](https://github.com/manaflow-ai/cmux/pull/3820))
+- Fix modified Backspace deleting more than one character when an omnibar inline completion is showing ([#3842](https://github.com/manaflow-ai/cmux/pull/3842))
+- Close Web Inspector before browser host teardown to prevent a UAF crash on pane close ([#3835](https://github.com/manaflow-ai/cmux/pull/3835))
+- Fix Files sidebar find result aggregation ([#3818](https://github.com/manaflow-ai/cmux/pull/3818))
+- Fix Escape dismissing the command palette ([#3823](https://github.com/manaflow-ai/cmux/pull/3823))
+- Resume Claude, Codex, and OpenCode sessions from the session's original cwd.
+- Fix Close Other Tabs targeting all tabs in the pane right-click menu ([#3628](https://github.com/manaflow-ai/cmux/pull/3628)) -- thanks @flatsponge for the report!
+- Clear surface notifications during pane teardown so workspace badges don't stay stuck ([#3744](https://github.com/manaflow-ai/cmux/pull/3744))
+- Fix folder proxy icon drag ([#3804](https://github.com/manaflow-ai/cmux/pull/3804)) -- thanks @lederniermagicien!
+- Fix right sidebar shortcut defaults ([#3784](https://github.com/manaflow-ai/cmux/pull/3784))
+- Fix right sidebar titlebar double-click ([#3750](https://github.com/manaflow-ai/cmux/pull/3750))
+- Fix right sidebar Find typing lag ([#3739](https://github.com/manaflow-ai/cmux/pull/3739))
+- Route SSH image drops through the terminal text path.
+- Fix terminal top-row click routing ([#3720](https://github.com/manaflow-ai/cmux/pull/3720))
+- Fix Mark Workspace as Unread enablement ([#3727](https://github.com/manaflow-ai/cmux/pull/3727)) -- thanks @mfn for the report!
+- Fix Cmd-W to close Task Manager and auxiliary windows.
+- Fix command palette arrow keys and no-match flash.
+- Restore Zhuyin IME candidate marked-text handling ([#3574](https://github.com/manaflow-ai/cmux/pull/3574)) -- thanks @yuanganai for the report!
+- Fix Task Manager CPU sampling ([#3588](https://github.com/manaflow-ai/cmux/pull/3588))
+- Fix Cmd+N window size after the last window closes ([#3611](https://github.com/manaflow-ai/cmux/pull/3611)) -- thanks @bigtruth for the report!
+- Fix Match Terminal Background sidebar toggle snapping back on ([#3635](https://github.com/manaflow-ai/cmux/pull/3635))
+- Count cmux app RSS in Task Manager totals ([#3587](https://github.com/manaflow-ai/cmux/pull/3587))
+- Keep Settings layered above the main window ([#3612](https://github.com/manaflow-ai/cmux/pull/3612))
+- Forward Left/Right arrow keys to the browser surface ([#3663](https://github.com/manaflow-ai/cmux/pull/3663)) -- thanks @kimdane0115 for the report!
+- Fix Rovo Dev transcript previews ([#3666](https://github.com/manaflow-ai/cmux/pull/3666))
+
+### Thanks to 12 contributors!
+
+- [@austinywang](https://github.com/austinywang)
+- [@bigtruth](https://github.com/bigtruth)
+- [@Clean-Cole](https://github.com/Clean-Cole)
+- [@dandaka](https://github.com/dandaka)
+- [@flatsponge](https://github.com/flatsponge)
+- [@garizs](https://github.com/garizs)
+- [@kimdane0115](https://github.com/kimdane0115)
+- [@lawrencecchen](https://github.com/lawrencecchen)
+- [@lederniermagicien](https://github.com/lederniermagicien)
+- [@Lots-ninety-nine](https://github.com/Lots-ninety-nine)
+- [@mfn](https://github.com/mfn)
+- [@yuanganai](https://github.com/yuanganai)
+
 ## [0.64.3] - 2026-05-05
 
 ### Added
+- Added Show in Finder to the workspace sidebar right-click menu.
 - `cmux config` CLI with `cmux config doctor` for validating `cmux.json` without a socket, plus `cmux config path`, `cmux config docs`, and `cmux config reload` aliases ([#3454](https://github.com/manaflow-ai/cmux/pull/3454))
 
 ### Fixed

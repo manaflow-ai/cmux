@@ -64,3 +64,7 @@ reviews:
         mode: error
         instructions: |
           For Swift architecture changes, fail when the diff violates `.github/review-bot-rules/swift-architectural-rethink.md`: symptom patches using sleeps, delayed dispatch, polling, locks, observers, side channels, duplicate entrypoint wiring, or split UI lifecycle ownership that leaves bad state representable. Pass for small correctness fixes with clear owners and invariants, required platform bridges, and test-only synchronization.
+      - name: "cmux Swift auxiliary window close shortcuts"
+        mode: error
+        instructions: |
+          For Swift changes that add or materially change standalone cmux-owned windows, fail when the diff violates `.github/review-bot-rules/swift-auxiliary-window-close-shortcuts.md`: user-visible NSWindow, NSPanel, NSWindowController, SwiftUI Window, or WindowGroup code without a stable cmux.* identifier and shared close-shortcut ownership through cmuxAuxiliaryWindowIdentifiers. Pass for main workspace windows, terminal panes, tabs, sheets, popovers, menus, test-only fixtures, and existing unregistered windows not worsened by the PR. If the deterministic CI script already catches the literal assignment, mention scripts/lint_auxiliary_window_close_shortcuts.py; otherwise explain the broader review-only pattern.

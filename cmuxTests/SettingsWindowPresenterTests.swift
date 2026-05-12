@@ -15,6 +15,26 @@ final class SettingsWindowPresenterTests: XCTestCase {
         super.tearDown()
     }
 
+    func testConfigureWindowLeavesPendingNavigationForSettingsViews() {
+        let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
+        var didOpen = false
+        defer {
+            settingsWindow.orderOut(nil)
+        }
+
+        SettingsWindowPresenter.show(
+            navigationTarget: .browserImport,
+            openWindowOverride: { didOpen = true }
+        )
+        SettingsWindowPresenter.configure(window: settingsWindow)
+
+        XCTAssertTrue(didOpen)
+        XCTAssertEqual(SettingsWindowPresenter.consumePendingNavigationTarget(), .browserImport)
+        XCTAssertEqual(SettingsWindowPresenter.consumePendingContentNavigationTarget(), .browserImport)
+        XCTAssertNil(SettingsWindowPresenter.consumePendingNavigationTarget())
+        XCTAssertNil(SettingsWindowPresenter.consumePendingContentNavigationTarget())
+    }
+
     func testParentsSettingsAbovePreferredMainWindow() {
         let parentWindow = makeWindow(identifier: "cmux.main.\(UUID().uuidString)")
         let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
