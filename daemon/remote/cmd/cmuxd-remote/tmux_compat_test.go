@@ -423,6 +423,73 @@ func TestMergeNodeOptions(t *testing.T) {
 	}
 }
 
+func TestConfigureClaudeNodeOptionsStoresCleanOriginal(t *testing.T) {
+	const restoreModulePath = "/Users/test/.claude/cmux/restore-node-options.cjs"
+	wantInjected := "--require=/Users/test/.claude/cmux/restore-node-options.cjs --max-old-space-size=4096"
+
+	tests := []struct {
+		name            string
+		existing        string
+		wantNodeOptions string
+		wantPresent     string
+		wantOriginal    string
+	}{
+		{
+			name:            "drops stale temp restore preload",
+			existing:        "--require=/var/folders/session/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings",
+			wantNodeOptions: wantInjected + " --trace-warnings",
+			wantPresent:     "1",
+			wantOriginal:    "--trace-warnings",
+		},
+		{
+			name:            "drops persistent restore preload",
+			existing:        "--require /Users/test/.claude/cmux/restore-node-options.cjs --max-old-space-size 4096 --trace-warnings",
+			wantNodeOptions: wantInjected + " --trace-warnings",
+			wantPresent:     "1",
+			wantOriginal:    "--trace-warnings",
+		},
+		{
+			name:            "drops empty cmux-only restore preload",
+			existing:        "--require=/var/folders/session/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096",
+			wantNodeOptions: wantInjected,
+			wantPresent:     "0",
+			wantOriginal:    "",
+		},
+		{
+			name:            "normalizes original heap flag shape",
+			existing:        "--max-old-space-size 2048 --trace-warnings",
+			wantNodeOptions: wantInjected + " --trace-warnings",
+			wantPresent:     "1",
+			wantOriginal:    "--max-old-space-size=2048 --trace-warnings",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("NODE_OPTIONS", tt.existing)
+			t.Setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "before")
+			t.Setenv("CMUX_ORIGINAL_NODE_OPTIONS", "before")
+
+			configureClaudeNodeOptions(restoreModulePath)
+
+			if got := os.Getenv("NODE_OPTIONS"); got != tt.wantNodeOptions {
+				t.Fatalf("NODE_OPTIONS = %q, want %q", got, tt.wantNodeOptions)
+			}
+			if got := os.Getenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT"); got != tt.wantPresent {
+				t.Fatalf("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT = %q, want %q", got, tt.wantPresent)
+			}
+			gotOriginal, ok := os.LookupEnv("CMUX_ORIGINAL_NODE_OPTIONS")
+			if tt.wantOriginal == "" {
+				if ok {
+					t.Fatalf("CMUX_ORIGINAL_NODE_OPTIONS = %q, want unset", gotOriginal)
+				}
+			} else if !ok || gotOriginal != tt.wantOriginal {
+				t.Fatalf("CMUX_ORIGINAL_NODE_OPTIONS = %q (present=%v), want %q", gotOriginal, ok, tt.wantOriginal)
+			}
+		})
+	}
+}
+
 func TestEnsureClaudeNodeOptionsRestoreModuleUsesHome(t *testing.T) {
 	home := t.TempDir()
 	tmp := t.TempDir()
