@@ -17317,32 +17317,46 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         // Remove existing cmux-owned entries (both the per-agent hook
         // dispatcher and the Feed bridge). Non-cmux entries are
-        // always preserved — even when the user mixed them into the
+        // always preserved, even when the user mixed them into the
         // same group as a cmux hook, we only prune our own entries
         // within that group so the user's stays put.
         let isCmuxOwnedCommand: (String) -> Bool = { cmd in
             Self.hookMarkers(for: def).contains { cmd.contains($0) }
                 || Self.feedHookMarkers(for: def).contains { cmd.contains($0) }
         }
+        var cmuxInsertionIndexes: [String: Int] = [:]
         for (event, value) in hooks {
             switch def.format {
             case .flat:
-                guard var entries = value as? [[String: Any]] else { continue }
-                entries.removeAll { isCmuxOwnedCommand($0["command"] as? String ?? "") }
-                hooks[event] = entries.isEmpty ? nil : entries
+                guard let entries = value as? [[String: Any]] else { continue }
+                var rewrittenEntries: [[String: Any]] = []
+                for entry in entries {
+                    if isCmuxOwnedCommand(entry["command"] as? String ?? "") {
+                        if cmuxInsertionIndexes[event] == nil {
+                            cmuxInsertionIndexes[event] = rewrittenEntries.count
+                        }
+                        continue
+                    }
+                    rewrittenEntries.append(entry)
+                }
+                hooks[event] = rewrittenEntries.isEmpty ? nil : rewrittenEntries
             case .nested:
                 guard let groups = value as? [[String: Any]] else { continue }
                 var rewrittenGroups: [[String: Any]] = []
                 for var group in groups {
                     guard var hookList = group["hooks"] as? [[String: Any]] else {
-                        // Unknown shape — preserve verbatim so we don't
+                        // Unknown shape: preserve verbatim so we don't
                         // accidentally mutate user custom data.
                         rewrittenGroups.append(group)
                         continue
                     }
+                    if hookList.contains(where: { isCmuxOwnedCommand($0["command"] as? String ?? "") }),
+                       cmuxInsertionIndexes[event] == nil {
+                        cmuxInsertionIndexes[event] = rewrittenGroups.count
+                    }
                     hookList.removeAll { isCmuxOwnedCommand($0["command"] as? String ?? "") }
                     if hookList.isEmpty {
-                        // Fully cmux-owned group → drop it entirely.
+                        // Fully cmux-owned group, drop it entirely.
                         continue
                     }
                     group["hooks"] = hookList
@@ -17359,11 +17373,23 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             switch def.format {
             case .flat:
                 var entries = hooks[event] as? [[String: Any]] ?? []
-                if let newEntries = value as? [[String: Any]] { entries.append(contentsOf: newEntries) }
+                if let newEntries = value as? [[String: Any]] {
+                    if let insertionIndex = cmuxInsertionIndexes[event] {
+                        entries.insert(contentsOf: newEntries, at: min(insertionIndex, entries.count))
+                    } else {
+                        entries.append(contentsOf: newEntries)
+                    }
+                }
                 hooks[event] = entries
             case .nested:
                 var groups = hooks[event] as? [[String: Any]] ?? []
-                if let newGroups = value as? [[String: Any]] { groups.append(contentsOf: newGroups) }
+                if let newGroups = value as? [[String: Any]] {
+                    if let insertionIndex = cmuxInsertionIndexes[event] {
+                        groups.insert(contentsOf: newGroups, at: min(insertionIndex, groups.count))
+                    } else {
+                        groups.append(contentsOf: newGroups)
+                    }
+                }
                 hooks[event] = groups
             case .rovoDevYAML, .hermesAgentYAML:
                 break
@@ -17372,6 +17398,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         existing["hooks"] = hooks
         if case .flat = def.format { existing["version"] = 1 }
+        let codexHookTrustEntries = Self.codexHookTrustEntries(
+            hooks: hooks,
+            hooksFilePath: filePath,
+            def: def
+        )
 
         let newData = try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted, .sortedKeys])
         let newString = String(data: newData, encoding: .utf8) ?? "{}"
@@ -17420,7 +17451,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 } else {
                     existingContent = ""
                 }
-                let newContent = Self.codexConfigTomlInstallingHooksFeature(in: existingContent)
+                let featureContent = Self.codexConfigTomlInstallingHooksFeature(in: existingContent)
+                let newContent = Self.codexConfigTomlInstallingHookTrust(
+                    in: featureContent,
+                    entries: codexHookTrustEntries
+                )
                 if newContent != existingContent {
                     if !skipConfirm {
                         Self.printInstallPreview(
@@ -17436,7 +17471,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         }
                     }
                     try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
-                    print("Enabled hooks in \(configPath)")
+                    if def.name == "codex", !codexHookTrustEntries.isEmpty {
+                        print("Enabled hooks and approved cmux hooks in \(configPath)")
+                    } else {
+                        print("Enabled hooks in \(configPath)")
+                    }
                 }
             }
         }

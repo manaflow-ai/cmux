@@ -6,6 +6,7 @@ Regression tests for Codex Feed hook wiring and decision output.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import shutil
 import socket
@@ -13,9 +14,31 @@ import subprocess
 import tempfile
 import threading
 import time
+import tomllib
 from pathlib import Path
 
 from claude_teams_test_utils import resolve_cmux_cli
+
+
+CODEX_HOOK_EVENT_LABELS = {
+    "PreToolUse": "pre_tool_use",
+    "PermissionRequest": "permission_request",
+    "PostToolUse": "post_tool_use",
+    "PreCompact": "pre_compact",
+    "PostCompact": "post_compact",
+    "SessionStart": "session_start",
+    "UserPromptSubmit": "user_prompt_submit",
+    "Stop": "stop",
+}
+
+CODEX_HOOK_EVENTS_WITH_MATCHERS = {
+    "PreToolUse",
+    "PermissionRequest",
+    "PostToolUse",
+    "PreCompact",
+    "PostCompact",
+    "SessionStart",
+}
 
 
 class FakeCmuxSocket:
@@ -492,6 +515,56 @@ def assert_codex_allow_has_no_persistent_fields(stdout: dict) -> None:
         raise AssertionError(f"Codex permission output included unsupported fields {present}: {stdout!r}")
 
 
+def codex_command_hook_hash(
+    *,
+    event_label: str,
+    matcher: str | None,
+    command: str,
+    timeout: int,
+    status_message: str | None,
+) -> str:
+    handler: dict = {
+        "async": False,
+        "command": command,
+        "timeout": max(timeout, 1),
+        "type": "command",
+    }
+    if status_message is not None:
+        handler["statusMessage"] = status_message
+    identity: dict = {
+        "event_name": event_label,
+        "hooks": [handler],
+    }
+    if matcher is not None:
+        identity["matcher"] = matcher
+    canonical = json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    return f"sha256:{hashlib.sha256(canonical).hexdigest()}"
+
+
+def expected_cmux_codex_hook_trust(hooks: dict, hooks_path: Path) -> dict[str, str]:
+    expected: dict[str, str] = {}
+    hooks_path = hooks_path.resolve()
+    for event_name, groups in hooks.get("hooks", {}).items():
+        event_label = CODEX_HOOK_EVENT_LABELS.get(event_name)
+        if event_label is None:
+            continue
+        for group_index, group in enumerate(groups):
+            matcher = group.get("matcher") if event_name in CODEX_HOOK_EVENTS_WITH_MATCHERS else None
+            for handler_index, hook in enumerate(group.get("hooks", [])):
+                command = hook.get("command", "")
+                if "cmux hooks codex" not in command and "cmux hooks feed --source codex" not in command:
+                    continue
+                key = f"{hooks_path}:{event_label}:{group_index}:{handler_index}"
+                expected[key] = codex_command_hook_hash(
+                    event_label=event_label,
+                    matcher=matcher,
+                    command=command,
+                    timeout=int(hook.get("timeout", 600)),
+                    status_message=hook.get("statusMessage"),
+                )
+    return expected
+
+
 def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -> None:
     codex_home = root / "codex-home"
     codex_home.mkdir()
@@ -528,6 +601,67 @@ def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -
         raise AssertionError(f"hooks feature was not enabled: {config_toml!r}")
     if "codex_hooks" in config_toml:
         raise AssertionError(f"deprecated codex_hooks feature was written: {config_toml!r}")
+    config = tomllib.loads(config_toml)
+    state = config.get("hooks", {}).get("state", {})
+    expected_trust = expected_cmux_codex_hook_trust(hooks, codex_home / "hooks.json")
+    if len(expected_trust) != 5:
+        raise AssertionError(f"expected 5 cmux Codex trust entries, got {expected_trust!r}")
+    for key, trusted_hash in expected_trust.items():
+        if state.get(key, {}).get("trusted_hash") != trusted_hash:
+            raise AssertionError(
+                f"missing trusted hash for {key}: expected {trusted_hash!r}, got state {state!r}"
+            )
+
+
+def test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path: str, root: Path) -> None:
+    codex_home = root / "codex-home-third-party"
+    codex_home.mkdir()
+    cmux_pre_tool = (
+        '[ -n "$CMUX_SURFACE_ID" ] && [ "$CMUX_CODEX_HOOKS_DISABLED" != "1" ] '
+        "&& command -v cmux >/dev/null 2>&1 && cmux hooks feed --source codex --event PreToolUse || echo '{}'"
+    )
+    orca_hook = (
+        "if [ -x '/Users/lawrence/Library/Application Support/orca/agent-hooks/codex-hook.sh' ]; "
+        "then /bin/sh '/Users/lawrence/Library/Application Support/orca/agent-hooks/codex-hook.sh'; fi"
+    )
+    (codex_home / "hooks.json").write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "PreToolUse": [
+                        {"hooks": [{"type": "command", "command": cmux_pre_tool, "timeout": 120000}]},
+                        {"hooks": [{"type": "command", "command": orca_hook}]},
+                    ]
+                }
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "install", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex install failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    hooks = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
+    groups = hooks["hooks"]["PreToolUse"]
+    first_command = groups[0]["hooks"][0]["command"]
+    second_command = groups[1]["hooks"][0]["command"]
+    if "cmux hooks feed --source codex --event PreToolUse" not in first_command:
+        raise AssertionError(f"cmux hook did not keep its existing position: {groups!r}")
+    if second_command != orca_hook:
+        raise AssertionError(f"third-party hook was not preserved after cmux hook: {groups!r}")
 
 
 def test_install_migrates_legacy_codex_hooks_feature(cli_path: str, root: Path) -> None:
@@ -749,6 +883,8 @@ def test_uninstall_removes_cmux_owned_codex_hooks_feature(cli_path: str, root: P
     config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
     if "hooks = true" in config_toml or "codex_hooks" in config_toml:
         raise AssertionError(f"cmux-owned hooks feature was not removed: {config_toml!r}")
+    if "hooks.state" in config_toml or "trusted_hash" in config_toml:
+        raise AssertionError(f"cmux-owned hook trust was not removed: {config_toml!r}")
     if "[features]" in config_toml:
         raise AssertionError(f"empty features table was preserved: {config_toml!r}")
 
@@ -948,6 +1084,7 @@ def main() -> int:
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
+            test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path, root)
             test_install_migrates_legacy_codex_hooks_feature(cli_path, root)
             test_install_migrates_dotted_codex_hooks_feature(cli_path, root)
             test_uninstall_preserves_existing_codex_hooks_feature(cli_path, root)

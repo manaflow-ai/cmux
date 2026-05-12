@@ -1,3 +1,5 @@
+import CryptoKit
+import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -10,10 +12,20 @@ extension CMUXCLI {
     private static let legacyCmuxCodexHooksFeatureBegin = "# cmux hooks codex feature begin"
     private static let legacyCmuxCodexHooksFeatureEnd = "# cmux hooks codex feature end"
     private static let legacyCmuxCodexHooksFeaturePreviousLinePrefix = "# cmux hooks codex feature previous line: "
+    private static let cmuxCodexHookTrustBegin =
+        "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin"
+    private static let cmuxCodexHookTrustEnd =
+        "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end"
+
+    struct CodexHookTrustEntry: Equatable {
+        let key: String
+        let trustedHash: String
+    }
 
     static func codexConfigTomlInstallingHooksFeature(in existingContent: String) -> String {
         var lines = tomlLines(from: existingContent)
         removeCmuxCodexHooksFeatureBlock(from: &lines)
+        removeCmuxCodexHookTrustBlock(from: &lines)
         lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
         lines.removeAll { tomlLineDefinesDottedFeaturesKey("codex_hooks", line: $0) }
 
@@ -78,10 +90,181 @@ extension CMUXCLI {
     static func codexConfigTomlUninstallingHooksFeature(from existingContent: String) -> String {
         var lines = tomlLines(from: existingContent)
         removeCmuxCodexHooksFeatureBlock(from: &lines)
+        removeCmuxCodexHookTrustBlock(from: &lines)
         lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
         lines.removeAll { tomlLineDefinesDottedFeaturesKey("codex_hooks", line: $0) }
         removeEmptyFeaturesTable(from: &lines)
         return tomlContent(from: lines)
+    }
+
+    static func codexConfigTomlInstallingHookTrust(
+        in existingContent: String,
+        entries: [CodexHookTrustEntry]
+    ) -> String {
+        var lines = tomlLines(from: existingContent)
+        removeCmuxCodexHookTrustBlock(from: &lines)
+        guard !entries.isEmpty else {
+            return tomlContent(from: lines)
+        }
+
+        if !lines.isEmpty, lines.last?.isEmpty == false {
+            lines.append("")
+        }
+        lines.append(cmuxCodexHookTrustBegin)
+        for entry in entries {
+            lines.append("[hooks.state.\"\(tomlBasicStringContent(entry.key))\"]")
+            lines.append("trusted_hash = \"\(tomlBasicStringContent(entry.trustedHash))\"")
+        }
+        lines.append(cmuxCodexHookTrustEnd)
+        return tomlContent(from: lines)
+    }
+
+    static func codexHookTrustEntries(
+        hooks: [String: Any],
+        hooksFilePath: String,
+        def: AgentHookDef
+    ) -> [CodexHookTrustEntry] {
+        guard def.name == "codex" else { return [] }
+        let ownedMarkers = hookMarkers(for: def) + feedHookMarkers(for: def)
+        let isOwnedCommand: (String) -> Bool = { command in
+            ownedMarkers.contains { command.contains($0) }
+        }
+        var entries: [CodexHookTrustEntry] = []
+        let keySource = codexNormalizedHookSourcePath(hooksFilePath)
+
+        for eventName in codexHookEventNames {
+            guard let groups = hooks[eventName] as? [[String: Any]],
+                  let eventLabel = codexHookEventLabel(eventName) else {
+                continue
+            }
+            for (groupIndex, group) in groups.enumerated() {
+                guard let hookList = group["hooks"] as? [[String: Any]] else { continue }
+                let matcher = codexHookEventUsesMatcher(eventName) ? group["matcher"] as? String : nil
+                for (handlerIndex, hook) in hookList.enumerated() {
+                    guard let command = hook["command"] as? String,
+                          isOwnedCommand(command) else {
+                        continue
+                    }
+                    let timeoutSec = max(intValue(hook["timeout"]) ?? 600, 1)
+                    let statusMessage = hook["statusMessage"] as? String
+                    let key = "\(keySource):\(eventLabel):\(groupIndex):\(handlerIndex)"
+                    let trustedHash = codexCommandHookHash(
+                        eventLabel: eventLabel,
+                        matcher: matcher,
+                        command: command,
+                        timeoutSec: timeoutSec,
+                        statusMessage: statusMessage
+                    )
+                    entries.append(CodexHookTrustEntry(key: key, trustedHash: trustedHash))
+                }
+            }
+        }
+
+        return entries
+    }
+
+    private static func codexNormalizedHookSourcePath(_ path: String) -> String {
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        if let resolved = realPath(url.path) {
+            return resolved
+        }
+        let parent = url.deletingLastPathComponent()
+        if let resolvedParent = realPath(parent.path) {
+            return URL(fileURLWithPath: resolvedParent, isDirectory: true)
+                .appendingPathComponent(url.lastPathComponent)
+                .path
+        }
+        return url.path
+    }
+
+    private static func realPath(_ path: String) -> String? {
+        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        guard realpath(path, &buffer) != nil else { return nil }
+        return String(cString: buffer)
+    }
+
+    private static let codexHookEventNames = [
+        "PreToolUse",
+        "PermissionRequest",
+        "PostToolUse",
+        "PreCompact",
+        "PostCompact",
+        "SessionStart",
+        "UserPromptSubmit",
+        "Stop",
+    ]
+
+    private static func codexHookEventLabel(_ eventName: String) -> String? {
+        switch eventName {
+        case "PreToolUse": return "pre_tool_use"
+        case "PermissionRequest": return "permission_request"
+        case "PostToolUse": return "post_tool_use"
+        case "PreCompact": return "pre_compact"
+        case "PostCompact": return "post_compact"
+        case "SessionStart": return "session_start"
+        case "UserPromptSubmit": return "user_prompt_submit"
+        case "Stop": return "stop"
+        default: return nil
+        }
+    }
+
+    private static func codexHookEventUsesMatcher(_ eventName: String) -> Bool {
+        switch eventName {
+        case "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact", "PostCompact", "SessionStart":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func codexCommandHookHash(
+        eventLabel: String,
+        matcher: String?,
+        command: String,
+        timeoutSec: Int,
+        statusMessage: String?
+    ) -> String {
+        var handler: [String: Any] = [
+            "async": false,
+            "command": command,
+            "timeout": timeoutSec,
+            "type": "command",
+        ]
+        if let statusMessage {
+            handler["statusMessage"] = statusMessage
+        }
+        var identity: [String: Any] = [
+            "event_name": eventLabel,
+            "hooks": [handler],
+        ]
+        if let matcher {
+            identity["matcher"] = matcher
+        }
+
+        let data = (try? JSONSerialization.data(
+            withJSONObject: identity,
+            options: [.sortedKeys, .withoutEscapingSlashes]
+        )) ?? Data()
+        let digest = SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return "sha256:\(digest)"
+    }
+
+    private static func intValue(_ value: Any?) -> Int? {
+        if let intValue = value as? Int {
+            return intValue
+        }
+        if let number = value as? NSNumber {
+            return number.intValue
+        }
+        return nil
+    }
+
+    private static func tomlBasicStringContent(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
     }
 
     private static func tomlLines(from content: String) -> [String] {
@@ -195,6 +378,35 @@ extension CMUXCLI {
                     blockEnd += 1
                 }
                 lines.replaceSubrange(index..<blockEnd, with: previousLines)
+            }
+        }
+    }
+
+    private static func removeCmuxCodexHookTrustBlock(from lines: inout [String]) {
+        var index = 0
+        while index < lines.count {
+            guard lines[index] == cmuxCodexHookTrustBegin else {
+                index += 1
+                continue
+            }
+
+            if let endIndex = lines[index...].firstIndex(of: cmuxCodexHookTrustEnd) {
+                lines.removeSubrange(index...endIndex)
+            } else {
+                var blockEnd = index + 1
+                while blockEnd < lines.count {
+                    let line = lines[blockEnd]
+                    if line == cmuxCodexHookTrustEnd {
+                        blockEnd += 1
+                        break
+                    }
+                    if tomlLineIsAnyTableHeader(line),
+                       !line.hasPrefix("[hooks.state.") {
+                        break
+                    }
+                    blockEnd += 1
+                }
+                lines.removeSubrange(index..<blockEnd)
             }
         }
     }
