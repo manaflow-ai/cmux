@@ -11,6 +11,7 @@ fi
 patterns=(
   'FileHandle\.standardOutput\.write'
   'FileHandle\.standardError\.write'
+  'fileHandleForWriting\.write'
   '\bSwift\.print\('
   '\bFoundation\.print\('
   '\bputs\('

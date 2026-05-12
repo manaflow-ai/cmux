@@ -14048,7 +14048,8 @@ struct CMUXCLI {
 
         try cliRunProcess(process)
         if let data = stdinText.data(using: .utf8) {
-            stdinPipe.fileHandleForWriting.write(data)
+            configureCLIWriteFDNoSIGPIPE(stdinPipe.fileHandleForWriting.fileDescriptor)
+            _ = cliWrite(data, to: stdinPipe.fileHandleForWriting, onBrokenPipe: .ignore)
         }
         stdinPipe.fileHandleForWriting.closeFile()
         process.waitUntilExit()
