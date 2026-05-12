@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CMUXWorkstream
 import CoreFoundation
 import CryptoKit
 import Darwin
@@ -17953,7 +17954,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         toolName: String?
     ) {
         guard let rawObject else { return }
-        let keys = [
+        let graphKeys = [
             "parent_workstream_id", "parentWorkstreamId", "parent_workstream", "parentWorkstream",
             "parent_session_id", "parentSessionId", "parentSessionID",
             "child_workstream_id", "childWorkstreamId", "subagent_workstream_id", "subagentWorkstreamId",
@@ -17962,8 +17963,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             "child_source", "childSource", "subagent_source", "subagentSource",
             "subagent_type", "subagentType", "agent_type", "agentType",
             "model", "subagent_model", "subagentModel",
-            "task_description", "taskDescription", "description", "title", "name",
+            "task_description", "taskDescription",
         ]
+        let genericKeys = ["description", "title", "name"]
 
         func copyValue(_ raw: Any?, key: String) {
             guard event[key] == nil else { return }
@@ -17977,21 +17979,23 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
         }
 
-        for key in keys {
+        for key in graphKeys {
             copyValue(rawObject[key], key: key)
         }
 
-        guard let toolName, isAgentSpawnToolName(toolName),
+        let isSpawnTool = toolName.map(WorkstreamAgentSpawnTool.isSpawnToolName) ?? false
+        if isSpawnTool {
+            for key in genericKeys {
+                copyValue(rawObject[key], key: key)
+            }
+        }
+
+        guard isSpawnTool,
               let toolInput = feedToolInputDictionary(rawObject["tool_input"])
         else { return }
-        for key in keys + ["prompt", "message"] {
+        for key in graphKeys + genericKeys + ["prompt", "message"] {
             copyValue(toolInput[key], key: key)
         }
-    }
-
-    private func isAgentSpawnToolName(_ toolName: String) -> Bool {
-        let normalized = toolName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalized == "task" || normalized == "agent"
     }
 
     private func feedPromptText(from object: [String: Any]?) -> String? {

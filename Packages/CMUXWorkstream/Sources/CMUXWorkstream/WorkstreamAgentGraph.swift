@@ -429,8 +429,7 @@ private struct SessionRecord {
     }
 
     static func isSpawnTool(_ toolName: String) -> Bool {
-        let normalized = toolName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalized == "task" || normalized == "agent"
+        WorkstreamAgentSpawnTool.isSpawnToolName(toolName)
     }
 }
 
