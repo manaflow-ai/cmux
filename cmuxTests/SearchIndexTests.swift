@@ -203,6 +203,53 @@ final class SearchIndexTests: XCTestCase {
         XCTAssertEqual(deletedHits, [])
     }
 
+    func testDeleteDocumentRemovesOnlyMatchingDocument() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
+
+        let index = try SearchIndex(databaseURL: fixture.databaseURL)
+        let windowID = UUID()
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let titleID = SearchIndexDocument.panelStableID(panelID: panelID, kind: .title)
+        let markdownID = SearchIndexDocument.panelStableID(panelID: panelID, kind: .markdown)
+
+        try await index.upsert(
+            SearchIndexDocument(
+                id: titleID,
+                windowID: windowID,
+                workspaceID: workspaceID,
+                panelID: panelID,
+                kind: .title,
+                title: "Unavailable.md",
+                location: "Window > Workspace",
+                anchor: "title",
+                text: "stabletitlekeyword"
+            )
+        )
+        try await index.upsert(
+            SearchIndexDocument(
+                id: markdownID,
+                windowID: windowID,
+                workspaceID: workspaceID,
+                panelID: panelID,
+                kind: .markdown,
+                title: "Unavailable.md",
+                location: "/tmp/Unavailable.md",
+                anchor: "/tmp/Unavailable.md",
+                text: "staledocumentkeyword"
+            )
+        )
+
+        try await index.deleteDocument(id: markdownID)
+
+        let staleDocumentHits = try await index.search("staledocumentkeyword", limit: 10)
+        XCTAssertEqual(staleDocumentHits, [])
+
+        let titleHits = try await index.search("stabletitlekeyword", limit: 10)
+        XCTAssertEqual(titleHits.map(\.id), [titleID])
+    }
+
     func testDeleteAllClearsPersistentDocuments() async throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }

@@ -179,6 +179,13 @@ actor SearchIndex {
         }
     }
 
+    func deleteDocument(id: String) throws {
+        try withStatement("DELETE FROM chunks WHERE id = ?1") { statement in
+            try bind(id, at: 1, in: statement)
+            try stepDone(statement)
+        }
+    }
+
     func deleteAll() throws {
         try execute("DELETE FROM chunks")
     }

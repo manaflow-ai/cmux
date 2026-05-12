@@ -96,14 +96,17 @@ final class GlobalSearchCoordinator {
 #endif
             }
 
-            if let markdownPanel = context.panel as? MarkdownPanel,
-               let document = markdownDocument(for: markdownPanel, context: context) {
-                do {
-                    try await index.upsert(document)
-                } catch {
+            if let markdownPanel = context.panel as? MarkdownPanel {
+                if markdownPanel.isFileUnavailable {
+                    await purgeMarkdownDocument(forPanelID: context.panelID, index: index)
+                } else if let document = markdownDocument(for: markdownPanel, context: context) {
+                    do {
+                        try await index.upsert(document)
+                    } catch {
 #if DEBUG
-                    cmuxDebugLog("globalSearch.markdown.upsert failed panel=\(context.panelID.uuidString.prefix(5)) error=\(error.localizedDescription)")
+                        cmuxDebugLog("globalSearch.markdown.upsert failed panel=\(context.panelID.uuidString.prefix(5)) error=\(error.localizedDescription)")
 #endif
+                    }
                 }
             } else if let browserPanel = context.panel as? BrowserPanel {
                 captureBrowserPanel(browserPanel)
@@ -150,6 +153,15 @@ final class GlobalSearchCoordinator {
     }
 
     func captureMarkdownPanel(_ panel: MarkdownPanel) {
+        guard !panel.isFileUnavailable else {
+            guard let index = ensureIndex() else { return }
+            let panelID = panel.id
+            Task { @MainActor [weak self] in
+                await self?.purgeMarkdownDocument(forPanelID: panelID, index: index)
+            }
+            return
+        }
+
         guard let context = AppDelegate.shared?.globalSearchContext(
             forPanelID: panel.id,
             preferredWorkspaceID: panel.workspaceId
@@ -199,6 +211,17 @@ final class GlobalSearchCoordinator {
                 cmuxDebugLog("globalSearch.panel.purge failed panel=\(panelID.uuidString.prefix(5)) error=\(error.localizedDescription)")
 #endif
             }
+        }
+    }
+
+    private func purgeMarkdownDocument(forPanelID panelID: UUID, index: SearchIndex) async {
+        let documentID = SearchIndexDocument.panelStableID(panelID: panelID, kind: .markdown)
+        do {
+            try await index.deleteDocument(id: documentID)
+        } catch {
+#if DEBUG
+            cmuxDebugLog("globalSearch.markdown.purge failed panel=\(panelID.uuidString.prefix(5)) error=\(error.localizedDescription)")
+#endif
         }
     }
 
