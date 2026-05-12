@@ -8,10 +8,16 @@ extension CMUXCLI {
         var lines = tomlLines(from: existingContent)
         removeCmuxCodexHooksFeatureBlock(from: &lines)
         lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
+        lines.removeAll { tomlLineDefinesDottedFeaturesKey("codex_hooks", line: $0) }
 
         let insertedLines = [
             cmuxCodexHooksFeatureBegin,
             "hooks = true",
+            cmuxCodexHooksFeatureEnd,
+        ]
+        let insertedDottedLines = [
+            cmuxCodexHooksFeatureBegin,
+            "features.hooks = true",
             cmuxCodexHooksFeatureEnd,
         ]
 
@@ -25,6 +31,10 @@ extension CMUXCLI {
             } else {
                 lines.insert(contentsOf: insertedLines, at: featuresStart + 1)
             }
+        } else if let dottedHooksIndex = lines.firstIndex(where: { tomlLineDefinesDottedFeaturesKey("hooks", line: $0) }) {
+            lines[dottedHooksIndex] = "features.hooks = true"
+        } else if let firstDottedFeaturesIndex = lines.firstIndex(where: { tomlLineDefinesAnyDottedFeaturesKey($0) }) {
+            lines.insert(contentsOf: insertedDottedLines, at: firstDottedFeaturesIndex)
         } else {
             if !lines.isEmpty, lines.last?.isEmpty == false {
                 lines.append("")
@@ -40,6 +50,7 @@ extension CMUXCLI {
         var lines = tomlLines(from: existingContent)
         removeCmuxCodexHooksFeatureBlock(from: &lines)
         lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
+        lines.removeAll { tomlLineDefinesDottedFeaturesKey("codex_hooks", line: $0) }
         removeEmptyFeaturesTable(from: &lines)
         return tomlContent(from: lines)
     }
@@ -62,6 +73,21 @@ extension CMUXCLI {
         let escapedKey = NSRegularExpression.escapedPattern(for: key)
         return line.range(
             of: #"^\s*"# + escapedKey + #"\s*="#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private static func tomlLineDefinesDottedFeaturesKey(_ key: String, line: String) -> Bool {
+        let escapedKey = NSRegularExpression.escapedPattern(for: key)
+        return line.range(
+            of: #"^\s*features\s*\.\s*"# + escapedKey + #"\s*="#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private static func tomlLineDefinesAnyDottedFeaturesKey(_ line: String) -> Bool {
+        line.range(
+            of: #"^\s*features\s*\.\s*[^=\s]+\s*="#,
             options: .regularExpression
         ) != nil
     }
