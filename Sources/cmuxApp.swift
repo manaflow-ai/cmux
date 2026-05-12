@@ -1156,6 +1156,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.feedTextEditorDebug",
     "cmux.fileExplorerStyleDebug",
     "cmux.folderDragIcon",
+    "cmux.hotkeyPanel",
     "cmux.pdfPreviewChromeDebug",
     "cmux.splitButtonLayoutDebug",
     "cmux.tabBarBackdropLab",

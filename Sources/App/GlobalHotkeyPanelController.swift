@@ -169,7 +169,7 @@ final class GlobalHotkeyPanelController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        panel.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        panel.identifier = NSUserInterfaceItemIdentifier("cmux.hotkeyPanel")
         panel.title = String(localized: "globalHotkey.window.title", defaultValue: "cmux Hotkey Window")
         panel.contentView = MainWindowHostingView(rootView: root)
         panel.delegate = self

@@ -4950,6 +4950,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func mainWindowId(from window: NSWindow) -> UUID? {
+        if let context = mainWindowContexts[ObjectIdentifier(window)] {
+            return context.windowId
+        }
         guard let raw = window.identifier?.rawValue else { return nil }
         let prefix = "cmux.main."
         guard raw.hasPrefix(prefix) else { return nil }
