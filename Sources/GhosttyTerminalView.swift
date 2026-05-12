@@ -4438,8 +4438,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     var isViewInWindow: Bool { hostedView.window != nil }
     let id: UUID
     private(set) var tabId: UUID
-    /// Port ordinal for CMUX_PORT range assignment
-    var portOrdinal: Int = 0
+    /// Port ordinal for CMUX_PORT range assignment. Captured at construction so
+    /// every runtime startup path uses the same immutable workspace port range.
+    private let portOrdinal: Int
     /// Snapshotted once per app session so all workspaces use consistent values
     private static let sessionPortBase: Int = {
         let val = UserDefaults.standard.integer(forKey: AutomationSettings.portBaseKey)
