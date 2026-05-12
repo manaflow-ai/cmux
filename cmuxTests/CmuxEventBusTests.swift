@@ -559,8 +559,14 @@ final class CmuxEventBusTests: XCTestCase {
         let rotatedURL = logURL.appendingPathExtension("1")
         XCTAssertTrue(FileManager.default.fileExists(atPath: logURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: rotatedURL.path))
-        XCTAssertLessThanOrEqual(try fileSize(logURL), 1_500)
-        XCTAssertLessThanOrEqual(try fileSize(rotatedURL), 1_500)
+        let currentSize = try fileSize(logURL)
+        let rotatedSize = try fileSize(rotatedURL)
+        XCTAssertLessThanOrEqual(currentSize, 1_500)
+        XCTAssertLessThanOrEqual(rotatedSize, 1_500)
+
+        let durableLog = try XCTUnwrap(bus.diagnosticsSnapshot()["durable_log"] as? [String: Any])
+        XCTAssertEqual((durableLog["current_size_bytes"] as? NSNumber)?.uint64Value, currentSize)
+        XCTAssertEqual((durableLog["rotated_size_bytes"] as? NSNumber)?.uint64Value, rotatedSize)
     }
 
     private func fileSize(_ url: URL) throws -> UInt64 {
