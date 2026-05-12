@@ -5232,16 +5232,19 @@ struct CMUXCLI {
         var lines: [String] = [
             "cmux_workspace_id=\"${CMUX_WORKSPACE_ID:-}\"",
             "cmux_surface_id=\"${CMUX_SURFACE_ID:-}\"",
+            "cmux_remote_initial_cwd=\"${CMUX_REMOTE_INITIAL_CWD:-}\"",
+            "cmux_remote_initial_cwd_b64=\"\"",
+            "if [ -n \"$cmux_remote_initial_cwd\" ]; then cmux_remote_initial_cwd_b64=\"$(printf '%s' \"$cmux_remote_initial_cwd\" | base64 | tr -d '\\n')\"; fi",
             "cmux_remote_bootstrap_b64=\(shellQuote(encodedBootstrapScript))",
             "cmux_remote_bootstrap=\"$(printf %s \"$cmux_remote_bootstrap_b64\" | base64 -d 2>/dev/null || printf %s \"$cmux_remote_bootstrap_b64\" | base64 -D 2>/dev/null)\"",
-            "cmux_remote_bootstrap=\"$(printf '%s' \"$cmux_remote_bootstrap\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_surface_id/g\")\"",
+            "cmux_remote_bootstrap=\"$(printf '%s' \"$cmux_remote_bootstrap\" | sed \"s|__CMUX_WORKSPACE_ID__|$cmux_workspace_id|g; s|__CMUX_SURFACE_ID__|$cmux_surface_id|g; s|__CMUX_REMOTE_INITIAL_CWD_B64__|$cmux_remote_initial_cwd_b64|g\")\"",
             "printf '%s' \"$cmux_remote_bootstrap\" | command \(installSSHPrefix) -T \(shellQuote(options.destination)) \(shellQuote(remoteBootstrapInstallCommand))",
             "cmux_remote_install_status=$?",
             "if [ \"$cmux_remote_install_status\" -ne 0 ]; then",
             "  exit \"$cmux_remote_install_status\"",
             "fi",
             "cmux_remote_command_template=\(shellQuote(remoteCommandTemplate))",
-            "cmux_remote_command=\"$(printf '%s' \"$cmux_remote_command_template\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_surface_id/g\")\"",
+            "cmux_remote_command=\"$(printf '%s' \"$cmux_remote_command_template\" | sed \"s|__CMUX_WORKSPACE_ID__|$cmux_workspace_id|g; s|__CMUX_SURFACE_ID__|$cmux_surface_id|g; s|__CMUX_REMOTE_INITIAL_CWD_B64__|$cmux_remote_initial_cwd_b64|g\")\"",
         ]
 
         var sshInvocation = "command \(sessionSSHPrefix) -o \"RemoteCommand=$cmux_remote_command\""
@@ -5362,6 +5365,13 @@ struct CMUXCLI {
         commonShellExportLines.append(contentsOf: [
             "hash -r >/dev/null 2>&1 || true",
             "rehash >/dev/null 2>&1 || true",
+            "cmux_remote_initial_cwd_b64='__CMUX_REMOTE_INITIAL_CWD_B64__'",
+            "if [ \"$cmux_remote_initial_cwd_b64\" = '__CMUX_REMOTE_INITIAL_CWD_B64__' ]; then cmux_remote_initial_cwd_b64=''; fi",
+            "if [ -n \"$cmux_remote_initial_cwd_b64\" ]; then",
+            "  cmux_remote_initial_cwd=\"$(printf %s \"$cmux_remote_initial_cwd_b64\" | base64 -d 2>/dev/null || printf %s \"$cmux_remote_initial_cwd_b64\" | base64 -D 2>/dev/null || true)\"",
+            "  if [ -n \"$cmux_remote_initial_cwd\" ]; then cd \"$cmux_remote_initial_cwd\" 2>/dev/null || true; fi",
+            "fi",
+            "unset cmux_remote_initial_cwd_b64 cmux_remote_initial_cwd",
         ])
         var zshShellLines = commonShellExportLines
         zshShellLines.append(

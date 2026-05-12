@@ -140,6 +140,21 @@ _cmux_ports_kick_via_relay() {
     _cmux_relay_rpc_bg "surface.ports_kick" "$params"
 }
 
+_cmux_report_pwd_via_relay() {
+    local pwd="$1"
+    _cmux_socket_uses_remote_relay || return 1
+    [[ -n "$pwd" ]] || return 1
+    local workspace_id=""
+    workspace_id="$(_cmux_relay_workspace_id)" || return 1
+    local surface_id="${CMUX_PANEL_ID:-${CMUX_SURFACE_ID:-}}"
+    [[ -n "$surface_id" ]] || return 1
+
+    local pwd_json params
+    pwd_json="$(_cmux_json_escape "$pwd")"
+    params="{\"workspace_id\":\"$workspace_id\",\"surface_id\":\"$surface_id\",\"directory\":\"$pwd_json\"}"
+    _cmux_relay_rpc_bg "surface.report_pwd" "$params"
+}
+
 _cmux_restore_scrollback_once() {
     local path="${CMUX_RESTORE_SCROLLBACK_FILE:-}"
     [[ -n "$path" ]] || return 0
@@ -1164,7 +1179,13 @@ _cmux_precmd() {
         cmd_dur=$(( now - cmd_start ))
     fi
 
+    local pwd="$PWD"
+
     if (( ! cmux_has_unix_socket )); then
+        if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
+            _CMUX_PWD_LAST_PWD="$pwd"
+            _cmux_report_pwd_via_relay "$pwd"
+        fi
         if (( cmd_dur >= 2 || now - _CMUX_PORTS_LAST_RUN >= 10 )); then
             _cmux_ports_kick refresh
         fi
@@ -1172,7 +1193,6 @@ _cmux_precmd() {
     fi
 
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    local pwd="$PWD"
 
     _cmux_prompt_wrap_guard "$cmd_start" "$pwd"
 

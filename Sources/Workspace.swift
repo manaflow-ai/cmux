@@ -9855,16 +9855,20 @@ final class Workspace: Identifiable, ObservableObject {
             "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) resolved=\(splitWorkingDirectory ?? "nil")"
         )
 #endif
+        let remoteInitialWorkingDirectory = remoteTerminalStartupCommand == nil ? nil : splitWorkingDirectory
+        let localWorkingDirectory = remoteTerminalStartupCommand == nil ? splitWorkingDirectory : nil
+        let remoteStartupEnvironment = remoteInitialWorkingDirectory.map { ["CMUX_REMOTE_INITIAL_CWD": $0] } ?? [:]
 
         // Create the new terminal panel.
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            workingDirectory: splitWorkingDirectory,
+            workingDirectory: localWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
-            tmuxStartCommand: tmuxStartCommand
+            tmuxStartCommand: tmuxStartCommand,
+            additionalEnvironment: remoteStartupEnvironment
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -9986,18 +9990,30 @@ final class Workspace: Identifiable, ObservableObject {
             template.waitAfterCommand = true
             inheritedConfig = template
         }
+        let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedWorkingDirectory = (trimmedWorkingDirectory?.isEmpty == false) ? trimmedWorkingDirectory : nil
+        var effectiveStartupEnvironment = startupEnvironment
+        let localWorkingDirectory: String?
+        if remoteTerminalStartupCommand != nil {
+            localWorkingDirectory = nil
+            if let requestedWorkingDirectory {
+                effectiveStartupEnvironment["CMUX_REMOTE_INITIAL_CWD"] = requestedWorkingDirectory
+            }
+        } else {
+            localWorkingDirectory = requestedWorkingDirectory
+        }
 
         // Create new terminal panel
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            workingDirectory: workingDirectory,
+            workingDirectory: localWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
-            additionalEnvironment: startupEnvironment
+            additionalEnvironment: effectiveStartupEnvironment
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
