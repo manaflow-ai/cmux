@@ -3806,7 +3806,12 @@ private final class WorkspaceRemoteCLIRelayServer {
 }
 
 final class WorkspaceRemoteSessionController {
+#if DEBUG
+    // XCTest seam: tests assign this before starting a controller and clear it
+    // after disconnect teardown; production/debug app code leaves it nil. The
+    // override closure owns synchronization for any captured test-only state.
     nonisolated(unsafe) static var runProcessOverrideForTesting: ((String, [String], Data?, TimeInterval) throws -> (status: Int32, stdout: String, stderr: String))?
+#endif
 
     enum PortScanKickReason: String {
         case command
@@ -4781,10 +4786,12 @@ final class WorkspaceRemoteSessionController {
         timeout: TimeInterval,
         operation: TerminalImageTransferOperation? = nil
     ) throws -> CommandResult {
+#if DEBUG
         if let override = Self.runProcessOverrideForTesting {
             let result = try override(executable, arguments, stdin, timeout)
             return CommandResult(status: result.status, stdout: result.stdout, stderr: result.stderr)
         }
+#endif
 
         debugLog(
             "remote.proc.start exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
