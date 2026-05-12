@@ -97,238 +97,6 @@ func browserWebExtensionConfigureBaseWebViewConfiguration(
     configuration.websiteDataStore = defaultWebsiteDataStore
     configuration.mediaTypesRequiringUserActionForPlayback = []
     configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-    configuration.applicationNameForUserAgent = BrowserWebExtensionUserAgentSettings.applicationNameForUserAgent
-    BrowserWebExtensionUserAgentSettings.installCompatibilityScript(
-        in: configuration.userContentController
-    )
-}
-
-enum BrowserWebExtensionUserAgentSettings {
-    static let chromeVersion = "136.0.0.0"
-    static let applicationNameForUserAgent = "Chrome/\(chromeVersion) Safari/605.1.15"
-    static let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Chrome/\(chromeVersion) Safari/605.1.15"
-    static let vendor = "Google Inc."
-    static let platform = "MacIntel"
-
-    static func installCompatibilityScript(in userContentController: WKUserContentController) {
-        for injectionTime in [WKUserScriptInjectionTime.atDocumentStart, .atDocumentEnd] {
-            let script = WKUserScript(
-                source: compatibilityScriptSource,
-                injectionTime: injectionTime,
-                forMainFrameOnly: false,
-                in: .page
-            )
-            userContentController.addUserScript(script)
-        }
-    }
-
-    static func configureExtensionWebViewConfiguration(_ configuration: WKWebViewConfiguration) {
-        configuration.applicationNameForUserAgent = applicationNameForUserAgent
-        installCompatibilityScript(in: configuration.userContentController)
-    }
-
-    static func applyCompatibilityIdentity(to webView: WKWebView) {
-        webView.customUserAgent = userAgent
-        webView.evaluateJavaScript(compatibilityScriptSource) { _, _ in }
-    }
-
-    static var compatibilityScriptSource: String {
-        """
-        (() => {
-          const cmuxUserAgent = \(javaScriptStringLiteral(userAgent));
-          const cmuxVendor = \(javaScriptStringLiteral(vendor));
-          const cmuxPlatform = \(javaScriptStringLiteral(platform));
-          const cmuxAppVersion = cmuxUserAgent.replace(/^Mozilla\\//, "");
-          const defineNavigatorValue = (name, value) => {
-            try {
-              Object.defineProperty(Navigator.prototype, name, {
-                configurable: true,
-                get() { return value; }
-              });
-            } catch (_) {
-              try {
-                Object.defineProperty(navigator, name, {
-                  configurable: true,
-                  get() { return value; }
-                });
-              } catch (_) {}
-            }
-          };
-
-          defineNavigatorValue("userAgent", cmuxUserAgent);
-          defineNavigatorValue("appVersion", cmuxAppVersion);
-          defineNavigatorValue("vendor", cmuxVendor);
-          defineNavigatorValue("platform", cmuxPlatform);
-
-          const createEvent = () => {
-            const listeners = new Set();
-            return Object.freeze({
-              addListener(listener) {
-                if (typeof listener === "function") listeners.add(listener);
-              },
-              removeListener(listener) {
-                listeners.delete(listener);
-              },
-              hasListener(listener) {
-                return listeners.has(listener);
-              },
-              hasListeners() {
-                return listeners.size > 0;
-              }
-            });
-          };
-
-          const completeAsync = (callback, value) => {
-            if (typeof callback === "function") {
-              queueMicrotask(() => callback(value));
-              return undefined;
-            }
-            return Promise.resolve(value);
-          };
-
-          const notificationShimState = globalThis.__cmuxWebExtensionNotificationShimState || {
-            activeNotifications: new Map(),
-            events: {
-              onButtonClicked: createEvent(),
-              onClicked: createEvent(),
-              onClosed: createEvent(),
-              onPermissionLevelChanged: createEvent(),
-              onShown: createEvent()
-            }
-          };
-          try {
-            Object.defineProperty(globalThis, "__cmuxWebExtensionNotificationShimState", {
-              configurable: false,
-              value: notificationShimState
-            });
-          } catch (_) {}
-
-          const notifications = Object.freeze({
-            onButtonClicked: notificationShimState.events.onButtonClicked,
-            onClicked: notificationShimState.events.onClicked,
-            onClosed: notificationShimState.events.onClosed,
-            onPermissionLevelChanged: notificationShimState.events.onPermissionLevelChanged,
-            onShown: notificationShimState.events.onShown,
-            create(notificationId, options, callback) {
-              if (typeof notificationId !== "string") {
-                callback = options;
-                options = notificationId;
-                notificationId = "";
-              }
-              const id = notificationId || `cmux-notification-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-              notificationShimState.activeNotifications.set(id, { ...(options || {}) });
-              return completeAsync(callback, id);
-            },
-            update(notificationId, options, callback) {
-              const exists = notificationShimState.activeNotifications.has(notificationId);
-              if (exists) {
-                notificationShimState.activeNotifications.set(notificationId, {
-                  ...notificationShimState.activeNotifications.get(notificationId),
-                  ...(options || {})
-                });
-              }
-              return completeAsync(callback, exists);
-            },
-            clear(notificationId, callback) {
-              const existed = notificationShimState.activeNotifications.delete(notificationId);
-              return completeAsync(callback, existed);
-            },
-            getAll(callback) {
-              const all = {};
-              for (const [id, options] of notificationShimState.activeNotifications) {
-                all[id] = { ...options };
-              }
-              return completeAsync(callback, all);
-            },
-            getPermissionLevel(callback) {
-              return completeAsync(callback, "granted");
-            }
-          });
-
-          const hasNotificationsShim = (namespace) => {
-            try { return namespace && namespace.notifications === notifications; } catch (_) { return false; }
-          };
-
-          const defineNotificationsProperty = (target) => {
-            try {
-              Object.defineProperty(target, "notifications", {
-                configurable: true,
-                value: notifications
-              });
-              return target.notifications === notifications;
-            } catch (_) {}
-            try {
-              target.notifications = notifications;
-              return target.notifications === notifications;
-            } catch (_) {
-              return false;
-            }
-          };
-
-          const defineNotificationsPrototypeFallback = (namespace) => {
-            const prototype = Object.getPrototypeOf(namespace);
-            if (!prototype) return false;
-            const descriptor = Object.getOwnPropertyDescriptor(prototype, "notifications");
-            if (descriptor && !descriptor.configurable) return false;
-            try {
-              Object.defineProperty(prototype, "notifications", {
-                configurable: true,
-                get() {
-                  return this === globalThis.chrome || this === globalThis.browser ? notifications : undefined;
-                },
-                set(value) {
-                  try {
-                    Object.defineProperty(this, "notifications", {
-                      configurable: true,
-                      value
-                    });
-                  } catch (_) {}
-                }
-              });
-              return namespace.notifications === notifications;
-            } catch (_) {
-              return false;
-            }
-          };
-
-          const installNotificationsShim = (namespace) => {
-            if (!namespace || hasNotificationsShim(namespace)) return;
-            if (defineNotificationsProperty(namespace)) return;
-            defineNotificationsPrototypeFallback(namespace);
-          };
-
-          const installNotificationsShimWhenNamespaceAppears = (name) => {
-            const isExtensionPage = typeof location !== "undefined" && location.protocol === "webkit-extension:";
-            if (!isExtensionPage) return;
-            let namespaceValue = globalThis[name];
-            installNotificationsShim(namespaceValue);
-            try {
-              Object.defineProperty(globalThis, name, {
-                configurable: true,
-                get() {
-                  installNotificationsShim(namespaceValue);
-                  return namespaceValue;
-                },
-                set(value) {
-                  namespaceValue = value;
-                  installNotificationsShim(value);
-                }
-              });
-            } catch (_) {}
-          };
-
-          installNotificationsShimWhenNamespaceAppears("chrome");
-          installNotificationsShimWhenNamespaceAppears("browser");
-        })();
-        """
-    }
-
-    private static func javaScriptStringLiteral(_ value: String) -> String {
-        let data = try? JSONSerialization.data(withJSONObject: [value], options: [])
-        let encoded = data.flatMap { String(data: $0, encoding: .utf8) } ?? #"[""]"#
-        return String(encoded.dropFirst().dropLast())
-    }
-
 }
 
 struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
@@ -432,7 +200,7 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
             ),
             PermissionCapability(
                 "notifications",
-                availability: .hostedByCmux,
+                availability: .delegatedToWebKit,
                 apiPaths: ["browser.notifications"]
             ),
             PermissionCapability(
@@ -473,7 +241,7 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
             APICapability("browser.favicon", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.idle", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.management", availability: .unavailable(.missingHostAdapter)),
-            APICapability("browser.notifications", availability: .hostedByCmux),
+            APICapability("browser.notifications", availability: .delegatedToWebKit),
             APICapability("browser.offscreen", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.privacy", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.runtime.getBackgroundPage", availability: .unavailable(.noPublicWebKitSurface)),
@@ -504,21 +272,21 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
 
     func isPermissionGrantable(
         _ rawPermission: String,
-        sourceKind: BrowserWebExtensionInstallRecord.SourceKind = .resourceBaseURL
+        sourceKind: BrowserWebExtensionInstallRecord.SourceKind = .appExtensionBundle
     ) -> Bool {
         permissionsByName[rawPermission]?.availability(for: sourceKind).isAvailable == true
     }
 
     func grantablePermissionNames(
         from rawPermissions: [String],
-        sourceKind: BrowserWebExtensionInstallRecord.SourceKind = .resourceBaseURL
+        sourceKind: BrowserWebExtensionInstallRecord.SourceKind = .appExtensionBundle
     ) -> [String] {
         rawPermissions.filter { isPermissionGrantable($0, sourceKind: sourceKind) }
     }
 
     func unsupportedAPIs(
         forPermissionNames rawPermissions: [String],
-        sourceKind: BrowserWebExtensionInstallRecord.SourceKind = .resourceBaseURL
+        sourceKind: BrowserWebExtensionInstallRecord.SourceKind = .appExtensionBundle
     ) -> Set<String> {
         var unsupportedAPIs = Set(apiCapabilities.flatMap { api in
             api.availability(for: sourceKind).isAvailable ? [] : Self.namespaceAliases(forAPIPath: api.path)
@@ -552,7 +320,7 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
 
 func browserWebExtensionHostGrantablePermissionNames(
     from rawPermissions: [String],
-    sourceKind: BrowserWebExtensionInstallRecord.SourceKind = .resourceBaseURL
+    sourceKind: BrowserWebExtensionInstallRecord.SourceKind = .appExtensionBundle
 ) -> [String] {
     BrowserWebExtensionHostCapabilityPolicy.current.grantablePermissionNames(
         from: rawPermissions,
@@ -563,7 +331,7 @@ func browserWebExtensionHostGrantablePermissionNames(
 @available(macOS 15.4, *)
 func browserWebExtensionUnsupportedAPIs(
     for webExtension: WKWebExtension,
-    sourceKind: BrowserWebExtensionInstallRecord.SourceKind = .resourceBaseURL
+    sourceKind: BrowserWebExtensionInstallRecord.SourceKind = .appExtensionBundle
 ) -> Set<String> {
     let requestedPermissions = webExtension.requestedPermissions.map { String($0.rawValue) }
     let optionalPermissions = webExtension.optionalPermissions.map { String($0.rawValue) }
@@ -580,7 +348,7 @@ struct BrowserWebExtensionInstallResult: Equatable {
 
 struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable {
     enum SourceKind: String, Codable {
-        case resourceBaseURL
+        case legacyResourceBaseURL = "resourceBaseURL"
         case appExtensionBundle
     }
 
@@ -605,8 +373,8 @@ func browserWebExtensionSourceDescription(
     switch sourceKind {
     case .appExtensionBundle:
         return String(localized: "browser.extensions.summary.appExtension", defaultValue: "Safari app extension")
-    case .resourceBaseURL:
-        return String(localized: "browser.extensions.summary.localExtension", defaultValue: "Local extension")
+    case .legacyResourceBaseURL:
+        return String(localized: "browser.extensions.summary.unsupportedLocalExtension", defaultValue: "Unsupported local extension")
     }
 }
 
@@ -634,8 +402,8 @@ func browserWebExtensionContextUniqueIdentifier(
     for record: BrowserWebExtensionInstallRecord
 ) -> String? {
     switch record.sourceKind {
-    case .resourceBaseURL:
-        return record.id.uuidString.lowercased()
+    case .legacyResourceBaseURL:
+        return nil
     case .appExtensionBundle:
         let bundleIdentifier = Bundle(url: URL(fileURLWithPath: record.sourcePath))?
             .bundleIdentifier?
@@ -653,8 +421,6 @@ enum BrowserWebExtensionInstallError: LocalizedError, Equatable {
     case noManifest(URL)
     case noWebExtensionInApp(URL)
     case unsupportedSource(URL)
-    case invalidChromeExtensionArchive(URL)
-    case copyFailed(String)
     case loadFailed(String)
     case persistFailed(String)
 
@@ -676,16 +442,9 @@ enum BrowserWebExtensionInstallError: LocalizedError, Equatable {
             )
         case .unsupportedSource(let url):
             return String(
-                format: String(localized: "browser.extensions.error.unsupportedSource", defaultValue: "%@ is not an extension folder, ZIP, CRX, .appex, or app containing a Safari Web Extension."),
+                format: String(localized: "browser.extensions.error.unsupportedSource", defaultValue: "%@ is not an app or .appex containing a Safari Web Extension."),
                 url.lastPathComponent
             )
-        case .invalidChromeExtensionArchive(let url):
-            return String(
-                format: String(localized: "browser.extensions.error.invalidChromeExtensionArchive", defaultValue: "%@ is not a valid Chrome extension package."),
-                url.lastPathComponent
-            )
-        case .copyFailed(let message):
-            return message
         case .loadFailed(let message):
             return message
         case .persistFailed(let message):
@@ -702,27 +461,18 @@ final class BrowserWebExtensionInstallStore {
         case notSafariWebExtension
     }
 
-    private struct PreparedResourceCopy {
-        let temporaryDirectoryURL: URL
-        let finalDirectoryURL: URL
-        let storedSourceURL: URL
-    }
-
     private static let safariWebExtensionPointIdentifier = "com.apple.Safari.web-extension"
 
     private let registryURL: URL
-    private let installedResourceDirectoryURL: URL
     private let fileManager: FileManager
 
     private(set) var records: [BrowserWebExtensionInstallRecord] = []
 
     init(
         registryURL: URL = BrowserWebExtensionInstallStore.defaultRegistryURL(),
-        installedResourceDirectoryURL: URL = BrowserWebExtensionInstallStore.defaultInstalledResourceDirectoryURL(),
         fileManager: FileManager = .default
     ) {
         self.registryURL = registryURL
-        self.installedResourceDirectoryURL = installedResourceDirectoryURL
         self.fileManager = fileManager
         reload()
     }
@@ -742,10 +492,6 @@ final class BrowserWebExtensionInstallStore {
         defaultSupportDirectoryURL().appendingPathComponent("installed_extensions.json", isDirectory: false)
     }
 
-    static func defaultInstalledResourceDirectoryURL() -> URL {
-        defaultSupportDirectoryURL().appendingPathComponent("resources", isDirectory: true)
-    }
-
     func reload() {
         guard fileManager.fileExists(atPath: registryURL.path) else {
             return
@@ -754,8 +500,7 @@ final class BrowserWebExtensionInstallStore {
         do {
             let data = try Data(contentsOf: registryURL)
             let decoded = try JSONDecoder().decode([BrowserWebExtensionInstallRecord].self, from: data)
-            records = decoded.map(sanitizedRecord)
-            ensureManagedResourceCompatibility()
+            records = decoded.compactMap(sanitizedRecord)
             if records != decoded {
                 try? persist()
             }
@@ -786,25 +531,18 @@ final class BrowserWebExtensionInstallStore {
         grantedPermissions: [String],
         grantedPermissionMatchPatterns: [String]
     ) throws -> BrowserWebExtensionInstallRecord {
+        guard source.kind == .appExtensionBundle else {
+            throw BrowserWebExtensionInstallError.unsupportedSource(source.url)
+        }
         let recordID = existingRecordID(for: source) ?? UUID()
         let previousRecords = records
-        let preparedResourceCopy: PreparedResourceCopy?
-        let storedSourceURL: URL
-        if source.kind == .resourceBaseURL {
-            let preparedCopy = try prepareResourceSourceCopy(source.url, recordID: recordID)
-            preparedResourceCopy = preparedCopy
-            storedSourceURL = preparedCopy.storedSourceURL
-        } else {
-            preparedResourceCopy = nil
-            storedSourceURL = source.url
-        }
 
         let record = BrowserWebExtensionInstallRecord(
             id: recordID,
             displayName: displayName,
             displayVersion: displayVersion,
             sourceKind: source.kind,
-            sourcePath: storedSourceURL.path,
+            sourcePath: source.url.path,
             isEnabled: true,
             grantedPermissions: browserWebExtensionHostGrantablePermissionNames(
                 from: grantedPermissions,
@@ -825,14 +563,8 @@ final class BrowserWebExtensionInstallStore {
 
         do {
             try persist(nextRecords)
-            if let preparedResourceCopy {
-                try commitResourceSourceCopy(preparedResourceCopy)
-            }
             records = nextRecords
         } catch {
-            if let preparedResourceCopy {
-                try? fileManager.removeItem(at: preparedResourceCopy.temporaryDirectoryURL)
-            }
             records = previousRecords
             try? persist(previousRecords)
             throw error
@@ -856,21 +588,7 @@ final class BrowserWebExtensionInstallStore {
         nextRecords.remove(at: index)
         try persist(nextRecords)
         records = nextRecords
-
-        guard record.sourceKind == .resourceBaseURL else {
-            return
-        }
-
-        do {
-            let directoryURL = URL(fileURLWithPath: record.sourcePath).deletingLastPathComponent()
-            if fileManager.fileExists(atPath: directoryURL.path) {
-                try fileManager.removeItem(at: directoryURL)
-            }
-        } catch {
-            records = previousRecords
-            try? persist(previousRecords)
-            throw BrowserWebExtensionInstallError.copyFailed(error.localizedDescription)
-        }
+        _ = record
     }
 
     func discoverSource(from url: URL) throws -> BrowserWebExtensionInstallSource {
@@ -897,34 +615,7 @@ final class BrowserWebExtensionInstallStore {
             }
         }
 
-        if pathExtension == "zip" || pathExtension == "crx" {
-            return BrowserWebExtensionInstallSource(kind: .resourceBaseURL, url: resolvedURL)
-        }
-
-        if isDirectory(resolvedURL) {
-            guard directoryHasManifest(resolvedURL) else {
-                throw BrowserWebExtensionInstallError.noManifest(resolvedURL)
-            }
-            return BrowserWebExtensionInstallSource(kind: .resourceBaseURL, url: resolvedURL)
-        }
-
         throw BrowserWebExtensionInstallError.unsupportedSource(resolvedURL)
-    }
-
-    func webKitLoadableSource(from source: BrowserWebExtensionInstallSource) throws -> BrowserWebExtensionInstallSource {
-        guard source.kind == .resourceBaseURL,
-              source.url.pathExtension.lowercased() == "crx" else {
-            return source
-        }
-
-        let temporaryDirectory = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-browser-extension-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
-        let zipURL = temporaryDirectory
-            .appendingPathComponent(source.url.deletingPathExtension().lastPathComponent, isDirectory: false)
-            .appendingPathExtension("zip")
-        try Self.writeChromeExtensionZipPayload(from: source.url, to: zipURL)
-        return BrowserWebExtensionInstallSource(kind: .resourceBaseURL, url: zipURL)
     }
 
     private func existingRecordID(for source: BrowserWebExtensionInstallSource) -> UUID? {
@@ -934,117 +625,6 @@ final class BrowserWebExtensionInstallStore {
         }?.id
     }
 
-    private func prepareResourceSourceCopy(_ sourceURL: URL, recordID: UUID) throws -> PreparedResourceCopy {
-        do {
-            try fileManager.createDirectory(at: installedResourceDirectoryURL, withIntermediateDirectories: true)
-            let finalDirectoryURL = installedResourceDirectoryURL
-                .appendingPathComponent(recordID.uuidString.lowercased(), isDirectory: true)
-            let temporaryDirectoryURL = installedResourceDirectoryURL
-                .appendingPathComponent(".tmp-\(recordID.uuidString.lowercased())-\(UUID().uuidString.lowercased())", isDirectory: true)
-            try fileManager.createDirectory(at: temporaryDirectoryURL, withIntermediateDirectories: true)
-
-            let temporarySourceURL: URL
-            let storedSourceURL: URL
-            if sourceURL.pathExtension.lowercased() == "crx" {
-                temporarySourceURL = temporaryDirectoryURL
-                    .appendingPathComponent(sourceURL.deletingPathExtension().lastPathComponent, isDirectory: false)
-                    .appendingPathExtension("zip")
-                storedSourceURL = finalDirectoryURL
-                    .appendingPathComponent(sourceURL.deletingPathExtension().lastPathComponent, isDirectory: false)
-                    .appendingPathExtension("zip")
-                try Self.writeChromeExtensionZipPayload(from: sourceURL, to: temporarySourceURL)
-            } else {
-                temporarySourceURL = temporaryDirectoryURL
-                    .appendingPathComponent(sourceURL.lastPathComponent, isDirectory: isDirectory(sourceURL))
-                storedSourceURL = finalDirectoryURL
-                    .appendingPathComponent(sourceURL.lastPathComponent, isDirectory: isDirectory(sourceURL))
-                try fileManager.copyItem(at: sourceURL, to: temporarySourceURL)
-            }
-            if isDirectory(temporarySourceURL) {
-                try BrowserWebExtensionResourceCompatibility.ensureServiceWorkerCompatibility(
-                    in: temporarySourceURL,
-                    fileManager: fileManager
-                )
-            }
-            return PreparedResourceCopy(
-                temporaryDirectoryURL: temporaryDirectoryURL,
-                finalDirectoryURL: finalDirectoryURL,
-                storedSourceURL: storedSourceURL
-            )
-        } catch let installError as BrowserWebExtensionInstallError {
-            throw installError
-        } catch {
-            throw BrowserWebExtensionInstallError.copyFailed(error.localizedDescription)
-        }
-    }
-
-    private func commitResourceSourceCopy(_ preparedCopy: PreparedResourceCopy) throws {
-        let backupDirectoryURL = preparedCopy.finalDirectoryURL.deletingLastPathComponent()
-            .appendingPathComponent(".backup-\(preparedCopy.finalDirectoryURL.lastPathComponent)-\(UUID().uuidString.lowercased())", isDirectory: true)
-        var movedExistingResourceToBackup = false
-
-        do {
-            if fileManager.fileExists(atPath: preparedCopy.finalDirectoryURL.path) {
-                try fileManager.moveItem(at: preparedCopy.finalDirectoryURL, to: backupDirectoryURL)
-                movedExistingResourceToBackup = true
-            }
-            try fileManager.moveItem(at: preparedCopy.temporaryDirectoryURL, to: preparedCopy.finalDirectoryURL)
-            if movedExistingResourceToBackup {
-                try? fileManager.removeItem(at: backupDirectoryURL)
-            }
-        } catch {
-            if fileManager.fileExists(atPath: preparedCopy.finalDirectoryURL.path) {
-                try? fileManager.removeItem(at: preparedCopy.finalDirectoryURL)
-            }
-            if movedExistingResourceToBackup,
-               fileManager.fileExists(atPath: backupDirectoryURL.path),
-               !fileManager.fileExists(atPath: preparedCopy.finalDirectoryURL.path) {
-                try? fileManager.moveItem(at: backupDirectoryURL, to: preparedCopy.finalDirectoryURL)
-            }
-            throw BrowserWebExtensionInstallError.copyFailed(error.localizedDescription)
-        }
-    }
-
-    private static func writeChromeExtensionZipPayload(from crxURL: URL, to destinationURL: URL) throws {
-        let payload = try chromeExtensionZipPayload(from: crxURL)
-        try payload.write(to: destinationURL, options: .atomic)
-    }
-
-    private static func chromeExtensionZipPayload(from crxURL: URL) throws -> Data {
-        let data = try Data(contentsOf: crxURL)
-        guard data.count >= 12,
-              data[0] == 0x43,
-              data[1] == 0x72,
-              data[2] == 0x32,
-              data[3] == 0x34 else {
-            throw BrowserWebExtensionInstallError.invalidChromeExtensionArchive(crxURL)
-        }
-
-        let version = data.littleEndianUInt32(at: 4)
-        let zipStart: Int
-        switch version {
-        case 2:
-            guard data.count >= 16 else {
-                throw BrowserWebExtensionInstallError.invalidChromeExtensionArchive(crxURL)
-            }
-            let publicKeyLength = Int(data.littleEndianUInt32(at: 8))
-            let signatureLength = Int(data.littleEndianUInt32(at: 12))
-            zipStart = 16 + publicKeyLength + signatureLength
-        case 3:
-            let headerLength = Int(data.littleEndianUInt32(at: 8))
-            zipStart = 12 + headerLength
-        default:
-            throw BrowserWebExtensionInstallError.invalidChromeExtensionArchive(crxURL)
-        }
-
-        guard zipStart + 1 < data.count,
-              data[zipStart] == 0x50,
-              data[zipStart + 1] == 0x4b else {
-            throw BrowserWebExtensionInstallError.invalidChromeExtensionArchive(crxURL)
-        }
-
-        return data.subdata(in: zipStart..<data.count)
-    }
 
     private func persist() throws {
         try persist(records)
@@ -1080,28 +660,16 @@ final class BrowserWebExtensionInstallStore {
 
     private func sanitizedRecord(
         _ record: BrowserWebExtensionInstallRecord
-    ) -> BrowserWebExtensionInstallRecord {
+    ) -> BrowserWebExtensionInstallRecord? {
+        guard record.sourceKind == .appExtensionBundle else {
+            return nil
+        }
         var record = record
         record.grantedPermissions = browserWebExtensionHostGrantablePermissionNames(
             from: record.grantedPermissions,
             sourceKind: record.sourceKind
         ).sorted()
         return record
-    }
-
-    private func ensureManagedResourceCompatibility() {
-        for record in records where record.sourceKind == .resourceBaseURL {
-            let sourceURL = URL(fileURLWithPath: record.sourcePath)
-            guard isDirectory(sourceURL) else { continue }
-            do {
-                try BrowserWebExtensionResourceCompatibility.ensureServiceWorkerCompatibility(
-                    in: sourceURL,
-                    fileManager: fileManager
-                )
-            } catch {
-                NSLog("[BrowserExtensions] Failed to prepare compatibility files for \(record.displayName): \(error.localizedDescription)")
-            }
-        }
     }
 
     private func firstWebExtensionAppExtension(in appURL: URL) -> URL? {
@@ -1170,181 +738,6 @@ final class BrowserWebExtensionInstallStore {
             .appendingPathComponent("Info.plist", isDirectory: false)
     }
 
-    private func directoryHasManifest(_ directoryURL: URL) -> Bool {
-        fileManager.fileExists(atPath: directoryURL.appendingPathComponent("manifest.json").path)
-    }
-
-    private func isDirectory(_ url: URL) -> Bool {
-        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-    }
-}
-
-private enum BrowserWebExtensionResourceCompatibility {
-    private static let legacyCompatibilityDirectoryName = "__cmux_compatibility__"
-    private static let legacyWrapperScriptName = "service-worker-wrapper.js"
-    private static let compatibilityScriptName = "__cmux_service_worker_globals.js"
-    private static let wrapperScriptName = "__cmux_service_worker_wrapper.js"
-
-    static func ensureServiceWorkerCompatibility(
-        in extensionDirectoryURL: URL,
-        fileManager: FileManager
-    ) throws {
-        let manifestURL = extensionDirectoryURL.appendingPathComponent("manifest.json", isDirectory: false)
-        guard fileManager.fileExists(atPath: manifestURL.path) else { return }
-
-        let manifestData = try Data(contentsOf: manifestURL)
-        guard var manifest = try JSONSerialization.jsonObject(with: manifestData) as? [String: Any],
-              var background = manifest["background"] as? [String: Any],
-              let rawServiceWorkerPath = background["service_worker"] as? String,
-              !rawServiceWorkerPath.isEmpty,
-              let serviceWorkerPath = normalizedExtensionRelativePath(rawServiceWorkerPath) else {
-            return
-        }
-
-        let originalServiceWorkerPath = (isManagedWrapperPath(serviceWorkerPath)
-            ? restoredOriginalServiceWorkerPath(from: fileURL(relativePath: serviceWorkerPath, in: extensionDirectoryURL))
-            : serviceWorkerPath)
-            .flatMap(normalizedExtensionRelativePath)
-        guard let originalServiceWorkerPath, !originalServiceWorkerPath.isEmpty else { return }
-
-        let wrapperPath = wrapperPath(forOriginalServiceWorkerPath: originalServiceWorkerPath)
-        let wrapperDirectoryPath = directoryPath(forRelativePath: wrapperPath)
-        let compatibilityScriptPath = path(
-            directoryPath: wrapperDirectoryPath,
-            filename: compatibilityScriptName
-        )
-
-        let compatibilityScriptURL = fileURL(relativePath: compatibilityScriptPath, in: extensionDirectoryURL)
-        try fileManager.createDirectory(
-            at: compatibilityScriptURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try BrowserWebExtensionUserAgentSettings.compatibilityScriptSource
-            .data(using: .utf8)?
-            .write(to: compatibilityScriptURL, options: .atomic)
-
-        let wrapperScriptURL = fileURL(relativePath: wrapperPath, in: extensionDirectoryURL)
-        try fileManager.createDirectory(
-            at: wrapperScriptURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        let wrapperSource = serviceWorkerWrapperSource(
-            originalServiceWorkerPath: originalServiceWorkerPath,
-            originalServiceWorkerImportPath: "./\(filename(forRelativePath: originalServiceWorkerPath))",
-            compatibilityScriptImportPath: "./\(compatibilityScriptName)",
-            isModule: (background["type"] as? String)?.lowercased() == "module"
-        )
-        try wrapperSource.data(using: .utf8)?.write(to: wrapperScriptURL, options: .atomic)
-
-        if serviceWorkerPath != wrapperPath {
-            background["service_worker"] = wrapperPath
-            manifest["background"] = background
-            let updatedManifestData = try JSONSerialization.data(
-                withJSONObject: manifest,
-                options: [.prettyPrinted, .sortedKeys]
-            )
-            try updatedManifestData.write(to: manifestURL, options: .atomic)
-        }
-    }
-
-    private static func restoredOriginalServiceWorkerPath(from wrapperScriptURL: URL) -> String? {
-        guard let source = try? String(contentsOf: wrapperScriptURL, encoding: .utf8) else {
-            return nil
-        }
-        let marker = "cmux-original-service-worker:"
-        guard let markerRange = source.range(of: marker) else {
-            return nil
-        }
-        let remainder = source[markerRange.upperBound...]
-        guard let lineEnd = remainder.firstIndex(where: { $0.isNewline }) else {
-            return String(remainder).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return String(remainder[..<lineEnd]).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func normalizedExtensionRelativePath(_ path: String) -> String? {
-        let normalized = path
-            .replacingOccurrences(of: "\\", with: "/")
-            .drop(while: { $0 == "/" })
-
-        var components: [String] = []
-        for component in normalized.split(separator: "/", omittingEmptySubsequences: false) {
-            if component == "." {
-                continue
-            }
-            guard !component.isEmpty, component != ".." else {
-                return nil
-            }
-            components.append(String(component))
-        }
-        guard !components.isEmpty else { return nil }
-        return components.joined(separator: "/")
-    }
-
-    private static func serviceWorkerWrapperSource(
-        originalServiceWorkerPath: String,
-        originalServiceWorkerImportPath: String,
-        compatibilityScriptImportPath: String,
-        isModule: Bool
-    ) -> String {
-        if isModule {
-            return """
-            // cmux-original-service-worker: \(originalServiceWorkerPath)
-            import \(javaScriptStringLiteral(compatibilityScriptImportPath));
-            import \(javaScriptStringLiteral(originalServiceWorkerImportPath));
-            """
-        }
-
-        return """
-        // cmux-original-service-worker: \(originalServiceWorkerPath)
-        importScripts(
-          \(javaScriptStringLiteral(compatibilityScriptImportPath)),
-          \(javaScriptStringLiteral(originalServiceWorkerImportPath))
-        );
-        """
-    }
-
-    private static func isManagedWrapperPath(_ path: String) -> Bool {
-        path == wrapperScriptName
-            || path.hasSuffix("/\(wrapperScriptName)")
-            || path == "\(legacyCompatibilityDirectoryName)/\(legacyWrapperScriptName)"
-    }
-
-    private static func wrapperPath(forOriginalServiceWorkerPath originalServiceWorkerPath: String) -> String {
-        path(
-            directoryPath: directoryPath(forRelativePath: originalServiceWorkerPath),
-            filename: wrapperScriptName
-        )
-    }
-
-    private static func directoryPath(forRelativePath path: String) -> String {
-        let components = path.split(separator: "/").map(String.init)
-        guard components.count > 1 else { return "" }
-        return components.dropLast().joined(separator: "/")
-    }
-
-    private static func filename(forRelativePath path: String) -> String {
-        path.split(separator: "/").last.map(String.init) ?? path
-    }
-
-    private static func path(directoryPath: String, filename: String) -> String {
-        directoryPath.isEmpty ? filename : "\(directoryPath)/\(filename)"
-    }
-
-    private static func fileURL(relativePath: String, in directoryURL: URL) -> URL {
-        relativePath
-            .split(separator: "/")
-            .reduce(directoryURL) { partialURL, component in
-                partialURL.appendingPathComponent(String(component), isDirectory: false)
-            }
-    }
-
-    private static func javaScriptStringLiteral(_ value: String) -> String {
-        let data = try? JSONSerialization.data(withJSONObject: [value], options: [])
-        let encoded = data.flatMap { String(data: $0, encoding: .utf8) } ?? #"[""]"#
-        return String(encoded.dropFirst().dropLast())
-            .replacingOccurrences(of: "\\/", with: "/")
-    }
 }
 
 private extension JSONEncoder {
@@ -1352,15 +745,6 @@ private extension JSONEncoder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         return encoder
-    }
-}
-
-private extension Data {
-    func littleEndianUInt32(at offset: Int) -> UInt32 {
-        UInt32(self[offset]) |
-            (UInt32(self[offset + 1]) << 8) |
-            (UInt32(self[offset + 2]) << 16) |
-            (UInt32(self[offset + 3]) << 24)
     }
 }
 
@@ -1541,13 +925,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
     func installExtension(from url: URL) async throws -> BrowserWebExtensionInstallResult {
         let source = try store.discoverSource(from: url)
-        let loadableSource = try store.webKitLoadableSource(from: source)
-        defer {
-            if loadableSource.url != source.url {
-                try? FileManager.default.removeItem(at: loadableSource.url.deletingLastPathComponent())
-            }
-        }
-        let webExtension = try await loadWebExtension(from: loadableSource)
+        let webExtension = try await loadWebExtension(from: source)
         let parseErrors = webExtension.errors.map(\.localizedDescription)
         let fatalParseErrors = webExtension.errors.filter { error in
             let nsError = error as NSError
@@ -1631,17 +1009,11 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         context: WKWebExtensionContext,
         openerPanel: BrowserPanel?,
         shouldBePrivate: Bool
-    ) -> (configuration: WKWebViewConfiguration, usesExtensionOrigin: Bool)? {
-        let usesExtensionOrigin: Bool
+    ) -> WKWebViewConfiguration? {
+        let configuration: WKWebViewConfiguration
         if let initialURL,
            let targetContext = controller?.extensionContext(for: initialURL),
            targetContext === context {
-            usesExtensionOrigin = true
-        } else {
-            usesExtensionOrigin = false
-        }
-        let configuration: WKWebViewConfiguration
-        if usesExtensionOrigin {
             guard let extensionConfiguration = context.webViewConfiguration else { return nil }
             configuration = extensionConfiguration
         } else {
@@ -1665,7 +1037,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         }
         configuration.mediaTypesRequiringUserActionForPlayback = []
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-        return (configuration, usesExtensionOrigin)
+        return configuration
     }
 
     private func loadInstalledRecordsIfNeeded() async {
@@ -1690,11 +1062,6 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         )
         let webExtension = try await loadWebExtension(from: source)
         let context = WKWebExtensionContext(for: webExtension)
-        if let extensionWebViewConfiguration = context.webViewConfiguration {
-            BrowserWebExtensionUserAgentSettings.configureExtensionWebViewConfiguration(
-                extensionWebViewConfiguration
-            )
-        }
         if let uniqueIdentifier = browserWebExtensionContextUniqueIdentifier(for: record) {
             context.uniqueIdentifier = uniqueIdentifier
         }
@@ -1727,8 +1094,8 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     private func loadWebExtension(from source: BrowserWebExtensionInstallSource) async throws -> WKWebExtension {
         do {
             switch source.kind {
-            case .resourceBaseURL:
-                return try await WKWebExtension(resourceBaseURL: source.url)
+            case .legacyResourceBaseURL:
+                throw BrowserWebExtensionInstallError.unsupportedSource(source.url)
             case .appExtensionBundle:
                 guard let bundle = Bundle(url: source.url) else {
                     throw BrowserWebExtensionInstallError.unsupportedSource(source.url)
@@ -1857,10 +1224,8 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         let window = BrowserWebExtensionAuxiliaryWindowAdapter(
             runtime: self,
             configuration: configuration,
-            webViewConfiguration: webViewConfiguration.configuration,
-            customUserAgent: webViewConfiguration.usesExtensionOrigin
-                ? BrowserWebExtensionUserAgentSettings.userAgent
-                : BrowserUserAgentSettings.safariUserAgent,
+            webViewConfiguration: webViewConfiguration,
+            customUserAgent: BrowserUserAgentSettings.safariUserAgent,
             initialURL: initialURL,
             openerPanel: opener
         )
@@ -2002,7 +1367,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     private func sourceKind(for context: WKWebExtensionContext) -> BrowserWebExtensionInstallRecord.SourceKind {
         guard let recordID = contextsByRecordID.first(where: { $0.value === context })?.key,
               let record = store.records.first(where: { $0.id == recordID }) else {
-            return .resourceBaseURL
+            return .appExtensionBundle
         }
         return record.sourceKind
     }
