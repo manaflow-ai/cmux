@@ -123,6 +123,8 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
                 guard let changedDefaults = notification.object as? UserDefaults else { return false }
                 return changedDefaults === self.userDefaults
             }
+            // Stage before the main-queue debounce so a watcher reload cannot
+            // make a just-posted UI change look already persisted.
             .handleEvents(receiveOutput: { [weak self] _ in
                 self?.stageUserDefaultsSettingsJSONPersistenceIfNeeded()
             })
@@ -282,8 +284,10 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
 
     private func persistUserDefaultsSettingsChangeIfNeeded() {
         stageUserDefaultsSettingsJSONPersistenceIfNeeded()
-        let currentValues = currentSettingsJSONValues(includingManagedCustomSettings: false)
         let changedValues: [String: ManagedSettingsValue] = synchronized {
+            let currentValues = CmuxSettingsJSONPersistence.currentSettingsJSONValuesFromUserDefaults(
+                defaults: userDefaults
+            )
             var stalePaths: [String] = []
             var changedValues: [String: ManagedSettingsValue] = [:]
             for (path, value) in pendingSettingsJSONValues {
@@ -313,8 +317,10 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
     }
 
     private func stageUserDefaultsSettingsJSONPersistenceIfNeeded() {
-        let currentValues = currentSettingsJSONValues(includingManagedCustomSettings: false)
         synchronized {
+            let currentValues = CmuxSettingsJSONPersistence.currentSettingsJSONValuesFromUserDefaults(
+                defaults: userDefaults
+            )
             for (path, value) in currentValues {
                 if lastPersistedSettingsValues[path] != value {
                     pendingSettingsJSONValues[path] = value
