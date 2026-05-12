@@ -576,13 +576,13 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
 
             func finish(status: Int32) {
                 lock.lock()
+                self.status = status
                 if let continuation {
                     self.continuation = nil
                     lock.unlock()
                     continuation.resume(returning: status)
                     return
                 }
-                self.status = status
                 lock.unlock()
             }
         }

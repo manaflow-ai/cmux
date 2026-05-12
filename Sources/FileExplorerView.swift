@@ -67,6 +67,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
+        private var activeDownloadTask: Task<Void, Never>?
+        private var activeDownloadID: UUID?
 
         init(
             store: FileExplorerStore,
@@ -96,6 +98,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         deinit {
+            activeDownloadTask?.cancel()
             if let observer = styleObserver {
                 NotificationCenter.default.removeObserver(observer)
             }
@@ -655,8 +658,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
             let itemName = node.name
             let localDirectory = directoryURL.standardizedFileURL.path
             let workspaceId = workspaceId
+            let downloadID = UUID()
 
-            Task { [weak self] in
+            activeDownloadTask?.cancel()
+            activeDownloadID = downloadID
+            activeDownloadTask = Task { [weak self] in
                 do {
                     let localPath = try await provider.download(
                         remotePath: remotePath,
@@ -664,14 +670,20 @@ struct FileExplorerPanelView: NSViewRepresentable {
                         toLocalDirectory: localDirectory
                     )
                     await MainActor.run {
+                        guard self?.finishDownloadTask(downloadID) == true else { return }
                         self?.presentDownloadCompletion(
                             itemName: itemName,
                             localPath: localPath,
                             workspaceId: workspaceId
                         )
                     }
+                } catch is CancellationError {
+                    await MainActor.run {
+                        _ = self?.finishDownloadTask(downloadID)
+                    }
                 } catch {
                     await MainActor.run {
+                        guard self?.finishDownloadTask(downloadID) == true else { return }
                         self?.presentDownloadFailure(
                             itemName: itemName,
                             error: error,
@@ -680,6 +692,14 @@ struct FileExplorerPanelView: NSViewRepresentable {
                     }
                 }
             }
+        }
+
+        @MainActor
+        private func finishDownloadTask(_ downloadID: UUID) -> Bool {
+            guard activeDownloadID == downloadID else { return false }
+            activeDownloadID = nil
+            activeDownloadTask = nil
+            return true
         }
 
         @MainActor
@@ -723,6 +743,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                     subtitle: itemName,
                     body: error.localizedDescription
                 )
+                return
             }
 
             let alert = NSAlert()
