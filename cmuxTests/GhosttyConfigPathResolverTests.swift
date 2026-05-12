@@ -245,6 +245,25 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
         }
     }
 
+    func testWriteManagedAppearanceConfigThrowsWithoutOverwritingUnreadableExistingConfig() throws {
+        try withTemporaryHomeDirectory { homeDirectory in
+            let environment = ConfigSourceEnvironment(
+                homeDirectoryURL: homeDirectory,
+                currentBundleIdentifier: "com.cmuxterm.app"
+            )
+            let configURL = environment.cmuxConfigURL
+            try FileManager.default.createDirectory(
+                at: configURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let invalidUTF8 = Data([0xff, 0xfe, 0xfd])
+            try invalidUTF8.write(to: configURL)
+
+            XCTAssertThrowsError(try environment.writeManagedAppearanceConfigIfNeeded())
+            XCTAssertEqual(try Data(contentsOf: configURL), invalidUTF8)
+        }
+    }
+
     func testSyncedConfigPreviewIncludesSymlinkedStandaloneGhosttyConfig() throws {
         try withTemporaryHomeDirectory { homeDirectory in
             let fileManager = FileManager.default

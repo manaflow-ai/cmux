@@ -96,7 +96,12 @@ struct ConfigSourceEnvironment {
 
     private func writeManagedAppearanceConfigIfNeeded(to url: URL) throws {
         let writeURL = configWriteURL(for: url)
-        let existingContents = (try? String(contentsOf: writeURL, encoding: .utf8)) ?? ""
+        let existingContents: String
+        if fileManager.fileExists(atPath: writeURL.path) {
+            existingContents = try String(contentsOf: writeURL, encoding: .utf8)
+        } else {
+            existingContents = ""
+        }
         let hasManagedState = CmuxManagedGhosttyThemeConfig.containsManagedState(in: existingContents)
         if !hasManagedState,
            !GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [writeURL.path]) {

@@ -63,7 +63,7 @@ enum AppearanceSettings {
                 writeManagedGhosttyConfig: { _, _, source in
                     do {
                         try ConfigSourceEnvironment.live().writeManagedAppearanceConfigIfNeeded()
-                    } catch {
+                    } catch let error {
                         appearanceSettingsLogger.error(
                             "Failed to write managed Ghostty theme config source=\(source, privacy: .public) error=\(error.localizedDescription, privacy: .private)"
                         )
