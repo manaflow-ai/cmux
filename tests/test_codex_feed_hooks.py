@@ -562,6 +562,64 @@ def test_install_migrates_legacy_codex_hooks_feature(cli_path: str, root: Path) 
         raise AssertionError(f"existing feature setting was not preserved: {config_toml!r}")
 
 
+def test_uninstall_preserves_existing_codex_hooks_feature(cli_path: str, root: Path) -> None:
+    codex_home = root / "codex-home-uninstall-existing"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text(
+        "[features]\napps = true\nhooks = true\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    for action in ["install", "uninstall"]:
+        result = subprocess.run(
+            [cli_path, "hooks", "codex", action, "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=20,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"hooks codex {action} failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+            )
+
+    config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
+    if "hooks = true" not in config_toml:
+        raise AssertionError(f"pre-existing hooks feature was removed: {config_toml!r}")
+    if "apps = true" not in config_toml:
+        raise AssertionError(f"existing feature setting was not preserved: {config_toml!r}")
+
+
+def test_uninstall_removes_cmux_owned_codex_hooks_feature(cli_path: str, root: Path) -> None:
+    codex_home = root / "codex-home-uninstall-owned"
+    codex_home.mkdir()
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    for action in ["install", "uninstall"]:
+        result = subprocess.run(
+            [cli_path, "hooks", "codex", action, "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=20,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"hooks codex {action} failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+            )
+
+    config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
+    if "hooks = true" in config_toml or "codex_hooks" in config_toml:
+        raise AssertionError(f"cmux-owned hooks feature was not removed: {config_toml!r}")
+    if "[features]" in config_toml:
+        raise AssertionError(f"empty features table was preserved: {config_toml!r}")
+
+
 def test_permission_reply_uses_codex_permission_request_schema(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux.sock"
     payload = {
@@ -659,6 +717,9 @@ def main() -> int:
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
+            test_install_migrates_legacy_codex_hooks_feature(cli_path, root)
+            test_uninstall_preserves_existing_codex_hooks_feature(cli_path, root)
+            test_uninstall_removes_cmux_owned_codex_hooks_feature(cli_path, root)
             test_permission_reply_uses_codex_permission_request_schema(cli_path, root)
             test_codex_persistent_permission_modes_degrade_to_once(cli_path, root)
             test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path, root)
