@@ -239,7 +239,7 @@ extension CmuxEventBus {
                 "kind": kind ?? NSNull(),
                 "frame": snapshot.framePayload,
                 "bounds": snapshot.boundsPayload,
-                "screen": snapshot.screenPayload,
+                "screen": snapshot.screenPayload ?? NSNull(),
                 "in_window": snapshot.inWindow,
                 "origin": origin
             ]
