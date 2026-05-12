@@ -20,6 +20,36 @@ struct ExtensionPanelView: View {
     }
 }
 
+struct BlockedExtensionPanelView: View {
+    @ObservedObject var panel: BlockedExtensionPanel
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: panel.isLoading ? "puzzlepiece.extension" : "exclamationmark.triangle")
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(panel.isLoading ? .secondary : .orange)
+            Text(panel.statusTitle)
+                .font(.headline)
+            Text(panel.statusMessage)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .textSelection(.enabled)
+                .frame(maxWidth: 520)
+            Text(panel.bundlePath)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .lineLimit(2)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .frame(maxWidth: 520)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .textBackgroundColor))
+    }
+}
+
 private struct ExtensionWebViewRepresentable: NSViewRepresentable {
     @ObservedObject var panel: ExtensionPanel
     let paneId: PaneID

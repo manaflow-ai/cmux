@@ -3252,7 +3252,15 @@ class TerminalController {
         }
         do {
             var preparedParams = params
-            preparedParams[Self.v2ResolvedExtensionBundleParamKey] = try ExtensionBundleDescriptor.resolve(path: bundlePath)
+            let bundle = try ExtensionBundleDescriptor.resolve(path: bundlePath)
+            guard ExtensionBundleTrustStore.shared.isTrusted(bundle) else {
+                return .err(
+                    code: "untrusted_extension_bundle",
+                    message: "Extension bundle is not trusted",
+                    data: ["bundle": bundlePath]
+                )
+            }
+            preparedParams[Self.v2ResolvedExtensionBundleParamKey] = bundle
             return .ok(preparedParams)
         } catch {
             return .err(
@@ -16181,6 +16189,7 @@ class TerminalController {
 
     private enum SocketArgumentParseError: LocalizedError {
         case unterminatedQuote
+        case unterminatedEscape
         case missingExtensionBundle
         case invalidExtensionBundle(String)
 
@@ -16188,6 +16197,8 @@ class TerminalController {
             switch self {
             case .unterminatedQuote:
                 return "Unterminated quoted argument"
+            case .unterminatedEscape:
+                return "Unterminated escaped argument"
             case .missingExtensionBundle:
                 return "--bundle is required for extension panes"
             case .invalidExtensionBundle(let message):
@@ -16215,16 +16226,18 @@ class TerminalController {
                 escaping = false
                 continue
             }
-            if character == "\\" {
-                escaping = true
-                continue
-            }
             if let activeQuote = quote {
                 if character == activeQuote {
                     quote = nil
+                } else if activeQuote == "\"", character == "\\" {
+                    escaping = true
                 } else {
                     current.append(character)
                 }
+                continue
+            }
+            if character == "\\" {
+                escaping = true
                 continue
             }
             if character == "\"" || character == "'" {
@@ -16239,7 +16252,7 @@ class TerminalController {
         }
 
         if escaping {
-            current.append("\\")
+            return .failure(.unterminatedEscape)
         }
         guard quote == nil else {
             return .failure(.unterminatedQuote)
@@ -16255,7 +16268,7 @@ class TerminalController {
             return .failure(.missingExtensionBundle)
         }
         do {
-            return .success(try ExtensionBundleDescriptor.resolveUserSelected(path: rawBundlePath))
+            return .success(try ExtensionBundleDescriptor.resolve(path: rawBundlePath))
         } catch {
             return .failure(.invalidExtensionBundle(error.localizedDescription))
         }

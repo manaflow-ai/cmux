@@ -34,12 +34,13 @@ final class ExtensionPanel: NSObject, Panel, ObservableObject {
     }
 
     init(
+        id: UUID = UUID(),
         workspaceId: UUID,
         paneId: UUID?,
         bundle: ExtensionBundleDescriptor,
         autoLoad: Bool = true
     ) {
-        self.id = UUID()
+        self.id = id
         self.workspaceId = workspaceId
         self.paneId = paneId
         self.bundle = bundle
@@ -60,6 +61,7 @@ final class ExtensionPanel: NSObject, Panel, ObservableObject {
 
         super.init()
 
+        webView.navigationDelegate = self
         let handler = ExtensionBridgeMessageHandler { [weak self] message, webView in
             self?.handleBridgeMessage(message, from: webView)
         }
@@ -388,5 +390,134 @@ final class ExtensionPanel: NSObject, Panel, ObservableObject {
             let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         })
+    }
+}
+
+extension ExtensionPanel: WKNavigationDelegate {
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        guard navigationAction.targetFrame?.isMainFrame == true else {
+            decisionHandler(.allow)
+            return
+        }
+
+        guard isAllowedMainFrameNavigationURL(navigationAction.request.url) else {
+            closeEventSubscriptions()
+            decisionHandler(.cancel)
+            return
+        }
+
+        closeEventSubscriptions()
+        decisionHandler(.allow)
+    }
+
+    private func isAllowedMainFrameNavigationURL(_ url: URL?) -> Bool {
+        guard let url else { return false }
+        if url.scheme?.lowercased() == "about", url.absoluteString == "about:blank" {
+            return true
+        }
+        guard url.isFileURL else { return false }
+        let canonicalPath = url.standardizedFileURL.resolvingSymlinksInPath().path
+        let bundlePath = bundle.bundleURL.standardizedFileURL.resolvingSymlinksInPath().path
+        return canonicalPath == bundlePath || canonicalPath.hasPrefix(bundlePath + "/")
+    }
+}
+
+@MainActor
+final class BlockedExtensionPanel: Panel, ObservableObject {
+    enum State: Equatable {
+        case verifying
+        case blocked(String)
+    }
+
+    let id: UUID
+    let panelType: PanelType = .extensionPane
+    let bundlePath: String
+    private(set) var workspaceId: UUID
+    private(set) var paneId: UUID?
+    @Published private(set) var state: State
+
+    init(
+        id: UUID = UUID(),
+        workspaceId: UUID,
+        paneId: UUID?,
+        bundlePath: String,
+        state: State
+    ) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.paneId = paneId
+        self.bundlePath = bundlePath
+        self.state = state
+    }
+
+    var displayTitle: String {
+        let folderName = (bundlePath as NSString).lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !folderName.isEmpty {
+            return folderName
+        }
+        return String(localized: "extensionPanel.defaultTitle", defaultValue: "Extension")
+    }
+
+    var displayIcon: String? {
+        switch state {
+        case .verifying:
+            return "puzzlepiece.extension"
+        case .blocked:
+            return "exclamationmark.triangle"
+        }
+    }
+
+    var isLoading: Bool {
+        if case .verifying = state {
+            return true
+        }
+        return false
+    }
+
+    var statusTitle: String {
+        switch state {
+        case .verifying:
+            return String(localized: "extensionPanel.restore.verifying.title", defaultValue: "Checking Extension")
+        case .blocked:
+            return String(localized: "extensionPanel.restore.blocked.title", defaultValue: "Extension Unavailable")
+        }
+    }
+
+    var statusMessage: String {
+        switch state {
+        case .verifying:
+            return String(
+                localized: "extensionPanel.restore.verifying.message",
+                defaultValue: "cmux is verifying this extension bundle before restoring it."
+            )
+        case .blocked(let reason):
+            return reason
+        }
+    }
+
+    func updateWorkspaceId(_ newWorkspaceId: UUID) {
+        workspaceId = newWorkspaceId
+    }
+
+    func updatePaneId(_ newPaneId: UUID?) {
+        paneId = newPaneId
+    }
+
+    func markBlocked(_ reason: String) {
+        state = .blocked(reason)
+    }
+
+    func close() {}
+
+    func focus() {}
+
+    func unfocus() {}
+
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) {
+        _ = reason
     }
 }

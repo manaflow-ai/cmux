@@ -94,13 +94,13 @@ final class CmuxEventSubscription: @unchecked Sendable {
             return nil
         }
         let token = UUID()
-        eventHandlers[token] = handler
         let queuedEvents = queue
         queue.removeAll()
-        lock.unlock()
+        eventHandlers[token] = handler
         for event in queuedEvents {
             handler(event)
         }
+        lock.unlock()
         return token
     }
 

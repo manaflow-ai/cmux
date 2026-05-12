@@ -101,7 +101,7 @@ struct ExtensionBundleDescriptor: Equatable, Sendable {
     }
 
     static func resolveUserSelected(path rawPath: String) throws -> ExtensionBundleDescriptor {
-        try resolve(path: rawPath, allowedRoots: nil)
+        try resolve(path: rawPath, allowedRoots: defaultAllowedRootPaths())
     }
 
     static func defaultAllowedRootPaths(fileManager: FileManager = .default) -> [String] {
@@ -143,8 +143,8 @@ struct ExtensionBundleDescriptor: Equatable, Sendable {
     private static func contentHash(for bundleURL: URL, fileManager: FileManager) throws -> String {
         guard let enumerator = fileManager.enumerator(
             at: bundleURL,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsPackageDescendants]
+            includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey, .isRegularFileKey],
+            options: []
         ) else {
             throw ExtensionBundleResolveError.unreadableBundle(bundleURL.path)
         }
@@ -156,7 +156,10 @@ struct ExtensionBundleDescriptor: Equatable, Sendable {
             guard isPath(canonicalFileURL.path, containedIn: rootPath) else {
                 throw ExtensionBundleResolveError.disallowedBundle(fileURL.path)
             }
-            let resourceValues = try canonicalFileURL.resourceValues(forKeys: [.isRegularFileKey])
+            let resourceValues = try canonicalFileURL.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey, .isRegularFileKey])
+            if resourceValues.isDirectory == true, resourceValues.isPackage == true {
+                throw ExtensionBundleResolveError.unreadableBundle(fileURL.path)
+            }
             if resourceValues.isRegularFile == true {
                 fileURLs.append(canonicalFileURL)
             }

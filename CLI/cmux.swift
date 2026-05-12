@@ -5776,8 +5776,10 @@ struct CMUXCLI {
         if !shellFeaturesBootstrap.isEmpty {
             scriptLines.append(shellFeaturesBootstrap)
         }
+        if !isShellSnippet {
+            scriptLines.append("rm -f -- \"$0\" 2>/dev/null || true")
+        }
         scriptLines += [
-            "rm -f -- \"$0\" 2>/dev/null || true",
             "CMUX_SSH_SESSION_ENDED=0",
             "CMUX_SSH_STARTUP_PID=$$",
             "export CMUX_SSH_STARTUP_PID",

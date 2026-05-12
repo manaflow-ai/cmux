@@ -483,10 +483,17 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = nil
         case .extensionPane:
-            guard let extensionPanel = panel as? ExtensionPanel else { return nil }
+            let bundlePath: String
+            if let extensionPanel = panel as? ExtensionPanel {
+                bundlePath = extensionPanel.bundle.bundlePath
+            } else if let blockedPanel = panel as? BlockedExtensionPanel {
+                bundlePath = blockedPanel.bundlePath
+            } else {
+                return nil
+            }
             terminalSnapshot = nil
             browserSnapshot = nil
-            extensionSnapshot = SessionExtensionPanelSnapshot(bundlePath: extensionPanel.bundle.bundlePath)
+            extensionSnapshot = SessionExtensionPanelSnapshot(bundlePath: bundlePath)
             markdownSnapshot = nil
             filePreviewSnapshot = nil
         case .markdown:
@@ -831,19 +838,35 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: browserPanel.id)
             return browserPanel.id
         case .extensionPane:
-            guard let bundlePath = snapshot.extensionPanel?.bundlePath,
-                  let descriptor = try? ExtensionBundleDescriptor.resolveUserSelected(path: bundlePath),
-                  ExtensionBundleTrustStore.shared.isTrusted(descriptor),
-                  let extensionPanel = newExtensionSurface(
-                    inPane: paneId,
-                    bundle: descriptor,
-                    focus: false,
-                    trustBundle: false
-                  ) else {
+            let bundlePath = snapshot.extensionPanel?.bundlePath
+            let initialState: BlockedExtensionPanel.State
+            if bundlePath == nil {
+                initialState = .blocked(String(localized: "extensionPanel.restore.blocked.missingBundle", defaultValue: "The extension surface is missing a bundle path."))
+            } else {
+                initialState = .verifying
+            }
+            guard let blockedPanel = newBlockedExtensionSurface(
+                inPane: paneId,
+                bundlePath: bundlePath ?? "",
+                state: initialState,
+                focus: false
+            ) else {
                 return nil
             }
-            applySessionPanelMetadata(snapshot, toPanelId: extensionPanel.id)
-            return extensionPanel.id
+            applySessionPanelMetadata(snapshot, toPanelId: blockedPanel.id)
+            if let bundlePath {
+                var allowedRoots = ExtensionBundleDescriptor.defaultAllowedRootPaths()
+                let workspaceRoot = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !workspaceRoot.isEmpty {
+                    allowedRoots.append(workspaceRoot)
+                }
+                scheduleExtensionBundleRestore(
+                    panelId: blockedPanel.id,
+                    bundlePath: bundlePath,
+                    allowedRoots: allowedRoots
+                )
+            }
+            return blockedPanel.id
         case .markdown:
             guard let filePath = snapshot.markdown?.filePath,
                   let markdownPanel = newMarkdownSurface(
@@ -917,6 +940,52 @@ extension Workspace {
             } else {
                 _ = browserPanel.hideDeveloperTools()
             }
+        }
+    }
+
+    private func scheduleExtensionBundleRestore(
+        panelId: UUID,
+        bundlePath: String,
+        allowedRoots: [String]?
+    ) {
+        let rawBundlePath = bundlePath
+        let roots = allowedRoots
+        Self.extensionBundleRestoreQueue.async { [weak self] in
+            let outcome = Self.resolveTrustedExtensionBundle(path: rawBundlePath, allowedRoots: roots)
+            DispatchQueue.main.async { [weak self] in
+                self?.completeExtensionBundleRestore(panelId: panelId, outcome: outcome)
+            }
+        }
+    }
+
+    private nonisolated static func resolveTrustedExtensionBundle(
+        path: String,
+        allowedRoots: [String]?
+    ) -> ExtensionBundleRestoreOutcome {
+        do {
+            let descriptor = try ExtensionBundleDescriptor.resolve(path: path, allowedRoots: allowedRoots)
+            guard ExtensionBundleTrustStore.shared.isTrusted(descriptor) else {
+                return .blocked(String(
+                    localized: "extensionPanel.restore.blocked.untrusted",
+                    defaultValue: "The extension bundle changed or is no longer trusted."
+                ))
+            }
+            return .trusted(descriptor)
+        } catch {
+            return .blocked(error.localizedDescription)
+        }
+    }
+
+    private func completeExtensionBundleRestore(
+        panelId: UUID,
+        outcome: ExtensionBundleRestoreOutcome
+    ) {
+        guard let blockedPanel = panels[panelId] as? BlockedExtensionPanel else { return }
+        switch outcome {
+        case .trusted(let descriptor):
+            replaceBlockedExtensionPanel(panelId: panelId, bundle: descriptor)
+        case .blocked(let reason):
+            blockedPanel.markBlocked(reason)
         }
     }
 
@@ -1085,14 +1154,31 @@ extension Workspace {
                 if surface.focus == true { focusPanelId = panel.id }
             }
         case .extensionPane:
-            guard let bundle = resolveExtensionBundle(surface: surface, baseCwd: baseCwd),
-                  ExtensionBundleTrustStore.shared.isTrusted(bundle),
-                  let panel = newExtensionSurface(inPane: paneId, bundle: bundle, focus: false, trustBundle: false) else {
+            let bundlePath = resolveExtensionBundlePath(surface: surface, baseCwd: baseCwd)
+            let initialState: BlockedExtensionPanel.State
+            if bundlePath == nil {
+                initialState = .blocked(String(localized: "extensionPanel.restore.blocked.missingBundle", defaultValue: "The extension surface is missing a bundle path."))
+            } else {
+                initialState = .verifying
+            }
+            guard let panel = newBlockedExtensionSurface(
+                inPane: paneId,
+                bundlePath: bundlePath ?? "",
+                state: initialState,
+                focus: false
+            ) else {
                 return
             }
             _ = closePanel(panelId, force: true)
             if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
             if surface.focus == true { focusPanelId = panel.id }
+            if let bundlePath {
+                scheduleExtensionBundleRestore(
+                    panelId: panel.id,
+                    bundlePath: bundlePath,
+                    allowedRoots: extensionBundleAllowedRoots(baseCwd: baseCwd)
+                )
+            }
         }
     }
 
@@ -1128,20 +1214,37 @@ extension Workspace {
                 if surface.focus == true { focusPanelId = panel.id }
             }
         case .extensionPane:
-            guard let bundle = resolveExtensionBundle(surface: surface, baseCwd: baseCwd),
-                  ExtensionBundleTrustStore.shared.isTrusted(bundle),
-                  let panel = newExtensionSurface(inPane: paneId, bundle: bundle, focus: false, trustBundle: false) else {
+            let bundlePath = resolveExtensionBundlePath(surface: surface, baseCwd: baseCwd)
+            let initialState: BlockedExtensionPanel.State
+            if bundlePath == nil {
+                initialState = .blocked(String(localized: "extensionPanel.restore.blocked.missingBundle", defaultValue: "The extension surface is missing a bundle path."))
+            } else {
+                initialState = .verifying
+            }
+            guard let panel = newBlockedExtensionSurface(
+                inPane: paneId,
+                bundlePath: bundlePath ?? "",
+                state: initialState,
+                focus: false
+            ) else {
                 return
             }
             if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
             if surface.focus == true { focusPanelId = panel.id }
+            if let bundlePath {
+                scheduleExtensionBundleRestore(
+                    panelId: panel.id,
+                    bundlePath: bundlePath,
+                    allowedRoots: extensionBundleAllowedRoots(baseCwd: baseCwd)
+                )
+            }
         }
     }
 
-    private func resolveExtensionBundle(
+    private func resolveExtensionBundlePath(
         surface: CmuxSurfaceDefinition,
         baseCwd: String
-    ) -> ExtensionBundleDescriptor? {
+    ) -> String? {
         guard let rawBundlePath = surface.bundle?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawBundlePath.isEmpty else {
             return nil
@@ -1158,6 +1261,10 @@ extension Workspace {
                 .appendingPathComponent(expanded, isDirectory: false)
                 .path
         }
+        return resolvedPath
+    }
+
+    private func extensionBundleAllowedRoots(baseCwd: String) -> [String] {
         var allowedRoots = ExtensionBundleDescriptor.defaultAllowedRootPaths()
         let base = baseCwd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? currentDirectory
@@ -1165,7 +1272,7 @@ extension Workspace {
         if !base.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             allowedRoots.append(base)
         }
-        return try? ExtensionBundleDescriptor.resolve(path: resolvedPath, allowedRoots: allowedRoots)
+        return allowedRoots
     }
 
     private func applyCustomDividerPositions(
@@ -7162,6 +7269,11 @@ struct ClosedBrowserPanelRestoreSnapshot {
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
 final class Workspace: Identifiable, ObservableObject {
+    private enum ExtensionBundleRestoreOutcome: Sendable {
+        case trusted(ExtensionBundleDescriptor)
+        case blocked(String)
+    }
+
     enum BrowserPanelCreationPolicy {
         case userInitiated
         case restoration
@@ -7173,6 +7285,11 @@ final class Workspace: Identifiable, ObservableObject {
 
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
+    )
+    private static let extensionBundleRestoreQueue = DispatchQueue(
+        label: "com.cmux.extension-bundle-restore",
+        qos: .userInitiated,
+        attributes: .concurrent
     )
 
     let id: UUID
@@ -8151,6 +8268,35 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
         panelSubscriptions[extensionPanel.id] = subscription
+    }
+
+    private func installBlockedExtensionPanelSubscription(_ blockedPanel: BlockedExtensionPanel) {
+        let subscription = blockedPanel.$state
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak blockedPanel] _ in
+                guard let self,
+                      let blockedPanel,
+                      let tabId = self.surfaceIdFromPanelId(blockedPanel.id) else { return }
+                guard let existing = self.bonsplitController.tab(tabId) else { return }
+                let nextTitle = blockedPanel.displayTitle
+                if self.panelTitles[blockedPanel.id] != nextTitle {
+                    self.panelTitles[blockedPanel.id] = nextTitle
+                }
+                let resolvedTitle = self.resolvedPanelTitle(panelId: blockedPanel.id, fallback: nextTitle)
+                let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
+                let iconUpdate: String?? = existing.icon == blockedPanel.displayIcon ? nil : .some(blockedPanel.displayIcon)
+                let loadingUpdate: Bool? = existing.isLoading == blockedPanel.isLoading ? nil : blockedPanel.isLoading
+                guard titleUpdate != nil || iconUpdate != nil || loadingUpdate != nil else { return }
+                self.bonsplitController.updateTab(
+                    tabId,
+                    title: titleUpdate,
+                    icon: iconUpdate,
+                    hasCustomTitle: self.panelCustomTitles[blockedPanel.id] != nil,
+                    isLoading: loadingUpdate
+                )
+            }
+        panelSubscriptions[blockedPanel.id] = subscription
     }
 
     func setPreferredBrowserProfileID(_ profileID: UUID?) {
@@ -10486,6 +10632,9 @@ final class Workspace: Identifiable, ObservableObject {
         }
         applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
         extensionPanel.updatePaneId(newPaneId.id)
+        if trustBundle {
+            ExtensionBundleTrustStore.shared.trust(bundle)
+        }
         extensionPanel.loadBundleIfNeeded()
         publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: extensionPanel.id, kind: "extension", origin: "extension_split", focused: focus)
 
@@ -10505,9 +10654,6 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         installExtensionPanelSubscription(extensionPanel)
-        if trustBundle {
-            ExtensionBundleTrustStore.shared.trust(bundle)
-        }
         return extensionPanel
     }
 
@@ -10530,7 +10676,8 @@ final class Workspace: Identifiable, ObservableObject {
         let extensionPanel = ExtensionPanel(
             workspaceId: id,
             paneId: paneId.id,
-            bundle: bundle
+            bundle: bundle,
+            autoLoad: false
         )
         panels[extensionPanel.id] = extensionPanel
         panelTitles[extensionPanel.id] = extensionPanel.displayTitle
@@ -10550,6 +10697,10 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         surfaceIdToPanelId[newTabId] = extensionPanel.id
+        if trustBundle {
+            ExtensionBundleTrustStore.shared.trust(bundle)
+        }
+        extensionPanel.loadBundleIfNeeded()
         if let targetIndex {
             _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
         }
@@ -10568,10 +10719,95 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         installExtensionPanelSubscription(extensionPanel)
-        if trustBundle {
-            ExtensionBundleTrustStore.shared.trust(bundle)
-        }
         return extensionPanel
+    }
+
+    @discardableResult
+    private func newBlockedExtensionSurface(
+        inPane paneId: PaneID,
+        bundlePath: String,
+        state: BlockedExtensionPanel.State,
+        focus: Bool? = nil,
+        targetIndex: Int? = nil
+    ) -> BlockedExtensionPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let blockedPanel = BlockedExtensionPanel(
+            workspaceId: id,
+            paneId: paneId.id,
+            bundlePath: bundlePath,
+            state: state
+        )
+        panels[blockedPanel.id] = blockedPanel
+        panelTitles[blockedPanel.id] = blockedPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: blockedPanel.displayTitle,
+            icon: blockedPanel.displayIcon,
+            kind: SurfaceKind.extensionPane,
+            isDirty: blockedPanel.isDirty,
+            isLoading: blockedPanel.isLoading,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: blockedPanel.id)
+            panelTitles.removeValue(forKey: blockedPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = blockedPanel.id
+        if let targetIndex {
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
+        publishCmuxSurfaceCreated(blockedPanel.id, paneId: paneId, kind: "extension", origin: "extension_blocked_restore", focused: shouldFocusNewTab)
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: blockedPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        installBlockedExtensionPanelSubscription(blockedPanel)
+        return blockedPanel
+    }
+
+    private func replaceBlockedExtensionPanel(
+        panelId: UUID,
+        bundle: ExtensionBundleDescriptor
+    ) {
+        guard panels[panelId] is BlockedExtensionPanel else { return }
+        let paneId = paneId(forPanelId: panelId)
+        let extensionPanel = ExtensionPanel(
+            id: panelId,
+            workspaceId: id,
+            paneId: paneId?.id,
+            bundle: bundle,
+            autoLoad: false
+        )
+        panelSubscriptions[panelId]?.cancel()
+        panelSubscriptions.removeValue(forKey: panelId)
+        panels[panelId] = extensionPanel
+        panelTitles[panelId] = extensionPanel.displayTitle
+        installExtensionPanelSubscription(extensionPanel)
+        if let tabId = surfaceIdFromPanelId(panelId),
+           let existing = bonsplitController.tab(tabId) {
+            let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: extensionPanel.displayTitle)
+            bonsplitController.updateTab(
+                tabId,
+                title: existing.title == resolvedTitle ? nil : resolvedTitle,
+                icon: .some(extensionPanel.displayIcon),
+                hasCustomTitle: panelCustomTitles[panelId] != nil,
+                isLoading: false
+            )
+        }
+        extensionPanel.loadBundleIfNeeded()
     }
 
     /// Open the markdown viewer for `filePath`, reusing an existing
@@ -11242,6 +11478,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard bonsplitController.allPaneIds.contains(paneId) else { return false }
         guard bonsplitController.moveTab(tabId, toPane: paneId, atIndex: index) else { return false }
         extensionPanel(for: panelId)?.updatePaneId(paneId.id)
+        (panels[panelId] as? BlockedExtensionPanel)?.updatePaneId(paneId.id)
 
         if focus {
             bonsplitController.focusPane(paneId)
@@ -11439,6 +11676,10 @@ final class Workspace: Identifiable, ObservableObject {
             extensionPanel.updateWorkspaceId(id)
             extensionPanel.updatePaneId(paneId.id)
             installExtensionPanelSubscription(extensionPanel)
+        } else if let blockedPanel = detached.panel as? BlockedExtensionPanel {
+            blockedPanel.updateWorkspaceId(id)
+            blockedPanel.updatePaneId(paneId.id)
+            installBlockedExtensionPanelSubscription(blockedPanel)
         }
         AppDelegate.shared?.notificationStore?.rebindSurfaceNotifications(
             fromTabId: detached.sourceWorkspaceId,
@@ -13786,6 +14027,7 @@ extension Workspace: BonsplitDelegate {
 #endif
         if let movedPanelId = panelIdFromSurfaceId(tab.id) {
             extensionPanel(for: movedPanelId)?.updatePaneId(destination.id)
+            (panels[movedPanelId] as? BlockedExtensionPanel)?.updatePaneId(destination.id)
             scheduleMovedTerminalRefresh(panelId: movedPanelId)
         }
 #if DEBUG

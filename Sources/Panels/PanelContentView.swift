@@ -63,6 +63,8 @@ struct PanelContentView: View {
                     isVisibleInUI: isVisibleInUI,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
+            } else if let blockedExtensionPanel = panel as? BlockedExtensionPanel {
+                BlockedExtensionPanelView(panel: blockedExtensionPanel)
             }
         case .markdown:
             if let markdownPanel = panel as? MarkdownPanel {
