@@ -106321,6 +106321,40 @@
         }
       }
     },
+    "sessionIndex.error.openCodeRead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode: cannot read opencode.db (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode: opencode.db を読み込めません (%@)"
+          }
+        }
+      }
+    },
+    "sessionIndex.error.openCodeSchemaUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode: schema unsupported - %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode: スキーマがサポートされていません - %@"
+          }
+        }
+      }
+    },
     "sessionIndex.preview.empty": {
       "extractionState": "manual",
       "localizations": {

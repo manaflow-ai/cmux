@@ -127,58 +127,6 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
     }
 }
 
-enum OpenCodeDatabaseSnapshot {
-    struct Snapshot {
-        let databaseURL: URL
-        private let directoryURL: URL
-
-        init(databaseURL: URL, directoryURL: URL) {
-            self.databaseURL = databaseURL
-            self.directoryURL = directoryURL
-        }
-
-        func remove() {
-            try? FileManager.default.removeItem(at: directoryURL)
-        }
-    }
-
-    private static let sourcePath = ("~/.local/share/opencode/opencode.db" as NSString).expandingTildeInPath
-
-    static func make(prefix: String) throws -> Snapshot? {
-        let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: sourcePath) else { return nil }
-
-        let snapshotDir = fileManager.temporaryDirectory.appendingPathComponent(
-            "\(prefix)-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try fileManager.createDirectory(at: snapshotDir, withIntermediateDirectories: true)
-
-        let snapshotDB = snapshotDir.appendingPathComponent("opencode.db")
-        do {
-            try fileManager.copyItem(atPath: sourcePath, toPath: snapshotDB.path)
-        } catch {
-            try? fileManager.removeItem(at: snapshotDir)
-            throw error
-        }
-
-        do {
-            for sidecar in ["-wal", "-shm"] {
-                let source = sourcePath + sidecar
-                let destination = snapshotDB.path + sidecar
-                if fileManager.fileExists(atPath: source) {
-                    try fileManager.copyItem(atPath: source, toPath: destination)
-                }
-            }
-        } catch {
-            try? fileManager.removeItem(at: snapshotDir)
-            throw error
-        }
-
-        return Snapshot(databaseURL: snapshotDB, directoryURL: snapshotDir)
-    }
-}
-
 // MARK: - Session entry
 
 struct PullRequestLink: Hashable {
