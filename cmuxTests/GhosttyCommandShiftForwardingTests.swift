@@ -65,6 +65,7 @@ final class GhosttyCommandShiftForwardingTests: XCTestCase {
     override func tearDown() {
 #if DEBUG
         CmuxSystemShortcutMatcher.debugAppleSymbolicHotKeysProvider = nil
+        CmuxSystemShortcutMatcher.debugAppleSymbolicHotKeysCacheLifetime = nil
 #endif
         super.tearDown()
     }
@@ -195,13 +196,14 @@ final class GhosttyCommandShiftForwardingTests: XCTestCase {
         XCTAssertEqual(forwardedPressCount, 0)
     }
 
-    func testSystemShortcutMatcherCachesSymbolicHotKeysUntilDefaultsChange() throws {
+    func testSystemShortcutMatcherCachesSymbolicHotKeysUntilCacheExpires() throws {
 #if DEBUG
         let symbolicHotKeysDomain = symbolicHotKeysDomain(
             keyCode: Self.keyCodeUpArrow,
             modifiers: [.command, .shift, .option, .control]
         )
         var providerCallCount = 0
+        CmuxSystemShortcutMatcher.debugAppleSymbolicHotKeysCacheLifetime = 60
         CmuxSystemShortcutMatcher.debugAppleSymbolicHotKeysProvider = {
             providerCallCount += 1
             return symbolicHotKeysDomain
@@ -215,7 +217,7 @@ final class GhosttyCommandShiftForwardingTests: XCTestCase {
         XCTAssertTrue(CmuxSystemShortcutMatcher.shouldYieldTerminalCommandEquivalentToSystem(event: event))
         XCTAssertEqual(providerCallCount, 1)
 
-        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: nil)
+        CmuxSystemShortcutMatcher.debugAppleSymbolicHotKeysCacheLifetime = 0
 
         XCTAssertTrue(CmuxSystemShortcutMatcher.shouldYieldTerminalCommandEquivalentToSystem(event: event))
         XCTAssertEqual(providerCallCount, 2)
