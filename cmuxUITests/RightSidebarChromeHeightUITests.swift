@@ -141,16 +141,14 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
 final class TerminalViewportUITests: XCTestCase {
     func testTerminalSurfaceUsesAvailableViewportAndTracksWindowResize() {
         let dataPath = "/tmp/cmux-ui-test-terminal-viewport-\(UUID().uuidString).json"
-        let commandPath = "/tmp/cmux-ui-test-terminal-viewport-command-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
-        try? FileManager.default.removeItem(atPath: commandPath)
 
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_PATH"] = dataPath
-        app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_COMMAND_PATH"] = commandPath
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_WINDOW_SIZE"] = "900x620"
+        app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_RESIZE_WINDOW_SIZE"] = "1180x780"
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_HIDE_SIDEBAR"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_HIDE_RIGHT_SIDEBAR"] = "1"
         app.launchArguments += ["-workspacePresentationMode", "minimal"]
@@ -162,7 +160,6 @@ final class TerminalViewportUITests: XCTestCase {
         defer { app.terminate() }
         defer {
             try? FileManager.default.removeItem(atPath: dataPath)
-            try? FileManager.default.removeItem(atPath: commandPath)
         }
 
         if app.state == .runningBackground {
@@ -170,7 +167,7 @@ final class TerminalViewportUITests: XCTestCase {
         }
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20) || app.windows.firstMatch.waitForExistence(timeout: 6))
 
-        guard let small = waitForViewportGeometry(atPath: dataPath, timeout: 20, matching: { geometry in
+        guard let small = waitForViewportGeometry(atPath: dataPath, prefix: "terminalViewportInitial", timeout: 20, matching: { geometry in
             geometry.windowWidth >= 560 &&
                 geometry.panelWidth > 300 &&
                 geometry.panelHeight > 220 &&
@@ -181,16 +178,13 @@ final class TerminalViewportUITests: XCTestCase {
         }
         assertTerminalViewportFillsAvailableSpace(small)
 
-        guard let large = waitForViewportGeometry(atPath: dataPath, timeout: 10, matching: { geometry in
+        guard let large = waitForViewportGeometry(atPath: dataPath, prefix: "terminalViewportResized", timeout: 20, matching: { geometry in
             geometry.requestedWindowSize == "1180x780" &&
                 geometry.windowWidth > small.windowWidth + 180 &&
                 geometry.windowHeight > small.windowHeight + 120 &&
                 geometry.panelWidth > small.panelWidth + 180 &&
                 geometry.panelHeight > small.panelHeight + 120 &&
                 geometry.fillsAvailableViewport
-        }, beforeEachPoll: {
-            self.writeViewportResizeRequest("1180x780", atPath: commandPath)
-            self.writeViewportResizeRequest("1180x780", atPath: dataPath)
         }) else {
             XCTFail("Timed out waiting for resized terminal viewport geometry. data=\(loadJSON(atPath: dataPath) ?? [:])")
             return
@@ -227,26 +221,30 @@ final class TerminalViewportUITests: XCTestCase {
                 panelHeight >= windowContentHeight - 130
         }
 
-        init?(data: [String: String]) {
-            guard data["terminalViewportReady"] == "1",
-                  data["terminalViewportSidebarVisible"] == "0",
-                  data["terminalViewportRightSidebarVisible"] == "0" else {
+        init?(data: [String: String], prefix: String) {
+            func key(_ suffix: String) -> String {
+                "\(prefix)\(suffix)"
+            }
+
+            guard data[key("Ready")] == "1",
+                  data[key("SidebarVisible")] == "0",
+                  data[key("RightSidebarVisible")] == "0" else {
                 return nil
             }
             self.data = data
-            requestedWindowSize = data["terminalViewportRequestedWindowSize"] ?? ""
-            guard let windowWidth = Self.number("terminalViewportWindowWidth", in: data),
-                  let windowHeight = Self.number("terminalViewportWindowHeight", in: data),
-                  let windowContentWidth = Self.number("terminalViewportWindowContentWidth", in: data),
-                  let windowContentHeight = Self.number("terminalViewportWindowContentHeight", in: data),
-                  let panelWidth = Self.number("terminalViewportPanelWidth", in: data),
-                  let panelHeight = Self.number("terminalViewportPanelHeight", in: data),
-                  let hostedFrameMinX = Self.number("terminalViewportHostedFrameMinX", in: data),
-                  let hostedFrameMinY = Self.number("terminalViewportHostedFrameMinY", in: data),
-                  let hostedFrameWidth = Self.number("terminalViewportHostedFrameWidth", in: data),
-                  let hostedFrameHeight = Self.number("terminalViewportHostedFrameHeight", in: data),
-                  let hostedBoundsWidth = Self.number("terminalViewportHostedBoundsWidth", in: data),
-                  let hostedBoundsHeight = Self.number("terminalViewportHostedBoundsHeight", in: data) else {
+            requestedWindowSize = data[key("RequestedWindowSize")] ?? ""
+            guard let windowWidth = Self.number(key("WindowWidth"), in: data),
+                  let windowHeight = Self.number(key("WindowHeight"), in: data),
+                  let windowContentWidth = Self.number(key("WindowContentWidth"), in: data),
+                  let windowContentHeight = Self.number(key("WindowContentHeight"), in: data),
+                  let panelWidth = Self.number(key("PanelWidth"), in: data),
+                  let panelHeight = Self.number(key("PanelHeight"), in: data),
+                  let hostedFrameMinX = Self.number(key("HostedFrameMinX"), in: data),
+                  let hostedFrameMinY = Self.number(key("HostedFrameMinY"), in: data),
+                  let hostedFrameWidth = Self.number(key("HostedFrameWidth"), in: data),
+                  let hostedFrameHeight = Self.number(key("HostedFrameHeight"), in: data),
+                  let hostedBoundsWidth = Self.number(key("HostedBoundsWidth"), in: data),
+                  let hostedBoundsHeight = Self.number(key("HostedBoundsHeight"), in: data) else {
                 return nil
             }
             self.windowWidth = windowWidth
@@ -286,33 +284,25 @@ final class TerminalViewportUITests: XCTestCase {
 
     private func waitForViewportGeometry(
         atPath path: String,
+        prefix: String,
         timeout: TimeInterval,
-        matching predicate: (ViewportGeometry) -> Bool,
-        beforeEachPoll: (() -> Void)? = nil
+        matching predicate: (ViewportGeometry) -> Bool
     ) -> ViewportGeometry? {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            beforeEachPoll?()
             if let data = loadJSON(atPath: path),
-               let geometry = ViewportGeometry(data: data),
+               let geometry = ViewportGeometry(data: data, prefix: prefix),
                predicate(geometry) {
                 return geometry
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
         if let data = loadJSON(atPath: path),
-           let geometry = ViewportGeometry(data: data),
+           let geometry = ViewportGeometry(data: data, prefix: prefix),
            predicate(geometry) {
             return geometry
         }
         return nil
-    }
-
-    private func writeViewportResizeRequest(_ size: String, atPath path: String) {
-        var payload = loadJSON(atPath: path) ?? [:]
-        payload["terminalViewportRequestedWindowSize"] = size
-        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else { return }
-        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
     }
 
     private func loadJSON(atPath path: String) -> [String: String]? {

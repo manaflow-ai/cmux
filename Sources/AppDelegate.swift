@@ -8845,10 +8845,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let initialWindowSize = parseTerminalViewportUITestWindowSize(
             env["CMUX_UI_TEST_TERMINAL_VIEWPORT_WINDOW_SIZE"]
         )
+        let initialWindowSizeText = terminalViewportRequestedWindowSizeText(
+            env["CMUX_UI_TEST_TERMINAL_VIEWPORT_WINDOW_SIZE"]
+        )
+        let resizeWindowSize = parseTerminalViewportUITestWindowSize(
+            env["CMUX_UI_TEST_TERMINAL_VIEWPORT_RESIZE_WINDOW_SIZE"]
+        )
+        let resizeWindowSizeText = terminalViewportRequestedWindowSizeText(
+            env["CMUX_UI_TEST_TERMINAL_VIEWPORT_RESIZE_WINDOW_SIZE"]
+        )
         let hideSidebar = env["CMUX_UI_TEST_TERMINAL_VIEWPORT_HIDE_SIDEBAR"] == "1"
         let hideRightSidebar = env["CMUX_UI_TEST_TERMINAL_VIEWPORT_HIDE_RIGHT_SIDEBAR"] == "1"
         let deadline = Date().addingTimeInterval(20)
         var didRecordReadyGeometry = false
+        var didRecordInitialGeometry = false
 
         terminalViewportUITestRecorder?.cancel()
         terminalViewportUITestRecorder = nil
@@ -8869,16 +8879,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
-            let testData = self.loadTerminalViewportUITestData()
-            let commandData = self.loadTerminalViewportUITestCommandData()
-            let requestedWindowSizeText = self.terminalViewportRequestedWindowSizeText(
-                commandData["terminalViewportRequestedWindowSize"]
-            ) ?? self.terminalViewportRequestedWindowSizeText(
-                testData["terminalViewportRequestedWindowSize"]
-            )
-            let requestedWindowSize = self.parseTerminalViewportUITestWindowSize(
-                requestedWindowSizeText
-            ) ?? initialWindowSize
+            let requestedWindowSize = didRecordInitialGeometry
+                ? (resizeWindowSize ?? initialWindowSize)
+                : initialWindowSize
+            let requestedWindowSizeText = didRecordInitialGeometry
+                ? (resizeWindowSizeText ?? initialWindowSizeText)
+                : initialWindowSizeText
 
             if hideSidebar {
                 context.sidebarState.isVisible = false
@@ -8912,6 +8918,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             viewportData.merge(recorderData) { _, newValue in newValue }
             self.writeTerminalViewportUITestData(viewportData)
+            if !didRecordInitialGeometry {
+                didRecordInitialGeometry = true
+                self.writeTerminalViewportUITestData(
+                    self.prefixedTerminalViewportUITestData(viewportData, prefix: "terminalViewportInitial")
+                )
+            } else if resizeWindowSize != nil {
+                self.writeTerminalViewportUITestData(
+                    self.prefixedTerminalViewportUITestData(viewportData, prefix: "terminalViewportResized")
+                )
+            }
         }
         terminalViewportUITestRecorder = timer
         timer.resume()
@@ -9009,6 +9025,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func terminalViewportGeometryFormat(_ value: CGFloat) -> String {
         String(format: "%.3f", Double(value))
+    }
+
+    private func prefixedTerminalViewportUITestData(
+        _ data: [String: String],
+        prefix: String
+    ) -> [String: String] {
+        var prefixedData: [String: String] = [:]
+        let basePrefix = "terminalViewport"
+        for (key, value) in data where key.hasPrefix(basePrefix) {
+            let suffix = key.dropFirst(basePrefix.count)
+            prefixedData["\(prefix)\(suffix)"] = value
+        }
+        return prefixedData
     }
 
     private func writeTerminalViewportUITestData(_ updates: [String: String]) {
