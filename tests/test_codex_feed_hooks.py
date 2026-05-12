@@ -575,6 +575,52 @@ def test_install_codex_hooks_only_edits_real_features_table(cli_path: str, root:
         raise AssertionError(f"codex_hooks should be inserted into [features]: {config_toml!r}")
 
 
+def test_uninstall_codex_hooks_removes_legacy_managed_block(cli_path: str, root: Path) -> None:
+    codex_home = root / "codex-home-legacy-uninstall"
+    codex_home.mkdir()
+    (codex_home / "hooks.json").write_text('{"hooks": {}}\n', encoding="utf-8")
+    config_path = codex_home / "config.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[features]",
+                "apps = true",
+                "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df begin",
+                "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df previous line: hooks = false",
+                "hooks = true",
+                "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df end",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "uninstall", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex uninstall failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    config_toml = config_path.read_text(encoding="utf-8")
+    if "cmux-codex-hooks-feature" in config_toml:
+        raise AssertionError(f"legacy managed markers were not removed: {config_toml!r}")
+    if "hooks = true" in config_toml:
+        raise AssertionError(f"cmux-owned legacy hooks setting was not removed: {config_toml!r}")
+    if "hooks = false" not in config_toml:
+        raise AssertionError(f"previous hooks setting was not restored: {config_toml!r}")
+    if "apps = true" not in config_toml:
+        raise AssertionError(f"existing feature setting was not preserved: {config_toml!r}")
+
+
 def test_install_codex_hooks_preserves_config_when_toml_read_fails(cli_path: str, root: Path) -> None:
     codex_home = root / "codex-home"
     codex_home.mkdir()
@@ -700,6 +746,9 @@ def main() -> int:
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
+            test_install_codex_hooks_only_edits_real_features_table(cli_path, root)
+            test_uninstall_codex_hooks_removes_legacy_managed_block(cli_path, root)
+            test_install_codex_hooks_preserves_config_when_toml_read_fails(cli_path, root)
             test_permission_reply_uses_codex_permission_request_schema(cli_path, root)
             test_codex_persistent_permission_modes_degrade_to_once(cli_path, root)
             test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path, root)

@@ -17832,19 +17832,30 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             case .codexConfigToml:
                 let configPath = "\(configDir)/config.toml"
                 guard fm.fileExists(atPath: configPath),
-                      let content = try? String(contentsOfFile: configPath, encoding: .utf8),
-                      content.contains("codex_hooks") else { return }
+                      let content = try? String(contentsOfFile: configPath, encoding: .utf8) else { return }
                 let newContent = Self.codexConfigTomlUninstallingHooksFeature(from: content)
                 if newContent != content {
                     try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
-                    print("Removed codex_hooks from \(configPath)")
+                    print("Removed Codex hooks feature from \(configPath)")
                 }
             }
         }
     }
 
+    private static let cmuxCodexHooksFeatureBegin =
+        "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df begin"
+    private static let cmuxCodexHooksFeatureEnd =
+        "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df end"
+    private static let cmuxCodexHooksFeaturePreviousLinePrefix =
+        "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df previous line: "
+    private static let legacyCmuxCodexHooksFeatureBegin = "# cmux hooks codex feature begin"
+    private static let legacyCmuxCodexHooksFeatureEnd = "# cmux hooks codex feature end"
+    private static let legacyCmuxCodexHooksFeaturePreviousLinePrefix =
+        "# cmux hooks codex feature previous line: "
+
     private static func codexConfigTomlInstallingHooksFeature(in existingContent: String) -> String {
         var lines = tomlLines(from: existingContent)
+        removeLegacyCodexHooksFeatureBlock(from: &lines)
         var currentTable: String?
         for index in lines.indices {
             let line = lines[index]
@@ -17876,7 +17887,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     private static func codexConfigTomlUninstallingHooksFeature(from existingContent: String) -> String {
-        let lines = tomlLines(from: existingContent)
+        var lines = tomlLines(from: existingContent)
+        removeLegacyCodexHooksFeatureBlock(from: &lines)
         var filteredLines: [String] = []
         var currentTable: String?
         for line in lines {
@@ -17895,6 +17907,38 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             filteredLines.append(line)
         }
         return tomlContent(from: filteredLines)
+    }
+
+    private static func removeLegacyCodexHooksFeatureBlock(from lines: inout [String]) {
+        var index = 0
+        while index < lines.count {
+            guard tomlLineIsLegacyCodexHooksFeatureBegin(lines[index]) else {
+                index += 1
+                continue
+            }
+
+            if let endIndex = lines[index...].firstIndex(where: {
+                tomlLineIsLegacyCodexHooksFeatureEnd($0)
+            }) {
+                let restoredLines = lines[index...endIndex].compactMap { line -> String? in
+                    tomlLegacyCodexHooksFeaturePreviousLine(from: line)
+                }
+                lines.replaceSubrange(index...endIndex, with: restoredLines)
+            } else {
+                var blockEnd = index + 1
+                var restoredLines: [String] = []
+                if blockEnd < lines.count,
+                   let previousLine = tomlLegacyCodexHooksFeaturePreviousLine(from: lines[blockEnd])
+                {
+                    restoredLines.append(previousLine)
+                    blockEnd += 1
+                }
+                if blockEnd < lines.count, tomlLineIsLegacyCodexHooksFeatureSetting(lines[blockEnd]) {
+                    blockEnd += 1
+                }
+                lines.replaceSubrange(index..<blockEnd, with: restoredLines)
+            }
+        }
     }
 
     private static func tomlLines(from content: String) -> [String] {
@@ -17921,6 +17965,37 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     private static func tomlLineDefinesDottedCodexHooksKey(_ line: String) -> Bool {
         line.range(
             of: #"^\s*features\s*\.\s*codex_hooks\s*="#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private static func tomlLineIsLegacyCodexHooksFeatureBegin(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed == cmuxCodexHooksFeatureBegin || trimmed == legacyCmuxCodexHooksFeatureBegin
+    }
+
+    private static func tomlLineIsLegacyCodexHooksFeatureEnd(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed == cmuxCodexHooksFeatureEnd || trimmed == legacyCmuxCodexHooksFeatureEnd
+    }
+
+    private static func tomlLegacyCodexHooksFeaturePreviousLine(from line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix(cmuxCodexHooksFeaturePreviousLinePrefix) {
+            return String(trimmed.dropFirst(cmuxCodexHooksFeaturePreviousLinePrefix.count))
+        }
+        if trimmed.hasPrefix(legacyCmuxCodexHooksFeaturePreviousLinePrefix) {
+            return String(trimmed.dropFirst(legacyCmuxCodexHooksFeaturePreviousLinePrefix.count))
+        }
+        return nil
+    }
+
+    private static func tomlLineIsLegacyCodexHooksFeatureSetting(_ line: String) -> Bool {
+        line.range(
+            of: #"^\s*hooks\s*=\s*true\s*(#.*)?$"#,
+            options: .regularExpression
+        ) != nil || line.range(
+            of: #"^\s*features\s*\.\s*hooks\s*=\s*true\s*(#.*)?$"#,
             options: .regularExpression
         ) != nil
     }
