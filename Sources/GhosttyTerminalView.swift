@@ -9884,7 +9884,6 @@ private final class TerminalStatusBarView: NSView {
     }
 }
 
-@MainActor
 private final class TerminalStatusBarCommandController {
     private struct AppliedState: Equatable {
         let configuration: TerminalStatusBarConfiguration
@@ -9895,10 +9894,7 @@ private final class TerminalStatusBarCommandController {
     private var generation: UInt64 = 0
     private var appliedState: AppliedState?
 
-    deinit {
-        stop()
-    }
-
+    @MainActor
     func apply(
         configuration: TerminalStatusBarConfiguration,
         active: Bool,
@@ -9948,55 +9944,63 @@ private final class TerminalStatusBarCommandController {
         timeout: TimeInterval
     ) async -> String {
         await Task.detached(priority: .utility) {
-            let process = Process()
-            let shell = resolvedShell()
-            let outputURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-terminal-status-\(UUID().uuidString).txt", isDirectory: false)
-
-            _ = FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-            guard let outputHandle = try? FileHandle(forWritingTo: outputURL) else {
-                return ""
-            }
-            defer {
-                outputHandle.closeFile()
-                try? FileManager.default.removeItem(at: outputURL)
-            }
-
-            process.executableURL = URL(fileURLWithPath: shell)
-            process.arguments = shellArguments(for: shell, command: command)
-            process.standardInput = FileHandle.nullDevice
-            process.standardOutput = outputHandle
-            process.standardError = FileHandle.nullDevice
-            process.environment = environment(for: context)
-            if let directory = validatedDirectory(context.workingDirectory) {
-                process.currentDirectoryURL = directory
-            }
-
-            let semaphore = DispatchSemaphore(value: 0)
-            process.terminationHandler = { _ in semaphore.signal() }
-
-            do {
-                try process.run()
-            } catch {
-                return ""
-            }
-
-            let waitResult = semaphore.wait(timeout: .now() + timeout)
-            if waitResult == .timedOut {
-                process.terminate()
-                if semaphore.wait(timeout: .now() + 0.5) == .timedOut, process.isRunning {
-                    kill(process.processIdentifier, SIGKILL)
-                }
-            }
-
-            outputHandle.synchronizeFile()
-            guard let readHandle = try? FileHandle(forReadingFrom: outputURL) else {
-                return ""
-            }
-            defer { readHandle.closeFile() }
-            let data = readHandle.readData(ofLength: 8192)
-            return String(data: data, encoding: .utf8) ?? ""
+            runStatusCommandSynchronously(command, context: context, timeout: timeout)
         }.value
+    }
+
+    private nonisolated static func runStatusCommandSynchronously(
+        _ command: String,
+        context: TerminalStatusBarExecutionContext,
+        timeout: TimeInterval
+    ) -> String {
+        let process = Process()
+        let shell = resolvedShell()
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-terminal-status-\(UUID().uuidString).txt", isDirectory: false)
+
+        _ = FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+        guard let outputHandle = try? FileHandle(forWritingTo: outputURL) else {
+            return ""
+        }
+        defer {
+            outputHandle.closeFile()
+            try? FileManager.default.removeItem(at: outputURL)
+        }
+
+        process.executableURL = URL(fileURLWithPath: shell)
+        process.arguments = shellArguments(for: shell, command: command)
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = outputHandle
+        process.standardError = FileHandle.nullDevice
+        process.environment = environment(for: context)
+        if let directory = validatedDirectory(context.workingDirectory) {
+            process.currentDirectoryURL = directory
+        }
+
+        let semaphore = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in semaphore.signal() }
+
+        do {
+            try process.run()
+        } catch {
+            return ""
+        }
+
+        let waitResult = semaphore.wait(timeout: .now() + timeout)
+        if waitResult == .timedOut {
+            process.terminate()
+            if semaphore.wait(timeout: .now() + 0.5) == .timedOut, process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+            }
+        }
+
+        outputHandle.synchronizeFile()
+        guard let readHandle = try? FileHandle(forReadingFrom: outputURL) else {
+            return ""
+        }
+        defer { readHandle.closeFile() }
+        let data = readHandle.readData(ofLength: 8192)
+        return String(data: data, encoding: .utf8) ?? ""
     }
 
     private nonisolated static func resolvedShell() -> String {
@@ -10808,11 +10812,12 @@ final class GhosttySurfaceScrollView: NSView {
             .tabs
             .first(where: { $0.id == terminalSurface.tabId })?
             .panelDirectories[terminalSurface.id]
-        for candidate in [
+        let candidates: [String?] = [
             workspaceDirectory,
             terminalSurface.requestedWorkingDirectory,
             FileManager.default.homeDirectoryForCurrentUser.path
-        ] {
+        ]
+        for candidate in candidates {
             let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if !trimmed.isEmpty {
                 return trimmed
