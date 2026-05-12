@@ -5205,7 +5205,11 @@ class TerminalController {
                 return
             }
             let validSurfaceIds = Set(tab.panels.keys)
-            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+            var retainedSurfaceIds = validSurfaceIds
+            if tab.isRemoteWorkspace, let requestedSurfaceId {
+                retainedSurfaceIds.insert(requestedSurfaceId)
+            }
+            tab.pruneSurfaceMetadata(validSurfaceIds: retainedSurfaceIds)
 
             let surfaceId = self.resolveReportedSurfaceId(
                 in: tab,
@@ -5314,7 +5318,11 @@ class TerminalController {
                 return
             }
             let validSurfaceIds = Set(tab.panels.keys)
-            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+            var retainedSurfaceIds = validSurfaceIds
+            if tab.isRemoteWorkspace, let requestedSurfaceId {
+                retainedSurfaceIds.insert(requestedSurfaceId)
+            }
+            tab.pruneSurfaceMetadata(validSurfaceIds: retainedSurfaceIds)
 
             let surfaceId = self.resolveReportedSurfaceId(
                 in: tab,
@@ -5415,7 +5423,11 @@ class TerminalController {
                 return
             }
             let validSurfaceIds = Set(tab.panels.keys)
-            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+            var retainedSurfaceIds = validSurfaceIds
+            if tab.isRemoteWorkspace, let requestedSurfaceId {
+                retainedSurfaceIds.insert(requestedSurfaceId)
+            }
+            tab.pruneSurfaceMetadata(validSurfaceIds: retainedSurfaceIds)
 
             let surfaceId = self.resolveReportedSurfaceId(
                 in: tab,
@@ -5481,7 +5493,11 @@ class TerminalController {
                 return
             }
             let validSurfaceIds = Set(tab.panels.keys)
-            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+            var retainedSurfaceIds = validSurfaceIds
+            if tab.isRemoteWorkspace, let requestedSurfaceId {
+                retainedSurfaceIds.insert(requestedSurfaceId)
+            }
+            tab.pruneSurfaceMetadata(validSurfaceIds: retainedSurfaceIds)
 
             let surfaceId = self.resolveReportedSurfaceId(
                 in: tab,
@@ -8973,26 +8989,33 @@ class TerminalController {
     ) {
         var queue = v2BrowserDialogQueueBySurface[surfaceId] ?? []
         queue.append(V2BrowserPendingDialog(type: type, message: message, defaultText: defaultText, ownerId: ownerId, responder: responder))
+        var droppedDialogs: [V2BrowserPendingDialog] = []
         while queue.count > 16 {
             // Keep bounded memory while preserving FIFO semantics for newest entries.
-            let dropped = queue.removeFirst()
-            dropped.responder(false, nil)
+            droppedDialogs.append(queue.removeFirst())
         }
         v2BrowserDialogQueueBySurface[surfaceId] = queue
+        for dropped in droppedDialogs {
+            dropped.responder(false, nil)
+        }
     }
 
     func cancelBrowserDialogs(surfaceId: UUID, ownerId: UUID) {
         let queue = v2BrowserDialogQueueBySurface[surfaceId] ?? []
         guard !queue.isEmpty else { return }
         var remaining: [V2BrowserPendingDialog] = []
+        var canceled: [V2BrowserPendingDialog] = []
         for dialog in queue {
             if dialog.ownerId == ownerId {
-                dialog.responder(false, nil)
+                canceled.append(dialog)
             } else {
                 remaining.append(dialog)
             }
         }
         v2BrowserDialogQueueBySurface[surfaceId] = remaining
+        for dialog in canceled {
+            dialog.responder(false, nil)
+        }
     }
 
     private func v2BrowserPopDialog(surfaceId: UUID) -> V2BrowserPendingDialog? {

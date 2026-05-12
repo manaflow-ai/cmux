@@ -537,11 +537,6 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping () -> Void
     ) {
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = javaScriptDialogTitle(for: webView)
-        alert.informativeText = message
-        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
         if controller?.enqueueJavaScriptDialog(
             type: "alert",
             message: message,
@@ -550,6 +545,11 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         ) == true {
             return
         }
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = javaScriptDialogTitle(for: webView)
+        alert.informativeText = message
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
         presentDialog(alert, for: webView) { _ in completionHandler() }
     }
 
@@ -559,12 +559,6 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping (Bool) -> Void
     ) {
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = javaScriptDialogTitle(for: webView)
-        alert.informativeText = message
-        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
         if controller?.enqueueJavaScriptDialog(
             type: "confirm",
             message: message,
@@ -573,6 +567,12 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         ) == true {
             return
         }
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = javaScriptDialogTitle(for: webView)
+        alert.informativeText = message
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
         presentDialog(alert, for: webView) { response in
             completionHandler(response == .alertFirstButtonReturn)
         }
@@ -585,6 +585,16 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping (String?) -> Void
     ) {
+        if controller?.enqueueJavaScriptDialog(
+            type: "prompt",
+            message: prompt,
+            defaultText: defaultText,
+            responder: { accept, text in
+                completionHandler(accept ? (text ?? defaultText ?? "") : nil)
+            }
+        ) == true {
+            return
+        }
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = javaScriptDialogTitle(for: webView)
@@ -596,16 +606,6 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         field.stringValue = defaultText ?? ""
         alert.accessoryView = field
 
-        if controller?.enqueueJavaScriptDialog(
-            type: "prompt",
-            message: prompt,
-            defaultText: defaultText,
-            responder: { accept, text in
-                completionHandler(accept ? (text ?? defaultText ?? "") : nil)
-            }
-        ) == true {
-            return
-        }
         presentDialog(alert, for: webView) { response in
             if response == .alertFirstButtonReturn {
                 completionHandler(field.stringValue)
