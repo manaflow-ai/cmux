@@ -1,5 +1,7 @@
 import XCTest
 import Bonsplit
+import AppKit
+import SwiftUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -16,8 +18,98 @@ private func workspaceSplitNodes(in node: ExternalTreeNode) -> [ExternalSplitNod
     }
 }
 
+private func firstWorkspaceDescendant<ViewType: NSView>(
+    ofType type: ViewType.Type,
+    in root: NSView
+) -> ViewType? {
+    if let match = root as? ViewType {
+        return match
+    }
+
+    for subview in root.subviews {
+        if let match = firstWorkspaceDescendant(ofType: type, in: subview) {
+            return match
+        }
+    }
+
+    return nil
+}
+
 @MainActor
 final class WorkspaceSplitStartupCommandTests: XCTestCase {
+    func testCustomLayoutSplitRatioSurvivesInitialBonsplitViewLayout() throws {
+        let workspace = Workspace()
+        let expectedDividerPosition = 0.33
+        let layout = CmuxLayoutNode.split(CmuxSplitDefinition(
+            direction: .horizontal,
+            split: expectedDividerPosition,
+            children: [
+                .pane(CmuxPaneDefinition(surfaces: [
+                    CmuxSurfaceDefinition(type: .terminal, name: "Left")
+                ])),
+                .pane(CmuxPaneDefinition(surfaces: [
+                    CmuxSurfaceDefinition(type: .terminal, name: "Right")
+                ]))
+            ]
+        ))
+
+        workspace.applyCustomLayout(layout, baseCwd: NSTemporaryDirectory())
+
+        let modelSplitBeforeRender = try XCTUnwrap(workspaceSplitNodes(in: workspace.bonsplitController.treeSnapshot()).first)
+        XCTAssertEqual(
+            modelSplitBeforeRender.dividerPosition,
+            expectedDividerPosition,
+            accuracy: 0.000_1,
+            "cmux.json split ratio should be applied to the Bonsplit model before rendering"
+        )
+
+        let hostingView = NSHostingView(
+            rootView: BonsplitView(controller: workspace.bonsplitController) { _, _ in
+                Color.clear
+            } emptyPane: { _ in
+                Color.clear
+            }
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 500),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = try XCTUnwrap(window.contentView)
+        hostingView.frame = contentView.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostingView)
+
+        window.makeKeyAndOrderFront(nil)
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date.now.addingTimeInterval(0.05))
+        contentView.layoutSubtreeIfNeeded()
+
+        let splitView = try XCTUnwrap(firstWorkspaceDescendant(ofType: NSSplitView.self, in: hostingView))
+        XCTAssertEqual(splitView.arrangedSubviews.count, 2)
+
+        let availableWidth = splitView.bounds.width - splitView.dividerThickness
+        XCTAssertGreaterThan(availableWidth, 0)
+        let renderedDividerPosition = splitView.arrangedSubviews[0].frame.width / availableWidth
+        XCTAssertEqual(
+            renderedDividerPosition,
+            expectedDividerPosition,
+            accuracy: 0.03,
+            "Rendered cmux.json horizontal split should preserve the requested 33:67 ratio"
+        )
+
+        let modelSplitAfterRender = try XCTUnwrap(workspaceSplitNodes(in: workspace.bonsplitController.treeSnapshot()).first)
+        XCTAssertEqual(
+            modelSplitAfterRender.dividerPosition,
+            expectedDividerPosition,
+            accuracy: 0.000_1,
+            "Bonsplit initial view layout should not rewrite the cmux.json split ratio back to 0.5"
+        )
+    }
+
     func testTabManagerSplitCarriesRequestedWorkingDirectoryAndStartupCommand() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
