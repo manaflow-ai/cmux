@@ -100,7 +100,7 @@ final class MarkdownPanel: Panel, ObservableObject {
                 GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
             } else {
                 isFileUnavailable = true
-                GlobalSearchCoordinator.shared.purgePanel(id: id)
+                GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
             }
         }
     }
