@@ -1083,7 +1083,13 @@ def test_inside_cmux_without_tty_allocates_pty_for_real_claude(failures: list[st
     must allocate one so the spawned claude sees a TTY on stdin.
     """
     if not os.access("/usr/bin/script", os.X_OK):
-        return  # BSD `script` is required for the workaround.
+        # BSD `script` is required for the workaround; surface an explicit
+        # SKIP so CI logs distinguish skipped-on-Linux from passed-on-macOS.
+        print(
+            "SKIP: test_inside_cmux_without_tty_allocates_pty_for_real_claude "
+            "(requires BSD /usr/bin/script)"
+        )
+        return
 
     cases: list[tuple[str, list[str]]] = [
         ("interactive entry", []),
