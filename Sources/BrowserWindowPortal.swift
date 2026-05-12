@@ -2137,10 +2137,11 @@ final class WindowBrowserPortal: NSObject {
 
     private func synchronizeAllEntriesFromExternalGeometryChange() {
         guard ensureInstalled() else { return }
-        installedContainerView?.layoutSubtreeIfNeeded()
-        installedReferenceView?.layoutSubtreeIfNeeded()
-        hostView.superview?.layoutSubtreeIfNeeded()
-        hostView.layoutSubtreeIfNeeded()
+        // Keep browser portal geometry sync out of AppKit's forced-layout path.
+        // Public crash reports show sibling terminal portal sync re-entering
+        // SwiftUI/AppKit layout during tab/window churn; browser portals sit in
+        // the same window-level host hierarchy and should use settled frames too.
+        _ = synchronizeHostFrameToReference()
         synchronizeAllWebViews(excluding: nil, source: "externalGeometry")
 
         for entry in entriesByWebViewId.values {
@@ -3036,7 +3037,6 @@ final class WindowBrowserPortal: NSObject {
             }
             containerView.pinHostedWebView(webView)
             webView.needsLayout = true
-            webView.layoutSubtreeIfNeeded()
         } else {
             containerView.pinHostedWebView(webView)
         }
