@@ -280,9 +280,9 @@ class CmuxEventsStress:
         lines = output.splitlines()
         for index, line in enumerate(lines):
             if line.strip() == "App path:" and index + 1 < len(lines):
-                candidate = pathlib.Path(lines[index + 1].strip()).expanduser()
-                if str(candidate):
-                    return candidate
+                raw_candidate = lines[index + 1].strip()
+                if raw_candidate:
+                    return pathlib.Path(raw_candidate).expanduser()
         return None
 
     def check_paths(self) -> None:
@@ -619,12 +619,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.events <= 4_096:
         raise SystemExit("--events must be greater than 4096 to exercise retention gap handling")
+    if args.payload_bytes < 0:
+        raise SystemExit("--payload-bytes must be non-negative")
+    if args.events * args.payload_bytes <= EVENT_LOG_CAP_BYTES:
+        raise SystemExit(
+            f"--events * --payload-bytes must exceed {EVENT_LOG_CAP_BYTES} to exercise event log rotation"
+        )
     if args.consumers <= 0:
         raise SystemExit("--consumers must be greater than 0")
     if args.consumer_segment_events <= 0:
         raise SystemExit("--consumer-segment-events must be greater than 0")
-    if args.payload_bytes < 0:
-        raise SystemExit("--payload-bytes must be non-negative")
     return args
 
 
