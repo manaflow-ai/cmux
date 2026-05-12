@@ -30,18 +30,25 @@ enum TerminalDesktopNotificationBridge {
         title: String,
         body: String
     ) -> Bool {
-        guard workspaceAgentPIDs["claude_code"] != nil else {
+        guard let claudePID = workspaceAgentPIDs["claude_code"], claudePID > 0 else {
             return false
         }
         return matchesClaudeAttentionDuplicate(title: title, body: body)
     }
 
     private static func matchesClaudeAttentionDuplicate(title: String, body: String) -> Bool {
-        let normalized = normalizedText("\(title) \(body)")
-        guard normalized.contains("claude") else {
-            return false
-        }
-        return normalized.contains("needs your attention") || normalized.contains("needs your input")
+        let normalizedTitle = normalizedText(title)
+        let normalizedBody = normalizedText(body)
+        return matchesGenericClaudeAttentionBanner(normalizedTitle) ||
+            matchesGenericClaudeAttentionBanner(normalizedBody) ||
+            matchesGenericClaudeAttentionBanner("\(normalizedTitle) \(normalizedBody)")
+    }
+
+    private static func matchesGenericClaudeAttentionBanner(_ value: String) -> Bool {
+        value.contains("claude needs your attention") ||
+            value.contains("claude needs your input") ||
+            value.contains("claude code needs your attention") ||
+            value.contains("claude code needs your input")
     }
 
     private static func normalizedText(_ value: String) -> String {

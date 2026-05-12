@@ -30,6 +30,56 @@ final class TerminalDesktopNotificationBridgeTests: XCTestCase {
         XCTAssertTrue(suppressed)
     }
 
+    func testActiveClaudeHookSuppressesGenericClaudeInputNotification() {
+        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
+            workspaceAgentPIDs: ["claude_code": pid_t(123)],
+            title: "Claude Code",
+            body: "Claude needs your input"
+        )
+
+        XCTAssertTrue(suppressed)
+    }
+
+    func testActiveClaudeHookSuppressesSplitGenericClaudeAttentionNotification() {
+        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
+            workspaceAgentPIDs: ["claude_code": pid_t(123)],
+            title: "Claude Code",
+            body: "needs your attention"
+        )
+
+        XCTAssertTrue(suppressed)
+    }
+
+    func testNoClaudePIDAllowsMatchingClaudeAttentionNotification() {
+        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
+            workspaceAgentPIDs: [:],
+            title: "Claude Code",
+            body: "Claude needs your attention"
+        )
+
+        XCTAssertFalse(suppressed)
+    }
+
+    func testZeroClaudePIDAllowsMatchingClaudeAttentionNotification() {
+        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
+            workspaceAgentPIDs: ["claude_code": pid_t(0)],
+            title: "Claude Code",
+            body: "Claude needs your attention"
+        )
+
+        XCTAssertFalse(suppressed)
+    }
+
+    func testActiveClaudeHookAllowsCrossPhraseNonClaudeNotification() {
+        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
+            workspaceAgentPIDs: ["claude_code": pid_t(123)],
+            title: "claude.py review",
+            body: "Codex needs your input on the diff"
+        )
+
+        XCTAssertFalse(suppressed)
+    }
+
     func testResolvedTitleFallsBackToTabTitle() {
         XCTAssertEqual(
             TerminalDesktopNotificationBridge.resolvedTitle(
