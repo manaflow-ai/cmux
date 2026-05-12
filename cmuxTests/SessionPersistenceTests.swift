@@ -184,7 +184,10 @@ final class SessionPersistenceTests: XCTestCase {
         duplicateWindow.frame = SessionRectSnapshot(x: 60, y: 80, width: 900, height: 700)
         snapshot.windows.append(duplicateWindow)
 
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let legacyDuplicatedSnapshotData = try encoder.encode(snapshot)
+        try legacyDuplicatedSnapshotData.write(to: snapshotURL, options: .atomic)
 
         let loaded = try XCTUnwrap(SessionPersistenceStore.load(fileURL: snapshotURL))
         XCTAssertEqual(loaded.windows.count, 1)
