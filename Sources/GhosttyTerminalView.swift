@@ -11437,7 +11437,10 @@ final class GhosttySurfaceScrollView: NSView {
     func setVisibleInUI(_ visible: Bool) {
         let wasVisible = surfaceView.isVisibleInUI
         surfaceView.setVisibleInUI(visible)
-        isHidden = !visible
+        let shouldBeHidden = !visible
+        if isHidden != shouldBeHidden {
+            isHidden = shouldBeHidden
+        }
         if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {
             lastRequestedPortalOcclusionVisible = visible
             surfaceView.terminalSurface?.setOcclusion(visible)
