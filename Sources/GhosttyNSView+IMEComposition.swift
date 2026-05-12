@@ -75,6 +75,8 @@ extension GhosttyNSView {
 
     func isApplePinyinInputSource(_ sourceId: String?) -> Bool {
         guard let sourceId else { return false }
+        // Keep this to known Apple Pinyin source IDs. A broad "Pinyin"
+        // predicate can swallow handled no-output keys for unrelated IMEs.
         return sourceId == "com.apple.inputmethod.SCIM.ITABC"
             || sourceId == "com.apple.inputmethod.TCIM.Pinyin"
     }

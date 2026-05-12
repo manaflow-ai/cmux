@@ -191,6 +191,35 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         }
     }
 
+    private func assertNoMarkedHandledNonCandidateCommandsForwardToGhostty(
+        _ inputSourceId: String,
+        candidateCommandNames: Set<String>,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let view = GhosttyNSView(frame: .zero)
+
+        for probe in noMarkedNavigationKeyProbes where !candidateCommandNames.contains(probe.name) {
+            let event = try keyEvent(text: probe.text, keyCode: probe.keyCode, windowNumber: 0)
+
+            XCTAssertFalse(
+                view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                    markedTextBefore: "",
+                    markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
+                    markedTextAfter: "",
+                    markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                    accumulatedText: [],
+                    event: event,
+                    textInputHandledEvent: true,
+                    inputSourceId: inputSourceId
+                ),
+                "\(inputSourceId) handled non-candidate \(probe.name) should still reach Ghostty",
+                file: file,
+                line: line
+            )
+        }
+    }
+
     private func assertRoutesNoMarkedCandidateArrowKeyEquivalentThroughKeyDown(
         _ inputSourceId: String,
         file: StaticString = #filePath,
@@ -582,10 +611,24 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
+    func testSimplifiedChinesePinyinHandledNonCandidateCommandsForwardWithoutMarkedText() throws {
+        try assertNoMarkedHandledNonCandidateCommandsForwardToGhostty(
+            "com.apple.inputmethod.SCIM.ITABC",
+            candidateCommandNames: pinyinCandidateCommandProbeNames
+        )
+    }
+
     func testTraditionalChinesePinyinHandledCandidateCommandsStayInTextInputWithoutMarkedText() throws {
         try assertNoMarkedHandledCandidateCommandsStayInTextInput(
             "com.apple.inputmethod.TCIM.Pinyin",
             commandNames: pinyinCandidateCommandProbeNames
+        )
+    }
+
+    func testTraditionalChinesePinyinHandledNonCandidateCommandsForwardWithoutMarkedText() throws {
+        try assertNoMarkedHandledNonCandidateCommandsForwardToGhostty(
+            "com.apple.inputmethod.TCIM.Pinyin",
+            candidateCommandNames: pinyinCandidateCommandProbeNames
         )
     }
 
@@ -611,6 +654,13 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         try assertNoMarkedHandledCandidateCommandsStayInTextInput(
             "com.apple.inputmethod.TCIM.Zhuyin",
             commandNames: zhuyinCandidateCommandProbeNames
+        )
+    }
+
+    func testZhuyinHandledNonCandidateCommandsForwardWithoutMarkedText() throws {
+        try assertNoMarkedHandledNonCandidateCommandsForwardToGhostty(
+            "com.apple.inputmethod.TCIM.Zhuyin",
+            candidateCommandNames: zhuyinCandidateCommandProbeNames
         )
     }
 
