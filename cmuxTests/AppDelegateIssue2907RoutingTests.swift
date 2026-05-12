@@ -80,6 +80,29 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
     }
 
+    func testMobileSyncStatusReportsDisabledModelStateWithoutListener() throws {
+        _ = NSApplication.shared
+        UserDefaults.standard.removeObject(forKey: MobileSyncSettings.enabledKey)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            UserDefaults.standard.removeObject(forKey: MobileSyncSettings.enabledKey)
+        }
+
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let capabilities = try v2Result(method: "system.capabilities")
+        let methods = try XCTUnwrap(capabilities["methods"] as? [String])
+        XCTAssertTrue(methods.contains("mobile_sync.status"))
+
+        let status = try v2Result(method: "mobile_sync.status")
+        XCTAssertEqual(status["enabled"] as? Bool, false)
+        XCTAssertEqual((status["listener"] as? [String: Any])?["state"] as? String, "stopped")
+        XCTAssertGreaterThanOrEqual(status["workspace_count"] as? Int ?? 0, 1)
+        XCTAssertGreaterThanOrEqual(status["terminal_count"] as? Int ?? 0, 1)
+        XCTAssertEqual(status["active_attachment_count"] as? Int, 0)
+    }
+
     func testWorkspaceListResolvesLiveSurfaceAfterMainWindowContextAssociationIsLost() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
