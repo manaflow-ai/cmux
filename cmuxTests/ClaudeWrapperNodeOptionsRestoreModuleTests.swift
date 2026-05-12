@@ -64,6 +64,19 @@ final class ClaudeWrapperNodeOptionsRestoreModuleTests: XCTestCase {
         )
     }
 
+    func testCmuxRestoreEntryStrippingRemovesOnlyInjectedHeapCap() {
+        let tokens = NodeOptionsSupport.tokens(
+            """
+            --trace-warnings --require="/Users/example/Library/Application Support/cmux/node-options/restore-node-options.cjs" --max-old-space-size=4096 --max-old-space-size=8192
+            """
+        )
+
+        XCTAssertEqual(
+            NodeOptionsSupport.tokensRemovingCmuxRestoreEntries(tokens),
+            ["--trace-warnings", "--max-old-space-size=8192"]
+        )
+    }
+
     func testRestoreModuleIsRecreatedUnderApplicationSupportAfterDeletion() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-claude-node-options-\(UUID().uuidString)", isDirectory: true)

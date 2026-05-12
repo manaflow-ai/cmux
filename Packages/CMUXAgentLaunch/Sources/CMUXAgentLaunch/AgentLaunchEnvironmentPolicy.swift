@@ -101,39 +101,10 @@ public enum AgentLaunchEnvironmentPolicy {
 
     private static func sanitizedNodeOptions(_ rawValue: String?) -> String? {
         let tokens = NodeOptionsSupport.tokens(rawValue)
-        guard !tokens.isEmpty else { return nil }
+        let strippedTokens = NodeOptionsSupport.tokensRemovingCmuxRestoreEntries(tokens)
+        guard !strippedTokens.isEmpty else { return nil }
 
-        var sanitized: [String] = []
-        var index = 0
-        var shouldDropInjectedHeapCap = false
-        while index < tokens.count {
-            let token = tokens[index]
-
-            if shouldDropInjectedHeapCap, NodeOptionsSupport.isInjectedNodeHeapCap(tokens, index: index) {
-                index += NodeOptionsSupport.nodeHeapCapWidth(tokens, index: index)
-                shouldDropInjectedHeapCap = false
-                continue
-            }
-            shouldDropInjectedHeapCap = false
-
-            if NodeOptionsSupport.isRequireOption(token), index + 1 < tokens.count,
-               NodeOptionsSupport.isCmuxRestoreModulePath(tokens[index + 1]) {
-                index += 2
-                shouldDropInjectedHeapCap = true
-                continue
-            }
-            if let path = NodeOptionsSupport.inlineRequireOptionPath(token),
-               NodeOptionsSupport.isCmuxRestoreModulePath(path) {
-                index += 1
-                shouldDropInjectedHeapCap = true
-                continue
-            }
-
-            sanitized.append(token)
-            index += 1
-        }
-
-        let joined = NodeOptionsSupport.joinedTokens(sanitized)
+        let joined = NodeOptionsSupport.joinedTokens(strippedTokens)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return joined.isEmpty ? nil : joined
     }

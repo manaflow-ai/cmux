@@ -81,6 +81,39 @@ public enum NodeOptionsSupport {
         tokens.map(quoteTokenIfNeeded).joined(separator: " ")
     }
 
+    public static func tokensRemovingCmuxRestoreEntries(_ tokens: [String]) -> [String] {
+        var filtered: [String] = []
+        var index = 0
+        var shouldDropInjectedHeapCap = false
+        while index < tokens.count {
+            let token = tokens[index]
+
+            if shouldDropInjectedHeapCap, isInjectedNodeHeapCap(tokens, index: index) {
+                index += nodeHeapCapWidth(tokens, index: index)
+                shouldDropInjectedHeapCap = false
+                continue
+            }
+            shouldDropInjectedHeapCap = false
+
+            if isRequireOption(token), index + 1 < tokens.count,
+               isCmuxRestoreModulePath(tokens[index + 1]) {
+                index += 2
+                shouldDropInjectedHeapCap = true
+                continue
+            }
+            if let path = inlineRequireOptionPath(token),
+               isCmuxRestoreModulePath(path) {
+                index += 1
+                shouldDropInjectedHeapCap = true
+                continue
+            }
+
+            filtered.append(token)
+            index += 1
+        }
+        return filtered
+    }
+
     public static func isCmuxRestoreModulePath(_ value: String) -> Bool {
         let trimmed = value.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
         let url = URL(fileURLWithPath: trimmed).standardizedFileURL
