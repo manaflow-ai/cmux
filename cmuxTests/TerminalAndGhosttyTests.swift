@@ -13,6 +13,90 @@ import UserNotifications
 @testable import cmux
 #endif
 
+final class TerminalDesktopNotificationBridgeTests: XCTestCase {
+    func testClaudeAttentionOSCFallsThroughWhenHookHasNotDeliveredNotification() {
+        XCTAssertFalse(
+            TerminalDesktopNotificationBridge.shouldSuppressNotification(
+                workspaceAgentPIDs: ["claude_code": 123],
+                latestNotification: nil,
+                title: "Claude Code",
+                body: "Claude needs your attention"
+            )
+        )
+    }
+
+    func testClaudeAttentionOSCSuppressedAfterRecentHookNotification() {
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Done",
+            createdAt: Date(timeIntervalSince1970: 100),
+            isRead: false
+        )
+
+        XCTAssertTrue(
+            TerminalDesktopNotificationBridge.shouldSuppressNotification(
+                workspaceAgentPIDs: ["claude_code": 123],
+                latestNotification: notification,
+                title: "Claude Code",
+                body: "Claude is waiting for your input",
+                now: Date(timeIntervalSince1970: 130)
+            )
+        )
+    }
+
+    func testActiveClaudePIDDoesNotSuppressNonClaudeOSCNotification() {
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Done",
+            createdAt: Date(timeIntervalSince1970: 100),
+            isRead: false
+        )
+
+        XCTAssertFalse(
+            TerminalDesktopNotificationBridge.shouldSuppressNotification(
+                workspaceAgentPIDs: ["claude_code": 123],
+                latestNotification: notification,
+                title: "Build",
+                body: "Tests finished",
+                now: Date(timeIntervalSince1970: 130)
+            )
+        )
+    }
+
+    func testOldClaudeNotificationDoesNotSuppressFreshOSCFallback() {
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Old",
+            createdAt: Date(timeIntervalSince1970: 100),
+            isRead: false
+        )
+
+        XCTAssertFalse(
+            TerminalDesktopNotificationBridge.shouldSuppressNotification(
+                workspaceAgentPIDs: ["claude_code": 123],
+                latestNotification: notification,
+                title: "Claude Code",
+                body: "Claude needs your attention",
+                now: Date(timeIntervalSince1970: 300)
+            )
+        )
+    }
+}
+
 @MainActor
 final class GhosttyPasteboardHelperTests: XCTestCase {
     private func make1x1PNG(color: NSColor) throws -> Data {

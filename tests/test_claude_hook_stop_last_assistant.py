@@ -203,6 +203,22 @@ def main() -> int:
             print(f"commands={server.commands!r}")
             return 1
 
+        start_proc = subprocess.run(
+            [cli_path, "--socket", server.socket_path, "claude-hook", "session-start"],
+            input=json.dumps(payload),
+            text=True,
+            capture_output=True,
+            env=env,
+            timeout=8,
+            check=False,
+        )
+        if start_proc.returncode != 0:
+            print("FAIL: claude-hook session-start failed")
+            print(f"stdout={start_proc.stdout!r}")
+            print(f"stderr={start_proc.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+
         proc = subprocess.run(
             [cli_path, "--socket", server.socket_path, "claude-hook", "stop"],
             input=json.dumps(payload),
@@ -235,7 +251,31 @@ def main() -> int:
             print(f"commands={server.commands!r}")
             return 1
 
-    print("PASS: Claude cron guard denies durable jobs and Stop notification uses final assistant text")
+        command_count_after_stop = len(server.commands)
+        end_proc = subprocess.run(
+            [cli_path, "--socket", server.socket_path, "claude-hook", "session-end"],
+            input=json.dumps(payload),
+            text=True,
+            capture_output=True,
+            env=env,
+            timeout=8,
+            check=False,
+        )
+        if end_proc.returncode != 0:
+            print("FAIL: claude-hook session-end failed")
+            print(f"stdout={end_proc.stdout!r}")
+            print(f"stderr={end_proc.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        session_end_commands = server.commands[command_count_after_stop:]
+        if any(line.startswith("clear_notifications ") for line in session_end_commands):
+            print("FAIL: session-end should not clear the stop completion notification")
+            print(f"session_end_commands={session_end_commands!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+
+    print("PASS: Claude cron guard denies durable jobs and Stop notification survives session-end cleanup")
     return 0
 
 

@@ -928,6 +928,10 @@ final class TerminalNotificationStore: ObservableObject {
         indexes.latestByTabId[tabId]
     }
 
+    func latestNotification(forTabId tabId: UUID, surfaceId: UUID?) -> TerminalNotification? {
+        notifications.first { $0.tabId == tabId && $0.surfaceId == surfaceId }
+    }
+
     func clearLatestNotification(forTabId tabId: UUID) {
         guard let latestNotification = indexes.latestByTabId[tabId] else { return }
         remove(id: latestNotification.id)
