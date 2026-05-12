@@ -869,6 +869,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
     private var didBootstrapInitialMainWindow = false
     private var isTerminatingApp = false
+    private var isTerminatingDuplicateInstance = false
     // Set to true when the user has already confirmed quit via the warning dialog,
     // so applicationShouldTerminate does not show a second alert.
     private var isQuitWarningConfirmed = false
@@ -1489,6 +1490,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         isTerminatingApp = true
+        if isTerminatingDuplicateInstance {
+            closeAllWebInspectorsBeforeAppTeardown()
+            return .terminateNow
+        }
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
 
         // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
@@ -1549,7 +1554,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationWillTerminate(_ notification: Notification) {
         isTerminatingApp = true
         closeAllWebInspectorsBeforeAppTeardown()
-        _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+        if !isTerminatingDuplicateInstance {
+            _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+        }
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
@@ -13150,10 +13157,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundleId) {
             guard app.processIdentifier != currentPid else { continue }
-            app.terminate()
-            if !app.isTerminated {
-                _ = app.forceTerminate()
-            }
+            // A duplicate launch should yield to the already-running workspace process.
+            // Terminating the existing app here produces a clean no-crash-report exit
+            // and bypasses the user's quit-warning path.
+            app.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+            isTerminatingDuplicateInstance = true
+            NSApp.terminate(nil)
+            return
         }
     }
 
