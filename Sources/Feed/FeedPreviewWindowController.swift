@@ -119,6 +119,9 @@ private struct FeedPreviewRootView: View {
 private struct FeedPreviewCardHost: View {
     let item: WorkstreamItem
 
+    @State private var stopDraft = FeedStopDraft()
+    @State private var stopFocusRequest = 0
+
     var body: some View {
         FeedItemRow(
             snapshot: FeedItemSnapshot(
@@ -129,8 +132,13 @@ private struct FeedPreviewCardHost: View {
             isSelected: false,
             onPressSelect: {},
             onControlFocus: {},
+            onControlAction: {},
             onControlBlur: {},
-            onActivate: {}
+            onActivate: {},
+            stopDraft: $stopDraft,
+            stopDraftValue: stopDraft,
+            stopFocusRequest: $stopFocusRequest,
+            stopFocusRequestValue: stopFocusRequest
         )
     }
 }
