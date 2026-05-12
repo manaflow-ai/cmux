@@ -216,6 +216,7 @@ extension TabManager {
             index: tabs.firstIndex(where: { $0.id == workspace.id }),
             tabCount: tabs.count
         )
+        publishCmuxSelectedWorkspaceSurfaceFrameChanges(workspace)
     }
 
     func publishCmuxWorkspaceSelectedChange(from previousWorkspaceId: UUID?) {
@@ -230,6 +231,13 @@ extension TabManager {
             index: tabs.firstIndex(where: { $0.id == workspace.id }),
             tabCount: tabs.count
         )
+        publishCmuxSelectedWorkspaceSurfaceFrameChanges(workspace)
+    }
+
+    private func publishCmuxSelectedWorkspaceSurfaceFrameChanges(_ workspace: Workspace) {
+        DispatchQueue.main.async { [weak workspace] in
+            workspace?.publishCmuxSurfaceFrameChanges(origin: "workspace_selected")
+        }
     }
 }
 
