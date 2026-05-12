@@ -964,7 +964,9 @@ struct BrowserPanelView: View {
     }
 
     private var openInDefaultBrowserButton: some View {
-        Button(action: {
+        let canOpen = panel.canOpenCurrentPageInDefaultBrowser
+
+        return Button(action: {
             if !panel.openCurrentPageInDefaultBrowser() {
                 NSSound.beep()
             }
@@ -978,8 +980,8 @@ struct BrowserPanelView: View {
         }
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
-        .disabled(!panel.canOpenCurrentPageInDefaultBrowser)
-        .opacity(panel.canOpenCurrentPageInDefaultBrowser ? 1.0 : 0.4)
+        .disabled(!canOpen)
+        .opacity(canOpen ? 1.0 : 0.4)
         .safeHelp(String(localized: "browser.openInDefaultBrowser", defaultValue: "Open in Default Browser"))
         .accessibilityIdentifier("BrowserOpenInDefaultBrowserButton")
     }

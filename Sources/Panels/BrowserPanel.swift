@@ -1870,6 +1870,7 @@ final class BrowserPortalAnchorView: NSView {
 final class BrowserPanel: Panel, ObservableObject {
     /// Shared process pool for cookie sharing across all browser panels
     private static let sharedProcessPool = WKProcessPool()
+    private static let liveDefaultBrowserOpener: (URL) -> Bool = { NSWorkspace.shared.open($0) }
 
     /// Popup windows owned by this panel (for lifecycle cleanup)
     private var popupControllers: [BrowserPopupWindowController] = []
@@ -2393,7 +2394,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var insecureHTTPBypassHostOnce: String?
     private var insecureHTTPAlertFactory: () -> NSAlert
     private var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
-    private var defaultBrowserOpener: (URL) -> Bool = { NSWorkspace.shared.open($0) }
+    private var defaultBrowserOpener: (URL) -> Bool = BrowserPanel.liveDefaultBrowserOpener
     // Persist user intent across WebKit detach/reattach churn (split/layout updates).
     @Published private(set) var preferredDeveloperToolsVisible: Bool = false
     @Published var isReactGrabActive: Bool = false
@@ -5839,7 +5840,7 @@ extension BrowserPanel {
     }
 
     func resetDefaultBrowserOpenerForTesting() {
-        defaultBrowserOpener = { NSWorkspace.shared.open($0) }
+        defaultBrowserOpener = Self.liveDefaultBrowserOpener
     }
 
     func presentInsecureHTTPAlertForTesting(
