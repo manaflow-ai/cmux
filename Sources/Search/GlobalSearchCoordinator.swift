@@ -35,9 +35,6 @@ final class GlobalSearchCoordinator {
     }
 
     func togglePalette(anchor: NSStatusBarButton) {
-        Task { @MainActor in
-            await refreshLiveIndex()
-        }
         popover.toggle(relativeTo: anchor)
     }
 

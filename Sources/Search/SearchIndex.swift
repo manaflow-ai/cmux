@@ -181,13 +181,6 @@ actor SearchIndex {
         }
     }
 
-    func deleteWorkspace(_ workspaceID: UUID) throws {
-        try withStatement("DELETE FROM chunks WHERE workspace_id = ?1") { statement in
-            try bind(workspaceID.uuidString, at: 1, in: statement)
-            try stepDone(statement)
-        }
-    }
-
     func search(_ rawQuery: String, limit: Int = 20) throws -> [SearchIndexHit] {
         let trimmed = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, limit > 0 else { return [] }
