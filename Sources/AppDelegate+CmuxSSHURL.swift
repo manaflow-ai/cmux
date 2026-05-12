@@ -71,6 +71,7 @@ final class CmuxSSHURLProcessLauncher {
 
         do {
             try process.run()
+            outputCollector.closeParentWriteEnds()
             processes[process.processIdentifier] = process
 #if DEBUG
             cmuxDebugLog("sshURL.launchCLI pid=\(process.processIdentifier) socket=\(socketPath) targetLength=\(request.destination.count)")

@@ -613,8 +613,14 @@ final class VSCodeServeWebController {
             self.connectionTokenFilesByProcessID[ObjectIdentifier(process)] = connectionTokenFileURL
             do {
                 try process.run()
+                try? stdoutPipe.fileHandleForWriting.close()
+                try? stderrPipe.fileHandleForWriting.close()
                 return true
             } catch {
+                try? stdoutPipe.fileHandleForReading.close()
+                try? stdoutPipe.fileHandleForWriting.close()
+                try? stderrPipe.fileHandleForReading.close()
+                try? stderrPipe.fileHandleForWriting.close()
                 if self.launchingProcess === process {
                     self.launchingProcess = nil
                 }

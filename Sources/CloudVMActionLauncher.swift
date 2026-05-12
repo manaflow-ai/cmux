@@ -71,6 +71,7 @@ final class CloudVMActionLauncher {
 
         do {
             try process.run()
+            outputCollector.closeParentWriteEnds()
             processes[process.processIdentifier] = process
 #if DEBUG
             cmuxDebugLog("cloudVM.launch pid=\(process.processIdentifier) socket=\(socketPath)")
@@ -121,6 +122,8 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
     private let stdoutHandle: FileHandle
     private let stderrHandle: FileHandle
+    private let stdoutWriteHandle: FileHandle
+    private let stderrWriteHandle: FileHandle
     private let lock = NSLock()
     private let byteLimit = 32 * 1024
     private var stdout = Data()
@@ -130,6 +133,8 @@ final class ProcessOutputCollector: @unchecked Sendable {
     init(stdout: Pipe, stderr: Pipe) {
         stdoutHandle = stdout.fileHandleForReading
         stderrHandle = stderr.fileHandleForReading
+        stdoutWriteHandle = stdout.fileHandleForWriting
+        stderrWriteHandle = stderr.fileHandleForWriting
     }
 
     func start() {
@@ -139,6 +144,11 @@ final class ProcessOutputCollector: @unchecked Sendable {
         stderrHandle.readabilityHandler = { [weak self] handle in
             self?.append(handle.availableData, to: .stderr)
         }
+    }
+
+    func closeParentWriteEnds() {
+        try? stdoutWriteHandle.close()
+        try? stderrWriteHandle.close()
     }
 
     @discardableResult
@@ -154,6 +164,7 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
         stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
+        closeParentWriteEnds()
         append(stdoutHandle.readDataToEndOfFile(), to: .stdout)
         append(stderrHandle.readDataToEndOfFile(), to: .stderr)
         try? stdoutHandle.close()
@@ -176,6 +187,7 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
         stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
+        closeParentWriteEnds()
         try? stdoutHandle.close()
         try? stderrHandle.close()
     }

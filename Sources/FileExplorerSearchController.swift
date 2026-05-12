@@ -419,6 +419,8 @@ final class FileSearchController: FileSearchControlling {
 
         do {
             try process.run()
+            try? stdout.fileHandleForWriting.close()
+            try? stderr.fileHandleForWriting.close()
             self.process = process
             let stdoutReadHandle = FileSearchReadHandle(stdout.fileHandleForReading)
             let stderrReadHandle = FileSearchReadHandle(stderr.fileHandleForReading)
@@ -453,6 +455,10 @@ final class FileSearchController: FileSearchControlling {
                 await self?.finish(generation: searchGeneration, update: update)
             }
         } catch {
+            try? stdout.fileHandleForReading.close()
+            try? stdout.fileHandleForWriting.close()
+            try? stderr.fileHandleForReading.close()
+            try? stderr.fileHandleForWriting.close()
             process.standardOutput = nil
             process.standardError = nil
             self.pipeline = nil

@@ -451,6 +451,8 @@ enum NotificationSoundSettings {
         process.standardOutput = outputPipe
         process.standardError = errorPipe
         try process.run()
+        try? outputPipe.fileHandleForWriting.close()
+        try? errorPipe.fileHandleForWriting.close()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
             let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
