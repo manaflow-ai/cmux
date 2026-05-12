@@ -157,6 +157,21 @@ def main() -> int:
             "--raw",
         ])
         _must(token in raw_capture, f"agent capture --raw missing token: {raw_capture!r}")
+        bad_lines_flag_value = _run_agent_process(cli, [
+            "capture",
+            "--workspace",
+            workspace_id,
+            "--surface",
+            surface_id,
+            "--lines",
+            "--raw",
+        ])
+        bad_lines_output = f"{bad_lines_flag_value.stdout}\n{bad_lines_flag_value.stderr}"
+        _must(bad_lines_flag_value.returncode != 0, "agent capture should reject flag-looking --lines values")
+        _must(
+            "--lines must be an integer" in bad_lines_output,
+            f"agent capture consumed --raw as a flag instead of --lines value: {bad_lines_output!r}",
+        )
 
         panes_payload = json.loads(_run_agent(cli, ["list-panes", "--workspace", workspace_id]) or "{}")
         panes = panes_payload.get("panes") or []
