@@ -2974,8 +2974,9 @@ final class WorkspaceReorderTests: XCTestCase {
     @MainActor
     func testMoveWorkspaceToInitialDirectoryGroupEndNoOpDoesNotPublishWorkspaceChanges() {
         let manager = TabManager()
-        let workspace = manager.tabs[0]
-        XCTAssertTrue(manager.setWorkspaceInitialDirectory(tabId: workspace.id, directory: "/alpha"))
+        let first = manager.tabs[0]
+        XCTAssertTrue(manager.setWorkspaceInitialDirectory(tabId: first.id, directory: "/alpha"))
+        let workspace = manager.addWorkspace(workingDirectory: "/beta", placementOverride: .end)
 
         var publishCount = 0
         let cancellable = workspace.objectWillChange.sink { _ in
@@ -2990,6 +2991,7 @@ final class WorkspaceReorderTests: XCTestCase {
         )
 
         XCTAssertEqual(publishCount, 0)
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, workspace.id])
         withExtendedLifetime(cancellable) {}
     }
 

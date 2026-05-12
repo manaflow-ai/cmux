@@ -14523,10 +14523,12 @@ private struct SidebarGroupHeaderDropDelegate: DropDelegate {
 
     func dropEntered(info: DropInfo) {
         dragAutoScrollController.updateFromDragLocation()
+        dropIndicator = nil
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
         dragAutoScrollController.updateFromDragLocation()
+        dropIndicator = nil
         return validateDrop(info: info) ? DropProposal(operation: .move) : nil
     }
 
@@ -14572,10 +14574,12 @@ private struct SidebarBookmarkHeaderDropDelegate: DropDelegate {
 
     func dropEntered(info: DropInfo) {
         dragAutoScrollController.updateFromDragLocation()
+        dropIndicator = nil
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
         dragAutoScrollController.updateFromDragLocation()
+        dropIndicator = nil
         return validateDrop(info: info) ? DropProposal(operation: .move) : nil
     }
 
