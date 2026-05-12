@@ -1,3 +1,5 @@
+import Foundation
+
 enum SidebarWorkspaceDetailDefaults {
     static let showBranchDirectory = true
     static let showPullRequests = true
@@ -13,6 +15,35 @@ enum AutomationSettings {
     static let portRangeKey = "cmuxPortRange"
     static let defaultPortBase = 9100
     static let defaultPortRange = 10
+}
+
+enum TerminalStatusBarSettings {
+    static let enabledKey = "terminalStatusBarEnabled"
+    static let heightRowsKey = "terminalStatusBarHeightRows"
+    static let commandKey = "terminalStatusBarCommand"
+    static let refreshIntervalKey = "terminalStatusBarRefreshInterval"
+    static let didChangeNotification = Notification.Name("cmux.terminalStatusBarSettingsDidChange")
+
+    static let defaultEnabled = false
+    static let defaultHeightRows = 1
+    static let defaultCommand = ""
+    static let defaultRefreshInterval: Double = 1.0
+    static let minimumHeightRows = 1
+    static let maximumHeightRows = 10
+    static let minimumRefreshInterval: Double = 0.25
+    static let maximumRefreshInterval: Double = 3600
+
+    static func normalizedHeightRows(_ value: Int) -> Int {
+        min(max(value, minimumHeightRows), maximumHeightRows)
+    }
+
+    static func normalizedRefreshInterval(_ value: Double) -> Double {
+        min(max(value, minimumRefreshInterval), maximumRefreshInterval)
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
 }
 
 extension CmuxSettingsFileStore {
@@ -38,6 +69,10 @@ extension CmuxSettingsFileStore {
         "app.commandPaletteSearchesAllSurfaces",
         "terminal.showScrollBar",
         "terminal.autoResumeAgentSessions",
+        "terminal.statusBar.enabled",
+        "terminal.statusBar.height",
+        "terminal.statusBar.command",
+        "terminal.statusBar.refreshInterval",
         "notifications.dockBadge",
         "notifications.showInMenuBar",
         "notifications.unreadPaneRing",

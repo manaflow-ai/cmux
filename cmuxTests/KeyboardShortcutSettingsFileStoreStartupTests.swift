@@ -461,6 +461,76 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: key) as? Bool, false)
     }
 
+    func testSettingsFileStoreAppliesTerminalStatusBarSettings() throws {
+        let defaults = UserDefaults.standard
+        let keys = [
+            TerminalStatusBarSettings.enabledKey,
+            TerminalStatusBarSettings.heightRowsKey,
+            TerminalStatusBarSettings.commandKey,
+            TerminalStatusBarSettings.refreshIntervalKey,
+        ]
+        let previousValues = Dictionary(uniqueKeysWithValues: keys.map { ($0, defaults.object(forKey: $0)) })
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        let previousImportedDefaults = defaults.data(forKey: importedManagedDefaultsKey)
+        defer {
+            for (key, previousValue) in previousValues {
+                if let previousValue {
+                    defaults.set(previousValue, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+            if let previousImportedDefaults {
+                defaults.set(previousImportedDefaults, forKey: importedManagedDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: importedManagedDefaultsKey)
+            }
+        }
+
+        for key in keys {
+            defaults.removeObject(forKey: key)
+        }
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+        defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "terminal": {
+                "statusBar": {
+                  "enabled": true,
+                  "height": 50,
+                  "command": "  printf status  ",
+                  "refreshInterval": 0.01
+                }
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.object(forKey: TerminalStatusBarSettings.enabledKey) as? Bool, true)
+        XCTAssertEqual(defaults.object(forKey: TerminalStatusBarSettings.heightRowsKey) as? Int, TerminalStatusBarSettings.maximumHeightRows)
+        XCTAssertEqual(defaults.string(forKey: TerminalStatusBarSettings.commandKey), "printf status")
+        XCTAssertEqual(defaults.object(forKey: TerminalStatusBarSettings.refreshIntervalKey) as? Double, TerminalStatusBarSettings.minimumRefreshInterval)
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-settings-startup-\(UUID().uuidString)",

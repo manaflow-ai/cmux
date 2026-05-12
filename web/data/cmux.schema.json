@@ -305,6 +305,37 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit."
+        },
+        "statusBar": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Persistent bottom status bar for terminal surfaces.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Reserve bottom terminal rows for a non-focusable status bar."
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10,
+              "default": 1,
+              "description": "Number of terminal rows reserved for status output."
+            },
+            "command": {
+              "type": "string",
+              "default": "",
+              "description": "Shell command whose stdout is rendered in the reserved status bar."
+            },
+            "refreshInterval": {
+              "type": "number",
+              "minimum": 0.25,
+              "maximum": 3600,
+              "default": 1,
+              "description": "Seconds between status command refreshes."
+            }
+          }
         }
       }
     },

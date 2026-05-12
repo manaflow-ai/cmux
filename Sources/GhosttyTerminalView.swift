@@ -9659,6 +9659,332 @@ private final class GhosttyFlashOverlayView: NSView {
     }
 }
 
+struct TerminalStatusBarConfiguration: Equatable, Sendable {
+    var enabled: Bool
+    var heightRows: Int
+    var command: String
+    var refreshInterval: Double
+
+    static let disabled = TerminalStatusBarConfiguration(
+        enabled: false,
+        heightRows: TerminalStatusBarSettings.defaultHeightRows,
+        command: TerminalStatusBarSettings.defaultCommand,
+        refreshInterval: TerminalStatusBarSettings.defaultRefreshInterval
+    )
+
+    var isRenderable: Bool {
+        enabled && !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func current(defaults: UserDefaults = .standard) -> TerminalStatusBarConfiguration {
+        let rawHeightRows: Int
+        if defaults.object(forKey: TerminalStatusBarSettings.heightRowsKey) != nil {
+            rawHeightRows = defaults.integer(forKey: TerminalStatusBarSettings.heightRowsKey)
+        } else {
+            rawHeightRows = TerminalStatusBarSettings.defaultHeightRows
+        }
+
+        let rawRefreshInterval: Double
+        if defaults.object(forKey: TerminalStatusBarSettings.refreshIntervalKey) != nil {
+            rawRefreshInterval = defaults.double(forKey: TerminalStatusBarSettings.refreshIntervalKey)
+        } else {
+            rawRefreshInterval = TerminalStatusBarSettings.defaultRefreshInterval
+        }
+
+        return TerminalStatusBarConfiguration(
+            enabled: defaults.object(forKey: TerminalStatusBarSettings.enabledKey) as? Bool
+                ?? TerminalStatusBarSettings.defaultEnabled,
+            heightRows: TerminalStatusBarSettings.normalizedHeightRows(rawHeightRows),
+            command: defaults.string(forKey: TerminalStatusBarSettings.commandKey)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                ?? TerminalStatusBarSettings.defaultCommand,
+            refreshInterval: TerminalStatusBarSettings.normalizedRefreshInterval(rawRefreshInterval)
+        )
+    }
+}
+
+struct TerminalStatusBarExecutionContext: Sendable {
+    let workspaceId: UUID
+    let surfaceId: UUID
+    let workingDirectory: String
+}
+
+enum TerminalStatusBarLayout {
+    struct Frames: Equatable {
+        let terminalFrame: CGRect
+        let statusBarFrame: CGRect
+        let reservedHeight: CGFloat
+    }
+
+    static func frames(
+        in bounds: CGRect,
+        rowCount: Int,
+        cellHeight: CGFloat,
+        isVisible: Bool
+    ) -> Frames {
+        guard isVisible, bounds.width > 0, bounds.height > 0 else {
+            return Frames(terminalFrame: bounds, statusBarFrame: .zero, reservedHeight: 0)
+        }
+
+        let normalizedRows = TerminalStatusBarSettings.normalizedHeightRows(rowCount)
+        let resolvedCellHeight = cellHeight > 0 ? cellHeight : 18
+        let requestedHeight = CGFloat(normalizedRows) * resolvedCellHeight
+        let reservedHeight = min(max(0, requestedHeight), max(0, bounds.height - resolvedCellHeight))
+        guard reservedHeight > 0 else {
+            return Frames(terminalFrame: bounds, statusBarFrame: .zero, reservedHeight: 0)
+        }
+
+        let statusBarFrame = CGRect(
+            x: bounds.minX,
+            y: bounds.minY,
+            width: bounds.width,
+            height: reservedHeight
+        )
+        let terminalFrame = CGRect(
+            x: bounds.minX,
+            y: bounds.minY + reservedHeight,
+            width: bounds.width,
+            height: max(0, bounds.height - reservedHeight)
+        )
+        return Frames(
+            terminalFrame: terminalFrame,
+            statusBarFrame: statusBarFrame,
+            reservedHeight: reservedHeight
+        )
+    }
+}
+
+private final class TerminalStatusBarView: NSView {
+    private let label = NSTextField(labelWithString: "")
+    private let borderLayer = CALayer()
+    private var rowCount = TerminalStatusBarSettings.defaultHeightRows
+    private var cellHeight: CGFloat = 18
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.masksToBounds = true
+        layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.92).cgColor
+
+        borderLayer.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.55).cgColor
+        layer?.addSublayer(borderLayer)
+
+        label.isEditable = false
+        label.isSelectable = false
+        label.isBordered = false
+        label.drawsBackground = false
+        label.textColor = .secondaryLabelColor
+        label.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        label.lineBreakMode = .byTruncatingTail
+        label.maximumNumberOfLines = TerminalStatusBarSettings.defaultHeightRows
+        addSubview(label)
+
+        setAccessibilityRole(.staticText)
+        setAccessibilityLabel(String(localized: "terminal.statusBar.accessibilityLabel", defaultValue: "Terminal Status Bar"))
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) not implemented")
+    }
+
+    override var acceptsFirstResponder: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func layout() {
+        super.layout()
+        borderLayer.frame = CGRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1)
+        let horizontalInset: CGFloat = 8
+        let verticalInset = max(1, floor((cellHeight - label.font!.pointSize) / 2))
+        label.frame = bounds.insetBy(dx: horizontalInset, dy: verticalInset)
+    }
+
+    func configure(configuration: TerminalStatusBarConfiguration, visible: Bool, cellHeight: CGFloat) {
+        rowCount = configuration.heightRows
+        self.cellHeight = cellHeight > 0 ? cellHeight : 18
+        label.maximumNumberOfLines = rowCount
+        label.font = .monospacedSystemFont(
+            ofSize: max(10, min(13, self.cellHeight - 4)),
+            weight: .regular
+        )
+        isHidden = !visible
+        needsLayout = true
+    }
+
+    func setStatusText(_ text: String, rowCount: Int) {
+        let normalized = Self.normalizedText(text, rowCount: rowCount)
+        guard label.stringValue != normalized else { return }
+        label.stringValue = normalized
+        setAccessibilityValue(normalized)
+    }
+
+    private static func normalizedText(_ text: String, rowCount: Int) -> String {
+        let normalizedRows = TerminalStatusBarSettings.normalizedHeightRows(rowCount)
+        let cleaned = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .newlines)
+        let lines = cleaned
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .prefix(normalizedRows)
+            .map(String.init)
+        return lines.joined(separator: "\n")
+    }
+}
+
+@MainActor
+private final class TerminalStatusBarCommandController {
+    private struct AppliedState: Equatable {
+        let configuration: TerminalStatusBarConfiguration
+        let active: Bool
+    }
+
+    private var task: Task<Void, Never>?
+    private var generation: UInt64 = 0
+    private var appliedState: AppliedState?
+
+    deinit {
+        stop()
+    }
+
+    func apply(
+        configuration: TerminalStatusBarConfiguration,
+        active: Bool,
+        contextProvider: @escaping @MainActor () -> TerminalStatusBarExecutionContext?,
+        outputHandler: @escaping @MainActor (String, Int) -> Void
+    ) {
+        let nextState = AppliedState(configuration: configuration, active: active)
+        guard appliedState != nextState else { return }
+        appliedState = nextState
+        generation &+= 1
+        task?.cancel()
+        task = nil
+
+        guard active, configuration.isRenderable else {
+            outputHandler("", configuration.heightRows)
+            return
+        }
+
+        let currentGeneration = generation
+        task = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let context = contextProvider() else { return }
+                let output = await Self.runStatusCommand(
+                    configuration.command,
+                    context: context,
+                    timeout: min(5, max(1, configuration.refreshInterval))
+                )
+                guard !Task.isCancelled else { return }
+                guard let self, self.generation == currentGeneration else { return }
+                outputHandler(output, configuration.heightRows)
+                let sleepNanos = UInt64(configuration.refreshInterval * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: sleepNanos)
+            }
+        }
+    }
+
+    func stop() {
+        generation &+= 1
+        appliedState = nil
+        task?.cancel()
+        task = nil
+    }
+
+    private nonisolated static func runStatusCommand(
+        _ command: String,
+        context: TerminalStatusBarExecutionContext,
+        timeout: TimeInterval
+    ) async -> String {
+        await Task.detached(priority: .utility) {
+            let process = Process()
+            let shell = resolvedShell()
+            let outputURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-terminal-status-\(UUID().uuidString).txt", isDirectory: false)
+
+            _ = FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+            guard let outputHandle = try? FileHandle(forWritingTo: outputURL) else {
+                return ""
+            }
+            defer {
+                outputHandle.closeFile()
+                try? FileManager.default.removeItem(at: outputURL)
+            }
+
+            process.executableURL = URL(fileURLWithPath: shell)
+            process.arguments = shellArguments(for: shell, command: command)
+            process.standardInput = FileHandle.nullDevice
+            process.standardOutput = outputHandle
+            process.standardError = FileHandle.nullDevice
+            process.environment = environment(for: context)
+            if let directory = validatedDirectory(context.workingDirectory) {
+                process.currentDirectoryURL = directory
+            }
+
+            let semaphore = DispatchSemaphore(value: 0)
+            process.terminationHandler = { _ in semaphore.signal() }
+
+            do {
+                try process.run()
+            } catch {
+                return ""
+            }
+
+            let waitResult = semaphore.wait(timeout: .now() + timeout)
+            if waitResult == .timedOut {
+                process.terminate()
+                if semaphore.wait(timeout: .now() + 0.5) == .timedOut, process.isRunning {
+                    kill(process.processIdentifier, SIGKILL)
+                }
+            }
+
+            outputHandle.synchronizeFile()
+            guard let readHandle = try? FileHandle(forReadingFrom: outputURL) else {
+                return ""
+            }
+            defer { readHandle.closeFile() }
+            let data = readHandle.readData(ofLength: 8192)
+            return String(data: data, encoding: .utf8) ?? ""
+        }.value
+    }
+
+    private nonisolated static func resolvedShell() -> String {
+        let environmentShell = ProcessInfo.processInfo.environment["SHELL"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let environmentShell, !environmentShell.isEmpty,
+           FileManager.default.isExecutableFile(atPath: environmentShell) {
+            return environmentShell
+        }
+        return "/bin/sh"
+    }
+
+    private nonisolated static func shellArguments(for shell: String, command: String) -> [String] {
+        if (shell as NSString).lastPathComponent == "fish" {
+            return ["-l", "-c", command]
+        }
+        return ["-lc", command]
+    }
+
+    private nonisolated static func validatedDirectory(_ path: String) -> URL? {
+        var isDirectory = ObjCBool(false)
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return FileManager.default.homeDirectoryForCurrentUser
+        }
+        return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    private nonisolated static func environment(for context: TerminalStatusBarExecutionContext) -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_WORKSPACE_ID"] = context.workspaceId.uuidString
+        environment["CMUX_SURFACE_ID"] = context.surfaceId.uuidString
+        environment["CMUX_PANEL_ID"] = context.surfaceId.uuidString
+        environment["PWD"] = context.workingDirectory
+        return environment
+    }
+}
+
 final class GhosttySurfaceScrollView: NSView {
     enum FlashStyle {
         case navigation
@@ -9693,6 +10019,8 @@ final class GhosttySurfaceScrollView: NSView {
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
     private let surfaceView: GhosttyNSView
+    private let statusBarView: TerminalStatusBarView
+    private let statusBarCommandController = TerminalStatusBarCommandController()
     private let inactiveOverlayView: GhosttyFlashOverlayView
     private let dropZoneOverlayView: GhosttyFlashOverlayView
     private let paneDropTargetView = TerminalPaneDropTargetView(frame: .zero)
@@ -9730,6 +10058,8 @@ final class GhosttySurfaceScrollView: NSView {
     private var workspaceTerminalScrollBarObserver: NSObjectProtocol?
     private var windowObservers: [NSObjectProtocol] = []
     private var scrollbarTrackingArea: NSTrackingArea?
+    private var currentStatusBarConfiguration: TerminalStatusBarConfiguration = .current()
+    private var lastStatusBarActive = false
     private var isLiveScrolling = false
     private var lastSentRow: Int?
     /// Tracks whether the user has scrolled away from the bottom to review scrollback.
@@ -9938,6 +10268,7 @@ final class GhosttySurfaceScrollView: NSView {
         self.surfaceView = surfaceView
         backgroundView = NSView(frame: .zero)
         scrollView = GhosttyScrollView()
+        statusBarView = TerminalStatusBarView(frame: .zero)
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
         dropZoneOverlayView = GhosttyFlashOverlayView(frame: .zero)
         notificationRingOverlayView = GhosttyFlashOverlayView(frame: .zero)
@@ -9977,6 +10308,8 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView.layer?.isOpaque = false
         addSubview(backgroundView)
         addSubview(scrollView)
+        addSubview(statusBarView)
+        statusBarView.isHidden = true
         paneDropTargetView.hostedView = self
         addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
         synchronizeScrollbarAppearance()
@@ -10256,6 +10589,14 @@ final class GhosttySurfaceScrollView: NSView {
             self?.handleTerminalScrollBarPreferenceChange()
         })
 
+        observers.append(NotificationCenter.default.addObserver(
+            forName: TerminalStatusBarSettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshStatusBarConfiguration()
+        })
+
     }
 
     required init?(coder: NSCoder) {
@@ -10277,6 +10618,7 @@ final class GhosttySurfaceScrollView: NSView {
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         deferredSearchOverlayMutationWorkItem?.cancel()
         imageTransferIndicatorShowWorkItem?.cancel()
+        statusBarCommandController.stop()
         dropZoneOverlayView.removeFromSuperview()
         cancelFocusRequest()
     }
@@ -10362,6 +10704,83 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     @discardableResult
+    private func refreshStatusBarConfiguration() -> Bool {
+        let nextConfiguration = TerminalStatusBarConfiguration.current()
+        let configurationChanged = currentStatusBarConfiguration != nextConfiguration
+        currentStatusBarConfiguration = nextConfiguration
+
+        let shouldShow = shouldShowStatusBar(configuration: nextConfiguration)
+        let shouldRun = shouldShow && surfaceView.isVisibleInUI && window != nil
+        let activeChanged = lastStatusBarActive != shouldRun
+        lastStatusBarActive = shouldRun
+
+        statusBarView.configure(
+            configuration: nextConfiguration,
+            visible: shouldShow,
+            cellHeight: surfaceView.cellSize.height
+        )
+        statusBarCommandController.apply(
+            configuration: nextConfiguration,
+            active: shouldRun,
+            contextProvider: { [weak self] in
+                self?.statusBarExecutionContext()
+            },
+            outputHandler: { [weak self] output, rowCount in
+                self?.statusBarView.setStatusText(output, rowCount: rowCount)
+            }
+        )
+
+        if !shouldShow {
+            statusBarView.setStatusText("", rowCount: nextConfiguration.heightRows)
+        }
+
+        return configurationChanged || activeChanged
+    }
+
+    private func shouldShowStatusBar(configuration: TerminalStatusBarConfiguration) -> Bool {
+        guard configuration.isRenderable else { return false }
+        guard let terminalSurface = surfaceView.terminalSurface else { return false }
+        return terminalSurface.focusPlacement == .workspace
+    }
+
+    private func statusBarExecutionContext() -> TerminalStatusBarExecutionContext? {
+        guard let terminalSurface = surfaceView.terminalSurface else { return nil }
+        return TerminalStatusBarExecutionContext(
+            workspaceId: terminalSurface.tabId,
+            surfaceId: terminalSurface.id,
+            workingDirectory: statusBarWorkingDirectory(for: terminalSurface)
+        )
+    }
+
+    private func statusBarWorkingDirectory(for terminalSurface: TerminalSurface) -> String {
+        let workspaceDirectory = AppDelegate.shared?
+            .tabManagerFor(tabId: terminalSurface.tabId)?
+            .tabs
+            .first(where: { $0.id == terminalSurface.tabId })?
+            .panelDirectories[terminalSurface.id]
+        for candidate in [
+            workspaceDirectory,
+            terminalSurface.requestedWorkingDirectory,
+            FileManager.default.homeDirectoryForCurrentUser.path
+        ] {
+            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.path
+    }
+
+    private func currentStatusBarLayout() -> TerminalStatusBarLayout.Frames {
+        TerminalStatusBarLayout.frames(
+            in: bounds,
+            rowCount: currentStatusBarConfiguration.heightRows,
+            cellHeight: surfaceView.cellSize.height,
+            isVisible: shouldShowStatusBar(configuration: currentStatusBarConfiguration)
+        )
+    }
+
+    @discardableResult
     private func synchronizeGeometryAndContent() -> Bool {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -10369,8 +10788,11 @@ final class GhosttySurfaceScrollView: NSView {
 
         let didScrollbarAppearanceChange = synchronizeScrollbarAppearance()
         let previousSurfaceSize = surfaceView.frame.size
+        let didStatusBarConfigurationChange = refreshStatusBarConfiguration()
+        let statusBarLayout = currentStatusBarLayout()
         _ = setFrameIfNeeded(backgroundView, to: bounds)
-        _ = setFrameIfNeeded(scrollView, to: bounds)
+        _ = setFrameIfNeeded(scrollView, to: statusBarLayout.terminalFrame)
+        _ = setFrameIfNeeded(statusBarView, to: statusBarLayout.statusBarFrame)
         let targetSize = scrollView.bounds.size
 #if DEBUG
         logLayoutDuringActiveDrag(targetSize: targetSize)
@@ -10406,7 +10828,7 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
         if let overlay = searchOverlayHostingView {
-            _ = setFrameIfNeeded(overlay, to: bounds)
+            _ = setFrameIfNeeded(overlay, to: statusBarLayout.terminalFrame)
         }
         bringPaneDropTargetToFrontIfNeeded()
         // NSScrollView can defer clip-view/content-size updates until its own layout pass,
@@ -10421,7 +10843,7 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeScrollView()
         synchronizeSurfaceView()
         let didCoreSurfaceChange = synchronizeCoreSurface()
-        return !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
+        return didStatusBarConfigurationChange || !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
     }
 
     @discardableResult
@@ -10556,6 +10978,7 @@ final class GhosttySurfaceScrollView: NSView {
         super.viewDidMoveToWindow()
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.removeAll()
+        refreshStatusBarConfiguration()
         guard let window else { return }
         windowObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
@@ -10951,7 +11374,7 @@ final class GhosttySurfaceScrollView: NSView {
            lastSearchOverlayStateID == searchStateID,
            overlay.superview === self {
             cancelDeferredSearchOverlayMutation()
-            _ = setFrameIfNeeded(overlay, to: bounds)
+            _ = setFrameIfNeeded(overlay, to: currentStatusBarLayout().terminalFrame)
             updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
             return
         }
@@ -10973,7 +11396,7 @@ final class GhosttySurfaceScrollView: NSView {
                 scheduleDeferredSearchOverlayMutation(generation: mutationGeneration) { [weak self, weak overlay] in
                     guard let self, let overlay else { return }
                     overlay.removeFromSuperview()
-                    overlay.frame = self.bounds
+                    overlay.frame = self.currentStatusBarLayout().terminalFrame
                     overlay.autoresizingMask = [.width, .height]
                     self.addSubview(overlay)
                     self.updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
@@ -10985,14 +11408,14 @@ final class GhosttySurfaceScrollView: NSView {
                 return
             }
             cancelDeferredSearchOverlayMutation()
-            _ = setFrameIfNeeded(overlay, to: bounds)
+            _ = setFrameIfNeeded(overlay, to: currentStatusBarLayout().terminalFrame)
             updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
             return
         }
 
         searchFocusTarget = .searchField
         let overlay = NSHostingView(rootView: rootView)
-        overlay.frame = bounds
+        overlay.frame = currentStatusBarLayout().terminalFrame
         overlay.autoresizingMask = [.width, .height]
         searchOverlayHostingView = overlay
         lastSearchOverlayStateID = searchStateID
@@ -11000,7 +11423,7 @@ final class GhosttySurfaceScrollView: NSView {
             guard let self, let overlay else { return }
             guard self.searchOverlayHostingView === overlay else { return }
             overlay.removeFromSuperview()
-            overlay.frame = self.bounds
+            overlay.frame = self.currentStatusBarLayout().terminalFrame
             overlay.autoresizingMask = [.width, .height]
             self.addSubview(overlay)
             self.updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
@@ -11250,6 +11673,7 @@ final class GhosttySurfaceScrollView: NSView {
         let wasVisible = surfaceView.isVisibleInUI
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
+        refreshStatusBarConfiguration()
         if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {
             lastRequestedPortalOcclusionVisible = visible
             surfaceView.terminalSurface?.setOcclusion(visible)

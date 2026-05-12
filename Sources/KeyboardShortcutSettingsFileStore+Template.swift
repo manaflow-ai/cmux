@@ -79,6 +79,12 @@ extension CmuxSettingsFileStore {
                 "terminal": [
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
                     "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
+                    "statusBar": [
+                        "enabled": TerminalStatusBarSettings.defaultEnabled,
+                        "height": TerminalStatusBarSettings.defaultHeightRows,
+                        "command": TerminalStatusBarSettings.defaultCommand,
+                        "refreshInterval": TerminalStatusBarSettings.defaultRefreshInterval,
+                    ],
                 ],
             ],
             [

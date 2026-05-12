@@ -61,7 +61,13 @@ const settingsFileExample = `{
 
   // "terminal": {
   //   "showScrollBar": false,
-  //   "autoResumeAgentSessions": true
+  //   "autoResumeAgentSessions": true,
+  //   "statusBar": {
+  //     "enabled": true,
+  //     "height": 1,
+  //     "command": "git branch --show-current",
+  //     "refreshInterval": 1
+  //   }
   // },
 
   // "browser": {
