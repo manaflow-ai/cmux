@@ -9721,7 +9721,11 @@ struct TerminalTimestampScrollbarState: Equatable {
     }
 
     init(_ scrollbar: GhosttyScrollbar) {
-        self.init(total: scrollbar.total, offset: scrollbar.offset, len: scrollbar.len)
+        self.init(
+            total: Int(clamping: scrollbar.total),
+            offset: Int(clamping: scrollbar.offset),
+            len: Int(clamping: scrollbar.len)
+        )
     }
 }
 
