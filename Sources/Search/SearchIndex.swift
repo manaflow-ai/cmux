@@ -379,7 +379,7 @@ actor SearchIndex {
 
         return tokens.map { token in
             let lowercasedToken = token.lowercased()
-            "\(lowercasedToken)*"
+            return "\(lowercasedToken)*"
         }.joined(separator: " AND ")
     }
 
