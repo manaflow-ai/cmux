@@ -1613,7 +1613,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         isTerminatingApp = true
-        GhosttyCrashBreadcrumb.markCleanExit()
         closeAllWebInspectorsBeforeAppTeardown()
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         stopSessionAutosaveTimer()
@@ -1627,6 +1626,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             PostHogAnalytics.shared.flush()
         }
         notificationStore?.clearAll()
+        GhosttyCrashBreadcrumb.markCleanExit()
         enableSuddenTerminationIfNeeded()
     }
 
