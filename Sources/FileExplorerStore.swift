@@ -559,7 +559,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         private final class TerminationWaiter: @unchecked Sendable {
             private let lock = NSLock()
             private var status: Int32?
-            private var continuation: CheckedContinuation<Int32, Never>?
+            private var continuations: [CheckedContinuation<Int32, Never>] = []
 
             func wait() async -> Int32 {
                 await withCheckedContinuation { continuation in
@@ -569,21 +569,25 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
                         continuation.resume(returning: status)
                         return
                     }
-                    self.continuation = continuation
+                    continuations.append(continuation)
                     lock.unlock()
                 }
             }
 
             func finish(status: Int32) {
                 lock.lock()
-                self.status = status
-                if let continuation {
-                    self.continuation = nil
+                if self.status != nil {
                     lock.unlock()
-                    continuation.resume(returning: status)
                     return
                 }
+                self.status = status
+                let continuations = self.continuations
+                self.continuations.removeAll()
                 lock.unlock()
+
+                for continuation in continuations {
+                    continuation.resume(returning: status)
+                }
             }
         }
 
@@ -725,13 +729,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
                         throw error
                     }
                     markTimedOutAndTerminate()
-                    do {
-                        try await Task.sleep(nanoseconds: 1_000_000_000)
-                    } catch {
-                        forceKillIfRunning()
-                        throw error
-                    }
-                    forceKillIfRunning()
+                    await forceKillAfterGraceUnlessTerminated(waiter: waiter)
                     throw FileExplorerError.downloadTimedOut
                 }
 
@@ -745,6 +743,33 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
                     group.cancelAll()
                     throw error
                 }
+            }
+        }
+
+        private func forceKillAfterGraceUnlessTerminated(waiter: TerminationWaiter) async {
+            enum GraceResult {
+                case terminated
+                case deadline
+            }
+
+            await withTaskGroup(of: GraceResult.self) { group in
+                group.addTask { [waiter] in
+                    _ = await waiter.wait()
+                    return .terminated
+                }
+                group.addTask { [self] in
+                    do {
+                        try await ContinuousClock().sleep(for: .seconds(1))
+                    } catch {
+                        forceKillIfRunning()
+                        return .deadline
+                    }
+                    forceKillIfRunning()
+                    return .deadline
+                }
+
+                _ = await group.next()
+                group.cancelAll()
             }
         }
     }
