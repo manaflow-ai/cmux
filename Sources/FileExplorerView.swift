@@ -661,10 +661,12 @@ final class FileExplorerContainerView: NSView {
     private let searchDebounceSubject = PassthroughSubject<Int, Never>()
     private var searchDebounceCancellable: AnyCancellable?
     private var searchDebounceGeneration = 0
+    private var pendingSearchRefreshAfterSettled = false
     private var isSearchVisible = false {
         didSet {
             if !isSearchVisible {
                 cancelPendingSearchRefresh()
+                pendingSearchRefreshAfterSettled = false
             }
         }
     }
@@ -953,16 +955,19 @@ final class FileExplorerContainerView: NSView {
         let nextRootPath = store.rootPath
         let nextSearchScope = FileSearchScope(provider: store.provider)
         let nextContentRevision = store.contentRevision
-        let shouldRefreshSearch = nextRootPath != currentRootPath ||
-            nextSearchScope != currentSearchScope ||
-            nextContentRevision != currentContentRevision
+        let searchScopeChanged = nextRootPath != currentRootPath ||
+            nextSearchScope != currentSearchScope
+        let contentRevisionChanged = nextContentRevision != currentContentRevision
 
         currentRootPath = nextRootPath
         currentSearchScope = nextSearchScope
         currentContentRevision = nextContentRevision
         headerView.update(displayPath: store.displayRootPath)
-        if shouldRefreshSearch {
+        if searchScopeChanged {
+            pendingSearchRefreshAfterSettled = false
             refreshSearchIfNeeded()
+        } else if contentRevisionChanged {
+            refreshSearchAfterContentRevisionIfNeeded()
         }
     }
 
@@ -1138,6 +1143,25 @@ final class FileExplorerContainerView: NSView {
         )
     }
 
+    private func refreshSearchAfterContentRevisionIfNeeded() {
+        guard isSearchVisible else {
+            pendingSearchRefreshAfterSettled = false
+            return
+        }
+        guard searchSnapshot.isSearching else {
+            pendingSearchRefreshAfterSettled = false
+            refreshSearchIfNeeded()
+            return
+        }
+        pendingSearchRefreshAfterSettled = true
+#if DEBUG
+        dlog(
+            "file.search.contentRevision.defer queryLen=\(searchField.stringValue.count) " +
+            "revision=\(currentContentRevision) results=\(searchSnapshot.results.count)"
+        )
+#endif
+    }
+
     private func configureSearchDebounce() {
         searchDebounceCancellable = searchDebounceSubject
             .debounce(for: .milliseconds(searchDebounceDelayMilliseconds), scheduler: RunLoop.main)
@@ -1159,6 +1183,7 @@ final class FileExplorerContainerView: NSView {
 
     private func scheduleSearchRefresh() {
         guard isSearchVisible else { return }
+        pendingSearchRefreshAfterSettled = false
         searchDebounceGeneration += 1
         let debounceGeneration = searchDebounceGeneration
 #if DEBUG
@@ -1241,11 +1266,21 @@ final class FileExplorerContainerView: NSView {
         )
 #endif
 
-        guard !snapshot.results.isEmpty else { return }
-        let selectedRow = previousSelectedRow >= 0
-            ? min(previousSelectedRow, snapshot.results.count - 1)
-            : 0
-        searchResultsView.selectRowIndexes(IndexSet(integer: selectedRow), byExtendingSelection: false)
+        let shouldRunDeferredContentRefresh = !snapshot.isSearching && pendingSearchRefreshAfterSettled
+        if shouldRunDeferredContentRefresh {
+            pendingSearchRefreshAfterSettled = false
+        }
+
+        if !snapshot.results.isEmpty {
+            let selectedRow = previousSelectedRow >= 0
+                ? min(previousSelectedRow, snapshot.results.count - 1)
+                : 0
+            searchResultsView.selectRowIndexes(IndexSet(integer: selectedRow), byExtendingSelection: false)
+        }
+
+        if shouldRunDeferredContentRefresh {
+            refreshSearchIfNeeded()
+        }
     }
 
     private func applySearchResultsUpdate(previousResults: [FileSearchResult], nextResults: [FileSearchResult]) {
@@ -1276,7 +1311,7 @@ final class FileExplorerContainerView: NSView {
     private func statusText(for snapshot: FileSearchSnapshot) -> String {
         switch snapshot.status {
         case .idle:
-            return String(localized: "fileExplorer.search.empty", defaultValue: "Type to search")
+            return ""
         case .unsupported:
             return String(localized: "fileExplorer.search.unsupported", defaultValue: "Search unavailable")
         case .searching:
@@ -1400,6 +1435,7 @@ final class FileExplorerContainerView: NSView {
         if presentation == .find {
             let hadQuery = !searchField.stringValue.isEmpty
             cancelPendingSearchRefresh()
+            pendingSearchRefreshAfterSettled = false
             searchController.cancel(clear: true)
             searchField.stringValue = ""
             applySearchSnapshot(.empty)
@@ -1418,6 +1454,7 @@ final class FileExplorerContainerView: NSView {
         isSearchVisible = false
         searchController.cancel(clear: true)
         searchField.stringValue = ""
+        pendingSearchRefreshAfterSettled = false
         searchSnapshot = .empty
         searchResultsView.reloadData()
         updateSearchLayout()

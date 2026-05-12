@@ -160,7 +160,8 @@ extension Workspace {
         closePanel: Bool,
         publishSurfaceClosedEvent: Bool,
         clearSurfaceNotifications: Bool,
-        requestTransferredRemoteCleanup: Bool
+        requestTransferredRemoteCleanup: Bool,
+        cleanupControllerSurfaceState: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
@@ -171,6 +172,9 @@ extension Workspace {
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)?.cancel()
         removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
+        if cleanupControllerSurfaceState {
+            TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId, tabId?.uuid].compactMap { $0 })
+        }
         if closePanel {
             panel?.close()
         }
