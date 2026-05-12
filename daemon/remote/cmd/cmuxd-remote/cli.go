@@ -560,7 +560,7 @@ func resolveBrowserCommand(args []string) (string, browserCommandSpec, int, bool
 	}
 	if normalizeBrowserToken(args[0]) == "tab" && len(args) > 1 {
 		second := normalizeBrowserToken(args[1])
-		if second != "new" && second != "list" && second != "switch" && second != "close" && !strings.HasPrefix(second, "--") {
+		if second != "new" && second != "list" && second != "switch" && second != "close" && (second == "-" || !strings.HasPrefix(second, "-")) {
 			spec := browserCommands["tab switch"]
 			return "tab switch", spec, 1, true
 		}
@@ -658,7 +658,7 @@ func parseBrowserArgs(args []string) (browserParsedArgs, error) {
 			parsedValue = value
 		} else if browserFlagIsBoolean(key) {
 			parsedValue = true
-		} else if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+		} else if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") && !isBrowserShortBooleanFlag(args[i+1]) {
 			parsedValue = args[i+1]
 			i++
 		} else {
@@ -676,6 +676,15 @@ func parseBrowserArgs(args []string) (browserParsedArgs, error) {
 		}
 	}
 	return parsed, nil
+}
+
+func isBrowserShortBooleanFlag(arg string) bool {
+	switch arg {
+	case "-i", "-y":
+		return true
+	default:
+		return false
+	}
 }
 
 func browserFlagIsBoolean(key string) bool {

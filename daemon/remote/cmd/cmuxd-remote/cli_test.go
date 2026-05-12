@@ -1245,6 +1245,47 @@ func TestCLIBrowserTabBareSignTargetDoesNotBecomeIndex(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserTabShortFlagDoesNotBecomeTarget(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "surface:2", "tab", "-i",
+	})
+	if code != 0 {
+		t.Fatalf("browser tab short flag should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.tab.list" {
+			t.Fatalf("expected browser.tab.list, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "surface:2" {
+			t.Fatalf("expected surface_id surface:2, got %v", got)
+		}
+		if _, ok := params["target_surface_id"]; ok {
+			t.Fatalf("short flag should not be sent as target_surface_id: %#v", params)
+		}
+		if _, ok := params["index"]; ok {
+			t.Fatalf("short flag should not be sent as index: %#v", params)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser tab list request")
+	}
+}
+
+func TestCLIBrowserOutDoesNotConsumeShortFlagAsPath(t *testing.T) {
+	sockPath, _ := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath,
+		"browser", "surface:2", "screenshot", "--out", "-i",
+	})
+	if code != 2 {
+		t.Fatalf("browser screenshot --out should reject short flag as path, got %d", code)
+	}
+}
+
 func TestCLIBrowserErrorsClearUsesListMethodWithClearParam(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	code := runCLI([]string{
