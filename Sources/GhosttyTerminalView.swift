@@ -26,10 +26,14 @@ enum TerminalDesktopNotificationBridge {
     }
 
     static func shouldSuppressNotification(
+        claudeHooksEnabled: Bool = true,
         workspaceAgentPIDs: [String: pid_t],
         title: String,
         body: String
     ) -> Bool {
+        guard claudeHooksEnabled else {
+            return false
+        }
         guard let claudePID = workspaceAgentPIDs["claude_code"], claudePID > 0 else {
             return false
         }
@@ -3690,6 +3694,7 @@ class GhosttyApp {
                     let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? tabManager
                     if let workspace = owningManager.tabs.first(where: { $0.id == tabId }),
                        TerminalDesktopNotificationBridge.shouldSuppressNotification(
+                           claudeHooksEnabled: ClaudeCodeIntegrationSettings.hooksEnabled(),
                            workspaceAgentPIDs: workspace.agentPIDs,
                            title: actionTitle,
                            body: actionBody
@@ -3962,6 +3967,7 @@ class GhosttyApp {
                 let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager
                 if let workspace = owningManager?.tabs.first(where: { $0.id == tabId }),
                    TerminalDesktopNotificationBridge.shouldSuppressNotification(
+                       claudeHooksEnabled: ClaudeCodeIntegrationSettings.hooksEnabled(),
                        workspaceAgentPIDs: workspace.agentPIDs,
                        title: actionTitle,
                        body: actionBody

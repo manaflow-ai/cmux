@@ -70,6 +70,17 @@ final class TerminalDesktopNotificationBridgeTests: XCTestCase {
         XCTAssertFalse(suppressed)
     }
 
+    func testDisabledClaudeHooksAllowMatchingClaudeAttentionNotification() {
+        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
+            claudeHooksEnabled: false,
+            workspaceAgentPIDs: ["claude_code": pid_t(123)],
+            title: "Claude Code",
+            body: "Claude needs your attention"
+        )
+
+        XCTAssertFalse(suppressed)
+    }
+
     func testActiveClaudeHookAllowsCrossPhraseNonClaudeNotification() {
         let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
             workspaceAgentPIDs: ["claude_code": pid_t(123)],
