@@ -2027,7 +2027,7 @@ struct ContentView: View {
 
     private var sidebarResizerOverlay: some View {
         let position = workspaceSidebarPosition
-        placedSidebarResizerOverlay(
+        return placedSidebarResizerOverlay(
             handle: .divider,
             edge: Self.workspaceSidebarResizeEdge(for: position),
             accessibilityIdentifier: "SidebarResizer",
@@ -2043,7 +2043,7 @@ struct ContentView: View {
 
     private var rightSidebarResizerOverlay: some View {
         let position = workspaceSidebarPosition
-        placedSidebarResizerOverlay(
+        return placedSidebarResizerOverlay(
             handle: .explorerDivider,
             edge: .trailing,
             accessibilityIdentifier: "RightSidebarResizer",
