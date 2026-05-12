@@ -143,8 +143,8 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="cmux-hot-path-tmux-") as td:
         root = Path(td)
-        app_socket = str(root / "cmux.sock")
-        broker_socket = str(root / "hot-path-broker.sock")
+        app_socket = str(root / "a.sock")
+        broker_socket = str(root / "b.sock")
         server = FakeCmuxSocketServer(socket_path=app_socket, response_delay=0.02)
         server.start()
         try:
