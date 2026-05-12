@@ -105,6 +105,8 @@ enum SearchIndexError: LocalizedError {
 }
 
 actor SearchIndex {
+    private static let schemaVersion = 1
+
     private var database: OpaquePointer?
 
     init(databaseURL: URL = .cmuxSearchDatabaseURL) throws {
@@ -242,6 +244,8 @@ actor SearchIndex {
     #endif
 
     private static func configureDatabase(_ database: OpaquePointer) throws {
+        let existingSchemaVersion = try userVersion(database)
+
         try execute("PRAGMA journal_mode = WAL", database: database)
         try execute("PRAGMA synchronous = NORMAL", database: database)
         try execute("""
@@ -291,6 +295,11 @@ actor SearchIndex {
                 VALUES (new.rowid, new.title, new.location, new.text);
             END
             """, database: database)
+
+        if existingSchemaVersion < Self.schemaVersion {
+            try execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')", database: database)
+            try execute("PRAGMA user_version = \(Self.schemaVersion)", database: database)
+        }
     }
 
     private func execute(_ sql: String) throws {
@@ -310,6 +319,28 @@ actor SearchIndex {
                 ?? "execute failed with code \(result)"
             sqlite3_free(errorMessage)
             throw SearchIndexError.executeFailed(message)
+        }
+    }
+
+    private static func userVersion(_ database: OpaquePointer) throws -> Int {
+        var statement: OpaquePointer?
+        let prepareResult = sqlite3_prepare_v2(database, "PRAGMA user_version", -1, &statement, nil)
+        guard prepareResult == SQLITE_OK, let statement else {
+            sqlite3_finalize(statement)
+            throw SearchIndexError.prepareFailed(
+                sqliteMessage(database) ?? "prepare failed with code \(prepareResult)"
+            )
+        }
+        defer { sqlite3_finalize(statement) }
+
+        let stepResult = sqlite3_step(statement)
+        switch stepResult {
+        case SQLITE_ROW:
+            return Int(sqlite3_column_int(statement, 0))
+        case SQLITE_DONE:
+            return 0
+        default:
+            throw SearchIndexError.stepFailed(sqliteMessage(database) ?? "step failed with code \(stepResult)")
         }
     }
 

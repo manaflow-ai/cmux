@@ -1,4 +1,5 @@
 import XCTest
+import SQLite3
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -279,10 +280,110 @@ final class SearchIndexTests: XCTestCase {
         XCTAssertEqual(deletedHits, [])
     }
 
+    func testInitializationBackfillsLegacyRowsIntoFTS() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
+
+        let windowID = UUID()
+        let workspaceID = UUID()
+        let panelID = UUID()
+        try makeLegacyDatabase(
+            at: fixture.databaseURL,
+            windowID: windowID,
+            workspaceID: workspaceID,
+            panelID: panelID
+        )
+
+        let index = try SearchIndex(databaseURL: fixture.databaseURL)
+
+        let hits = try await index.search("legacybackfilltoken", limit: 10)
+        XCTAssertEqual(hits.map(\.id), ["legacy-doc"])
+        XCTAssertEqual(hits.first?.windowID, windowID)
+        XCTAssertEqual(hits.first?.workspaceID, workspaceID)
+        XCTAssertEqual(hits.first?.panelID, panelID)
+    }
+
     private func makeFixture() throws -> (directoryURL: URL, databaseURL: URL) {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-search-index-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         return (directoryURL, directoryURL.appendingPathComponent("search.db", isDirectory: false))
     }
+
+    private func makeLegacyDatabase(
+        at databaseURL: URL,
+        windowID: UUID,
+        workspaceID: UUID,
+        panelID: UUID
+    ) throws {
+        var database: OpaquePointer?
+        let openResult = sqlite3_open_v2(
+            databaseURL.path,
+            &database,
+            SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
+            nil
+        )
+        guard openResult == SQLITE_OK, let database else {
+            let message = database.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown SQLite open failure"
+            sqlite3_close(database)
+            throw SearchIndexTestError.sqlite(message)
+        }
+        defer { sqlite3_close(database) }
+
+        try executeLegacySQL(
+            """
+            CREATE TABLE chunks (
+                rowid INTEGER PRIMARY KEY,
+                id TEXT NOT NULL UNIQUE,
+                window_id TEXT NOT NULL,
+                workspace_id TEXT NOT NULL,
+                panel_id TEXT,
+                kind TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                location TEXT NOT NULL DEFAULT '',
+                anchor TEXT NOT NULL DEFAULT '',
+                ts REAL NOT NULL,
+                text TEXT NOT NULL DEFAULT ''
+            )
+            """,
+            database: database
+        )
+        try executeLegacySQL(
+            """
+            INSERT INTO chunks (
+                id, window_id, workspace_id, panel_id, kind,
+                title, location, anchor, ts, text
+            )
+            VALUES (
+                'legacy-doc',
+                '\(windowID.uuidString)',
+                '\(workspaceID.uuidString)',
+                '\(panelID.uuidString)',
+                'markdown',
+                'Legacy',
+                '/tmp/Legacy.md',
+                '/tmp/Legacy.md',
+                1,
+                'legacybackfilltoken'
+            )
+            """,
+            database: database
+        )
+        try executeLegacySQL("PRAGMA user_version = 0", database: database)
+    }
+
+    private func executeLegacySQL(_ sql: String, database: OpaquePointer) throws {
+        var errorMessage: UnsafeMutablePointer<CChar>?
+        let result = sqlite3_exec(database, sql, nil, nil, &errorMessage)
+        guard result == SQLITE_OK else {
+            let message = errorMessage.map { String(cString: $0) }
+                ?? String(cString: sqlite3_errmsg(database))
+            sqlite3_free(errorMessage)
+            throw SearchIndexTestError.sqlite(message)
+        }
+    }
+}
+
+private enum SearchIndexTestError: Error {
+    case sqlite(String)
 }

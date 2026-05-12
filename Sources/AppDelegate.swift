@@ -1154,7 +1154,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installBrowserAddressBarFocusObservers()
         installShortcutMonitor()
         installShortcutDefaultsObserver()
-        GlobalSearchCoordinator.shared.start()
+        if !isRunningUnderXCTest {
+            GlobalSearchCoordinator.shared.start()
+        }
         SystemWideHotkeyController.shared.start()
         NSApp.servicesProvider = self
 
@@ -7308,21 +7310,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func toggleGlobalSearchPaletteFromTransientMenuBarExtra() -> Bool {
-        transientGlobalSearchMenuBarExtraController?.removeFromMenuBar()
-        transientGlobalSearchMenuBarExtraController = nil
+        if let controller = transientGlobalSearchMenuBarExtraController {
+            if controller.toggleGlobalSearchPalette(
+                onDismiss: transientGlobalSearchDismissalHandler(for: controller)
+            ) {
+                return true
+            }
+            controller.removeFromMenuBar()
+            transientGlobalSearchMenuBarExtraController = nil
+        }
 
         let controller = makeMenuBarExtraController()
         transientGlobalSearchMenuBarExtraController = controller
 
-        let onDismiss: () -> Void = { [weak self, weak controller] in
-            guard let self,
-                  let controller,
-                  self.transientGlobalSearchMenuBarExtraController === controller else {
-                return
-            }
-            controller.removeFromMenuBar()
-            self.transientGlobalSearchMenuBarExtraController = nil
-        }
+        let onDismiss = transientGlobalSearchDismissalHandler(for: controller)
 
         guard controller.toggleGlobalSearchPalette(onDismiss: onDismiss) else {
             controller.removeFromMenuBar()
@@ -7331,6 +7332,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return true
+    }
+
+    private func transientGlobalSearchDismissalHandler(
+        for controller: MenuBarExtraController
+    ) -> () -> Void {
+        return { [weak self, weak controller] in
+            guard let self,
+                  let controller,
+                  self.transientGlobalSearchMenuBarExtraController === controller else {
+                return
+            }
+            controller.removeFromMenuBar()
+            self.transientGlobalSearchMenuBarExtraController = nil
+        }
     }
 
     private func installMenuBarVisibilityObserver() {
