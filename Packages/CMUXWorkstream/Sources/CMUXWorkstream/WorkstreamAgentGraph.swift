@@ -1,11 +1,11 @@
 import Foundation
 
-public enum WorkstreamAgentNodeKind: String, Codable, Sendable, Equatable {
+public nonisolated enum WorkstreamAgentNodeKind: String, Codable, Sendable, Equatable {
     case session
     case spawnRequest
 }
 
-public enum WorkstreamAgentNodeStatus: String, Codable, Sendable, Equatable {
+public nonisolated enum WorkstreamAgentNodeStatus: String, Codable, Sendable, Equatable {
     case running
     case waiting
     case idle
@@ -13,7 +13,7 @@ public enum WorkstreamAgentNodeStatus: String, Codable, Sendable, Equatable {
     case unknown
 }
 
-public struct WorkstreamAgentTreeNode: Identifiable, Codable, Sendable, Equatable {
+public nonisolated struct WorkstreamAgentTreeNode: Identifiable, Codable, Sendable, Equatable {
     public let id: String
     public let kind: WorkstreamAgentNodeKind
     public let workstreamId: String?
@@ -59,13 +59,20 @@ public struct WorkstreamAgentTreeNode: Identifiable, Codable, Sendable, Equatabl
     }
 }
 
-public struct WorkstreamAgentGraphSnapshot: Codable, Sendable, Equatable {
+public nonisolated struct WorkstreamAgentGraphSnapshot: Codable, Sendable, Equatable {
     public let roots: [WorkstreamAgentTreeNode]
     public let nodeCount: Int
     public let edgeCount: Int
     public let maxDepth: Int
 
     public var isEmpty: Bool { roots.isEmpty }
+
+    public static let empty = WorkstreamAgentGraphSnapshot(
+        roots: [],
+        nodeCount: 0,
+        edgeCount: 0,
+        maxDepth: 0
+    )
 
     public init(
         roots: [WorkstreamAgentTreeNode],
@@ -80,7 +87,7 @@ public struct WorkstreamAgentGraphSnapshot: Codable, Sendable, Equatable {
     }
 }
 
-public enum WorkstreamAgentGraphBuilder {
+public nonisolated enum WorkstreamAgentGraphBuilder {
     public static func snapshot(from items: [WorkstreamItem]) -> WorkstreamAgentGraphSnapshot {
         var records: [String: SessionRecord] = [:]
         var creationOrder: [String] = []
@@ -419,7 +426,7 @@ private struct AgentGraphMetadata {
         if let toolName, SessionRecord.isSpawnTool(toolName) {
             self.toolInput = parsedToolInput
         } else {
-            self.toolInput = parsedToolInput
+            self.toolInput = [:]
         }
     }
 

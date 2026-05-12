@@ -9,6 +9,7 @@ import SwiftUI
 @MainActor
 final class FeedPanelViewModel: ObservableObject {
     @Published private(set) var items: [WorkstreamItem] = []
+    @Published private(set) var agentGraphSnapshot: WorkstreamAgentGraphSnapshot = .empty
     @Published private(set) var hasMorePersistedItems = false
     @Published private(set) var isLoadingOlderItems = false
     private var storeInstalledObserver: NSObjectProtocol?
@@ -35,7 +36,9 @@ final class FeedPanelViewModel: ObservableObject {
     private func arm() {
         guard let store = FeedCoordinator.shared.store else { return }
         withObservationTracking {
-            items = store.items
+            let currentItems = store.items
+            items = currentItems
+            agentGraphSnapshot = WorkstreamAgentGraphBuilder.snapshot(from: currentItems)
             hasMorePersistedItems = store.hasMorePersistedItems
             isLoadingOlderItems = store.isLoadingOlderItems
         } onChange: { [weak self] in

@@ -64,4 +64,28 @@ struct WorkstreamAgentGraphTests {
         #expect(child?.model == "sonnet")
         #expect(child?.focusWorkstreamId == "claude-child")
     }
+
+    @Test("Non-spawn tool input does not create graph metadata")
+    func nonSpawnToolInputDoesNotCreateGraphMetadata() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-parent",
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: "workspace-1"
+        ))
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-child",
+            hookEventName: .preToolUse,
+            source: "claude",
+            workspaceId: "workspace-1",
+            toolName: "Read",
+            toolInputJSON: #"{"parent_workstream_id":"claude-parent","file_path":"/tmp/notes.json"}"#
+        ))
+
+        let graph = WorkstreamAgentGraphBuilder.snapshot(from: store.items)
+        #expect(graph.nodeCount == 2)
+        #expect(graph.edgeCount == 0)
+        #expect(graph.roots.map(\.workstreamId).sorted() == ["claude-child", "claude-parent"])
+    }
 }
