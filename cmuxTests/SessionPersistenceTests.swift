@@ -2221,6 +2221,12 @@ final class MarkdownPanelRenderingTests: XCTestCase {
         XCTAssertTrue(html.contains("Content-Security-Policy"))
         XCTAssertTrue(html.contains("script-src 'nonce-"))
     }
+
+    func testMermaidHTMLDocumentPreservesDiagramSourceLiteral() {
+        let html = MarkdownMermaidHTMLDocument.html(source: "graph TD; A --> B", isDark: false)
+
+        XCTAssertTrue(html.contains(#""graph TD; A --> B""#))
+    }
 }
 
 final class SidebarDragFailsafePolicyTests: XCTestCase {
