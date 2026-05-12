@@ -289,6 +289,30 @@ final class FileExplorerStoreTests: XCTestCase {
         }
     }
 
+    func testRemoteDownloadTargetRejectsExistingLocalItem() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-explorer-download-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let existingFile = directory.appendingPathComponent("report.txt")
+        try Data("existing".utf8).write(to: existingFile)
+
+        do {
+            _ = try ProcessSSHFileExplorerTransport.downloadTargetPathForTesting(
+                remotePath: "/home/dev/report.txt",
+                localDirectory: directory.path
+            )
+            XCTFail("Expected existing local target to reject remote download")
+        } catch FileExplorerError.downloadFailed(let detail) {
+            XCTAssertTrue(detail.contains(existingFile.path))
+        } catch {
+            XCTFail("Expected downloadFailed, got \(error)")
+        }
+    }
+
     func testRemoteDownloadSCPArgumentsPreserveRemotePathAndBracketIPv6() {
         let args = ProcessSSHFileExplorerTransport.scpDownloadArgumentsForTesting(
             remotePath: "/home/dev/Quarterly Report's.pdf",

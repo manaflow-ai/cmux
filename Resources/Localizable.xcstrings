@@ -86164,6 +86164,23 @@
         }
       }
     },
+    "fileExplorer.error.downloadTargetExists": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A local item already exists at %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ には既にローカル項目があります"
+          }
+        }
+      }
+    },
     "fileExplorer.error.downloadFailed": {
       "extractionState": "manual",
       "localizations": {

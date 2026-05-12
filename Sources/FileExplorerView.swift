@@ -625,6 +625,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         @MainActor
         private func chooseDownloadDirectory(for node: FileExplorerNode, completion: @escaping (URL) -> Void) {
             let panel = NSOpenPanel()
+            panel.identifier = NSUserInterfaceItemIdentifier("cmux.fileExplorerDownloadDirectory")
             panel.canChooseFiles = false
             panel.canChooseDirectories = true
             panel.canCreateDirectories = true
@@ -634,8 +635,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 defaultValue: "Download Remote Item"
             )
             panel.prompt = String(localized: "fileExplorer.download.panelPrompt", defaultValue: "Download")
-            panel.message = String(
-                format: String(
+            panel.message = String.localizedStringWithFormat(
+                String(
                     localized: "fileExplorer.download.panelMessage",
                     defaultValue: "Choose where to download \"%@\"."
                 ),
@@ -750,8 +751,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
         @MainActor
         private func presentDownloadCompletion(itemName: String, localPath: String, workspaceId: UUID?) {
             let title = String(localized: "fileExplorer.download.complete.title", defaultValue: "Download Complete")
-            let body = String(
-                format: String(localized: "fileExplorer.download.complete.body", defaultValue: "Saved to %@"),
+            let body = String.localizedStringWithFormat(
+                String(localized: "fileExplorer.download.complete.body", defaultValue: "Saved to %@"),
                 localPath
             )
 
