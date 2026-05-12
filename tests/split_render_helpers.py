@@ -10,6 +10,7 @@ from cmux import cmuxError
 
 
 def _panel_snapshot_retry(c: Any, panel_id: str, label: str, timeout_s: float = 3.0) -> dict:
+    """Capture a panel snapshot, retrying through transient attachment churn."""
     start = time.time()
     last_err: Exception | None = None
     while time.time() - start < timeout_s:
@@ -24,6 +25,7 @@ def _panel_snapshot_retry(c: Any, panel_id: str, label: str, timeout_s: float = 
 
 
 def _snapshot_ratio(snapshot: dict) -> float:
+    """Return the changed-pixel ratio for a snapshot diff payload."""
     changed = int(snapshot.get("changed_pixels") or 0)
     width = int(snapshot.get("width") or 0)
     height = int(snapshot.get("height") or 0)
@@ -31,6 +33,7 @@ def _snapshot_ratio(snapshot: dict) -> float:
 
 
 def assert_split_terminal_renders_output(c: Any, panel_id: str) -> None:
+    """Assert that a newly split terminal panel accepts input and visibly renders output."""
     if not panel_id:
         terminal_rows = [row for row in c.surface_health() if row.get("type") == "terminal"]
         if len(terminal_rows) < 2:
