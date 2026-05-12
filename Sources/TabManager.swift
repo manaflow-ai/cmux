@@ -7230,14 +7230,165 @@ extension TabManager {
         _ snapshot: SessionTabManagerSnapshot,
         into hasher: inout Hasher
     ) {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        if let data = try? encoder.encode(snapshot) {
-            hasher.combine(data)
+        hasher.combine(snapshot.selectedWorkspaceIndex)
+        hasher.combine(snapshot.workspaces.count)
+        for workspace in snapshot.workspaces {
+            hashWorkspaceSnapshot(workspace, into: &hasher)
+        }
+    }
+
+    nonisolated private static func hashWorkspaceSnapshot(
+        _ snapshot: SessionWorkspaceSnapshot,
+        into hasher: inout Hasher
+    ) {
+        hasher.combine(snapshot.processTitle)
+        hashOptionalString(snapshot.customTitle, into: &hasher)
+        hashOptionalString(snapshot.customDescription, into: &hasher)
+        hashOptionalString(snapshot.customColor, into: &hasher)
+        hasher.combine(snapshot.isPinned)
+        hasher.combine(snapshot.terminalScrollBarHidden)
+        hasher.combine(snapshot.currentDirectory)
+        hasher.combine(snapshot.focusedPanelId)
+        hashWorkspaceLayoutSnapshot(snapshot.layout, into: &hasher)
+        hasher.combine(snapshot.panels.count)
+        for panel in snapshot.panels {
+            hashPanelSnapshot(panel, into: &hasher)
+        }
+        hasher.combine(snapshot.statusEntries.count)
+        for entry in snapshot.statusEntries {
+            hasher.combine(entry.key)
+            hasher.combine(entry.value)
+            hashOptionalString(entry.icon, into: &hasher)
+            hashOptionalString(entry.color, into: &hasher)
+            hasher.combine(entry.timestamp)
+        }
+        hasher.combine(snapshot.logEntries.count)
+        for entry in snapshot.logEntries {
+            hasher.combine(entry.message)
+            hasher.combine(entry.level)
+            hashOptionalString(entry.source, into: &hasher)
+            hasher.combine(entry.timestamp)
+        }
+        if let progress = snapshot.progress {
+            hasher.combine(true)
+            hasher.combine(progress.value)
+            hashOptionalString(progress.label, into: &hasher)
         } else {
-            // Keep the fallback stable. A fresh UUID would make every autosave
-            // tick look like a state change while encoding is failing.
-            hasher.combine(Int.max)
+            hasher.combine(false)
+        }
+        hashGitBranchSnapshot(snapshot.gitBranch, into: &hasher)
+        hashRemoteWorkspaceSnapshot(snapshot.remote, into: &hasher)
+    }
+
+    nonisolated private static func hashPanelSnapshot(
+        _ snapshot: SessionPanelSnapshot,
+        into hasher: inout Hasher
+    ) {
+        hasher.combine(snapshot.id)
+        hasher.combine(snapshot.type.rawValue)
+        hashOptionalString(snapshot.title, into: &hasher)
+        hashOptionalString(snapshot.customTitle, into: &hasher)
+        hashOptionalString(snapshot.directory, into: &hasher)
+        hasher.combine(snapshot.isPinned)
+        hasher.combine(snapshot.isManuallyUnread)
+        hashGitBranchSnapshot(snapshot.gitBranch, into: &hasher)
+        hasher.combine(snapshot.listeningPorts)
+        hashOptionalString(snapshot.ttyName, into: &hasher)
+        if let terminal = snapshot.terminal {
+            hasher.combine(true)
+            hashOptionalString(terminal.workingDirectory, into: &hasher)
+            hashOptionalString(terminal.scrollback, into: &hasher)
+            hashRestorableAgentSnapshot(terminal.agent, into: &hasher)
+            hashOptionalString(terminal.tmuxStartCommand, into: &hasher)
+        } else {
+            hasher.combine(false)
+        }
+        if let browser = snapshot.browser {
+            hasher.combine(true)
+            hashOptionalString(browser.urlString, into: &hasher)
+            hasher.combine(browser.profileID)
+            hasher.combine(browser.shouldRenderWebView)
+            hasher.combine(browser.pageZoom)
+            hasher.combine(browser.developerToolsVisible)
+            hashOptionalStringArray(browser.backHistoryURLStrings, into: &hasher)
+            hashOptionalStringArray(browser.forwardHistoryURLStrings, into: &hasher)
+        } else {
+            hasher.combine(false)
+        }
+        if let markdown = snapshot.markdown {
+            hasher.combine(true)
+            hasher.combine(markdown.filePath)
+        } else {
+            hasher.combine(false)
+        }
+        if let filePreview = snapshot.filePreview {
+            hasher.combine(true)
+            hasher.combine(filePreview.filePath)
+        } else {
+            hasher.combine(false)
+        }
+    }
+
+    nonisolated private static func hashWorkspaceLayoutSnapshot(
+        _ snapshot: SessionWorkspaceLayoutSnapshot,
+        into hasher: inout Hasher
+    ) {
+        switch snapshot {
+        case .pane(let pane):
+            hasher.combine("pane")
+            hasher.combine(pane.panelIds)
+            hasher.combine(pane.selectedPanelId)
+        case .split(let split):
+            hasher.combine("split")
+            hasher.combine(split.orientation.rawValue)
+            hasher.combine(split.dividerPosition)
+            hashWorkspaceLayoutSnapshot(split.first, into: &hasher)
+            hashWorkspaceLayoutSnapshot(split.second, into: &hasher)
+        }
+    }
+
+    nonisolated private static func hashGitBranchSnapshot(
+        _ snapshot: SessionGitBranchSnapshot?,
+        into hasher: inout Hasher
+    ) {
+        guard let snapshot else {
+            hasher.combine(false)
+            return
+        }
+        hasher.combine(true)
+        hasher.combine(snapshot.branch)
+        hasher.combine(snapshot.isDirty)
+    }
+
+    nonisolated private static func hashRemoteWorkspaceSnapshot(
+        _ snapshot: SessionRemoteWorkspaceSnapshot?,
+        into hasher: inout Hasher
+    ) {
+        guard let snapshot else {
+            hasher.combine(false)
+            return
+        }
+        hasher.combine(true)
+        hasher.combine(snapshot.transport.rawValue)
+        hasher.combine(snapshot.destination)
+        hasher.combine(snapshot.port)
+        hashOptionalString(snapshot.identityFile, into: &hasher)
+        hasher.combine(snapshot.sshOptions.count)
+        for option in snapshot.sshOptions {
+            hasher.combine(option)
+        }
+        hasher.combine(snapshot.skipDaemonBootstrap)
+    }
+
+    nonisolated private static func hashOptionalStringArray(_ values: [String]?, into hasher: inout Hasher) {
+        guard let values else {
+            hasher.combine(false)
+            return
+        }
+        hasher.combine(true)
+        hasher.combine(values.count)
+        for value in values {
+            hasher.combine(value)
         }
     }
 
