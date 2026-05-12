@@ -67,6 +67,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             .write(to: url, atomically: true, encoding: .utf8)
     }
 
+    private func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
     private func runRelayZshHistfile(
         configureUserHome: (URL) throws -> URL
     ) throws -> String {
@@ -145,6 +149,118 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(fileManager.fileExists(atPath: authURL.path))
         XCTAssertFalse(fileManager.fileExists(atPath: daemonPathURL.path))
         XCTAssertFalse(fileManager.fileExists(atPath: ttyURL.path))
+    }
+
+    func testRemoteDaemonUploadScriptsResolveRelativePathsAgainstHome() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-remote-daemon-path-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let cwd = root.appendingPathComponent("cwd", isDirectory: true)
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: cwd, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let remotePath = ".cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote"
+        let remoteDirectory = (remotePath as NSString).deletingLastPathComponent
+        let remoteDirectoryURL = home.appendingPathComponent(remoteDirectory, isDirectory: true)
+        let cwdRemoteDirectoryURL = cwd.appendingPathComponent(remoteDirectory, isDirectory: true)
+
+        let mkdirResult = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(home.path)",
+                "/bin/sh",
+                "-c",
+                """
+                cd \(shellSingleQuoted(cwd.path))
+                \(WorkspaceRemoteSessionController.remoteDaemonUploadMkdirScript(remoteDirectory: remoteDirectory))
+                """,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(mkdirResult.timedOut, mkdirResult.stderr)
+        XCTAssertEqual(mkdirResult.status, 0, mkdirResult.stderr)
+        XCTAssertTrue(fileManager.fileExists(atPath: remoteDirectoryURL.path))
+        XCTAssertFalse(fileManager.fileExists(atPath: cwdRemoteDirectoryURL.path))
+
+        let remoteTempPath = "\(remotePath).tmp-test"
+        let remoteTempURL = home.appendingPathComponent(remoteTempPath, isDirectory: false)
+        let installedURL = home.appendingPathComponent(remotePath, isDirectory: false)
+        try Data("fake daemon".utf8).write(to: remoteTempURL)
+
+        let finalizeResult = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(home.path)",
+                "/bin/sh",
+                "-c",
+                """
+                cd \(shellSingleQuoted(cwd.path))
+                \(WorkspaceRemoteSessionController.remoteDaemonUploadFinalizeScript(
+                    remoteTempPath: remoteTempPath,
+                    remotePath: remotePath
+                ))
+                """,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(finalizeResult.timedOut, finalizeResult.stderr)
+        XCTAssertEqual(finalizeResult.status, 0, finalizeResult.stderr)
+        XCTAssertFalse(fileManager.fileExists(atPath: remoteTempURL.path))
+        XCTAssertTrue(fileManager.isExecutableFile(atPath: installedURL.path))
+    }
+
+    func testRemoteDaemonHelloScriptResolvesRelativePathAgainstHome() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-remote-daemon-hello-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let cwd = root.appendingPathComponent("cwd", isDirectory: true)
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: cwd, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let remotePath = ".cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote"
+        let daemonURL = home.appendingPathComponent(remotePath, isDirectory: false)
+        try fileManager.createDirectory(
+            at: daemonURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let daemonScript = """
+        #!/bin/sh
+        if [ "${1:-}" != "serve" ] || [ "${2:-}" != "--stdio" ]; then
+          exit 64
+        fi
+        if IFS= read -r _request; then
+          printf '%s\\n' '{"ok":true,"result":{"name":"cmuxd-remote","version":"test","capabilities":["proxy_stream"]}}'
+          exit 0
+        fi
+        exit 65
+        """
+        try daemonScript.write(to: daemonURL, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: daemonURL.path)
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(home.path)",
+                "/bin/sh",
+                "-c",
+                """
+                cd \(shellSingleQuoted(cwd.path))
+                \(WorkspaceRemoteSessionController.remoteDaemonHelloScript(
+                    remotePath: remotePath,
+                    request: #"{"id":1,"method":"hello","params":{}}"#
+                ))
+                """,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains(#""ok":true"#), result.stdout)
     }
 
     func testRemoteRelayMetadataCleanupScriptPreservesDifferentSocketAddr() {

@@ -5322,7 +5322,7 @@ final class WorkspaceRemoteSessionController {
             "remote.upload.begin local=\(localBinary.path) remoteTemp=\(remoteTempPath) remote=\(remotePath)"
         )
 
-        let mkdirScript = "mkdir -p \(Self.shellSingleQuoted(remoteDirectory))"
+        let mkdirScript = Self.remoteDaemonUploadMkdirScript(remoteDirectory: remoteDirectory)
         let mkdirCommand = "sh -c \(Self.shellSingleQuoted(mkdirScript))"
         let mkdirResult = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, mkdirCommand], timeout: 12)
         guard mkdirResult.status == 0 else {
@@ -5357,10 +5357,7 @@ final class WorkspaceRemoteSessionController {
             ])
         }
 
-        let finalizeScript = """
-        chmod 755 \(Self.shellSingleQuoted(remoteTempPath)) && \
-        mv \(Self.shellSingleQuoted(remoteTempPath)) \(Self.shellSingleQuoted(remotePath))
-        """
+        let finalizeScript = Self.remoteDaemonUploadFinalizeScript(remoteTempPath: remoteTempPath, remotePath: remotePath)
         let finalizeCommand = "sh -c \(Self.shellSingleQuoted(finalizeScript))"
         let finalizeResult = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, finalizeCommand], timeout: 12)
         guard finalizeResult.status == 0 else {
@@ -5437,7 +5434,7 @@ final class WorkspaceRemoteSessionController {
 
     private func helloRemoteDaemonLocked(remotePath: String) throws -> DaemonHello {
         let request = #"{"id":1,"method":"hello","params":{}}"#
-        let script = "printf '%s\\n' \(Self.shellSingleQuoted(request)) | \(Self.shellSingleQuoted(remotePath)) serve --stdio"
+        let script = Self.remoteDaemonHelloScript(remotePath: remotePath, request: request)
         let command = "sh -c \(Self.shellSingleQuoted(script))"
         let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 12)
         guard result.status == 0 else {
@@ -5536,6 +5533,29 @@ final class WorkspaceRemoteSessionController {
         "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
+    static func remoteDaemonPathShellExpression(_ remotePath: String) -> String {
+        let trimmedRemotePath = remotePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedRemotePath.hasPrefix("/") {
+            return shellSingleQuoted(trimmedRemotePath)
+        }
+        return "\"$HOME\"/\(shellSingleQuoted(trimmedRemotePath))"
+    }
+
+    static func remoteDaemonUploadMkdirScript(remoteDirectory: String) -> String {
+        "mkdir -p \(remoteDaemonPathShellExpression(remoteDirectory))"
+    }
+
+    static func remoteDaemonUploadFinalizeScript(remoteTempPath: String, remotePath: String) -> String {
+        """
+        chmod 755 \(remoteDaemonPathShellExpression(remoteTempPath)) && \
+        mv \(remoteDaemonPathShellExpression(remoteTempPath)) \(remoteDaemonPathShellExpression(remotePath))
+        """
+    }
+
+    static func remoteDaemonHelloScript(remotePath: String, request: String) -> String {
+        "printf '%s\\n' \(shellSingleQuoted(request)) | \(remoteDaemonPathShellExpression(remotePath)) serve --stdio"
+    }
+
     static func remoteCLIWrapperScript() -> String {
         """
         #!/bin/sh
@@ -5564,9 +5584,10 @@ final class WorkspaceRemoteSessionController {
 
     static func remoteCLIWrapperInstallScript(daemonRemotePath: String) -> String {
         let trimmedRemotePath = daemonRemotePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let daemonPathExpression = remoteDaemonPathShellExpression(trimmedRemotePath)
         return """
         mkdir -p "$HOME/.cmux/bin" "$HOME/.cmux/relay"
-        ln -sf "$HOME/\(trimmedRemotePath)" "$HOME/.cmux/bin/cmuxd-remote-current"
+        ln -sf \(daemonPathExpression) "$HOME/.cmux/bin/cmuxd-remote-current"
         wrapper_tmp="$HOME/.cmux/bin/.cmux-wrapper.tmp.$$"
         cat > "$wrapper_tmp" <<'CMUXWRAPPER'
         \(remoteCLIWrapperScript())
@@ -5583,6 +5604,7 @@ final class WorkspaceRemoteSessionController {
         relayToken: String
     ) -> String {
         let trimmedRemotePath = daemonRemotePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let daemonPathExpression = remoteDaemonPathShellExpression(trimmedRemotePath)
         let authPayload = """
         {"relay_id":"\(relayID)","relay_token":"\(relayToken)"}
         """
@@ -5591,7 +5613,7 @@ final class WorkspaceRemoteSessionController {
         mkdir -p "$HOME/.cmux" "$HOME/.cmux/relay"
         chmod 700 "$HOME/.cmux/relay"
         \(remoteCLIWrapperInstallScript(daemonRemotePath: trimmedRemotePath))
-        printf '%s' "$HOME/\(trimmedRemotePath)" > "$HOME/.cmux/relay/\(relayPort).daemon_path"
+        printf '%s' \(daemonPathExpression) > "$HOME/.cmux/relay/\(relayPort).daemon_path"
         cat > "$HOME/.cmux/relay/\(relayPort).auth" <<'CMUXRELAYAUTH'
         \(authPayload)
         CMUXRELAYAUTH
