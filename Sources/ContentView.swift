@@ -8917,7 +8917,7 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
         showsGitBranch = Self.bool(defaults: defaults, key: "sidebarShowGitBranch", defaultValue: true)
         usesVerticalBranchLayout = SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults)
         showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
-        showsSSH = Self.bool(defaults: defaults, key: "sidebarShowSSH", defaultValue: true)
+        showsSSH = Self.bool(defaults: defaults, key: "sidebarShowSSH", defaultValue: SidebarWorkspaceDetailDefaults.showSSH)
         makesPullRequestsClickable = SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults)
         openPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(
             defaults: defaults
@@ -8935,12 +8935,12 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
             hideAllDetails: hidesAllDetails
         )
 
-        let showsMetadata = Self.bool(defaults: defaults, key: "sidebarShowStatusPills", defaultValue: true)
-        let showsLog = Self.bool(defaults: defaults, key: "sidebarShowLog", defaultValue: true)
-        let showsProgress = Self.bool(defaults: defaults, key: "sidebarShowProgress", defaultValue: true)
-        let showsBranchDirectory = Self.bool(defaults: defaults, key: "sidebarShowBranchDirectory", defaultValue: true)
-        let showsPullRequests = Self.bool(defaults: defaults, key: "sidebarShowPullRequest", defaultValue: true)
-        let showsPorts = Self.bool(defaults: defaults, key: "sidebarShowPorts", defaultValue: true)
+        let showsMetadata = Self.bool(defaults: defaults, key: "sidebarShowStatusPills", defaultValue: SidebarWorkspaceDetailDefaults.showCustomMetadata)
+        let showsLog = Self.bool(defaults: defaults, key: "sidebarShowLog", defaultValue: SidebarWorkspaceDetailDefaults.showLog)
+        let showsProgress = Self.bool(defaults: defaults, key: "sidebarShowProgress", defaultValue: SidebarWorkspaceDetailDefaults.showProgress)
+        let showsBranchDirectory = Self.bool(defaults: defaults, key: "sidebarShowBranchDirectory", defaultValue: SidebarWorkspaceDetailDefaults.showBranchDirectory)
+        let showsPullRequests = Self.bool(defaults: defaults, key: "sidebarShowPullRequest", defaultValue: SidebarWorkspaceDetailDefaults.showPullRequests)
+        let showsPorts = Self.bool(defaults: defaults, key: "sidebarShowPorts", defaultValue: SidebarWorkspaceDetailDefaults.showPorts)
         visibleAuxiliaryDetails = SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
             showMetadata: showsMetadata,
             showLog: showsLog,
@@ -9146,7 +9146,9 @@ struct VerticalTabsSidebar: View {
             uniqueKeysWithValues: tabs.map { ($0.id, $0.terminalScrollBarHidden) }
         )
         let allSelectedRemoteContextMenuTargetsConnecting = !selectedRemoteContextMenuTargets.isEmpty &&
-            selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .connecting }
+            selectedRemoteContextMenuTargets.allSatisfy {
+                $0.remoteConnectionState == .connecting || $0.remoteConnectionState == .reconnecting
+            }
         let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
         let renderContext = WorkspaceListRenderContext(
@@ -9167,6 +9169,11 @@ struct VerticalTabsSidebar: View {
             workspaceScrollArea(renderContext: renderContext)
             SidebarFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .overlay {
+            FirstMouseGatedHostingOverlay()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityHidden(true)
         }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
@@ -9454,7 +9461,10 @@ struct VerticalTabsSidebar: View {
             : (tab.isRemoteWorkspace ? [tab.id] : [])
         let allRemoteContextMenuTargetsConnecting = usesSelectedContextMenuTargets
             ? renderContext.allSelectedRemoteContextMenuTargetsConnecting
-            : (tab.isRemoteWorkspace && tab.remoteConnectionState == .connecting)
+            : (
+                tab.isRemoteWorkspace &&
+                    (tab.remoteConnectionState == .connecting || tab.remoteConnectionState == .reconnecting)
+            )
         let allRemoteContextMenuTargetsDisconnected = usesSelectedContextMenuTargets
             ? renderContext.allSelectedRemoteContextMenuTargetsDisconnected
             : (tab.isRemoteWorkspace && tab.remoteConnectionState == .disconnected)
@@ -12166,6 +12176,8 @@ private struct TabItemView: View, Equatable {
             return String(localized: "remote.status.connected", defaultValue: "Connected")
         case .connecting:
             return String(localized: "remote.status.connecting", defaultValue: "Connecting")
+        case .reconnecting:
+            return String(localized: "remote.status.reconnecting", defaultValue: "Reconnecting")
         case .error:
             return String(localized: "remote.status.error", defaultValue: "Error")
         case .disconnected:
@@ -12507,7 +12519,10 @@ private struct TabItemView: View, Equatable {
         .contentShape(Rectangle())
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
-            SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
+            SidebarWorkspaceRowHoverTracker(
+                rowInteractionState: $rowInteractionState,
+                onMenuTrackingEnded: flushWorkspaceContextMenuFreezeIfLive
+            )
         }
         .overlay {
             MiddleClickCapture {
@@ -12627,8 +12642,7 @@ private struct TabItemView: View, Equatable {
                 }
                 .onDisappear {
                     rowInteractionState.contextMenuDidDisappear()
-                    frozenPresentation = nil
-                    flushDeferredWorkspaceObservationInvalidation()
+                    flushWorkspaceContextMenuFreezeIfLive()
                 }
         }
     }
@@ -12639,7 +12653,7 @@ private struct TabItemView: View, Equatable {
             current: workspaceSnapshotStorage,
             next: nextSnapshot,
             force: force,
-            contextMenuVisible: rowInteractionState.contextMenuVisible
+            freezesSidebarWorkspaceDetails: rowInteractionState.freezesSidebarWorkspaceDetails
         )
 
         if workspaceSnapshotStorage != decision.workspaceSnapshotStorage {
@@ -12660,6 +12674,12 @@ private struct TabItemView: View, Equatable {
             workspaceSnapshotStorage = pendingSnapshot
         }
         contextMenuState.pendingWorkspaceSnapshot = nil
+    }
+
+    private func flushWorkspaceContextMenuFreezeIfLive() {
+        guard !rowInteractionState.freezesSidebarWorkspaceDetails else { return }
+        frozenPresentation = nil
+        flushDeferredWorkspaceObservationInvalidation()
     }
 
     private func contextMenuLabel(multi: String, single: String, isMulti: Bool) -> String {
@@ -13134,6 +13154,15 @@ private struct TabItemView: View, Equatable {
                 format: String(
                     localized: "sidebar.remote.help.connecting",
                     defaultValue: "SSH connecting to %@"
+                ),
+                locale: .current,
+                target
+            )
+        case .reconnecting:
+            return String(
+                format: String(
+                    localized: "sidebar.remote.help.reconnecting",
+                    defaultValue: "SSH reconnecting to %@"
                 ),
                 locale: .current,
                 target

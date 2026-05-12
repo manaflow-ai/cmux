@@ -2559,32 +2559,24 @@ struct CMUXCLI {
                     print("OK \(vmId)")
                 }
 
-            case "ssh-info", "ssh":
+            case "ssh":
                 guard let vmId = rest.first else {
                     throw CLIError(message: "Usage: cmux \(command) ssh <id>")
                 }
-                let response = try client.sendV2(method: "vm.ssh_info", params: ["id": vmId], responseTimeout: 60)
-                if jsonOutput {
-                    print(jsonString(response))
-                    break
+                let shortId = String(vmId.prefix(8))
+                try vmOpenShell(
+                    id: vmId,
+                    workspaceName: "vm:\(shortId)",
+                    client: client,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat
+                )
+
+            case "ssh-info":
+                guard let vmId = rest.first else {
+                    throw CLIError(message: "Usage: cmux \(command) ssh-info <id>")
                 }
-                let host = (response["host"] as? String) ?? "?"
-                let port = (response["port"] as? Int) ?? 22
-                let username = (response["username"] as? String) ?? "?"
-                let cred = (response["credential"] as? [String: Any]) ?? [:]
-                let credKind = (cred["kind"] as? String) ?? "?"
-                let credValue = (cred["value"] as? String) ?? "?"
-                if credKind == "password" {
-                    print("ssh \(username)@\(host) -p \(port)")
-                    print("")
-                    print("  host:      \(host)")
-                    print("  port:      \(port)")
-                    print("  username:  \(username)")
-                    print("  password:  \(credValue)")
-                } else {
-                    print("authorizedKey credential not yet supported by `cmux \(command) ssh`; raw response:")
-                    print(jsonString(response))
-                }
+                try printVMSSHInfo(id: vmId, command: command, client: client, jsonOutput: jsonOutput)
 
             case "ssh-attach":
                 try runVMSSHAttach(commandArgs: rest, client: client)
@@ -3413,6 +3405,13 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
             print(response)
+
+        case "right-sidebar":
+            try forwardRightSidebarCommand(
+                commandArgs: commandArgs,
+                client: client,
+                windowOverride: windowId
+            )
 
         case "claude-hook":
             cliTelemetry.breadcrumb("claude-hook.dispatch")
@@ -5236,8 +5235,10 @@ struct CMUXCLI {
             "cmux_remote_bootstrap_b64=\(shellQuote(encodedBootstrapScript))",
             "cmux_remote_bootstrap=\"$(printf %s \"$cmux_remote_bootstrap_b64\" | base64 -d 2>/dev/null || printf %s \"$cmux_remote_bootstrap_b64\" | base64 -D 2>/dev/null)\"",
             "cmux_remote_bootstrap=\"$(printf '%s' \"$cmux_remote_bootstrap\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_surface_id/g\")\"",
-            "if ! printf '%s' \"$cmux_remote_bootstrap\" | command \(installSSHPrefix) -T \(shellQuote(options.destination)) \(shellQuote(remoteBootstrapInstallCommand)); then",
-            "  exit 1",
+            "printf '%s' \"$cmux_remote_bootstrap\" | command \(installSSHPrefix) -T \(shellQuote(options.destination)) \(shellQuote(remoteBootstrapInstallCommand))",
+            "cmux_remote_install_status=$?",
+            "if [ \"$cmux_remote_install_status\" -ne 0 ]; then",
+            "  exit \"$cmux_remote_install_status\"",
             "fi",
             "cmux_remote_command_template=\(shellQuote(remoteCommandTemplate))",
             "cmux_remote_command=\"$(printf '%s' \"$cmux_remote_command_template\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_surface_id/g\")\"",
@@ -5773,20 +5774,47 @@ struct CMUXCLI {
         scriptLines += [
             "rm -f -- \"$0\" 2>/dev/null || true",
             "CMUX_SSH_SESSION_ENDED=0",
+            "CMUX_SSH_STARTUP_PID=$$",
+            "export CMUX_SSH_STARTUP_PID",
+            "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\"",
+            "case \"$cmux_ssh_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_reconnect_limit=20 ;; esac",
+            "cmux_ssh_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
+            "case \"$cmux_ssh_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_reconnect_delay=2 ;; esac",
+            "cmux_ssh_retry=0",
+            "CMUX_SSH_CHILD_PID=",
+            "CMUX_SSH_PENDING_SIGNAL=",
+            "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
             "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); }",
-            "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
+            "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; if [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; return; fi; CMUX_SSH_SESSION_ENDED=1; trap - EXIT HUP INT TERM; kill -TERM \"$CMUX_SSH_CHILD_PID\" 2>/dev/null || true; exit \"$cmux_ssh_signal_status\"; }",
             "trap 'cmux_ssh_session_end' EXIT",
             "trap 'cmux_ssh_signal_exit 129' HUP",
             "trap 'cmux_ssh_signal_exit 130' INT",
             "trap 'cmux_ssh_signal_exit 143' TERM",
+            "while :; do",
         ]
         if isShellSnippet {
-            scriptLines.append(sshCommand)
+            scriptLines += [
+                "  (",
+                "    \(sshCommand)",
+                "  ) &",
+            ]
         } else {
-            scriptLines.append("command \(sshCommand)")
+            scriptLines.append("  command \(sshCommand) &")
         }
         scriptLines += [
-            "cmux_ssh_status=$?",
+            "  CMUX_SSH_CHILD_PID=$!",
+            "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_signal_exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
+            "  wait \"$CMUX_SSH_CHILD_PID\"",
+            "  cmux_ssh_status=$?",
+            "  CMUX_SSH_CHILD_PID=",
+            "  if [ \"$cmux_ssh_status\" -eq 0 ]; then break; fi",
+            "  if [ \"$cmux_ssh_status\" -ne 255 ]; then break; fi",
+            "  if [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi",
+            "  cmux_ssh_retry=$((cmux_ssh_retry + 1))",
+            "  cmux_ssh_note '\\n\\033[33m[cmux] ssh exited with status %s; reconnecting (attempt %s/%s).\\033[0m\\n\\033[2m[cmux] close this pane or press Ctrl-C to stop reconnecting.\\033[0m\\n' \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"",
+            "  if [ \"$cmux_ssh_reconnect_delay\" -gt 0 ]; then sleep \"$cmux_ssh_reconnect_delay\"; fi",
+            "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_session_end; trap - EXIT HUP INT TERM; exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
+            "done",
             "trap - EXIT HUP INT TERM",
             "cmux_ssh_session_end",
             // Hold the pane so the user can see the error instead of silently falling
@@ -5794,9 +5822,7 @@ struct CMUXCLI {
             // after the startup command exits, and a dead VM looks identical to "I never
             // SSH'd" — the surface shows `Last login: ... on ttys072` + a local prompt.
             "if [ \"$cmux_ssh_status\" -ne 0 ]; then",
-            "  printf '\\n\\033[31m[cmux] ssh exited with status %s.\\033[0m\\n' \"$cmux_ssh_status\" >&2",
-            "  printf '\\033[2m[cmux] the remote VM may have been paused, destroyed, or lost network.\\033[0m\\n' >&2",
-            "  printf '\\033[2m[cmux] press Enter to close this pane.\\033[0m\\n' >&2",
+            "  printf '\\n\\033[31m[cmux] ssh exited with status %s.\\033[0m\\n\\033[2m[cmux] the remote VM may have been paused, destroyed, or lost network.\\033[0m\\n\\033[2m[cmux] press Enter to close this pane.\\033[0m\\n' \"$cmux_ssh_status\" >&2 || true",
             "  IFS= read -r _cmux_dismiss_key 2>/dev/null || true",
             "fi",
             "exit $cmux_ssh_status",
@@ -5991,6 +6017,32 @@ struct CMUXCLI {
             remoteRelayPort: remoteRelayPort,
             skipDaemonBootstrap: true
         )
+    }
+
+    private func printVMSSHInfo(id vmID: String, command: String, client: SocketClient, jsonOutput: Bool) throws {
+        let response = try client.sendV2(method: "vm.ssh_info", params: ["id": vmID], responseTimeout: 60)
+        if jsonOutput {
+            print(jsonString(response))
+            return
+        }
+        let host = (response["host"] as? String) ?? "?"
+        let port = (response["port"] as? Int) ?? 22
+        let username = (response["username"] as? String) ?? "?"
+        let cred = (response["credential"] as? [String: Any]) ?? [:]
+        let credKind = (cred["kind"] as? String) ?? "?"
+        let credValue = (cred["value"] as? String) ?? "?"
+        if credKind == "password" {
+            print("ssh \(username)@\(host) -p \(port)")
+            print("")
+            print("  host:      \(host)")
+            print("  port:      \(port)")
+            print("  username:  \(username)")
+            print("  password:  \(credValue)")
+        } else {
+            let kindDescription = credKind.isEmpty || credKind == "?" ? "unknown" : credKind
+            print("credential kind \"\(kindDescription)\" not yet supported by `cmux \(command) ssh-info`; raw response:")
+            print(jsonString(response))
+        }
     }
 
     private func runVMSSHAttach(commandArgs: [String], client: SocketClient) throws {
@@ -8688,7 +8740,7 @@ struct CMUXCLI {
             """
         case "vm", "cloud":
             return """
-            Usage: cmux \(command) <new|ls|rm|exec|shell|attach|ssh> [args...]
+            Usage: cmux \(command) <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
 
@@ -8700,10 +8752,12 @@ struct CMUXCLI {
                                         just print the id and exit (scripting primitive).
               shell <id>                Drop into an interactive shell on an existing VM.
                                         Alias: `attach <id>`.
+              ssh <id>                  Drop into a cmux-managed SSH workspace for an existing
+                                        VM, using the same session path as `cmux ssh`.
+              ssh-info <id>             Print SSH connection details when the VM provider
+                                        exposes SSH.
               rm <id>                   Destroy a VM.
               exec <id> -- <command...> Run a shell command inside the VM and print stdout.
-              ssh <id>                  Print a ready-to-paste SSH one-liner when the VM
-                                        provider exposes SSH.
 
             Env:
               CMUX_VM_API_BASE_URL       Override the backend origin (default: the cmux website).
@@ -9981,6 +10035,34 @@ struct CMUXCLI {
               cmux sidebar-state
               cmux sidebar-state --workspace workspace:2
             """
+        case "right-sidebar":
+            return String(localized: "cli.rightSidebar.usage", defaultValue: """
+            Usage: cmux right-sidebar <command> [flags]
+
+            Control the right sidebar from the CLI.
+
+            Commands:
+              toggle                         Toggle right sidebar visibility
+              show                           Show the right sidebar
+              hide                           Hide the right sidebar
+              focus                          Focus the current right sidebar mode
+              set <files|find|vault|sessions|feed|dock>
+                                             Show, switch mode, and focus
+              mode                           Print {"visible":bool,"mode":string}
+              files|find|vault|sessions|feed|dock
+                                             Alias for show + set + focus
+
+            Flags:
+              --workspace <id|ref|index>     Target the window containing a workspace
+              --window <id|ref|index>        Target a window
+              --no-focus                     With set, switch mode without moving focus
+
+            Examples:
+              cmux right-sidebar toggle
+              cmux right-sidebar set find
+              cmux right-sidebar set vault --no-focus
+              cmux right-sidebar mode
+            """)
         case "set-app-focus":
             return """
             Usage: cmux set-app-focus <active|inactive|clear>
@@ -10293,6 +10375,212 @@ struct CMUXCLI {
             .map(shellQuote)
             .joined(separator: " ")
         return try sendV1Command(command, client: client)
+    }
+
+    private struct RightSidebarCLIArguments {
+        let positional: [String]
+        let workspace: String?
+        let window: String?
+        let noFocus: Bool
+    }
+
+    private func forwardRightSidebarCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        windowOverride: String?
+    ) throws {
+        let parsed = try parseRightSidebarCLIArguments(commandArgs)
+        let socketArgs = try rightSidebarSocketArguments(from: parsed)
+        let windowId = try resolveRightSidebarWindowId(parsed.window ?? windowOverride, client: client)
+        let workspaceId = try resolveRightSidebarWorkspaceId(parsed.workspace, windowId: windowId, client: client)
+
+        var forwardedArgs = socketArgs
+        if let workspaceId {
+            forwardedArgs.append("--tab=\(workspaceId)")
+        }
+        if let windowId {
+            forwardedArgs.append("--window=\(windowId)")
+        }
+
+        let command = (["right_sidebar"] + forwardedArgs)
+            .map(shellQuote)
+            .joined(separator: " ")
+        let response = try sendV1Command(command, client: client)
+        if parsed.positional.first?.lowercased() == "mode" {
+            print(response)
+        }
+    }
+
+    private func parseRightSidebarCLIArguments(_ args: [String]) throws -> RightSidebarCLIArguments {
+        var positional: [String] = []
+        var workspace: String?
+        var window: String?
+        var noFocus = false
+        var index = 0
+
+        while index < args.count {
+            let arg = args[index]
+            switch arg {
+            case "--workspace":
+                guard index + 1 < args.count else {
+                    throw CLIError(message: String(localized: "cli.rightSidebar.error.workspaceRequiresValue", defaultValue: "right-sidebar: --workspace requires an id"))
+                }
+                workspace = args[index + 1]
+                index += 2
+            case "--window":
+                guard index + 1 < args.count else {
+                    throw CLIError(message: String(localized: "cli.rightSidebar.error.windowRequiresValue", defaultValue: "right-sidebar: --window requires an id"))
+                }
+                window = args[index + 1]
+                index += 2
+            case "--no-focus":
+                noFocus = true
+                index += 1
+            default:
+                if arg.hasPrefix("--workspace=") {
+                    workspace = String(arg.dropFirst("--workspace=".count))
+                    index += 1
+                } else if arg.hasPrefix("--window=") {
+                    window = String(arg.dropFirst("--window=".count))
+                    index += 1
+                } else if arg.hasPrefix("--") {
+                    throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownFlag", defaultValue: "right-sidebar: unknown flag '\(arg)'"))
+                } else {
+                    positional.append(arg)
+                    index += 1
+                }
+            }
+        }
+
+        return RightSidebarCLIArguments(
+            positional: positional,
+            workspace: workspace,
+            window: window,
+            noFocus: noFocus
+        )
+    }
+
+    private func rightSidebarSocketArguments(from parsed: RightSidebarCLIArguments) throws -> [String] {
+        guard let action = parsed.positional.first?.lowercased() else {
+            throw CLIError(message: String(localized: "cli.rightSidebar.error.missingCommand", defaultValue: "right-sidebar requires a subcommand"))
+        }
+
+        switch action {
+        case "toggle", "show", "hide", "focus", "mode":
+            guard parsed.positional.count == 1 else {
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments"))
+            }
+            guard !parsed.noFocus else {
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.noFocusOnlySet", defaultValue: "right-sidebar: --no-focus is only valid with set"))
+            }
+            return [action]
+
+        case "set":
+            guard parsed.positional.count == 2 else {
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, find, vault, sessions, feed, or dock"))
+            }
+            let mode = parsed.positional[1].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard isRightSidebarCLIMode(mode) else {
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownMode", defaultValue: "Unknown right-sidebar mode '\(parsed.positional[1])'"))
+            }
+            var args = ["set", mode]
+            if parsed.noFocus {
+                args.append("--no-focus")
+            }
+            return args
+
+        case "files", "find", "vault", "sessions", "feed", "dock":
+            guard parsed.positional.count == 1 else {
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments"))
+            }
+            guard !parsed.noFocus else {
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.noFocusOnlySet", defaultValue: "right-sidebar: --no-focus is only valid with set"))
+            }
+            return ["set", action]
+
+        default:
+            throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownCommand", defaultValue: "Unknown right-sidebar command '\(action)'"))
+        }
+    }
+
+    private func isRightSidebarCLIMode(_ value: String) -> Bool {
+        switch value {
+        case "files", "find", "vault", "sessions", "feed", "dock":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func resolveRightSidebarWindowId(_ raw: String?, client: SocketClient) throws -> String? {
+        guard let normalized = try normalizeWindowHandle(raw, client: client) else { return nil }
+        return try resolvedRightSidebarHandleID(
+            normalized,
+            expectedRefKind: "window",
+            invalidMessage: String(localized: "cli.rightSidebar.error.invalidWindow", defaultValue: "Invalid window handle: \(normalized)"),
+            missingRefMessage: String(localized: "cli.rightSidebar.error.windowRefNotFound", defaultValue: "Window ref not found"),
+            listMethod: "window.list",
+            listKey: "windows",
+            client: client
+        )
+    }
+
+    private func resolveRightSidebarWorkspaceId(
+        _ raw: String?,
+        windowId: String?,
+        client: SocketClient
+    ) throws -> String? {
+        var params: [String: Any] = [:]
+        if let windowId {
+            params["window_id"] = windowId
+        }
+        guard let normalized = try normalizeWorkspaceHandle(raw, client: client, windowHandle: windowId) else { return nil }
+        return try resolvedRightSidebarHandleID(
+            normalized,
+            expectedRefKind: "workspace",
+            invalidMessage: String(localized: "cli.rightSidebar.error.invalidWorkspace", defaultValue: "Invalid workspace handle: \(normalized)"),
+            missingRefMessage: String(localized: "cli.rightSidebar.error.workspaceRefNotFound", defaultValue: "Workspace ref not found"),
+            listMethod: "workspace.list",
+            listKey: "workspaces",
+            listParams: params,
+            client: client
+        )
+    }
+
+    private func resolvedRightSidebarHandleID(
+        _ handle: String,
+        expectedRefKind: String,
+        invalidMessage: String,
+        missingRefMessage: String,
+        listMethod: String,
+        listKey: String,
+        listParams: [String: Any] = [:],
+        client: SocketClient
+    ) throws -> String {
+        let trimmed = handle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isUUID(trimmed) { return trimmed }
+        let refIndex: Int?
+        if isHandleRef(trimmed) {
+            let pieces = trimmed.split(separator: ":", omittingEmptySubsequences: false)
+            guard pieces.count == 2, pieces[0].lowercased() == expectedRefKind else {
+                throw CLIError(message: invalidMessage)
+            }
+            refIndex = Int(pieces[1])
+        } else {
+            refIndex = nil
+        }
+
+        let listed = try client.sendV2(method: listMethod, params: listParams)
+        let items = listed[listKey] as? [[String: Any]] ?? []
+        for item in items {
+            guard let id = item["id"] as? String else { continue }
+            if id == trimmed ||
+                (item["ref"] as? String) == trimmed ||
+                (refIndex != nil && intFromAny(item["index"]) == refIndex) {
+                return id
+            }
+        }
+        throw CLIError(message: missingRefMessage)
     }
 
     /// Pick the display handle for an item dict based on --id-format.
@@ -17027,25 +17315,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             switch action {
             case .codexConfigToml:
                 let configPath = "\(configDir)/config.toml"
-                let existingContent: String = fm.fileExists(atPath: configPath)
-                    ? ((try? String(contentsOfFile: configPath, encoding: .utf8)) ?? "")
-                    : ""
-                let newContent: String
-                if existingContent.contains("codex_hooks") {
-                    // Replace existing value (might be false) with true
-                    newContent = existingContent.replacingOccurrences(
-                        of: "codex_hooks\\s*=\\s*\\w+",
-                        with: "codex_hooks = true",
-                        options: .regularExpression
-                    )
-                } else if existingContent.contains("[features]") {
-                    newContent = existingContent.replacingOccurrences(
-                        of: "[features]",
-                        with: "[features]\ncodex_hooks = true"
-                    )
+                let existingContent: String
+                if fm.fileExists(atPath: configPath) {
+                    existingContent = try String(contentsOfFile: configPath, encoding: .utf8)
                 } else {
-                    newContent = existingContent + "\n[features]\ncodex_hooks = true\n"
+                    existingContent = ""
                 }
+                let newContent = Self.codexConfigTomlInstallingHooksFeature(in: existingContent)
                 if newContent != existingContent {
                     if !skipConfirm {
                         Self.printInstallPreview(
@@ -17061,7 +17337,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         }
                     }
                     try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
-                    print("Enabled codex_hooks in \(configPath)")
+                    print("Enabled hooks in \(configPath)")
                 }
             }
         }
@@ -17141,18 +17417,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             switch action {
             case .codexConfigToml:
                 let configPath = "\(configDir)/config.toml"
-                guard fm.fileExists(atPath: configPath),
-                      let content = try? String(contentsOfFile: configPath, encoding: .utf8),
-                      content.contains("codex_hooks") else { return }
-                // Remove the codex_hooks line
-                let newContent = content.replacingOccurrences(
-                    of: "\\n?codex_hooks\\s*=\\s*\\w+",
-                    with: "",
-                    options: .regularExpression
-                )
+                guard fm.fileExists(atPath: configPath) else { return }
+                let content = try String(contentsOfFile: configPath, encoding: .utf8)
+                let newContent = Self.codexConfigTomlUninstallingHooksFeature(from: content)
                 if newContent != content {
                     try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
-                    print("Removed codex_hooks from \(configPath)")
+                    print("Updated hooks in \(configPath)")
                 }
             }
         }
@@ -20609,6 +20879,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           notify --title <text> [--subtitle <text>] [--body <text>] [--workspace <id|ref>] [--surface <id|ref>]
           list-notifications
           clear-notifications
+          right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
           set-status <key> <value> [--workspace <id|ref>] [--icon <name>] [--color <#hex>]
           clear-status <key> [--workspace <id|ref>]
           list-status [--workspace <id|ref>]
@@ -20707,6 +20978,32 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 #endif
 }
 
+private enum CMUXCLIOutput {
+    static func writeStandardError(_ message: String) {
+        write(Data(message.utf8), to: STDERR_FILENO)
+    }
+
+    private static func write(_ data: Data, to fd: Int32) {
+        data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else {
+                return
+            }
+
+            var offset = 0
+            while offset < data.count {
+                let bytesWritten = Darwin.write(fd, baseAddress.advanced(by: offset), data.count - offset)
+                if bytesWritten > 0 {
+                    offset += bytesWritten
+                } else if bytesWritten == -1, errno == EINTR {
+                    continue
+                } else {
+                    return
+                }
+            }
+        }
+    }
+}
+
 @main
 struct CMUXTermMain {
     static func main() {
@@ -20716,7 +21013,7 @@ struct CMUXTermMain {
         do {
             try cli.run()
         } catch {
-            FileHandle.standardError.write(Data("Error: \(error)\n".utf8))
+            CMUXCLIOutput.writeStandardError("Error: \(error)\n")
             let exitCode = (error as? CLIError)?.exitCode ?? 1
             exit(exitCode)
         }

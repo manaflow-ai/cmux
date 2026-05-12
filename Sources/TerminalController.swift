@@ -319,7 +319,23 @@ class TerminalController {
             return focusIntentV2Methods.contains(commandKey)
                 || explicitFocusParamAllowsFocus(commandKey: commandKey, params: params)
         }
+        if commandKey == "right_sidebar" {
+            return rightSidebarCommandAllowsInAppFocusMutations(args: params["args"] as? String ?? "")
+        }
         return focusIntentV1Commands.contains(commandKey)
+    }
+
+    private nonisolated static func rightSidebarCommandAllowsInAppFocusMutations(args: String) -> Bool {
+        let parsed = RightSidebarRemoteRequest.parse(tokens: Self.tokenizeArgs(args))
+        guard case .success(let request) = parsed else { return false }
+        switch request.command {
+        case .toggle, .show, .focus:
+            return true
+        case .setMode(_, let focus):
+            return focus
+        case .hide, .getState:
+            return false
+        }
     }
 
     nonisolated func withSocketCommandPolicy<T>(commandKey: String, isV2: Bool, params: [String: Any] = [:], _ body: () -> T) -> T {
@@ -2041,7 +2057,8 @@ class TerminalController {
         let cmd = parts[0].lowercased()
         let args = parts.count > 1 ? parts[1] : ""
 
-        return withSocketCommandPolicy(commandKey: cmd, isV2: false) {
+        let policyParams = cmd == "right_sidebar" ? ["args": args] : [:]
+        return withSocketCommandPolicy(commandKey: cmd, isV2: false, params: policyParams) {
             switch cmd {
         case "ping":
             return "PONG"
@@ -2216,6 +2233,9 @@ class TerminalController {
 
         case "reset_sidebar":
             return resetSidebar(args)
+
+        case "right_sidebar":
+            return rightSidebar(args)
 
         case "read_screen":
             return readScreenText(args)
@@ -12611,6 +12631,10 @@ class TerminalController {
             case terminal
             case textDestination
         }
+        enum TerminalFileDropSimulationPayload {
+            case fileURLs
+            case imageData
+        }
         let simulationRoute: TerminalFileDropSimulationRoute
         switch route {
         case "terminal", "direct":
@@ -12620,6 +12644,20 @@ class TerminalController {
         default:
             return .err(code: "invalid_params", message: "Unknown route", data: [
                 "route": route
+            ])
+        }
+        let payload = (v2String(params, "payload") ?? "file_urls")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let simulationPayload: TerminalFileDropSimulationPayload
+        switch payload {
+        case "file", "files", "file_url", "file_urls":
+            simulationPayload = .fileURLs
+        case "image", "image_data", "images":
+            simulationPayload = .imageData
+        default:
+            return .err(code: "invalid_params", message: "Unknown payload", data: [
+                "payload": payload
             ])
         }
 
@@ -12633,11 +12671,21 @@ class TerminalController {
 
             switch simulationRoute {
             case .terminal:
-                let handled = panel.hostedView.debugSimulateFileDrop(paths: paths)
+                let handled = panel.hostedView.debugSimulateFileDrop(
+                    paths: paths,
+                    asImageData: simulationPayload == .imageData
+                )
                 result = handled
-                    ? .ok(["handled": true, "route": "terminal"])
+                    ? .ok(["handled": true, "route": "terminal", "payload": payload])
                     : .err(code: "internal_error", message: "Terminal drop simulation failed", data: nil)
             case .textDestination:
+                guard simulationPayload == .fileURLs else {
+                    result = .err(code: "invalid_params", message: "Image data payload requires terminal route", data: [
+                        "route": route,
+                        "payload": payload
+                    ])
+                    return
+                }
                 guard let workspace = tabManager.tabs.first(where: { $0.id == panel.workspaceId }) else {
                     result = .err(code: "not_found", message: "Workspace not found", data: [
                         "workspace_id": panel.workspaceId.uuidString
@@ -12653,7 +12701,7 @@ class TerminalController {
                     window: panel.hostedView.window
                 )
                 result = handled
-                    ? .ok(["handled": true, "route": "text_destination"])
+                    ? .ok(["handled": true, "route": "text_destination", "payload": payload])
                     : .err(code: "internal_error", message: "Text destination drop simulation failed", data: nil)
             }
         }
@@ -12989,6 +13037,7 @@ class TerminalController {
           report_pr_action <merge|close|reopen|create|checkout|ready|edit|view> [--target=X] [--tab=X] [--panel=Y] - Hint that a PR-affecting command completed in the panel
           report_pwd <path> [--tab=X] [--panel=Y] - Report current working directory
           clear_ports [--tab=X] [--panel=Y] - Clear listening ports
+          right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--tab=X] [--window=Y] [--no-focus] - Control right sidebar visibility, mode, and focus
           sidebar_state [--tab=X] - Dump sidebar metadata
           reset_sidebar [--tab=X] - Clear sidebar metadata
 
@@ -15947,7 +15996,7 @@ class TerminalController {
 
     // MARK: - Option Parsing (sidebar metadata commands)
 
-    private func tokenizeArgs(_ args: String) -> [String] {
+    private nonisolated static func tokenizeArgs(_ args: String) -> [String] {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
 
@@ -16023,7 +16072,7 @@ class TerminalController {
     }
 
     private func parseOptions(_ args: String) -> (positional: [String], options: [String: String]) {
-        let tokens = tokenizeArgs(args)
+        let tokens = Self.tokenizeArgs(args)
         guard !tokens.isEmpty else { return ([], [:]) }
 
         var positional: [String] = []
@@ -16059,7 +16108,7 @@ class TerminalController {
     }
 
     private func parseOptionsNoStop(_ args: String) -> (positional: [String], options: [String: String]) {
-        let tokens = tokenizeArgs(args)
+        let tokens = Self.tokenizeArgs(args)
         guard !tokens.isEmpty else { return ([], [:]) }
 
         var positional: [String] = []
@@ -17311,6 +17360,52 @@ class TerminalController {
         }
         return result
     }
+
+    private func rightSidebar(_ args: String) -> String {
+        let parsed = RightSidebarRemoteRequest.parse(tokens: Self.tokenizeArgs(args))
+        let request: RightSidebarRemoteRequest
+        switch parsed {
+        case .success(let value):
+            request = value
+        case .failure(let error):
+            return error.message
+        }
+
+        return v2MainSync {
+            guard let app = AppDelegate.shared else {
+                return String(localized: "rightSidebar.remote.error.appDelegateUnavailable", defaultValue: "ERROR: App delegate not available")
+            }
+            switch app.applyRightSidebarRemoteCommand(request.command, target: request.target) {
+            case .ok:
+                return "OK"
+            case .state(let state):
+                return v2Encode([
+                    "visible": state.visible,
+                    "mode": state.mode.rawValue
+                ])
+            case .failure(let message):
+                return message
+            }
+        }
+    }
+
+#if DEBUG
+    func parseRightSidebarRemoteRequestForTesting(_ commandLine: String) -> Result<RightSidebarRemoteRequest, RightSidebarRemoteParseError> {
+        let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
+        guard parts.first?.lowercased() == "right_sidebar" else {
+            return .failure(.init(message: "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|mode>"))
+        }
+        return RightSidebarRemoteRequest.parse(tokens: Self.tokenizeArgs(parts.count > 1 ? parts[1] : ""))
+    }
+
+    func rightSidebarCommandAllowsInAppFocusMutationsForTesting(_ commandLine: String) -> Bool {
+        let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
+        guard parts.first?.lowercased() == "right_sidebar" else { return false }
+        return Self.rightSidebarCommandAllowsInAppFocusMutations(args: parts.count > 1 ? parts[1] : "")
+    }
+#endif
 
     private func resetSidebar(_ args: String) -> String {
         var result = "OK"

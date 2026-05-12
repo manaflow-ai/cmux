@@ -3,9 +3,13 @@ import SwiftUI
 
 struct SidebarWorkspaceRowHoverTracker: NSViewRepresentable {
     @Binding var rowInteractionState: SidebarWorkspaceRowInteractionState
+    var onMenuTrackingEnded: () -> Void = {}
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(rowInteractionState: $rowInteractionState)
+        Coordinator(
+            rowInteractionState: $rowInteractionState,
+            onMenuTrackingEnded: onMenuTrackingEnded
+        )
     }
 
     func makeNSView(context: Context) -> SidebarWorkspaceRowHoverTrackingView {
@@ -22,13 +26,19 @@ struct SidebarWorkspaceRowHoverTracker: NSViewRepresentable {
 
     func updateNSView(_ nsView: SidebarWorkspaceRowHoverTrackingView, context: Context) {
         context.coordinator.rowInteractionState = $rowInteractionState
+        context.coordinator.onMenuTrackingEnded = onMenuTrackingEnded
     }
 
     final class Coordinator {
         var rowInteractionState: Binding<SidebarWorkspaceRowInteractionState>
+        var onMenuTrackingEnded: () -> Void
 
-        init(rowInteractionState: Binding<SidebarWorkspaceRowInteractionState>) {
+        init(
+            rowInteractionState: Binding<SidebarWorkspaceRowInteractionState>,
+            onMenuTrackingEnded: @escaping () -> Void = {}
+        ) {
             self.rowInteractionState = rowInteractionState
+            self.onMenuTrackingEnded = onMenuTrackingEnded
         }
 
         func pointerHoverChanged(_ hovering: Bool) {
@@ -40,6 +50,7 @@ struct SidebarWorkspaceRowHoverTracker: NSViewRepresentable {
                 rowInteractionState.wrappedValue.contextMenuTrackingDidBegin()
             } else {
                 rowInteractionState.wrappedValue.contextMenuTrackingDidEnd()
+                onMenuTrackingEnded()
             }
         }
     }
