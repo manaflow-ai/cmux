@@ -663,8 +663,30 @@ struct TerminalNotification: Identifiable, Hashable {
     let subtitle: String
     let body: String
     let createdAt: Date
-    let deliverySequence: UInt64 = 0
+    let deliverySequence: UInt64
     var isRead: Bool
+
+    init(
+        id: UUID,
+        tabId: UUID,
+        surfaceId: UUID?,
+        title: String,
+        subtitle: String,
+        body: String,
+        createdAt: Date,
+        deliverySequence: UInt64 = 0,
+        isRead: Bool
+    ) {
+        self.id = id
+        self.tabId = tabId
+        self.surfaceId = surfaceId
+        self.title = title
+        self.subtitle = subtitle
+        self.body = body
+        self.createdAt = createdAt
+        self.deliverySequence = deliverySequence
+        self.isRead = isRead
+    }
 }
 
 @MainActor
@@ -1206,7 +1228,7 @@ final class TerminalNotificationStore: ObservableObject {
             let destinationKey = TabSurfaceKey(tabId: destinationTabId, surfaceId: surfaceId)
             let movedSequence = updated
                 .filter { $0.tabId == destinationTabId && $0.surfaceId == surfaceId }
-                .map(\.deliverySequence)
+                .map { $0.deliverySequence }
                 .max()
             let sourceSequence = latestNotificationDeliverySequenceByTarget[sourceKey]
             if movedSequence != nil || sourceSequence != nil {
