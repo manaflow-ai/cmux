@@ -246,7 +246,6 @@ final class AuthManager: ObservableObject {
                 do {
                     try await self.handleCallbackURL(callbackURL)
                 } catch {
-                    self.lastSignInError = Self.signInError(from: error)
                     Self.authLogger.error("auth.webauth callback failed: \(String(describing: error), privacy: .private)")
                 }
             }
