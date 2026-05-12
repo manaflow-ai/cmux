@@ -1,6 +1,6 @@
 import Foundation
 
-enum GhosttyCrashBreadcrumb {
+nonisolated enum GhosttyCrashBreadcrumb {
     struct PendingCrash: Equatable, Sendable {
         let fileURL: URL
         let modifiedAt: Date
