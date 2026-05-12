@@ -8,6 +8,7 @@ public enum PanelType: String, Codable, Sendable {
     case browser
     case markdown
     case filePreview = "filepreview"
+    case syncedWindow = "syncedwindow"
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()

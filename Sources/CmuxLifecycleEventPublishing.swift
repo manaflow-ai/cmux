@@ -212,6 +212,8 @@ extension Workspace {
             return "markdown"
         case .filePreview:
             return "file_preview"
+        case .syncedWindow:
+            return "synced_window"
         }
     }
 }

@@ -493,6 +493,12 @@ struct cmuxApp: App {
                     AppDelegate.shared?.showOpenFolderPanel()
                 }
 
+                Button(String(localized: "menu.file.newSyncedWindowPane", defaultValue: "New Synced Window Pane")) {
+                    if activeTabManager.newSyncedWindowSurface() == nil {
+                        NSSound.beep()
+                    }
+                }
+
                 Button(
                     String(
                         localized: "menu.file.openFolderInVSCodeInline",

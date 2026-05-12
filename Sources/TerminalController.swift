@@ -6034,6 +6034,14 @@ class TerminalController {
                     focus: focus,
                     initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
                 )?.id
+            } else if panelType == .syncedWindow {
+                newId = ws.newSyncedWindowSplit(
+                    from: targetSurfaceId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    focus: focus,
+                    initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
+                )?.id
             } else {
                 newId = tabManager.newSplit(
                     tabId: ws.id,
@@ -6108,6 +6116,8 @@ class TerminalController {
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             if panelType == .browser {
                 newPanelId = ws.newBrowserSurface(inPane: paneId, url: url, focus: focus)?.id
+            } else if panelType == .syncedWindow {
+                newPanelId = ws.newSyncedWindowSurface(inPane: paneId, focus: focus)?.id
             } else {
                 newPanelId = ws.newTerminalSurface(
                     inPane: paneId,
@@ -7404,6 +7414,14 @@ class TerminalController {
                     orientation: orientation,
                     insertFirst: insertFirst,
                     url: url,
+                    focus: focus,
+                    initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
+                )?.id
+            } else if panelType == .syncedWindow {
+                newPanelId = ws.newSyncedWindowSplit(
+                    from: sourcePanelId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
                     focus: focus,
                     initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
                 )?.id
@@ -15804,7 +15822,7 @@ class TerminalController {
     private func newPane(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
-        // Parse arguments: --type=terminal|browser --direction=left|right|up|down --url=...
+        // Parse arguments: --type=terminal|browser|syncedwindow --direction=left|right|up|down --url=...
         var panelType: PanelType = .terminal
         var direction: SplitDirection = .right
         var urlRaw: String? = nil
@@ -15816,7 +15834,10 @@ class TerminalController {
             let partStr = String(part)
             if partStr.hasPrefix("--type=") {
                 let typeStr = String(partStr.dropFirst(7))
-                panelType = typeStr == "browser" ? .browser : .terminal
+                    .replacingOccurrences(of: "-", with: "")
+                    .replacingOccurrences(of: "_", with: "")
+                    .lowercased()
+                panelType = PanelType(rawValue: typeStr) ?? .terminal
             } else if partStr.hasPrefix("--direction=") {
                 let dirStr = String(partStr.dropFirst(12))
                 if let parsed = parseSplitDirection(dirStr) {
@@ -15857,6 +15878,13 @@ class TerminalController {
                     orientation: orientation,
                     insertFirst: insertFirst,
                     url: url,
+                    focus: focus
+                )?.id
+            } else if panelType == .syncedWindow {
+                newPanelId = tab.newSyncedWindowSplit(
+                    from: focusedPanelId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
                     focus: focus
                 )?.id
             } else {
@@ -17388,7 +17416,10 @@ class TerminalController {
             let partStr = String(part)
             if partStr.hasPrefix("--type=") {
                 let typeStr = String(partStr.dropFirst(7))
-                panelType = typeStr == "browser" ? .browser : .terminal
+                    .replacingOccurrences(of: "-", with: "")
+                    .replacingOccurrences(of: "_", with: "")
+                    .lowercased()
+                panelType = PanelType(rawValue: typeStr) ?? .terminal
             } else if partStr.hasPrefix("--pane=") {
                 paneArg = String(partStr.dropFirst(7))
             } else if partStr.hasPrefix("--url=") {
@@ -17432,6 +17463,8 @@ class TerminalController {
             let newPanelId: UUID?
             if panelType == .browser {
                 newPanelId = tab.newBrowserSurface(inPane: targetPaneId, url: url, focus: focus)?.id
+            } else if panelType == .syncedWindow {
+                newPanelId = tab.newSyncedWindowSurface(inPane: targetPaneId, focus: focus)?.id
             } else {
                 newPanelId = tab.newTerminalSurface(inPane: targetPaneId, focus: focus)?.id
             }

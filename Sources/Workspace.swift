@@ -491,6 +491,11 @@ extension Workspace {
             browserSnapshot = nil
             markdownSnapshot = nil
             filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
+        case .syncedWindow:
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            filePreviewSnapshot = nil
         }
 
         return SessionPanelSnapshot(
@@ -839,6 +844,15 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: filePreviewPanel.id)
             return filePreviewPanel.id
+        case .syncedWindow:
+            guard let syncedWindowPanel = newSyncedWindowSurface(
+                inPane: paneId,
+                focus: false
+            ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: syncedWindowPanel.id)
+            return syncedWindowPanel.id
         }
     }
 
@@ -7272,6 +7286,7 @@ final class Workspace: Identifiable, ObservableObject {
         static let browser = "browser"
         static let markdown = "markdown"
         static let filePreview = "filePreview"
+        static let syncedWindow = "syncedWindow"
     }
 
     enum PanelShellActivityState: String {
@@ -8092,6 +8107,10 @@ final class Workspace: Identifiable, ObservableObject {
         panels[panelId] as? FilePreviewPanel
     }
 
+    func syncedWindowPanel(for panelId: UUID) -> SyncedWindowPanel? {
+        panels[panelId] as? SyncedWindowPanel
+    }
+
     private func surfaceKind(for panel: any Panel) -> String {
         switch panel.panelType {
         case .terminal:
@@ -8102,6 +8121,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.markdown
         case .filePreview:
             return SurfaceKind.filePreview
+        case .syncedWindow:
+            return SurfaceKind.syncedWindow
         }
     }
 
@@ -10438,6 +10459,101 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    func newSyncedWindowSurface(
+        inPane paneId: PaneID,
+        focus: Bool? = nil
+    ) -> SyncedWindowPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let syncedWindowPanel = SyncedWindowPanel(workspaceId: id)
+        panels[syncedWindowPanel.id] = syncedWindowPanel
+        panelTitles[syncedWindowPanel.id] = syncedWindowPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: syncedWindowPanel.displayTitle,
+            icon: syncedWindowPanel.displayIcon,
+            kind: SurfaceKind.syncedWindow,
+            isDirty: syncedWindowPanel.isDirty,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: syncedWindowPanel.id)
+            panelTitles.removeValue(forKey: syncedWindowPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = syncedWindowPanel.id
+        publishCmuxSurfaceCreated(syncedWindowPanel.id, paneId: paneId, kind: "synced_window", origin: "synced_window_tab", focused: shouldFocusNewTab)
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            syncedWindowPanel.focus()
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: syncedWindowPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        return syncedWindowPanel
+    }
+
+    @discardableResult
+    func newSyncedWindowSplit(
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool = false,
+        focus: Bool = true,
+        initialDividerPosition: CGFloat? = nil
+    ) -> SyncedWindowPanel? {
+        guard let paneId = paneId(forPanelId: panelId) else { return nil }
+
+        let syncedWindowPanel = SyncedWindowPanel(workspaceId: id)
+        panels[syncedWindowPanel.id] = syncedWindowPanel
+        panelTitles[syncedWindowPanel.id] = syncedWindowPanel.displayTitle
+
+        let newTab = Bonsplit.Tab(
+            title: syncedWindowPanel.displayTitle,
+            icon: syncedWindowPanel.displayIcon,
+            kind: SurfaceKind.syncedWindow,
+            isDirty: syncedWindowPanel.isDirty,
+            isLoading: false,
+            isPinned: false
+        )
+        surfaceIdToPanelId[newTab.id] = syncedWindowPanel.id
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
+            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            panels.removeValue(forKey: syncedWindowPanel.id)
+            panelTitles.removeValue(forKey: syncedWindowPanel.id)
+            return nil
+        }
+        applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
+        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: syncedWindowPanel.id, kind: "synced_window", origin: "synced_window_split", focused: focus)
+
+        if focus {
+            focusPanel(syncedWindowPanel.id)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: syncedWindowPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        return syncedWindowPanel
+    }
+
+    @discardableResult
     func splitPaneWithFilePreview(
         targetPane paneId: PaneID,
         orientation: SplitOrientation,
@@ -11451,6 +11567,12 @@ final class Workspace: Identifiable, ObservableObject {
     func newTerminalSurfaceInFocusedPane(focus: Bool? = nil, initialInput: String? = nil) -> TerminalPanel? {
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
         return newTerminalSurface(inPane: focusedPaneId, focus: focus, initialInput: initialInput)
+    }
+
+    @discardableResult
+    func newSyncedWindowSurfaceInFocusedPane(focus: Bool? = nil) -> SyncedWindowPanel? {
+        guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
+        return newSyncedWindowSurface(inPane: focusedPaneId, focus: focus)
     }
 
     @discardableResult
