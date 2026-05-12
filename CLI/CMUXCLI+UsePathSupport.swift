@@ -1,6 +1,22 @@
 import Foundation
 
 extension CmuxUseSupport {
+    private static let sensitiveHomeInstallPathPrefixes: [[String]] = [
+        [".1password"],
+        [".aws"],
+        [".azure"],
+        [".config"],
+        [".docker"],
+        [".gnupg"],
+        [".gpg"],
+        [".kube"],
+        [".local", "share", "keyrings"],
+        [".netrc"],
+        [".npmrc"],
+        [".pypirc"],
+        [".ssh"],
+    ]
+
     static func stripControlCharacters(_ raw: String) -> String {
         String(raw.unicodeScalars.filter { scalar in
             !isUnsafeManifestScalar(scalar)
@@ -60,6 +76,9 @@ extension CmuxUseSupport {
               parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
             throw CLIError(message: "cmux.extension.json install.path must include a subdirectory and must not contain '.' or '..'")
         }
+        if let sensitivePrefix = sensitiveHomeInstallPathPrefix(in: parts) {
+            throw CLIError(message: "cmux.extension.json install.path must not target sensitive home directory ~/\(sensitivePrefix)")
+        }
 
         let home = homeURL.standardizedFileURL.resolvingSymlinksInPath()
         var resolved = home
@@ -72,5 +91,13 @@ extension CmuxUseSupport {
             throw CLIError(message: "cmux.extension.json install.path must resolve inside the user's home directory")
         }
         return standardized
+    }
+
+    private static func sensitiveHomeInstallPathPrefix(in parts: [String]) -> String? {
+        let lowercasedParts = parts.map { $0.lowercased() }
+        for prefix in sensitiveHomeInstallPathPrefixes where lowercasedParts.starts(with: prefix) {
+            return prefix.joined(separator: "/")
+        }
+        return nil
     }
 }
