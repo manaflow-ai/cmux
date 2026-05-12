@@ -18,6 +18,9 @@ manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53
 plus the Metal renderer row rebuild guard for cmux issue #3369. This head keeps
 the cmux theme picker hooks, exposes the manual surface IO needed by libghostty
 iOS clients, and bounds shaped glyph iteration during IME/preedit row rebuilds.
+The corresponding prebuilt archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fe972c09579a7943f6fe9607fdd24f0f7c999cb1
+and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
 
@@ -178,8 +181,8 @@ tend to conflict together during rebases.
 - Files:
   - `src/renderer/generic.zig`
 - Summary:
-  - Adds a regression for the row-rebuild path where IME/preedit covers the only
-    shaped glyph in a row and the remaining terminal cells are empty.
+  - Adds a regression test for the row-rebuild path where IME/preedit covers the
+    only shaped glyph in a row and the remaining terminal cells are empty.
   - Bounds the shaped glyph cursor before reading from the shaped-cell slice, so
     `GenericRenderer(Metal).rebuildRow` no longer assumes terminal cells and
     shaped glyph cells have one-to-one cardinality.
@@ -187,13 +190,12 @@ tend to conflict together during rebases.
     required failing-test-then-fix history for issue #3369.
 
 The current cmux pin is the head listed above. It is reachable from
-`manaflow-ai/ghostty` through branch `issue-3369-metal-renderer-crash`.
-Published `xcframework-22fa801f88f96fa842e54ecce6c34a5d36003d19` and pinned
-its archive checksum in `scripts/ghosttykit-checksums.txt`; the new
-`fe972c095` GhosttyKit archive and checksum pin must be generated before a
-release build can consume this cmux pin. The release and checksum pin must be
-regenerated whenever this commit changes, even for comment-only amends, because
-the release tag is keyed by the Ghostty commit SHA.
+`manaflow-ai/ghostty` through the `xcframework-fe972c09579a7943f6fe9607fdd24f0f7c999cb1`
+release tag and branch `issue-3369-metal-renderer-crash`.
+Published `xcframework-fe972c09579a7943f6fe9607fdd24f0f7c999cb1` and pinned its
+archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
+pin must be regenerated whenever this commit changes, even for comment-only
+amends, because the release tag is keyed by the Ghostty commit SHA.
 
 ## Upstreamed fork changes
 
