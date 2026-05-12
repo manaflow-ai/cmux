@@ -50,9 +50,10 @@ enum FeedNotificationDispatcher {
         event: WorkstreamEvent,
         requestId: String,
         notificationTarget: ActiveTerminalTarget?,
-        frontmostContext: FrontmostContext = currentFrontmostContext(),
+        frontmostContext: FrontmostContext? = nil,
         deliverRequest: (UNNotificationRequest) -> Void = deliver
     ) {
+        let frontmostContext = frontmostContext ?? currentFrontmostContext()
         guard !shouldSuppress(
             notificationTarget: notificationTarget,
             frontmostContext: frontmostContext
