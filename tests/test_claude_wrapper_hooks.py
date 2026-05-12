@@ -300,15 +300,31 @@ if (process.env.FAKE_CHILD_LAUNCH_METHOD === "execFileCallback") {
       process.exitCode = error.code || 1;
     }
   });
+} else if (process.env.FAKE_CHILD_LAUNCH_METHOD === "execFileUndefinedOptions") {
+  execFile(childCommand, undefined, { env: childEnv }, (error, stdout, stderr) => {
+    fs.writeFileSync(process.env.FAKE_EXECFILE_CALLBACK_LOG, "called\\n", "utf8");
+    if (error) {
+      process.stderr.write(stderr ?? error.message);
+      process.exitCode = error.code || 1;
+    }
+  });
 } else {
-  const child = spawnSync(
-    childCommand,
-    childArgs,
-    {
+  let child;
+  if (process.env.FAKE_CHILD_LAUNCH_METHOD === "spawnSyncUndefinedOptions") {
+    child = spawnSync(childCommand, undefined, {
       encoding: "utf8",
       env: childEnv,
-    },
-  );
+    });
+  } else {
+    child = spawnSync(
+      childCommand,
+      childArgs,
+      {
+        encoding: "utf8",
+        env: childEnv,
+      },
+    );
+  }
   if (child.error) {
     console.error(child.error.message);
     process.exit(1);
@@ -779,17 +795,59 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
         )
 
 
+def test_foreground_claude_settings_detection_parses_hooks_json(failures: list[str]) -> None:
+    existing_cmux_settings = json.dumps(
+        {
+            "other": {"kept": True},
+            "hooks": {
+                "Stop": [
+                    {
+                        "hooks": [
+                            {
+                                "command": "cmux hooks feed --source claude",
+                                "type": "command",
+                            }
+                        ],
+                        "matcher": "",
+                    }
+                ]
+            },
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    argv = ["--settings", existing_cmux_settings, "--print", "hello"]
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=argv,
+    )
+    expect(code == 0, f"foreground settings parse: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv.count("--settings") == 1, f"foreground settings parse: expected existing cmux settings to dedupe injection, got {real_argv}", failures)
+    if "--settings" in real_argv:
+        settings_index = real_argv.index("--settings")
+        expect(
+            settings_index + 1 < len(real_argv) and real_argv[settings_index + 1] == existing_cmux_settings,
+            f"foreground settings parse: expected original settings payload preserved, got {real_argv}",
+            failures,
+        )
+    expect("--session-id" in real_argv, f"foreground settings parse: expected session id injection, got {real_argv}", failures)
+    expect(real_argv[-len(argv):] == argv, f"foreground settings parse: expected original args preserved, got {real_argv}", failures)
+
+
 def test_background_claude_child_launches_inherit_cmux_hooks(failures: list[str]) -> None:
     code, parent_argv, child_argv, child_node_options_env, child_runtime_node_options, child_cmux_pid, child_launch_argv_b64, _, stderr = run_wrapper_background_child_spawn()
     expect(code == 0, f"background child: wrapper exited {code}: {stderr}", failures)
     expect(parent_argv == ["agents"], f"background child: expected parent agents command to stay raw, got {parent_argv}", failures)
-    expect("--settings" in child_argv, f"background child: expected child claude launch to receive --settings, got {child_argv}", failures)
-    expect("--session-id" in child_argv, f"background child: expected child session args preserved, got {child_argv}", failures)
-    expect(
-        child_argv.index("--settings") < child_argv.index("--session-id"),
-        f"background child: expected injected settings before child session args, got {child_argv}",
-        failures,
-    )
+    has_settings = "--settings" in child_argv
+    has_session_id = "--session-id" in child_argv
+    expect(has_settings, f"background child: expected child claude launch to receive --settings, got {child_argv}", failures)
+    expect(has_session_id, f"background child: expected child session args preserved, got {child_argv}", failures)
+    if has_settings and has_session_id:
+        expect(
+            child_argv.index("--settings") < child_argv.index("--session-id"),
+            f"background child: expected injected settings before child session args, got {child_argv}",
+            failures,
+        )
 
     settings = parse_settings_arg(child_argv)
     hooks = settings.get("hooks", {})
@@ -819,7 +877,9 @@ def test_background_claude_child_launches_inherit_cmux_hooks(failures: list[str]
         failures,
     )
     launch_argv = decode_nul_argv(child_launch_argv_b64)
-    expect(launch_argv[0].endswith("/child-bin/claude"), f"background child: expected child executable in launch argv, got {launch_argv}", failures)
+    expect(bool(launch_argv), f"background child: expected non-empty launch argv, got {launch_argv}", failures)
+    if launch_argv:
+        expect(launch_argv[0].endswith("/child-bin/claude"), f"background child: expected child executable in launch argv, got {launch_argv}", failures)
     expect("--agent" in launch_argv, f"background child: expected child agent flag in launch argv, got {launch_argv}", failures)
 
 
@@ -874,6 +934,33 @@ def test_background_claude_child_preserves_explicit_node_options_override(failur
         f"background child override: expected runtime NODE_OPTIONS to restore child override, got {child_runtime_node_options!r}",
         failures,
     )
+
+
+def test_background_claude_child_preserves_options_when_args_omitted(failures: list[str]) -> None:
+    child_override = "--trace-warnings"
+    cases = [
+        ("spawnSync undefined args", "spawnSyncUndefinedOptions"),
+        ("execFile undefined args", "execFileUndefinedOptions"),
+    ]
+    for label, launch_method in cases:
+        code, _, child_argv, child_node_options_env, child_runtime_node_options, _, _, execfile_callback, stderr = run_wrapper_background_child_spawn(
+            child_node_options=child_override,
+            launch_method=launch_method,
+        )
+        expect(code == 0, f"background {label}: wrapper exited {code}: {stderr}", failures)
+        expect("--settings" in child_argv, f"background {label}: expected child claude launch to receive --settings, got {child_argv}", failures)
+        expect(
+            child_override in child_node_options_env,
+            f"background {label}: expected explicit child NODE_OPTIONS override preserved in env, got {child_node_options_env!r}",
+            failures,
+        )
+        expect(
+            child_runtime_node_options == child_override,
+            f"background {label}: expected runtime NODE_OPTIONS to restore child override, got {child_runtime_node_options!r}",
+            failures,
+        )
+        if launch_method.startswith("execFile"):
+            expect(execfile_callback == "called", f"background {label}: expected execFile callback to run, got {execfile_callback!r}", failures)
 
 
 def test_background_claude_exec_file_launch_preserves_callback(failures: list[str]) -> None:
@@ -946,7 +1033,9 @@ def test_background_claude_daemon_child_gets_env_without_settings(failures: list
         failures,
     )
     launch_argv = decode_nul_argv(child_launch_argv_b64)
-    expect(launch_argv[0].endswith("/child-bin/claude"), f"background daemon child: expected child executable in launch argv, got {launch_argv}", failures)
+    expect(bool(launch_argv), f"background daemon child: expected non-empty launch argv, got {launch_argv}", failures)
+    if launch_argv:
+        expect(launch_argv[0].endswith("/child-bin/claude"), f"background daemon child: expected child executable in launch argv, got {launch_argv}", failures)
     expect(launch_argv[1:] == child_args, f"background daemon child: expected daemon launch argv recorded, got {launch_argv}", failures)
 
 
@@ -980,7 +1069,9 @@ def test_background_claude_env_only_subcommands_after_options_get_env_without_se
             failures,
         )
         launch_argv = decode_nul_argv(child_launch_argv_b64)
-        expect(launch_argv[0].endswith("/child-bin/claude"), f"background {label}: expected child executable in launch argv, got {launch_argv}", failures)
+        expect(bool(launch_argv), f"background {label}: expected non-empty launch argv, got {launch_argv}", failures)
+        if launch_argv:
+            expect(launch_argv[0].endswith("/child-bin/claude"), f"background {label}: expected child executable in launch argv, got {launch_argv}", failures)
         expect(launch_argv[1:] == child_args, f"background {label}: expected env-only launch argv recorded, got {launch_argv}", failures)
 
 
@@ -990,12 +1081,16 @@ def test_background_claude_child_short_model_value_does_not_skip_hook_injection(
         child_args=child_args,
     )
     expect(code == 0, f"background short model child: wrapper exited {code}: {stderr}", failures)
-    expect("--settings" in child_argv, f"background short model child: expected child claude launch to receive --settings, got {child_argv}", failures)
-    expect(
-        child_argv.index("--settings") < child_argv.index("-m"),
-        f"background short model child: expected injected settings before original args, got {child_argv}",
-        failures,
-    )
+    has_settings = "--settings" in child_argv
+    has_model_flag = "-m" in child_argv
+    expect(has_settings, f"background short model child: expected child claude launch to receive --settings, got {child_argv}", failures)
+    expect(has_model_flag, f"background short model child: expected original model flag preserved, got {child_argv}", failures)
+    if has_settings and has_model_flag:
+        expect(
+            child_argv.index("--settings") < child_argv.index("-m"),
+            f"background short model child: expected injected settings before original args, got {child_argv}",
+            failures,
+        )
     expect(
         child_argv[-len(child_args):] == child_args,
         f"background short model child: expected original args preserved, got {child_argv}",
@@ -1464,9 +1559,11 @@ def main() -> int:
     test_short_worktree_invocation_injects_hook_flags(failures)
     test_value_options_before_print_do_not_hide_interactive_entry(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
+    test_foreground_claude_settings_detection_parses_hooks_json(failures)
     test_background_claude_child_launches_inherit_cmux_hooks(failures)
     test_background_claude_child_through_wrapper_deduplicates_injection(failures)
     test_background_claude_child_preserves_explicit_node_options_override(failures)
+    test_background_claude_child_preserves_options_when_args_omitted(failures)
     test_background_claude_exec_file_launch_preserves_callback(failures)
     test_background_claude_child_settings_detection_parses_hooks_json(failures)
     test_background_claude_daemon_child_gets_env_without_settings(failures)

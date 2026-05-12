@@ -550,93 +550,125 @@ function installClaudeChildHookPropagation() {
     };
   }
 
+  function normalizeOptionalArgsOptions(args, options, argCount) {
+    if (Array.isArray(args)) {
+      return { args, options };
+    }
+    if (argCount >= 3 && (args === undefined || args === null)) {
+      return { args: [], options };
+    }
+    if (args && typeof args === "object") {
+      return { args: [], options: args };
+    }
+    return { args: [], options: undefined };
+  }
+
+  function callOriginalArgsOptions(original, thisArg, command, argCount, args, options) {
+    if (argCount <= 1) {
+      return original.call(thisArg, command);
+    }
+    if (argCount === 2) {
+      return original.call(thisArg, command, args);
+    }
+    return original.call(thisArg, command, args, options);
+  }
+
+  function normalizeExecFileArgs(args, options, callback, argCount) {
+    if (Array.isArray(args)) {
+      return {
+        args,
+        options: typeof options === "function" ? undefined : options,
+        callback: typeof options === "function" ? options : callback,
+      };
+    }
+    if (typeof args === "function") {
+      return { args: [], options: undefined, callback: args };
+    }
+    if (args && typeof args === "object") {
+      return {
+        args: [],
+        options: args,
+        callback: typeof options === "function" ? options : callback,
+      };
+    }
+    return {
+      args: [],
+      options: argCount >= 3 && typeof options !== "function" ? options : undefined,
+      callback: typeof options === "function" ? options : callback,
+    };
+  }
+
+  function callOriginalExecFile(original, thisArg, file, argCount, args, options, callback) {
+    if (argCount <= 1) {
+      return original.call(thisArg, file);
+    }
+    if (argCount === 2) {
+      return original.call(thisArg, file, args);
+    }
+    if (argCount === 3) {
+      return original.call(thisArg, file, args, options);
+    }
+    return original.call(thisArg, file, args, options, callback);
+  }
+
   const originalSpawn = childProcess.spawn;
   childProcess.spawn = function patchedSpawn(command, args, options) {
-    const hadArgs = Array.isArray(args);
-    const originalOptions = hadArgs ? options : args;
-    const patched = patchClaudeChild(command, hadArgs ? args : [], originalOptions);
-    if (hadArgs || patched.patched) {
+    const argCount = arguments.length;
+    const normalized = normalizeOptionalArgsOptions(args, options, argCount);
+    const patched = patchClaudeChild(command, normalized.args, normalized.options);
+    if (patched.patched) {
       return originalSpawn.call(this, command, patched.args, patched.options);
     }
-    return originalSpawn.call(this, command, originalOptions);
+    return callOriginalArgsOptions(originalSpawn, this, command, argCount, args, options);
   };
 
   const originalSpawnSync = childProcess.spawnSync;
   childProcess.spawnSync = function patchedSpawnSync(command, args, options) {
-    const hadArgs = Array.isArray(args);
-    const originalOptions = hadArgs ? options : args;
-    const patched = patchClaudeChild(command, hadArgs ? args : [], originalOptions);
-    if (hadArgs || patched.patched) {
+    const argCount = arguments.length;
+    const normalized = normalizeOptionalArgsOptions(args, options, argCount);
+    const patched = patchClaudeChild(command, normalized.args, normalized.options);
+    if (patched.patched) {
       return originalSpawnSync.call(this, command, patched.args, patched.options);
     }
-    return originalSpawnSync.call(this, command, originalOptions);
+    return callOriginalArgsOptions(originalSpawnSync, this, command, argCount, args, options);
   };
 
   const originalExecFile = childProcess.execFile;
   childProcess.execFile = function patchedExecFile(file, args, options, callback) {
-    const originalArgCount = arguments.length;
-    let actualArgs = args;
-    let actualOptions = options;
-    let actualCallback = callback;
-    if (typeof actualArgs === "function") {
-      actualCallback = actualArgs;
-      actualArgs = [];
-      actualOptions = undefined;
-    } else if (Array.isArray(actualArgs)) {
-      if (typeof actualOptions === "function") {
-        actualCallback = actualOptions;
-        actualOptions = undefined;
-      }
-    } else {
-      actualCallback = actualOptions;
-      actualOptions = actualArgs;
-      actualArgs = [];
-    }
-    const patched = patchClaudeChild(file, actualArgs, actualOptions);
+    const argCount = arguments.length;
+    const normalized = normalizeExecFileArgs(args, options, callback, argCount);
+    const patched = patchClaudeChild(file, normalized.args, normalized.options);
     if (!patched.patched) {
-      if (originalArgCount <= 1) {
-        return originalExecFile.call(this, file);
-      }
-      if (originalArgCount === 2) {
-        return originalExecFile.call(this, file, args);
-      }
-      if (originalArgCount === 3) {
-        return originalExecFile.call(this, file, args, options);
-      }
-      return originalExecFile.call(this, file, args, options, callback);
+      return callOriginalExecFile(originalExecFile, this, file, argCount, args, options, callback);
     }
-    return originalExecFile.call(this, file, patched.args, patched.options, actualCallback);
+    return originalExecFile.call(this, file, patched.args, patched.options, normalized.callback);
   };
 
   const originalExecFileSync = childProcess.execFileSync;
   childProcess.execFileSync = function patchedExecFileSync(file, args, options) {
-    const hadArgs = Array.isArray(args);
-    const originalOptions = hadArgs ? options : args;
-    const patched = patchClaudeChild(file, hadArgs ? args : [], originalOptions);
-    if (hadArgs || patched.patched) {
+    const argCount = arguments.length;
+    const normalized = normalizeOptionalArgsOptions(args, options, argCount);
+    const patched = patchClaudeChild(file, normalized.args, normalized.options);
+    if (patched.patched) {
       return originalExecFileSync.call(this, file, patched.args, patched.options);
     }
-    return originalExecFileSync.call(this, file, originalOptions);
+    return callOriginalArgsOptions(originalExecFileSync, this, file, argCount, args, options);
   };
 
   const originalFork = childProcess.fork;
   childProcess.fork = function patchedFork(modulePath, args, options) {
-    const hadArgs = Array.isArray(args);
-    const actualArgs = hadArgs ? args : [];
-    const originalOptions = hadArgs ? options : args;
+    const argCount = arguments.length;
+    const normalized = normalizeOptionalArgsOptions(args, options, argCount);
     if (!samePath(modulePath, entrypoint)) {
-      return hadArgs
-        ? originalFork.call(this, modulePath, actualArgs, originalOptions)
-        : originalFork.call(this, modulePath, originalOptions);
+      return callOriginalArgsOptions(originalFork, this, modulePath, argCount, args, options);
     }
-    const subcommand = firstClaudeSubcommand(actualArgs.map(String), 0);
+    const actualArgs = normalized.args.map(String);
+    const subcommand = firstClaudeSubcommand(actualArgs, 0);
     if (passthroughSubcommands.has(subcommand)) {
-      return hadArgs
-        ? originalFork.call(this, modulePath, actualArgs, originalOptions)
-        : originalFork.call(this, modulePath, originalOptions);
+      return callOriginalArgsOptions(originalFork, this, modulePath, argCount, args, options);
     }
-    const nextArgs = envOnlySubcommands.has(subcommand) ? actualArgs.map(String) : withCmuxSettings(actualArgs.map(String), 0);
-    return originalFork.call(this, modulePath, nextArgs, withCmuxClaudeEnv(originalOptions, process.execPath, [modulePath, ...nextArgs], 1));
+    const nextArgs = envOnlySubcommands.has(subcommand) ? actualArgs : withCmuxSettings(actualArgs, 0);
+    return originalFork.call(this, modulePath, nextArgs, withCmuxClaudeEnv(normalized.options, process.execPath, [modulePath, ...nextArgs], 1));
   };
 }
 
@@ -780,18 +812,68 @@ normalize_node_options_for_restore() {
     fi
 }
 
+settings_json_has_cmux_hooks() {
+    local value="$1"
+    [[ "$value" == "$HOOKS_JSON" ]] && return 0
+    command -v python3 >/dev/null 2>&1 || return 1
+    printf '%s' "$value" | python3 -c '
+import json
+import sys
+
+try:
+    settings = json.loads(sys.stdin.read())
+except Exception:
+    sys.exit(1)
+
+if not isinstance(settings, dict):
+    sys.exit(1)
+hooks = settings.get("hooks")
+if not isinstance(hooks, dict):
+    sys.exit(1)
+
+def is_cmux_hook_command(command):
+    if not isinstance(command, str):
+        return False
+    trimmed = command.strip()
+    return (
+        trimmed.startswith("\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude ")
+        or trimmed == "\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude"
+        or trimmed.startswith("cmux hooks claude ")
+        or trimmed == "cmux hooks feed --source claude"
+    )
+
+for groups in hooks.values():
+    if not isinstance(groups, list):
+        continue
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        hook_entries = group.get("hooks")
+        if not isinstance(hook_entries, list):
+            continue
+        for hook in hook_entries:
+            if (
+                isinstance(hook, dict)
+                and hook.get("type") == "command"
+                and is_cmux_hook_command(hook.get("command"))
+            ):
+                sys.exit(0)
+sys.exit(1)
+'
+}
+
 args_have_cmux_hook_settings() {
     local arg
     local skip_next=false
     for arg in "$@"; do
         if [[ "$skip_next" == true ]]; then
-            if [[ "$arg" == "$HOOKS_JSON" ]]; then
+            if settings_json_has_cmux_hooks "$arg"; then
                 return 0
             fi
             skip_next=false
             continue
         fi
-        if [[ "$arg" == "--settings=$HOOKS_JSON" ]]; then
+        if [[ "$arg" == --settings=* ]] && settings_json_has_cmux_hooks "${arg#--settings=}"; then
             return 0
         fi
         if [[ "$arg" == "--settings" ]]; then
