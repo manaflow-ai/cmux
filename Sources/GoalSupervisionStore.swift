@@ -55,6 +55,7 @@ final class GoalSupervisionStore {
 
     @ObservationIgnored private let persistence: GoalSupervisionPersistence
     @ObservationIgnored private var persistTask: Task<Void, Never>?
+    @ObservationIgnored private var mutationRevision: UInt64 = 0
 
     init(persistence: GoalSupervisionPersistence = .live) {
         self.persistence = persistence
@@ -96,6 +97,8 @@ final class GoalSupervisionStore {
             notes: []
         )
         goals.insert(goal, at: 0)
+        sortGoals()
+        recordMutation()
         persistCurrentGoals()
         return goal.id
     }
@@ -125,15 +128,25 @@ final class GoalSupervisionStore {
     func deleteGoal(id: UUID) {
         guard goals.contains(where: { $0.id == id }) else { return }
         goals.removeAll { $0.id == id }
+        recordMutation()
         persistCurrentGoals()
     }
 
     private func load() async {
+        let revisionAtStart = mutationRevision
         do {
-            goals = try await persistence.load()
+            let loadedGoals = Self.sortedGoals(try await persistence.load())
+            if mutationRevision == revisionAtStart {
+                goals = loadedGoals
+            } else {
+                goals = Self.mergedGoals(loadedGoals, preservingLocalGoals: goals)
+                persistCurrentGoals()
+            }
             lastError = nil
         } catch {
-            goals = []
+            if mutationRevision == revisionAtStart {
+                goals = []
+            }
             lastError = error.localizedDescription
         }
     }
@@ -149,12 +162,39 @@ final class GoalSupervisionStore {
         guard didMutate else { return }
         goal.updatedAt = now
         goals[index] = goal
-        goals.sort { lhs, rhs in
+        sortGoals()
+        recordMutation()
+        persistCurrentGoals()
+    }
+
+    private func sortGoals() {
+        goals = Self.sortedGoals(goals)
+    }
+
+    private func recordMutation() {
+        mutationRevision &+= 1
+    }
+
+    private static func mergedGoals(
+        _ loadedGoals: [GoalSupervisionRecord],
+        preservingLocalGoals localGoals: [GoalSupervisionRecord]
+    ) -> [GoalSupervisionRecord] {
+        var goalsByID: [UUID: GoalSupervisionRecord] = [:]
+        for goal in loadedGoals {
+            goalsByID[goal.id] = goal
+        }
+        for goal in localGoals {
+            goalsByID[goal.id] = goal
+        }
+        return sortedGoals(Array(goalsByID.values))
+    }
+
+    private static func sortedGoals(_ goals: [GoalSupervisionRecord]) -> [GoalSupervisionRecord] {
+        goals.sorted { lhs, rhs in
             if lhs.status == .active, rhs.status != .active { return true }
             if lhs.status != .active, rhs.status == .active { return false }
             return lhs.updatedAt > rhs.updatedAt
         }
-        persistCurrentGoals()
     }
 
     private func persistCurrentGoals() {
