@@ -268,6 +268,46 @@ final class AuthManagerSignOutTests: XCTestCase {
 
         XCTAssertFalse(manager.isLoading)
     }
+
+    func testSignOutDuringBrowserCallbackDoesNotLeaveStaleAccessToken() async throws {
+        let suiteName = "cmux-auth-manager-sign-out-race-tests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create isolated defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let tokenStore = AuthManagerSignOutTestTokenStore()
+        let manager = AuthManager(
+            client: AuthManagerSignOutTestClient(),
+            tokenStore: tokenStore,
+            settingsStore: AuthSettingsStore(userDefaults: defaults)
+        )
+        await manager.awaitBootstrapped()
+
+        await tokenStore.suspendNextSetTokens()
+        let callbackURL = try XCTUnwrap(URL(string: "cmux://auth-callback?stack_refresh=refresh-after-signout&stack_access=access-after-signout"))
+        let callbackTask = Task { @MainActor in
+            try await manager.handleCallbackURL(callbackURL)
+        }
+
+        await tokenStore.waitForSuspendedSetTokens()
+        await manager.signOut()
+        await tokenStore.resumeSuspendedSetTokens()
+        try await callbackTask.value
+
+        XCTAssertFalse(manager.isAuthenticated)
+        XCTAssertNil(await tokenStore.getStoredAccessToken())
+        do {
+            _ = try await manager.getAccessToken()
+            XCTFail("Expected getAccessToken to reject the stale post-sign-out token")
+        } catch AuthManagerError.missingAccessToken {
+        } catch {
+            XCTFail("Expected missingAccessToken, got \(error)")
+        }
+    }
 }
 
 private struct AuthManagerSignOutTestClient: AuthClientProtocol {
@@ -285,6 +325,29 @@ private struct AuthManagerSignOutTestClient: AuthClientProtocol {
 private actor AuthManagerSignOutTestTokenStore: StackAuthTokenStoreProtocol {
     private var accessToken: String?
     private var refreshToken: String?
+    private var shouldSuspendNextSetTokens = false
+    private var suspendedSetTokensContinuation: CheckedContinuation<Void, Never>?
+    private var suspendedSetTokensWaiter: CheckedContinuation<Void, Never>?
+
+    func suspendNextSetTokens() {
+        shouldSuspendNextSetTokens = true
+    }
+
+    func waitForSuspendedSetTokens() async {
+        if suspendedSetTokensContinuation != nil {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            suspendedSetTokensWaiter = continuation
+        }
+    }
+
+    func resumeSuspendedSetTokens() {
+        shouldSuspendNextSetTokens = false
+        let continuation = suspendedSetTokensContinuation
+        suspendedSetTokensContinuation = nil
+        continuation?.resume()
+    }
 
     func getStoredAccessToken() async -> String? {
         accessToken
@@ -295,6 +358,13 @@ private actor AuthManagerSignOutTestTokenStore: StackAuthTokenStoreProtocol {
     }
 
     func setTokens(accessToken: String?, refreshToken: String?) async {
+        if shouldSuspendNextSetTokens {
+            await withCheckedContinuation { continuation in
+                suspendedSetTokensContinuation = continuation
+                suspendedSetTokensWaiter?.resume()
+                suspendedSetTokensWaiter = nil
+            }
+        }
         self.accessToken = accessToken
         self.refreshToken = refreshToken
     }
