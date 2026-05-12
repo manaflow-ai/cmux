@@ -87,6 +87,8 @@ final class GlobalSearchCoordinator {
         guard let index = ensureIndex(), let appDelegate = AppDelegate.shared else { return }
 
         for context in appDelegate.globalSearchPanelContexts() {
+            guard !Task.isCancelled else { return }
+
             let titleDocument = titleDocument(for: context)
             do {
                 try await index.upsert(titleDocument)
@@ -95,6 +97,8 @@ final class GlobalSearchCoordinator {
                 cmuxDebugLog("globalSearch.title.upsert failed panel=\(context.panelID.uuidString.prefix(5)) error=\(error.localizedDescription)")
 #endif
             }
+
+            guard !Task.isCancelled else { return }
 
             if let markdownPanel = context.panel as? MarkdownPanel {
                 if markdownPanel.isFileUnavailable {

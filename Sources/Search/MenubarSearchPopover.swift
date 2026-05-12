@@ -61,6 +61,7 @@ private struct GlobalSearchPaletteView: View {
     @State private var searchGeneration = 0
     @State private var searchTimer: DispatchSourceTimer?
     @State private var searchTask: Task<Void, Never>?
+    @State private var refreshTask: Task<Void, Never>?
     @State private var keyMonitor: Any?
     @FocusState private var searchFieldFocused: Bool
 
@@ -123,10 +124,15 @@ private struct GlobalSearchPaletteView: View {
         .onAppear {
             searchFieldFocused = true
             installKeyMonitorIfNeeded()
-            Task { await coordinator.refreshLiveIndex() }
+            refreshTask?.cancel()
+            refreshTask = Task {
+                await coordinator.refreshLiveIndex()
+            }
         }
         .onDisappear {
             removeKeyMonitor()
+            refreshTask?.cancel()
+            refreshTask = nil
             cancelSearchWork()
         }
         .onChange(of: query) { _, newValue in
