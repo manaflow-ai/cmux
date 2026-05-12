@@ -5580,7 +5580,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func runtimeSurfaceCanAcceptInput(_ surface: ghostty_surface_t, reason: String) -> Bool {
-        guard hasLiveSurface, self.surface == surface, cmuxSurfacePointerAppearsLive(surface) else {
+        let registeredOwnerId = TerminalSurfaceRegistry.shared.runtimeSurfaceOwnerId(surface)
+        guard hasLiveSurface,
+              self.surface == surface,
+              registeredOwnerId == id,
+              cmuxSurfacePointerAppearsLive(surface) else {
 #if DEBUG
             cmuxDebugLog(
                 "surface.input.drop surface=\(id.uuidString.prefix(8)) reason=\(reason) staleSurface=1"

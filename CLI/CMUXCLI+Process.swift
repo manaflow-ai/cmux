@@ -13,12 +13,19 @@ func cliWriteIgnoringBrokenPipe(_ data: Data, to fd: Int32) -> Bool {
         while offset < rawBuffer.count {
             cliStdioDispositionLock.lock()
             let previousHandler = signal(SIGPIPE, SIG_IGN)
+            let originalFlags = fcntl(fd, F_GETFL)
+            if originalFlags >= 0, originalFlags & O_NONBLOCK == 0 {
+                _ = fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK)
+            }
             let bytesWritten = Darwin.write(
                 fd,
                 baseAddress.advanced(by: offset),
                 rawBuffer.count - offset
             )
             let writeErrno = bytesWritten < 0 ? errno : 0
+            if originalFlags >= 0, originalFlags & O_NONBLOCK == 0 {
+                _ = fcntl(fd, F_SETFL, originalFlags)
+            }
             _ = signal(SIGPIPE, previousHandler)
             cliStdioDispositionLock.unlock()
 
@@ -26,6 +33,13 @@ func cliWriteIgnoringBrokenPipe(_ data: Data, to fd: Int32) -> Bool {
                 offset += bytesWritten
             } else if bytesWritten == -1, writeErrno == EINTR {
                 continue
+            } else if bytesWritten == -1, writeErrno == EAGAIN || writeErrno == EWOULDBLOCK {
+                var pollFD = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+                let ready = poll(&pollFD, 1, 250)
+                if ready > 0 {
+                    continue
+                }
+                return false
             } else {
                 return false
             }

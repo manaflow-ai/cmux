@@ -2662,18 +2662,35 @@ struct CMUXCLI {
                 tv_sec: Int(timeout.rounded(.down)),
                 tv_usec: __darwin_suseconds_t((timeout.truncatingRemainder(dividingBy: 1)) * 1_000_000)
             )
-            let result = withUnsafePointer(to: &interval) { ptr in
-                setsockopt(
-                    clientFD,
-                    SOL_SOCKET,
-                    SO_RCVTIMEO,
-                    ptr,
-                    socklen_t(MemoryLayout<timeval>.size)
-                )
+            func setTimevalOption(_ option: Int32, label: String) throws {
+                let result = withUnsafePointer(to: &interval) { ptr in
+                    setsockopt(
+                        clientFD,
+                        SOL_SOCKET,
+                        option,
+                        ptr,
+                        socklen_t(MemoryLayout<timeval>.size)
+                    )
+                }
+                guard result == 0 else {
+                    let reason = String(cString: strerror(errno))
+                    throw CLIError(message: "Failed to configure hot-path broker client \(label): \(reason)")
+                }
             }
-            guard result == 0 else {
+            try setTimevalOption(SO_RCVTIMEO, label: "read timeout")
+            try setTimevalOption(SO_SNDTIMEO, label: "write timeout")
+
+            var noSigpipe: Int32 = 1
+            let noSigpipeResult = setsockopt(
+                clientFD,
+                SOL_SOCKET,
+                SO_NOSIGPIPE,
+                &noSigpipe,
+                socklen_t(MemoryLayout<Int32>.size)
+            )
+            guard noSigpipeResult == 0 else {
                 let reason = String(cString: strerror(errno))
-                throw CLIError(message: "Failed to configure hot-path broker client read timeout: \(reason)")
+                throw CLIError(message: "Failed to configure hot-path broker client no-sigpipe: \(reason)")
             }
         }
 
