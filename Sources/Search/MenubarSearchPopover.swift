@@ -22,23 +22,32 @@ final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
         )
     }
 
-    func toggle(relativeTo button: NSStatusBarButton) {
+    private var dismissalHandler: (() -> Void)?
+
+    func toggle(relativeTo button: NSStatusBarButton, onDismiss: (() -> Void)? = nil) {
         if popover.isShown {
             dismiss()
         } else {
-            show(relativeTo: button)
+            show(relativeTo: button, onDismiss: onDismiss)
         }
     }
 
-    func show(relativeTo button: NSStatusBarButton) {
+    func show(relativeTo button: NSStatusBarButton, onDismiss: (() -> Void)? = nil) {
         if popover.isShown {
             popover.performClose(nil)
         }
+        dismissalHandler = onDismiss
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     }
 
     func dismiss() {
         popover.performClose(nil)
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        let handler = dismissalHandler
+        dismissalHandler = nil
+        handler?()
     }
 }
 
@@ -173,9 +182,11 @@ private struct GlobalSearchPaletteView: View {
     private func installKeyMonitorIfNeeded() {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            MainActor.assumeIsolated {
-                handleKeyEvent(event) ? nil : event
+            let keyEvent = GlobalSearchKeyEvent(event)
+            let consumed = MainActor.assumeIsolated {
+                handleKeyEvent(keyEvent)
             }
+            return consumed ? nil : event
         }
     }
 
@@ -186,10 +197,10 @@ private struct GlobalSearchPaletteView: View {
         }
     }
 
-    private func handleKeyEvent(_ event: NSEvent) -> Bool {
+    private func handleKeyEvent(_ event: GlobalSearchKeyEvent) -> Bool {
         guard coordinator.isPaletteVisible() else { return false }
 
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let flags = event.modifierFlags
         if flags.contains(.command),
            !flags.contains(.option),
            !flags.contains(.control),
@@ -223,7 +234,7 @@ private struct GlobalSearchPaletteView: View {
         }
     }
 
-    private func isTextEditingCommand(_ event: NSEvent) -> Bool {
+    private func isTextEditingCommand(_ event: GlobalSearchKeyEvent) -> Bool {
         if let characters = event.charactersIgnoringModifiers?.lowercased(),
            ["a", "c", "v", "x", "z"].contains(characters) {
             return true
@@ -245,6 +256,24 @@ private struct GlobalSearchPaletteView: View {
         guard results.indices.contains(index) else { return }
         let row = results[index]
         coordinator.activate(row.hit, query: row.query)
+    }
+}
+
+private struct GlobalSearchKeyEvent: Sendable {
+    let keyCode: UInt16
+    let charactersIgnoringModifiers: String?
+    private let modifierFlagsRawValue: UInt
+
+    init(_ event: NSEvent) {
+        keyCode = event.keyCode
+        charactersIgnoringModifiers = event.charactersIgnoringModifiers
+        modifierFlagsRawValue = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .rawValue
+    }
+
+    var modifierFlags: NSEvent.ModifierFlags {
+        NSEvent.ModifierFlags(rawValue: modifierFlagsRawValue)
     }
 }
 

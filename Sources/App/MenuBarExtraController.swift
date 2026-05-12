@@ -7,7 +7,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let menu = NSMenu(title: "cmux")
     private let notificationStore: TerminalNotificationStore
-    private let onShowGlobalSearch: (NSStatusBarButton) -> Void
+    private let onShowGlobalSearch: (NSStatusBarButton, (() -> Void)?) -> Void
     private let onShowMainWindow: () -> Void
     private let onShowNotifications: () -> Void
     private let onOpenNotification: (TerminalNotification) -> Void
@@ -37,7 +37,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private var notificationItems: [NSMenuItem] = []
     init(
         notificationStore: TerminalNotificationStore,
-        onShowGlobalSearch: @escaping (NSStatusBarButton) -> Void,
+        onShowGlobalSearch: @escaping (NSStatusBarButton, (() -> Void)?) -> Void,
         onShowMainWindow: @escaping () -> Void,
         onShowNotifications: @escaping () -> Void,
         onOpenNotification: @escaping (TerminalNotification) -> Void,
@@ -243,7 +243,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
 
     @objc private func statusItemButtonAction(_ sender: NSStatusBarButton) {
         guard let event = NSApp.currentEvent else {
-            onShowGlobalSearch(sender)
+            onShowGlobalSearch(sender, nil)
             return
         }
 
@@ -252,14 +252,14 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
             refreshUI()
             menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height), in: sender)
         } else {
-            onShowGlobalSearch(sender)
+            onShowGlobalSearch(sender, nil)
         }
     }
 
     @discardableResult
-    func toggleGlobalSearchPalette() -> Bool {
+    func toggleGlobalSearchPalette(onDismiss: (() -> Void)? = nil) -> Bool {
         guard let button = statusItem.button else { return false }
-        onShowGlobalSearch(button)
+        onShowGlobalSearch(button, onDismiss)
         return true
     }
 

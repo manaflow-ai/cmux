@@ -54,8 +54,8 @@ final class GlobalSearchCoordinator {
         }
     }
 
-    func togglePalette(anchor: NSStatusBarButton) {
-        popover.toggle(relativeTo: anchor)
+    func togglePalette(anchor: NSStatusBarButton, onDismiss: (() -> Void)? = nil) {
+        popover.toggle(relativeTo: anchor, onDismiss: onDismiss)
     }
 
     func dismissPalette() {

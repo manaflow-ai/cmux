@@ -125,7 +125,7 @@ actor SearchIndex {
 
         database = openedDatabase
         sqlite3_extended_result_codes(openedDatabase, 1)
-        try configureDatabase()
+        try Self.configureDatabase(openedDatabase)
     }
 
     deinit {
@@ -234,9 +234,9 @@ actor SearchIndex {
     }
     #endif
 
-    private func configureDatabase() throws {
-        try execute("PRAGMA journal_mode = WAL")
-        try execute("PRAGMA synchronous = NORMAL")
+    private static func configureDatabase(_ database: OpaquePointer) throws {
+        try execute("PRAGMA journal_mode = WAL", database: database)
+        try execute("PRAGMA synchronous = NORMAL", database: database)
         try execute("""
             CREATE TABLE IF NOT EXISTS chunks (
                 rowid INTEGER PRIMARY KEY,
@@ -251,9 +251,9 @@ actor SearchIndex {
                 ts REAL NOT NULL,
                 text TEXT NOT NULL DEFAULT ''
             )
-            """)
-        try execute("CREATE INDEX IF NOT EXISTS chunks_panel_idx ON chunks(panel_id)")
-        try execute("CREATE INDEX IF NOT EXISTS chunks_workspace_idx ON chunks(workspace_id)")
+            """, database: database)
+        try execute("CREATE INDEX IF NOT EXISTS chunks_panel_idx ON chunks(panel_id)", database: database)
+        try execute("CREATE INDEX IF NOT EXISTS chunks_workspace_idx ON chunks(workspace_id)", database: database)
         try execute("""
             CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
                 title,
@@ -263,19 +263,19 @@ actor SearchIndex {
                 content_rowid = 'rowid',
                 tokenize = 'unicode61 remove_diacritics 2'
             )
-            """)
+            """, database: database)
         try execute("""
             CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN
                 INSERT INTO chunks_fts(rowid, title, location, text)
                 VALUES (new.rowid, new.title, new.location, new.text);
             END
-            """)
+            """, database: database)
         try execute("""
             CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
                 INSERT INTO chunks_fts(chunks_fts, rowid, title, location, text)
                 VALUES('delete', old.rowid, old.title, old.location, old.text);
             END
-            """)
+            """, database: database)
         try execute("""
             CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
                 INSERT INTO chunks_fts(chunks_fts, rowid, title, location, text)
@@ -283,7 +283,7 @@ actor SearchIndex {
                 INSERT INTO chunks_fts(rowid, title, location, text)
                 VALUES (new.rowid, new.title, new.location, new.text);
             END
-            """)
+            """, database: database)
     }
 
     private func execute(_ sql: String) throws {
@@ -291,6 +291,10 @@ actor SearchIndex {
             throw SearchIndexError.executeFailed("database is closed")
         }
 
+        try Self.execute(sql, database: database)
+    }
+
+    private static func execute(_ sql: String, database: OpaquePointer) throws {
         var errorMessage: UnsafeMutablePointer<CChar>?
         let result = sqlite3_exec(database, sql, nil, nil, &errorMessage)
         if result != SQLITE_OK {

@@ -92,8 +92,11 @@ final class SearchIndexTests: XCTestCase {
         )
         try await index.upsert(replacement)
 
-        XCTAssertEqual(try await index.search("oldtoken", limit: 10), [])
-        XCTAssertEqual(try await index.search("newtoken", limit: 10).map(\.id), ["doc"])
+        let oldTokenHits = try await index.search("oldtoken", limit: 10)
+        XCTAssertEqual(oldTokenHits, [])
+
+        let newTokenHits = try await index.search("newtoken", limit: 10)
+        XCTAssertEqual(newTokenHits.map(\.id), ["doc"])
     }
 
     func testPanelStableIDReplacesDocumentAfterNavigationOrMove() async throws {
@@ -134,7 +137,9 @@ final class SearchIndexTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(try await index.search("oldnavigationtoken", limit: 10), [])
+        let oldNavigationHits = try await index.search("oldnavigationtoken", limit: 10)
+        XCTAssertEqual(oldNavigationHits, [])
+
         let hits = try await index.search("newnavigationtoken", limit: 10)
         XCTAssertEqual(hits.map(\.id), [documentID])
         XCTAssertEqual(hits.first?.windowID, movedWindowID)
@@ -162,7 +167,8 @@ final class SearchIndexTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(try await index.search("AND", limit: 10).map(\.id), ["operator-doc"])
+        let hits = try await index.search("AND", limit: 10)
+        XCTAssertEqual(hits.map(\.id), ["operator-doc"])
     }
 
     func testDeletePanelRemovesIndexedDocuments() async throws {
@@ -188,9 +194,13 @@ final class SearchIndexTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(try await index.search("kiwifruit", limit: 10).count, 1)
+        let indexedHits = try await index.search("kiwifruit", limit: 10)
+        XCTAssertEqual(indexedHits.count, 1)
+
         try await index.deletePanel(panelID)
-        XCTAssertEqual(try await index.search("kiwifruit", limit: 10), [])
+
+        let deletedHits = try await index.search("kiwifruit", limit: 10)
+        XCTAssertEqual(deletedHits, [])
     }
 
     func testDeleteAllClearsPersistentDocuments() async throws {
@@ -213,9 +223,13 @@ final class SearchIndexTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(try await index.search("stalesessiontoken", limit: 10).count, 1)
+        let indexedHits = try await index.search("stalesessiontoken", limit: 10)
+        XCTAssertEqual(indexedHits.count, 1)
+
         try await index.deleteAll()
-        XCTAssertEqual(try await index.search("stalesessiontoken", limit: 10), [])
+
+        let deletedHits = try await index.search("stalesessiontoken", limit: 10)
+        XCTAssertEqual(deletedHits, [])
     }
 
     private func makeFixture() throws -> (directoryURL: URL, databaseURL: URL) {

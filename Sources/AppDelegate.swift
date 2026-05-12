@@ -714,6 +714,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?
+    private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
     private lazy var mainWindowVisibilityController = MainWindowVisibilityController(
         dependencies: .init(
             isActivationSuppressed: {
@@ -7247,11 +7248,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func setupMenuBarExtra() {
         guard menuBarExtraController == nil else { return }
+        menuBarExtraController = makeMenuBarExtraController()
+    }
+
+    private func makeMenuBarExtraController() -> MenuBarExtraController {
         let store = TerminalNotificationStore.shared
-        menuBarExtraController = MenuBarExtraController(
+        return MenuBarExtraController(
             notificationStore: store,
-            onShowGlobalSearch: { button in
-                GlobalSearchCoordinator.shared.togglePalette(anchor: button)
+            onShowGlobalSearch: { button, onDismiss in
+                GlobalSearchCoordinator.shared.togglePalette(anchor: button, onDismiss: onDismiss)
             },
             onShowMainWindow: { [weak self] in
                 self?.showMainWindowFromMenuBar()
@@ -7285,15 +7290,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func toggleGlobalSearchPaletteFromGlobalHotkey() {
-        if menuBarExtraController == nil {
+        if menuBarExtraController == nil,
+           MenuBarExtraSettings.shouldInstallMenuBarExtra() {
             setupMenuBarExtra()
         }
 
-        guard let menuBarExtraController,
-              menuBarExtraController.toggleGlobalSearchPalette() else {
-            NSSound.beep()
+        if let menuBarExtraController,
+           menuBarExtraController.toggleGlobalSearchPalette() {
             return
         }
+
+        if toggleGlobalSearchPaletteFromTransientMenuBarExtra() {
+            return
+        }
+
+        NSSound.beep()
+    }
+
+    private func toggleGlobalSearchPaletteFromTransientMenuBarExtra() -> Bool {
+        transientGlobalSearchMenuBarExtraController?.removeFromMenuBar()
+        transientGlobalSearchMenuBarExtraController = nil
+
+        let controller = makeMenuBarExtraController()
+        transientGlobalSearchMenuBarExtraController = controller
+
+        let onDismiss: () -> Void = { [weak self, weak controller] in
+            guard let self,
+                  let controller,
+                  self.transientGlobalSearchMenuBarExtraController === controller else {
+                return
+            }
+            controller.removeFromMenuBar()
+            self.transientGlobalSearchMenuBarExtraController = nil
+        }
+
+        guard controller.toggleGlobalSearchPalette(onDismiss: onDismiss) else {
+            controller.removeFromMenuBar()
+            transientGlobalSearchMenuBarExtraController = nil
+            return false
+        }
+
+        return true
     }
 
     private func installMenuBarVisibilityObserver() {
