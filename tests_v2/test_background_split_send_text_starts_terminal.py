@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import shlex
 import sys
@@ -109,7 +110,7 @@ def main() -> int:
                 try:
                     c.close_workspace(created_workspace)
                 except Exception:
-                    pass
+                    logging.exception("Failed to clean up workspace %s", created_workspace)
 
     print("PASS: background split surface.send_text starts the terminal without focus")
     return 0
