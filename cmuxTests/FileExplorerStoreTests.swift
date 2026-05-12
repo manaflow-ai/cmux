@@ -884,18 +884,7 @@ final class FileSearchControllerTests: XCTestCase {
     }
 
     private static func hasRipgrep() -> Bool {
-        let fileManager = FileManager.default
-        for path in ["/opt/homebrew/bin/rg", "/usr/local/bin/rg", "/usr/bin/rg"] where fileManager.isExecutableFile(atPath: path) {
-            return true
-        }
-        let pathValue = ProcessInfo.processInfo.environment["PATH"] ?? ""
-        for directory in pathValue.split(separator: ":", omittingEmptySubsequences: true) {
-            let path = URL(fileURLWithPath: String(directory)).appendingPathComponent("rg").path
-            if fileManager.isExecutableFile(atPath: path) {
-                return true
-            }
-        }
-        return false
+        RipgrepExecutableResolver.resolve(configuredPath: nil) != nil
     }
 
     private static func findSearchField(in root: NSView) -> NSSearchField? {
