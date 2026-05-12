@@ -79,6 +79,30 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertFalse(panel.shouldRenderWebView)
         XCTAssertFalse(panel.shouldRenderWebViewForSessionSnapshot())
     }
+
+    func testCloseDetachesPortalHostedWebViewImmediately() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let webView = panel.webView
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let anchorView = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        window.contentView = anchorView
+
+        BrowserWindowPortalRegistry.bind(
+            webView: webView,
+            to: anchorView,
+            visibleInUI: true
+        )
+        XCTAssertNotNil(webView.superview, "Test precondition: portal bind should host the web view")
+
+        panel.close()
+
+        XCTAssertNil(webView.superview, "Closing a browser panel must release the old WKWebView immediately")
+    }
 }
 
 
