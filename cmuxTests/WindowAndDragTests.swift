@@ -1599,6 +1599,44 @@ final class WindowDragHandleHitTests: XCTestCase {
 
 @MainActor
 final class DraggableFolderHitTests: XCTestCase {
+    func testDetachedFolderPanelFollowsHostFrameChanges() {
+        _ = NSApplication.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 40, y: 40, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 180))
+        window.contentView = container
+
+        let hostView = DetachedFolderDragIconHostView(directory: NSTemporaryDirectory())
+        hostView.frame = NSRect(
+            x: 24,
+            y: 120,
+            width: TitlebarFolderIconMetrics.iconSize,
+            height: TitlebarFolderIconMetrics.iconSize
+        )
+        container.addSubview(hostView)
+        defer { hostView.removeFromSuperview() }
+
+        hostView.syncDetachedIcon()
+        guard let initialFrame = hostView.detachedIconFrameForTesting else {
+            XCTFail("Expected detached folder panel to be created")
+            return
+        }
+
+        hostView.setFrameOrigin(NSPoint(x: 96, y: 120))
+
+        guard let movedFrame = hostView.detachedIconFrameForTesting else {
+            XCTFail("Expected detached folder panel to remain attached")
+            return
+        }
+        XCTAssertEqual(movedFrame.minX, initialFrame.minX + 72, accuracy: 0.5)
+        XCTAssertEqual(movedFrame.minY, initialFrame.minY, accuracy: 0.5)
+    }
+
     func testFolderHitTestReturnsContainerWhenInsideBounds() {
         let folderView = DraggableFolderNSView(directory: "/tmp")
         folderView.frame = NSRect(x: 0, y: 0, width: 16, height: 16)

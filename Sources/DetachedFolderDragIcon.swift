@@ -24,7 +24,7 @@ final class DetachedFolderDragIconHostView: NSView {
 
     init(directory: String) {
         self.directory = directory
-        super.init(frame: NSRect(origin: .zero, size: NSSize(width: 16, height: 16)))
+        super.init(frame: NSRect(origin: .zero, size: Self.iconSize))
     }
 
     required init?(coder: NSCoder) {
@@ -38,10 +38,20 @@ final class DetachedFolderDragIconHostView: NSView {
     }
 
     override var intrinsicContentSize: NSSize {
-        NSSize(width: 16, height: 16)
+        Self.iconSize
     }
 
     override var mouseDownCanMoveWindow: Bool { false }
+
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        syncDetachedIconFrame()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        syncDetachedIconFrame()
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -80,9 +90,15 @@ final class DetachedFolderDragIconHostView: NSView {
         syncDetachedIconFrame()
     }
 
+    #if DEBUG
+    var detachedIconFrameForTesting: NSRect? {
+        childWindow?.frame
+    }
+    #endif
+
     private func makeDetachedIconWindow(parentWindow: NSWindow) -> NSPanel {
         let iconView = DraggableFolderNSView(directory: directory)
-        iconView.frame = NSRect(origin: .zero, size: NSSize(width: 16, height: 16))
+        iconView.frame = NSRect(origin: .zero, size: Self.iconSize)
 
         let panel = NSPanel(
             contentRect: iconView.frame,
@@ -136,7 +152,7 @@ final class DetachedFolderDragIconHostView: NSView {
         guard let parentWindow = window,
               let childWindow else { return }
         let localRect = bounds.isEmpty
-            ? NSRect(origin: .zero, size: NSSize(width: 16, height: 16))
+            ? NSRect(origin: .zero, size: Self.iconSize)
             : bounds
         let rectInWindow = convert(localRect, to: nil)
         let rectOnScreen = parentWindow.convertToScreen(rectInWindow)
@@ -164,6 +180,13 @@ final class DetachedFolderDragIconHostView: NSView {
         }
         childWindow = nil
         iconView = nil
+    }
+
+    private static var iconSize: NSSize {
+        NSSize(
+            width: TitlebarFolderIconMetrics.iconSize,
+            height: TitlebarFolderIconMetrics.iconSize
+        )
     }
 }
 
@@ -194,7 +217,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
     }
 
     override var intrinsicContentSize: NSSize {
-        NSSize(width: 16, height: 16)
+        Self.iconSize
     }
 
     override var mouseDownCanMoveWindow: Bool { false }
@@ -209,8 +232,8 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
             imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
             imageView.topAnchor.constraint(equalTo: topAnchor),
             imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            imageView.widthAnchor.constraint(equalToConstant: 16),
-            imageView.heightAnchor.constraint(equalToConstant: 16),
+            imageView.widthAnchor.constraint(equalToConstant: TitlebarFolderIconMetrics.iconSize),
+            imageView.heightAnchor.constraint(equalToConstant: TitlebarFolderIconMetrics.iconSize),
         ])
         let dragHint = String(localized: "sidebar.folderIcon.dragHint", defaultValue: "Drag to open in Finder or another app")
         toolTip = dragHint
@@ -224,7 +247,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         #endif
 
         let icon = NSWorkspace.shared.icon(forFile: directory)
-        icon.size = NSSize(width: 16, height: 16)
+        icon.size = Self.iconSize
         imageView.image = icon
     }
 
@@ -343,7 +366,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         // Add path components (current dir at top, root at bottom - matches native macOS)
         for pathURL in pathComponents {
             let icon = NSWorkspace.shared.icon(forFile: pathURL.path)
-            icon.size = NSSize(width: 16, height: 16)
+            icon.size = Self.iconSize
 
             let displayName: String
             if pathURL.path == "/" {
@@ -367,7 +390,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         // Add computer name at the bottom (like native proxy icon)
         let computerName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
         let computerIcon = NSImage(named: NSImage.computerName) ?? NSImage()
-        computerIcon.size = NSSize(width: 16, height: 16)
+        computerIcon.size = Self.iconSize
 
         let computerItem = NSMenuItem(title: computerName, action: #selector(openComputer(_:)), keyEquivalent: "")
         computerItem.target = self
@@ -385,5 +408,12 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
     @objc private func openComputer(_ sender: NSMenuItem) {
         // Open the root filesystem entry represented by the bottom path item.
         NSWorkspace.shared.open(URL(fileURLWithPath: "/", isDirectory: true))
+    }
+
+    private static var iconSize: NSSize {
+        NSSize(
+            width: TitlebarFolderIconMetrics.iconSize,
+            height: TitlebarFolderIconMetrics.iconSize
+        )
     }
 }

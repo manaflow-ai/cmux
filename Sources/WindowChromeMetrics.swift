@@ -14,6 +14,11 @@ enum WindowChromeMetrics {
     }
 }
 
+enum TitlebarFolderIconMetrics {
+    static let iconSize: CGFloat = 16
+    static let iconTitleSpacing: CGFloat = 8
+}
+
 enum MinimalModeChromeMetrics {
     static let titlebarHeight: CGFloat = WindowChromeMetrics.appTitlebarHeight
 }
