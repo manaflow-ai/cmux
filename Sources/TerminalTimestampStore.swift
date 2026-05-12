@@ -111,7 +111,8 @@ final class TerminalTimestampStore {
 
     private func pruneRows(atOrAbove upperBound: Int) {
         guard let newestTrackedRow, newestTrackedRow >= upperBound else { return }
-        for row in upperBound...newestTrackedRow {
+        let firstTrackedRowToPrune = max(upperBound, oldestTrackedRow ?? upperBound)
+        for row in firstTrackedRowToPrune...newestTrackedRow {
             timestampsByRow.removeValue(forKey: row)
         }
         refreshNewestTrackedRow(startingAt: upperBound - 1)
