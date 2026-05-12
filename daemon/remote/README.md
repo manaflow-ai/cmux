@@ -130,5 +130,6 @@ Integration additions for the relay path:
 Browser relay behavior:
 
 1. `cmux browser ...` inside an SSH session controls the local cmux browser through the authenticated relay, not a browser process inside the VM.
-2. The remote CLI supports the common automation commands: `open`, `navigate`, `back`, `forward`, `reload`, `get-url`, `snapshot`, `eval`, `wait`, `click`, `dblclick`, `hover`, `focus`, `check`, `uncheck`, `fill`, `type`, `press`, `select`, and `screenshot`.
-3. Commands that target an existing browser surface default to `CMUX_SURFACE_ID`; `open` defaults to `CMUX_WORKSPACE_ID` so agents can create a browser pane next to the active SSH terminal.
+2. The remote CLI routes the documented browser automation grammar through the same `browser.*` RPC methods advertised by `cmux capabilities`; run `cmux browser help` for the supported top-level command groups.
+3. Commands that target an existing browser surface default to `CMUX_SURFACE_ID`; `open`, `open-split`, and `new` default to `CMUX_WORKSPACE_ID` so agents can create a browser pane next to the active SSH terminal.
+4. Supplying a browser surface explicitly, either as a leading target or a `--surface` flag, makes `open`, `open-split`, and `new` navigate that surface instead of creating a new split.
