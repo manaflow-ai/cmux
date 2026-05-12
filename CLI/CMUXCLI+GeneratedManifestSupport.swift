@@ -91,12 +91,17 @@ extension CmuxUseSupport {
     }
 
     private static func firstInstallDirectoryAssignment(in contents: String) -> String? {
-        let assignmentPattern = #"^(?:export\s+)?(?:EXPECTED_DIR|INSTALL_DIR|TARGET_DIR|CONFIG_DIR)\s*=\s*["']((?:\$HOME|~)/[^"']+)["']"#
+        let assignmentPatterns = [
+            #"^(?:export\s+)?(?:EXPECTED_DIR|INSTALL_DIR|TARGET_DIR|CONFIG_DIR)\s*=\s*"((?:\$HOME|~)/[^"]+)""#,
+            #"^(?:export\s+)?(?:EXPECTED_DIR|INSTALL_DIR|TARGET_DIR|CONFIG_DIR)\s*=\s*'((?:\$HOME|~)/[^']+)'"#,
+        ]
         for rawLine in contents.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             guard !line.hasPrefix("#") else { continue }
-            if let value = firstRegexCapture(pattern: assignmentPattern, in: line) {
-                return value
+            for pattern in assignmentPatterns {
+                if let value = firstRegexCapture(pattern: pattern, in: line) {
+                    return value
+                }
             }
         }
         return nil
