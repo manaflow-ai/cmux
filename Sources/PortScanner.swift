@@ -982,6 +982,7 @@ final class SidebarWorkspaceResourceUsageStore {
 
     @ObservationIgnored private weak var tabManager: TabManager?
     @ObservationIgnored private var configuration = SidebarWorkspaceResourceUsageConfiguration.current()
+    @ObservationIgnored private let samplingQueue = DispatchQueue(label: "com.cmux.sidebar-resource-usage", qos: .utility)
     @ObservationIgnored private var sampleLoopTask: Task<Void, Never>?
     @ObservationIgnored private var generation: UInt64 = 0
     @ObservationIgnored private var previousCPUTimeByPID: [Int32: UInt64] = [:]
@@ -1047,37 +1048,12 @@ final class SidebarWorkspaceResourceUsageStore {
             return
         }
 
-        let output = await Task.detached(priority: .utility) {
-            let trackingRoots = Self.resolveTrackingRoots(from: context.workspaces)
-            let processCatalog = Self.captureProcessCatalog()
-            let nextCPUTimeByPID = processCatalog.reduce(into: [Int32: UInt64]()) { partial, item in
-                partial[item.key] = item.value.totalCPUTimeNanos
+        let samplingQueue = self.samplingQueue
+        let output: SamplingOutput = await withCheckedContinuation { continuation in
+            samplingQueue.async {
+                continuation.resume(returning: Self.makeSamplingOutput(context: context))
             }
-            let effectivePreviousCPU = context.hasEstablishedCPUBaseline
-                ? context.previousCPUTimeByPID
-                : nextCPUTimeByPID
-
-            let resolution = SidebarWorkspaceResourceResolver.resolve(
-                workspaces: trackingRoots,
-                processes: processCatalog,
-                appPID: context.appPID,
-                previousCPUTimeByPID: effectivePreviousCPU,
-                elapsedNanoseconds: context.elapsedNanoseconds
-            )
-
-            let trackedPIDs = Set(resolution.workspaces.values.flatMap { $0.processes.map(\.pid) })
-                .union(resolution.total?.processes.map(\.pid) ?? [])
-            let trackedCPUTimeByPID = trackedPIDs.reduce(into: [Int32: UInt64]()) { partial, pid in
-                if let process = processCatalog[pid] {
-                    partial[pid] = process.totalCPUTimeNanos
-                }
-            }
-
-            return SamplingOutput(
-                resolution: resolution,
-                trackedCPUTimeByPID: trackedCPUTimeByPID
-            )
-        }.value
+        }
 
         guard !Task.isCancelled, self.generation == generation else { return }
         previousCPUTimeByPID = output.trackedCPUTimeByPID
@@ -1101,6 +1077,40 @@ final class SidebarWorkspaceResourceUsageStore {
             return UInt64.max
         }
         return UInt64(nanoseconds.rounded(.up))
+    }
+
+    nonisolated private static func makeSamplingOutput(context: SamplingContext) -> SamplingOutput {
+        // libproc/stat are blocking C APIs, so sampling runs on a dedicated queue
+        // instead of occupying Swift's cooperative executor.
+        let trackingRoots = resolveTrackingRoots(from: context.workspaces)
+        let processCatalog = captureProcessCatalog()
+        let nextCPUTimeByPID = processCatalog.reduce(into: [Int32: UInt64]()) { partial, item in
+            partial[item.key] = item.value.totalCPUTimeNanos
+        }
+        let effectivePreviousCPU = context.hasEstablishedCPUBaseline
+            ? context.previousCPUTimeByPID
+            : nextCPUTimeByPID
+
+        let resolution = SidebarWorkspaceResourceResolver.resolve(
+            workspaces: trackingRoots,
+            processes: processCatalog,
+            appPID: context.appPID,
+            previousCPUTimeByPID: effectivePreviousCPU,
+            elapsedNanoseconds: context.elapsedNanoseconds
+        )
+
+        let trackedPIDs = Set(resolution.workspaces.values.flatMap { $0.processes.map(\.pid) })
+            .union(resolution.total?.processes.map(\.pid) ?? [])
+        let trackedCPUTimeByPID = trackedPIDs.reduce(into: [Int32: UInt64]()) { partial, pid in
+            if let process = processCatalog[pid] {
+                partial[pid] = process.totalCPUTimeNanos
+            }
+        }
+
+        return SamplingOutput(
+            resolution: resolution,
+            trackedCPUTimeByPID: trackedCPUTimeByPID
+        )
     }
 
     private func makeSamplingContext(
