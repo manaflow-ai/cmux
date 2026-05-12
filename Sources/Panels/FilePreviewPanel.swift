@@ -3063,9 +3063,10 @@ private final class FilePreviewImageContainerView: NSView {
 
         let loadURL = url
         Self.imageLoadQueue.async { [weak self] in
-            let image = NSImage(contentsOf: loadURL)
+            let imageData = try? Data(contentsOf: loadURL)
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.currentURL == loadURL else { return }
+                let image = imageData.flatMap(NSImage.init(data:))
                 self.applyLoadedImage(image)
             }
         }

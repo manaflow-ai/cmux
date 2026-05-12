@@ -1802,6 +1802,11 @@ final class FileExplorerCellView: NSTableCellView {
     private let loadingIndicator = NSProgressIndicator()
     private var trackingArea: NSTrackingArea?
     var onHover: ((Bool) -> Void)?
+
+    deinit {
+        removeHoverTrackingArea()
+        nameLabel.toolTip = nil
+    }
     private var nameLabelTrailingToLoadingConstraint: NSLayoutConstraint!
     private var nameLabelTrailingToContainerConstraint: NSLayoutConstraint!
 
@@ -1936,9 +1941,7 @@ final class FileExplorerCellView: NSTableCellView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let existing = trackingArea {
-            removeTrackingArea(existing)
-        }
+        removeHoverTrackingArea()
         let area = NSTrackingArea(
             rect: bounds,
             options: [.mouseEnteredAndExited, .activeInActiveApp],
@@ -1947,6 +1950,21 @@ final class FileExplorerCellView: NSTableCellView {
         )
         addTrackingArea(area)
         trackingArea = area
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            removeHoverTrackingArea()
+            onHover?(false)
+        }
+    }
+
+    private func removeHoverTrackingArea() {
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+            self.trackingArea = nil
+        }
     }
 
     override func mouseEntered(with event: NSEvent) {

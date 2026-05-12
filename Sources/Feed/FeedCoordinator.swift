@@ -39,6 +39,14 @@ final class FeedCoordinator: @unchecked Sendable {
 
     private init() {}
 
+    private func syncOnMainQueue(_ body: @Sendable () -> Void) {
+        if Thread.isMainThread {
+            body()
+        } else {
+            DispatchQueue.main.sync(execute: body)
+        }
+    }
+
     /// Must be called once at app launch to install the store.
     @MainActor
     func install(store: WorkstreamStore) {
@@ -111,7 +119,7 @@ final class FeedCoordinator: @unchecked Sendable {
         // caps the pending lifetime to the agent process lifetime
         // — no polling, no leaked cards when the agent is killed.
         let itemIdSlot = UnsafeItemIdSlot()
-        DispatchQueue.main.sync {
+        syncOnMainQueue {
             MainActor.assumeIsolated {
                 FeedCoordinator.shared.store.ingest(event)
                 itemIdSlot.value = FeedCoordinator.shared.store.items.last?.id
@@ -201,7 +209,7 @@ final class FeedCoordinator: @unchecked Sendable {
         if Thread.isMainThread {
             expire()
         } else {
-            DispatchQueue.main.sync(execute: expire)
+            syncOnMainQueue(expire)
         }
     }
 
@@ -247,7 +255,7 @@ extension FeedCoordinator {
         if Thread.isMainThread {
             body()
         } else {
-            DispatchQueue.main.sync(execute: body)
+            FeedCoordinator.shared.syncOnMainQueue(body)
         }
         return slot.value
     }

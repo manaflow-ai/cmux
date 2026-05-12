@@ -5454,6 +5454,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         if sizeChanged {
+            if searchState != nil {
+#if DEBUG
+                cmuxDebugLog(
+                    "find.searchState clearedForResize tab=\(tabId.uuidString.prefix(5)) " +
+                    "surface=\(id.uuidString.prefix(5)) size=\(wpx)x\(hpx)"
+                )
+#endif
+                searchState = nil
+            }
             ghostty_surface_set_size(surface, wpx, hpx)
             lastPixelWidth = wpx
             lastPixelHeight = hpx
@@ -6178,6 +6187,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var visibleInUI: Bool = true
     private var pendingSurfaceSize: CGSize?
     private var deferredSurfaceSizeRetryQueued = false
+    private var postMoveGeometryRefreshQueued = false
+    private var postMoveGeometryRefreshGeneration: UInt64 = 0
     private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
 #if DEBUG
@@ -6410,6 +6421,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             NotificationCenter.default.removeObserver(windowObserver)
             self.windowObserver = nil
         }
+        if window == nil {
+            removePointerTrackingArea()
+        }
         // Balance the cursor stack if the view is removed while hover is active
         if wordPathHoverActive {
             wordPathHoverActive = false
@@ -6451,19 +6465,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ghostty_surface_set_display_id(surface, displayID)
         }
 
-        // Recompute from current bounds after layout. Pending size is only a fallback
-        // when we don't have usable bounds (e.g. detached/off-window transitions).
-        superview?.layoutSubtreeIfNeeded()
-        layoutSubtreeIfNeeded()
-        updateSurfaceSize()
-        applySurfaceBackground()
-        applySurfaceColorScheme(force: true)
-        GhosttyApp.shared.synchronizeThemeWithAppearance(
-            effectiveAppearance,
-            source: "surface.viewDidMoveToWindow"
-        )
-        applyWindowBackgroundIfActive()
-        invalidateTextInputCoordinates()
+        schedulePostMoveGeometryRefresh(for: window)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -6496,6 +6498,39 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         updateSurfaceSize()
         invalidateTextInputCoordinates()
+    }
+
+    private func schedulePostMoveGeometryRefresh(for targetWindow: NSWindow) {
+        postMoveGeometryRefreshGeneration &+= 1
+        let generation = postMoveGeometryRefreshGeneration
+        if postMoveGeometryRefreshQueued { return }
+        postMoveGeometryRefreshQueued = true
+        DispatchQueue.main.async { [weak self, weak targetWindow] in
+            guard let self else { return }
+            self.postMoveGeometryRefreshQueued = false
+            guard generation == self.postMoveGeometryRefreshGeneration else {
+                if let window = self.window {
+                    self.schedulePostMoveGeometryRefresh(for: window)
+                }
+                return
+            }
+            guard let targetWindow, self.window === targetWindow else { return }
+
+            // Recompute from settled bounds after AppKit finishes the move-to-window
+            // lifecycle turn. Forcing layout directly inside viewDidMoveToWindow can
+            // recurse through NSHostingView during portal reparent/layout churn.
+            self.superview?.layoutSubtreeIfNeeded()
+            self.layoutSubtreeIfNeeded()
+            self.updateSurfaceSize()
+            self.applySurfaceBackground()
+            self.applySurfaceColorScheme(force: true)
+            GhosttyApp.shared.synchronizeThemeWithAppearance(
+                self.effectiveAppearance,
+                source: "surface.viewDidMoveToWindow"
+            )
+            self.applyWindowBackgroundIfActive()
+            self.invalidateTextInputCoordinates()
+        }
     }
 
     override func layout() {
@@ -9249,18 +9284,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let windowObserver {
             NotificationCenter.default.removeObserver(windowObserver)
         }
-        if let trackingArea {
-            removeTrackingArea(trackingArea)
-        }
+        removePointerTrackingArea()
         terminalSurface = nil
     }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
 
-        if let trackingArea {
-            removeTrackingArea(trackingArea)
-        }
+        removePointerTrackingArea()
 
         trackingArea = NSTrackingArea(
             rect: bounds,
@@ -9276,6 +9307,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         if let trackingArea {
             addTrackingArea(trackingArea)
+        }
+    }
+
+    private func removePointerTrackingArea() {
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+            self.trackingArea = nil
         }
     }
 
@@ -9930,6 +9968,29 @@ final class GhosttySurfaceScrollView: NSView {
         )
     }
 
+    private static func renderedSymbolImage(
+        systemName: String,
+        configuration: NSImage.SymbolConfiguration,
+        size: NSSize,
+        tintColor: NSColor
+    ) -> NSImage? {
+        assert(Thread.isMainThread, "AppKit image rendering must run on the main thread")
+        guard let symbol = NSImage(systemSymbolName: systemName, accessibilityDescription: nil)?
+            .withSymbolConfiguration(configuration) else {
+            return nil
+        }
+
+        let image = NSImage(size: size)
+        let rect = NSRect(origin: .zero, size: size)
+        image.lockFocus()
+        symbol.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        tintColor.setFill()
+        rect.fill(using: .sourceIn)
+        image.unlockFocus()
+        image.isTemplate = false
+        return image
+    }
+
     init(surfaceView: GhosttyNSView) {
         #if DEBUG
         dispatchPrecondition(condition: .onQueue(.main))
@@ -10041,16 +10102,18 @@ final class GhosttySurfaceScrollView: NSView {
         keyboardCopyModeBadgeView.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
         keyboardCopyModeBadgeView.alphaValue = 0.97
         keyboardCopyModeBadgeIconView.translatesAutoresizingMaskIntoConstraints = false
-        keyboardCopyModeBadgeIconView.symbolConfiguration = NSImage.SymbolConfiguration(
+        let keyboardCopyModeBadgeSymbolConfiguration = NSImage.SymbolConfiguration(
             pointSize: 13,
             weight: .regular,
             scale: .medium
         )
-        keyboardCopyModeBadgeIconView.image = NSImage(
-            systemSymbolName: "keyboard.badge.ellipsis",
-            accessibilityDescription: terminalKeyTableIndicatorAccessibilityLabel
+        keyboardCopyModeBadgeIconView.image = Self.renderedSymbolImage(
+            systemName: "keyboard.badge.ellipsis",
+            configuration: keyboardCopyModeBadgeSymbolConfiguration,
+            size: NSSize(width: 18, height: 18),
+            tintColor: NSColor.secondaryLabelColor
         )
-        keyboardCopyModeBadgeIconView.contentTintColor = NSColor.secondaryLabelColor
+        keyboardCopyModeBadgeIconView.setAccessibilityLabel(terminalKeyTableIndicatorAccessibilityLabel)
         keyboardCopyModeBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
         keyboardCopyModeBadgeLabel.textColor = NSColor.labelColor
         keyboardCopyModeBadgeLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
@@ -10277,6 +10340,7 @@ final class GhosttySurfaceScrollView: NSView {
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         deferredSearchOverlayMutationWorkItem?.cancel()
         imageTransferIndicatorShowWorkItem?.cancel()
+        removeScrollbarTrackingArea()
         dropZoneOverlayView.removeFromSuperview()
         cancelFocusRequest()
     }
@@ -10294,10 +10358,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     override func updateTrackingAreas() {
-        if let scrollbarTrackingArea {
-            removeTrackingArea(scrollbarTrackingArea)
-            self.scrollbarTrackingArea = nil
-        }
+        removeScrollbarTrackingArea()
 
         super.updateTrackingAreas()
 
@@ -10315,6 +10376,13 @@ final class GhosttySurfaceScrollView: NSView {
         )
         addTrackingArea(trackingArea)
         scrollbarTrackingArea = trackingArea
+    }
+
+    private func removeScrollbarTrackingArea() {
+        if let scrollbarTrackingArea {
+            removeTrackingArea(scrollbarTrackingArea)
+            self.scrollbarTrackingArea = nil
+        }
     }
 
     override func layout() {
@@ -10556,7 +10624,10 @@ final class GhosttySurfaceScrollView: NSView {
         super.viewDidMoveToWindow()
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.removeAll()
-        guard let window else { return }
+        guard let window else {
+            removeScrollbarTrackingArea()
+            return
+        }
         windowObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: window,
@@ -13257,6 +13328,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let instanceSerial: UInt64
         private(set) var geometryRevision: UInt64 = 0
         private var lastReportedGeometryState: GeometryState?
+        private var hasPendingGeometryNotification = false
 
         override init(frame frameRect: NSRect) {
             Self.nextInstanceSerial &+= 1
@@ -13284,7 +13356,16 @@ struct GhosttyTerminalView: NSViewRepresentable {
             )
         }
 
-        private func notifyGeometryChangedIfNeeded() {
+        private func scheduleGeometryNotification() {
+            guard !hasPendingGeometryNotification else { return }
+            hasPendingGeometryNotification = true
+            DispatchQueue.main.async { [weak self] in
+                self?.flushGeometryNotificationIfNeeded()
+            }
+        }
+
+        private func flushGeometryNotificationIfNeeded() {
+            hasPendingGeometryNotification = false
             let state = currentGeometryState()
             guard state != lastReportedGeometryState else { return }
             lastReportedGeometryState = state
@@ -13294,28 +13375,30 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            onDidMoveToWindow?()
-            notifyGeometryChangedIfNeeded()
+            DispatchQueue.main.async { [weak self] in
+                self?.onDidMoveToWindow?()
+            }
+            scheduleGeometryNotification()
         }
 
         override func viewDidMoveToSuperview() {
             super.viewDidMoveToSuperview()
-            notifyGeometryChangedIfNeeded()
+            scheduleGeometryNotification()
         }
 
         override func layout() {
             super.layout()
-            notifyGeometryChangedIfNeeded()
+            scheduleGeometryNotification()
         }
 
         override func setFrameOrigin(_ newOrigin: NSPoint) {
             super.setFrameOrigin(newOrigin)
-            notifyGeometryChangedIfNeeded()
+            scheduleGeometryNotification()
         }
 
         override func setFrameSize(_ newSize: NSSize) {
             super.setFrameSize(newSize)
-            notifyGeometryChangedIfNeeded()
+            scheduleGeometryNotification()
         }
     }
 

@@ -973,6 +973,7 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
         private var isTrackingMouseMovedEvents = false
 
         deinit {
+            removeHoverTrackingArea()
             removeLocalMouseMonitor()
             stopMouseMovedTracking()
         }
@@ -1001,6 +1002,7 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
                 updateHoverFromCurrentMouseLocation()
                 recordFrameForUITest()
             } else {
+                removeHoverTrackingArea()
                 stopMouseMovedTracking()
                 removeLocalMouseMonitor()
                 emitHoverChanged(false)
@@ -1032,9 +1034,7 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
 
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
-            if let trackingArea {
-                removeTrackingArea(trackingArea)
-            }
+            removeHoverTrackingArea()
             let area = NSTrackingArea(
                 rect: bounds,
                 options: [.mouseEnteredAndExited, .mouseMoved, .activeInActiveApp, .inVisibleRect],
@@ -1042,6 +1042,13 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
             )
             addTrackingArea(area)
             trackingArea = area
+        }
+
+        private func removeHoverTrackingArea() {
+            if let trackingArea {
+                removeTrackingArea(trackingArea)
+                self.trackingArea = nil
+            }
         }
 
         override func mouseEntered(with event: NSEvent) {

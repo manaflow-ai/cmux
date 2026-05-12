@@ -75,9 +75,7 @@ final class SidebarWorkspaceRowHoverTrackingView: NSView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let trackingArea {
-            removeTrackingArea(trackingArea)
-        }
+        removeHoverTrackingArea()
         let nextTrackingArea = NSTrackingArea(
             rect: .zero,
             options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
@@ -91,6 +89,10 @@ final class SidebarWorkspaceRowHoverTrackingView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if window == nil {
+            removeHoverTrackingArea()
+            reportPointerHovering(false)
+        }
         refreshMenuTrackingObservers()
         reconcileCurrentPointerLocation()
     }
@@ -108,11 +110,19 @@ final class SidebarWorkspaceRowHoverTrackingView: NSView {
     }
 
     deinit {
+        removeHoverTrackingArea()
         if let menuBeginObserver {
             NotificationCenter.default.removeObserver(menuBeginObserver)
         }
         if let menuEndObserver {
             NotificationCenter.default.removeObserver(menuEndObserver)
+        }
+    }
+
+    private func removeHoverTrackingArea() {
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+            self.trackingArea = nil
         }
     }
 

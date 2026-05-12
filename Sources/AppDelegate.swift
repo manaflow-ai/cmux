@@ -3534,7 +3534,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         currentFingerprint: Int?,
         lastPersistedAt: Date,
         now: Date,
-        maximumAutosaveSkippableInterval: TimeInterval = 60
+        maximumAutosaveSkippableInterval: TimeInterval? = nil
     ) -> Bool {
         guard !isTerminatingApp,
               !includeScrollback,
@@ -3544,6 +3544,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        guard let maximumAutosaveSkippableInterval else {
+            return true
+        }
         return now.timeIntervalSince(lastPersistedAt) < maximumAutosaveSkippableInterval
     }
 

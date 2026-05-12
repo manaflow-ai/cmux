@@ -37,15 +37,14 @@ final class WindowTerminalHostView: NSView {
 #endif
 
     deinit {
-        if let trackingArea {
-            removeTrackingArea(trackingArea)
-        }
+        removePointerTrackingArea()
         clearActiveDividerCursor(restoreArrow: false)
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
+            removePointerTrackingArea()
             clearActiveDividerCursor(restoreArrow: false)
         }
         window?.invalidateCursorRects(for: self)
@@ -81,9 +80,7 @@ final class WindowTerminalHostView: NSView {
     }
 
     override func updateTrackingAreas() {
-        if let trackingArea {
-            removeTrackingArea(trackingArea)
-        }
+        removePointerTrackingArea()
         let options: NSTrackingArea.Options = [
             .inVisibleRect,
             .activeAlways,
@@ -96,6 +93,13 @@ final class WindowTerminalHostView: NSView {
         addTrackingArea(next)
         trackingArea = next
         super.updateTrackingAreas()
+    }
+
+    private func removePointerTrackingArea() {
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+            self.trackingArea = nil
+        }
     }
 
     override func cursorUpdate(with event: NSEvent) {

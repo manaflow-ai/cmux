@@ -213,12 +213,16 @@ public enum AgentLaunchSanitizer {
     private static func isClaudeHookSettingsOption(_ args: [String], index: Int) -> Bool {
         let arg = args[index]
         if arg.hasPrefix("--settings=") {
-            return arg.contains("claude-hook") || arg.contains("hooks claude")
+            return arg.contains("claude-hook")
+                || arg.contains("hooks claude")
+                || arg.contains("__hot-path hook claude")
         }
         guard arg == "--settings", index + 1 < args.count else {
             return false
         }
-        return args[index + 1].contains("claude-hook") || args[index + 1].contains("hooks claude")
+        return args[index + 1].contains("claude-hook")
+            || args[index + 1].contains("hooks claude")
+            || args[index + 1].contains("__hot-path hook claude")
     }
 
     private static func isOpenCodeInternalWorkerArgument(_ value: String) -> Bool {

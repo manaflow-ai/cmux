@@ -124,13 +124,24 @@ _cmux_ports_kick_via_relay() {
     local reason="${1:-command}"
     _cmux_socket_uses_remote_relay || return 1
     local workspace_id=""
+    local relay_cli=""
+    local tty_name_json=""
     workspace_id="$(_cmux_relay_workspace_id)" || return 1
+    relay_cli="$(_cmux_relay_cli_path)" || return 1
     local params="{\"workspace_id\":\"$workspace_id\",\"reason\":\"$reason\""
     if [[ -n "$CMUX_PANEL_ID" ]]; then
         params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
     fi
+    if [[ -n "$_CMUX_TTY_NAME" && "$_CMUX_TTY_REPORTED" != "1" ]]; then
+        tty_name_json="$(_cmux_json_escape "$_CMUX_TTY_NAME")"
+        params+=",\"tty_name\":\"$tty_name_json\""
+    fi
     params+="}"
-    _cmux_relay_rpc_bg "surface.ports_kick" "$params"
+    {
+        "$relay_cli" __hot-path rpc surface.telemetry "$params" >/dev/null 2>&1 || true
+    } >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+    [[ -n "$_CMUX_TTY_NAME" ]] && _CMUX_TTY_REPORTED=1
 }
 
 _cmux_restore_scrollback_once() {
@@ -408,7 +419,7 @@ _cmux_report_shell_activity_state() {
 _cmux_ports_kick() {
     local reason="${1:-command}"
     # Lightweight: just tell the app to run a batched scan for this panel.
-    # The app coalesces kicks across all panels and runs a single ps+lsof.
+    # The app coalesces kicks across all panels and scans the process table once.
     _cmux_has_port_scan_transport || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     if _cmux_socket_is_unix; then
@@ -422,6 +433,19 @@ _cmux_ports_kick() {
     else
         _cmux_ports_kick_via_relay "$reason"
     fi
+}
+
+_cmux_ports_kick_for_command() {
+    local now
+    now="$(_cmux_now)"
+
+    # Command-start kicks trigger a 10s app-side scan burst. During heavy
+    # agent loops, firing one for every preexec just chains redundant bursts.
+    if [[ "${_CMUX_PORTS_LAST_RUN:-0}" != "0" ]] && (( now - _CMUX_PORTS_LAST_RUN < 3 )); then
+        return 0
+    fi
+
+    _cmux_ports_kick command
 }
 
 _cmux_clear_pr_for_panel() {
@@ -739,24 +763,16 @@ _cmux_report_pr_for_path() {
     _cmux_send "report_pr $number $url $status_opt --branch=\"$quoted_branch\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
 }
 
-_cmux_child_pids() {
-    local parent_pid="$1"
-    [[ -n "$parent_pid" ]] || return 0
-    /bin/ps -ax -o pid= -o ppid= 2>/dev/null | /usr/bin/awk -v parent="$parent_pid" '$2 == parent { print $1 }'
-}
-
 _cmux_kill_process_tree() {
     local pid="$1"
     local signal="${2:-TERM}"
-    local child_pid=""
     [[ -n "$pid" ]] || return 0
 
-    while IFS= read -r child_pid; do
-        [[ -n "$child_pid" ]] || continue
-        [[ "$child_pid" == "$pid" ]] && continue
-        _cmux_kill_process_tree "$child_pid" "$signal"
-    done < <(_cmux_child_pids "$pid")
-
+    # Background probe jobs are process-group leaders in interactive shells.
+    # Kill the group first to reap gh/git descendants without spawning a
+    # process-table scan;
+    # fall back to the direct PID for shells without a separate process group.
+    kill "-$signal" -- "-$pid" >/dev/null 2>&1 || true
     kill "-$signal" "$pid" >/dev/null 2>&1 || true
 }
 
@@ -797,8 +813,8 @@ _cmux_run_pr_probe_with_timeout() {
 _cmux_halt_pr_poll_loop() {
     if [[ -n "$_CMUX_PR_POLL_PID" ]]; then
         # Process-group kill: background jobs are process-group leaders, so
-        # negative PID kills the loop + all descendants (gh, sleep) without
-        # the synchronous /bin/ps + awk of tree-kill (~5-13ms).
+        # negative PID kills the loop + all descendants (gh, sleep) without a
+        # synchronous process-table scan.
         kill -KILL -- -"$_CMUX_PR_POLL_PID" 2>/dev/null || true
     fi
     local signal_path=""
@@ -934,8 +950,10 @@ _cmux_preexec_command() {
     fi
 
     _cmux_report_shell_activity_state running
-    _cmux_report_tty_once
-    _cmux_ports_kick command
+    if _cmux_socket_is_unix; then
+        _cmux_report_tty_once
+    fi
+    _cmux_ports_kick_for_command
     _cmux_halt_pr_poll_loop
     if _cmux_command_starts_nested_shell "$cmd"; then
         return 0

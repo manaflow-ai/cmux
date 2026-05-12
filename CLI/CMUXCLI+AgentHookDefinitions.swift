@@ -13,13 +13,13 @@ extension CMUXCLI {
         let configDirEnvOverride: String? // e.g. "CODEX_HOME" overrides configDir
         let sessionStoreSuffix: String // e.g. "cursor" -> ~/.cmuxterm/cursor-hook-sessions.json
         let disableEnvVar: String   // e.g. "CMUX_CURSOR_HOOKS_DISABLED"
-        let hookMarker: String      // Marker in commands: "cmux hooks cursor"
+        let hookMarker: String      // Legacy marker in commands: "cmux hooks cursor"
         let binaryName: String
         let format: HookFormat
         let events: [HookEvent]
         let aliases: Set<String>
         /// Feed-hook events. Each entry installs a second hook for
-        /// `agentEvent` that invokes `cmux hooks feed --source <name>`
+        /// `agentEvent` that invokes `cmux __hot-path hook feed --source <name>`
         /// with a 120s timeout so the socket reply wait doesn't trip the
         /// agent's default hook timeout when the user takes time to
         /// approve/deny a permission / plan / question.
@@ -239,7 +239,10 @@ extension CMUXCLI {
     }
 
     static func hookMarkers(for def: AgentHookDef) -> [String] {
-        var markers = [def.hookMarker]
+        var markers = [
+            def.hookMarker,
+            "cmux __hot-path hook \(def.name)",
+        ]
         if def.name == "codex" {
             markers.append("cmux codex-hook")
         }
@@ -249,7 +252,10 @@ extension CMUXCLI {
     /// Marker substrings used when removing / upgrading our own Feed bridge
     /// entries on reinstall or uninstall.
     static func feedHookMarkers(for def: AgentHookDef) -> [String] {
-        var markers = ["cmux hooks feed --source"]
+        var markers = [
+            "cmux hooks feed --source",
+            "cmux __hot-path hook feed --source",
+        ]
         if def.name == "codex" {
             markers.append("cmux feed-hook --source")
         }

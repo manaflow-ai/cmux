@@ -2729,6 +2729,35 @@ final class BrowserPanel: Panel, ObservableObject {
         setupReactGrabMessageHandler(for: webView)
     }
 
+    private func tearDownWebViewForLifecycle(
+        _ targetWebView: WKWebView,
+        reason: String,
+        detachFromPortal: Bool = true
+    ) {
+        if detachFromPortal {
+            BrowserWindowPortalRegistry.detach(webView: targetWebView)
+        }
+        targetWebView.removeFromSuperview()
+        targetWebView.stopLoading()
+        targetWebView.navigationDelegate = nil
+        targetWebView.uiDelegate = nil
+        if targetWebView === webView {
+            tearDownReactGrabMessageHandler(from: targetWebView)
+        }
+        if let targetCmuxWebView = targetWebView as? CmuxWebView {
+            targetCmuxWebView.onContextMenuDownloadStateChanged = nil
+            targetCmuxWebView.onContextMenuOpenLinkInNewTab = nil
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "browser.webview.teardown panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) web=\(ObjectIdentifier(targetWebView)) " +
+            "detached=\(detachFromPortal ? 1 : 0) " +
+            "hasSuperview=\(targetWebView.superview != nil ? 1 : 0)"
+        )
+#endif
+    }
+
     private func configureNavigationDelegateCallbacks() {
         guard let navigationDelegate else { return }
         let boundWebViewInstanceID = webViewInstanceID
@@ -3043,13 +3072,7 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconTask?.cancel()
         faviconTask = nil
         faviconRefreshGeneration &+= 1
-        BrowserWindowPortalRegistry.detach(webView: previousWebView)
-        previousWebView.stopLoading()
-        previousWebView.navigationDelegate = nil
-        previousWebView.uiDelegate = nil
-        if let previousCmuxWebView = previousWebView as? CmuxWebView {
-            previousCmuxWebView.onContextMenuDownloadStateChanged = nil
-        }
+        tearDownWebViewForLifecycle(previousWebView, reason: "profileSwitch")
 
         profileID = resolvedProfileID
         historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
@@ -3399,13 +3422,7 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconTask?.cancel()
         faviconTask = nil
         faviconRefreshGeneration &+= 1
-        BrowserWindowPortalRegistry.detach(webView: oldWebView)
-        oldWebView.stopLoading()
-        oldWebView.navigationDelegate = nil
-        oldWebView.uiDelegate = nil
-        if let oldCmuxWebView = oldWebView as? CmuxWebView {
-            oldCmuxWebView.onContextMenuDownloadStateChanged = nil
-        }
+        tearDownWebViewForLifecycle(oldWebView, reason: reason)
 
         let replacement = Self.makeWebView(
             profileID: profileID,
@@ -3543,15 +3560,16 @@ final class BrowserPanel: Panel, ObservableObject {
             popup.closePopup()
         }
 
-        webView.stopLoading()
-        webView.navigationDelegate = nil
-        webView.uiDelegate = nil
+        tearDownWebViewForLifecycle(webView, reason: "panel.close")
         navigationDelegate = nil
         uiDelegate = nil
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         faviconTask?.cancel()
         faviconTask = nil
+        activePortalHostLease = nil
+        pendingDistinctPortalHostReplacementPaneId = nil
+        lockedPortalHost = nil
     }
 
     // MARK: - Popup window management
@@ -4182,8 +4200,17 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         let webView = webView
-        Task { @MainActor in
+        Task { @MainActor [webView] in
             BrowserWindowPortalRegistry.detach(webView: webView)
+            webView.removeFromSuperview()
+            webView.stopLoading()
+            webView.navigationDelegate = nil
+            webView.uiDelegate = nil
+            BrowserPanel.removeReactGrabMessageHandler(from: webView)
+            if let cmuxWebView = webView as? CmuxWebView {
+                cmuxWebView.onContextMenuDownloadStateChanged = nil
+                cmuxWebView.onContextMenuOpenLinkInNewTab = nil
+            }
         }
     }
 }
@@ -4273,13 +4300,7 @@ extension BrowserPanel {
         let oldWebView = webView
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
-        BrowserWindowPortalRegistry.detach(webView: oldWebView)
-        oldWebView.stopLoading()
-        oldWebView.navigationDelegate = nil
-        oldWebView.uiDelegate = nil
-        if let oldCmuxWebView = oldWebView as? CmuxWebView {
-            oldCmuxWebView.onContextMenuDownloadStateChanged = nil
-        }
+        tearDownWebViewForLifecycle(oldWebView, reason: "contextReset:\(reason)")
 
         let replacement = Self.makeWebView(
             profileID: profileID,

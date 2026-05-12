@@ -145,10 +145,9 @@ extension CMUXCLI {
     }
 
     func tmuxWriteDebugDiagnostic(_ message: String) {
-        guard tmuxDebugDiagnosticsEnabled(),
-              let data = "[cmux] \(message)\n".data(using: .utf8) else {
+        guard tmuxDebugDiagnosticsEnabled() else {
             return
         }
-        FileHandle.standardError.write(data)
+        CMUXCLIOutput.writeStandardError("[cmux] \(message)\n")
     }
 }

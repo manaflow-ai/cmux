@@ -171,7 +171,6 @@ private extension NSDockTile {
         CmuxDockTilePlugin.assertMainQueue()
 
         let iconView = NSImageView(frame: CGRect(origin: .zero, size: size))
-        iconView.wantsLayer = true
         iconView.image = newIcon
         contentView = iconView
         display()

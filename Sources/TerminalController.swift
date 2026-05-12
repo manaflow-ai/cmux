@@ -180,6 +180,7 @@ class TerminalController {
         .pane: [:],
         .surface: [:],
     ]
+    private let v2HandleRefLock = NSLock()
 
     private struct V2BrowserElementRefEntry {
         let surfaceId: UUID
@@ -220,11 +221,7 @@ class TerminalController {
             v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
             v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
             v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
-
-            if let surfaceRef = v2RefByUUID[.surface]?[surfaceId] {
-                v2UUIDByRef[.surface]?.removeValue(forKey: surfaceRef)
-            }
-            v2RefByUUID[.surface]?.removeValue(forKey: surfaceId)
+            v2RemoveHandleRef(kind: .surface, uuid: surfaceId)
         }
     }
 
@@ -2566,6 +2563,8 @@ class TerminalController {
             return v2Result(id: id, self.v2SurfaceReportShellState(params: params))
         case "surface.ports_kick":
             return v2Result(id: id, self.v2SurfacePortsKick(params: params))
+        case "surface.telemetry":
+            return v2Result(id: id, self.v2SurfaceTelemetry(params: params))
         case "surface.clear_history":
             return v2Result(id: id, self.v2SurfaceClearHistory(params: params))
         case "surface.trigger_flash":
@@ -2944,6 +2943,7 @@ class TerminalController {
             "surface.report_tty",
             "surface.report_shell_state",
             "surface.ports_kick",
+            "surface.telemetry",
             "surface.read_text",
             "surface.clear_history",
             "surface.trigger_flash",
@@ -3938,14 +3938,30 @@ class TerminalController {
         return s
     }
 
-    private func v2EnsureHandleRef(kind: V2HandleKind, uuid: UUID) -> String {
-        if let existing = v2RefByUUID[kind]?[uuid] {
-            return existing
-        }
-        let next = v2NextHandleOrdinal[kind] ?? 1
-        let ref = "\(kind.rawValue):\(next)"
+    private func withV2HandleRefs<T>(_ body: () -> T) -> T {
+        v2HandleRefLock.lock()
+        defer { v2HandleRefLock.unlock() }
+        return body()
+    }
+
+    private func v2EnsureHandleRefLocked(kind: V2HandleKind, uuid: UUID) -> String {
         var byUUID = v2RefByUUID[kind] ?? [:]
         var byRef = v2UUIDByRef[kind] ?? [:]
+
+        if let existing = byUUID[uuid], byRef[existing] == uuid {
+            return existing
+        }
+        if let stale = byUUID[uuid] {
+            byRef.removeValue(forKey: stale)
+            byUUID.removeValue(forKey: uuid)
+        }
+
+        var next = v2NextHandleOrdinal[kind] ?? 1
+        var ref = "\(kind.rawValue):\(next)"
+        while byRef[ref] != nil {
+            next += 1
+            ref = "\(kind.rawValue):\(next)"
+        }
         byUUID[uuid] = ref
         byRef[ref] = uuid
         v2RefByUUID[kind] = byUUID
@@ -3954,20 +3970,66 @@ class TerminalController {
         return ref
     }
 
-    func v2ResolveHandleRef(_ handle: String) -> UUID? {
-        for kind in V2HandleKind.allCases {
-            if let id = v2UUIDByRef[kind]?[handle] {
-                return id
+    private func v2EnsureHandleRef(kind: V2HandleKind, uuid: UUID) -> String {
+        withV2HandleRefs {
+            v2EnsureHandleRefLocked(kind: kind, uuid: uuid)
+        }
+    }
+
+    private func v2RemoveHandleRef(kind: V2HandleKind, uuid: UUID) {
+        withV2HandleRefs {
+            var byUUID = v2RefByUUID[kind] ?? [:]
+            var byRef = v2UUIDByRef[kind] ?? [:]
+            if let ref = byUUID.removeValue(forKey: uuid) {
+                byRef.removeValue(forKey: ref)
+            }
+            v2RefByUUID[kind] = byUUID
+            v2UUIDByRef[kind] = byRef
+        }
+    }
+
+    private func v2ReconcileHandleRefs(validIDsByKind: [V2HandleKind: Set<UUID>]) {
+        withV2HandleRefs {
+            for kind in V2HandleKind.allCases {
+                let validIDs = validIDsByKind[kind] ?? []
+                var byUUID = v2RefByUUID[kind] ?? [:]
+                var byRef = v2UUIDByRef[kind] ?? [:]
+
+                for uuid in Array(byUUID.keys) where !validIDs.contains(uuid) {
+                    if let ref = byUUID.removeValue(forKey: uuid) {
+                        byRef.removeValue(forKey: ref)
+                    }
+                }
+                for (ref, uuid) in Array(byRef) where !validIDs.contains(uuid) || byUUID[uuid] != ref {
+                    byRef.removeValue(forKey: ref)
+                }
+
+                v2RefByUUID[kind] = byUUID
+                v2UUIDByRef[kind] = byRef
+
+                for uuid in validIDs {
+                    _ = v2EnsureHandleRefLocked(kind: kind, uuid: uuid)
+                }
             }
         }
-        // Tab refs are aliases for surface refs in tab-facing APIs.
-        let trimmed = handle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if trimmed.hasPrefix("tab:"),
-           let ordinal = Int(trimmed.replacingOccurrences(of: "tab:", with: "")),
-           let id = v2UUIDByRef[.surface]?["surface:\(ordinal)"] {
-            return id
+    }
+
+    func v2ResolveHandleRef(_ handle: String) -> UUID? {
+        withV2HandleRefs {
+            for kind in V2HandleKind.allCases {
+                if let id = v2UUIDByRef[kind]?[handle] {
+                    return id
+                }
+            }
+            // Tab refs are aliases for surface refs in tab-facing APIs.
+            let trimmed = handle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if trimmed.hasPrefix("tab:"),
+               let ordinal = Int(trimmed.replacingOccurrences(of: "tab:", with: "")),
+               let id = v2UUIDByRef[.surface]?["surface:\(ordinal)"] {
+                return id
+            }
+            return nil
         }
-        return nil
     }
 
     func v2Ref(kind: V2HandleKind, uuid: UUID?) -> Any {
@@ -4046,23 +4108,34 @@ class TerminalController {
     }
 
     private func v2RefreshKnownRefs() {
-        guard let app = AppDelegate.shared else { return }
+        let validIDsByKind = v2MainSync { () -> [V2HandleKind: Set<UUID>]? in
+            guard let app = AppDelegate.shared else { return nil }
 
-        let windows = app.listMainWindowSummaries()
-        for item in windows {
-            _ = v2EnsureHandleRef(kind: .window, uuid: item.windowId)
-            if let tm = app.tabManagerFor(windowId: item.windowId) {
-                for ws in tm.tabs {
-                    _ = v2EnsureHandleRef(kind: .workspace, uuid: ws.id)
-                    for paneId in ws.bonsplitController.allPaneIds {
-                        _ = v2EnsureHandleRef(kind: .pane, uuid: paneId.id)
-                    }
-                    for panelId in ws.panels.keys {
-                        _ = v2EnsureHandleRef(kind: .surface, uuid: panelId)
+            var validIDsByKind: [V2HandleKind: Set<UUID>] = [
+                .window: [],
+                .workspace: [],
+                .pane: [],
+                .surface: [],
+            ]
+            let windows = app.listMainWindowSummaries()
+            for item in windows {
+                validIDsByKind[.window]?.insert(item.windowId)
+                if let tm = app.tabManagerFor(windowId: item.windowId) {
+                    for ws in tm.tabs {
+                        validIDsByKind[.workspace]?.insert(ws.id)
+                        for paneId in ws.bonsplitController.allPaneIds {
+                            validIDsByKind[.pane]?.insert(paneId.id)
+                        }
+                        for panelId in ws.panels.keys {
+                            validIDsByKind[.surface]?.insert(panelId)
+                        }
                     }
                 }
             }
+            return validIDsByKind
         }
+        guard let validIDsByKind else { return }
+        v2ReconcileHandleRefs(validIDsByKind: validIDsByKind)
     }
 
     // MARK: - V2 Context Resolution
@@ -5070,6 +5143,130 @@ class TerminalController {
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
                 "relay_port": relayPort,
                 "remote": workspace.remoteStatusPayload(),
+            ])
+        }
+
+        return result
+    }
+
+    private func v2SurfaceTelemetry(params: [String: Any]) -> V2CallResult {
+        guard let workspaceId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let requestedSurfaceId = v2UUID(params, "surface_id")
+        if v2HasNonNullParam(params, "surface_id"), requestedSurfaceId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        let ttyName = v2RawString(params, "tty_name")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedTTYName = ttyName?.isEmpty == false ? ttyName : nil
+        let reason: WorkspaceRemoteSessionController.PortScanKickReason?
+        if let rawReason = v2RawString(params, "reason") {
+            guard let parsedReason = Self.parseRemotePortScanKickReason(rawReason) else {
+                return .err(code: "invalid_params", message: "reason must be command or refresh", data: nil)
+            }
+            reason = parsedReason
+        } else {
+            reason = nil
+        }
+
+        guard normalizedTTYName != nil || reason != nil else {
+            return .err(
+                code: "invalid_params",
+                message: "surface.telemetry requires tty_name and/or reason",
+                data: nil
+            )
+        }
+
+        var result: V2CallResult = .err(
+            code: "not_found",
+            message: "Workspace not found",
+            data: [
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                "surface_id": v2OrNull(requestedSurfaceId?.uuidString),
+                "surface_ref": v2Ref(kind: .surface, uuid: requestedSurfaceId),
+            ]
+        )
+
+        v2MainSync {
+            guard let tab = self.tabForSidebarMutation(id: workspaceId) else {
+                return
+            }
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let surfaceId = self.resolveReportedSurfaceId(
+                in: tab,
+                requestedSurfaceId: requestedSurfaceId,
+                validSurfaceIds: validSurfaceIds
+            )
+            guard let surfaceId, validSurfaceIds.contains(surfaceId) else {
+                if tab.isRemoteWorkspace, validSurfaceIds.isEmpty {
+                    if let normalizedTTYName {
+                        tab.rememberPendingRemoteSurfaceTTY(
+                            normalizedTTYName,
+                            requestedSurfaceId: requestedSurfaceId
+                        )
+                    }
+                    if let reason {
+                        tab.rememberPendingRemoteSurfacePortKick(
+                            reason: reason,
+                            requestedSurfaceId: requestedSurfaceId
+                        )
+                    }
+                    result = .ok([
+                        "workspace_id": workspaceId.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                        "surface_id": v2OrNull(requestedSurfaceId?.uuidString),
+                        "surface_ref": v2Ref(kind: .surface, uuid: requestedSurfaceId),
+                        "tty_name": v2OrNull(normalizedTTYName),
+                        "reason": v2OrNull(reason?.rawValue),
+                        "pending": true,
+                    ])
+                    return
+                }
+                result = .err(
+                    code: "not_found",
+                    message: "Surface not found",
+                    data: [
+                        "workspace_id": workspaceId.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                        "surface_id": v2OrNull(requestedSurfaceId?.uuidString),
+                        "surface_ref": v2Ref(kind: .surface, uuid: requestedSurfaceId),
+                    ]
+                )
+                return
+            }
+
+            if let normalizedTTYName {
+                tab.surfaceTTYNames[surfaceId] = normalizedTTYName
+                if tab.isRemoteWorkspace {
+                    tab.syncRemotePortScanTTYs()
+                    _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)
+                } else {
+                    PortScanner.shared.registerTTY(
+                        workspaceId: workspaceId,
+                        panelId: surfaceId,
+                        ttyName: normalizedTTYName
+                    )
+                }
+            }
+
+            if let reason {
+                if tab.isRemoteWorkspace {
+                    tab.kickRemotePortScan(panelId: surfaceId, reason: reason)
+                } else {
+                    PortScanner.shared.kick(workspaceId: workspaceId, panelId: surfaceId)
+                }
+            }
+
+            result = .ok([
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "tty_name": v2OrNull(normalizedTTYName),
+                "reason": v2OrNull(reason?.rawValue),
             ])
         }
 

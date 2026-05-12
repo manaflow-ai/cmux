@@ -581,6 +581,20 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testUnchangedAutosaveFingerprintSkipsByDefaultUntilStateChanges() {
+        let now = Date()
+        XCTAssertTrue(
+            AppDelegate.shouldSkipSessionAutosaveForUnchangedFingerprint(
+                isTerminatingApp: false,
+                includeScrollback: false,
+                previousFingerprint: 1234,
+                currentFingerprint: 1234,
+                lastPersistedAt: now.addingTimeInterval(-86_400),
+                now: now
+            )
+        )
+    }
+
     func testUnchangedAutosaveFingerprintDoesNotSkipAfterStalenessWindow() {
         let now = Date()
         XCTAssertFalse(

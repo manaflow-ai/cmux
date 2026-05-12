@@ -4,7 +4,8 @@ import Foundation
 ///
 /// Each shell sends a lightweight `report_tty` + `ports_kick` over the socket.
 /// PortScanner coalesces kicks across all panels, then runs a single
-/// `ps -t <ttys>` + `lsof -p <pids>` covering every panel that needs scanning.
+/// libproc sweep (TTY to PIDs plus per-PID listening TCP ports) covering
+/// every panel that needs scanning.
 ///
 /// Kick → coalesce → burst flow:
 /// 1. `kick()` adds panel to `pendingKicks` set
@@ -193,8 +194,8 @@ final class PortScanner: @unchecked Sendable {
         let uniqueTTYs = Set(panelSnapshot.values)
         let ttyList = uniqueTTYs.joined(separator: ",")
 
-        // 1. ps -t tty1,tty2,... -o pid=,tty=
-        let pidToTTY = ttyList.isEmpty ? [:] : runPS(ttyList: ttyList)
+        // 1. Resolve TTY-owned PIDs.
+        let pidToTTY = ttyList.isEmpty ? [:] : scanPIDsByTTY(ttyList: ttyList)
         let agentPidToWorkspaces = expandAgentProcessTree(agentPIDsByWorkspace: agentPIDsByWorkspace)
 
         let allPids = Set(pidToTTY.keys).union(agentPidToWorkspaces.keys)
@@ -209,9 +210,9 @@ final class PortScanner: @unchecked Sendable {
             return
         }
 
-        // 2. lsof -nP -a -p <all_pids> -iTCP -sTCP:LISTEN -F pn
+        // 2. Resolve listening TCP ports for the candidate PIDs.
         let pidsCsv = allPids.sorted().map(String.init).joined(separator: ",")
-        let pidToPorts = runLsof(pidsCsv: pidsCsv)
+        let pidToPorts = scanListeningTCPPorts(pidsCsv: pidsCsv)
 
         // 3. Join: PID→TTY + PID→ports → TTY→ports
         var portsByTTY: [String: Set<Int>] = [:]
@@ -355,7 +356,7 @@ final class PortScanner: @unchecked Sendable {
         }
 
         let pidsCsv = agentPidToWorkspaces.keys.sorted().map(String.init).joined(separator: ",")
-        let pidToPorts = runLsof(pidsCsv: pidsCsv)
+        let pidToPorts = scanListeningTCPPorts(pidsCsv: pidsCsv)
         var agentPortsByWorkspace: [UUID: Set<Int>] = [:]
         for (pid, ports) in pidToPorts {
             guard let workspaceIdsForPid = agentPidToWorkspaces[pid] else { continue }
@@ -510,7 +511,7 @@ final class PortScanner: @unchecked Sendable {
             }
         }
 
-        let parentByPid = runAllProcesses()
+        let parentByPid = scanParentPIDs()
         guard !parentByPid.isEmpty else { return pidToWorkspaces }
 
         var childrenByParent: [Int: [Int]] = [:]
@@ -533,81 +534,19 @@ final class PortScanner: @unchecked Sendable {
         return pidToWorkspaces
     }
 
-    private func runPS(ttyList: String) -> [Int: String] {
-        // `ps -t tty1,tty2,... -o pid=,tty=` — targeted scan, much cheaper than -ax.
-        guard let output = Self.captureStandardOutput(
-            executablePath: "/bin/ps",
-            arguments: ["-t", ttyList, "-o", "pid=,tty="]
-        ) else {
-            return [:]
-        }
-
-        var mapping: [Int: String] = [:]
-        for line in output.split(separator: "\n") {
-            let parts = line.split(whereSeparator: \.isWhitespace)
-            guard parts.count >= 2,
-                  let pid = Int(parts[0]) else { continue }
-            mapping[pid] = String(parts[1])
-        }
-        return mapping
+    private func scanPIDsByTTY(ttyList: String) -> [Int: String] {
+        ProcessScanner.pidsByTTY(ttyList: ttyList)
     }
 
-    private func runAllProcesses() -> [Int: Int] {
-        guard let output = Self.captureStandardOutput(
-            executablePath: "/bin/ps",
-            arguments: ["-ax", "-o", "pid=,ppid="]
-        ) else {
-            return [:]
-        }
-
-        var mapping: [Int: Int] = [:]
-        for line in output.split(separator: "\n") {
-            let parts = line.split(whereSeparator: \.isWhitespace)
-            guard parts.count >= 2,
-                  let pid = Int(parts[0]),
-                  let parentPid = Int(parts[1]) else { continue }
-            mapping[pid] = parentPid
-        }
-        return mapping
+    private func scanParentPIDs() -> [Int: Int] {
+        ProcessScanner.parentByPid()
     }
 
-    private func runLsof(pidsCsv: String) -> [Int: Set<Int>] {
-        // `lsof -nP -a -p <pids> -iTCP -sTCP:LISTEN -F pn`
-        guard let output = Self.captureStandardOutput(
-            executablePath: "/usr/sbin/lsof",
-            arguments: ["-nP", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"]
-        ) else {
-            return [:]
-        }
-
-        // Parse lsof -F output: lines starting with 'p' = PID, 'n' = name (host:port).
-        var result: [Int: Set<Int>] = [:]
-        var currentPid: Int?
-        for line in output.split(separator: "\n") {
-            guard let first = line.first else { continue }
-            switch first {
-            case "p":
-                currentPid = Int(line.dropFirst())
-            case "n":
-                guard let pid = currentPid else { continue }
-                var name = String(line.dropFirst())
-                // Strip remote endpoint if present.
-                if let arrowIdx = name.range(of: "->") {
-                    name = String(name[..<arrowIdx.lowerBound])
-                }
-                // Port is after the last colon.
-                if let colonIdx = name.lastIndex(of: ":") {
-                    let portStr = name[name.index(after: colonIdx)...]
-                    // Strip anything non-numeric.
-                    let cleaned = portStr.prefix(while: \.isNumber)
-                    if let port = Int(cleaned), port > 0, port <= 65535 {
-                        result[pid, default: []].insert(port)
-                    }
-                }
-            default:
-                break
-            }
-        }
-        return result
+    private func scanListeningTCPPorts(pidsCsv: String) -> [Int: Set<Int>] {
+        let pids = pidsCsv
+            .split(separator: ",", omittingEmptySubsequences: true)
+            .compactMap { Int($0) }
+        guard !pids.isEmpty else { return [:] }
+        return ProcessScanner.listeningTCPPorts(forPIDs: pids)
     }
 }

@@ -4569,9 +4569,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         deinit {
             hostedInspectorReapplyWorkItem?.cancel()
             hostedInspectorDockConfigurationSyncWorkItem?.cancel()
-            if let trackingArea {
-                removeTrackingArea(trackingArea)
-            }
+            removePointerTrackingArea()
             clearActiveDividerCursor(restoreArrow: false)
         }
 
@@ -4847,19 +4845,21 @@ struct WebViewRepresentable: NSViewRepresentable {
         private func markGeometryDirtyIfNeeded() {
             let state = currentGeometryState()
             guard state != lastReportedGeometryState else { return }
+            scheduleGeometryNotification()
+        }
+
+        /// Fire geometry callbacks after AppKit finishes the current layout/lifecycle pass.
+        /// Direct callbacks from `layout()` can synchronously rebind portal/WebKit views,
+        /// which risks SwiftUI/AppKit reentrant layout during large workspace churn.
+        private func scheduleGeometryNotification() {
             guard !hasPendingGeometryNotification else { return }
             hasPendingGeometryNotification = true
             DispatchQueue.main.async { [weak self] in
-                self?.notifyGeometryChangedIfNeeded()
+                self?.flushGeometryNotificationIfNeeded()
             }
         }
 
-        /// Check for geometry changes and fire the callback. Also flushes any pending
-        /// dirty state from `markGeometryDirtyIfNeeded` so `layout()` supersedes the
-        /// async fallback.  Only updates `lastReportedGeometryState` / `geometryRevision`
-        /// when the callback is emitted, keeping the revision in sync with actual
-        /// notifications.
-        private func notifyGeometryChangedIfNeeded() {
+        private func flushGeometryNotificationIfNeeded() {
             hasPendingGeometryNotification = false
             let state = currentGeometryState()
             guard state != lastReportedGeometryState else { return }
@@ -5315,6 +5315,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if window == nil {
+                removePointerTrackingArea()
                 notifyHostedWebKitHidden(reason: "viewDidMoveToWindow")
                 clearActiveDividerCursor(restoreArrow: false)
             } else {
@@ -5326,8 +5327,10 @@ struct WebViewRepresentable: NSViewRepresentable {
                 )
             }
             window?.invalidateCursorRects(for: self)
-            onDidMoveToWindow?()
-            notifyGeometryChangedIfNeeded()
+            DispatchQueue.main.async { [weak self] in
+                self?.onDidMoveToWindow?()
+            }
+            scheduleGeometryNotification()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "viewDidMoveToWindow")
 #endif
@@ -5337,7 +5340,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             super.viewDidMoveToSuperview()
             scheduleHostedInspectorDividerReapply(reason: "viewDidMoveToSuperview")
             scheduleHostedInspectorDockConfigurationSync(reason: "viewDidMoveToSuperview")
-            notifyGeometryChangedIfNeeded()
+            scheduleGeometryNotification()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "viewDidMoveToSuperview")
 #endif
@@ -5348,7 +5351,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             _ = promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded()
             if enforceAdaptiveBottomDockIfNeeded(reason: "host.layout") {
                 updateHostedInspectorDockControlAvailabilityIfNeeded(reason: "host.layout")
-                notifyGeometryChangedIfNeeded()
+                scheduleGeometryNotification()
 #if DEBUG
                 debugLogHostedInspectorLayoutIfNeeded(reason: "layout")
 #endif
@@ -5367,7 +5370,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                     }
                 }
                 updateHostedInspectorDockControlAvailabilityIfNeeded(reason: "host.layout.sameSize")
-                notifyGeometryChangedIfNeeded()
+                scheduleGeometryNotification()
 #if DEBUG
                 debugLogHostedInspectorLayoutIfNeeded(reason: "layout")
 #endif
@@ -5383,7 +5386,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
             updateHostedInspectorDockControlAvailabilityIfNeeded(reason: "host.layout")
             scheduleHostedInspectorDockConfigurationSync(reason: "layout")
-            notifyGeometryChangedIfNeeded()
+            scheduleGeometryNotification()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "layout")
 #endif
@@ -5418,9 +5421,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         override func updateTrackingAreas() {
-            if let trackingArea {
-                removeTrackingArea(trackingArea)
-            }
+            removePointerTrackingArea()
             let options: NSTrackingArea.Options = [
                 .inVisibleRect,
                 .activeAlways,
@@ -5433,6 +5434,13 @@ struct WebViewRepresentable: NSViewRepresentable {
             addTrackingArea(next)
             trackingArea = next
             super.updateTrackingAreas()
+        }
+
+        private func removePointerTrackingArea() {
+            if let trackingArea {
+                removeTrackingArea(trackingArea)
+                self.trackingArea = nil
+            }
         }
 
         override func cursorUpdate(with event: NSEvent) {

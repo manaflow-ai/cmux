@@ -226,6 +226,17 @@ extension BrowserPanel {
         webView.configuration.userContentController.add(handler, name: reactGrabMessageHandlerName)
     }
 
+    static func removeReactGrabMessageHandler(from webView: WKWebView) {
+        webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: reactGrabMessageHandlerName
+        )
+    }
+
+    func tearDownReactGrabMessageHandler(from webView: WKWebView) {
+        Self.removeReactGrabMessageHandler(from: webView)
+        reactGrabMessageHandler = nil
+    }
+
     func armReactGrabRoundTrip(returnTo panelId: UUID) {
         let token = UUID().uuidString
 #if DEBUG
