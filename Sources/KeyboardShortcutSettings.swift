@@ -120,6 +120,7 @@ enum KeyboardShortcutSettings {
         // Panels
         case saveFilePreview
         case openBrowser
+        case toggleTerminalSidekick
         case focusBrowserAddressBar
         case browserBack
         case browserForward
@@ -194,6 +195,7 @@ enum KeyboardShortcutSettings {
             case .toggleRightSidebar: return String(localized: "shortcut.toggleRightSidebar.label", defaultValue: "Toggle Right Sidebar")
             case .saveFilePreview: return String(localized: "shortcut.saveFilePreview.label", defaultValue: "Save File Preview")
             case .openBrowser: return String(localized: "shortcut.openBrowser.label", defaultValue: "Open Browser")
+            case .toggleTerminalSidekick: return String(localized: "shortcut.toggleTerminalSidekick.label", defaultValue: "Toggle Terminal Sidekick")
             case .focusBrowserAddressBar: return String(localized: "command.browserFocusAddressBar.title", defaultValue: "Focus Address Bar")
             case .browserBack: return String(localized: "menu.view.back", defaultValue: "Back")
             case .browserForward: return String(localized: "menu.view.forward", defaultValue: "Forward")
@@ -337,6 +339,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "s", command: true, shift: false, option: false, control: false)
             case .openBrowser:
                 return StoredShortcut(key: "l", command: true, shift: true, option: false, control: false)
+            case .toggleTerminalSidekick:
+                return StoredShortcut(key: "b", command: true, shift: false, option: true, control: false)
             case .focusBrowserAddressBar:
                 return StoredShortcut(key: "l", command: true, shift: false, option: false, control: false)
             case .browserBack:

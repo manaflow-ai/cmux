@@ -330,6 +330,22 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(shortcut.control)
     }
 
+    func testToggleTerminalSidekickShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.toggleTerminalSidekick.label, "Toggle Terminal Sidekick")
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.toggleTerminalSidekick.defaultsKey,
+            "shortcut.toggleTerminalSidekick"
+        )
+
+        let shortcut = KeyboardShortcutSettings.Action.toggleTerminalSidekick.defaultShortcut
+        XCTAssertEqual(shortcut.key, "b")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertFalse(shortcut.shift)
+        XCTAssertTrue(shortcut.option)
+        XCTAssertFalse(shortcut.control)
+        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.toggleTerminalSidekick))
+    }
+
     func testRightSidebarAndFindShortcutDefaultsMatchSettingsSurface() {
         XCTAssertEqual(
             KeyboardShortcutSettings.Action.focusRightSidebar.label,

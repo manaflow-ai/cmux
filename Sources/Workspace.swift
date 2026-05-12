@@ -459,7 +459,8 @@ extension Workspace {
                 workingDirectory: directory,
                 scrollback: resolvedScrollback,
                 agent: effectiveRestorableAgent,
-                tmuxStartCommand: restorableTmuxStartCommand
+                tmuxStartCommand: restorableTmuxStartCommand,
+                sidekick: terminalPanel.sidekickSessionSnapshot()
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -790,6 +791,7 @@ extension Workspace {
             } else {
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: terminalPanel.id)
             }
+            terminalPanel.restoreSidekick(snapshot.terminal?.sidekick)
             if let restorableAgent {
                 restoredAgentSnapshotsByPanelId[terminalPanel.id] = restorableAgent
                 if restoredAgentResumeInput != nil {

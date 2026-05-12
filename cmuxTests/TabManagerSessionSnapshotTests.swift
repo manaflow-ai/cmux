@@ -34,6 +34,38 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.tabs[1].customTitle, "Second")
     }
 
+    func testTerminalSidekickStatePersistsAndRestoresWithTerminalSnapshot() throws {
+        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+        BrowserAvailabilitySettings.setDisabled(false)
+        defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
+
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let sidekickURL = try XCTUnwrap(URL(string: "data:text/html,Sidekick"))
+
+        XCTAssertTrue(terminalPanel.openSidekick(url: sidekickURL))
+        terminalPanel.setSidekickSplitRatio(0.45)
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try XCTUnwrap(
+            snapshot.workspaces.first?.panels.first { $0.id == terminalPanel.id }
+        )
+        let sidekickSnapshot = try XCTUnwrap(panelSnapshot.terminal?.sidekick)
+        XCTAssertEqual(sidekickSnapshot.urlString, sidekickURL.absoluteString)
+        XCTAssertTrue(sidekickSnapshot.isOpen)
+        XCTAssertEqual(sidekickSnapshot.splitRatio, 0.45, accuracy: 0.001)
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredTerminal = try XCTUnwrap(restored.selectedWorkspace?.focusedTerminalPanel)
+        XCTAssertEqual(restoredTerminal.sidekickState.urlString, sidekickURL.absoluteString)
+        XCTAssertTrue(restoredTerminal.sidekickState.isOpen)
+        XCTAssertEqual(restoredTerminal.sidekickState.splitRatio, 0.45, accuracy: 0.001)
+        XCTAssertNotNil(restoredTerminal.sidekickBrowserPanel)
+    }
+
     func testRestoreSessionSnapshotWithNoWorkspacesKeepsSingleFallbackWorkspace() {
         let manager = TabManager()
         let emptySnapshot = SessionTabManagerSnapshot(

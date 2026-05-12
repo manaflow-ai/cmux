@@ -912,8 +912,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let defaults = UserDefaults.standard
         let previousRightSidebarVisibility = defaults.object(forKey: "fileExplorer.isVisible")
+        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+        BrowserAvailabilitySettings.setDisabled(false)
         defer {
             restoreDefaultsValue(previousRightSidebarVisibility, forKey: "fileExplorer.isVisible", defaults: defaults)
+            BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled)
         }
 
         let windowId = UUID()
@@ -968,8 +971,22 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertFalse(sidebarState.isVisible, "Cmd+B should toggle the Welcome window left sidebar")
 
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: rightSidebarEvent))
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-        XCTAssertTrue(fileExplorerState.isVisible, "Cmd+Option+B should toggle the Welcome window right sidebar")
+        XCTAssertTrue(
+            tabManager.selectedWorkspace?.focusedTerminalPanel?.sidekickState.isOpen == true,
+            "Cmd+Option+B should toggle the focused terminal sidekick before falling back to the right sidebar"
+        )
+        XCTAssertFalse(fileExplorerState.isVisible)
+
+        if let workspace = tabManager.selectedWorkspace,
+           let paneId = workspace.bonsplitController.allPaneIds.first,
+           let browserPanel = workspace.newBrowserSurface(inPane: paneId, focus: true) {
+            workspace.focusPanel(browserPanel.id)
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: rightSidebarEvent))
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            XCTAssertTrue(fileExplorerState.isVisible, "Cmd+Option+B should toggle the right sidebar outside focused terminals")
+        } else {
+            XCTFail("Expected to create a browser panel for right-sidebar shortcut routing")
+        }
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
@@ -4829,6 +4846,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTFail("Expected test window")
             return
         }
+
+        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+        BrowserAvailabilitySettings.setDisabled(false)
+        defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
+
+        guard let context = appDelegate.contextForMainTerminalWindow(window),
+              let workspace = context.tabManager.selectedWorkspace,
+              let paneId = workspace.bonsplitController.allPaneIds.first,
+              let browserPanel = workspace.newBrowserSurface(inPane: paneId, focus: true) else {
+            XCTFail("Expected a browser panel for non-terminal shortcut routing")
+            return
+        }
+        workspace.focusPanel(browserPanel.id)
 
         let cases: [(action: KeyboardShortcutSettings.Action, modifiers: NSEvent.ModifierFlags, key: String, keyCode: UInt16)] = [
             (

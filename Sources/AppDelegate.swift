@@ -5473,6 +5473,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    func toggleTerminalSidekickInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
+        guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow),
+              let terminalPanel = context.tabManager.selectedWorkspace?.focusedTerminalPanel else {
+            return false
+        }
+
+        let window = context.window ?? windowForMainWindowId(context.windowId)
+        if let window {
+            setActiveMainWindow(window)
+        }
+
+        guard BrowserAvailabilitySettings.isEnabled() else {
+            NSSound.beep()
+            return true
+        }
+
+        return terminalPanel.toggleSidekick()
+    }
+
+    @discardableResult
     func closeRightSidebarInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
         guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else {
             guard let fileExplorerState else {
@@ -11142,6 +11162,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if matchConfiguredShortcut(event: event, action: .showNotifications) {
             toggleNotificationsPopover(animated: false, anchorView: fullscreenControlsViewModel?.notificationsAnchorView)
             return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .toggleTerminalSidekick) {
+            let preferredWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            if toggleTerminalSidekickInActiveMainWindow(preferredWindow: preferredWindow) {
+                return true
+            }
         }
 
         if matchConfiguredShortcut(event: event, action: .toggleRightSidebar) {

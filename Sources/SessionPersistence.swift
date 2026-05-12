@@ -221,11 +221,32 @@ struct SessionGitBranchSnapshot: Codable, Sendable {
     var isDirty: Bool
 }
 
+struct SessionTerminalSidekickSnapshot: Codable, Equatable, Sendable {
+    var urlString: String?
+    var isOpen: Bool
+    var splitRatio: Double
+}
+
 struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var workingDirectory: String?
     var scrollback: String?
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
+    var sidekick: SessionTerminalSidekickSnapshot?
+
+    init(
+        workingDirectory: String?,
+        scrollback: String?,
+        agent: SessionRestorableAgentSnapshot?,
+        tmuxStartCommand: String?,
+        sidekick: SessionTerminalSidekickSnapshot? = nil
+    ) {
+        self.workingDirectory = workingDirectory
+        self.scrollback = scrollback
+        self.agent = agent
+        self.tmuxStartCommand = tmuxStartCommand
+        self.sidekick = sidekick
+    }
 }
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var urlString: String?
