@@ -395,7 +395,10 @@ final class SessionPersistenceTests: XCTestCase {
 
         let reset = "\u{001B}[0m"
         let zshPromptSpMarker = "\(reset)\u{001B}[1m\u{001B}[7m%\(reset)  "
-        let source = "print-no-newline\(zshPromptSpMarker)austin@host 編輯 % "
+        let alternateZshPromptSpMarker = "\(reset)\u{001B}[0;7m%\(reset)\t"
+        let source =
+            "print-no-newline\(zshPromptSpMarker)" +
+            "austin@host 編輯 % \(alternateZshPromptSpMarker)next"
         let environment = SessionScrollbackReplayStore.replayEnvironment(
             for: source,
             tempDirectory: tempDir
@@ -404,8 +407,10 @@ final class SessionPersistenceTests: XCTestCase {
         let path = try XCTUnwrap(environment[SessionScrollbackReplayStore.environmentKey])
         let contents = try String(contentsOfFile: path, encoding: .utf8)
         XCTAssertFalse(contents.contains("\u{001B}[7m%\(reset)"))
+        XCTAssertFalse(contents.contains("\u{001B}[0;7m%\(reset)"))
         XCTAssertTrue(contents.contains("print-no-newline"))
         XCTAssertTrue(contents.contains("austin@host 編輯 % "))
+        XCTAssertTrue(contents.contains("\nnext"))
     }
 
     func testSessionScrollbackPersistenceHonorsReportedShellState() {
@@ -1008,6 +1013,23 @@ final class SessionPersistenceTests: XCTestCase {
         )
 
         XCTAssertNil(resolved)
+    }
+
+    func testResolvedSnapshotTerminalScrollbackNormalizesPromptSpMarkers() {
+        let reset = "\u{001B}[0m"
+        let zshPromptSpMarker = "\(reset)\u{001B}[0;7m%\(reset)  "
+
+        let captured = Workspace.resolvedSnapshotTerminalScrollback(
+            capturedScrollback: "captured\(zshPromptSpMarker)prompt",
+            fallbackScrollback: "fallback"
+        )
+        XCTAssertEqual(captured, "captured\nprompt")
+
+        let fallback = Workspace.resolvedSnapshotTerminalScrollback(
+            capturedScrollback: nil,
+            fallbackScrollback: "fallback\(zshPromptSpMarker)prompt"
+        )
+        XCTAssertEqual(fallback, "fallback\nprompt")
     }
 
     func testRestorableAgentRestoreSuppressesSavedScrollbackReplay() {

@@ -479,37 +479,24 @@ enum SessionPersistenceStore {
     }
 }
 
-enum SessionScrollbackReplayStore {
-    static let environmentKey = "CMUX_RESTORE_SCROLLBACK_FILE"
-    private static let directoryName = "cmux-session-scrollback"
+enum SessionTerminalScrollbackNormalizer {
     private static let ansiEscape = "\u{001B}"
     private static let ansiReset = "\u{001B}[0m"
     private static let zshPromptSpMarkerPattern =
-        #"(?:\x1B\[[0-9;]*m)*\x1B\[(?:1;)?7m%\x1B\[[0-9;]*m[ \t]*"#
+        #"(?:\x1B\[[0-9;]*m)*\x1B\[(?:[0-9]*;)*0?7(?:;[0-9]*)*m%\x1B\[[0-9;]*m[ \t]*"#
     private static let zshPromptSpRegex = try! NSRegularExpression(
         pattern: zshPromptSpMarkerPattern
     )
 
-    static func replayEnvironment(
-        for scrollback: String?,
-        tempDirectory: URL = FileManager.default.temporaryDirectory
-    ) -> [String: String] {
-        guard let replayText = normalizedScrollback(scrollback) else { return [:] }
-        guard let replayFileURL = writeReplayFile(
-            contents: replayText,
-            tempDirectory: tempDirectory
-        ) else {
-            return [:]
-        }
-        return [environmentKey: replayFileURL.path]
+    static func snapshotText(_ scrollback: String?) -> String? {
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(scrollback) else { return nil }
+        return zshPromptSpSafeReplayText(truncated)
     }
 
-    private static func normalizedScrollback(_ scrollback: String?) -> String? {
-        guard let scrollback else { return nil }
-        guard scrollback.contains(where: { !$0.isWhitespace }) else { return nil }
-        guard let truncated = SessionPersistencePolicy.truncatedScrollback(scrollback) else { return nil }
-        let promptSafe = zshPromptSpSafeReplayText(truncated)
-        return ansiSafeReplayText(promptSafe)
+    static func replayText(_ scrollback: String?) -> String? {
+        guard let normalized = snapshotText(scrollback) else { return nil }
+        guard normalized.contains(where: { !$0.isWhitespace }) else { return nil }
+        return ansiSafeReplayText(normalized)
     }
 
     /// Preserve ANSI color state safely across replay boundaries.
@@ -529,7 +516,7 @@ enum SessionScrollbackReplayStore {
     /// not end with a newline. Replaying that marker makes the next shell record
     /// it again, so normalize it back to the newline it visually represented.
     private static func zshPromptSpSafeReplayText(_ text: String) -> String {
-        guard text.contains("\(ansiEscape)[7m%") || text.contains("\(ansiEscape)[1;7m%") else {
+        guard text.contains("%"), text.contains("\(ansiEscape)[") else {
             return text
         }
         return zshPromptSpRegex.stringByReplacingMatches(
@@ -537,6 +524,27 @@ enum SessionScrollbackReplayStore {
             range: NSRange(text.startIndex..<text.endIndex, in: text),
             withTemplate: "\n"
         )
+    }
+}
+
+enum SessionScrollbackReplayStore {
+    static let environmentKey = "CMUX_RESTORE_SCROLLBACK_FILE"
+    private static let directoryName = "cmux-session-scrollback"
+
+    static func replayEnvironment(
+        for scrollback: String?,
+        tempDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> [String: String] {
+        guard let replayText = SessionTerminalScrollbackNormalizer.replayText(scrollback) else {
+            return [:]
+        }
+        guard let replayFileURL = writeReplayFile(
+            contents: replayText,
+            tempDirectory: tempDirectory
+        ) else {
+            return [:]
+        }
+        return [environmentKey: replayFileURL.path]
     }
 
     private static func writeReplayFile(contents: String, tempDirectory: URL) -> URL? {
