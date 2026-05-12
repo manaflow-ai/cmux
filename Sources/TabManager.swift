@@ -129,9 +129,6 @@ enum WorkspaceSidebarPositionSettings {
         return position
     }
 
-    static func current(defaults: UserDefaults = .standard) -> WorkspaceSidebarPosition {
-        position(for: defaults.string(forKey: key))
-    }
 }
 
 enum SidebarWorkspaceDetailSettings {
