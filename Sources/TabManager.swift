@@ -2104,9 +2104,7 @@ class TabManager: ObservableObject {
         // entire creation path. Release ARC can otherwise drop retains early across the
         // helper/insertion chain, which reintroduces use-after-free crashes in optimized builds.
         return withExtendedLifetime((capturedTabs, sourceWorkspace)) {
-            let dir = WorkspaceWorkingDirectoryInheritanceSettings.isEnabled()
-                ? preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
-                : nil
+            let dir = implicitWorkingDirectoryForNewWorkspace(from: sourceWorkspace)
             let font = inheritedTerminalFontPointsForNewWorkspace(workspace: sourceWorkspace)
             let snapshot = workspaceCreationSnapshotLite(
                 currentTabs: capturedTabs,
@@ -3839,6 +3837,13 @@ class TabManager: ObservableObject {
         return workspace.panelDirectories.values.lazy.compactMap { directory in
             self.normalizedWorkingDirectory(directory)
         }.first
+    }
+
+    func implicitWorkingDirectoryForNewWorkspace(from sourceWorkspace: Workspace?) -> String? {
+        guard WorkspaceWorkingDirectoryInheritanceSettings.isEnabled() else {
+            return nil
+        }
+        return preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
     }
 
     func moveTabToTop(_ tabId: UUID) {

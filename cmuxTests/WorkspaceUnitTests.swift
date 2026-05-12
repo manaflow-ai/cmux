@@ -2279,6 +2279,24 @@ final class WorkspaceWorkingDirectoryInheritanceSettingsTests: XCTestCase {
 
 @MainActor
 final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
+    private final class DetachedWorkspaceTestPanel: Panel {
+        let objectWillChange = ObservableObjectPublisher()
+        let id: UUID
+        let panelType: PanelType = .terminal
+        let displayTitle = "Detached"
+        let displayIcon: String? = "terminal.fill"
+        let isDirty = false
+
+        init(id: UUID = UUID()) {
+            self.id = id
+        }
+
+        func close() {}
+        func focus() {}
+        func unfocus() {}
+        func triggerFlash(reason: WorkspaceAttentionFlashReason) {}
+    }
+
     func testNewWorkspaceInheritsSourceWorkingDirectoryByDefault() throws {
         try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
@@ -2328,6 +2346,47 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
         }
     }
 
+    func testDetachedWorkspaceInheritsSourceWorkingDirectoryByDefaultWhenTransferHasNoDirectory() throws {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
+            let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
+            let manager = TabManager(
+                initialWorkingDirectory: sourceCwd,
+                autoWelcomeIfNeeded: false
+            )
+            let source = try XCTUnwrap(manager.selectedWorkspace)
+            let detached = makeDetachedWorkspaceTestTransfer(sourceWorkspaceId: source.id)
+
+            let inserted = try XCTUnwrap(manager.addWorkspace(
+                fromDetachedSurface: detached,
+                select: false
+            ))
+
+            XCTAssertEqual(inserted.currentDirectory, sourceCwd)
+            XCTAssertEqual(inserted.surfaceTabBarDirectory, sourceCwd)
+        }
+    }
+
+    func testDisabledInheritanceLeavesDetachedWorkspaceFallbackCwdUnsetWhenTransferHasNoDirectory() throws {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(false) {
+            let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
+            let fallbackCwd = FileManager.default.homeDirectoryForCurrentUser.path
+            let manager = TabManager(
+                initialWorkingDirectory: sourceCwd,
+                autoWelcomeIfNeeded: false
+            )
+            let source = try XCTUnwrap(manager.selectedWorkspace)
+            let detached = makeDetachedWorkspaceTestTransfer(sourceWorkspaceId: source.id)
+
+            let inserted = try XCTUnwrap(manager.addWorkspace(
+                fromDetachedSurface: detached,
+                select: false
+            ))
+
+            XCTAssertEqual(inserted.currentDirectory, fallbackCwd)
+            XCTAssertEqual(inserted.surfaceTabBarDirectory, fallbackCwd)
+        }
+    }
+
     private func withWorkspaceWorkingDirectoryInheritanceSetting(
         _ value: Bool?,
         _ body: () throws -> Void
@@ -2350,6 +2409,35 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
         }
 
         try body()
+    }
+
+    private func makeDetachedWorkspaceTestTransfer(
+        sourceWorkspaceId: UUID,
+        directory: String? = nil
+    ) -> Workspace.DetachedSurfaceTransfer {
+        let panel = DetachedWorkspaceTestPanel()
+        return Workspace.DetachedSurfaceTransfer(
+            sourceWorkspaceId: sourceWorkspaceId,
+            panelId: panel.id,
+            panel: panel,
+            title: panel.displayTitle,
+            icon: panel.displayIcon,
+            iconImageData: nil,
+            kind: "terminal",
+            isLoading: false,
+            isPinned: false,
+            directory: directory,
+            ttyName: nil,
+            cachedTitle: nil,
+            customTitle: nil,
+            manuallyUnread: false,
+            restorableAgent: nil,
+            restorableAgentAutoResumePending: false,
+            agentRuntime: nil,
+            isRemoteTerminal: false,
+            remoteRelayPort: nil,
+            remoteCleanupConfiguration: nil
+        )
     }
 }
 

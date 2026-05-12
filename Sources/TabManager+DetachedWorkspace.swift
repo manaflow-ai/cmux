@@ -34,7 +34,7 @@ extension TabManager {
         let capturedSelectedTabId = sourceWorkspace?.id
 
         return withExtendedLifetime((capturedTabs, sourceWorkspace, detached.panel)) {
-            let inheritedDirectory = preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
+            let inheritedDirectory = implicitWorkingDirectoryForNewWorkspace(from: sourceWorkspace)
             let font = inheritedTerminalFontPointsForNewWorkspace(workspace: sourceWorkspace)
             let snapshot = workspaceCreationSnapshotLite(
                 currentTabs: capturedTabs,
