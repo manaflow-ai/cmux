@@ -47,10 +47,21 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         )
     }
 
-    func testSwiftUIHostGeometryCallbackDefersDuringInteractiveResize() {
-        XCTAssertFalse(
-            GhosttyTerminalView.shouldSynchronizePortalGeometryImmediately,
-            "SwiftUI/AppKit host callbacks must not force portal layout reentrantly"
-        )
+    func testSwiftUIHostGeometryCallbackSchedulesExternalSynchronization() {
+        switch GhosttyTerminalView.hostCallbackPortalGeometrySynchronizationAction(window: 3873) {
+        case .scheduleExternal(let window):
+            XCTAssertEqual(window, 3873)
+        case .skip:
+            XCTFail("Window-attached host callbacks should schedule deferred portal synchronization")
+        }
+    }
+
+    func testSwiftUIHostGeometryCallbackSkipsWithoutWindow() {
+        switch GhosttyTerminalView.hostCallbackPortalGeometrySynchronizationAction(window: Optional<Int>.none) {
+        case .scheduleExternal:
+            XCTFail("Detached host callbacks must not synchronize terminal portal geometry")
+        case .skip:
+            break
+        }
     }
 }

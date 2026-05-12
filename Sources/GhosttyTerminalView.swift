@@ -13394,11 +13394,21 @@ struct GhosttyTerminalView: NSViewRepresentable {
         return !hostedViewHasSuperview
     }
 
-    // This policy is for callbacks originating from HostContainerView, which
-    // can fire while SwiftUI/AppKit is already rendering or laying out the
-    // representable. External AppKit resize observers own immediate live
-    // resize flushing; host callbacks only schedule the portal owner.
-    static let shouldSynchronizePortalGeometryImmediately = false
+    enum HostCallbackPortalGeometrySynchronizationAction<Window> {
+        case skip
+        case scheduleExternal(Window)
+    }
+
+    static func hostCallbackPortalGeometrySynchronizationAction<Window>(
+        window: Window?
+    ) -> HostCallbackPortalGeometrySynchronizationAction<Window> {
+        // HostContainerView callbacks can fire while SwiftUI/AppKit is already
+        // rendering or laying out the representable. External AppKit resize
+        // observers own immediate live-resize flushing; host callbacks only
+        // schedule the portal owner.
+        guard let window else { return .skip }
+        return .scheduleExternal(window)
+    }
 
     private static func synchronizePortalGeometry(
         for host: HostContainerView,
@@ -13411,7 +13421,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
         // the current layout turn. Re-entrant syncs here can escalate from
         // SwiftUI warnings to AppKit exceptions during CATransaction display
         // link flushes.
-        guard let window = host.window else { return }
+        guard case let .scheduleExternal(window) = hostCallbackPortalGeometrySynchronizationAction(
+            window: host.window
+        ) else { return }
         TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
     }
 
