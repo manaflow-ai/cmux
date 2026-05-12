@@ -184,10 +184,13 @@ final class AuthManager: ObservableObject {
 
     private var loginPollTask: Task<Void, Never>?
     private var webAuthSession: ASWebAuthenticationSession?
+    private var nextBrowserSignInAttemptID: UInt64 = 0
+    private var activeBrowserSignInAttemptID: UInt64?
+    private var signOutCancelledBrowserSignInAttemptID: UInt64?
 
     #if DEBUG
     func markBrowserSignInLoadingForTesting() {
-        isLoading = true
+        _ = startBrowserSignInAttempt()
     }
     #endif
 
@@ -195,7 +198,7 @@ final class AuthManager: ObservableObject {
         loginPollTask?.cancel()
         webAuthSession?.cancel()
         webAuthSession = nil
-        isLoading = true
+        let attemptID = startBrowserSignInAttempt()
 
         let signInURL = AuthEnvironment.signInURL()
         let callbackScheme = AuthEnvironment.callbackScheme
@@ -206,9 +209,9 @@ final class AuthManager: ObservableObject {
         ) { [weak self] callbackURL, error in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                guard self.isCurrentBrowserSignInAttempt(attemptID) else { return }
                 defer {
-                    self.isLoading = false
-                    self.webAuthSession = nil
+                    self.finishBrowserSignInAttempt(attemptID)
                 }
                 if let error {
                     NSLog("auth.webauth failed: %@", "\(error)")
@@ -217,6 +220,12 @@ final class AuthManager: ObservableObject {
                 guard let callbackURL else { return }
                 do {
                     try await self.handleCallbackURL(callbackURL)
+                    if self.signOutCancelledBrowserSignInAttemptID == attemptID,
+                       self.activeBrowserSignInAttemptID == nil {
+                        await self.tokenStore.clear()
+                        self.clearSessionState(clearSelectedTeam: true)
+                        self.signOutCancelledBrowserSignInAttemptID = nil
+                    }
                 } catch {
                     NSLog("auth.webauth callback failed: %@", "\(error)")
                 }
@@ -229,7 +238,7 @@ final class AuthManager: ObservableObject {
             webAuthSession = session
         } else {
             NSLog("auth.webauth: session.start() returned false")
-            isLoading = false
+            finishBrowserSignInAttempt(attemptID)
         }
     }
 
@@ -582,6 +591,7 @@ final class AuthManager: ObservableObject {
     }
 
     func signOut() async {
+        cancelBrowserSignInForSignOut()
         try? await client.signOut()
         await tokenStore.clear()
         clearSessionState(clearSelectedTeam: true)
@@ -718,6 +728,42 @@ final class AuthManager: ObservableObject {
             selectedTeamID = nil
         }
         settingsStore.saveCachedUser(nil)
+    }
+
+    private func startBrowserSignInAttempt() -> UInt64 {
+        nextBrowserSignInAttemptID &+= 1
+        let attemptID = nextBrowserSignInAttemptID
+        activeBrowserSignInAttemptID = attemptID
+        if signOutCancelledBrowserSignInAttemptID == attemptID {
+            signOutCancelledBrowserSignInAttemptID = nil
+        }
+        isLoading = true
+        return attemptID
+    }
+
+    private func isCurrentBrowserSignInAttempt(_ attemptID: UInt64) -> Bool {
+        activeBrowserSignInAttemptID == attemptID
+            && signOutCancelledBrowserSignInAttemptID != attemptID
+    }
+
+    private func finishBrowserSignInAttempt(_ attemptID: UInt64) {
+        guard activeBrowserSignInAttemptID == attemptID else { return }
+        isLoading = false
+        webAuthSession = nil
+        activeBrowserSignInAttemptID = nil
+        if signOutCancelledBrowserSignInAttemptID == attemptID {
+            signOutCancelledBrowserSignInAttemptID = nil
+        }
+    }
+
+    private func cancelBrowserSignInForSignOut() {
+        if let attemptID = activeBrowserSignInAttemptID {
+            signOutCancelledBrowserSignInAttemptID = attemptID
+        }
+        activeBrowserSignInAttemptID = nil
+        webAuthSession?.cancel()
+        webAuthSession = nil
+        isLoading = false
     }
 
     private static func makeDefaultClient(
