@@ -1,0 +1,7 @@
+[install]
+# Default registry
+registry = "https://registry.npmjs.org/"
+
+[test]
+# Use a longer timeout for integration tests that spawn subprocesses
+timeout = 30000
