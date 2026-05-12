@@ -3806,6 +3806,8 @@ private final class WorkspaceRemoteCLIRelayServer {
 }
 
 final class WorkspaceRemoteSessionController {
+    nonisolated(unsafe) static var runProcessOverrideForTesting: ((String, [String], Data?, TimeInterval) throws -> (status: Int32, stdout: String, stderr: String))?
+
     enum PortScanKickReason: String {
         case command
         case refresh
@@ -4768,6 +4770,11 @@ final class WorkspaceRemoteSessionController {
         timeout: TimeInterval,
         operation: TerminalImageTransferOperation? = nil
     ) throws -> CommandResult {
+        if let override = Self.runProcessOverrideForTesting {
+            let result = try override(executable, arguments, stdin, timeout)
+            return CommandResult(status: result.status, stdout: result.stdout, stderr: result.stderr)
+        }
+
         debugLog(
             "remote.proc.start exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
             "timeout=\(Int(timeout)) args=\(debugShellCommand(executable: executable, arguments: arguments))"
