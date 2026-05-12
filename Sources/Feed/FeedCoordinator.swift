@@ -127,7 +127,7 @@ final class FeedCoordinator: @unchecked Sendable {
         // If this is a blocking actionable event and the app window isn't
         // focused, post a native notification banner with inline action
         // buttons so the user can respond without switching windows.
-        postFeedNotification(event: event, requestId: requestId)
+        postNotificationIfStillAwaiting(event: event, requestId: requestId)
 
         let deadline: DispatchTime = .now() + waitTimeout
         let waitResult = semaphore.wait(timeout: deadline)
@@ -141,11 +141,11 @@ final class FeedCoordinator: @unchecked Sendable {
             if let decision = w?.decision {
                 return .resolved(itemId: itemIdSlot.value, decision: decision)
             }
-            cancelFeedNotification(requestId: requestId)
+            cancelNotification(requestId: requestId)
             expireTimedOutItem(itemIdSlot.value)
             return .timedOut(itemId: itemIdSlot.value)
         case .timedOut:
-            cancelFeedNotification(requestId: requestId)
+            cancelNotification(requestId: requestId)
             expireTimedOutItem(itemIdSlot.value)
             return .timedOut(itemId: itemIdSlot.value)
         }
@@ -176,7 +176,7 @@ final class FeedCoordinator: @unchecked Sendable {
             DispatchQueue.main.async(execute: resolve)
         }
 
-        cancelFeedNotification(requestId: requestId)
+        cancelNotification(requestId: requestId)
     }
 
     fileprivate func isAwaitingDecision(requestId: String) -> Bool {
@@ -406,135 +406,140 @@ extension Notification.Name {
 
 // MARK: - Native notification banner
 
-/// Posts a UNUserNotificationCenter banner with inline action buttons
-/// for the given Feed event. Skips if the app window is already key/
-/// focused so the user isn't double-notified.
-private func postFeedNotification(event: WorkstreamEvent, requestId: String) {
-    DispatchQueue.main.async {
-        guard FeedCoordinator.shared.isAwaitingDecision(requestId: requestId) else {
-            return
-        }
-
-        #if DEBUG
-        let handledByTestObserver = MainActor.assumeIsolated {
-            if let observer = FeedCoordinatorTestHooks.notificationPostObserver {
-                observer(event, requestId)
-                return true
+private extension FeedCoordinator {
+    /// Posts a UNUserNotificationCenter banner with inline action buttons
+    /// for the given Feed event. Notification eligibility is derived only
+    /// from the waiter table so resolved/timed-out requests cannot enqueue
+    /// stale banners while the main queue or notification center catches up.
+    func postNotificationIfStillAwaiting(event: WorkstreamEvent, requestId: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isAwaitingDecision(requestId: requestId) else {
+                return
             }
-            return false
-        }
-        if handledByTestObserver {
-            return
-        }
-        #endif
 
-        // Don't pester users while the app is already up front.
-        if NSApp.isActive {
-            return
-        }
+            #if DEBUG
+            let handledByTestObserver = MainActor.assumeIsolated {
+                if let observer = FeedCoordinatorTestHooks.notificationPostObserver {
+                    observer(event, requestId)
+                    return true
+                }
+                return false
+            }
+            if handledByTestObserver {
+                return
+            }
+            #endif
 
-        let categoryId: String
-        let title: String
-        let body: String
-        switch event.hookEventName {
-        case .permissionRequest:
-            categoryId = "CMUXFeedPermission"
-            title = String(
-                localized: "feed.notification.permission.title",
-                defaultValue: "\(event.source.capitalized) permission"
-            )
-            body = event.toolName.map {
-                String(
-                    localized: "feed.notification.permission.body",
-                    defaultValue: "\($0) needs approval"
+            // Don't pester users while the app is already up front.
+            if NSApp.isActive {
+                return
+            }
+
+            let categoryId: String
+            let title: String
+            let body: String
+            switch event.hookEventName {
+            case .permissionRequest:
+                categoryId = "CMUXFeedPermission"
+                title = String(
+                    localized: "feed.notification.permission.title",
+                    defaultValue: "\(event.source.capitalized) permission"
                 )
-            } ?? String(
-                localized: "feed.notification.decisionNeeded",
-                defaultValue: "Decision needed"
-            )
-        case .exitPlanMode:
-            categoryId = "CMUXFeedExitPlan"
-            title = String(
-                localized: "feed.notification.exitPlan.title",
-                defaultValue: "\(event.source.capitalized) plan ready"
-            )
-            body = String(
-                localized: "feed.notification.exitPlan.body",
-                defaultValue: "Review and approve the plan"
-            )
-        case .askUserQuestion:
-            categoryId = "CMUXFeedQuestion"
-            title = String(
-                localized: "feed.notification.question.title",
-                defaultValue: "\(event.source.capitalized) question"
-            )
-            body = String(
-                localized: "feed.notification.question.body",
-                defaultValue: "Agent is asking a question"
-            )
-        default:
-            return
-        }
-
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.categoryIdentifier = categoryId
-        content.userInfo = [
-            "requestId": requestId,
-            "workstreamId": event.sessionId,
-        ]
-
-        let request = UNNotificationRequest(
-            identifier: "feed.\(requestId)",
-            content: content,
-            trigger: nil
-        )
-
-        let center = UNUserNotificationCenter.current()
-        center.getNotificationSettings { settings in
-            guard FeedCoordinator.shared.isAwaitingDecision(requestId: requestId) else { return }
-            switch settings.authorizationStatus {
-            case .authorized, .provisional:
-                addFeedNotificationIfAwaitingDecision(
-                    center: center,
-                    request: request,
-                    requestId: requestId
+                body = event.toolName.map {
+                    String(
+                        localized: "feed.notification.permission.body",
+                        defaultValue: "\($0) needs approval"
+                    )
+                } ?? String(
+                    localized: "feed.notification.decisionNeeded",
+                    defaultValue: "Decision needed"
                 )
-            case .notDetermined:
-                center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-                    guard granted else { return }
-                    addFeedNotificationIfAwaitingDecision(
+            case .exitPlanMode:
+                categoryId = "CMUXFeedExitPlan"
+                title = String(
+                    localized: "feed.notification.exitPlan.title",
+                    defaultValue: "\(event.source.capitalized) plan ready"
+                )
+                body = String(
+                    localized: "feed.notification.exitPlan.body",
+                    defaultValue: "Review and approve the plan"
+                )
+            case .askUserQuestion:
+                categoryId = "CMUXFeedQuestion"
+                title = String(
+                    localized: "feed.notification.question.title",
+                    defaultValue: "\(event.source.capitalized) question"
+                )
+                body = String(
+                    localized: "feed.notification.question.body",
+                    defaultValue: "Agent is asking a question"
+                )
+            default:
+                return
+            }
+
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            content.categoryIdentifier = categoryId
+            content.userInfo = [
+                "requestId": requestId,
+                "workstreamId": event.sessionId,
+            ]
+
+            let request = UNNotificationRequest(
+                identifier: "feed.\(requestId)",
+                content: content,
+                trigger: nil
+            )
+
+            let center = UNUserNotificationCenter.current()
+            center.getNotificationSettings { [weak self] settings in
+                guard let self, self.isAwaitingDecision(requestId: requestId) else { return }
+                switch settings.authorizationStatus {
+                case .authorized, .provisional:
+                    self.addNotificationIfStillAwaiting(
                         center: center,
                         request: request,
                         requestId: requestId
                     )
+                case .notDetermined:
+                    center.requestAuthorization(options: [.alert, .sound]) {
+                        [weak self] granted, _ in
+                        guard let self, granted else { return }
+                        self.addNotificationIfStillAwaiting(
+                            center: center,
+                            request: request,
+                            requestId: requestId
+                        )
+                    }
+                default:
+                    break
                 }
-            default:
-                break
             }
         }
     }
-}
 
-private func addFeedNotificationIfAwaitingDecision(
-    center: UNUserNotificationCenter,
-    request: UNNotificationRequest,
-    requestId: String
-) {
-    guard FeedCoordinator.shared.isAwaitingDecision(requestId: requestId) else { return }
-    center.add(request) { _ in
-        if !FeedCoordinator.shared.isAwaitingDecision(requestId: requestId) {
-            cancelFeedNotification(requestId: requestId)
+    func addNotificationIfStillAwaiting(
+        center: UNUserNotificationCenter,
+        request: UNNotificationRequest,
+        requestId: String
+    ) {
+        guard isAwaitingDecision(requestId: requestId) else { return }
+        center.add(request) { [weak self] _ in
+            guard let self else { return }
+            if !self.isAwaitingDecision(requestId: requestId) {
+                self.cancelNotification(requestId: requestId)
+            }
         }
     }
-}
 
-private func cancelFeedNotification(requestId: String) {
-    let identifier = "feed.\(requestId)"
-    let center = UNUserNotificationCenter.current()
-    center.removePendingNotificationRequests(withIdentifiers: [identifier])
-    center.removeDeliveredNotifications(withIdentifiers: [identifier])
+    func cancelNotification(requestId: String) {
+        let identifier = "feed.\(requestId)"
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [identifier])
+        center.removeDeliveredNotifications(withIdentifiers: [identifier])
+    }
 }
 
 /// JSON-shape helpers used by the V2 `feed.*` socket handlers.
