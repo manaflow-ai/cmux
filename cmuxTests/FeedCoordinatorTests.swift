@@ -198,6 +198,38 @@ final class FeedCoordinatorTests: XCTestCase {
         XCTAssertEqual(deliveredRequests.first?.identifier, "feed.notif-background-request")
     }
 
+    @MainActor
+    func testPermissionRequestNotificationStillPostsWhenTargetCannotBeResolved() {
+        let activeTarget = FeedNotificationDispatcher.ActiveTerminalTarget(
+            workspaceId: UUID(),
+            surfaceId: UUID()
+        )
+        let event = WorkstreamEvent(
+            sessionId: "claude-notif-unresolved",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            toolName: "Bash",
+            requestId: "notif-unresolved-request"
+        )
+
+        var deliveredRequests: [UNNotificationRequest] = []
+
+        FeedNotificationDispatcher.deliverIfNeeded(
+            event: event,
+            requestId: "notif-unresolved-request",
+            notificationTarget: nil,
+            frontmostContext: FeedNotificationDispatcher.FrontmostContext(
+                isAppFrontmost: true,
+                activeTerminalTarget: activeTarget
+            ),
+            deliverRequest: { deliveredRequests.append($0) }
+        )
+
+        XCTAssertEqual(deliveredRequests.count, 1)
+        XCTAssertEqual(deliveredRequests.first?.identifier, "feed.notif-unresolved-request")
+        XCTAssertEqual(deliveredRequests.first?.content.categoryIdentifier, "CMUXFeedPermission")
+    }
+
 }
 
 private final class IngestResultBox: @unchecked Sendable {
