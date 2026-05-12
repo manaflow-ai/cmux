@@ -13819,6 +13819,7 @@ private var cmuxBrowserArrowForwardingDepth = 0
 private var cmuxCommandPaletteArrowForwardingDepth = 0
 private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
+private let cmuxResponderChainWalkLimit = 64
 
 private struct CmuxForwardedBrowserReturnEvent: Equatable {
     let keyCode: UInt16
@@ -14563,7 +14564,8 @@ private extension NSWindow {
         // NSTextView.delegate is unsafe-unretained in AppKit. Reading it here while
         // a responder chain is tearing down can trap with "unowned reference".
         var current = responder.nextResponder
-        while let next = current {
+        var hops = 0
+        while let next = current, hops < cmuxResponderChainWalkLimit {
             if let webView = next as? CmuxWebView {
                 return webView
             }
@@ -14572,6 +14574,7 @@ private extension NSWindow {
                 return webView
             }
             current = next.nextResponder
+            hops += 1
         }
 
         return nil
@@ -14657,7 +14660,8 @@ private extension NSWindow {
         // chain so ASWebAuthenticationSession-hosted forms get the same Return
         // handling as cmux-owned browser panels.
         var current = responder.nextResponder
-        while let next = current {
+        var hops = 0
+        while let next = current, hops < cmuxResponderChainWalkLimit {
             if let webView = next as? WKWebView {
                 return webView
             }
@@ -14666,6 +14670,7 @@ private extension NSWindow {
                 return webView
             }
             current = next.nextResponder
+            hops += 1
         }
 
         return nil
@@ -14683,7 +14688,8 @@ private extension NSWindow {
         }
 
         var current = ownerView.nextResponder
-        while let next = current {
+        var hops = 0
+        while let next = current, hops < cmuxResponderChainWalkLimit {
             if next === ownerView {
                 break
             }
@@ -14695,6 +14701,7 @@ private extension NSWindow {
                 return webView
             }
             current = next.nextResponder
+            hops += 1
         }
 
         return nil
