@@ -48,3 +48,7 @@ Supported batch operation names:
 Use `workspace` and `surface` fields to target explicit cmux handles. When they
 are omitted, cmux uses the caller context from `CMUX_WORKSPACE_ID` and
 `CMUX_SURFACE_ID`, matching the existing CLI command behavior.
+
+Batch prints one result per operation. If any operation fails, the command exits
+non-zero with `"ok": false`, while preserving earlier successful results and the
+per-operation error payload.

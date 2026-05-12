@@ -50,15 +50,19 @@ def _find_cli_binary() -> str:
 
 
 def _run_agent(cli: str, args: List[str]) -> str:
+    proc = _run_agent_process(cli, args)
+    if proc.returncode != 0:
+        merged = f"{proc.stdout}\n{proc.stderr}".strip()
+        raise cmuxError(f"agent CLI failed ({' '.join(proc.args)}): {merged}")
+    return proc.stdout
+
+
+def _run_agent_process(cli: str, args: List[str]) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
     env.pop("CMUX_WORKSPACE_ID", None)
     env.pop("CMUX_SURFACE_ID", None)
     cmd = [cli, "--socket", SOCKET_PATH, "agent"] + args
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False, env=env)
-    if proc.returncode != 0:
-        merged = f"{proc.stdout}\n{proc.stderr}".strip()
-        raise cmuxError(f"agent CLI failed ({' '.join(cmd)}): {merged}")
-    return proc.stdout
+    return subprocess.run(cmd, capture_output=True, text=True, check=False, env=env)
 
 
 def _surface_has(c: cmux, workspace_id: str, surface_id: str, token: str) -> bool:
@@ -142,6 +146,18 @@ def main() -> int:
         results = batch_payload.get("results") or []
         _must(batch_payload.get("ok") is True and len(results) == 2, f"agent batch returned invalid payload: {batch_payload}")
         _must(token in str(results[1].get("result", {}).get("text") or ""), f"agent batch capture missing token: {batch_payload}")
+
+        partial_batch = json.dumps([
+            {"op": "list-panes", "workspace": workspace_id},
+            {"op": "send", "workspace": workspace_id, "surface": surface_id},
+        ])
+        partial_proc = _run_agent_process(cli, ["batch", partial_batch])
+        _must(partial_proc.returncode != 0, "agent batch with a bad operation should exit non-zero")
+        partial_payload = json.loads(partial_proc.stdout or "{}")
+        partial_results = partial_payload.get("results") or []
+        _must(partial_payload.get("ok") is False and len(partial_results) == 2, f"agent partial batch returned invalid payload: {partial_payload}")
+        _must(partial_results[0].get("ok") is True, f"agent partial batch should preserve prior successful result: {partial_payload}")
+        _must(partial_results[1].get("ok") is False and partial_results[1].get("error"), f"agent partial batch should include per-op error: {partial_payload}")
 
     print("PASS: agent fast-path CLI reads, sends, lists, and batches")
     return 0
