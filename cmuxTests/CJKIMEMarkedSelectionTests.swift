@@ -102,6 +102,10 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         ["Left", "Right", "Up", "Down", "PageUp", "PageDown", "Tab"]
     }
 
+    private var pinyinNonCandidateCommandProbeNames: Set<String> {
+        ["Home", "End"]
+    }
+
     private func assertInputSourceDoesNotSwallowNoMarkedIMECommandKeys(
         _ inputSourceId: String,
         file: StaticString = #filePath,
@@ -547,6 +551,34 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         }
     }
 
+    private func assertApplePinyinInputSourceHandledNonCandidateCommandsForwardWithoutMarkedText(
+        _ inputSourceId: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let view = GhosttyNSView(frame: .zero)
+
+        for probe in noMarkedNavigationKeyProbes where pinyinNonCandidateCommandProbeNames.contains(probe.name) {
+            let event = try keyEvent(text: probe.text, keyCode: probe.keyCode, windowNumber: 0)
+
+            XCTAssertFalse(
+                view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                    markedTextBefore: "",
+                    markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
+                    markedTextAfter: "",
+                    markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                    accumulatedText: [],
+                    event: event,
+                    textInputHandledEvent: true,
+                    inputSourceId: inputSourceId
+                ),
+                "\(inputSourceId) handled non-candidate \(probe.name) should still forward to Ghostty",
+                file: file,
+                line: line
+            )
+        }
+    }
+
     private func assertRoutesApplePinyinCandidateArrowKeyEquivalentThroughKeyDownWithoutMarkedText(
         _ inputSourceId: String,
         file: StaticString = #filePath,
@@ -590,6 +622,18 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
 
     func testTraditionalChinesePinyinHandledCandidateCommandsStayInTextInputWithoutMarkedText() throws {
         try assertApplePinyinInputSourceHandledCandidateCommandsStayInTextInputWithoutMarkedText(
+            "com.apple.inputmethod.TCIM.Pinyin"
+        )
+    }
+
+    func testSimplifiedChinesePinyinHandledNonCandidateCommandsForwardWithoutMarkedText() throws {
+        try assertApplePinyinInputSourceHandledNonCandidateCommandsForwardWithoutMarkedText(
+            "com.apple.inputmethod.SCIM.ITABC"
+        )
+    }
+
+    func testTraditionalChinesePinyinHandledNonCandidateCommandsForwardWithoutMarkedText() throws {
+        try assertApplePinyinInputSourceHandledNonCandidateCommandsForwardWithoutMarkedText(
             "com.apple.inputmethod.TCIM.Pinyin"
         )
     }

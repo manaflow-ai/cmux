@@ -67,18 +67,6 @@ extension GhosttyNSView {
         return sourceId.localizedCaseInsensitiveContains("inputmethod")
     }
 
-    func isBopomofoInputSource(_ sourceId: String?) -> Bool {
-        guard let sourceId else { return false }
-        return sourceId.localizedCaseInsensitiveContains("Zhuyin")
-            || sourceId.localizedCaseInsensitiveContains("Bopomofo")
-    }
-
-    func isApplePinyinInputSource(_ sourceId: String?) -> Bool {
-        guard let sourceId else { return false }
-        return sourceId == "com.apple.inputmethod.SCIM.ITABC"
-            || sourceId == "com.apple.inputmethod.TCIM.Pinyin"
-    }
-
     func hasOnlyTextInputCommandModifiers(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags
             .intersection(.deviceIndependentFlagsMask)
@@ -90,26 +78,8 @@ extension GhosttyNSView {
         guard let event else { return false }
         guard hasOnlyTextInputCommandModifiers(event) else { return false }
 
-        if isBopomofoInputSource(inputSourceId) {
-            switch Int(event.keyCode) {
-            case kVK_DownArrow, kVK_PageUp, kVK_PageDown, kVK_Space:
-                return true
-            default:
-                return false
-            }
-        }
-
-        if isApplePinyinInputSource(inputSourceId) {
-            switch Int(event.keyCode) {
-            case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow,
-                 kVK_PageUp, kVK_PageDown, kVK_Tab:
-                return true
-            default:
-                return false
-            }
-        }
-
-        return false
+        return NoMarkedIMECommandPolicy(inputSourceId: inputSourceId)
+            .keepsInsideTextInput(keyCode: Int(event.keyCode))
     }
 
     /// Returns true when a window-level key-equivalent probe should re-enter
@@ -145,6 +115,55 @@ extension GhosttyNSView {
             return true
         default:
             return false
+        }
+    }
+
+    private enum NoMarkedIMECommandPolicy {
+        case none
+        case bopomofoCandidate
+        case applePinyinCandidate
+
+        init(inputSourceId: String?) {
+            guard let inputSourceId else {
+                self = .none
+                return
+            }
+
+            if inputSourceId.localizedCaseInsensitiveContains("Zhuyin")
+                || inputSourceId.localizedCaseInsensitiveContains("Bopomofo") {
+                self = .bopomofoCandidate
+                return
+            }
+
+            if inputSourceId == "com.apple.inputmethod.SCIM.ITABC"
+                || inputSourceId == "com.apple.inputmethod.TCIM.Pinyin" {
+                self = .applePinyinCandidate
+                return
+            }
+
+            self = .none
+        }
+
+        func keepsInsideTextInput(keyCode: Int) -> Bool {
+            switch self {
+            case .none:
+                return false
+            case .bopomofoCandidate:
+                switch keyCode {
+                case kVK_DownArrow, kVK_PageUp, kVK_PageDown, kVK_Space:
+                    return true
+                default:
+                    return false
+                }
+            case .applePinyinCandidate:
+                switch keyCode {
+                case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow,
+                     kVK_PageUp, kVK_PageDown, kVK_Tab:
+                    return true
+                default:
+                    return false
+                }
+            }
         }
     }
 
