@@ -15,6 +15,10 @@ struct cmuxApp: App {
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+    /// Selects the browser engine for newly-created browser panes. See
+    /// ``BrowserEngineKind`` for the trade-offs; toggle lives under
+    /// **Debug → Browser Engine** in DEBUG builds.
+    @AppStorage(BrowserEngineKind.userDefaultsKey) private var browserEngineRaw = BrowserEngineKind.default.rawValue
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
 
@@ -303,6 +307,40 @@ struct cmuxApp: App {
 
 #if DEBUG
             CommandMenu("Debug") {
+                // MARK: - Browser engine (experimental)
+                //
+                // Switches *new* browser panes between the production
+                // WKWebView engine and the experimental CEF engine.
+                // Existing panes keep the engine they were born with;
+                // there is no live migration. CEF availability also
+                // depends on the `CEF/` Swift package being linked
+                // into this build — when it isn't, the CEF option is
+                // disabled and a hint points at `CEF/INTEGRATION.md`.
+                Menu(String(
+                    localized: "debug.menu.browserEngine",
+                    defaultValue: "Browser Engine"
+                )) {
+                    ForEach(BrowserEngineKind.allCases, id: \.self) { kind in
+                        let isCurrent = browserEngineRaw == kind.rawValue
+                        let isAvailable = (kind != .cef) || BrowserEngineKind.isCEFAvailable
+                        Button(action: { browserEngineRaw = kind.rawValue }) {
+                            HStack {
+                                Image(systemName: isCurrent ? "checkmark" : "")
+                                    .frame(width: 16)
+                                Text(kind.displayLabel)
+                            }
+                        }
+                        .disabled(!isAvailable)
+                    }
+                    if !BrowserEngineKind.isCEFAvailable {
+                        Divider()
+                        Text(String(
+                            localized: "debug.menu.browserEngine.cefMissing",
+                            defaultValue: "CEF is not linked. See CEF/INTEGRATION.md."
+                        ))
+                    }
+                }
+                Divider()
                 Button("New Tab With Lorem Search Text") {
                     appDelegate.openDebugLoremTab(nil)
                 }

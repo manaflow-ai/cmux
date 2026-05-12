@@ -7048,7 +7048,7 @@ final class Workspace: Identifiable, ObservableObject {
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
 
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels)
-    private var isProgrammaticSplit = false
+    internal var isProgrammaticSplit = false
     private var debugStressPreloadSelectionDepth = 0
 
     /// Last terminal panel used as an inheritance source (typically last focused terminal).
@@ -7971,7 +7971,7 @@ final class Workspace: Identifiable, ObservableObject {
         preferredBrowserProfileID = profileID
     }
 
-    private func resolvedNewBrowserProfileID(
+    internal func resolvedNewBrowserProfileID(
         preferredProfileID: UUID? = nil,
         sourcePanelId: UUID? = nil
     ) -> UUID {
@@ -10078,6 +10078,28 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let paneId = sourcePaneId else { return nil }
 
+        // Engine fork: when the user has enabled CEF in Debug → Browser
+        // Engine, route through a parallel registration path that
+        // constructs a ``CEFBrowserPanel`` and registers it as the new
+        // pane's surface. The CEF path returns nil because callers of
+        // ``newBrowserSplit`` expect a ``BrowserPanel`` (WKWebView) and
+        // CEF-specific follow-up (extensions UI, devtools, etc.) is
+        // wired in later PRs. See
+        // ``Prototypes/cef-webview/notes/cmux-integration-plan.md``.
+        if BrowserEngineKind.current == .cef && BrowserEngineKind.isCEFAvailable {
+            _ = registerCEFBrowserSplit(
+                fromPaneId: paneId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                url: url,
+                preferredProfileID: preferredProfileID,
+                focus: focus,
+                creationPolicy: creationPolicy,
+                initialDividerPosition: initialDividerPosition
+            )
+            return nil
+        }
+
         // Create browser panel
         let browserPanel = BrowserPanel(
             workspaceId: id,
@@ -10169,6 +10191,22 @@ final class Workspace: Identifiable, ObservableObject {
         let sourcePanelId = effectiveSelectedPanelId(inPane: paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
+
+        // Engine fork: see the comment in `newBrowserSplit` for the
+        // rationale. The CEF detour registers a ``CEFBrowserPanel`` in
+        // this same pane and returns nil for backward-compat with
+        // callers that consume ``BrowserPanel`` directly.
+        if BrowserEngineKind.current == .cef && BrowserEngineKind.isCEFAvailable {
+            _ = registerCEFBrowserSurface(
+                inPaneId: paneId,
+                url: url,
+                focus: shouldFocusNewTab,
+                preferredProfileID: preferredProfileID,
+                creationPolicy: creationPolicy,
+                sourcePanelId: sourcePanelId
+            )
+            return nil
+        }
 
         let browserPanel = BrowserPanel(
             workspaceId: id,
@@ -10566,7 +10604,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    private func applyInitialSplitDividerPosition(_ position: CGFloat?, sourcePaneId: PaneID, newPaneId: PaneID) {
+    internal func applyInitialSplitDividerPosition(_ position: CGFloat?, sourcePaneId: PaneID, newPaneId: PaneID) {
         guard let position,
               let splitId = splitIdJoiningPaneIds(
                 sourcePaneId.id.uuidString,
