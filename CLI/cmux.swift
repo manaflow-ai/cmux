@@ -390,6 +390,7 @@ private struct ClaudeHookSessionRecord: Codable {
 private struct ClaudeHookActiveSessionRecord: Codable {
     var sessionId: String
     var turnId: String?
+    var allowsNewSessionReplacement: Bool?
     var updatedAt: TimeInterval
 }
 
@@ -483,7 +484,8 @@ private final class ClaudeHookSessionStore {
         lastSubtitle: String? = nil,
         lastBody: String? = nil,
         markActive: Bool = false,
-        turnId: String? = nil
+        turnId: String? = nil,
+        allowsNewSessionReplacement: Bool = false
     ) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
@@ -526,6 +528,7 @@ private final class ClaudeHookSessionStore {
                 state.activeSessionsByWorkspace[normalizedWorkspace] = ClaudeHookActiveSessionRecord(
                     sessionId: normalized,
                     turnId: normalizeOptional(turnId),
+                    allowsNewSessionReplacement: allowsNewSessionReplacement ? true : nil,
                     updatedAt: now
                 )
             }
@@ -557,6 +560,20 @@ private final class ClaudeHookSessionStore {
                 return true
             }
             return activeTurnId == normalizedTurnId
+        }
+    }
+
+    func canReplaceActiveSession(sessionId: String?, workspaceId: String) throws -> Bool {
+        guard let normalizedSessionId = normalizeOptional(sessionId),
+              let normalizedWorkspace = normalizeOptional(workspaceId) else {
+            return false
+        }
+        return try withLockedState { state in
+            guard let active = state.activeSessionsByWorkspace[normalizedWorkspace],
+                  active.sessionId != normalizedSessionId else {
+                return false
+            }
+            return active.allowsNewSessionReplacement == true
         }
     }
 
@@ -14350,6 +14367,12 @@ struct CMUXCLI {
                     parsedInput: parsedInput,
                     workspaceId: workspaceId,
                     telemetry: telemetry
+                ) ||
+                shouldReplaceStoppedClaudeSession(
+                    sessionStore: sessionStore,
+                    parsedInput: parsedInput,
+                    workspaceId: workspaceId,
+                    telemetry: telemetry
                 )
             if shouldRegisterPID, let claudePid {
                 _ = try? sendV1Command(
@@ -14414,7 +14437,8 @@ struct CMUXCLI {
                         cwd: parsedInput.cwd,
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
-                        markActive: true
+                        markActive: true,
+                        allowsNewSessionReplacement: true
                     )
                 }
 
@@ -14459,12 +14483,20 @@ struct CMUXCLI {
                 client: client
             )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
-            guard shouldApplyClaudeHookVisibleMutation(
-                sessionStore: sessionStore,
-                parsedInput: parsedInput,
-                workspaceId: workspaceId,
-                telemetry: telemetry
-            ) else {
+            let shouldApplyPromptSubmit =
+                shouldApplyClaudeHookVisibleMutation(
+                    sessionStore: sessionStore,
+                    parsedInput: parsedInput,
+                    workspaceId: workspaceId,
+                    telemetry: telemetry
+                ) ||
+                shouldReplaceStoppedClaudeSession(
+                    sessionStore: sessionStore,
+                    parsedInput: parsedInput,
+                    workspaceId: workspaceId,
+                    telemetry: telemetry
+                )
+            guard shouldApplyPromptSubmit else {
                 telemetry.breadcrumb("claude-hook.prompt-submit.stale")
                 print("OK")
                 return
@@ -14580,14 +14612,15 @@ struct CMUXCLI {
                 turnId: parsedInput.turnId
             )
             // consume() calls clearActiveSessionIfMatching before returning
-            // consumedSession, so isCurrent can treat parsedInput.sessionId as
-            // current only when the consumed session was the active one.
+            // consumedSession, so isCurrent can treat consumedSession.sessionId
+            // as current only when the consumed session was the active one.
             if let consumedSession {
                 let workspaceId = consumedSession.workspaceId
                 sendClaudeFeedTelemetry(workspaceId: workspaceId)
                 let shouldClearVisibleState = shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
-                    parsedInput: parsedInput,
+                    sessionId: consumedSession.sessionId,
+                    turnId: parsedInput.turnId,
                     workspaceId: workspaceId,
                     telemetry: telemetry
                 )
@@ -14711,23 +14744,63 @@ struct CMUXCLI {
         workspaceId: String,
         telemetry: CLISocketSentryTelemetry
     ) -> Bool {
+        shouldApplyClaudeHookVisibleMutation(
+            sessionStore: sessionStore,
+            sessionId: parsedInput.sessionId,
+            turnId: parsedInput.turnId,
+            workspaceId: workspaceId,
+            telemetry: telemetry
+        )
+    }
+
+    private func shouldApplyClaudeHookVisibleMutation(
+        sessionStore: ClaudeHookSessionStore,
+        sessionId: String?,
+        turnId: String?,
+        workspaceId: String,
+        telemetry: CLISocketSentryTelemetry
+    ) -> Bool {
         do {
             return try sessionStore.isCurrent(
-                sessionId: parsedInput.sessionId,
+                sessionId: sessionId,
                 workspaceId: workspaceId,
-                turnId: parsedInput.turnId
+                turnId: turnId
             )
         } catch {
             telemetry.breadcrumb(
                 "claude-hook.is-current.error",
                 data: [
                     "error": String(describing: error),
-                    "session_id": parsedInput.sessionId ?? "",
+                    "session_id": sessionId ?? "",
                     "workspace_id": workspaceId,
-                    "turn_id": parsedInput.turnId ?? "",
+                    "turn_id": turnId ?? "",
                 ]
             )
             return true
+        }
+    }
+
+    private func shouldReplaceStoppedClaudeSession(
+        sessionStore: ClaudeHookSessionStore,
+        parsedInput: ClaudeHookParsedInput,
+        workspaceId: String,
+        telemetry: CLISocketSentryTelemetry
+    ) -> Bool {
+        do {
+            return try sessionStore.canReplaceActiveSession(
+                sessionId: parsedInput.sessionId,
+                workspaceId: workspaceId
+            )
+        } catch {
+            telemetry.breadcrumb(
+                "claude-hook.can-replace-active.error",
+                data: [
+                    "error": String(describing: error),
+                    "session_id": parsedInput.sessionId ?? "",
+                    "workspace_id": workspaceId,
+                ]
+            )
+            return false
         }
     }
 
