@@ -318,7 +318,8 @@ final class AuthManagerSignOutTests: XCTestCase {
         try await callbackTask.value
 
         XCTAssertFalse(manager.isAuthenticated)
-        XCTAssertNil(await tokenStore.getStoredAccessToken())
+        let storedAccessToken = await tokenStore.getStoredAccessToken()
+        XCTAssertNil(storedAccessToken)
         do {
             _ = try await manager.getAccessToken()
             XCTFail("Expected getAccessToken to reject the stale post-sign-out token")
@@ -359,8 +360,10 @@ final class AuthManagerSignOutTests: XCTestCase {
         await signOutTask.value
 
         XCTAssertTrue(manager.isAuthenticated)
-        XCTAssertEqual(await tokenStore.getStoredAccessToken(), "new-access")
-        XCTAssertEqual(await tokenStore.getStoredRefreshToken(), "new-refresh")
+        let storedAccessToken = await tokenStore.getStoredAccessToken()
+        let storedRefreshToken = await tokenStore.getStoredRefreshToken()
+        XCTAssertEqual(storedAccessToken, "new-access")
+        XCTAssertEqual(storedRefreshToken, "new-refresh")
     }
 }
 
