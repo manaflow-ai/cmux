@@ -3118,6 +3118,33 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertEqual(output, "xterm-256color|xterm-256color|unset|0", output)
     }
 
+    func testZshShellIntegrationKeepsCmuxContextOutOfChildProcessEnvironment() throws {
+        let terminfoPath = "/Applications/cmux.app/Contents/Resources/terminfo"
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            print -r -- "shell=${CMUX_SOCKET_PATH:+socket}|$CMUX_TAB_ID|$CMUX_PANEL_ID|${TERMINFO:-missing}"
+            print -r -- "child=$(env | awk -F= '/^(CMUX_|TERMINFO=)/ {print $1}' | sort | paste -sd, -)"
+            """,
+            extraEnvironment: [
+                "CMUX_BUNDLED_CLI_PATH": "/tmp/cmux",
+                "CMUX_SURFACE_ID": "surface-test",
+                "CMUX_WORKSPACE_ID": "workspace-test",
+                "TERMINFO": terminfoPath,
+            ]
+        )
+
+        XCTAssertEqual(
+            output,
+            """
+            shell=socket|tab-test|panel-test|\(terminfoPath)
+            child=
+            """,
+            output
+        )
+    }
+
     func testShellIntegrationNormalizesClaudeConfigDirAfterUserZshrc() throws {
         let output = try runPromptInteractiveZsh(
             cmuxLoadGhosttyIntegration: false,
