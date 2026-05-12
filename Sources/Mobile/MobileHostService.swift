@@ -193,7 +193,19 @@ final class MobileHostService {
 private enum MobileHostAuthorizationError: Error {
     case missingStackTokens
     case invalidStackUser
+    case missingLocalUser
     case accountMismatch
+}
+
+enum MobileHostAuthorizationPolicy {
+    static func authorizeStackUser(localUserID: String?, remoteUserID: String) throws {
+        guard let localUserID, !localUserID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw MobileHostAuthorizationError.missingLocalUser
+        }
+        guard localUserID == remoteUserID else {
+            throw MobileHostAuthorizationError.accountMismatch
+        }
+    }
 }
 
 private actor MobileHostStackAuthVerifier {
@@ -236,9 +248,10 @@ private actor MobileHostStackAuthVerifier {
         }
 
         let localUserID = await MainActor.run { AuthManager.shared.currentUser?.id }
-        if let localUserID, localUserID != remoteUserID {
-            throw MobileHostAuthorizationError.accountMismatch
-        }
+        try MobileHostAuthorizationPolicy.authorizeStackUser(
+            localUserID: localUserID,
+            remoteUserID: remoteUserID
+        )
     }
 }
 

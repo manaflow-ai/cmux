@@ -35,4 +35,29 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         XCTAssertNil(result)
     }
+
+    func testStackUserAuthorizationRequiresSignedInMacUser() throws {
+        XCTAssertThrowsError(
+            try MobileHostAuthorizationPolicy.authorizeStackUser(
+                localUserID: nil,
+                remoteUserID: "user_remote"
+            )
+        )
+    }
+
+    func testStackUserAuthorizationRequiresMatchingUser() throws {
+        XCTAssertThrowsError(
+            try MobileHostAuthorizationPolicy.authorizeStackUser(
+                localUserID: "user_local",
+                remoteUserID: "user_remote"
+            )
+        )
+
+        XCTAssertNoThrow(
+            try MobileHostAuthorizationPolicy.authorizeStackUser(
+                localUserID: "user_local",
+                remoteUserID: "user_local"
+            )
+        )
+    }
 }
