@@ -319,6 +319,11 @@ These files change frequently upstream; be careful when rebasing the fork:
   - Keep DECSET 1004 enablement side-effect free. xterm-compatible focus reporting should only emit
     `CSI I` / `CSI O` on actual focus transitions, not immediately when the mode is enabled.
 
+- `src/terminal/Terminal.zig`
+  - Keep alternate-screen initialization inheriting the primary screen's scrollback limit so
+    cmux TUI sessions remain scrollable in mode 1049. If upstream adds its own alternate-screen
+    scrollback setting, prefer that upstream model over the fork-only hardcoded inheritance.
+
 - `src/terminal/stream_terminal.zig`
   - Keep the APC handler wired into `.apc_start`, `.apc_put`, `.apc_end`, and preserve the
     `apcEnd()` response path so kitty graphics still reach `Terminal.kittyGraphics()` and reply via
