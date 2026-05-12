@@ -47,6 +47,7 @@ public final class MenubarSearchPopover {
 
 public extension Notification.Name {
     static let cmuxJumpToSearchHit = Notification.Name("cmux.jumpToSearchHit")
+    static let cmuxFocusTitlebarSearch = Notification.Name("cmux.focusTitlebarSearch")
 }
 
 /// SwiftUI palette body.

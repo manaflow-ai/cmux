@@ -1,7 +1,11 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// Registers a process-global hotkey to toggle `MenubarSearchPopover`.
+/// Registers a process-global hotkey that focuses the inline
+/// `TitlebarSearchField` of the key window. Posts
+/// `.cmuxFocusTitlebarSearch`; the field listens and grabs first
+/// responder. Falls back to opening `MenubarSearchPopover` when no
+/// window is key.
 ///
 /// Default chord: ⌥⌘F (kVK_ANSI_F + cmd+option). User-rebindable in
 /// Settings (TODO: surface in `BetaFeaturesSettingsView` until promoted).
@@ -19,7 +23,14 @@ public final class GlobalSearchHotkey {
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
                                  eventKind: UInt32(kEventHotKeyPressed))
         InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
-            DispatchQueue.main.async { MenubarSearchPopover.shared.toggle() }
+            DispatchQueue.main.async {
+                if NSApp.keyWindow != nil {
+                    NotificationCenter.default.post(
+                        name: .cmuxFocusTitlebarSearch, object: nil)
+                } else {
+                    MenubarSearchPopover.shared.toggle()
+                }
+            }
             return noErr
         }, 1, &spec, nil, &handler)
 
