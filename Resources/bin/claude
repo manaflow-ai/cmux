@@ -625,7 +625,7 @@ merge_node_options() {
     local -a filtered=()
     local -a tokens=()
     local token
-    local skip_next=0
+    local index=0
 
     if [[ -z "$guard_path" ]]; then
         printf '%s' "$existing"
@@ -633,19 +633,26 @@ merge_node_options() {
     fi
 
     read -r -a tokens <<<"$existing"
-    for token in "${tokens[@]}"; do
-        if (( skip_next )); then
-            skip_next=0
+    while (( index < ${#tokens[@]} )); do
+        token="${tokens[$index]}"
+        if [[ "$token" == "--require" && $((index + 1)) -lt ${#tokens[@]} && "${tokens[$((index + 1))]}" == "$guard_path" ]]; then
+            index=$((index + 2))
+            continue
+        fi
+        if [[ "$token" == "--require=$guard_path" ]]; then
+            index=$((index + 1))
             continue
         fi
         if [[ "$token" == "--max-old-space-size" ]]; then
-            skip_next=1
+            index=$((index + 2))
             continue
         fi
         if [[ "$token" == --max-old-space-size=* ]]; then
+            index=$((index + 1))
             continue
         fi
         filtered+=("$token")
+        index=$((index + 1))
     done
 
     if (( ${#filtered[@]} == 0 )); then
@@ -656,16 +663,61 @@ merge_node_options() {
     printf ' %s' "${filtered[@]}"
 }
 
-normalize_node_options_for_restore() {
-    local existing="${1:-}"
+node_options_has_cmux_preload() {
+    local guard_path="$1"
+    local existing="${2:-}"
     local -a tokens=()
-    local -a normalized=()
     local token
     local index=0
+
+    [[ -n "$guard_path" ]] || return 1
 
     read -r -a tokens <<<"$existing"
     while (( index < ${#tokens[@]} )); do
         token="${tokens[$index]}"
+        if [[ "$token" == "--require" && $((index + 1)) -lt ${#tokens[@]} && "${tokens[$((index + 1))]}" == "$guard_path" ]]; then
+            return 0
+        fi
+        if [[ "$token" == "--require=$guard_path" ]]; then
+            return 0
+        fi
+        index=$((index + 1))
+    done
+    return 1
+}
+
+normalize_node_options_for_restore() {
+    local existing="${1:-}"
+    local guard_path="${2:-}"
+    local -a tokens=()
+    local -a normalized=()
+    local token
+    local index=0
+    local strip_cmux_injected=false
+
+    if node_options_has_cmux_preload "$guard_path" "$existing"; then
+        strip_cmux_injected=true
+    fi
+
+    read -r -a tokens <<<"$existing"
+    while (( index < ${#tokens[@]} )); do
+        token="${tokens[$index]}"
+        if [[ -n "$guard_path" && "$token" == "--require" && $((index + 1)) -lt ${#tokens[@]} && "${tokens[$((index + 1))]}" == "$guard_path" ]]; then
+            index=$((index + 2))
+            continue
+        fi
+        if [[ -n "$guard_path" && "$token" == "--require=$guard_path" ]]; then
+            index=$((index + 1))
+            continue
+        fi
+        if [[ "$strip_cmux_injected" == true && "$token" == "--max-old-space-size" && $((index + 1)) -lt ${#tokens[@]} && "${tokens[$((index + 1))]}" == "4096" ]]; then
+            index=$((index + 2))
+            continue
+        fi
+        if [[ "$strip_cmux_injected" == true && "$token" == "--max-old-space-size=4096" ]]; then
+            index=$((index + 1))
+            continue
+        fi
         if [[ "$token" == "--max-old-space-size" && $((index + 1)) -lt ${#tokens[@]} ]]; then
             normalized+=("--max-old-space-size=${tokens[$((index + 1))]}")
             index=$((index + 2))
@@ -682,6 +734,28 @@ normalize_node_options_for_restore() {
     if (( ${#normalized[@]} > 1 )); then
         printf ' %s' "${normalized[@]:1}"
     fi
+}
+
+args_have_cmux_hook_settings() {
+    local arg
+    local skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            if [[ "$arg" == "$HOOKS_JSON" ]]; then
+                return 0
+            fi
+            skip_next=false
+            continue
+        fi
+        if [[ "$arg" == "--settings=$HOOKS_JSON" ]]; then
+            return 0
+        fi
+        if [[ "$arg" == "--settings" ]]; then
+            skip_next=true
+            continue
+        fi
+    done
+    return 1
 }
 
 encode_launch_argv() {
@@ -804,9 +878,18 @@ configure_claude_hook_environment() {
     export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "$@")"
     export CMUX_AGENT_LAUNCH_CWD="$PWD"
     if GUARD_PATH="$(ensure_node_options_restore_module)"; then
-        if [[ ${NODE_OPTIONS+x} ]]; then
-            export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=1
-            export CMUX_ORIGINAL_NODE_OPTIONS="$(normalize_node_options_for_restore "$NODE_OPTIONS")"
+        if [[ ${NODE_OPTIONS+x} ]] && node_options_has_cmux_preload "$GUARD_PATH" "$NODE_OPTIONS" && [[ ${CMUX_ORIGINAL_NODE_OPTIONS_PRESENT+x} ]]; then
+            :
+        elif [[ ${NODE_OPTIONS+x} ]]; then
+            local normalized_node_options
+            normalized_node_options="$(normalize_node_options_for_restore "$NODE_OPTIONS" "$GUARD_PATH")"
+            if [[ -n "$normalized_node_options" ]]; then
+                export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=1
+                export CMUX_ORIGINAL_NODE_OPTIONS="$normalized_node_options"
+            else
+                export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=0
+                unset CMUX_ORIGINAL_NODE_OPTIONS
+            fi
         else
             export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=0
             unset CMUX_ORIGINAL_NODE_OPTIONS
@@ -850,8 +933,14 @@ done
 configure_claude_hook_environment "$@"
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
+    if args_have_cmux_hook_settings "$@"; then
+        exec "$REAL_CLAUDE" "$@"
+    fi
     exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
 else
     SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+    if args_have_cmux_hook_settings "$@"; then
+        exec "$REAL_CLAUDE" --session-id "$SESSION_ID" "$@"
+    fi
     exec "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
 fi
