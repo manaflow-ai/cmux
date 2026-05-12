@@ -148,41 +148,26 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
         }
     }
 
-    func testMaterializeWritesSelectedEditableConfigWhenLegacyConfigAppearsDuringCheck() throws {
+    func testMaterializeLeavesExistingLegacyAppearanceConfigUntouched() throws {
         try withTemporaryHomeDirectory { homeDirectory in
-            let fileManager = RaceCreatingFileManager()
             let appSupportDirectory = homeDirectory
                 .appendingPathComponent("Library", isDirectory: true)
                 .appendingPathComponent("Application Support", isDirectory: true)
             let bundleDirectory = appSupportDirectory
                 .appendingPathComponent("com.cmuxterm.app.debug.issue-3518", isDirectory: true)
-            let configGhosttyURL = bundleDirectory.appendingPathComponent("config.ghostty", isDirectory: false)
             let legacyConfigURL = bundleDirectory.appendingPathComponent("config", isDirectory: false)
-
-            fileManager.onFirstMissingPlainExistenceCheck = { path in
-                guard path == configGhosttyURL.path else { return }
-                try FileManager.default.createDirectory(at: bundleDirectory, withIntermediateDirectories: true)
-                try "background = #000000\n".write(to: legacyConfigURL, atomically: true, encoding: .utf8)
-            }
+            try FileManager.default.createDirectory(at: bundleDirectory, withIntermediateDirectories: true)
+            try "background = #000000\n".write(to: legacyConfigURL, atomically: true, encoding: .utf8)
 
             let environment = ConfigSourceEnvironment(
                 homeDirectoryURL: homeDirectory,
-                currentBundleIdentifier: "com.cmuxterm.app.debug.issue-3518",
-                fileManager: fileManager
+                currentBundleIdentifier: "com.cmuxterm.app.debug.issue-3518"
             )
 
             let materializedURL = try environment.materializeCmuxConfigFileIfNeeded()
 
-            XCTAssertEqual(materializedURL, configGhosttyURL)
-            XCTAssertTrue(FileManager.default.fileExists(atPath: configGhosttyURL.path))
-            let contents = try String(contentsOf: configGhosttyURL, encoding: .utf8)
-            XCTAssertFalse(contents.isEmpty)
-            XCTAssertTrue(
-                contents.contains("theme = light:Apple System Colors Light,dark:Apple System Colors"),
-                contents
-            )
+            XCTAssertEqual(materializedURL, legacyConfigURL)
             XCTAssertEqual(try String(contentsOf: legacyConfigURL, encoding: .utf8), "background = #000000\n")
-            XCTAssertNil(fileManager.creationError)
         }
     }
 
@@ -204,6 +189,59 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
                 contents
             )
             XCTAssertTrue(contents.contains("# cmux-managed-theme: end"), contents)
+        }
+    }
+
+    func testWriteManagedAppearanceConfigRepairsOrphanedManagedThemeMarkers() throws {
+        let orphanedConfigs = [
+            """
+            # cmux-managed-theme: begin
+            # Managed by cmux Settings > Theme. Keep this block unless you want to own terminal theme config manually.
+            theme = light:Apple System Colors Light,dark:Apple System Colors
+            font-size = 13
+            """,
+            """
+            theme = light:Apple System Colors Light,dark:Apple System Colors
+            # cmux-managed-theme: end
+            font-size = 13
+            """,
+            """
+            # cmux-managed-theme: begin
+            # Managed by cmux Settings > Theme. Keep this block unless you want to own terminal theme config manually.
+            theme = light:Apple System Colors Light,dark:Apple System Colors
+            # cmux-managed-theme: end
+            # cmux-managed-theme: end
+            font-size = 13
+            """,
+        ]
+
+        for orphanedConfig in orphanedConfigs {
+            try withTemporaryHomeDirectory { homeDirectory in
+                let environment = ConfigSourceEnvironment(
+                    homeDirectoryURL: homeDirectory,
+                    currentBundleIdentifier: "com.cmuxterm.app"
+                )
+                let configURL = environment.cmuxConfigURL
+                try FileManager.default.createDirectory(
+                    at: configURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try (orphanedConfig + "\n").write(to: configURL, atomically: true, encoding: .utf8)
+
+                try environment.writeManagedAppearanceConfigIfNeeded()
+
+                let contents = try String(contentsOf: configURL, encoding: .utf8)
+                XCTAssertEqual(contents.components(separatedBy: "# cmux-managed-theme: begin").count - 1, 1, contents)
+                XCTAssertEqual(contents.components(separatedBy: "# cmux-managed-theme: end").count - 1, 1, contents)
+                XCTAssertEqual(
+                    contents.components(
+                        separatedBy: "theme = light:Apple System Colors Light,dark:Apple System Colors"
+                    ).count - 1,
+                    1,
+                    contents
+                )
+                XCTAssertTrue(contents.contains("font-size = 13"), contents)
+            }
         }
     }
 
@@ -476,23 +514,4 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
         return configURL
     }
 
-    private final class RaceCreatingFileManager: FileManager {
-        var onFirstMissingPlainExistenceCheck: ((String) throws -> Void)?
-        var creationError: Error?
-        private var hasRunPlainExistenceHook = false
-
-        override func fileExists(atPath path: String) -> Bool {
-            let exists = super.fileExists(atPath: path)
-            guard !exists, !hasRunPlainExistenceHook else {
-                return exists
-            }
-            hasRunPlainExistenceHook = true
-            do {
-                try onFirstMissingPlainExistenceCheck?(path)
-            } catch {
-                creationError = error
-            }
-            return exists
-        }
-    }
 }

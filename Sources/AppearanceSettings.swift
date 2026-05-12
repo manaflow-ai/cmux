@@ -1,5 +1,8 @@
 import AppKit
+import OSLog
 import SwiftUI
+
+private let appearanceSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category: "appearance")
 
 enum AppearanceMode: String, CaseIterable, Identifiable {
     case system
@@ -61,6 +64,9 @@ enum AppearanceSettings {
                     do {
                         try ConfigSourceEnvironment.live().writeManagedAppearanceConfigIfNeeded()
                     } catch {
+                        appearanceSettingsLogger.error(
+                            "Failed to write managed Ghostty theme config source=\(source, privacy: .public) error=\(error.localizedDescription, privacy: .private)"
+                        )
 #if DEBUG
                         cmuxDebugLog("appearance.managedGhosttyConfig.writeFailed source=\(source) error=\(error)")
 #endif

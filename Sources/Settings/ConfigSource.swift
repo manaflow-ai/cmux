@@ -68,8 +68,6 @@ struct ConfigSourceEnvironment {
 
     func materializeCmuxConfigFileIfNeeded() throws -> URL {
         let url = cmuxConfigURL
-        // Preserve the selected editable URL even if a legacy config appears during existence checks.
-        _ = fileManager.fileExists(atPath: url.path)
         try writeManagedAppearanceConfigIfNeeded(to: url)
         return url
     }
@@ -99,8 +97,8 @@ struct ConfigSourceEnvironment {
     private func writeManagedAppearanceConfigIfNeeded(to url: URL) throws {
         let writeURL = configWriteURL(for: url)
         let existingContents = (try? String(contentsOf: writeURL, encoding: .utf8)) ?? ""
-        let hasManagedBlock = CmuxManagedGhosttyThemeConfig.containsManagedBlock(in: existingContents)
-        if !hasManagedBlock,
+        let hasManagedState = CmuxManagedGhosttyThemeConfig.containsManagedState(in: existingContents)
+        if !hasManagedState,
            !GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [writeURL.path]) {
             return
         }
@@ -178,33 +176,44 @@ struct ConfigSourceEnvironment {
 enum CmuxManagedGhosttyThemeConfig {
     private static let beginMarker = "# cmux-managed-theme: begin"
     private static let endMarker = "# cmux-managed-theme: end"
+    private static let managedComment =
+        "# Managed by cmux Settings > Theme. Keep this block unless you want to own terminal theme config manually."
     static let themeDirective = "theme = light:Apple System Colors Light,dark:Apple System Colors"
 
     static var managedBlock: String {
         """
         \(beginMarker)
-        # Managed by cmux Settings > Theme. Keep this block unless you want to own terminal theme config manually.
+        \(managedComment)
         \(themeDirective)
         \(endMarker)
         """
     }
 
+    static func containsManagedState(in contents: String) -> Bool {
+        containsManagedBlock(in: contents)
+            || contents.contains(beginMarker)
+            || contents.contains(endMarker)
+    }
+
     static func containsManagedBlock(in contents: String) -> Bool {
-        contents.contains(beginMarker) || contents.contains(endMarker)
+        managedBlockRange(in: contents) != nil
     }
 
     static func contentsByInstallingManagedBlock(in contents: String) -> String {
         if let range = managedBlockRange(in: contents) {
-            return contents.replacingCharacters(in: range, with: managedBlock)
+            let prefix = contentsByRemovingOrphanedManagedState(from: String(contents[..<range.lowerBound]))
+            let suffix = contentsByRemovingOrphanedManagedState(from: String(contents[range.upperBound...]))
+            return contentsByJoiningManagedBlock(prefix: prefix, suffix: suffix)
         }
 
-        let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sanitizedContents = contentsByRemovingOrphanedManagedState(from: contents)
+        let trimmed = sanitizedContents.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             return managedBlock + "\n"
         }
 
-        let separator = contents.hasPrefix("\n") ? "\n" : "\n\n"
-        return managedBlock + separator + contents
+        let separator = sanitizedContents.hasPrefix("\n") ? "\n" : "\n\n"
+        return managedBlock + separator + sanitizedContents
     }
 
     private static func managedBlockRange(in contents: String) -> Range<String.Index>? {
@@ -218,6 +227,35 @@ enum CmuxManagedGhosttyThemeConfig {
             upperBound = contents.index(after: upperBound)
         }
         return begin.lowerBound..<upperBound
+    }
+
+    private static func contentsByJoiningManagedBlock(prefix: String, suffix: String) -> String {
+        var contents = prefix
+        if !contents.isEmpty, !contents.hasSuffix("\n") {
+            contents += "\n"
+        }
+        contents += managedBlock
+        if !suffix.isEmpty, !suffix.hasPrefix("\n") {
+            contents += "\n"
+        }
+        contents += suffix
+        return contents
+    }
+
+    private static func contentsByRemovingOrphanedManagedState(from contents: String) -> String {
+        guard contents.contains(beginMarker) || contents.contains(endMarker) else {
+            return contents
+        }
+
+        let lines = contents.split(separator: "\n", omittingEmptySubsequences: false)
+        let sanitizedLines = lines.filter { line in
+            let value = String(line)
+            return value != beginMarker
+                && value != endMarker
+                && value != managedComment
+                && value != themeDirective
+        }
+        return sanitizedLines.joined(separator: "\n")
     }
 }
 
