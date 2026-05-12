@@ -383,7 +383,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         guard let command = resumeCommand else { return nil }
 
         let inlineInput = command + "\n"
-        guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
+        guard !Self.canUseInlineStartupInput(inlineInput) else {
             return inlineInput
         }
         guard let scriptURL = AgentResumeScriptStore.writeLauncherScript(
@@ -397,7 +397,14 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         }
 
         let scriptInput = "/bin/zsh \(shellSingleQuoted(scriptURL.path))\n"
-        return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
+        return Self.canUseInlineStartupInput(scriptInput) ? scriptInput : nil
+    }
+
+    private static func canUseInlineStartupInput(_ input: String) -> Bool {
+        guard input.utf8.count <= Self.maxInlineStartupInputBytes else { return false }
+        // Ghostty embedded startup input is parsed as escaped Zig string content.
+        // Keep inline transport ASCII-only so UTF-8 restore commands stay byte-exact in the launcher script.
+        return input.utf8.allSatisfy { $0 < 0x80 }
     }
 }
 
