@@ -597,4 +597,75 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
             "The eventual keyUp must reach Ghostty after a forwarded keyDown clears stale suppression"
         )
     }
+
+    func testLayoutChangeIMEHandledKeyDownSuppressesMatchingKeyUp() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let terminalSurface = hostedTerminal.surface
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
+            window.orderOut(nil)
+            withExtendedLifetime(terminalSurface) {}
+        }
+
+        let keyCode = UInt16(kVK_ANSI_5)
+        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
+        GhosttyNSView.debugTextInputEventHandler = { candidateView, _ in
+            guard candidateView === surfaceView else { return false }
+            KeyboardLayout.debugInputSourceIdOverride = "com.apple.keylayout.US"
+            return true
+        }
+
+        var forwardedPressCount = 0
+        var forwardedReleaseCount = 0
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.keycode == UInt32(keyCode) else { return }
+            if keyEvent.action == GHOSTTY_ACTION_PRESS {
+                forwardedPressCount += 1
+            } else if keyEvent.action == GHOSTTY_ACTION_RELEASE {
+                forwardedReleaseCount += 1
+            }
+        }
+
+        let keyDown = try keyEvent(
+            text: "5",
+            keyCode: keyCode,
+            windowNumber: window.windowNumber
+        )
+        let keyUp = try keyEvent(
+            type: .keyUp,
+            text: "5",
+            keyCode: keyCode,
+            windowNumber: window.windowNumber
+        )
+
+        window.makeFirstResponder(surfaceView)
+        withExtendedLifetime(terminalSurface) {
+            surfaceView.keyDown(with: keyDown)
+        }
+
+        XCTAssertEqual(forwardedPressCount, 0)
+        XCTAssertTrue(
+            surfaceView.imeSuppressedKeyUpKeyCodesForTesting.contains(keyCode),
+            "Layout-change IME handling consumes keyDown and must suppress the matching keyUp"
+        )
+
+        withExtendedLifetime(terminalSurface) {
+            surfaceView.keyUp(with: keyUp)
+        }
+
+        XCTAssertEqual(
+            forwardedReleaseCount,
+            0,
+            "IME-consumed layout-change keyDown must not leave Ghostty with an unmatched release"
+        )
+        XCTAssertFalse(surfaceView.imeSuppressedKeyUpKeyCodesForTesting.contains(keyCode))
+    }
 }

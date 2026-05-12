@@ -7725,6 +7725,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // If the keyboard layout changed, an input method grabbed the event.
         // Sync preedit and return without sending the key to Ghostty.
         if !markedTextBefore, keyboardIdBefore != KeyboardLayout.id {
+            imeSuppressedKeyUpKeyCodes.insert(event.keyCode)
 #if DEBUG
             let syncPreeditStart = ProcessInfo.processInfo.systemUptime
 #endif
