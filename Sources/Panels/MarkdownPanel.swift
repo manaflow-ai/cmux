@@ -11,6 +11,11 @@ final class MarkdownPanel: Panel, ObservableObject {
     /// Absolute path to the markdown file being displayed.
     let filePath: String
 
+    /// Directory used to resolve relative links and image paths in the source document.
+    var sourceDirectoryURL: URL {
+        URL(fileURLWithPath: filePath).deletingLastPathComponent()
+    }
+
     /// The workspace this panel belongs to.
     private(set) var workspaceId: UUID
 

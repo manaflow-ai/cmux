@@ -46,7 +46,8 @@ struct MarkdownPanelView: View {
     // MARK: - Content
 
     private var markdownContentView: some View {
-        ScrollView {
+        let sourceDirectoryURL = panel.sourceDirectoryURL
+        return ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 // File path breadcrumb
                 filePathHeader
@@ -58,8 +59,10 @@ struct MarkdownPanelView: View {
                     .padding(.horizontal, 16)
 
                 // Rendered markdown
-                Markdown(panel.content)
+                Markdown(panel.content, baseURL: sourceDirectoryURL, imageBaseURL: sourceDirectoryURL)
                     .markdownTheme(cmuxMarkdownTheme)
+                    .markdownImageProvider(MarkdownPanelImageProvider(markdownDirectoryURL: sourceDirectoryURL))
+                    .markdownInlineImageProvider(MarkdownPanelInlineImageProvider())
                     .textSelection(.enabled)
                     // Wire link activation through NSWorkspace explicitly.
                     // SwiftUI's default Link path does not fire reliably
@@ -193,20 +196,25 @@ struct MarkdownPanelView: View {
             }
             // Code blocks
             .codeBlock { configuration in
-                ScrollView(.horizontal, showsIndicators: true) {
-                    configuration.label
-                        .markdownTextStyle {
-                            FontFamilyVariant(.monospaced)
-                            FontSize(13)
-                            ForegroundColor(isDark ? Color(red: 0.9, green: 0.9, blue: 0.9) : Color(red: 0.2, green: 0.2, blue: 0.2))
-                        }
-                        .padding(12)
+                if MarkdownMermaidHTMLDocument.isMermaidLanguage(configuration.language) {
+                    MarkdownMermaidDiagramView(source: configuration.content, isDark: isDark)
+                        .markdownMargin(top: 8, bottom: 8)
+                } else {
+                    ScrollView(.horizontal, showsIndicators: true) {
+                        configuration.label
+                            .markdownTextStyle {
+                                FontFamilyVariant(.monospaced)
+                                FontSize(13)
+                                ForegroundColor(isDark ? Color(red: 0.9, green: 0.9, blue: 0.9) : Color(red: 0.2, green: 0.2, blue: 0.2))
+                            }
+                            .padding(12)
+                    }
+                    .background(isDark
+                        ? Color(nsColor: NSColor(white: 0.08, alpha: 1.0))
+                        : Color(nsColor: NSColor(white: 0.93, alpha: 1.0)))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .markdownMargin(top: 8, bottom: 8)
                 }
-                .background(isDark
-                    ? Color(nsColor: NSColor(white: 0.08, alpha: 1.0))
-                    : Color(nsColor: NSColor(white: 0.93, alpha: 1.0)))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .markdownMargin(top: 8, bottom: 8)
             }
             // Inline code
             .code {
@@ -297,115 +305,5 @@ struct MarkdownPanelView: View {
         case .easeOut:
             return .easeOut(duration: duration)
         }
-    }
-}
-
-private struct MarkdownPointerObserver: NSViewRepresentable {
-    let onPointerDown: () -> Void
-
-    func makeNSView(context: Context) -> MarkdownPanelPointerObserverView {
-        let view = MarkdownPanelPointerObserverView()
-        view.onPointerDown = onPointerDown
-        return view
-    }
-
-    func updateNSView(_ nsView: MarkdownPanelPointerObserverView, context: Context) {
-        nsView.onPointerDown = onPointerDown
-    }
-}
-
-final class MarkdownPanelPointerObserverView: NSView {
-    var onPointerDown: (() -> Void)?
-    private var eventMonitor: Any?
-    private weak var forwardedMouseTarget: NSView?
-
-    override var mouseDownCanMoveWindow: Bool { false }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        installEventMonitorIfNeeded()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    deinit {
-        if let eventMonitor {
-            NSEvent.removeMonitor(eventMonitor)
-        }
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard PaneFirstClickFocusSettings.isEnabled(),
-              window?.isKeyWindow != true,
-              bounds.contains(point) else { return nil }
-        return self
-    }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        PaneFirstClickFocusSettings.isEnabled()
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        onPointerDown?()
-        forwardedMouseTarget = forwardedTarget(for: event)
-        forwardedMouseTarget?.mouseDown(with: event)
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        forwardedMouseTarget?.mouseDragged(with: event)
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        forwardedMouseTarget?.mouseUp(with: event)
-        forwardedMouseTarget = nil
-    }
-
-    func shouldHandle(_ event: NSEvent) -> Bool {
-        guard event.type == .leftMouseDown,
-              let window,
-              event.window === window,
-              !isHiddenOrHasHiddenAncestor else { return false }
-        if PaneFirstClickFocusSettings.isEnabled(), window.isKeyWindow != true {
-            return false
-        }
-        let point = convert(event.locationInWindow, from: nil)
-        return bounds.contains(point)
-    }
-
-    func handleEventIfNeeded(_ event: NSEvent) -> NSEvent {
-        guard shouldHandle(event) else { return event }
-        DispatchQueue.main.async { [weak self] in
-            self?.onPointerDown?()
-        }
-        return event
-    }
-
-    private func installEventMonitorIfNeeded() {
-        guard eventMonitor == nil else { return }
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
-            self?.handleEventIfNeeded(event) ?? event
-        }
-    }
-
-    private func forwardedTarget(for event: NSEvent) -> NSView? {
-        guard let window else {
-#if DEBUG
-            NSLog("MarkdownPanelPointerObserverView.forwardedTarget skipped, window=0 contentView=0")
-#endif
-            return nil
-        }
-        guard let contentView = window.contentView else {
-#if DEBUG
-            NSLog("MarkdownPanelPointerObserverView.forwardedTarget skipped, window=1 contentView=0")
-#endif
-            return nil
-        }
-        isHidden = true
-        defer { isHidden = false }
-        let point = contentView.convert(event.locationInWindow, from: nil)
-        let target = contentView.hitTest(point)
-        return target === self ? nil : target
     }
 }

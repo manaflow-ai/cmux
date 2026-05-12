@@ -2160,6 +2160,75 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
 }
 
+@MainActor
+final class MarkdownPanelRenderingTests: XCTestCase {
+    func testMarkdownPanelSourceDirectoryUsesMarkdownFileParent() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-rendering-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let markdownURL = root.appendingPathComponent("guide.md", isDirectory: false)
+        try "# Guide\n".write(to: markdownURL, atomically: true, encoding: .utf8)
+
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: markdownURL.path)
+        defer { panel.close() }
+
+        XCTAssertEqual(panel.sourceDirectoryURL.standardizedFileURL.path, root.standardizedFileURL.path)
+    }
+
+    func testMarkdownImageProviderResolvesRelativeImagesAgainstSourceDirectory() throws {
+        let baseURL = URL(fileURLWithPath: "/tmp/cmux docs/reference", isDirectory: true)
+        let resolved = try XCTUnwrap(
+            MarkdownPanelImageProvider.resolvedImageURL(
+                from: "images/diagram.png",
+                markdownDirectoryURL: baseURL
+            )
+        )
+
+        XCTAssertEqual(resolved.path, "/tmp/cmux docs/reference/images/diagram.png")
+    }
+
+    func testMarkdownImageProviderPreservesRemoteImageURLs() throws {
+        let baseURL = URL(fileURLWithPath: "/tmp/cmux-docs", isDirectory: true)
+        let resolved = try XCTUnwrap(
+            MarkdownPanelImageProvider.resolvedImageURL(
+                from: "https://example.com/assets/diagram.png",
+                markdownDirectoryURL: baseURL
+            )
+        )
+
+        XCTAssertEqual(resolved.absoluteString, "https://example.com/assets/diagram.png")
+    }
+
+    func testMermaidLanguageDetectionAcceptsInfoStrings() {
+        XCTAssertTrue(MarkdownMermaidHTMLDocument.isMermaidLanguage("mermaid"))
+        XCTAssertTrue(MarkdownMermaidHTMLDocument.isMermaidLanguage(" Mermaid theme=dark"))
+        XCTAssertFalse(MarkdownMermaidHTMLDocument.isMermaidLanguage("swift"))
+        XCTAssertFalse(MarkdownMermaidHTMLDocument.isMermaidLanguage(nil))
+    }
+
+    func testMermaidHTMLDocumentEscapesScriptBreakingSourceText() {
+        let html = MarkdownMermaidHTMLDocument.html(
+            source: #"graph TD; A["</script><img src=x onerror=alert(1)>"] --> B"#,
+            isDark: false
+        )
+
+        XCTAssertFalse(html.contains("</script><img"))
+        XCTAssertTrue(html.contains(#"\u003C/script\u003E"#))
+        XCTAssertTrue(html.contains("mermaid@10.9.3"))
+        XCTAssertTrue(html.contains(#"integrity="sha384-R63zfMfSwJF4xCR11wXii+QUsbiBIdiDzDbtxia72oGWfkT7WHJfmD/I/eeHPJyT""#))
+        XCTAssertTrue(html.contains("Content-Security-Policy"))
+        XCTAssertTrue(html.contains("script-src 'nonce-"))
+    }
+
+    func testMermaidHTMLDocumentPreservesDiagramSourceLiteral() {
+        let html = MarkdownMermaidHTMLDocument.html(source: "graph TD; A --> B", isDark: false)
+
+        XCTAssertTrue(html.contains(#""graph TD; A --> B""#))
+    }
+}
+
 final class SidebarDragFailsafePolicyTests: XCTestCase {
     func testRequestsClearWhenMonitorStartsAfterMouseRelease() {
         XCTAssertTrue(
