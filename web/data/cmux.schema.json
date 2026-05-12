@@ -228,6 +228,11 @@
           "default": "afterCurrent",
           "description": "Where new workspaces are inserted in the sidebar."
         },
+        "restorePreviousSessionOnLaunch": {
+          "type": "boolean",
+          "default": true,
+          "description": "Restore saved windows, workspaces, tabs, pane splits, and panel metadata on normal app launch."
+        },
         "minimalMode": {
           "type": "boolean",
           "default": false,

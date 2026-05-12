@@ -11,6 +11,7 @@ final class SettingsSearchIndexTests: XCTestCase {
         assertSearch("dockless", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "menu-bar-only"))
         assertSearch("menubar", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "show-menu-bar"))
         assertSearch("vscode", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "preferred-editor"))
+        assertSearch("restore pane splits", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "restore-session-launch"))
         assertSearch("cmd q", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "warn-before-quit"))
         assertSearch("sound file", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "notification-sound"))
         assertSearch("disable browser", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "enable-browser"))
@@ -35,6 +36,13 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertEqual(
             SettingsSearchIndex.anchorID(forSettingsPath: "terminal.autoResumeAgentSessions"),
             SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume")
+        )
+    }
+
+    func testSettingsPathAnchorIncludesSessionAutoRestore() {
+        XCTAssertEqual(
+            SettingsSearchIndex.anchorID(forSettingsPath: "app.restorePreviousSessionOnLaunch"),
+            SettingsSearchIndex.settingID(for: .app, idSuffix: "restore-session-launch")
         )
     }
 

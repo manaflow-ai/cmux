@@ -57665,6 +57665,57 @@
         }
       }
     },
+    "settings.app.restorePreviousSessionOnLaunch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore Previous Session on Launch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動時に前回のセッションを復元"
+          }
+        }
+      }
+    },
+    "settings.app.restorePreviousSessionOnLaunch.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux starts with a fresh window on launch. Use Reopen Previous Session to restore manually."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動時は新しいウィンドウで開始します。手動で復元するには「前回のセッションを再度開く」を使用します。"
+          }
+        }
+      }
+    },
+    "settings.app.restorePreviousSessionOnLaunch.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux restores saved windows, workspaces, tabs, and pane splits when launched normally."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通常起動時に、保存されたウィンドウ、ワークスペース、タブ、ペイン分割を復元します。"
+          }
+        }
+      }
+    },
     "settings.app.warnBeforeQuit": {
       "extractionState": "manual",
       "localizations": {
@@ -72173,6 +72224,23 @@
                 "stringUnit": {
                     "state": "translated",
                     "value": "app.newWorkspacePlacement new tab insert position order top bottom end програма загальні параметри поведінка док рядок меню статус бічна панель робочий простір вкладка кольори палітра значок вибрано підсвічування індикатор активний крапка нова Робоча область • %@ Розташування нової робочої області В кінці На початку"
+                }
+            }
+        }
+    },
+    "settings.search.alias.setting.app.restore-session-launch": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.restorePreviousSessionOnLaunch auto restore session startup launch reopen restore tabs panes splits layout windows"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.restorePreviousSessionOnLaunch auto restore session startup launch reopen restore tabs panes splits layout windows 自動復元 セッション 起動 タブ ペイン 分割 レイアウト ウィンドウ"
                 }
             }
         }

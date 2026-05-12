@@ -109,6 +109,18 @@ enum TerminalScrollBarSettings {
     }
 }
 
+enum SessionAutoRestoreSettings {
+    static let restorePreviousSessionOnLaunchKey = "session.restorePreviousSessionOnLaunch"
+    static let defaultRestorePreviousSessionOnLaunch = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: restorePreviousSessionOnLaunchKey) != nil else {
+            return defaultRestorePreviousSessionOnLaunch
+        }
+        return defaults.bool(forKey: restorePreviousSessionOnLaunchKey)
+    }
+}
+
 enum AgentSessionAutoResumeSettings {
     static let autoResumeAgentSessionsKey = "terminal.autoResumeAgentSessions"
     static let defaultAutoResumeAgentSessions = true

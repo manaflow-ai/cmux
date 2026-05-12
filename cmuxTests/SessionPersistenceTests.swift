@@ -228,7 +228,8 @@ final class SessionPersistenceTests: XCTestCase {
     func testRestorePolicySkipsWhenLaunchHasExplicitArguments() {
         let shouldRestore = SessionRestorePolicy.shouldAttemptRestore(
             arguments: ["/Applications/cmux.app/Contents/MacOS/cmux", "--window", "window:1"],
-            environment: [:]
+            environment: [:],
+            autoRestoreEnabled: true
         )
 
         XCTAssertFalse(shouldRestore)
@@ -237,19 +238,49 @@ final class SessionPersistenceTests: XCTestCase {
     func testRestorePolicyAllowsFinderStyleLaunchArgumentsOnly() {
         let shouldRestore = SessionRestorePolicy.shouldAttemptRestore(
             arguments: ["/Applications/cmux.app/Contents/MacOS/cmux", "-psn_0_12345"],
-            environment: [:]
+            environment: [:],
+            autoRestoreEnabled: true
         )
 
         XCTAssertTrue(shouldRestore)
     }
 
-    func testRestorePolicySkipsWhenRunningUnderXCTest() {
+    func testRestorePolicySkipsWhenAutoRestoreSettingIsDisabled() {
         let shouldRestore = SessionRestorePolicy.shouldAttemptRestore(
             arguments: ["/Applications/cmux.app/Contents/MacOS/cmux"],
-            environment: ["XCTestConfigurationFilePath": "/tmp/xctest.xctestconfiguration"]
+            environment: [:],
+            autoRestoreEnabled: false
         )
 
         XCTAssertFalse(shouldRestore)
+    }
+
+    func testRestorePolicySkipsWhenRunningUnderXCTest() {
+        let shouldRestore = SessionRestorePolicy.shouldAttemptRestore(
+            arguments: ["/Applications/cmux.app/Contents/MacOS/cmux"],
+            environment: ["XCTestConfigurationFilePath": "/tmp/xctest.xctestconfiguration"],
+            autoRestoreEnabled: true
+        )
+
+        XCTAssertFalse(shouldRestore)
+    }
+
+    func testSessionAutoRestoreSettingsDefaultsToEnabled() throws {
+        let suiteName = "cmux-session-auto-restore-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertTrue(SessionAutoRestoreSettings.isEnabled(defaults: defaults))
+    }
+
+    func testSessionAutoRestoreSettingsReadsStoredValue() throws {
+        let suiteName = "cmux-session-auto-restore-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(false, forKey: SessionAutoRestoreSettings.restorePreviousSessionOnLaunchKey)
+
+        XCTAssertFalse(SessionAutoRestoreSettings.isEnabled(defaults: defaults))
     }
 
     func testSidebarWidthSanitizationClampsToPolicyRange() {

@@ -118,8 +118,12 @@ enum SessionRestorePolicy {
 
     static func shouldAttemptRestore(
         arguments: [String] = CommandLine.arguments,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        autoRestoreEnabled: Bool = SessionAutoRestoreSettings.isEnabled()
     ) -> Bool {
+        if !autoRestoreEnabled {
+            return false
+        }
         if environment["CMUX_DISABLE_SESSION_RESTORE"] == "1" {
             return false
         }

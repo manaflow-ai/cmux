@@ -374,6 +374,9 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[WorkspacePlacementSettings.placementKey] = .string(placement.rawValue)
         }
+        if let value = jsonBool(section["restorePreviousSessionOnLaunch"]) {
+            snapshot.managedUserDefaults[SessionAutoRestoreSettings.restorePreviousSessionOnLaunchKey] = .bool(value)
+        }
         if let value = jsonBool(section["minimalMode"]) {
             let mode = value ? WorkspacePresentationModeSettings.Mode.minimal : .standard
             snapshot.managedUserDefaults[WorkspacePresentationModeSettings.modeKey] = .string(mode.rawValue)
