@@ -488,10 +488,21 @@ def test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path: str, root:
             raise AssertionError(f"monitor exited before publishing transcript failure: {fake.frames!r}")
 
 
-def run_feed_hook(cli_path: str, socket_path: Path, payload: dict, decision: dict | None) -> tuple[dict, dict]:
+def run_feed_hook(
+    cli_path: str,
+    socket_path: Path,
+    payload: dict,
+    decision: dict | None,
+    *,
+    source: str = "codex",
+    env_extra: dict[str, str] | None = None,
+    require_frame: bool = True,
+) -> tuple[dict, dict | None]:
     env = os.environ.copy()
     env["CMUX_SURFACE_ID"] = "surface-codex-feed-test"
     env["CMUX_WORKSPACE_ID"] = "workspace-codex-feed-test"
+    if env_extra:
+        env.update(env_extra)
     with FakeCmuxSocket(socket_path, decision) as fake:
         result = subprocess.run(
             [
@@ -501,7 +512,7 @@ def run_feed_hook(cli_path: str, socket_path: Path, payload: dict, decision: dic
                 "hooks",
                 "feed",
                 "--source",
-                "codex",
+                source,
                 "--event",
                 payload.get("hook_event_name", ""),
             ],
@@ -516,10 +527,10 @@ def run_feed_hook(cli_path: str, socket_path: Path, payload: dict, decision: dic
             raise AssertionError(
                 f"hooks feed failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
             )
-        if not fake.frames:
+        if require_frame and not fake.frames:
             raise AssertionError("hooks feed did not send feed.push")
         stdout = json.loads(result.stdout.strip() or "{}")
-        return stdout, fake.frames[0]
+        return stdout, fake.frames[0] if fake.frames else None
 
 
 def assert_permission_output(stdout: dict, behavior: str) -> None:
@@ -612,6 +623,30 @@ def test_permission_reply_uses_codex_permission_request_schema(cli_path: str, ro
     message = stdout["hookSpecificOutput"]["decision"].get("message", "")
     if "denied" not in message:
         raise AssertionError(f"deny output should include a message: {stdout!r}")
+
+
+def test_claude_teams_permission_request_bypasses_feed_bridge(cli_path: str, root: Path) -> None:
+    payload = {
+        "session_id": "claude-team-session",
+        "cwd": "/tmp/project",
+        "hook_event_name": "PermissionRequest",
+        "tool_name": "Bash",
+        "tool_input": {"command": "printf hi"},
+    }
+
+    stdout, frame = run_feed_hook(
+        cli_path,
+        root / "cmux-claude-team-permission.sock",
+        payload,
+        {"kind": "permission", "mode": "once"},
+        source="claude",
+        env_extra={"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"},
+        require_frame=False,
+    )
+    if stdout != {}:
+        raise AssertionError(f"Claude Teams PermissionRequest should no-op to Claude, got {stdout!r}")
+    if frame is not None:
+        raise AssertionError(f"Claude Teams PermissionRequest should not send feed.push: {frame!r}")
 
 
 def test_codex_persistent_permission_modes_degrade_to_once(cli_path: str, root: Path) -> None:

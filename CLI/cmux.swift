@@ -20058,6 +20058,18 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let toolName = (stdinObj["tool_name"] as? String) ?? ""
         let sessionId = (stdinObj["session_id"] as? String) ?? UUID().uuidString
 
+        // Claude team mode owns teammate permission escalation. If cmux's
+        // blocking Feed bridge consumes PermissionRequest here, Claude never
+        // gets to show its native team-lead prompt.
+        if Self.shouldBypassClaudeTeamPermissionRequestFeedHook(
+            source: source,
+            event: rawEvent,
+            processEnv: processEnv
+        ) {
+            print("{}")
+            return
+        }
+
         // Decide whether this event is Feed-actionable. Non-actionable
         // events are forwarded as telemetry (non-blocking) and exit `{}`
         // so the agent proceeds without a decision.
@@ -20185,6 +20197,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return
         }
         print("{}")
+    }
+
+    private static func shouldBypassClaudeTeamPermissionRequestFeedHook(
+        source: String,
+        event: String,
+        processEnv: [String: String]
+    ) -> Bool {
+        guard source == "claude",
+              event == "PermissionRequest",
+              processEnv["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] == "1" else {
+            return false
+        }
+        return true
     }
 
     /// Classifies a raw agent hook event into our wire `hook_event_name`
