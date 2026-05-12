@@ -6651,7 +6651,7 @@ struct SidebarProgressState: Equatable {
     let label: String?
 }
 
-struct SidebarGitBranchState: Equatable {
+struct SidebarGitBranchState: Equatable, Sendable {
     let branch: String
     let isDirty: Bool
 }

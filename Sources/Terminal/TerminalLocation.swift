@@ -1,13 +1,13 @@
 import Darwin
 import Foundation
 
-struct TerminalLocation: Equatable {
-    enum Source: String, Equatable {
+struct TerminalLocation: Equatable, Sendable {
+    enum Source: String, Equatable, Sendable {
         case plainPath
         case osc7
     }
 
-    enum GitBranchSignal: Equatable {
+    enum GitBranchSignal: Equatable, Sendable {
         case unspecified
         case clear
         case branch(SidebarGitBranchState)
