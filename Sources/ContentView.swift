@@ -9408,14 +9408,15 @@ struct VerticalTabsSidebar: View {
             workspaceRows(renderContext: renderContext)
 
             SidebarEmptyArea(
+                tabManager: tabManager,
                 rowSpacing: tabRowSpacing,
                 selection: $selection,
                 selectedTabIds: $selectedTabIds,
                 lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                allowsManualReordering: renderContext.allowsManualReordering,
                 dragAutoScrollController: dragAutoScrollController,
                 draggedTabId: $draggedTabId,
-                dropIndicator: $dropIndicator
+                dropIndicator: $dropIndicator,
+                allowsManualReordering: renderContext.allowsManualReordering
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -12455,280 +12456,341 @@ private struct TabItemView: View, Equatable {
         settings.visibleAuxiliaryDetails
     }
 
-    var body: some View {
-        let workspaceSnapshot = self.workspaceSnapshot
-        let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
-        let protectedWorkspaceTooltip = String(
+    private var protectedWorkspaceTooltip: String {
+        String(
             localized: "sidebar.pinnedWorkspaceProtected.tooltip",
             defaultValue: "Pinned workspace. Closing requires confirmation."
         )
-        let closeButtonTooltip = workspaceSnapshot.isPinned
+    }
+
+    private var closeButtonTooltip: String {
+        let fallback = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
+        return workspaceSnapshot.isPinned
             ? protectedWorkspaceTooltip
-            : KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip)
-        let accessibilityHintText = allowsManualReordering
+            : KeyboardShortcutSettings.Action.closeWorkspace.tooltip(fallback)
+    }
+
+    private var accessibilityHintText: String {
+        allowsManualReordering
             ? String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
             : String(localized: "sidebar.workspace.accessibilityHint.memorySort", defaultValue: "Activate to focus this workspace. Manual reordering is disabled while sorting by memory.")
-        let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
-        let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
-        let finderDirectoryPath = WorkspaceFinderDirectoryResolver.path(for: tab)
-        let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(path: finderDirectoryPath)
-        let latestNotificationSubtitle = latestNotificationText
-        let submittedMessageSubtitle = settings.iMessageModeEnabled
-            ? workspaceSnapshot.latestSubmittedMessage?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .nilIfEmpty
-            : nil
-        let effectiveSubtitle = latestNotificationSubtitle ?? submittedMessageSubtitle
-        let detailVisibility = visibleAuxiliaryDetails
+    }
 
+    private var moveUpActionText: String {
+        String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
+    }
+
+    private var moveDownActionText: String {
+        String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
+    }
+
+    private var finderDirectoryCacheKey: WorkspaceFinderDirectoryCacheKey {
+        WorkspaceFinderDirectoryCacheKey(path: WorkspaceFinderDirectoryResolver.path(for: tab))
+    }
+
+    private var submittedMessageSubtitle: String? {
+        guard settings.iMessageModeEnabled else { return nil }
+        return workspaceSnapshot.latestSubmittedMessage?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+    }
+
+    private var effectiveSubtitle: String? {
+        latestNotificationText ?? submittedMessageSubtitle
+    }
+
+    private var rowContent: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                if unreadCount > 0 {
-                    ZStack {
-                        Circle()
-                            .fill(activeUnreadBadgeFillColor)
-                        Text("\(unreadCount)")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundColor(.white)
-                    }
-                    .frame(width: 16, height: 16)
-                }
+            titleRow
+            descriptionSection
+            subtitleSection
+            remoteWorkspaceSection
+            auxiliaryDetailsSection
+            logSection
+            progressSection
+            branchDirectorySection
+            pullRequestSection
+            portsSection
+        }
+    }
 
-                if workspaceSnapshot.isPinned {
-                    Image(systemName: "pin.fill")
+    private var titleRow: some View {
+        HStack(spacing: 8) {
+            if unreadCount > 0 {
+                ZStack {
+                    Circle()
+                        .fill(activeUnreadBadgeFillColor)
+                    Text("\(unreadCount)")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(activeSecondaryColor(0.8))
-                        .safeHelp(protectedWorkspaceTooltip)
+                        .foregroundColor(.white)
                 }
+                .frame(width: 16, height: 16)
+            }
 
-                Text(workspaceSnapshot.title)
-                    .font(.system(size: 12.5, weight: titleFontWeight))
-                    .foregroundColor(activePrimaryTextColor)
+            if workspaceSnapshot.isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(activeSecondaryColor(0.8))
+                    .safeHelp(protectedWorkspaceTooltip)
+            }
+
+            Text(workspaceSnapshot.title)
+                .font(.system(size: 12.5, weight: titleFontWeight))
+                .foregroundColor(activePrimaryTextColor)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(1)
+
+            if let resourceUsageDisplay {
+                Text(resourceUsageDisplay.summaryText)
+                    .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                    .foregroundColor(activeSecondaryColor(0.78))
                     .lineLimit(1)
-                    .truncationMode(.tail)
-                    .layoutPriority(1)
-
-                if let resourceUsageDisplay {
-                    Text(resourceUsageDisplay.summaryText)
-                        .font(.system(size: 9.5, weight: .medium, design: .monospaced))
-                        .foregroundColor(activeSecondaryColor(0.78))
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .safeHelp(resourceUsageDisplay.tooltipText)
-                }
-
-                Spacer(minLength: 0)
-
-                ZStack(alignment: .trailing) {
-                    Button(action: {
-                        #if DEBUG
-                        cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
-                        #endif
-                        tabManager.closeWorkspaceWithConfirmation(tab)
-                    }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(activeSecondaryColor(0.7))
-                    }
-                    .buttonStyle(.plain)
-                    .safeHelp(closeButtonTooltip)
-                    .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
-                    .opacity(showCloseButton && !showsWorkspaceShortcutHint ? 1 : 0)
-                    .allowsHitTesting(showCloseButton && !showsWorkspaceShortcutHint)
-
-                    if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
-                        ShortcutHintPill(text: workspaceShortcutLabel, fontSize: 10, emphasis: shortcutHintEmphasis)
-                            .offset(
-                                x: ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset),
-                                y: ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)
-                            )
-                            .shortcutHintTransition()
-                    }
-                }
-                .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
-                .frame(width: trailingAccessoryWidth, height: 16, alignment: .trailing)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .safeHelp(resourceUsageDisplay.tooltipText)
             }
 
-            if let description = workspaceSnapshot.customDescription {
-                SidebarWorkspaceDescriptionText(
-                    markdown: description,
-                    isActive: usesInvertedActiveForeground
+            Spacer(minLength: 0)
+
+            ZStack(alignment: .trailing) {
+                Button(action: {
+                    #if DEBUG
+                    cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
+                    #endif
+                    tabManager.closeWorkspaceWithConfirmation(tab)
+                }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(activeSecondaryColor(0.7))
+                }
+                .buttonStyle(.plain)
+                .safeHelp(closeButtonTooltip)
+                .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
+                .opacity(showCloseButton && !showsWorkspaceShortcutHint ? 1 : 0)
+                .allowsHitTesting(showCloseButton && !showsWorkspaceShortcutHint)
+
+                if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
+                    ShortcutHintPill(text: workspaceShortcutLabel, fontSize: 10, emphasis: shortcutHintEmphasis)
+                        .offset(
+                            x: ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset),
+                            y: ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)
+                        )
+                        .shortcutHintTransition()
+                }
+            }
+            .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
+            .frame(width: trailingAccessoryWidth, height: 16, alignment: .trailing)
+        }
+    }
+
+    @ViewBuilder
+    private var descriptionSection: some View {
+        if let description = workspaceSnapshot.customDescription {
+            SidebarWorkspaceDescriptionText(
+                markdown: description,
+                isActive: usesInvertedActiveForeground
+            )
+            .id(description)
+        }
+    }
+
+    @ViewBuilder
+    private var subtitleSection: some View {
+        if let subtitle = effectiveSubtitle {
+            Text(subtitle)
+                .font(.system(size: 10))
+                .foregroundColor(activeSecondaryColor(0.8))
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .multilineTextAlignment(.leading)
+        }
+    }
+
+    @ViewBuilder
+    private var auxiliaryDetailsSection: some View {
+        if visibleAuxiliaryDetails.showsMetadata {
+            let metadataEntries = workspaceSnapshot.metadataEntries
+            let metadataBlocks = workspaceSnapshot.metadataBlocks
+            if !metadataEntries.isEmpty {
+                SidebarMetadataRows(
+                    entries: metadataEntries,
+                    isActive: usesInvertedActiveForeground,
+                    onFocus: { updateSelection() }
                 )
-                .id(description)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
+            if !metadataBlocks.isEmpty {
+                SidebarMetadataMarkdownBlocks(
+                    blocks: metadataBlocks,
+                    isActive: usesInvertedActiveForeground,
+                    onFocus: { updateSelection() }
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
 
-            if let subtitle = effectiveSubtitle {
-                Text(subtitle)
+    @ViewBuilder
+    private var logSection: some View {
+        if visibleAuxiliaryDetails.showsLog, let latestLog = workspaceSnapshot.latestLog {
+            HStack(spacing: 4) {
+                Image(systemName: logLevelIcon(latestLog.level))
+                    .font(.system(size: 8))
+                    .foregroundColor(logLevelColor(latestLog.level, isActive: usesInvertedActiveForeground))
+                Text(latestLog.message)
                     .font(.system(size: 10))
                     .foregroundColor(activeSecondaryColor(0.8))
-                    .lineLimit(2)
+                    .lineLimit(1)
                     .truncationMode(.tail)
-                    .multilineTextAlignment(.leading)
             }
+            .transition(.opacity.combined(with: .move(edge: .top)))
+        }
+    }
 
-            remoteWorkspaceSection
-
-            if detailVisibility.showsMetadata {
-                let metadataEntries = workspaceSnapshot.metadataEntries
-                let metadataBlocks = workspaceSnapshot.metadataBlocks
-                if !metadataEntries.isEmpty {
-                    SidebarMetadataRows(
-                        entries: metadataEntries,
-                        isActive: usesInvertedActiveForeground,
-                        onFocus: { updateSelection() }
-                    )
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+    @ViewBuilder
+    private var progressSection: some View {
+        if visibleAuxiliaryDetails.showsProgress, let progress = workspaceSnapshot.progress {
+            VStack(alignment: .leading, spacing: 2) {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(activeProgressTrackColor)
+                        Capsule()
+                            .fill(activeProgressFillColor)
+                            .frame(width: max(0, geo.size.width * CGFloat(progress.value)))
+                    }
                 }
-                if !metadataBlocks.isEmpty {
-                    SidebarMetadataMarkdownBlocks(
-                        blocks: metadataBlocks,
-                        isActive: usesInvertedActiveForeground,
-                        onFocus: { updateSelection() }
-                    )
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                }
-            }
+                .frame(height: 3)
 
-            if detailVisibility.showsLog, let latestLog = workspaceSnapshot.latestLog {
-                HStack(spacing: 4) {
-                    Image(systemName: logLevelIcon(latestLog.level))
-                        .font(.system(size: 8))
-                        .foregroundColor(logLevelColor(latestLog.level, isActive: usesInvertedActiveForeground))
-                    Text(latestLog.message)
-                        .font(.system(size: 10))
-                        .foregroundColor(activeSecondaryColor(0.8))
+                if let label = progress.label {
+                    Text(label)
+                        .font(.system(size: 9))
+                        .foregroundColor(activeSecondaryColor(0.6))
                         .lineLimit(1)
-                        .truncationMode(.tail)
                 }
-                .transition(.opacity.combined(with: .move(edge: .top)))
             }
+            .transition(.opacity.combined(with: .move(edge: .top)))
+        }
+    }
 
-            if detailVisibility.showsProgress, let progress = workspaceSnapshot.progress {
-                VStack(alignment: .leading, spacing: 2) {
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule()
-                                .fill(activeProgressTrackColor)
-                            Capsule()
-                                .fill(activeProgressFillColor)
-                                .frame(width: max(0, geo.size.width * CGFloat(progress.value)))
+    @ViewBuilder
+    private var branchDirectorySection: some View {
+        if visibleAuxiliaryDetails.showsBranchDirectory {
+            if sidebarBranchVerticalLayout {
+                if !workspaceSnapshot.branchDirectoryLines.isEmpty {
+                    HStack(alignment: .top, spacing: 3) {
+                        if sidebarShowGitBranchIcon, workspaceSnapshot.branchLinesContainBranch {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.system(size: 9))
+                                .foregroundColor(activeSecondaryColor(0.6))
                         }
-                    }
-                    .frame(height: 3)
-
-                    if let label = progress.label {
-                        Text(label)
-                            .font(.system(size: 9))
-                            .foregroundColor(activeSecondaryColor(0.6))
-                            .lineLimit(1)
-                    }
-                }
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-
-            // Branch + directory row
-            if detailVisibility.showsBranchDirectory {
-                if sidebarBranchVerticalLayout {
-                    if !workspaceSnapshot.branchDirectoryLines.isEmpty {
-                        HStack(alignment: .top, spacing: 3) {
-                            if sidebarShowGitBranchIcon, workspaceSnapshot.branchLinesContainBranch {
-                                Image(systemName: "arrow.triangle.branch")
-                                    .font(.system(size: 9))
-                                    .foregroundColor(activeSecondaryColor(0.6))
-                            }
-                            VStack(alignment: .leading, spacing: 1) {
-                                ForEach(Array(workspaceSnapshot.branchDirectoryLines.enumerated()), id: \.offset) { _, line in
-                                    HStack(spacing: 3) {
-                                        if let branch = line.branch {
-                                            Text(branch)
-                                                .font(.system(size: 10, design: .monospaced))
-                                                .foregroundColor(activeSecondaryColor(0.75))
-                                                .lineLimit(1)
-                                                .truncationMode(.tail)
-                                        }
-                                        if line.branch != nil, line.directory != nil {
-                                            Image(systemName: "circle.fill")
-                                                .font(.system(size: 3))
-                                                .foregroundColor(activeSecondaryColor(0.6))
-                                                .padding(.horizontal, 1)
-                                        }
-                                        if let directory = line.directory {
-                                            Text(directory)
-                                                .font(.system(size: 10, design: .monospaced))
-                                                .foregroundColor(activeSecondaryColor(0.75))
-                                                .lineLimit(1)
-                                                .truncationMode(.tail)
-                                        }
+                        VStack(alignment: .leading, spacing: 1) {
+                            ForEach(Array(workspaceSnapshot.branchDirectoryLines.enumerated()), id: \.offset) { _, line in
+                                HStack(spacing: 3) {
+                                    if let branch = line.branch {
+                                        Text(branch)
+                                            .font(.system(size: 10, design: .monospaced))
+                                            .foregroundColor(activeSecondaryColor(0.75))
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                    }
+                                    if line.branch != nil, line.directory != nil {
+                                        Image(systemName: "circle.fill")
+                                            .font(.system(size: 3))
+                                            .foregroundColor(activeSecondaryColor(0.6))
+                                            .padding(.horizontal, 1)
+                                    }
+                                    if let directory = line.directory {
+                                        Text(directory)
+                                            .font(.system(size: 10, design: .monospaced))
+                                            .foregroundColor(activeSecondaryColor(0.75))
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
                                     }
                                 }
                             }
                         }
                     }
-                } else if let dirRow = workspaceSnapshot.compactBranchDirectoryRow {
-                    HStack(spacing: 3) {
-                        if sidebarShowGitBranchIcon, workspaceSnapshot.compactGitBranchSummaryText != nil {
-                            Image(systemName: "arrow.triangle.branch")
-                                .font(.system(size: 9))
-                                .foregroundColor(activeSecondaryColor(0.6))
-                        }
-                        Text(dirRow)
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundColor(activeSecondaryColor(0.75))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
                 }
-            }
-
-            // Pull request rows
-            if detailVisibility.showsPullRequests, !workspaceSnapshot.pullRequestRows.isEmpty {
-                VStack(alignment: .leading, spacing: 1) {
-                    ForEach(workspaceSnapshot.pullRequestRows) { pullRequest in
-                        let pullRequestNumber = String(pullRequest.number)
-                        let pullRequestTitle = "\(pullRequest.label) #\(pullRequestNumber)"
-                        let rowContent = HStack(spacing: 4) {
-                            PullRequestStatusIcon(status: pullRequest.status, color: pullRequestForegroundColor)
-                            Text(pullRequestTitle).underline(settings.makesPullRequestsClickable).lineLimit(1).truncationMode(.tail)
-                            Text(pullRequestStatusLabel(pullRequest.status)).lineLimit(1)
-                            Spacer(minLength: 0)
-                        }
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(pullRequestForegroundColor)
-                        .opacity(pullRequest.isStale ? 0.5 : 1)
-                        if settings.makesPullRequestsClickable {
-                            Button(action: { openPullRequestLink(pullRequest.url) }) { rowContent }
-                                .buttonStyle(.plain)
-                                .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequestTitle)"))
-                                .accessibilityIdentifier("SidebarPullRequestRow")
-                        } else {
-                            rowContent.accessibilityElement(children: .combine).accessibilityIdentifier("SidebarPullRequestRow")
-                        }
+            } else if let dirRow = workspaceSnapshot.compactBranchDirectoryRow {
+                HStack(spacing: 3) {
+                    if sidebarShowGitBranchIcon, workspaceSnapshot.compactGitBranchSummaryText != nil {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.system(size: 9))
+                            .foregroundColor(activeSecondaryColor(0.6))
                     }
+                    Text(dirRow)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(activeSecondaryColor(0.75))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
-            }
-
-            // Ports row
-            if detailVisibility.showsPorts, !workspaceSnapshot.listeningPorts.isEmpty {
-                HStack(spacing: 4) {
-                    ForEach(workspaceSnapshot.listeningPorts, id: \.self) { port in
-                        let portLabel = SidebarPortDisplayText.label(for: port)
-                        let portTooltip = SidebarPortDisplayText.openTooltip(for: port)
-                        Button(action: {
-                            openPortLink(port)
-                        }) {
-                            Text(portLabel)
-                                .underline()
-                        }
-                        .buttonStyle(.plain)
-                        .safeHelp(portTooltip)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundColor(activeSecondaryColor(0.75))
-                .lineLimit(1)
             }
         }
+    }
+
+    @ViewBuilder
+    private var pullRequestSection: some View {
+        if visibleAuxiliaryDetails.showsPullRequests, !workspaceSnapshot.pullRequestRows.isEmpty {
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(workspaceSnapshot.pullRequestRows) { pullRequest in
+                    pullRequestRow(pullRequest)
+                }
+            }
+        }
+    }
+
+    private func pullRequestRow(_ pullRequest: SidebarWorkspaceSnapshotBuilder.PullRequestDisplay) -> some View {
+        let pullRequestNumber = String(pullRequest.number)
+        let pullRequestTitle = "\(pullRequest.label) #\(pullRequestNumber)"
+        let rowContent = HStack(spacing: 4) {
+            PullRequestStatusIcon(status: pullRequest.status, color: pullRequestForegroundColor)
+            Text(pullRequestTitle).underline(settings.makesPullRequestsClickable).lineLimit(1).truncationMode(.tail)
+            Text(pullRequestStatusLabel(pullRequest.status)).lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .font(.system(size: 10, weight: .semibold))
+        .foregroundColor(pullRequestForegroundColor)
+        .opacity(pullRequest.isStale ? 0.5 : 1)
+
+        return Group {
+            if settings.makesPullRequestsClickable {
+                Button(action: { openPullRequestLink(pullRequest.url) }) { rowContent }
+                    .buttonStyle(.plain)
+                    .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequestTitle)"))
+                    .accessibilityIdentifier("SidebarPullRequestRow")
+            } else {
+                rowContent.accessibilityElement(children: .combine).accessibilityIdentifier("SidebarPullRequestRow")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var portsSection: some View {
+        if visibleAuxiliaryDetails.showsPorts, !workspaceSnapshot.listeningPorts.isEmpty {
+            HStack(spacing: 4) {
+                ForEach(workspaceSnapshot.listeningPorts, id: \.self) { port in
+                    let portLabel = SidebarPortDisplayText.label(for: port)
+                    let portTooltip = SidebarPortDisplayText.openTooltip(for: port)
+                    Button(action: {
+                        openPortLink(port)
+                    }) {
+                        Text(portLabel)
+                            .underline()
+                    }
+                    .buttonStyle(.plain)
+                    .safeHelp(portTooltip)
+                }
+                Spacer(minLength: 0)
+            }
+            .font(.system(size: 10, design: .monospaced))
+            .foregroundColor(activeSecondaryColor(0.75))
+            .lineLimit(1)
+        }
+    }
+
+    var body: some View {
+        rowContent
         .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.latestLog)
         .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.progress != nil)
         .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.metadataBlocks.count)
