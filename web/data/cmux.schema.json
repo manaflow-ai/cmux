@@ -88,7 +88,10 @@
           },
           "keywords": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
             "description": "Extra search terms for this snippet."
           }
         },

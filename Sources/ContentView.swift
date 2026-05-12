@@ -7038,14 +7038,7 @@ struct ContentView: View {
     }
 
     private func sanitizeCmuxConfigPaletteText(_ text: String) -> String {
-        let dangerous: Set<Unicode.Scalar> = [
-            "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
-            "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",
-            "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}",
-            "\u{FEFF}",
-        ]
-        let filtered = String(text.unicodeScalars.filter { !dangerous.contains($0) })
-        return filtered.trimmingCharacters(in: .whitespacesAndNewlines)
+        CmuxUnicodeSanitizer.trimmed(text)
     }
 
     private func commandPaletteCmuxConfigIssueCommandID(_ issue: CmuxConfigIssue) -> String {
