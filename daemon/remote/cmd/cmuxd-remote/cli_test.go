@@ -1090,6 +1090,45 @@ func TestCLIBrowserTabBareSignTargetDoesNotBecomeIndex(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserErrorsClearUsesListMethodWithClearParam(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "surface:2", "errors", "clear",
+	})
+	if code != 0 {
+		t.Fatalf("browser errors clear should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.errors.list" {
+			t.Fatalf("expected browser.errors.list, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "surface:2" {
+			t.Fatalf("expected surface_id surface:2, got %v", got)
+		}
+		if got := params["clear"]; got != true {
+			t.Fatalf("expected clear=true, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser errors clear request")
+	}
+}
+
+func TestBrowserSubcommandHintOnlyListsTopLevelCommands(t *testing.T) {
+	hint := browserSubcommandHint()
+	if strings.Contains(hint, "find role") || strings.Contains(hint, "storage session set") {
+		t.Fatalf("hint should not include nested browser command entries: %q", hint)
+	}
+	for _, want := range []string{"find", "state", "storage", "viewport"} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("hint %q missing top-level command %q", hint, want)
+		}
+	}
+}
+
 func TestCLIBrowserScreenshotOutDecodesPNG(t *testing.T) {
 	png := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
 	sockPath := startMockV2TCPSocketWithResult(t, map[string]any{

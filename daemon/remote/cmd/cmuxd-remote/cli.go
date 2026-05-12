@@ -191,6 +191,7 @@ var browserCommands = map[string]browserCommandSpec{
 	"console clear": {method: "browser.console.clear", useSurfaceEnv: true},
 	"errors":        {method: "browser.errors.list", useSurfaceEnv: true},
 	"errors list":   {method: "browser.errors.list", useSurfaceEnv: true},
+	// The app exposes browser.errors.list only; clearing is a list request with clear=true.
 	"errors clear":  {method: "browser.errors.list", defaultParams: map[string]any{"clear": true}, useSurfaceEnv: true},
 	"highlight":     {method: "browser.highlight", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
 	"state save":    {method: "browser.state.save", positionalKeys: []string{"path"}, useSurfaceEnv: true},
@@ -793,9 +794,15 @@ func printBrowserRelayResponse(spec browserCommandSpec, resp string, jsonOutput 
 }
 
 func browserSubcommandHint() string {
+	seen := make(map[string]struct{}, len(browserCommands))
 	names := make([]string, 0, len(browserCommands))
 	for name := range browserCommands {
-		names = append(names, name)
+		topLevel := strings.Fields(name)[0]
+		if _, ok := seen[topLevel]; ok {
+			continue
+		}
+		seen[topLevel] = struct{}{}
+		names = append(names, topLevel)
 	}
 	sort.Strings(names)
 	return strings.Join(names, ", ")
