@@ -371,7 +371,9 @@ final class MainWindowVisibilityController {
         activation: Activation = .runningApplication([.activateAllWindows]),
         makeKey: Bool = true
     ) -> NSWindow? {
-        let windows = uniqueWindows(windows)
+        let windows = uniqueWindows(windows).filter { window in
+            makeKey || !dependencies.windowOperations.isMiniaturized(window)
+        }
         guard !windows.isEmpty else {
             log("reveal.empty", reason: reason, windows: [])
             return nil
