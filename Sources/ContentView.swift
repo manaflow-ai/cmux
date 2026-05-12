@@ -10508,38 +10508,44 @@ private struct SidebarFooterButtons: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            SidebarFileExplorerButton(fileExplorerState: fileExplorerState)
+            SidebarFileExplorerButton(
+                isSelected: fileExplorerState.isVisible && fileExplorerState.mode == .files,
+                title: KeyboardShortcutSettings.Action.switchRightSidebarToFiles.label,
+                helpText: KeyboardShortcutSettings.Action.switchRightSidebarToFiles.tooltip(
+                    KeyboardShortcutSettings.Action.switchRightSidebarToFiles.label
+                ),
+                action: showFileExplorer
+            )
             SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
             UpdatePill(model: updateViewModel)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    private func showFileExplorer() {
+        let preferredWindow = NSApp.keyWindow ?? NSApp.mainWindow
+        guard AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+            mode: .files,
+            focusFirstItem: true,
+            preferredWindow: preferredWindow
+        ) == true else {
+            NSSound.beep()
+            return
+        }
+    }
 }
 
 private struct SidebarFileExplorerButton: View {
-    @ObservedObject var fileExplorerState: FileExplorerState
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    let isSelected: Bool
+    let title: String
+    let helpText: String
+    let action: () -> Void
 
     private let buttonSize: CGFloat = 22
     private let iconSize: CGFloat = 11
 
-    private var isSelected: Bool {
-        fileExplorerState.isVisible && fileExplorerState.mode == .files
-    }
-
-    private var title: String {
-        KeyboardShortcutSettings.Action.switchRightSidebarToFiles.label
-    }
-
-    private var helpText: String {
-        let _ = keyboardShortcutSettingsObserver.revision
-        return KeyboardShortcutSettings.Action.toggleRightSidebar.tooltip(title)
-    }
-
     var body: some View {
-        Button {
-            showFileExplorer()
-        } label: {
+        Button(action: action) {
             Image(systemName: "folder")
                 .symbolRenderingMode(.monochrome)
                 .font(.system(size: iconSize, weight: .medium))
@@ -10552,22 +10558,6 @@ private struct SidebarFileExplorerButton: View {
         .safeHelp(helpText)
         .accessibilityLabel(title)
         .accessibilityIdentifier("SidebarFileExplorerButton")
-    }
-
-    private func showFileExplorer() {
-        let preferredWindow = NSApp.keyWindow ?? NSApp.mainWindow
-        if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-            mode: .files,
-            focusFirstItem: true,
-            preferredWindow: preferredWindow
-        ) == true {
-            return
-        }
-
-        fileExplorerState.setVisible(true)
-        if fileExplorerState.mode != .files {
-            fileExplorerState.mode = .files
-        }
     }
 }
 
