@@ -2168,6 +2168,64 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         throw XCTSkip("Debug-only regression test")
 #endif
     }
+
+    func testVisibleSurfaceReadyRefreshesBeforeFocusRecovery() throws {
+#if DEBUG
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertNotNil(
+            surface.surface,
+            "Expected runtime surface before measuring readiness redraws"
+        )
+
+        hostedView.setActive(false)
+        surface.resetDebugForceRefreshCount()
+
+        NotificationCenter.default.post(
+            name: .terminalSurfaceDidBecomeReady,
+            object: surface,
+            userInfo: [
+                "surfaceId": surface.id,
+                "workspaceId": surface.tabId
+            ]
+        )
+
+        let drained = expectation(description: "surface-ready redraw drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 1.0)
+
+        XCTAssertEqual(
+            surface.debugForceRefreshCount(),
+            1,
+            "A visible ready terminal should redraw immediately even when focus recovery is inactive"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
 }
 
 
