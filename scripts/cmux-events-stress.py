@@ -23,12 +23,6 @@ class StressFailure(RuntimeError):
     pass
 
 
-def sanitize_bundle(raw: str) -> str:
-    cleaned = re.sub(r"[^a-z0-9]+", ".", raw.lower()).strip(".")
-    cleaned = re.sub(r"\.+", ".", cleaned)
-    return cleaned or "agent"
-
-
 def sanitize_path(raw: str) -> str:
     cleaned = re.sub(r"[^a-z0-9]+", "-", raw.lower()).strip("-")
     cleaned = re.sub(r"-+", "-", cleaned)
@@ -92,8 +86,8 @@ class SocketClient:
             raise StressFailure("socket reader is not connected")
         try:
             line = self.reader.readline()
-        except socket.timeout as exc:
-            raise StressFailure(f"timed out reading from {self.socket_path}") from exc
+        except (socket.timeout, OSError) as exc:
+            raise StressFailure(f"failed reading from {self.socket_path}: {exc}") from exc
         if not line:
             raise StressFailure(f"socket closed while reading from {self.socket_path}")
         return load_json_line(line)
@@ -136,7 +130,6 @@ class CmuxEventsStress:
         self.repo_root = pathlib.Path(__file__).resolve().parents[1]
         self.tag = args.tag
         self.tag_slug = sanitize_path(args.tag)
-        self.tag_id = sanitize_bundle(args.tag)
         self.socket_path = pathlib.Path(f"/tmp/cmux-debug-{self.tag_slug}.sock")
         self.cmuxd_socket_path = pathlib.Path(
             os.path.expanduser(f"~/Library/Application Support/cmux/cmuxd-dev-{self.tag_slug}.sock")
