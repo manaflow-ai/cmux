@@ -173,6 +173,7 @@ extension Workspace {
         key: String,
         panelId: UUID? = nil,
         clearStatus: Bool = false,
+        clearNotifications: Bool = true,
         refreshPorts: Bool = true
     ) -> Bool {
         let ownedPanelId = agentPIDPanelIdsByKey[key]
@@ -211,9 +212,9 @@ extension Workspace {
            statusEntries.removeValue(forKey: statusKeyToClear) != nil {
             didChange = true
         }
-        if didChange, let effectivePanelId {
+        if clearStatus, clearNotifications, didChange, let effectivePanelId {
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: effectivePanelId)
-        } else if didChange, removedRuntime {
+        } else if clearStatus, clearNotifications, didChange, removedRuntime {
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id)
         }
         if didChange, refreshPorts {
@@ -259,11 +260,20 @@ extension Workspace {
     }
 
     @discardableResult
-    private func discardAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) -> Bool {
+    private func discardAgentRuntimeState(
+        _ runtimeState: DetachedAgentRuntimeState?,
+        clearNotifications: Bool = true
+    ) -> Bool {
         guard let runtimeState else { return false }
         var didChange = false
         for key in runtimeState.agentPIDKeys {
-            if clearAgentPID(key: key, panelId: runtimeState.panelId, clearStatus: true, refreshPorts: false) {
+            if clearAgentPID(
+                key: key,
+                panelId: runtimeState.panelId,
+                clearStatus: true,
+                clearNotifications: clearNotifications,
+                refreshPorts: false
+            ) {
                 didChange = true
             }
         }
@@ -351,7 +361,7 @@ extension Workspace {
         debugSessionSnapshotScrollbackFallbackPanelIds.remove(panelId)
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeValue(forKey: panelId)
 #endif
-        discardAgentRuntimeState(closedAgentRuntimeState)
+        discardAgentRuntimeState(closedAgentRuntimeState, clearNotifications: clearSurfaceNotifications)
         restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentAutoResumePendingPanelIds.remove(panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
