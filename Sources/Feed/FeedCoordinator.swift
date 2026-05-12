@@ -492,22 +492,40 @@ private func postFeedNotification(event: WorkstreamEvent, requestId: String) {
         )
 
         let center = UNUserNotificationCenter.current()
-        let requestIsStillPending: @Sendable () -> Bool = {
-            FeedCoordinator.shared.isAwaitingDecision(requestId: requestId)
-        }
         center.getNotificationSettings { settings in
-            guard requestIsStillPending() else { return }
+            guard FeedCoordinator.shared.isAwaitingDecision(requestId: requestId) else { return }
             switch settings.authorizationStatus {
             case .authorized, .provisional:
-                center.add(request) { _ in /* best effort */ }
+                addFeedNotificationIfAwaitingDecision(
+                    center: center,
+                    request: request,
+                    requestId: requestId
+                )
             case .notDetermined:
                 center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-                    guard granted, requestIsStillPending() else { return }
-                    center.add(request) { _ in }
+                    guard granted else { return }
+                    addFeedNotificationIfAwaitingDecision(
+                        center: center,
+                        request: request,
+                        requestId: requestId
+                    )
                 }
             default:
                 break
             }
+        }
+    }
+}
+
+private func addFeedNotificationIfAwaitingDecision(
+    center: UNUserNotificationCenter,
+    request: UNNotificationRequest,
+    requestId: String
+) {
+    guard FeedCoordinator.shared.isAwaitingDecision(requestId: requestId) else { return }
+    center.add(request) { _ in
+        if !FeedCoordinator.shared.isAwaitingDecision(requestId: requestId) {
+            cancelFeedNotification(requestId: requestId)
         }
     }
 }
