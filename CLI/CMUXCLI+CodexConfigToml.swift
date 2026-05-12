@@ -183,7 +183,18 @@ extension CMUXCLI {
                 }
                 lines.replaceSubrange(index...endIndex, with: previousLines)
             } else {
-                lines.remove(at: index)
+                var blockEnd = index + 1
+                var previousLines: [String] = []
+                if blockEnd < lines.count,
+                   let previousLine = tomlCodexHooksFeaturePreviousLine(from: lines[blockEnd])
+                {
+                    previousLines.append(previousLine)
+                    blockEnd += 1
+                }
+                if blockEnd < lines.count, tomlLineIsCodexHooksFeatureSetting(lines[blockEnd]) {
+                    blockEnd += 1
+                }
+                lines.replaceSubrange(index..<blockEnd, with: previousLines)
             }
         }
     }
@@ -204,6 +215,11 @@ extension CMUXCLI {
             return String(line.dropFirst(legacyCmuxCodexHooksFeaturePreviousLinePrefix.count))
         }
         return nil
+    }
+
+    private static func tomlLineIsCodexHooksFeatureSetting(_ line: String) -> Bool {
+        tomlLineDefinesTrueKey("hooks", line: line)
+            || tomlLineDefinesDottedFeaturesTrueKey("hooks", line: line)
     }
 
     private static func removeEmptyFeaturesTable(from lines: inout [String]) {

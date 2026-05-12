@@ -752,6 +752,43 @@ def test_uninstall_removes_cmux_owned_codex_hooks_feature(cli_path: str, root: P
         raise AssertionError(f"empty features table was preserved: {config_toml!r}")
 
 
+def test_uninstall_recovers_orphaned_codex_hooks_marker(cli_path: str, root: Path) -> None:
+    codex_home = root / "codex-home-orphaned-marker"
+    codex_home.mkdir()
+    (codex_home / "hooks.json").write_text('{"hooks": {}}\n', encoding="utf-8")
+    (codex_home / "config.toml").write_text(
+        "[features]\n"
+        "apps = true\n"
+        "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df begin\n"
+        "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df previous line: hooks = false\n"
+        "hooks = true\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "uninstall", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex uninstall failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
+    if "hooks = false" not in config_toml:
+        raise AssertionError(f"previous hooks setting was not restored: {config_toml!r}")
+    if "hooks = true" in config_toml or "cmux-codex-hooks-feature" in config_toml:
+        raise AssertionError(f"orphaned cmux marker was not removed: {config_toml!r}")
+    if "apps = true" not in config_toml:
+        raise AssertionError(f"existing feature setting was not preserved: {config_toml!r}")
+
+
 def test_install_surfaces_invalid_codex_config_encoding(cli_path: str, root: Path) -> None:
     codex_home = root / "codex-home-invalid-install-config"
     codex_home.mkdir()
@@ -917,6 +954,7 @@ def main() -> int:
             test_uninstall_restores_disabled_dotted_codex_hooks_feature(cli_path, root)
             test_install_scans_features_past_bracketed_array(cli_path, root)
             test_uninstall_removes_cmux_owned_codex_hooks_feature(cli_path, root)
+            test_uninstall_recovers_orphaned_codex_hooks_marker(cli_path, root)
             test_install_surfaces_invalid_codex_config_encoding(cli_path, root)
             test_uninstall_surfaces_invalid_codex_config_encoding(cli_path, root)
             test_permission_reply_uses_codex_permission_request_schema(cli_path, root)
