@@ -91,7 +91,7 @@ Environment:
 | `reorder-workspace` | Reorder a workspace inside a window. |
 | `workspace-action` | Run workspace context-menu actions from the CLI. |
 | `list-workspaces` | List workspaces. |
-| `new-workspace` | Create a workspace, optionally with cwd, command, description, and layout. |
+| `new-workspace` | Create a workspace, optionally with cwd, command, description, icon, and layout. |
 | `ssh` | Open an SSH-backed workspace. |
 | `remote-daemon-status` | Print bundled remote daemon version, asset, checksum, and cache status. |
 | `new-split` | Split from a surface in a direction. |
@@ -194,7 +194,7 @@ Workspace and tab action names:
 
 | Command | Actions |
 | --- | --- |
-| `workspace-action` | `pin`, `unpin`, `rename`, `clear-name`, `set-description`, `clear-description`, `move-up`, `move-down`, `move-top`, `close-others`, `close-above`, `close-below`, `mark-read`, `mark-unread`, `set-color`, `clear-color` |
+| `workspace-action` | `pin`, `unpin`, `rename`, `clear-name`, `set-description`, `clear-description`, `move-up`, `move-down`, `move-top`, `close-others`, `close-above`, `close-below`, `mark-read`, `mark-unread`, `set-color`, `clear-color`, `set-icon`, `clear-icon` |
 | `tab-action` | `rename`, `clear-name`, `close-left`, `close-right`, `close-others`, `new-terminal-right`, `new-browser-right`, `reload`, `duplicate`, `pin`, `unpin`, `mark-unread` |
 
 tmux compatibility commands:
