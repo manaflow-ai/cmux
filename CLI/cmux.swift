@@ -366,6 +366,7 @@ struct NotificationInfo {
 }
 
 private struct ClaudeHookParsedInput {
+    let rawObject: [String: Any]?
     let object: [String: Any]?
     let rawFallback: String?
     let sessionId: String?
@@ -14655,6 +14656,13 @@ struct CMUXCLI {
             }
             print("OK")
 
+        case "cron-create-guard":
+            telemetry.breadcrumb("claude-hook.cron-create-guard")
+            let guardResponse = claudeCronCreateGuardResponse(parsedInput.rawObject)
+            didSendFeedTelemetry = guardResponse == "{}"
+            print(guardResponse)
+            fflush(stdout)
+
         case "pre-tool-use":
             telemetry.breadcrumb("claude-hook.pre-tool-use")
             // Clears "Needs input" status and notification when Claude resumes work
@@ -14729,6 +14737,41 @@ struct CMUXCLI {
         default:
             throw CLIError(message: "Unknown claude-hook subcommand: \(subcommand)")
         }
+    }
+
+    private func claudeCronCreateGuardResponse(_ object: [String: Any]?) -> String {
+        guard let object,
+              object["tool_name"] as? String == "CronCreate",
+              let input = object["tool_input"] as? [String: Any],
+              claudeCronCreateDurableRequested(input["durable"]) else {
+            return "{}"
+        }
+
+        return jsonString([
+            "hookSpecificOutput": [
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": "cmux does not support durable Claude Code cron jobs. CronCreate durable:true would be silently downgraded to session-only in this environment, so cmux denied the tool call instead. Re-run with durable:false for a session-only job, or use an external scheduler or state-file resume path for persistence."
+            ]
+        ])
+    }
+
+    private func claudeCronCreateDurableRequested(_ value: Any?) -> Bool {
+        if let value = value as? Bool {
+            return value
+        }
+        if let value = value as? NSNumber {
+            return value.boolValue
+        }
+        if let value = value as? String {
+            switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "1", "true", "yes":
+                return true
+            default:
+                return false
+            }
+        }
+        return false
     }
 
     private func setClaudeStatus(
@@ -15037,7 +15080,7 @@ struct CMUXCLI {
                 normalizedSingleLine(redactClaudeSensitiveSpans(trimmed)),
                 maxLength: 180
             )
-            return ClaudeHookParsedInput(object: nil, rawFallback: fallback, sessionId: nil, turnId: nil, cwd: nil, transcriptPath: nil)
+            return ClaudeHookParsedInput(rawObject: nil, object: nil, rawFallback: fallback, sessionId: nil, turnId: nil, cwd: nil, transcriptPath: nil)
         }
 
         let sessionId = extractClaudeHookSessionId(from: object)
@@ -15046,6 +15089,7 @@ struct CMUXCLI {
         let transcriptPath = firstString(in: object, keys: ["transcript_path", "transcriptPath"])
         let compactObject = compactClaudeHookObject(object)
         return ClaudeHookParsedInput(
+            rawObject: object,
             object: compactObject,
             rawFallback: nil,
             sessionId: sessionId,
@@ -18176,7 +18220,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         switch sub {
         case "session-start", "active": return "SessionStart"
         case "prompt-submit": return "UserPromptSubmit"
-        case "pre-tool-use": return "PreToolUse"
+        case "pre-tool-use", "cron-create-guard": return "PreToolUse"
         case "post-tool-use": return "PostToolUse"
         case "stop", "idle": return "Stop"
         case "session-end": return "SessionEnd"
