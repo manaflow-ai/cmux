@@ -731,11 +731,11 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey] = .bool(value)
         }
         if let raw = jsonString(section["terminalLinkBrowserPlacement"]) {
-            guard let placement = TerminalLinkBrowserPlacement(rawValue: raw) else {
+            if let placement = TerminalLinkBrowserPlacement(rawValue: raw) {
+                snapshot.managedUserDefaults[BrowserLinkOpenSettings.terminalLinkBrowserPlacementKey] = .string(placement.rawValue)
+            } else {
                 logInvalid("browser.terminalLinkBrowserPlacement", sourcePath: sourcePath)
-                return
             }
-            snapshot.managedUserDefaults[BrowserLinkOpenSettings.terminalLinkBrowserPlacementKey] = .string(placement.rawValue)
         } else if section.keys.contains("terminalLinkBrowserPlacement") {
             logInvalid("browser.terminalLinkBrowserPlacement", sourcePath: sourcePath)
         }
