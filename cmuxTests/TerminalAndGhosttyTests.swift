@@ -2187,6 +2187,59 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         throw XCTSkip("Debug-only regression test")
 #endif
     }
+
+    func testDirectFirstResponderFocusRefreshesCursorStateAfterForeignResponder() throws {
+#if DEBUG
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        let otherResponder = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        contentView.addSubview(otherResponder)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
+            XCTFail("Expected terminal surface view")
+            return
+        }
+        XCTAssertNotNil(surface.surface, "Expected runtime surface before measuring focus redraws")
+        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+        XCTAssertTrue(window.makeFirstResponder(otherResponder))
+
+        surface.resetDebugForceRefreshCount()
+        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+
+        XCTAssertGreaterThan(
+            surface.debugForceRefreshCount(),
+            0,
+            "Clicking back into the terminal should redraw immediately so the cursor reflects focused input"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
 }
 
 

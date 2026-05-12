@@ -7281,6 +7281,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             if let displayID = window?.screen?.displayID, displayID != 0 {
                 ghostty_surface_set_display_id(surface, displayID)
             }
+            terminalSurface?.forceRefresh(reason: "focus.firstResponder")
         }
         return result
     }
