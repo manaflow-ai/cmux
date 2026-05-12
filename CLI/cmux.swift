@@ -778,8 +778,20 @@ private enum CLISocketPathResolver {
         source: CLISocketPathSource,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> String {
-        guard source == .implicitDefault else {
+        switch source {
+        case .explicitFlag:
             return requestedPath
+        case .environment:
+            guard !canConnect(to: requestedPath) else {
+                return requestedPath
+            }
+            for path in dedupe(environmentRecoveryCandidatePaths(requestedPath: requestedPath, environment: environment))
+                where canConnect(to: path) {
+                return path
+            }
+            return requestedPath
+        case .implicitDefault:
+            break
         }
 
         let candidates = dedupe(candidatePaths(requestedPath: requestedPath, environment: environment))
@@ -800,7 +812,8 @@ private enum CLISocketPathResolver {
     private static func candidatePaths(requestedPath: String, environment: [String: String]) -> [String] {
         var candidates: [String] = []
 
-        if let tag = normalized(environment["CMUX_TAG"]) {
+        let launchTag = normalized(environment["CMUX_TAG"])
+        if let tag = launchTag {
             let slug = sanitizeTagSlug(tag)
             candidates.append("/tmp/cmux-debug-\(slug).sock")
             candidates.append("/tmp/cmux-\(slug).sock")
@@ -811,8 +824,23 @@ private enum CLISocketPathResolver {
         candidates.append(legacyDefaultSocketPath)
         candidates.append(fallbackSocketPath)
         candidates.append(stagingSocketPath)
-        candidates.append(contentsOf: discoverTaggedSockets(limit: 12))
+        if launchTag != nil {
+            candidates.append(contentsOf: discoverTaggedSockets(limit: 12))
+        }
         if let last = readLastSocketPath() {
+            candidates.append(last)
+        }
+        return candidates
+    }
+
+    private static func environmentRecoveryCandidatePaths(requestedPath: String, environment: [String: String]) -> [String] {
+        var candidates = [
+            requestedPath,
+            defaultSocketPath,
+            legacyDefaultSocketPath,
+        ]
+        if let last = readLastSocketPath(),
+           shouldConsiderSocketHint(last, environment: environment) {
             candidates.append(last)
         }
         return candidates
@@ -897,6 +925,14 @@ private enum CLISocketPathResolver {
             .replacingOccurrences(of: "-+", with: "-", options: .regularExpression)
             .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
         return slug.isEmpty ? "agent" : slug
+    }
+
+    private static func shouldConsiderSocketHint(_ path: String, environment: [String: String]) -> Bool {
+        if normalized(environment["CMUX_TAG"]) != nil {
+            return true
+        }
+        let name = URL(fileURLWithPath: path).lastPathComponent
+        return !(name.hasPrefix("cmux-debug") || name.hasPrefix("cmux-staging") || name == "cmux-nightly.sock")
     }
 
     private static func normalized(_ value: String?) -> String? {
