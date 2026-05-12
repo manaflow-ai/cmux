@@ -295,7 +295,7 @@ extension CMUXCLI {
             return try agentFastPathSendPayload(
                 workspaceRaw: workspace,
                 surfaceRaw: surface,
-                text: agentFastPathUnescapeSendText(text),
+                text: text,
                 appendEnter: appendEnter,
                 client: client,
                 windowOverride: windowOverride
@@ -401,7 +401,7 @@ extension CMUXCLI {
             let (workspaceArg, rem0) = parseOption(args, name: "--workspace")
             let (surfaceArg, rem1) = parseOption(rem0, name: "--surface")
             let (linesArg, rem2) = parseOption(rem1, name: "--lines")
-            let trailing = rem2.filter { $0 != "--scrollback" }
+            let trailing = rem2.filter { $0 != "--scrollback" && $0 != "--" }
             if !trailing.isEmpty {
                 throw CLIError(message: "agent capture: unexpected arguments: \(trailing.joined(separator: " "))")
             }
@@ -425,17 +425,16 @@ extension CMUXCLI {
             let args = removeAgentFastPathFlags(["--enter"], from: rawArgs)
             let (workspaceArg, rem0) = parseOption(args, name: "--workspace")
             let (surfaceArg, rem1) = parseOption(rem0, name: "--surface")
-            let text = rem1
+            let rawText = rem1
                 .dropFirst(rem1.first == "--" ? 1 : 0)
                 .joined(separator: " ")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else {
+            guard !rawText.isEmpty else {
                 throw CLIError(message: "agent send requires text")
             }
             let payload = try agentFastPathSendPayload(
                 workspaceRaw: workspaceArg,
                 surfaceRaw: surfaceArg,
-                text: agentFastPathUnescapeSendText(text),
+                text: agentFastPathUnescapeSendText(rawText),
                 appendEnter: appendEnter,
                 client: client,
                 windowOverride: windowOverride
@@ -460,8 +459,9 @@ extension CMUXCLI {
 
         case "list-panes", "panes":
             let (workspaceArg, trailing) = parseOption(rawArgs, name: "--workspace")
-            if !trailing.isEmpty {
-                throw CLIError(message: "agent list-panes: unexpected arguments: \(trailing.joined(separator: " "))")
+            let unexpected = trailing.filter { $0 != "--" }
+            if !unexpected.isEmpty {
+                throw CLIError(message: "agent list-panes: unexpected arguments: \(unexpected.joined(separator: " "))")
             }
             let payload = try agentFastPathListPanesPayload(
                 workspaceRaw: workspaceArg,
@@ -472,8 +472,9 @@ extension CMUXCLI {
 
         case "list-surfaces", "surfaces", "list-panels", "panels":
             let (workspaceArg, trailing) = parseOption(rawArgs, name: "--workspace")
-            if !trailing.isEmpty {
-                throw CLIError(message: "agent list-surfaces: unexpected arguments: \(trailing.joined(separator: " "))")
+            let unexpected = trailing.filter { $0 != "--" }
+            if !unexpected.isEmpty {
+                throw CLIError(message: "agent list-surfaces: unexpected arguments: \(unexpected.joined(separator: " "))")
             }
             let payload = try agentFastPathListSurfacesPayload(
                 workspaceRaw: workspaceArg,

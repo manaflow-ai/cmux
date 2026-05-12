@@ -70,6 +70,21 @@ def _surface_has(c: cmux, workspace_id: str, surface_id: str, token: str) -> boo
     return token in str(payload.get("text") or "")
 
 
+def _start_raw_byte_probe(c: cmux, workspace_id: str, surface_id: str, byte_count: int, label: str) -> None:
+    raw_probe = (
+        "python3 -c 'import sys,tty,termios; "
+        "fd=sys.stdin.fileno(); "
+        "old=termios.tcgetattr(fd); "
+        f"print(\"{label}_READY\", flush=True); "
+        "tty.setraw(fd); "
+        f"data=sys.stdin.buffer.read({byte_count}); "
+        "termios.tcsetattr(fd, termios.TCSADRAIN, old); "
+        f"print(\"\\\\r\\\\n{label}_BYTES_\" + data.hex(), flush=True)'"
+    )
+    c._call("surface.send_text", {"workspace_id": workspace_id, "surface_id": surface_id, "text": raw_probe + "\r"})
+    _wait_for(lambda: _surface_has(c, workspace_id, surface_id, f"{label}_READY"), timeout_s=5.0)
+
+
 def main() -> int:
     cli = _find_cli_binary()
     stamp = int(time.time() * 1000)
@@ -117,6 +132,19 @@ def main() -> int:
         ]) or "{}")
         _must(token in str(capture_payload.get("text") or ""), f"agent capture missing token: {capture_payload}")
 
+        capture_with_terminator = json.loads(_run_agent(cli, [
+            "capture",
+            "--workspace",
+            workspace_id,
+            "--surface",
+            surface_id,
+            "--scrollback",
+            "--lines",
+            "80",
+            "--",
+        ]) or "{}")
+        _must(token in str(capture_with_terminator.get("text") or ""), f"agent capture with -- missing token: {capture_with_terminator}")
+
         raw_capture = _run_agent(cli, [
             "capture",
             "--workspace",
@@ -133,10 +161,15 @@ def main() -> int:
         panes_payload = json.loads(_run_agent(cli, ["list-panes", "--workspace", workspace_id]) or "{}")
         panes = panes_payload.get("panes") or []
         _must(bool(panes), f"agent list-panes returned no panes: {panes_payload}")
+        panes_with_terminator = json.loads(_run_agent(cli, ["list-panes", "--workspace", workspace_id, "--"]) or "{}")
+        _must(bool(panes_with_terminator.get("panes") or []), f"agent list-panes with -- returned no panes: {panes_with_terminator}")
 
         list_surfaces_payload = json.loads(_run_agent(cli, ["list-surfaces", "--workspace", workspace_id]) or "{}")
         listed_surfaces = list_surfaces_payload.get("surfaces") or []
         _must(any(str(item.get("id") or item.get("ref") or "") for item in listed_surfaces), f"agent list-surfaces returned no handles: {list_surfaces_payload}")
+        list_surfaces_with_terminator = json.loads(_run_agent(cli, ["list-surfaces", "--workspace", workspace_id, "--"]) or "{}")
+        listed_surfaces_with_terminator = list_surfaces_with_terminator.get("surfaces") or []
+        _must(any(str(item.get("id") or item.get("ref") or "") for item in listed_surfaces_with_terminator), f"agent list-surfaces with -- returned no handles: {list_surfaces_with_terminator}")
 
         batch = json.dumps([
             {"op": "list-panes", "workspace": workspace_id},
@@ -159,18 +192,7 @@ def main() -> int:
         _must(partial_results[0].get("ok") is True, f"agent partial batch should preserve prior successful result: {partial_payload}")
         _must(partial_results[1].get("ok") is False and partial_results[1].get("error"), f"agent partial batch should include per-op error: {partial_payload}")
 
-        raw_probe = (
-            "python3 -c 'import sys,tty,termios; "
-            "fd=sys.stdin.fileno(); "
-            "old=termios.tcgetattr(fd); "
-            "print(\"RAW_READY\", flush=True); "
-            "tty.setraw(fd); "
-            "b=sys.stdin.buffer.read(1); "
-            "termios.tcsetattr(fd, termios.TCSADRAIN, old); "
-            "print(\"\\\\r\\\\nRAW_BYTE_%02x\" % b[0], flush=True)'"
-        )
-        c._call("surface.send_text", {"workspace_id": workspace_id, "surface_id": surface_id, "text": raw_probe + "\r"})
-        _wait_for(lambda: _surface_has(c, workspace_id, surface_id, "RAW_READY"), timeout_s=5.0)
+        _start_raw_byte_probe(c, workspace_id, surface_id, 1, "RAW_LF")
         escaped_newline_payload = json.loads(_run_agent(cli, [
             "send",
             "--workspace",
@@ -181,7 +203,28 @@ def main() -> int:
             "\\n",
         ]) or "{}")
         _must(escaped_newline_payload.get("ok") is True, f"agent escaped newline send returned unexpected payload: {escaped_newline_payload}")
-        _wait_for(lambda: _surface_has(c, workspace_id, surface_id, "RAW_BYTE_0a"), timeout_s=5.0)
+        _wait_for(lambda: _surface_has(c, workspace_id, surface_id, "RAW_LF_BYTES_0a"), timeout_s=5.0)
+
+        _start_raw_byte_probe(c, workspace_id, surface_id, 2, "RAW_BATCH_LITERAL")
+        batch_literal = json.dumps([
+            {"op": "send", "workspace": workspace_id, "surface": surface_id, "text": "\\n"},
+        ])
+        batch_literal_payload = json.loads(_run_agent(cli, ["batch", batch_literal]) or "{}")
+        _must(batch_literal_payload.get("ok") is True, f"agent batch literal escape send returned unexpected payload: {batch_literal_payload}")
+        _wait_for(lambda: _surface_has(c, workspace_id, surface_id, "RAW_BATCH_LITERAL_BYTES_5c6e"), timeout_s=5.0)
+
+        _start_raw_byte_probe(c, workspace_id, surface_id, 1, "RAW_SPACE")
+        space_payload = json.loads(_run_agent(cli, [
+            "send",
+            "--workspace",
+            workspace_id,
+            "--surface",
+            surface_id,
+            "--",
+            " ",
+        ]) or "{}")
+        _must(space_payload.get("ok") is True, f"agent space send returned unexpected payload: {space_payload}")
+        _wait_for(lambda: _surface_has(c, workspace_id, surface_id, "RAW_SPACE_BYTES_20"), timeout_s=5.0)
 
     print("PASS: agent fast-path CLI reads, sends, lists, and batches")
     return 0
