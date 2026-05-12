@@ -29,6 +29,7 @@ SETTING_SAMPLE_VALUES: dict[str, tuple[str, Any]] = {
     "app.renameSelectsExistingName": ("false", False),
     "app.reorderOnNotification": ("false", False),
     "app.sendAnonymousTelemetry": ("false", False),
+    "app.warnBeforeClosingTab": ("false", False),
     "app.warnBeforeQuit": ("false", False),
     "automation.claudeBinaryPath": ("/opt/cmux/bin/claude", "/opt/cmux/bin/claude"),
     "automation.claudeCodeIntegration": ("false", False),
