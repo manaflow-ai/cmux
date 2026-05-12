@@ -15253,8 +15253,6 @@ struct CMUXCLI {
             return 80
         case "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description":
             return 240
-        case "parent_workstream_id", "parentWorkstreamId", "parent_session_id", "parentSessionId", "parentSessionID", "child_workstream_id", "childWorkstreamId", "child_session_id", "childSessionId", "childSessionID", "subagent_workstream_id", "subagentWorkstreamId", "subagent_session_id", "subagentSessionId":
-            return 160
         default:
             return 160
         }

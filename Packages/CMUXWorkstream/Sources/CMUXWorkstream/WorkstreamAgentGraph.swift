@@ -170,12 +170,12 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
         ) {
             guard var spawns = pendingSpawnsByParent[parentWorkstreamId],
                   !spawns.isEmpty else { return }
-            let index = bestResolvedSpawnIndex(
+            guard let index = bestResolvedSpawnIndex(
                 in: spawns,
                 metadata: metadata,
                 childSource: childSource,
                 childWorkspaceId: childWorkspaceId
-            )
+            ) else { return }
             spawns.remove(at: index)
             if spawns.isEmpty {
                 pendingSpawnsByParent[parentWorkstreamId] = nil
@@ -189,9 +189,10 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
             metadata: AgentGraphMetadata,
             childSource: WorkstreamSource,
             childWorkspaceId: String?
-        ) -> Int {
-            var bestIndex = spawns.startIndex
-            var bestScore = Int.min
+        ) -> Int? {
+            var bestIndex: Int?
+            var bestScore = 0
+            var hasBestScoreTie = false
             for (index, spawn) in spawns.enumerated() {
                 var score = 0
                 if spawn.source == childSource {
@@ -217,12 +218,16 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
                    taskDescription == spawnTaskDescription {
                     score += 4
                 }
+                guard score > 0 else { continue }
                 if score > bestScore {
                     bestIndex = index
                     bestScore = score
+                    hasBestScoreTie = false
+                } else if score == bestScore {
+                    hasBestScoreTie = true
                 }
             }
-            return bestIndex
+            return hasBestScoreTie ? nil : bestIndex
         }
 
         var childrenByParent: [String: [String]] = [:]
