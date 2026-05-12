@@ -7122,6 +7122,12 @@ struct ContentView: View {
                 defaultValue: "%@ '%@' must reference a workspace command"
             )
             return String(format: format, issue.settingName, issue.commandName ?? "")
+        case .promptSnippetDuplicateID:
+            let format = String(
+                localized: "command.cmuxConfig.issue.promptSnippetDuplicateID.detail",
+                defaultValue: "%@ ignored duplicate generated prompt snippet ID '%@'"
+            )
+            return String(format: format, issue.settingName, issue.commandName ?? "")
         }
     }
 

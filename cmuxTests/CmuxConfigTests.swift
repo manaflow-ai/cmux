@@ -176,6 +176,54 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(store.loadedPromptSnippets.map(\.title), ["Local Review", "Explain"])
         XCTAssertEqual(store.loadedPromptSnippets.map(\.text), ["local review prompt", "explain this code"])
         XCTAssertEqual(store.loadedPromptSnippets.map(\.sourcePath), [localConfigURL.path, globalConfigURL.path])
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
+    func testPromptSnippetsReportGeneratedIDCollision() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-prompt-snippets-\(UUID().uuidString)", isDirectory: true)
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let localDirectory = root.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: localDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
+        let localConfigURL = localDirectory.appendingPathComponent("cmux.json")
+        let globalJSON = """
+        {
+          "promptSnippets": [
+            { "title": "code  review", "text": "global generated review prompt" },
+            { "title": "Explain", "text": "explain this code" }
+          ]
+        }
+        """
+        let localJSON = """
+        {
+          "promptSnippets": [
+            { "title": "Code Review", "text": "local generated review prompt" }
+          ]
+        }
+        """
+        try globalJSON.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try localJSON.write(to: localConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            localConfigPath: localConfigURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.loadedPromptSnippets.map(\.id), ["code-review", "explain"])
+        XCTAssertEqual(store.loadedPromptSnippets.map(\.title), ["Code Review", "Explain"])
+        XCTAssertEqual(store.loadedPromptSnippets.map(\.text), ["local generated review prompt", "explain this code"])
+        let issue = try XCTUnwrap(store.configurationIssues.first)
+        XCTAssertEqual(issue.kind, .promptSnippetDuplicateID)
+        XCTAssertEqual(issue.settingName, "promptSnippets[0]")
+        XCTAssertEqual(issue.commandName, "code-review")
+        XCTAssertEqual(issue.sourcePath, globalConfigURL.path)
     }
 
     func testDecodeNewWorkspaceCommand() throws {

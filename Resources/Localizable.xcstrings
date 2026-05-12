@@ -20807,6 +20807,23 @@
         }
       }
     },
+    "command.cmuxConfig.issue.promptSnippetDuplicateID.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ignored duplicate generated prompt snippet ID '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は重複する自動生成プロンプトスニペット ID '%@' を無視しました"
+          }
+        }
+      }
+    },
     "command.cmuxConfig.issue.schemaError.detail": {
       "extractionState": "manual",
       "localizations": {

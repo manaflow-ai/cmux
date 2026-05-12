@@ -1511,6 +1511,7 @@ struct CmuxPromptSnippetDefinition: Codable, Sendable, Hashable, Identifiable {
     var text: String
     var description: String?
     var keywords: [String]
+    var idWasGenerated: Bool
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -1533,7 +1534,13 @@ struct CmuxPromptSnippetDefinition: Codable, Sendable, Hashable, Identifiable {
     ) {
         let sanitizedTitle = Self.sanitizedString(title)
         let explicitID = id.map(Self.sanitizedString).flatMap { $0.isEmpty ? nil : $0 }
-        self.id = explicitID ?? Self.generatedID(for: sanitizedTitle)
+        if let explicitID {
+            self.id = explicitID
+            idWasGenerated = false
+        } else {
+            self.id = Self.generatedID(for: sanitizedTitle)
+            idWasGenerated = true
+        }
         self.title = sanitizedTitle
         self.text = Self.removingDangerousScalars(from: text)
         self.description = description.map(Self.sanitizedString).flatMap { $0.isEmpty ? nil : $0 }
@@ -1843,6 +1850,7 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
         case newWorkspaceActionNotFound
         case newWorkspaceCommandNotFound
         case newWorkspaceCommandRequiresWorkspace
+        case promptSnippetDuplicateID
         case schemaError
     }
 
@@ -1884,6 +1892,8 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
             return "\(settingName) '\(commandName ?? "")' does not match any loaded command"
         case .newWorkspaceCommandRequiresWorkspace:
             return "\(settingName) '\(commandName ?? "")' must reference a workspace command"
+        case .promptSnippetDuplicateID:
+            return "\(settingName) ignored duplicate prompt snippet id '\(commandName ?? "")'"
         case .schemaError:
             return "\(settingName) has a schema error: \(message ?? "unknown error")"
         }
@@ -1941,6 +1951,11 @@ final class CmuxConfigStore: ObservableObject {
 
     private struct ResolvedContextMenuItems {
         let items: [CmuxResolvedConfigContextMenuItem]
+        let issues: [CmuxConfigIssue]
+    }
+
+    private struct ResolvedPromptSnippets {
+        let snippets: [CmuxResolvedPromptSnippet]
         let issues: [CmuxConfigIssue]
     }
 
@@ -2250,7 +2265,7 @@ final class CmuxConfigStore: ObservableObject {
 
         loadedCommands = commands
         loadedActions = resolvedActions
-        loadedPromptSnippets = resolvedPromptSnippets
+        loadedPromptSnippets = resolvedPromptSnippets.snippets
         commandSourcePaths = sourcePaths
         actionLookup = resolvedActionLookup
         newWorkspaceActionID = configuredNewWorkspaceActionID
@@ -2266,6 +2281,7 @@ final class CmuxConfigStore: ObservableObject {
         if let issue = resolvedNewWorkspaceAction.issue {
             issues.append(issue)
         }
+        issues.append(contentsOf: resolvedPromptSnippets.issues)
         issues.append(contentsOf: resolvedNewWorkspaceContextMenuItems.issues)
         configurationIssues = issues
         applySurfaceTabBarButtonsToCurrentManager()
@@ -2291,20 +2307,37 @@ final class CmuxConfigStore: ObservableObject {
         localSourcePath: String?,
         globalDefinitions: [CmuxPromptSnippetDefinition],
         globalSourcePath: String
-    ) -> [CmuxResolvedPromptSnippet] {
+    ) -> ResolvedPromptSnippets {
         var snippets: [CmuxResolvedPromptSnippet] = []
-        var seenIDs = Set<String>()
+        var issues: [CmuxConfigIssue] = []
+
+        struct SeenSnippet {
+            let idWasGenerated: Bool
+        }
+
+        var seenByID: [String: SeenSnippet] = [:]
 
         func append(_ definitions: [CmuxPromptSnippetDefinition], sourcePath: String?) {
-            for definition in definitions {
-                guard seenIDs.insert(definition.id).inserted else { continue }
+            for (index, definition) in definitions.enumerated() {
+                if let existing = seenByID[definition.id] {
+                    if existing.idWasGenerated || definition.idWasGenerated {
+                        issues.append(CmuxConfigIssue(
+                            kind: .promptSnippetDuplicateID,
+                            settingName: "promptSnippets[\(index)]",
+                            commandName: definition.id,
+                            sourcePath: sourcePath
+                        ))
+                    }
+                    continue
+                }
+                seenByID[definition.id] = SeenSnippet(idWasGenerated: definition.idWasGenerated)
                 snippets.append(CmuxResolvedPromptSnippet(definition: definition, sourcePath: sourcePath))
             }
         }
 
         append(localDefinitions, sourcePath: localSourcePath)
         append(globalDefinitions, sourcePath: globalSourcePath)
-        return snippets
+        return ResolvedPromptSnippets(snippets: snippets, issues: issues)
     }
 
     private func sanitizeConfigText(_ text: String) -> String {
