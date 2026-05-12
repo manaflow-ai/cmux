@@ -141,9 +141,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         XCTAssertEqual(result["is_read"] as? Bool, true)
         XCTAssertEqual(fixture.manager.selectedTabId, targetWorkspace.id)
         XCTAssertEqual(fixture.manager.focusedSurfaceId(for: targetWorkspace.id), targetSurfaceId)
-        XCTAssertTrue(waitForCondition(timeout: 1.0) {
-            fixture.notification(notification.id)?.isRead == true
-        })
+        XCTAssertEqual(fixture.notification(notification.id)?.isRead, true)
     }
 
     func testNotificationJumpToUnreadOpensLatestUnreadAndNoOpsWhenNoneRemain() async throws {
@@ -171,9 +169,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         XCTAssertEqual(result["is_read"] as? Bool, true)
         XCTAssertEqual(fixture.manager.selectedTabId, targetWorkspace.id)
         XCTAssertEqual(fixture.manager.focusedSurfaceId(for: targetWorkspace.id), targetSurfaceId)
-        XCTAssertTrue(waitForCondition(timeout: 1.0) {
-            fixture.notification(latest.id)?.isRead == true
-        })
+        XCTAssertEqual(fixture.notification(latest.id)?.isRead, true)
 
         fixture.store.markAllRead()
         let selectedBeforeNoop = fixture.manager.selectedTabId
@@ -216,9 +212,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         XCTAssertEqual(result["workspace_id"] as? String, targetWorkspace.id.uuidString)
         XCTAssertEqual(result["surface_id"] as? String, targetSurfaceId.uuidString)
         XCTAssertEqual(fixture.manager.selectedTabId, targetWorkspace.id)
-        XCTAssertTrue(waitForCondition(timeout: 1.0) {
-            fixture.notification(openable.id)?.isRead == true
-        })
+        XCTAssertEqual(fixture.notification(openable.id)?.isRead, true)
     }
 
     private struct SocketFixture {
@@ -364,17 +358,6 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
             code: 1,
             userInfo: [NSLocalizedDescriptionKey: message]
         )
-    }
-
-    private func waitForCondition(timeout: TimeInterval, predicate: () -> Bool) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if predicate() {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
-        }
-        return predicate()
     }
 
     private func sendV2RequestAsync(

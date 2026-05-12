@@ -13689,13 +13689,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
         if let notificationId, let store = notificationStore {
-            markReadIfFocused(
-                notificationId: notificationId,
-                tabId: tabId,
-                surfaceId: surfaceId,
-                tabManager: context.tabManager,
-                notificationStore: store
-            )
+            store.markRead(id: notificationId)
         }
 
 #if DEBUG
@@ -13762,13 +13756,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
         if let notificationId, let store = notificationStore {
-            markReadIfFocused(
-                notificationId: notificationId,
-                tabId: tabId,
-                surfaceId: surfaceId,
-                tabManager: tabManager,
-                notificationStore: store
-            )
+            store.markRead(id: notificationId)
         }
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
@@ -13861,22 +13849,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         reason: MainWindowVisibilityController.Reason = .focusMainWindow
     ) {
         _ = mainWindowVisibilityController.focus(window, reason: reason)
-    }
-
-    private func markReadIfFocused(
-        notificationId: UUID,
-        tabId: UUID,
-        surfaceId: UUID?,
-        tabManager: TabManager,
-        notificationStore: TerminalNotificationStore
-    ) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            guard tabManager.selectedTabId == tabId else { return }
-            if let surfaceId {
-                guard tabManager.focusedSurfaceId(for: tabId) == surfaceId else { return }
-            }
-            notificationStore.markRead(id: notificationId)
-        }
     }
 
 #if DEBUG

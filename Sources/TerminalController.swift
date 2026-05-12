@@ -8150,9 +8150,6 @@ class TerminalController {
                     surfaceId: notification.surfaceId,
                     notificationId: notification.id
                 ) ?? false
-                if opened {
-                    store.markRead(id: notification.id)
-                }
                 let current = store.notifications.first(where: { $0.id == notification.id }) ?? notification
                 payload = notificationPayload(current, opened: opened, includeReadState: true)
             }
@@ -8182,7 +8179,6 @@ class TerminalController {
             openedNotification = AppDelegate.shared?.jumpToLatestUnread()
             if let openedNotification {
                 let store = TerminalNotificationStore.shared
-                store.markRead(id: openedNotification.id)
                 let current = store.notifications.first(where: { $0.id == openedNotification.id }) ?? openedNotification
                 payload = notificationPayload(current, opened: true, includeReadState: true)
             }
