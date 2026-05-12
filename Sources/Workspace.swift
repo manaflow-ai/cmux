@@ -3808,6 +3808,13 @@ private final class WorkspaceRemoteCLIRelayServer {
 }
 
 final class WorkspaceRemoteSessionController {
+#if DEBUG
+    // XCTest seam: tests assign this before starting a controller and clear it
+    // after disconnect teardown; production/debug app code leaves it nil. The
+    // override closure owns synchronization for any captured test-only state.
+    nonisolated(unsafe) static var runProcessOverrideForTesting: ((String, [String], Data?, TimeInterval) throws -> (status: Int32, stdout: String, stderr: String))?
+#endif
+
     enum PortScanKickReason: String {
         case command
         case refresh
@@ -3849,7 +3856,17 @@ final class WorkspaceRemoteSessionController {
 
     private struct RemoteBootstrapState {
         let platform: RemotePlatform
+        let homeDirectory: String
         let binaryExists: Bool
+    }
+
+    private struct RemoteDaemonInstallLocation {
+        let relativePath: String
+        let absolutePath: String
+
+        var directory: String {
+            (absolutePath as NSString).deletingLastPathComponent
+        }
     }
 
     private struct DaemonHello {
@@ -4660,6 +4677,7 @@ final class WorkspaceRemoteSessionController {
         _ = try? sshExec(arguments: arguments, timeout: 4)
     }
 
+    private static let remotePlatformProbeHomeMarker = "__CMUX_REMOTE_HOME__="
     private static let remotePlatformProbeOSMarker = "__CMUX_REMOTE_OS__="
     private static let remotePlatformProbeArchMarker = "__CMUX_REMOTE_ARCH__="
     private static let remotePlatformProbeExistsMarker = "__CMUX_REMOTE_EXISTS__="
@@ -4770,6 +4788,13 @@ final class WorkspaceRemoteSessionController {
         timeout: TimeInterval,
         operation: TerminalImageTransferOperation? = nil
     ) throws -> CommandResult {
+#if DEBUG
+        if let override = Self.runProcessOverrideForTesting {
+            let result = try override(executable, arguments, stdin, timeout)
+            return CommandResult(status: result.status, stdout: result.stdout, stderr: result.stderr)
+        }
+#endif
+
         debugLog(
             "remote.proc.start exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
             "timeout=\(Int(timeout)) args=\(debugShellCommand(executable: executable, arguments: arguments))"
@@ -4896,12 +4921,18 @@ final class WorkspaceRemoteSessionController {
         let version = Self.remoteDaemonVersion()
         let bootstrapState = try probeRemoteBootstrapStateLocked(version: version)
         let platform = bootstrapState.platform
-        let remotePath = Self.remoteDaemonPath(version: version, goOS: platform.goOS, goArch: platform.goArch)
+        let remoteLocation = try Self.remoteDaemonInstallLocation(
+            version: version,
+            goOS: platform.goOS,
+            goArch: platform.goArch,
+            homeDirectory: bootstrapState.homeDirectory
+        )
+        let remotePath = remoteLocation.absolutePath
         let explicitOverrideBinary = Self.explicitRemoteDaemonBinaryURL()
         let forceExplicitOverrideInstall = explicitOverrideBinary != nil
         debugLog(
             "remote.bootstrap.platform os=\(platform.goOS) arch=\(platform.goArch) " +
-            "version=\(version) remotePath=\(remotePath) " +
+            "version=\(version) remotePath=\(remotePath) relativePath=\(remoteLocation.relativePath) " +
             "allowLocalBuildFallback=\(Self.allowLocalDaemonBuildFallback() ? 1 : 0) " +
             "explicitOverride=\(forceExplicitOverrideInstall ? 1 : 0)"
         )
@@ -4910,7 +4941,7 @@ final class WorkspaceRemoteSessionController {
         debugLog("remote.bootstrap.binaryExists remotePath=\(remotePath) exists=\(hadExistingBinary ? 1 : 0)")
         if forceExplicitOverrideInstall || !hadExistingBinary {
             let localBinary = try buildLocalDaemonBinary(goOS: platform.goOS, goArch: platform.goArch, version: version)
-            try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, remotePath: remotePath)
+            try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, location: remoteLocation)
         }
 
         var hello: DaemonHello
@@ -4925,13 +4956,13 @@ final class WorkspaceRemoteSessionController {
                 "detail=\(error.localizedDescription)"
             )
             let localBinary = try buildLocalDaemonBinary(goOS: platform.goOS, goArch: platform.goArch, version: version)
-            try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, remotePath: remotePath)
+            try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, location: remoteLocation)
             hello = try helloRemoteDaemonLocked(remotePath: remotePath)
         }
         if hadExistingBinary, !hello.capabilities.contains(WorkspaceRemoteDaemonRPCClient.requiredProxyStreamCapability) {
             debugLog("remote.bootstrap.capabilityMissing remotePath=\(remotePath) capabilities=\(hello.capabilities.joined(separator: ","))")
             let localBinary = try buildLocalDaemonBinary(goOS: platform.goOS, goArch: platform.goArch, version: version)
-            try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, remotePath: remotePath)
+            try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, location: remoteLocation)
             hello = try helloRemoteDaemonLocked(remotePath: remotePath)
         }
 
@@ -5015,6 +5046,7 @@ final class WorkspaceRemoteSessionController {
         let script = """
         cmux_uname_os="$(uname -s)"
         cmux_uname_arch="$(uname -m)"
+        printf '%s%s\\n' '\(Self.remotePlatformProbeHomeMarker)' "$HOME"
         printf '%s%s\\n' '\(Self.remotePlatformProbeOSMarker)' "$cmux_uname_os"
         printf '%s%s\\n' '\(Self.remotePlatformProbeArchMarker)' "$cmux_uname_arch"
         case "$(printf '%s' "$cmux_uname_os" | tr '[:upper:]' '[:lower:]')" in
@@ -5045,7 +5077,9 @@ final class WorkspaceRemoteSessionController {
             .map { String($0.dropFirst(Self.remotePlatformProbeOSMarker.count)) }
         let unameArch = lines.first { $0.hasPrefix(Self.remotePlatformProbeArchMarker) }
             .map { String($0.dropFirst(Self.remotePlatformProbeArchMarker.count)) }
-        guard let unameOS, let unameArch else {
+        let homeDirectory = lines.first { $0.hasPrefix(Self.remotePlatformProbeHomeMarker) }
+            .map { String($0.dropFirst(Self.remotePlatformProbeHomeMarker.count)) }
+        guard let unameOS, let unameArch, let homeDirectory else {
             let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
             throw NSError(domain: "cmux.remote.daemon", code: 11, userInfo: [
                 NSLocalizedDescriptionKey: "failed to query remote platform: \(detail)",
@@ -5070,6 +5104,7 @@ final class WorkspaceRemoteSessionController {
 
         return RemoteBootstrapState(
             platform: RemotePlatform(goOS: goOS, goArch: goArch),
+            homeDirectory: homeDirectory,
             binaryExists: binaryExists ?? false
         )
     }
@@ -5317,8 +5352,9 @@ final class WorkspaceRemoteSessionController {
         return output
     }
 
-    private func uploadRemoteDaemonBinaryLocked(localBinary: URL, remotePath: String) throws {
-        let remoteDirectory = (remotePath as NSString).deletingLastPathComponent
+    private func uploadRemoteDaemonBinaryLocked(localBinary: URL, location: RemoteDaemonInstallLocation) throws {
+        let remotePath = location.absolutePath
+        let remoteDirectory = location.directory
         let remoteTempPath = "\(remotePath).tmp-\(UUID().uuidString.prefix(8))"
         debugLog(
             "remote.upload.begin local=\(localBinary.path) remoteTemp=\(remoteTempPath) remote=\(remotePath)"
@@ -5566,9 +5602,10 @@ final class WorkspaceRemoteSessionController {
 
     static func remoteCLIWrapperInstallScript(daemonRemotePath: String) -> String {
         let trimmedRemotePath = daemonRemotePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let daemonPathExpression = remoteDaemonPathShellExpression(trimmedRemotePath)
         return """
         mkdir -p "$HOME/.cmux/bin" "$HOME/.cmux/relay"
-        ln -sf "$HOME/\(trimmedRemotePath)" "$HOME/.cmux/bin/cmuxd-remote-current"
+        ln -sf \(daemonPathExpression) "$HOME/.cmux/bin/cmuxd-remote-current"
         wrapper_tmp="$HOME/.cmux/bin/.cmux-wrapper.tmp.$$"
         cat > "$wrapper_tmp" <<'CMUXWRAPPER'
         \(remoteCLIWrapperScript())
@@ -5585,6 +5622,7 @@ final class WorkspaceRemoteSessionController {
         relayToken: String
     ) -> String {
         let trimmedRemotePath = daemonRemotePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let daemonPathExpression = remoteDaemonPathShellExpression(trimmedRemotePath)
         let authPayload = """
         {"relay_id":"\(relayID)","relay_token":"\(relayToken)"}
         """
@@ -5593,7 +5631,7 @@ final class WorkspaceRemoteSessionController {
         mkdir -p "$HOME/.cmux" "$HOME/.cmux/relay"
         chmod 700 "$HOME/.cmux/relay"
         \(remoteCLIWrapperInstallScript(daemonRemotePath: trimmedRemotePath))
-        printf '%s' "$HOME/\(trimmedRemotePath)" > "$HOME/.cmux/relay/\(relayPort).daemon_path"
+        printf '%s' \(daemonPathExpression) > "$HOME/.cmux/relay/\(relayPort).daemon_path"
         cat > "$HOME/.cmux/relay/\(relayPort).auth" <<'CMUXRELAYAUTH'
         \(authPayload)
         CMUXRELAYAUTH
@@ -5686,6 +5724,44 @@ final class WorkspaceRemoteSessionController {
 
     private static func remoteDaemonPath(version: String, goOS: String, goArch: String) -> String {
         ".cmux/bin/cmuxd-remote/\(version)/\(goOS)-\(goArch)/cmuxd-remote"
+    }
+
+    private static func remoteDaemonInstallLocation(
+        version: String,
+        goOS: String,
+        goArch: String,
+        homeDirectory: String
+    ) throws -> RemoteDaemonInstallLocation {
+        let relativePath = remoteDaemonPath(version: version, goOS: goOS, goArch: goArch)
+        let absolutePath = try absoluteRemotePath(homeDirectory: homeDirectory, relativePath: relativePath)
+        return RemoteDaemonInstallLocation(relativePath: relativePath, absolutePath: absolutePath)
+    }
+
+    private static func absoluteRemotePath(homeDirectory: String, relativePath: String) throws -> String {
+        var normalizedHome = homeDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedRelative = relativePath
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .drop(while: { $0 == "/" })
+        guard normalizedHome.hasPrefix("/"), !normalizedHome.isEmpty, !normalizedRelative.isEmpty else {
+            throw NSError(domain: "cmux.remote.daemon", code: 14, userInfo: [
+                NSLocalizedDescriptionKey: "remote daemon install path could not be resolved from remote HOME",
+            ])
+        }
+        while normalizedHome.count > 1, normalizedHome.hasSuffix("/") {
+            normalizedHome.removeLast()
+        }
+        if normalizedHome == "/" {
+            return "/" + String(normalizedRelative)
+        }
+        return normalizedHome + "/" + String(normalizedRelative)
+    }
+
+    private static func remoteDaemonPathShellExpression(_ remotePath: String) -> String {
+        let trimmedRemotePath = remotePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedRemotePath.hasPrefix("/") {
+            return shellSingleQuoted(trimmedRemotePath)
+        }
+        return "\"$HOME/\(trimmedRemotePath)\""
     }
 
     static func orphanedCMUXRemoteSSHPIDs(
