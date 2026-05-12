@@ -539,7 +539,7 @@
       "workspaceIdDesc": "Auto-sat: nuværende workspace-ID",
       "surfaceIdDesc": "Auto-sat: nuværende surface-ID",
       "termProgramDesc": "Sat til ghostty",
-      "termDesc": "Sat til xterm-ghostty",
+      "termDesc": "Standard er xterm-256color; angiv terminal.term i cmux.json for at tilsidesætte",
       "envCallout": "Legacy CMUX_SOCKET_MODE-værdier full og notifications accepteres stadig for kompatibilitet.",
       "detectingCmux": "Detektering af cmux",
       "examples": "Eksempler",

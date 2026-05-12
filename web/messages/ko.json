@@ -539,7 +539,7 @@
       "workspaceIdDesc": "자동 설정: 현재 워크스페이스 ID",
       "surfaceIdDesc": "자동 설정: 현재 서피스 ID",
       "termProgramDesc": "ghostty로 설정됨",
-      "termDesc": "xterm-ghostty로 설정됨",
+      "termDesc": "기본값은 xterm-256color입니다. 재정의하려면 cmux.json에서 terminal.term을 설정하세요",
       "envCallout": "레거시 CMUX_SOCKET_MODE 값 full 및 notifications는 호환성을 위해 여전히 허용됩니다.",
       "detectingCmux": "cmux 감지",
       "examples": "예시",

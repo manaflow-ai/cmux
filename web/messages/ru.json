@@ -539,7 +539,7 @@
       "workspaceIdDesc": "Устанавливается автоматически: ID текущего рабочего пространства",
       "surfaceIdDesc": "Устанавливается автоматически: ID текущей поверхности",
       "termProgramDesc": "Установлен в ghostty",
-      "termDesc": "Установлен в xterm-ghostty",
+      "termDesc": "По умолчанию xterm-256color; задайте terminal.term в cmux.json, чтобы переопределить",
       "envCallout": "Устаревшие значения CMUX_SOCKET_MODE full и notifications всё ещё принимаются для совместимости.",
       "detectingCmux": "Обнаружение cmux",
       "examples": "Примеры",

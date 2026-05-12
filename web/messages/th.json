@@ -539,7 +539,7 @@
       "workspaceIdDesc": "ตั้งอัตโนมัติ: workspace ID ปัจจุบัน",
       "surfaceIdDesc": "ตั้งอัตโนมัติ: surface ID ปัจจุบัน",
       "termProgramDesc": "ตั้งเป็น ghostty",
-      "termDesc": "ตั้งเป็น xterm-ghostty",
+      "termDesc": "ค่าเริ่มต้นคือ xterm-256color; ตั้งค่า terminal.term ใน cmux.json เพื่อแทนที่",
       "envCallout": "ค่า CMUX_SOCKET_MODE แบบเก่า full และ notifications ยังรับได้เพื่อความเข้ากันได้",
       "detectingCmux": "การตรวจจับ cmux",
       "examples": "ตัวอย่าง",

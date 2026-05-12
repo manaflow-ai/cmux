@@ -539,7 +539,7 @@
       "workspaceIdDesc": "Ustawiane automatycznie: ID bieżącego workspace'a",
       "surfaceIdDesc": "Ustawiane automatycznie: ID bieżącego surface'a",
       "termProgramDesc": "Ustawione na ghostty",
-      "termDesc": "Ustawione na xterm-ghostty",
+      "termDesc": "Domyślnie xterm-256color; ustaw terminal.term w cmux.json, aby nadpisać",
       "envCallout": "Starsze wartości CMUX_SOCKET_MODE full i notifications są nadal akceptowane dla kompatybilności.",
       "detectingCmux": "Wykrywanie cmux",
       "examples": "Przykłady",

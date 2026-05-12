@@ -539,7 +539,7 @@
       "workspaceIdDesc": "Automatski postavljeno: ID trenutnog radnog prostora",
       "surfaceIdDesc": "Automatski postavljeno: ID trenutne površine",
       "termProgramDesc": "Postavljeno na ghostty",
-      "termDesc": "Postavljeno na xterm-ghostty",
+      "termDesc": "Podrazumijevano xterm-256color; postavite terminal.term u cmux.json za promjenu",
       "envCallout": "Starije CMUX_SOCKET_MODE vrijednosti full i notifications se još prihvataju radi kompatibilnosti.",
       "detectingCmux": "Detekcija cmux-a",
       "examples": "Primjeri",
