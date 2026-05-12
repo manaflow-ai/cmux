@@ -7028,9 +7028,13 @@ struct ContentView: View {
     }
 
     private func commandPalettePromptSnippetKeywords(_ snippet: CmuxResolvedPromptSnippet) -> [String] {
-        ["prompt", "prompts", "snippet", "snippets", "library", "insert"]
-            + snippet.keywords.map(sanitizeCmuxConfigPaletteText)
-            + [sanitizeCmuxConfigPaletteText(snippet.title), snippet.description.map(sanitizeCmuxConfigPaletteText) ?? ""]
+        var keywords = ["prompt", "prompts", "snippet", "snippets", "library", "insert"]
+        keywords.append(contentsOf: snippet.keywords.map(sanitizeCmuxConfigPaletteText))
+        keywords.append(sanitizeCmuxConfigPaletteText(snippet.title))
+        if let description = snippet.description.map(sanitizeCmuxConfigPaletteText), !description.isEmpty {
+            keywords.append(description)
+        }
+        return keywords
     }
 
     private func sanitizeCmuxConfigPaletteText(_ text: String) -> String {

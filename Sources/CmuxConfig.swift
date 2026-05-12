@@ -1638,12 +1638,14 @@ struct CmuxPromptSnippetDefinition: Codable, Sendable, Hashable, Identifiable {
         for keyword in rawKeywords {
             let sanitized = sanitizedString(keyword)
             guard !sanitized.isEmpty else { continue }
-            let key = sanitized.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current).lowercased()
+            let key = sanitized.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: stableLocale).lowercased()
             guard seen.insert(key).inserted else { continue }
             result.append(sanitized)
         }
         return result
     }
+
+    private static let stableLocale = Locale(identifier: "en_US_POSIX")
 
     private static let dangerousScalars: Set<Unicode.Scalar> = [
         "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
@@ -1662,7 +1664,7 @@ struct CmuxPromptSnippetDefinition: Codable, Sendable, Hashable, Identifiable {
 
     private static func generatedID(for title: String) -> String {
         let normalized = title
-            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: stableLocale)
             .lowercased()
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
         var slug = ""
