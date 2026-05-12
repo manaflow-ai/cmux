@@ -7610,8 +7610,10 @@ final class Workspace: Identifiable, ObservableObject {
             : FileManager.default.homeDirectoryForCurrentUser.path
         self.surfaceTabBarDirectory = initialDirectory
 
-        // Configure bonsplit with keepAllAlive to preserve terminal state
-        // and keep split entry instantaneous.
+        // Render only the selected tab in each split pane. Terminal/browser
+        // process state lives on the panel objects, while keeping every
+        // sibling tab's SwiftUI/AppKit content mounted lets hidden terminals
+        // keep driving layout and display work.
         // Use the cached Ghostty config so new workspaces inherit tab-strip sizing
         // without paying repeated parse costs on the workspace-creation hot path.
         let initialSurfaceTabBarFontSize = GhosttyConfig.load().surfaceTabBarFontSize
@@ -7627,7 +7629,7 @@ final class Workspace: Identifiable, ObservableObject {
             allowTabReordering: true,
             allowCrossPaneTabMove: true,
             autoCloseEmptyPanes: true,
-            contentViewLifecycle: .keepAllAlive,
+            contentViewLifecycle: .recreateOnSwitch,
             newTabPosition: .current,
             appearance: appearance
         )
@@ -8669,17 +8671,13 @@ final class Workspace: Identifiable, ObservableObject {
             didMutate = true
         }
 
-        // Update bonsplit tab title only when this panel's title changed.
+        // Update bonsplit tab title only when this panel's title changed and
+        // the panel is currently rendered. Some TUIs animate the terminal title
+        // at frame-rate; pushing those hidden sibling-tab title changes through
+        // Bonsplit invalidates the visible tab bar and forces AppKit layout.
         if didMutate,
-           let tabId = surfaceIdFromPanelId(panelId),
-           let panel = panels[panelId] {
-            let baseTitle = panelTitles[panelId] ?? panel.displayTitle
-            let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
-            bonsplitController.updateTab(
-                tabId,
-                title: resolvedTitle,
-                hasCustomTitle: panelCustomTitles[panelId] != nil
-            )
+           renderedVisiblePanelIdsForCurrentLayout().contains(panelId) {
+            publishBonsplitTabTitle(panelId: panelId)
         }
 
         // If this is the only panel and no custom title, update workspace title
@@ -8694,6 +8692,18 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         return didMutate
+    }
+
+    private func publishBonsplitTabTitle(panelId: UUID) {
+        guard let tabId = surfaceIdFromPanelId(panelId),
+              let panel = panels[panelId] else { return }
+        let baseTitle = panelTitles[panelId] ?? panel.displayTitle
+        let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
+        bonsplitController.updateTab(
+            tabId,
+            title: resolvedTitle,
+            hasCustomTitle: panelCustomTitles[panelId] != nil
+        )
     }
 
     func pruneSurfaceMetadata(validSurfaceIds: Set<UUID>) {
@@ -12916,6 +12926,7 @@ extension Workspace: BonsplitDelegate {
         let panelId = effectiveFocusedPanelId
 
         syncPinnedStateForTab(selectedTabId, panelId: selectedPanelId)
+        publishBonsplitTabTitle(panelId: selectedPanelId)
         syncUnreadBadgeStateForPanel(selectedPanelId)
 
         // Unfocus all other panels
@@ -12924,11 +12935,11 @@ extension Workspace: BonsplitDelegate {
         }
 
         // Explicitly hide browser portals for deselected tabs in this pane.
-        // Bonsplit's keepAllAlive mode hides non-selected tabs via SwiftUI .opacity(0),
-        // but portal-hosted WKWebViews render at the window level in AppKit and are not
-        // affected by SwiftUI opacity. Without an explicit hide, the deselected browser's
-        // portal layer can remain visible above the newly selected tab.
+        // Portal-hosted WKWebViews render at the window level in AppKit, so tab
+        // deselection needs an explicit portal hide in addition to SwiftUI
+        // content lifecycle changes.
         hideBrowserPortalsForDeselectedTabs(inPane: focusedPane, selectedTabId: selectedTabId)
+        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
 
         if let focusWindow = activationWindow(for: panel) {
             yieldForeignOwnedFocusIfNeeded(
