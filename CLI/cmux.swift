@@ -12433,39 +12433,25 @@ struct CMUXCLI {
         return requestedModel
     }
 
-    private func omoApplyRequestedModelOverride(_ requestedModel: String, to omoConfig: inout [String: Any]) -> Bool {
+    private func omoApplyRequestedModelOverride(_ requestedModel: String, to omoConfig: inout [String: Any]) {
         let model = requestedModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !model.isEmpty else { return false }
+        guard !model.isEmpty else { return }
 
-        var changed = false
         var agents = (omoConfig["agents"] as? [String: Any]) ?? [:]
         for agent in Self.omoModelOverrideAgentKeys {
             var agentConfig = (agents[agent] as? [String: Any]) ?? [:]
-            if agentConfig["model"] as? String != model {
-                agentConfig["model"] = model
-                agents[agent] = agentConfig
-                changed = true
-            }
+            agentConfig["model"] = model
+            agents[agent] = agentConfig
         }
-        if changed || omoConfig["agents"] == nil {
-            omoConfig["agents"] = agents
-        }
+        omoConfig["agents"] = agents
 
-        var categoriesChanged = false
         var categories = (omoConfig["categories"] as? [String: Any]) ?? [:]
         for category in Self.omoModelOverrideCategoryKeys {
             var categoryConfig = (categories[category] as? [String: Any]) ?? [:]
-            if categoryConfig["model"] as? String != model {
-                categoryConfig["model"] = model
-                categories[category] = categoryConfig
-                categoriesChanged = true
-            }
+            categoryConfig["model"] = model
+            categories[category] = categoryConfig
         }
-        if categoriesChanged || omoConfig["categories"] == nil {
-            omoConfig["categories"] = categories
-        }
-
-        return changed || categoriesChanged
+        omoConfig["categories"] = categories
     }
 
     private func omoBindableLoopbackPort(_ port: UInt16) -> UInt16? {
@@ -12642,56 +12628,43 @@ struct CMUXCLI {
         // Without this, the TmuxSessionManager won't spawn visual panes even though
         // $TMUX is set (tmux.enabled defaults to false).
         let omoConfigURL = shadowDir.appendingPathComponent("oh-my-opencode.json")
+        let userOmoConfig = userDir.appendingPathComponent("oh-my-opencode.json")
+        // Rebuild the shadow config from the user's source config on every run so
+        // a previous --model overlay cannot persist into a later bare `cmux omo`.
         var omoConfig: [String: Any]
-        if let data = try? Data(contentsOf: omoConfigURL),
+        if let data = try? Data(contentsOf: userOmoConfig),
            let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             omoConfig = existing
         } else {
-            // Check if user has a config we symlinked, read from source
-            let userOmoConfig = userDir.appendingPathComponent("oh-my-opencode.json")
-            if let data = try? Data(contentsOf: userOmoConfig),
-               let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                omoConfig = existing
-                // Remove the symlink so we can write our own copy
-                try? fm.removeItem(at: omoConfigURL)
-            } else {
-                omoConfig = [:]
-            }
+            omoConfig = [:]
         }
         var tmuxConfig = (omoConfig["tmux"] as? [String: Any]) ?? [:]
-        var needsWrite = false
         if tmuxConfig["enabled"] as? Bool != true {
             tmuxConfig["enabled"] = true
-            needsWrite = true
         }
         // Lower the default min widths so agent panes spawn in normal-sized windows.
         // oh-my-openagent defaults: main_pane_min_width=120, agent_pane_min_width=40,
         // requiring 161+ columns. Most terminal windows are narrower.
         if tmuxConfig["main_pane_min_width"] == nil {
             tmuxConfig["main_pane_min_width"] = 60
-            needsWrite = true
         }
         if tmuxConfig["agent_pane_min_width"] == nil {
             tmuxConfig["agent_pane_min_width"] = 30
-            needsWrite = true
         }
         if tmuxConfig["main_pane_size"] == nil {
             tmuxConfig["main_pane_size"] = 50
-            needsWrite = true
         }
         if let requestedModel {
-            needsWrite = omoApplyRequestedModelOverride(requestedModel, to: &omoConfig) || needsWrite
+            omoApplyRequestedModelOverride(requestedModel, to: &omoConfig)
         }
-        if needsWrite {
-            omoConfig["tmux"] = tmuxConfig
-            // Remove symlink if it exists (we need a real file)
-            if let attrs = try? fm.attributesOfItem(atPath: omoConfigURL.path),
-               attrs[.type] as? FileAttributeType == .typeSymbolicLink {
-                try? fm.removeItem(at: omoConfigURL)
-            }
-            let output = try JSONSerialization.data(withJSONObject: omoConfig, options: [.prettyPrinted, .sortedKeys])
-            try output.write(to: omoConfigURL, options: .atomic)
+        omoConfig["tmux"] = tmuxConfig
+        // Remove symlink if it exists (we need a real file)
+        if let attrs = try? fm.attributesOfItem(atPath: omoConfigURL.path),
+           attrs[.type] as? FileAttributeType == .typeSymbolicLink {
+            try? fm.removeItem(at: omoConfigURL)
         }
+        let configOutput = try JSONSerialization.data(withJSONObject: omoConfig, options: [.prettyPrinted, .sortedKeys])
+        try configOutput.write(to: omoConfigURL, options: .atomic)
 
         // Point OpenCode at the shadow config
         setenv("OPENCODE_CONFIG_DIR", shadowDir.path, 1)

@@ -730,16 +730,11 @@ func omoEnsurePlugin(searchPath string, requestedModel string) error {
 	// Configure oh-my-opencode.json with tmux settings
 	omoConfigPath := filepath.Join(shadowDir, "oh-my-opencode.json")
 	var omoConfig map[string]any
-	if data, err := os.ReadFile(omoConfigPath); err == nil {
+	userOmoConfig := filepath.Join(userDir, "oh-my-opencode.json")
+	// Rebuild the shadow config from the user's source config on every run so
+	// a previous --model overlay cannot persist into a later bare `cmux omo`.
+	if data, err := os.ReadFile(userOmoConfig); err == nil {
 		json.Unmarshal(data, &omoConfig)
-	}
-	if omoConfig == nil {
-		// Check if user had one we symlinked
-		userOmoConfig := filepath.Join(userDir, "oh-my-opencode.json")
-		if data, err := os.ReadFile(userOmoConfig); err == nil {
-			json.Unmarshal(data, &omoConfig)
-			os.Remove(omoConfigPath) // Remove symlink so we can write our own copy
-		}
 	}
 	if omoConfig == nil {
 		omoConfig = map[string]any{}
@@ -749,36 +744,28 @@ func omoEnsurePlugin(searchPath string, requestedModel string) error {
 	if tmuxConfig == nil {
 		tmuxConfig = map[string]any{}
 	}
-	needsWrite := false
 	if enabled, _ := tmuxConfig["enabled"].(bool); !enabled {
 		tmuxConfig["enabled"] = true
-		needsWrite = true
 	}
 	if tmuxConfig["main_pane_min_width"] == nil {
 		tmuxConfig["main_pane_min_width"] = 60
-		needsWrite = true
 	}
 	if tmuxConfig["agent_pane_min_width"] == nil {
 		tmuxConfig["agent_pane_min_width"] = 30
-		needsWrite = true
 	}
 	if tmuxConfig["main_pane_size"] == nil {
 		tmuxConfig["main_pane_size"] = 50
-		needsWrite = true
 	}
 	if strings.TrimSpace(requestedModel) != "" {
 		omoApplyModelOverride(omoConfig, requestedModel)
-		needsWrite = true
 	}
-	if needsWrite {
-		omoConfig["tmux"] = tmuxConfig
-		// Remove symlink if it exists
-		if target, err := os.Readlink(omoConfigPath); err == nil && target != "" {
-			os.Remove(omoConfigPath)
-		}
-		data, _ := json.MarshalIndent(omoConfig, "", "  ")
-		os.WriteFile(omoConfigPath, data, 0644)
+	omoConfig["tmux"] = tmuxConfig
+	// Remove symlink if it exists
+	if target, err := os.Readlink(omoConfigPath); err == nil && target != "" {
+		os.Remove(omoConfigPath)
 	}
+	data, _ := json.MarshalIndent(omoConfig, "", "  ")
+	os.WriteFile(omoConfigPath, data, 0644)
 
 	os.Setenv("OPENCODE_CONFIG_DIR", shadowDir)
 	return nil
