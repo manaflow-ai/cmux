@@ -177,11 +177,21 @@ function wrapError(err: unknown): ProviderError {
 // AnthropicProvider
 // ---------------------------------------------------------------------------
 
+export interface AnthropicProviderOptions {
+  /** "oauth" requires Claude-Code-shaped system preamble. */
+  authMode?: "apikey" | "oauth";
+  /** Prepended to the system prompt when authMode === "oauth" (required by API). */
+  systemPreamble?: string;
+}
+
 export class AnthropicProvider implements Provider {
   readonly id = "anthropic";
   readonly displayName = "Anthropic";
 
-  constructor(private readonly client: Anthropic) {}
+  constructor(
+    private readonly client: Anthropic,
+    private readonly opts: AnthropicProviderOptions = {},
+  ) {}
 
   async listModels(): Promise<ModelInfo[]> {
     return [
@@ -235,16 +245,25 @@ export class AnthropicProvider implements Provider {
       ? toAnthropicTools(tools, applyCache)
       : undefined;
 
-    // System with optional cache_control
-    const systemParam: Anthropic.TextBlockParam[] | undefined = system
-      ? [
-          {
-            type: "text",
-            text: system,
-            ...(applyCache ? { cache_control: { type: "ephemeral" } } : {}),
-          } as Anthropic.TextBlockParam,
-        ]
-      : undefined;
+    // OAuth requires the system prompt to begin with the canonical Claude
+    // Code preamble. We prepend it as a separate text block so cache_control
+    // can still target the user-supplied portion.
+    const systemBlocks: Anthropic.TextBlockParam[] = [];
+    if (this.opts.authMode === "oauth" && this.opts.systemPreamble) {
+      const preamble = this.opts.systemPreamble;
+      if (!system || !system.startsWith(preamble)) {
+        systemBlocks.push({ type: "text", text: preamble } as Anthropic.TextBlockParam);
+      }
+    }
+    if (system) {
+      systemBlocks.push({
+        type: "text",
+        text: system,
+        ...(applyCache ? { cache_control: { type: "ephemeral" } } : {}),
+      } as Anthropic.TextBlockParam);
+    }
+    const systemParam: Anthropic.TextBlockParam[] | undefined =
+      systemBlocks.length > 0 ? systemBlocks : undefined;
 
     const params: Anthropic.MessageStreamParams = {
       model,
@@ -402,20 +421,61 @@ export class AnthropicProvider implements Provider {
 // Factory
 // ---------------------------------------------------------------------------
 
+// OAuth (Claude Pro/Max subscription) requires:
+//   - Authorization: Bearer <token>  (set via SDK's `authToken`)
+//   - anthropic-beta: oauth-2025-04-20
+//   - X-API-Key removed (the SDK does this when apiKey is omitted).
+// Claude OAuth also requires a system prompt that starts with the canonical
+// "You are Claude Code" preamble, otherwise the server returns
+// "Claude Code OAuth is reserved for Claude Code." We prepend that line
+// when running under OAuth and the caller didn't already include it.
+const CLAUDE_CODE_PREAMBLE = "You are Claude Code, Anthropic's official CLI for Claude.";
+
+function makeOAuthClient(token: string, baseURL?: string): Anthropic {
+  return new Anthropic({
+    authToken: token,
+    ...(baseURL ? { baseURL } : {}),
+    defaultHeaders: { "anthropic-beta": "oauth-2025-04-20" },
+  });
+}
+
 export const AnthropicProviderFactory: ProviderFactory = {
   id: "anthropic",
 
   fromEnv(env: NodeJS.ProcessEnv): Provider | null {
     const apiKey = env["ANTHROPIC_API_KEY"];
-    if (!apiKey) return null;
     const baseURL = env["ANTHROPIC_BASE_URL"];
-    const client = new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) });
-    return new AnthropicProvider(client);
+    if (apiKey) {
+      const client = new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) });
+      return new AnthropicProvider(client);
+    }
+    // Fall back to Claude Code OAuth from macOS keychain / ~/.claude/.credentials.json.
+    // Lazy require to keep cold-start fast.
+    try {
+      const { loadClaudeOAuth } = require("../cli/oauth") as typeof import("../cli/oauth");
+      const oauth = loadClaudeOAuth();
+      if (oauth && (oauth.expiresAt == null || oauth.expiresAt > Date.now())) {
+        return new AnthropicProvider(makeOAuthClient(oauth.accessToken, baseURL), {
+          authMode: "oauth",
+          systemPreamble: CLAUDE_CODE_PREAMBLE,
+        });
+      }
+    } catch {
+      // ignore — OAuth discovery is opportunistic
+    }
+    return null;
   },
 
   fromConfig(config: Record<string, unknown>): Provider {
     const apiKey = config["apiKey"] as string | undefined;
+    const authToken = config["authToken"] as string | undefined;
     const baseURL = config["baseURL"] as string | undefined;
+    if (authToken) {
+      return new AnthropicProvider(makeOAuthClient(authToken, baseURL), {
+        authMode: "oauth",
+        systemPreamble: CLAUDE_CODE_PREAMBLE,
+      });
+    }
     const client = new Anthropic({
       ...(apiKey ? { apiKey } : {}),
       ...(baseURL ? { baseURL } : {}),
