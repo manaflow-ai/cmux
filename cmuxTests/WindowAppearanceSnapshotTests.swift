@@ -110,6 +110,22 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertEqual(plan.windowBackgroundColor.hexString(includeAlpha: true), "#272822FF")
     }
 
+    func testOpaqueUnblurredTerminalBackgroundIsRendererOwned() {
+        let snapshot = makeSnapshot(
+            unifySurfaceBackdrops: false,
+            backgroundOpacity: 1.0,
+            backgroundBlur: .disabled
+        )
+        let policy = snapshot.policy(for: .windowRoot)
+
+        XCTAssertNil(policy.hostLayerBackgroundColor)
+        guard case let .ghosttyTerminalBackdrop(_, _, renderingMode) = policy else {
+            XCTFail("expected terminal backdrop policy")
+            return
+        }
+        XCTAssertEqual(renderingMode, .ghosttyRendererOwnedBackgroundImage)
+    }
+
     func testDebugBackgroundGlassUsesWindowGlassPhase() {
         let snapshot = makeSnapshot(
             unifySurfaceBackdrops: false,
