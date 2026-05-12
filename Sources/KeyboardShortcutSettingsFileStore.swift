@@ -315,9 +315,7 @@ final class CmuxSettingsFileStore {
             snapshot.assignEditableWriteBackSources(Self.userDefaultWriteBackTargets, sourcePath: primaryPath)
             return snapshot
         case .invalid:
-            var snapshot = ResolvedSettingsSnapshot(path: primaryPath)
-            snapshot.assignEditableWriteBackSources(Self.userDefaultWriteBackTargets, sourcePath: primaryPath)
-            return snapshot
+            return ResolvedSettingsSnapshot(path: primaryPath)
         case .missing:
             break
         }
