@@ -48,6 +48,20 @@ final class CmuxEventSubscription: @unchecked Sendable {
         return closedReason
     }
 
+    func diagnosticsSnapshot() -> [String: Any] {
+        lock.lock()
+        let pendingCount = queue.count
+        lock.unlock()
+
+        return [
+            "subscription_id": id.uuidString,
+            "names": Array(names).sorted(),
+            "categories": Array(categories).sorted(),
+            "pending_count": pendingCount,
+            "max_pending_events": maxPendingEvents
+        ]
+    }
+
     func enqueue(_ event: [String: Any]) -> Bool {
         lock.lock()
         let shouldSignal: Bool
@@ -308,6 +322,56 @@ final class CmuxEventBus: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return retained
+    }
+
+    func diagnosticsSnapshot(resetCounters: Bool = false) -> [String: Any] {
+        lock.lock()
+        let oldestSequence = Self.int64(retained.first?["seq"]) ?? nextSequence
+        let latestSequence = nextSequence - 1
+        let retainedCount = retained.count
+        let activeSubscriptions = Array(subscriptions.values)
+        lock.unlock()
+
+        let subscriptionSnapshots = activeSubscriptions
+            .map { $0.diagnosticsSnapshot() }
+            .sorted {
+                (($0["subscription_id"] as? String) ?? "") < (($1["subscription_id"] as? String) ?? "")
+            }
+
+        let durableLog: [String: Any]
+        if let eventLogWriter {
+            durableLog = eventLogWriter.diagnosticsSnapshot(resetCounters: resetCounters)
+        } else {
+            durableLog = [
+                "enabled": false,
+                "current_path": NSNull(),
+                "rotated_path": NSNull(),
+                "current_size_bytes": 0,
+                "rotated_size_bytes": 0,
+                "max_file_size_bytes": 0,
+                "pending_queue_depth": 0,
+                "max_pending_queue_depth": 0,
+                "dropped_disk_only_line_count": 0
+            ]
+        }
+
+        return [
+            "protocol": Self.protocolName,
+            "version": Self.protocolVersion,
+            "boot_id": bootId,
+            "oldest_seq": NSNumber(value: oldestSequence),
+            "latest_seq": NSNumber(value: latestSequence),
+            "next_seq": NSNumber(value: latestSequence + 1),
+            "retained_count": retainedCount,
+            "active_subscription_count": activeSubscriptions.count,
+            "subscriptions": subscriptionSnapshots,
+            "limits": [
+                "retained_events": retainedEventLimit,
+                "event_line_bytes": maxEventLineBytes,
+                "subscription_pending_events": maxPendingEventsPerSubscription
+            ],
+            "durable_log": durableLog
+        ]
     }
 
     #if DEBUG

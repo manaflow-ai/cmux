@@ -15,7 +15,8 @@ final class CmuxEventLogWriter: @unchecked Sendable {
     private let lock = NSLock()
     private var pendingLines: [String] = []
     private var flushScheduled = false
-    private var droppedLineCount = 0
+    private var droppedDiskOnlyLineCount = 0
+    private var unreportedDroppedLineCount = 0
 #if DEBUG
     private var flushSuspendedForTesting = false
 #endif
@@ -32,7 +33,8 @@ final class CmuxEventLogWriter: @unchecked Sendable {
         if pendingLines.count >= maxPendingLines {
             let removedCount = pendingLines.count - maxPendingLines + 1
             pendingLines.removeFirst(removedCount)
-            droppedLineCount += removedCount
+            droppedDiskOnlyLineCount += removedCount
+            unreportedDroppedLineCount += removedCount
         }
         pendingLines.append(line)
 #if DEBUG
@@ -70,18 +72,43 @@ final class CmuxEventLogWriter: @unchecked Sendable {
     func backlogSnapshotForTesting() -> (pending: Int, dropped: Int) {
         lock.lock()
         defer { lock.unlock() }
-        return (pendingLines.count, droppedLineCount)
+        return (pendingLines.count, droppedDiskOnlyLineCount)
     }
 
     func resetForTesting() {
         lock.lock()
         pendingLines.removeAll()
         flushScheduled = false
-        droppedLineCount = 0
+        droppedDiskOnlyLineCount = 0
+        unreportedDroppedLineCount = 0
         flushSuspendedForTesting = false
         lock.unlock()
     }
 #endif
+
+    func diagnosticsSnapshot(resetCounters: Bool) -> [String: Any] {
+        lock.lock()
+        let pendingQueueDepth = pendingLines.count
+        let droppedCount = droppedDiskOnlyLineCount
+        if resetCounters {
+            droppedDiskOnlyLineCount = 0
+        }
+        lock.unlock()
+
+        let fileManager = FileManager.default
+        let rotatedURL = eventLogURL.appendingPathExtension("1")
+        return [
+            "enabled": true,
+            "current_path": eventLogURL.path,
+            "rotated_path": rotatedURL.path,
+            "current_size_bytes": NSNumber(value: Self.fileSize(at: eventLogURL, fileManager: fileManager)),
+            "rotated_size_bytes": NSNumber(value: Self.fileSize(at: rotatedURL, fileManager: fileManager)),
+            "max_file_size_bytes": NSNumber(value: maxEventLogBytes),
+            "pending_queue_depth": pendingQueueDepth,
+            "max_pending_queue_depth": maxPendingLines,
+            "dropped_disk_only_line_count": droppedCount
+        ]
+    }
 
     private func scheduleFlushIfNeeded() {
         var shouldSchedule = false
@@ -110,8 +137,8 @@ final class CmuxEventLogWriter: @unchecked Sendable {
             lock.lock()
             if pendingLines.isEmpty {
                 flushScheduled = false
-                droppedCount = droppedLineCount
-                droppedLineCount = 0
+                droppedCount = unreportedDroppedLineCount
+                unreportedDroppedLineCount = 0
                 lock.unlock()
                 if droppedCount > 0 {
                     cmuxEventLogLogger.warning("Dropped \(droppedCount, privacy: .public) cmux event log line(s) under disk backpressure")
