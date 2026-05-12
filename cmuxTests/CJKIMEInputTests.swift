@@ -1457,6 +1457,7 @@ final class AccessibilityInsertTextRegressionTests: XCTestCase {
     }
 }
 
+@MainActor
 final class GhosttyBackquoteRegressionTests: XCTestCase {
     func testShiftBackquoteEscFallbackSendsLiteralTilde() {
         _ = NSApplication.shared
