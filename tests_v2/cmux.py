@@ -24,9 +24,18 @@ import json
 import os
 import select
 import socket
+import re
+import sys
 import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple, Union
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_SCRIPTS_DIR = os.path.join(_REPO_ROOT, "scripts")
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+from cmux_socket_paths import socket_path_for_file_name as _shared_socket_path_for_file_name  # noqa: E402
 
 
 class cmuxError(Exception):
@@ -43,6 +52,16 @@ _LAST_SOCKET_PATH_FILES = [
 ]
 
 
+def _sanitize_tag_slug(raw: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", "-", (raw or "").strip().lower())
+    cleaned = re.sub(r"-+", "-", cleaned).strip("-")
+    return cleaned or "agent"
+
+
+def _socket_path_for_file_name(file_name: str) -> str:
+    return str(_shared_socket_path_for_file_name(file_name))
+
+
 def _read_last_socket_path() -> Optional[str]:
     for marker_path in _LAST_SOCKET_PATH_FILES:
         try:
@@ -55,10 +74,44 @@ def _read_last_socket_path() -> Optional[str]:
     return None
 
 
+def _can_connect(path: str, timeout: float = 0.15, retries: int = 4) -> bool:
+    # Best-effort check to avoid getting stuck on stale socket files.
+    for _ in range(max(1, retries)):
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            s.settimeout(timeout)
+            s.connect(path)
+            return True
+        except OSError:
+            time.sleep(0.05)
+        finally:
+            try:
+                s.close()
+            except Exception:
+                pass
+    return False
+
+
 def _default_socket_path() -> str:
+    tag = os.environ.get("CMUX_TAG")
+    if tag:
+        slug = _sanitize_tag_slug(tag)
+        tagged_candidates = [
+            _socket_path_for_file_name(f"com.cmuxterm.app.dev.{slug}.sock"),
+            f"/tmp/cmux-debug-{slug}.sock",
+            f"/tmp/cmux-{slug}.sock",
+        ]
+        for path in tagged_candidates:
+            if os.path.exists(path) and _can_connect(path):
+                return path
+        for path in tagged_candidates:
+            if os.path.exists(path):
+                return path
+        return tagged_candidates[0]
+
     override = os.environ.get("CMUX_SOCKET_PATH")
     if override:
-        if os.path.exists(override):
+        if os.path.exists(override) and _can_connect(override):
             return override
         if override not in {
             _STABLE_SOCKET_PATH,
@@ -68,8 +121,9 @@ def _default_socket_path() -> str:
             return override
 
     last_socket = _read_last_socket_path()
-    if last_socket and os.path.exists(last_socket):
-        return last_socket
+    if last_socket:
+        if os.path.exists(last_socket) and _can_connect(last_socket):
+            return last_socket
 
     candidates = [
         "/tmp/cmux-debug.sock",
@@ -78,7 +132,7 @@ def _default_socket_path() -> str:
         _LEGACY_STABLE_SOCKET_PATH,
     ]
     for path in candidates:
-        if os.path.exists(path):
+        if os.path.exists(path) and _can_connect(path):
             return path
 
     discovered = glob.glob("/tmp/cmux-debug-*.sock")
@@ -87,7 +141,9 @@ def _default_socket_path() -> str:
     discovered = [path for path in discovered if os.path.exists(path)]
     if discovered:
         discovered.sort(key=os.path.getmtime, reverse=True)
-        return discovered[0]
+        for path in discovered:
+            if _can_connect(path, timeout=0.1, retries=2):
+                return path
 
     return candidates[0]
 
@@ -155,7 +211,8 @@ class cmux:
     DEFAULT_SOCKET_PATH = _default_socket_path()
 
     def __init__(self, socket_path: str = None):
-        self.socket_path = socket_path or self.DEFAULT_SOCKET_PATH
+        # Resolve at init time so imports don't lock in stale socket paths.
+        self.socket_path = socket_path or _default_socket_path()
         self._socket: Optional[socket.socket] = None
         self._recv_buffer: str = ""
         self._next_id: int = 1

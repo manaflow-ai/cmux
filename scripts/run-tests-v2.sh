@@ -14,6 +14,7 @@ cd "$(dirname "$0")/.."
 DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-tests-v2"
 APP="$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app"
 RUN_TAG="tests-v2"
+SOCK="$(python3 scripts/cmux_socket_paths.py "com.cmuxterm.app.dev.${RUN_TAG}.sock")"
 
 echo "== build =="
 # Work around stale explicit-module cache artifacts (notably Sentry headers) that can
@@ -37,7 +38,7 @@ cleanup() {
   pkill -x "cmux DEV" || true
   pkill -x "cmux" || true
   rm -f /tmp/cmux*.sock || true
-  rm -f "$HOME/Library/Application Support/cmux/com.cmuxterm.app.dev.${RUN_TAG}.sock" || true
+  rm -f "$SOCK" || true
 }
 
 launch_and_wait() {
@@ -52,7 +53,6 @@ launch_and_wait() {
   # Force socket mode for deterministic automation runs, independent of prior user settings.
   defaults write com.cmuxterm.app.debug socketControlMode -string full >/dev/null 2>&1 || true
 
-  SOCK="$HOME/Library/Application Support/cmux/com.cmuxterm.app.dev.${RUN_TAG}.sock"
   rm -f "$SOCK"
 
   # Launch directly with UI test mode enabled so startup follows deterministic test codepaths.

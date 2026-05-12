@@ -721,7 +721,7 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     LAUNCH_CMD=("${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" open -g "$APP_PATH")
     LAUNCH_RETRY_CMD=("${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" open -n -g "$APP_PATH")
   else
-    echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true
+    write_last_socket_path "$(socket_path_for_file_name "com.cmuxterm.app.dev.sock")"
     echo "/tmp/cmux-debug.log" > /tmp/cmux-last-debug-log-path || true
     LAUNCH_CMD=("${OPEN_CLEAN_ENV[@]}" open -g "$APP_PATH")
     LAUNCH_RETRY_CMD=("${OPEN_CLEAN_ENV[@]}" open -n -g "$APP_PATH")
