@@ -21527,6 +21527,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 }
 
 enum CMUXCLIOutput {
+    static func configureStandardHandlesForCLIPipes() {
+        configureNoSigPipe(STDOUT_FILENO)
+        configureNoSigPipe(STDERR_FILENO)
+        _ = signal(SIGPIPE, SIG_DFL)
+    }
+
     static func writeStandardOutput(_ message: String) {
         write(Data(message.utf8), to: STDOUT_FILENO)
     }
@@ -21541,6 +21547,11 @@ enum CMUXCLIOutput {
 
     static func writeStandardError(_ data: Data) {
         write(data, to: STDERR_FILENO)
+    }
+
+    private static func configureNoSigPipe(_ fd: Int32) {
+        guard fd >= 0 else { return }
+        _ = fcntl(fd, F_SETNOSIGPIPE, 1)
     }
 
     private static func write(_ data: Data, to fd: Int32) {
@@ -21572,8 +21583,9 @@ func print(_ items: Any..., separator: String = " ", terminator: String = "\n") 
 @main
 struct CMUXTermMain {
     static func main() {
-        // CLI tools should ignore SIGPIPE so closed stdout pipes do not terminate the process.
-        _ = signal(SIGPIPE, SIG_IGN)
+        // CLI writes should get EPIPE on closed pipes without making child
+        // processes inherit an ignored SIGPIPE disposition.
+        CMUXCLIOutput.configureStandardHandlesForCLIPipes()
         let cli = CMUXCLI(args: CommandLine.arguments)
         do {
             try cli.run()
