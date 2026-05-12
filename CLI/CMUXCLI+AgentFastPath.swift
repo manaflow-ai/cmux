@@ -100,7 +100,7 @@ extension CMUXCLI {
 
     private func agentFastPathUnescapeSendText(_ text: String) -> String {
         text
-            .replacingOccurrences(of: "\\n", with: "\r")
+            .replacingOccurrences(of: "\\n", with: "\n")
             .replacingOccurrences(of: "\\r", with: "\r")
             .replacingOccurrences(of: "\\t", with: "\t")
     }

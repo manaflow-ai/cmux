@@ -26,6 +26,10 @@ cmux agent batch [--file <path>] <json>
 All commands print JSON by default. `capture --raw` prints only terminal text
 for tools that want tmux-style capture output.
 
+`send` decodes `\n`, `\r`, and `\t` escape sequences before writing to the
+terminal. Use `--enter` when the operation should append a carriage return after
+the text.
+
 ## Batch
 
 Batch input can be an inline JSON array, `--file`, or stdin:

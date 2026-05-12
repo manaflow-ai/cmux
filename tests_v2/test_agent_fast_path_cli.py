@@ -159,6 +159,30 @@ def main() -> int:
         _must(partial_results[0].get("ok") is True, f"agent partial batch should preserve prior successful result: {partial_payload}")
         _must(partial_results[1].get("ok") is False and partial_results[1].get("error"), f"agent partial batch should include per-op error: {partial_payload}")
 
+        raw_probe = (
+            "python3 -c 'import sys,tty,termios; "
+            "fd=sys.stdin.fileno(); "
+            "old=termios.tcgetattr(fd); "
+            "print(\"RAW_READY\", flush=True); "
+            "tty.setraw(fd); "
+            "b=sys.stdin.buffer.read(1); "
+            "termios.tcsetattr(fd, termios.TCSADRAIN, old); "
+            "print(\"\\\\r\\\\nRAW_BYTE_%02x\" % b[0], flush=True)'"
+        )
+        c._call("surface.send_text", {"workspace_id": workspace_id, "surface_id": surface_id, "text": raw_probe + "\r"})
+        _wait_for(lambda: _surface_has(c, workspace_id, surface_id, "RAW_READY"), timeout_s=5.0)
+        escaped_newline_payload = json.loads(_run_agent(cli, [
+            "send",
+            "--workspace",
+            workspace_id,
+            "--surface",
+            surface_id,
+            "--",
+            "\\n",
+        ]) or "{}")
+        _must(escaped_newline_payload.get("ok") is True, f"agent escaped newline send returned unexpected payload: {escaped_newline_payload}")
+        _wait_for(lambda: _surface_has(c, workspace_id, surface_id, "RAW_BYTE_0a"), timeout_s=5.0)
+
     print("PASS: agent fast-path CLI reads, sends, lists, and batches")
     return 0
 
