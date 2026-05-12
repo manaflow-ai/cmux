@@ -215,12 +215,12 @@ public enum CMUXSocketProtocol {
         switch resultBox.get() {
         case .success(let payload):
             return ok(id: id, jsonRPC: jsonRPC, result: payload)
-        case .failure(let error):
+        case .failure(let failure):
             return error(
                 id: id,
                 jsonRPC: jsonRPC,
                 code: "vm_error",
-                message: String(describing: error)
+                message: String(describing: failure)
             )
         case nil:
             return error(
