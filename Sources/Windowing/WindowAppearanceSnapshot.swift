@@ -149,7 +149,9 @@ nonisolated struct TerminalSurfaceBackgroundFillPlan {
         let usesPaneLocalSurfaceFill = surfaceBackgroundColor != nil &&
             renderingMode.usesWindowHostBackdrop &&
             !usesBonsplitPaneBackdrop
-        if usesPaneLocalSurfaceFill {
+        if !renderingMode.usesWindowHostBackdrop {
+            owner = .ghosttyNativeRenderer
+        } else if usesPaneLocalSurfaceFill {
             owner = .surfaceHostLayer
         } else if renderingMode.usesWindowHostBackdrop && !sharesWindowBackdrop && !usesBonsplitPaneBackdrop {
             owner = .surfaceHostLayer

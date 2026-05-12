@@ -249,6 +249,21 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertFalse(plan.clearsSharedWindowBackdrop)
     }
 
+    func testRendererOwnedOSCOverrideKeepsHostLayerClearWhenWindowRootBackdropIsShared() {
+        let plan = TerminalSurfaceBackgroundFillPlan.resolve(
+            renderingMode: .ghosttyRendererOwnedBackgroundImage,
+            surfaceBackgroundColor: NSColor(hex: "#D2EEF9") ?? .white,
+            defaultBackgroundColor: NSColor(hex: "#272822") ?? .black,
+            backgroundOpacity: 1.0,
+            sharesWindowBackdrop: true,
+            usesBonsplitPaneBackdrop: false
+        )
+
+        XCTAssertEqual(plan.owner, .ghosttyNativeRenderer)
+        XCTAssertEqual(plan.hostLayerColor.hexString(includeAlpha: true), "#00000000")
+        XCTAssertFalse(plan.clearsSharedWindowBackdrop)
+    }
+
     private func makeSnapshot(
         unifySurfaceBackdrops: Bool,
         backgroundOpacity: CGFloat = 0.6,
