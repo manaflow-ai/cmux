@@ -149,6 +149,7 @@ extension CMUXCLI {
             }
             knownIntermediateKeys.insert("shortcuts.bindings")
 
+            var shortcutImportKeysByAction: [String: String] = [:]
             for (key, value) in flat.sorted(by: { $0.key < $1.key }) {
                 if key == "schemaVersion" || key == "$schema" { continue }
                 if key == "shortcuts.bindings", let dictionary = value as? [String: Any], dictionary.isEmpty {
@@ -162,6 +163,12 @@ extension CMUXCLI {
                 if key.hasPrefix("shortcuts.bindings.") {
                     let actionRaw = String(key.dropFirst("shortcuts.bindings.".count))
                     let definition = try CmuxSettingsRegistry.shortcutAction(for: actionRaw)
+                    if let previousKey = shortcutImportKeysByAction[definition.action] {
+                        throw CLIError(
+                            message: "Duplicate shortcut action '\(definition.action)' in import: '\(previousKey)' and '\(key)'"
+                        )
+                    }
+                    shortcutImportKeysByAction[definition.action] = key
                     let shortcut = try CLIShortcut.parseJSONValue(value, action: definition)
                     operations.append(.shortcut(definition.action, shortcut.configString))
                     continue

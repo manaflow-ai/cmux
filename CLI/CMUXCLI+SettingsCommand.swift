@@ -34,8 +34,8 @@ extension CMUXCLI {
         jsonOutput: Bool
     ) throws {
         let parsedArgs = docsSettingsArguments(commandArgs)
-        let wantsJSON = jsonOutput || parsedArgs.head.contains("--json") || parsedArgs.arguments.contains("--json")
-        var args = parsedArgs.arguments.filter { $0 != "--json" }
+        let wantsJSON = jsonOutput || parsedArgs.head.contains("--json")
+        var args = parsedArgs.arguments
         let subcommand = args.first?.lowercased() ?? "list"
         if !args.isEmpty {
             args.removeFirst()
