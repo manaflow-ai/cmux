@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -969,6 +970,122 @@ func TestCLIBrowserEvalUsesPositionalScript(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for browser eval request")
+	}
+}
+
+func TestCLIBrowserDocumentedSurfacePrefixFindRole(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "surface:2", "find", "role", "button", "--name", "Continue",
+	})
+	if code != 0 {
+		t.Fatalf("browser find role should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.find.role" {
+			t.Fatalf("expected browser.find.role, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "surface:2" {
+			t.Fatalf("expected surface_id surface:2, got %v", got)
+		}
+		if got := params["role"]; got != "button" {
+			t.Fatalf("expected role button, got %v", got)
+		}
+		if got := params["name"]; got != "Continue" {
+			t.Fatalf("expected name Continue, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser find role request")
+	}
+}
+
+func TestCLIBrowserDocumentedStateSaveUsesPath(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "surface:2", "state", "save", "/tmp/cmux-browser-state.json",
+	})
+	if code != 0 {
+		t.Fatalf("browser state save should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.state.save" {
+			t.Fatalf("expected browser.state.save, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "surface:2" {
+			t.Fatalf("expected surface_id surface:2, got %v", got)
+		}
+		if got := params["path"]; got != "/tmp/cmux-browser-state.json" {
+			t.Fatalf("expected path to be forwarded, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser state save request")
+	}
+}
+
+func TestCLIBrowserGenericAdvertisedMethodDispatch(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "surface:2", "viewport", "set", "--width", "1280", "--height", "720",
+	})
+	if code != 0 {
+		t.Fatalf("browser viewport set should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.viewport.set" {
+			t.Fatalf("expected browser.viewport.set, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "surface:2" {
+			t.Fatalf("expected surface_id surface:2, got %v", got)
+		}
+		if got := params["width"]; got != "1280" {
+			t.Fatalf("expected width 1280, got %v", got)
+		}
+		if got := params["height"]; got != "720" {
+			t.Fatalf("expected height 720, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser viewport set request")
+	}
+}
+
+func TestCLIBrowserScreenshotOutDecodesPNG(t *testing.T) {
+	png := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
+	sockPath := startMockV2TCPSocketWithResult(t, map[string]any{
+		"png_base64": base64.StdEncoding.EncodeToString(png),
+	})
+	outPath := filepath.Join(t.TempDir(), "page.png")
+
+	output := captureStdout(t, func() {
+		code := runCLI([]string{
+			"--socket", sockPath,
+			"browser", "surface:2", "screenshot", "--out", outPath,
+		})
+		if code != 0 {
+			t.Fatalf("browser screenshot --out should return 0, got %d", code)
+		}
+	})
+
+	if strings.TrimSpace(output) != outPath {
+		t.Fatalf("expected screenshot path on stdout, got %q", output)
+	}
+	got, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read screenshot output: %v", err)
+	}
+	if string(got) != string(png) {
+		t.Fatalf("decoded PNG mismatch: got %v want %v", got, png)
 	}
 }
 
