@@ -530,6 +530,7 @@ function installClaudeChildHookPropagation() {
 
   const originalExecFile = childProcess.execFile;
   childProcess.execFile = function patchedExecFile(file, args, options, callback) {
+    const originalArgCount = arguments.length;
     let actualArgs = args;
     let actualOptions = options;
     let actualCallback = callback;
@@ -548,6 +549,18 @@ function installClaudeChildHookPropagation() {
       actualArgs = [];
     }
     const patched = patchClaudeChild(file, actualArgs, actualOptions);
+    if (!Array.isArray(args) && !patched.patched) {
+      if (originalArgCount <= 1) {
+        return originalExecFile.call(this, file);
+      }
+      if (originalArgCount === 2) {
+        return originalExecFile.call(this, file, args);
+      }
+      if (originalArgCount === 3) {
+        return originalExecFile.call(this, file, args, options);
+      }
+      return originalExecFile.call(this, file, args, options, callback);
+    }
     return originalExecFile.call(this, file, patched.args, patched.options, actualCallback);
   };
 
