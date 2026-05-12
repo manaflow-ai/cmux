@@ -226,6 +226,37 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(issue.sourcePath, globalConfigURL.path)
     }
 
+    @MainActor
+    func testPromptSnippetsReportIntraFileExplicitIDCollision() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-prompt-snippets-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let json = """
+        {
+          "promptSnippets": [
+            { "id": "review", "title": "Review", "text": "first review prompt" },
+            { "id": "review", "title": "Review Again", "text": "second review prompt" },
+            { "id": "explain", "title": "Explain", "text": "explain this code" }
+          ]
+        }
+        """
+        try json.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(globalConfigPath: configURL.path, startFileWatchers: false)
+        store.loadAll()
+
+        XCTAssertEqual(store.loadedPromptSnippets.map(\.id), ["review", "explain"])
+        XCTAssertEqual(store.loadedPromptSnippets.map(\.title), ["Review", "Explain"])
+        let issue = try XCTUnwrap(store.configurationIssues.first)
+        XCTAssertEqual(issue.kind, .promptSnippetDuplicateID)
+        XCTAssertEqual(issue.settingName, "promptSnippets[1]")
+        XCTAssertEqual(issue.commandName, "review")
+        XCTAssertEqual(issue.sourcePath, configURL.path)
+    }
+
     func testDecodeNewWorkspaceCommand() throws {
         let json = """
         {
