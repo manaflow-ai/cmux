@@ -120,6 +120,7 @@ private struct FeedPreviewCardHost: View {
     let item: WorkstreamItem
 
     @State private var stopDraft = FeedStopDraft()
+    @State private var stopFocusRequest = 0
 
     var body: some View {
         FeedItemRow(
@@ -135,7 +136,9 @@ private struct FeedPreviewCardHost: View {
             onControlBlur: {},
             onActivate: {},
             stopDraft: $stopDraft,
-            stopDraftValue: stopDraft
+            stopDraftValue: stopDraft,
+            stopFocusRequest: $stopFocusRequest,
+            stopFocusRequestValue: stopFocusRequest
         )
     }
 }
