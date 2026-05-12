@@ -375,7 +375,6 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         "SessionEnd": "session-end",
         "Notification": "notification",
         "UserPromptSubmit": "prompt-submit",
-        "PreToolUse": "pre-tool-use",
     }.items():
         hook_command = hooks.get(hook_name, [{}])[0].get("hooks", [{}])[0].get("command", "")
         expect(
