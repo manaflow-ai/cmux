@@ -376,6 +376,119 @@ import Testing
 }
 
 @MainActor
+@Test func workspaceListPrefersReadyTerminalBeforeSnapshotRefresh() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcResultFrame(
+            result: [
+                "workspaces": [
+                    [
+                        "id": "local-workspace",
+                        "title": "Local Workspace",
+                        "current_directory": "/Users/test/project",
+                        "is_selected": true,
+                        "terminals": [
+                            [
+                                "id": "stale-terminal",
+                                "title": "Stale Terminal",
+                                "current_directory": "/Users/test/project",
+                                "is_ready": false,
+                                "is_focused": true,
+                            ],
+                            [
+                                "id": "ready-terminal",
+                                "title": "Ready Terminal",
+                                "current_directory": "/Users/test/project",
+                                "is_ready": true,
+                                "is_focused": false,
+                            ],
+                        ],
+                    ],
+                ],
+            ]
+        ),
+        try rpcSnapshotResultFrame(
+            workspaceID: "local-workspace",
+            terminalID: "ready-terminal",
+            visibleLines: ["ready terminal"]
+        ),
+    ])
+    let runtime = CMUXMobileRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectManualHost(name: "", host: "127.0.0.1", port: 4865)
+
+    #expect(store.connectionError == nil)
+    #expect(store.selectedWorkspace?.id.rawValue == "local-workspace")
+    #expect(store.selectedTerminalID?.rawValue == "ready-terminal")
+    #expect(store.selectedWorkspace?.terminals.first { $0.id.rawValue == "ready-terminal" }?.lines.first == "ready terminal")
+}
+
+@MainActor
+@Test func notReadySelectedTerminalFallsBackToReadyTerminalInAnotherWorkspace() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcResultFrame(
+            result: [
+                "workspaces": [
+                    [
+                        "id": "stale-workspace",
+                        "title": "Stale Workspace",
+                        "current_directory": "/Users/test/stale",
+                        "is_selected": true,
+                        "terminals": [
+                            [
+                                "id": "stale-terminal",
+                                "title": "Stale Terminal",
+                                "current_directory": "/Users/test/stale",
+                                "is_ready": false,
+                                "is_focused": true,
+                            ],
+                        ],
+                    ],
+                    [
+                        "id": "ready-workspace",
+                        "title": "Ready Workspace",
+                        "current_directory": "/Users/test/ready",
+                        "is_selected": false,
+                        "terminals": [
+                            [
+                                "id": "ready-terminal",
+                                "title": "Ready Terminal",
+                                "current_directory": "/Users/test/ready",
+                                "is_ready": true,
+                                "is_focused": true,
+                            ],
+                        ],
+                    ],
+                ],
+            ]
+        ),
+        try rpcErrorFrame(message: "Terminal surface is not ready"),
+        try rpcSnapshotResultFrame(
+            workspaceID: "ready-workspace",
+            terminalID: "ready-terminal",
+            visibleLines: ["ready from another workspace"]
+        ),
+    ])
+    let runtime = CMUXMobileRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectManualHost(name: "", host: "127.0.0.1", port: 4865)
+
+    #expect(store.connectionError == nil)
+    #expect(store.selectedWorkspace?.id.rawValue == "ready-workspace")
+    #expect(store.selectedTerminalID?.rawValue == "ready-terminal")
+    #expect(store.selectedWorkspace?.terminals.first?.lines.first == "ready from another workspace")
+}
+
+@MainActor
 @Test func createWorkspaceSelectsNewWorkspaceAndTerminal() {
     let store = CMUXMobileShellStore.preview()
     store.signIn()
@@ -545,4 +658,23 @@ private func rpcErrorFrame(message: String) throws -> Data {
     ]
     let envelopeData = try JSONSerialization.data(withJSONObject: envelope)
     return try MobileSyncFrameCodec.encodeFrame(envelopeData)
+}
+
+private func rpcSnapshotResultFrame(
+    workspaceID: String,
+    terminalID: String,
+    visibleLines: [String]
+) throws -> Data {
+    let snapshot = try MobileTerminalGhosttySnapshot.fixture(
+        terminalID: terminalID,
+        visibleLines: visibleLines
+    )
+    let snapshotObject = try JSONSerialization.jsonObject(with: snapshot.encodedValidatedJSON())
+    return try rpcResultFrame(
+        result: [
+            "workspace_id": workspaceID,
+            "surface_id": terminalID,
+            "snapshot": snapshotObject,
+        ]
+    )
 }

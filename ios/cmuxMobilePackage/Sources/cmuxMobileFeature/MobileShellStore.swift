@@ -48,20 +48,38 @@ public struct MobileTerminalPreview: Identifiable, Equatable, Sendable {
     public var id: ID
     public var name: String
     public var snapshot: MobileTerminalGhosttySnapshot
+    public var isReady: Bool
+    public var isFocused: Bool
 
-    public init(id: ID, name: String, snapshot: MobileTerminalGhosttySnapshot) {
+    public init(
+        id: ID,
+        name: String,
+        snapshot: MobileTerminalGhosttySnapshot,
+        isReady: Bool = true,
+        isFocused: Bool = false
+    ) {
         self.id = id
         self.name = name
         self.snapshot = snapshot
+        self.isReady = isReady
+        self.isFocused = isFocused
     }
 
-    public init(id: ID, name: String, lines: [String]) {
+    public init(
+        id: ID,
+        name: String,
+        lines: [String],
+        isReady: Bool = true,
+        isFocused: Bool = false
+    ) {
         self.id = id
         self.name = name
         self.snapshot = PreviewMobileHost.snapshot(
             terminalID: id.rawValue,
             lines: lines
         )
+        self.isReady = isReady
+        self.isFocused = isFocused
     }
 
     public var lines: [String] {
@@ -113,6 +131,7 @@ public final class CMUXMobileShellStore {
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
             syncSelectedTerminalForWorkspace()
+            guard !isSuppressingSelectedWorkspaceRefresh else { return }
             scheduleSelectedTerminalSnapshotRefresh()
         }
     }
@@ -120,6 +139,7 @@ public final class CMUXMobileShellStore {
 
     private let runtime: CMUXMobileRuntime?
     private var remoteClient: MobileCoreRPCClient?
+    private var isSuppressingSelectedWorkspaceRefresh: Bool
 
     public var phase: MobileShellPhase {
         if !isSignedIn {
@@ -159,6 +179,7 @@ public final class CMUXMobileShellStore {
         self.selectedWorkspaceID = workspaces.first?.id
         self.selectedTerminalID = workspaces.first?.terminals.first?.id
         self.remoteClient = nil
+        self.isSuppressingSelectedWorkspaceRefresh = false
     }
 
     public static func preview(runtime: CMUXMobileRuntime? = nil) -> CMUXMobileShellStore {
@@ -370,7 +391,7 @@ public final class CMUXMobileShellStore {
     }
 
     public func openWorkspace(_ id: MobileWorkspacePreview.ID) async {
-        selectedWorkspaceID = id
+        setSelectedWorkspaceID(id, refreshSnapshot: false)
         await refreshSelectedTerminalSnapshot()
     }
 
@@ -431,10 +452,11 @@ public final class CMUXMobileShellStore {
             return
         }
         if let selectedTerminalID,
-           selectedWorkspace.terminals.contains(where: { $0.id == selectedTerminalID }) {
+           let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == selectedTerminalID }),
+           selectedTerminal.isReady || !selectedWorkspace.hasReadyTerminal {
             return
         }
-        selectedTerminalID = selectedWorkspace.terminals.first?.id
+        selectedTerminalID = selectedWorkspace.preferredTerminal?.id
     }
 
     private func createRemoteWorkspace() async {
@@ -446,7 +468,7 @@ public final class CMUXMobileShellStore {
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
             applyRemoteWorkspaceList(response)
             if let createdID = response.createdWorkspaceID {
-                selectedWorkspaceID = MobileWorkspacePreview.ID(rawValue: createdID)
+                setSelectedWorkspaceID(MobileWorkspacePreview.ID(rawValue: createdID), refreshSnapshot: false)
             }
             syncSelectedTerminalForWorkspace()
             await refreshSelectedTerminalSnapshot()
@@ -496,7 +518,8 @@ public final class CMUXMobileShellStore {
             replaceTerminalSnapshot(
                 workspaceID: workspace.id,
                 terminalID: MobileTerminalPreview.ID(rawValue: response.surfaceID ?? terminalID),
-                snapshot: response.snapshot
+                snapshot: response.snapshot,
+                isReady: true
             )
         } catch {
             mobileShellLog.error("terminal snapshot refresh failed: \(String(describing: error), privacy: .public)")
@@ -513,7 +536,8 @@ public final class CMUXMobileShellStore {
                         lines: [
                             L10n.string("mobile.terminal.surfaceNotReady", defaultValue: "Terminal surface is still starting."),
                         ]
-                    )
+                    ),
+                    isReady: false
                 )
                 connectionError = nil
                 return
@@ -527,27 +551,33 @@ public final class CMUXMobileShellStore {
         excluding terminalID: String
     ) async -> Bool {
         guard let client = remoteClient else { return false }
-        for terminal in workspace.terminals where terminal.id.rawValue != terminalID {
+        let excludedTerminalID = MobileTerminalPreview.ID(rawValue: terminalID)
+        for candidate in terminalSnapshotFallbackCandidates(
+            preferredWorkspaceID: workspace.id,
+            excludingTerminalID: excludedTerminalID
+        ) {
             do {
                 let resultData = try await client.sendRequest(
                     MobileCoreRPCClient.requestData(
                         method: "terminal.snapshot",
                         params: [
-                            "workspace_id": workspace.id.rawValue,
-                            "surface_id": terminal.id.rawValue,
+                            "workspace_id": candidate.workspaceID.rawValue,
+                            "surface_id": candidate.terminalID.rawValue,
                             "max_scrollback_rows": 500,
                         ]
                     )
                 )
                 let response = try MobileSyncTerminalSnapshotResponse.decode(resultData)
-                let resolvedTerminalID = MobileTerminalPreview.ID(rawValue: response.surfaceID ?? terminal.id.rawValue)
+                let resolvedTerminalID = MobileTerminalPreview.ID(rawValue: response.surfaceID ?? candidate.terminalID.rawValue)
                 replaceTerminalSnapshot(
-                    workspaceID: workspace.id,
+                    workspaceID: candidate.workspaceID,
                     terminalID: resolvedTerminalID,
-                    snapshot: response.snapshot
+                    snapshot: response.snapshot,
+                    isReady: true
                 )
+                setSelectedWorkspaceID(candidate.workspaceID, refreshSnapshot: false)
                 selectedTerminalID = resolvedTerminalID
-                mobileShellLog.info("selected fallback ready terminal workspace=\(workspace.id.rawValue, privacy: .public) terminal=\(resolvedTerminalID.rawValue, privacy: .public)")
+                mobileShellLog.info("selected fallback ready terminal workspace=\(candidate.workspaceID.rawValue, privacy: .public) terminal=\(resolvedTerminalID.rawValue, privacy: .public)")
                 return true
             } catch {
                 if Self.isTerminalSurfaceNotReady(error) {
@@ -558,6 +588,30 @@ public final class CMUXMobileShellStore {
             }
         }
         return false
+    }
+
+    private func terminalSnapshotFallbackCandidates(
+        preferredWorkspaceID: MobileWorkspacePreview.ID,
+        excludingTerminalID: MobileTerminalPreview.ID
+    ) -> [MobileTerminalSnapshotCandidate] {
+        let candidates = workspaces.flatMap { workspace in
+            workspace.terminals.compactMap { terminal -> MobileTerminalSnapshotCandidate? in
+                guard workspace.id != preferredWorkspaceID || terminal.id != excludingTerminalID else {
+                    return nil
+                }
+                return MobileTerminalSnapshotCandidate(
+                    workspaceID: workspace.id,
+                    terminalID: terminal.id,
+                    isReady: terminal.isReady
+                )
+            }
+        }
+
+        let readyPreferred = candidates.filter { $0.isReady && $0.workspaceID == preferredWorkspaceID }
+        let readyElsewhere = candidates.filter { $0.isReady && $0.workspaceID != preferredWorkspaceID }
+        let stalePreferred = candidates.filter { !$0.isReady && $0.workspaceID == preferredWorkspaceID }
+        let staleElsewhere = candidates.filter { !$0.isReady && $0.workspaceID != preferredWorkspaceID }
+        return readyPreferred + readyElsewhere + stalePreferred + staleElsewhere
     }
 
     private func sendRemoteTerminalInput(_ text: String) async {
@@ -586,21 +640,40 @@ public final class CMUXMobileShellStore {
         Task { await refreshSelectedTerminalSnapshot() }
     }
 
+    private func setSelectedWorkspaceID(
+        _ id: MobileWorkspacePreview.ID?,
+        refreshSnapshot: Bool
+    ) {
+        guard !refreshSnapshot else {
+            selectedWorkspaceID = id
+            return
+        }
+        isSuppressingSelectedWorkspaceRefresh = true
+        selectedWorkspaceID = id
+        isSuppressingSelectedWorkspaceRefresh = false
+    }
+
     private func applyRemoteWorkspaceList(_ response: MobileSyncWorkspaceListResponse) {
         workspaces = response.workspaces.map(MobileWorkspacePreview.init(remote:))
         if let selectedWorkspaceID,
            workspaces.contains(where: { $0.id == selectedWorkspaceID }) {
+            syncSelectedTerminalForWorkspace()
             return
         }
-        selectedWorkspaceID = response.workspaces.first(where: \.isSelected)
-            .map { MobileWorkspacePreview.ID(rawValue: $0.id) }
-            ?? workspaces.first?.id
+        setSelectedWorkspaceID(
+            response.workspaces.first(where: \.isSelected)
+                .map { MobileWorkspacePreview.ID(rawValue: $0.id) }
+                ?? workspaces.first?.id,
+            refreshSnapshot: false
+        )
+        syncSelectedTerminalForWorkspace()
     }
 
     private func replaceTerminalSnapshot(
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID,
-        snapshot: MobileTerminalGhosttySnapshot
+        snapshot: MobileTerminalGhosttySnapshot,
+        isReady: Bool? = nil
     ) {
         guard let workspaceIndex = workspaces.firstIndex(where: { $0.id == workspaceID }),
               let terminalIndex = workspaces[workspaceIndex].terminals.firstIndex(where: { $0.id == terminalID }) else {
@@ -608,6 +681,9 @@ public final class CMUXMobileShellStore {
         }
         var updatedWorkspaces = workspaces
         updatedWorkspaces[workspaceIndex].terminals[terminalIndex].snapshot = snapshot
+        if let isReady {
+            updatedWorkspaces[workspaceIndex].terminals[terminalIndex].isReady = isReady
+        }
         workspaces = updatedWorkspaces
         mobileShellLog.info("replaced terminal snapshot workspace=\(workspaceID.rawValue, privacy: .public) terminal=\(terminalID.rawValue, privacy: .public) rows=\(snapshot.visibleRows.count, privacy: .public)")
     }
@@ -656,6 +732,25 @@ public final class CMUXMobileShellStore {
         ]
         selectedWorkspaceID = workspaces.first?.id
         selectedTerminalID = workspaces.first?.terminals.first?.id
+    }
+}
+
+private struct MobileTerminalSnapshotCandidate: Sendable {
+    var workspaceID: MobileWorkspacePreview.ID
+    var terminalID: MobileTerminalPreview.ID
+    var isReady: Bool
+}
+
+private extension MobileWorkspacePreview {
+    var preferredTerminal: MobileTerminalPreview? {
+        terminals.first { $0.isReady && $0.isFocused }
+            ?? terminals.first { $0.isReady }
+            ?? terminals.first { $0.isFocused }
+            ?? terminals.first
+    }
+
+    var hasReadyTerminal: Bool {
+        terminals.contains(where: \.isReady)
     }
 }
 
@@ -855,12 +950,14 @@ private struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         let title: String
         let currentDirectory: String?
         let isFocused: Bool
+        let isReady: Bool?
 
         private enum CodingKeys: String, CodingKey {
             case id
             case title
             case currentDirectory = "current_directory"
             case isFocused = "is_focused"
+            case isReady = "is_ready"
         }
     }
 
@@ -916,7 +1013,9 @@ private extension MobileTerminalPreview {
                 "$ cmux ios",
                 "terminal: \(remote.title)",
                 remote.currentDirectory.map { "directory: \($0)" } ?? "directory: unavailable",
-            ]
+            ],
+            isReady: remote.isReady ?? true,
+            isFocused: remote.isFocused
         )
     }
 }

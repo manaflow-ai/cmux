@@ -17706,6 +17706,7 @@ class TerminalController {
                         ?? mobileNonEmpty(terminal.directory)
                         ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
                         ?? NSNull(),
+                    "is_ready": terminal.surface.surface != nil,
                     "is_focused": terminal.id == workspace.focusedPanelId
                 ]
             }
