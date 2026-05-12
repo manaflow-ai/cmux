@@ -380,6 +380,18 @@ html { scroll-behavior: smooth; }
   // (text, level, raw / code, lang, escaped / href, title, text)
   // — NOT a single token object. Inline children are already
   // rendered to HTML and passed in as `text`.
+  var headingSlugCounts = Object.create(null);
+  function uniqueHeadingSlug(raw) {
+    var base = String(raw || '').toLowerCase()
+      .replace(/[^\w\- ]+/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    if (!base) { base = 'heading'; }
+    var count = headingSlugCounts[base] || 0;
+    headingSlugCounts[base] = count + 1;
+    return count === 0 ? base : base + '-' + count;
+  }
+
   marked.use({
     gfm: true,
     breaks: false,
@@ -424,10 +436,7 @@ html { scroll-behavior: smooth; }
         return '<pre><code class="hljs' + langClass + '">' + highlighted + '</code></pre>\n';
       },
       heading(text, level, raw) {
-        var slug = String(raw || '').toLowerCase()
-          .replace(/[^\w\- ]+/g, '')
-          .replace(/\s+/g, '-')
-          .replace(/^-+|-+$/g, '');
+        var slug = uniqueHeadingSlug(raw);
         return '<h' + level + ' id="' + slug + '">' + text + '</h' + level + '>\n';
       }
     }
@@ -501,6 +510,29 @@ html { scroll-behavior: smooth; }
     });
   }
 
+  function vegaPathSegments(path) {
+    return String(path || '')
+      .replace(/\[[^\]]+\]/g, '')
+      .split('.')
+      .filter(Boolean)
+      .map(function(segment) { return segment.toLowerCase(); });
+  }
+
+  function isVegaExternalReferencePath(path, key) {
+    var segments = vegaPathSegments(path);
+    var lowerKey = String(key || '').toLowerCase();
+    var parent = segments.length > 1 ? segments[segments.length - 2] : '';
+
+    // Vega/Vega-Lite loader positions. Inline rows under `values` and
+    // top-level `datasets` may legitimately have fields named url/href/src;
+    // those are handled by skipping those inline-data containers below.
+    if (lowerKey === 'url' && parent === 'data') { return true; }
+    if ((lowerKey === 'url' || lowerKey === 'href' || lowerKey === 'src') && segments.indexOf('marks') >= 0) {
+      return true;
+    }
+    return false;
+  }
+
   function firstVegaExternalReference(value, path, seen) {
     if (value == null || typeof value !== 'object') { return null; }
     seen = seen || [];
@@ -521,7 +553,25 @@ html { scroll-behavior: smooth; }
       var childPath = path ? path + '.' + key : key;
       var lower = String(key || '').toLowerCase();
 
-      if (lower === 'url' || lower === 'href' || lower === 'src') {
+      // Inline data containers can contain arbitrary user columns named
+      // "url", "href", or "src". They do not cause fetches by themselves.
+      if (lower === 'values') { continue; }
+      if (lower === 'datasets') {
+        if (child && typeof child === 'object' && !Array.isArray(child)) {
+          for (var datasetName in child) {
+            if (!Object.prototype.hasOwnProperty.call(child, datasetName)) { continue; }
+            var dataset = child[datasetName];
+            if (dataset && typeof dataset === 'object' && !Array.isArray(dataset)) {
+              if (typeof dataset.url === 'string' && dataset.url.trim()) {
+                return childPath + '.' + datasetName + '.url';
+              }
+            }
+          }
+        }
+        continue;
+      }
+
+      if ((lower === 'url' || lower === 'href' || lower === 'src') && isVegaExternalReferencePath(childPath, lower)) {
         if (typeof child === 'string') {
           if (child.trim()) { return childPath; }
         } else if (child != null) {
@@ -681,6 +731,7 @@ html { scroll-behavior: smooth; }
 
   window.__cmuxRenderMarkdown = function(md) {
     try {
+      headingSlugCounts = Object.create(null);
       var documentParts = extractFrontmatter(md || '');
       var html = renderFrontmatter(documentParts.frontmatter)
         + sanitizeRenderedHTML(marked.parse(documentParts.body || ''));

@@ -26,6 +26,7 @@ struct MarkdownPanelView: View {
     @State private var focusFlashOpacity: Double = 0.0
     @State private var focusFlashAnimationGeneration: Int = 0
     @State private var copyConfirmation: CopyConfirmation? = nil
+    @State private var copyConfirmationGeneration: Int = 0
     @State private var renderer = MarkdownWebRendererHandle()
     @Environment(\.colorScheme) private var colorScheme
 
@@ -171,8 +172,12 @@ struct MarkdownPanelView: View {
     }
 
     private func flashCopyConfirmation(_ kind: CopyConfirmation) {
+        copyConfirmationGeneration &+= 1
+        let generation = copyConfirmationGeneration
         copyConfirmation = kind
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            guard copyConfirmationGeneration == generation else { return }
             if copyConfirmation == kind {
                 copyConfirmation = nil
             }

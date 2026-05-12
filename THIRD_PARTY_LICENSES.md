@@ -206,17 +206,17 @@ viewer has no runtime CDN dependency.
 
 ### github-markdown-css
 
-- **Version:** bundled CSS from the github-markdown-css package
+- **Version:** 5.6.1
 - **License:** MIT License
 - **Copyright:** Copyright (c) Sindre Sorhus
-- **Source:** https://github.com/sindresorhus/github-markdown-css
+- **Source:** https://github.com/sindresorhus/github-markdown-css/tree/v5.6.1
 
 ### Mermaid
 
-- **Version:** bundled `mermaid.min.js`
+- **Version:** 11.4.1
 - **License:** MIT License
 - **Copyright:** Copyright (c) 2014-2024 Knut Sveidqvist and Mermaid contributors
-- **Source:** https://github.com/mermaid-js/mermaid
+- **Source:** https://github.com/mermaid-js/mermaid/releases/tag/mermaid%4011.4.1
 
 ### Vega
 
