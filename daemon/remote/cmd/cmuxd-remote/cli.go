@@ -269,6 +269,9 @@ doneFlags:
 		cliUsage()
 		return 0
 	}
+	if cmdName == "browser" && browserHelpRequested(cmdArgs) {
+		return runBrowserRelay("", cmdArgs, jsonOutput, nil)
+	}
 
 	// refreshAddr is set when the address came from socket_addr file (not env/flag),
 	// allowing one stale-address refresh if another workspace has replaced socket_addr.
