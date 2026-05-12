@@ -866,7 +866,7 @@ final class FileExplorerContainerView: NSView {
 
     func updateUIScale(_ scale: Double) {
         let next = UIScaleSettings.clamped(scale)
-        let didChange = abs(uiScaleFactor - next) > 0.0001
+        guard abs(uiScaleFactor - next) > 0.0001 else { return }
         uiScaleFactor = next
         coordinator.uiScaleFactor = next
         headerView.updateUIScale(next)
@@ -877,7 +877,6 @@ final class FileExplorerContainerView: NSView {
         searchResultsView.rowHeight = UIScaleSettings.scaled(46, by: next)
         searchFieldHeightConstraint?.constant = UIScaleSettings.scaled(24, by: next)
         updateSearchLayout()
-        guard didChange else { return }
         coordinator.reloadOutlineAfterUIScaleChange()
         searchResultsView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<searchResultsView.numberOfRows))
         searchResultsView.reloadData()
