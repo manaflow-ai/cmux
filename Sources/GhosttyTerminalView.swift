@@ -13345,11 +13345,15 @@ struct GhosttyTerminalView: NSViewRepresentable {
     }
 
     static func shouldSynchronizePortalGeometryImmediately(
-        hostInLiveResize: Bool,
-        windowInLiveResize: Bool,
-        interactiveGeometryResizeActive: Bool
+        hostInLiveResize _: Bool,
+        windowInLiveResize _: Bool,
+        interactiveGeometryResizeActive _: Bool
     ) -> Bool {
-        hostInLiveResize || windowInLiveResize || interactiveGeometryResizeActive
+        // This policy is for callbacks originating from HostContainerView, which
+        // can fire while SwiftUI/AppKit is already rendering or laying out the
+        // representable. External AppKit resize observers own immediate live
+        // resize flushing; host callbacks only schedule the portal owner.
+        false
     }
 
     private static func synchronizePortalGeometry(
@@ -13369,8 +13373,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
             return
         }
         // Avoid synchronizing the terminal portal while AppKit is still inside
-        // the current layout turn. Re-entrant syncs here can wedge window resize
-        // handling and leave the app spinning on the wait cursor.
+        // the current layout turn. Re-entrant syncs here can escalate from
+        // SwiftUI warnings to AppKit exceptions during CATransaction display
+        // link flushes.
         guard let window else { return }
         TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
     }
@@ -13508,7 +13513,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     visibleInUI: coordinator.desiredIsVisibleInUI,
                     zPriority: coordinator.desiredPortalZPriority,
                     expectedSurfaceId: portalExpectedSurfaceId,
-                    expectedGeneration: portalExpectedGeneration
+                    expectedGeneration: portalExpectedGeneration,
+                    deferLayoutSynchronization: true
                 )
                 coordinator.lastBoundHostId = ObjectIdentifier(host)
                 coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
@@ -13545,7 +13551,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
                         visibleInUI: coordinator.desiredIsVisibleInUI,
                         zPriority: coordinator.desiredPortalZPriority,
                         expectedSurfaceId: portalExpectedSurfaceId,
-                        expectedGeneration: portalExpectedGeneration
+                        expectedGeneration: portalExpectedGeneration,
+                        deferLayoutSynchronization: true
                     )
                     coordinator.lastBoundHostId = hostId
                     hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
@@ -13588,7 +13595,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
                         visibleInUI: coordinator.desiredIsVisibleInUI,
                         zPriority: coordinator.desiredPortalZPriority,
                         expectedSurfaceId: portalExpectedSurfaceId,
-                        expectedGeneration: portalExpectedGeneration
+                        expectedGeneration: portalExpectedGeneration,
+                        deferLayoutSynchronization: true
                     )
                     coordinator.lastBoundHostId = hostId
                     coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
