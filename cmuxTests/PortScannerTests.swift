@@ -126,6 +126,46 @@ final class SidebarWorkspaceResourceResolverTests: XCTestCase {
         XCTAssertEqual(usage.cpuPercent, 25, accuracy: 0.001)
     }
 
+    func testResolveDoesNotChargeNewlyTrackedProcessLifetimeCPUToFirstSample() throws {
+        let workspace = UUID()
+        let result = SidebarWorkspaceResourceResolver.resolve(
+            workspaces: [
+                workspace: SidebarWorkspaceResourceTrackingRoots(
+                    ttyDevices: [300],
+                    agentRoots: [],
+                    browserRootPIDs: []
+                ),
+            ],
+            processes: [
+                50: sample(
+                    pid: 50,
+                    parentPID: 1,
+                    name: "zsh",
+                    ttyDevice: 300,
+                    residentBytes: 256,
+                    totalCPUTimeNanos: 1_500_000_000
+                ),
+                51: sample(
+                    pid: 51,
+                    parentPID: 50,
+                    name: "node",
+                    ttyDevice: nil,
+                    residentBytes: 512,
+                    totalCPUTimeNanos: 20_000_000_000
+                ),
+            ],
+            appPID: 999,
+            previousCPUTimeByPID: [50: 1_000_000_000],
+            elapsedNanoseconds: 2_000_000_000
+        )
+
+        let usage = try XCTUnwrap(result.workspaces[workspace])
+        XCTAssertEqual(usage.cpuPercent, 25, accuracy: 0.001)
+
+        let child = try XCTUnwrap(usage.processes.first { $0.pid == 51 })
+        XCTAssertEqual(child.cpuPercent, 0, accuracy: 0.001)
+    }
+
     func testResolveReportsZeroCPUUntilPreviousBaselineExists() throws {
         let workspace = UUID()
         let result = SidebarWorkspaceResourceResolver.resolve(
