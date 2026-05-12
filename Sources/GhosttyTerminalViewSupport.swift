@@ -314,6 +314,9 @@ final class TerminalStatusBarCommandController: @unchecked Sendable {
         }
     }
 
+#if compiler(>=6.2)
+    @concurrent
+#endif
     private nonisolated static func runStatusCommand(
         _ command: String,
         context: TerminalStatusBarExecutionContext,
@@ -352,6 +355,9 @@ final class TerminalStatusBarCommandController: @unchecked Sendable {
         return String(data: data, encoding: .utf8) ?? ""
     }
 
+#if compiler(>=6.2)
+    @concurrent
+#endif
     private nonisolated static func runAndWaitForTermination(
         process: Process,
         timeout: TimeInterval
