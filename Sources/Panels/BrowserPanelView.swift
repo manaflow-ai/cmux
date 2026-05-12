@@ -852,6 +852,7 @@ struct BrowserPanelView: View {
                 if shouldShowToolbarImportHintChip {
                     browserImportHintToolbarChip
                 }
+                openInDefaultBrowserButton
                 reactGrabButton
                 browserProfileButton
                 browserThemeModeButton
@@ -960,6 +961,27 @@ struct BrowserPanelView: View {
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .safeHelp(String(localized: "browser.reactGrab", defaultValue: "Inject React Grab"))
         .accessibilityIdentifier("BrowserReactGrabButton")
+    }
+
+    private var openInDefaultBrowserButton: some View {
+        Button(action: {
+            if !panel.openCurrentPageInDefaultBrowser() {
+                NSSound.beep()
+            }
+        }) {
+            Image(systemName: "arrow.up.right.square")
+                .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
+                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .foregroundStyle(devToolsColorOption.color)
+                .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        }
+        .buttonStyle(OmnibarAddressButtonStyle())
+        .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        .disabled(!panel.canOpenCurrentPageInDefaultBrowser)
+        .opacity(panel.canOpenCurrentPageInDefaultBrowser ? 1.0 : 0.4)
+        .safeHelp(String(localized: "browser.openInDefaultBrowser", defaultValue: "Open in Default Browser"))
+        .accessibilityIdentifier("BrowserOpenInDefaultBrowserButton")
     }
 
     private var developerToolsButton: some View {
