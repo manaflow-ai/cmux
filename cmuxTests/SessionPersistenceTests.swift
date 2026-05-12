@@ -387,6 +387,27 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(contents.hasSuffix(reset))
     }
 
+    func testScrollbackReplayEnvironmentStripsZshPromptSpMarkers() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let reset = "\u{001B}[0m"
+        let zshPromptSpMarker = "\(reset)\u{001B}[1m\u{001B}[7m%\(reset)  "
+        let source = "print-no-newline\(zshPromptSpMarker)austin@host 編輯 % "
+        let environment = SessionScrollbackReplayStore.replayEnvironment(
+            for: source,
+            tempDirectory: tempDir
+        )
+
+        let path = try XCTUnwrap(environment[SessionScrollbackReplayStore.environmentKey])
+        let contents = try String(contentsOfFile: path, encoding: .utf8)
+        XCTAssertFalse(contents.contains("\u{001B}[7m%\(reset)"))
+        XCTAssertTrue(contents.contains("print-no-newline"))
+        XCTAssertTrue(contents.contains("austin@host 編輯 % "))
+    }
+
     func testSessionScrollbackPersistenceHonorsReportedShellState() {
         XCTAssertTrue(
             Workspace.shouldPersistSessionScrollback(
@@ -1696,6 +1717,44 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(snapshot.resumeStartupInput(), snapshot.resumeCommand.map { $0 + "\n" })
+    }
+
+    func testRestorableAgentStartupInputUsesLauncherScriptForNonASCIIResumeCommand() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let cjkWorkingDirectory = "/Users/example/test/工程師"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-123",
+            workingDirectory: cjkWorkingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/opt/Claude Code/bin/claude",
+                arguments: [
+                    "/opt/Claude Code/bin/claude",
+                    "--model",
+                    "sonnet"
+                ],
+                workingDirectory: cjkWorkingDirectory,
+                environment: nil,
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        let input = try XCTUnwrap(snapshot.resumeStartupInput(temporaryDirectory: tempDir))
+        XCTAssertFalse(input.contains("工程師"))
+        XCTAssertTrue(input.hasPrefix("/bin/zsh '"))
+
+        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "/bin/zsh '"
+        let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
+        let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        XCTAssertTrue(scriptContents.contains("cd '/Users/example/test/工程師'"))
+        XCTAssertTrue(scriptContents.contains("'--resume' 'claude-session-123'"))
     }
 
     func testRestorableAgentStartupInputUsesLauncherScriptWhenCommandExceedsTerminalInputBudget() throws {
