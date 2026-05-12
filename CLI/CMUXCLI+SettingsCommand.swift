@@ -36,10 +36,10 @@ extension CMUXCLI {
         let parsedArgs = docsSettingsArguments(commandArgs)
         let wantsJSON = jsonOutput || parsedArgs.head.contains("--json")
         var args = parsedArgs.arguments
-        let subcommand = args.first?.lowercased() ?? "list"
-        if !args.isEmpty {
-            args.removeFirst()
+        guard let subcommand = args.first?.lowercased() else {
+            throw CLIError(message: "Usage: cmux settings <subcommand>")
         }
+        args.removeFirst()
 
         let store = SettingsFileStore()
 

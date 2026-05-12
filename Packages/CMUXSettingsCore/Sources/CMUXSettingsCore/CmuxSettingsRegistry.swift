@@ -395,7 +395,7 @@ public enum CmuxSettingsRegistry {
                 throw ValidationError(message: "\(definition.key) expects one of: \(values.joined(separator: ", "))")
             }
             if values.contains(raw) {
-                return aliases[raw] ?? raw
+                return raw
             }
             let normalized = raw
                 .normalizedEnumToken
@@ -406,7 +406,7 @@ public enum CmuxSettingsRegistry {
                 return alias
             }
             if let canonical = values.first(where: { $0.normalizedEnumToken == normalized }) {
-                return aliases[canonical] ?? canonical
+                return canonical
             }
             throw ValidationError(message: "\(definition.key) expects one of: \(values.joined(separator: ", "))")
         case .hexColor:
