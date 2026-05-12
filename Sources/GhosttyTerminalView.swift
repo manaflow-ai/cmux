@@ -1356,6 +1356,7 @@ private func cmuxIsLocalFileURL(_ url: URL) -> Bool {
     return host == nil || host?.isEmpty == true || host == "localhost"
 }
 
+@MainActor
 private func cmuxResolvedTerminalWorkingDirectory(
     workspace: Workspace,
     terminalSurface: TerminalSurface
@@ -4280,9 +4281,10 @@ class GhosttyApp {
                 #if DEBUG
                 cmuxDebugLog("link.openURL target=localFile, opening in preferred editor url=\(target.url)")
                 #endif
-                return performOnMain {
+                performOnMain {
                     PreferredEditorSettings.open(target.url)
                 }
+                return true
             }
 
             if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
