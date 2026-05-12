@@ -263,9 +263,6 @@ struct FileExplorerPanelView: NSViewRepresentable {
         @MainActor
         func toggleHiddenFiles() {
             state.showHiddenFiles.toggle()
-            store.setShowHiddenFiles(state.showHiddenFiles)
-            containerView?.updateHeader(store: store, state: state)
-            reloadIfNeeded()
         }
 
         // MARK: - Path-Owned Navigation
@@ -1741,7 +1738,7 @@ final class FileExplorerHeaderView: NSView {
     private let hiddenFilesButton = NSButton()
     private var displayPath = ""
     private var quickSearchQuery: String?
-    private var showHiddenFiles = true
+    private var showHiddenFiles = false
     var onToggleHiddenFiles: (() -> Void)?
 
     override init(frame: NSRect) {
