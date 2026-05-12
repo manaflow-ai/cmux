@@ -51,7 +51,14 @@ func cliWriteIgnoringBrokenPipeResult(_ data: Data, to fd: Int32, timeout: TimeI
                     if let deadline, Date() >= deadline {
                         return .timedOut
                     }
-                    let ready = poll(&pollFD, 1, 250)
+                    let timeoutMillis: Int32
+                    if let deadline {
+                        let remainingMillis = Int(max(0, ceil(deadline.timeIntervalSinceNow * 1000)))
+                        timeoutMillis = Int32(min(250, remainingMillis))
+                    } else {
+                        timeoutMillis = 250
+                    }
+                    let ready = poll(&pollFD, 1, timeoutMillis)
                     if ready > 0 {
                         break
                     }

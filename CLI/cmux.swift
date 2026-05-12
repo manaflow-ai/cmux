@@ -760,6 +760,7 @@ private enum CLISocketPathResolver {
     static let legacyDefaultSocketPath = "/tmp/cmux.sock"
     private static let fallbackSocketPath = "/tmp/cmux-debug.sock"
     private static let stagingSocketPath = "/tmp/cmux-staging.sock"
+    private static let nightlySocketPath = "/tmp/cmux-nightly.sock"
     private static let legacyLastSocketPathFile = "/tmp/cmux-last-socket-path"
 
     static var defaultSocketPath: String {
@@ -824,6 +825,7 @@ private enum CLISocketPathResolver {
         candidates.append(legacyDefaultSocketPath)
         candidates.append(fallbackSocketPath)
         candidates.append(stagingSocketPath)
+        candidates.append(nightlySocketPath)
         if launchTag != nil {
             candidates.append(contentsOf: discoverTaggedSockets(limit: 12))
         }
@@ -834,20 +836,10 @@ private enum CLISocketPathResolver {
     }
 
     private static func environmentRecoveryCandidatePaths(requestedPath: String, environment: [String: String]) -> [String] {
-        var candidates: [String] = []
-        if let tag = normalized(environment["CMUX_TAG"]) {
-            let slug = sanitizeTagSlug(tag)
-            candidates.append("/tmp/cmux-debug-\(slug).sock")
-            candidates.append("/tmp/cmux-\(slug).sock")
-        }
-        candidates.append(contentsOf: [
-            requestedPath,
-            defaultSocketPath,
-            legacyDefaultSocketPath,
-        ])
+        var candidates = candidatePaths(requestedPath: requestedPath, environment: environment)
         if let last = readLastSocketPath(),
-           shouldConsiderSocketHint(last, environment: environment) {
-            candidates.append(last)
+           !shouldConsiderSocketHint(last, environment: environment) {
+            candidates.removeAll { $0 == last }
         }
         return candidates
     }
@@ -883,7 +875,7 @@ private enum CLISocketPathResolver {
                 var st = stat()
                 guard lstat(path, &st) == 0 else { continue }
                 guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { continue }
-                if path == defaultSocketPath || path == legacyDefaultSocketPath || path == fallbackSocketPath || path == stagingSocketPath {
+                if path == defaultSocketPath || path == legacyDefaultSocketPath || path == fallbackSocketPath || path == stagingSocketPath || path == nightlySocketPath {
                     continue
                 }
                 let modified = TimeInterval(st.st_mtimespec.tv_sec) + TimeInterval(st.st_mtimespec.tv_nsec) / 1_000_000_000
@@ -938,7 +930,7 @@ private enum CLISocketPathResolver {
             return true
         }
         let name = URL(fileURLWithPath: path).lastPathComponent
-        return !(name.hasPrefix("cmux-debug") || name.hasPrefix("cmux-staging") || name == "cmux-nightly.sock")
+        return !(name.hasPrefix("cmux-debug") || name.hasPrefix("cmux-staging") || name == URL(fileURLWithPath: nightlySocketPath).lastPathComponent)
     }
 
     private static func normalized(_ value: String?) -> String? {
@@ -2281,6 +2273,25 @@ struct CMUXCLI {
         return line
     }
 
+    private func readBoundedHotPathRawInput() throws -> String {
+        var data = Data()
+        while data.count <= Self.hotPathRequestMaxBytes {
+            let remaining = Self.hotPathRequestMaxBytes + 1 - data.count
+            let chunk = FileHandle.standardInput.readData(ofLength: min(64 * 1024, remaining))
+            if chunk.isEmpty {
+                break
+            }
+            data.append(chunk)
+            if data.count > Self.hotPathRequestMaxBytes {
+                throw CLIError(message: "Hot-path hook stdin exceeded \(Self.hotPathRequestMaxBytes) bytes")
+            }
+        }
+        guard data.count <= Self.hotPathRequestMaxBytes else {
+            throw CLIError(message: "Hot-path hook stdin exceeded \(Self.hotPathRequestMaxBytes) bytes")
+        }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
     private func hotPathConnectable(_ brokerSocketPath: String) -> Bool {
         let client = SocketClient(path: brokerSocketPath)
         do {
@@ -2400,7 +2411,7 @@ struct CMUXCLI {
             }
             request["agent"] = remaining[1]
             request["command_args"] = Array(remaining.dropFirst(2))
-            request["raw_input"] = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            request["raw_input"] = try readBoundedHotPathRawInput()
         case "tmux":
             let tmuxArgs = Array(remaining.dropFirst())
             guard !tmuxArgs.isEmpty else {
@@ -12996,6 +13007,23 @@ struct CMUXCLI {
         resolveExecutableInSearchPath("opencode", searchPath: searchPath)
     }
 
+    private func ensureExecutableAvailable(_ executableName: String, missingMessage: String) throws {
+        let checkProcess = Process()
+        checkProcess.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        checkProcess.arguments = [executableName]
+        checkProcess.standardOutput = Pipe()
+        checkProcess.standardError = Pipe()
+        do {
+            try cliRunProcess(checkProcess)
+            checkProcess.waitUntilExit()
+        } catch {
+            throw CLIError(message: missingMessage)
+        }
+        if checkProcess.terminationStatus != 0 {
+            throw CLIError(message: missingMessage)
+        }
+    }
+
     private func createOMOShimDirectory() throws -> URL {
         // tmux shim: redirects tmux commands to cmux's pooled hot path.
         // Handle -V locally (no socket needed) since the hot path requires a connection.
@@ -13455,16 +13483,10 @@ struct CMUXCLI {
         // Check for opencode before doing expensive plugin setup
         let openCodeExecutablePath = resolveOpenCodeExecutable(searchPath: launcherEnvironment["PATH"])
         if openCodeExecutablePath == nil {
-            let checkProcess = Process()
-            checkProcess.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-            checkProcess.arguments = ["opencode"]
-            checkProcess.standardOutput = Pipe()
-            checkProcess.standardError = Pipe()
-            try? cliRunProcess(checkProcess)
-            checkProcess.waitUntilExit()
-            if checkProcess.terminationStatus != 0 {
-                throw CLIError(message: "opencode is not installed. Install it first:\n  npm install -g opencode-ai\n  # or\n  bun install -g opencode-ai\n\nThen run: cmux omo")
-            }
+            try ensureExecutableAvailable(
+                "opencode",
+                missingMessage: "opencode is not installed. Install it first:\n  npm install -g opencode-ai\n  # or\n  bun install -g opencode-ai\n\nThen run: cmux omo"
+            )
         }
 
         // Ensure oh-my-opencode plugin is registered and installed
@@ -13612,16 +13634,10 @@ struct CMUXCLI {
 
         let omxExecutablePath = resolveOMXExecutable(searchPath: launcherEnvironment["PATH"])
         if omxExecutablePath == nil {
-            let checkProcess = Process()
-            checkProcess.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-            checkProcess.arguments = ["omx"]
-            checkProcess.standardOutput = Pipe()
-            checkProcess.standardError = Pipe()
-            try? cliRunProcess(checkProcess)
-            checkProcess.waitUntilExit()
-            if checkProcess.terminationStatus != 0 {
-                throw CLIError(message: "omx is not installed. Install it first:\n  npm install -g oh-my-codex\n\nThen run: cmux omx")
-            }
+            try ensureExecutableAvailable(
+                "omx",
+                missingMessage: "omx is not installed. Install it first:\n  npm install -g oh-my-codex\n\nThen run: cmux omx"
+            )
         }
 
         let shimDirectory = try createOMXShimDirectory()
@@ -13741,16 +13757,10 @@ struct CMUXCLI {
 
         let omcExecutablePath = resolveOMCExecutable(searchPath: launcherEnvironment["PATH"])
         if omcExecutablePath == nil {
-            let checkProcess = Process()
-            checkProcess.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-            checkProcess.arguments = ["omc"]
-            checkProcess.standardOutput = Pipe()
-            checkProcess.standardError = Pipe()
-            try? cliRunProcess(checkProcess)
-            checkProcess.waitUntilExit()
-            if checkProcess.terminationStatus != 0 {
-                throw CLIError(message: "omc is not installed. Install it first:\n  npm install -g oh-my-claude-sisyphus\n\nThen run: cmux omc")
-            }
+            try ensureExecutableAvailable(
+                "omc",
+                missingMessage: "omc is not installed. Install it first:\n  npm install -g oh-my-claude-sisyphus\n\nThen run: cmux omc"
+            )
         }
 
         let shimDirectory = try createOMCShimDirectory()
