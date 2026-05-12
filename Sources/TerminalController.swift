@@ -2825,10 +2825,12 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugBrowserAddressBarFocused(params: params))
         case "debug.browser.favicon":
             return v2Result(id: id, self.v2DebugBrowserFavicon(params: params))
+#if DEBUG
         case "debug.browser.terminal_link_placement":
             return v2Result(id: id, self.v2DebugBrowserTerminalLinkPlacement(params: params))
         case "debug.browser.open_terminal_link":
             return v2Result(id: id, self.v2DebugBrowserOpenTerminalLink(params: params))
+#endif
         case "debug.right_sidebar.focus":
             return v2Result(id: id, self.v2DebugRightSidebarFocus(params: params))
         case "debug.sidebar.visible":
