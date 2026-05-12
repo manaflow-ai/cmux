@@ -12,8 +12,12 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+TEST_DIR = Path(__file__).parent
+REPO_TESTS_DIR = TEST_DIR.parent / "tests"
+sys.path.insert(0, str(REPO_TESTS_DIR))
+sys.path.insert(0, str(TEST_DIR))
 from cmux import cmux, cmuxError
+from split_render_helpers import assert_split_terminal_renders_output
 
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
@@ -119,64 +123,6 @@ def _assert_no_transient_detach_or_hide(
         )
 
 
-def _panel_snapshot_retry(c: cmux, panel_id: str, label: str, timeout_s: float = 3.0) -> dict:
-    start = time.time()
-    last_err: Exception | None = None
-    while time.time() - start < timeout_s:
-        try:
-            return dict(c.panel_snapshot(panel_id, label=label) or {})
-        except Exception as e:
-            last_err = e
-            if "Failed to capture panel image" not in str(e):
-                raise
-            time.sleep(0.05)
-    raise cmuxError(f"Timed out waiting for panel_snapshot: panel_id={panel_id} label={label}: {last_err!r}")
-
-
-def _snapshot_ratio(snapshot: dict) -> float:
-    changed = int(snapshot.get("changed_pixels") or 0)
-    width = int(snapshot.get("width") or 0)
-    height = int(snapshot.get("height") or 0)
-    return float(max(0, changed)) / float(max(1, width * height))
-
-
-def _assert_split_terminal_renders_output(c: cmux, panel_id: str) -> None:
-    if not panel_id:
-        terminal_rows = [row for row in c.surface_health() if row.get("type") == "terminal"]
-        if len(terminal_rows) < 2:
-            raise cmuxError(f"Expected split terminal surface, got health={terminal_rows}")
-        panel_id = terminal_rows[-1]["id"]
-
-    c.panel_snapshot_reset(panel_id)
-    s0 = _panel_snapshot_retry(c, panel_id, "split_render_baseline0")
-    time.sleep(0.2)
-    s1 = _panel_snapshot_retry(c, panel_id, "split_render_baseline1")
-
-    draw_cmd = "i=0; while [ $i -lt 30 ]; do echo CMUX_SPLIT_RENDER_$i; i=$((i+1)); done\n"
-    c.send_surface(panel_id, draw_cmd)
-    time.sleep(0.6)
-    s2 = _panel_snapshot_retry(c, panel_id, "split_render_after")
-
-    dims1 = (int(s1.get("width") or 0), int(s1.get("height") or 0))
-    dims2 = (int(s2.get("width") or 0), int(s2.get("height") or 0))
-    if dims1[0] <= 0 or dims1[1] <= 0 or dims1 != dims2:
-        raise cmuxError(
-            f"panel_snapshot dims differ: {dims1} {dims2}; "
-            f"paths: {s1.get('path')} {s2.get('path')}"
-        )
-
-    noise = _snapshot_ratio(s1)
-    change = _snapshot_ratio(s2)
-    threshold = max(0.01, noise * 5.0)
-    if change <= threshold:
-        raise cmuxError(
-            "New split terminal did not render output immediately.\n"
-            f"  noise_ratio={noise:.5f}\n"
-            f"  change_ratio={change:.5f} (threshold={threshold:.5f})\n"
-            f"  snapshots: {s0.get('path')} {s1.get('path')} {s2.get('path')}"
-        )
-
-
 def main() -> int:
     with cmux(SOCKET_PATH) as c:
         # Run on a fresh workspace to avoid state carry-over from restored sessions.
@@ -204,7 +150,7 @@ def main() -> int:
         if len(panes) < 2:
             raise cmuxError(f"Expected >= 2 panes after split, got {len(panes)}")
         _assert_selected_panels_healthy(after)
-        _assert_split_terminal_renders_output(c, new_split_panel_id)
+        assert_split_terminal_renders_output(c, new_split_panel_id)
 
         # Drag-to-split from a single-surface pane should also avoid EmptyPanelView flashes.
         drag_workspace = c.new_workspace()
