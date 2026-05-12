@@ -37,6 +37,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["workspace_id"] as? String, callerWorkspace)
                 XCTAssertEqual(params["surface_id"] as? String, callerSurface)
+                XCTAssertEqual(params["body"] as? String, "--json")
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -56,7 +57,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["notify", "--surface", callerSurface, "--title", "UUID"],
+            arguments: ["notify", "--surface", callerSurface, "--title", "UUID", "--body", "--json"],
             environment: environment,
             timeout: 5
         )
@@ -169,6 +170,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(row["surface_id"] as? String, surfaceId.uuidString)
         XCTAssertEqual(row["created_at"] as? String, "2026-01-01T00:00:00Z")
         XCTAssertEqual(row["tab_title"] as? String, "CLI|Notification Workspace")
+
+        result = await run(["--json", "list-notifications", "--id-format", "uuids"])
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        rows = try notificationRows(from: result.stdout)
+        row = try XCTUnwrap(rows.first(where: { $0["id"] as? String == listedNotification.id.uuidString }))
+        XCTAssertEqual(row["created_at"] as? String, "2026-01-01T00:00:00Z")
 
         result = await run(["mark-notification-read", "--id", listedNotification.id.uuidString, "--json", "--id-format", "uuids"])
         XCTAssertFalse(result.timedOut, result.stderr)

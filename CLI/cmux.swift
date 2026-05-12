@@ -1914,6 +1914,74 @@ struct CMUXCLI {
         ?? defaultBrowserSettingsDomain
     }
 
+    // Presentation flags are global, but command option values can also look like flags.
+    private static let commandOptionsWithValues: Set<String> = [
+        "--action", "--after-workspace", "--agent", "--amount", "--arch",
+        "--attr", "--before-workspace", "--body", "--color", "--command",
+        "--config", "--cwd", "--description", "--direction", "--domain",
+        "--dx", "--dy", "--email", "--event", "--expires", "--focus",
+        "--function", "--id", "--image", "--index", "--key", "--layout",
+        "--lines", "--load-state", "--max-depth", "--name", "--os",
+        "--out", "--pane", "--panel", "--path", "--profile", "--property",
+        "--provider", "--relay-port", "--script", "--selector", "--session",
+        "--source", "--subtitle", "--surface", "--tab", "--target-pane",
+        "--text", "--timeout", "--timeout-ms", "--title", "--transcript",
+        "--turn", "--type", "--url", "--url-contains", "--value", "--window",
+        "--workspace",
+    ]
+
+    private func parsePresentationOptions(
+        _ commandArgs: [String]
+    ) throws -> (jsonOutput: Bool, idFormat: String?, remaining: [String]) {
+        var jsonOutput = false
+        var idFormat: String?
+        var remaining: [String] = []
+        var index = 0
+        var pastTerminator = false
+        while index < commandArgs.count {
+            let arg = commandArgs[index]
+            if pastTerminator {
+                remaining.append(arg)
+                index += 1
+                continue
+            }
+            if arg == "--" {
+                pastTerminator = true
+                remaining.append(arg)
+                index += 1
+                continue
+            }
+            let isCommandOptionValue =
+                index > 0 && Self.commandOptionsWithValues.contains(commandArgs[index - 1])
+            if arg == "--json" {
+                guard !isCommandOptionValue else {
+                    remaining.append(arg)
+                    index += 1
+                    continue
+                }
+                jsonOutput = true
+                index += 1
+                continue
+            }
+            if arg == "--id-format" {
+                guard !isCommandOptionValue else {
+                    remaining.append(arg)
+                    index += 1
+                    continue
+                }
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "--id-format requires a value (refs|uuids|both)")
+                }
+                idFormat = commandArgs[index + 1]
+                index += 2
+                continue
+            }
+            remaining.append(arg)
+            index += 1
+        }
+        return (jsonOutput, idFormat, remaining)
+    }
+
     private func runBrowserAvailabilityCommand(
         command: String,
         commandArgs: [String],
@@ -2043,7 +2111,14 @@ struct CMUXCLI {
         }
 
         let command = args[index]
-        let commandArgs = Array(args[(index + 1)...])
+        let presentationOptions = try parsePresentationOptions(Array(args[(index + 1)...]))
+        if presentationOptions.jsonOutput {
+            jsonOutput = true
+        }
+        if let parsedIDFormat = presentationOptions.idFormat {
+            idFormatArg = parsedIDFormat
+        }
+        let commandArgs = presentationOptions.remaining
 
         if command == "version" {
             print(versionSummary())

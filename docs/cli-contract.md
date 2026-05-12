@@ -14,8 +14,9 @@ written around user-visible behavior so the implementation can change behind it.
   connecting to the cmux socket.
 - Keep documented `cmux <command> --help` probes working without a socket where
   they already do.
-- Keep `--socket`, `--password`, `--json`, `--id-format`, and `--window` as
-  global options before the command.
+- Keep `--socket`, `--password`, and `--window` as global options before the
+  command. Keep presentation options `--json` and `--id-format` accepted either
+  before or after the command.
 - Keep UUIDs, refs such as `workspace:2`, and indexes accepted wherever the
   command accepts a window, workspace, pane, surface, or tab handle.
 - Keep text output stable for scripting commands unless a command already
@@ -27,7 +28,7 @@ written around user-visible behavior so the implementation can change behind it.
 | Form | Contract |
 | --- | --- |
 | `cmux <path>` | Open a directory or file path in cmux. Relative paths resolve from the current working directory. |
-| `cmux [global-options] <command> [options]` | Run a named command. |
+| `cmux [global-options] <command> [options]` | Run a named command. Presentation options may appear before or after the command. |
 | `cmux --help`, `cmux -h` | Print top-level usage without a socket. |
 | `cmux help` | Print top-level usage without a socket. |
 | `cmux --version`, `cmux -v`, `cmux version` | Print version summary without a socket. |
