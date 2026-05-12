@@ -214,6 +214,8 @@ final class TerminalPanel: Panel, ObservableObject {
         next.urlString = currentSidekickURLString()
         next.isOpen = false
         sidekickState = next
+        sidekickBrowserPanel?.close()
+        sidekickBrowserPanel = nil
     }
 
     func navigateSidekick(input: String) {

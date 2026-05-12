@@ -233,7 +233,9 @@ private struct TerminalSidekickView: View {
     }
 
     private func commitAddress() {
-        onNavigate(addressText)
+        let trimmed = addressText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        onNavigate(trimmed)
         addressFocused = false
     }
 
