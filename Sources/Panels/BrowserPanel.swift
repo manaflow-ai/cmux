@@ -6273,6 +6273,54 @@ func browserNavigationShouldCreatePopup(
     return navigationType == .other && popupFeaturesWereSpecified && !isUserNewTab
 }
 
+enum BrowserCreateWebViewDecision: Equatable {
+    case currentTab
+    case popup
+    case newTab
+}
+
+func browserCreateWebViewDecision(
+    navigationType: WKNavigationType,
+    requestMethod: String?,
+    requestURL: URL?,
+    openerURL: URL?,
+    modifierFlags: NSEvent.ModifierFlags,
+    buttonNumber: Int,
+    popupFeaturesWereSpecified: Bool,
+    hasRecentMiddleClickIntent: Bool = false,
+    currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type,
+    currentEventButtonNumber: Int? = NSApp.currentEvent?.buttonNumber
+) -> BrowserCreateWebViewDecision {
+    if browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+        navigationType: navigationType,
+        requestMethod: requestMethod,
+        requestURL: requestURL,
+        openerURL: openerURL,
+        modifierFlags: modifierFlags,
+        buttonNumber: buttonNumber,
+        hasRecentMiddleClickIntent: hasRecentMiddleClickIntent,
+        currentEventType: currentEventType,
+        currentEventButtonNumber: currentEventButtonNumber,
+        popupFeaturesWereSpecified: popupFeaturesWereSpecified
+    ) {
+        return .currentTab
+    }
+
+    if browserNavigationShouldCreatePopup(
+        navigationType: navigationType,
+        modifierFlags: modifierFlags,
+        buttonNumber: buttonNumber,
+        popupFeaturesWereSpecified: popupFeaturesWereSpecified,
+        hasRecentMiddleClickIntent: hasRecentMiddleClickIntent,
+        currentEventType: currentEventType,
+        currentEventButtonNumber: currentEventButtonNumber
+    ) {
+        return .popup
+    }
+
+    return .newTab
+}
+
 func browserNavigationShouldFallbackNilTargetToNewTab(
     navigationType: WKNavigationType
 ) -> Bool {
@@ -6850,7 +6898,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
 
         let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
         let popupFeaturesWereSpecified = browserNavigationPopupFeaturesWereSpecified(windowFeatures: windowFeatures)
-        let shouldOpenSimpleUserGesturePopupInCurrentTab = browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+        let createWebViewDecision = browserCreateWebViewDecision(
             navigationType: navigationAction.navigationType,
             requestMethod: navigationAction.request.httpMethod,
             requestURL: navigationAction.request.url,
@@ -6861,7 +6909,8 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
             popupFeaturesWereSpecified: popupFeaturesWereSpecified
         )
 
-        if shouldOpenSimpleUserGesturePopupInCurrentTab {
+        switch createWebViewDecision {
+        case .currentTab:
             if let url = navigationAction.request.url {
 #if DEBUG
                 cmuxDebugLog(
@@ -6876,23 +6925,15 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
                 }
             }
             return nil
-        }
-
-        // Only treat scripted `.other` requests as popups when WebKit surfaced
-        // explicit window features; bare `_blank` falls through to tabs.
-        let isScriptedPopup = browserNavigationShouldCreatePopup(
-            navigationType: navigationAction.navigationType,
-            modifierFlags: navigationAction.modifierFlags,
-            buttonNumber: navigationAction.buttonNumber,
-            popupFeaturesWereSpecified: popupFeaturesWereSpecified,
-            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
-        )
-
-        if isScriptedPopup, let popupWebView = openPopup?(configuration, windowFeatures) {
+        case .popup:
+            if let popupWebView = openPopup?(configuration, windowFeatures) {
 #if DEBUG
-            cmuxDebugLog("browser.nav.createWebView.action kind=popup")
+                cmuxDebugLog("browser.nav.createWebView.action kind=popup")
 #endif
-            return popupWebView
+                return popupWebView
+            }
+        case .newTab:
+            break
         }
 
         // Fallback: open in new tab (no opener linkage)
