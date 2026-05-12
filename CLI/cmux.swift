@@ -16340,7 +16340,7 @@ struct CMUXCLI {
 
     private static func claudeNotificationTypes(parsedInput: ClaudeHookParsedInput) -> Set<String> {
         var rawValues: [String] = []
-        if let object = parsedInput.object {
+        if let object = parsedInput.rawObject ?? parsedInput.object {
             rawValues.append(contentsOf: claudeNotificationTypeValues(in: object))
             for key in ["notification", "data"] {
                 if let nested = object[key] as? [String: Any] {

@@ -179,6 +179,35 @@ def main() -> int:
             print(f"commands={server.commands!r}")
             return 1
 
+        nested_idle = run_notification_hook(
+            cli_path,
+            server,
+            env,
+            {
+                "session_id": f"sess-{uuid.uuid4().hex}",
+                "hook_event_name": "Notification",
+                "notification": {
+                    "notification_type": "idle_prompt",
+                    "message": "Claude is still waiting for your input",
+                },
+            },
+        )
+        if nested_idle.returncode != 0 or nested_idle.stdout.strip() != "OK":
+            print("FAIL: nested ignored idle prompt hook did not complete cleanly")
+            print(f"stdout={nested_idle.stdout!r}")
+            print(f"stderr={nested_idle.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        nested_rendered_commands = [
+            line for line in server.commands
+            if line.startswith("notify_target_async ") or line.startswith("set_status claude_code Needs input ")
+        ]
+        if nested_rendered_commands:
+            print("FAIL: nested idle_prompt rendered despite ignored notification type")
+            print(f"commands={server.commands!r}")
+            return 1
+
         before_permission_count = len(server.commands)
         permission = run_notification_hook(
             cli_path,
