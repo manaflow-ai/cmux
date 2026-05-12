@@ -834,11 +834,17 @@ private enum CLISocketPathResolver {
     }
 
     private static func environmentRecoveryCandidatePaths(requestedPath: String, environment: [String: String]) -> [String] {
-        var candidates = [
+        var candidates: [String] = []
+        if let tag = normalized(environment["CMUX_TAG"]) {
+            let slug = sanitizeTagSlug(tag)
+            candidates.append("/tmp/cmux-debug-\(slug).sock")
+            candidates.append("/tmp/cmux-\(slug).sock")
+        }
+        candidates.append(contentsOf: [
             requestedPath,
             defaultSocketPath,
             legacyDefaultSocketPath,
-        ]
+        ])
         if let last = readLastSocketPath(),
            shouldConsiderSocketHint(last, environment: environment) {
             candidates.append(last)

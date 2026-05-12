@@ -181,6 +181,23 @@ def test_stale_inherited_socket_recovers_to_last_socket(cli_path: str) -> bool:
     return True
 
 
+def test_tagged_stale_inherited_socket_recovers_to_tag_socket(cli_path: str) -> bool:
+    with tempfile.TemporaryDirectory(prefix="cmux-cli-tagged-home-") as home:
+        tag = f"cli-tagged-recovery-{os.getpid()}"
+        socket_path = f"/tmp/cmux-debug-{tag}.sock"
+        env = base_env()
+        env["HOME"] = home
+        env["CMUX_TAG"] = tag
+        env["CMUX_SOCKET_PATH"] = f"/tmp/cmux-dead-tagged-{os.getpid()}.sock"
+
+        proc, error = run_with_server(socket_path, cli_path, env)
+        if not assert_pong(proc, error, "tagged stale inherited socket recovery"):
+            return False
+
+    print("PASS: tagged stale inherited CMUX_SOCKET_PATH recovers to CMUX_TAG socket")
+    return True
+
+
 def test_untagged_shell_does_not_grab_tagged_dev_socket(cli_path: str) -> bool:
     tag = f"cli-untagged-{os.getpid()}"
     socket_path = f"/tmp/cmux-debug-{tag}.sock"
@@ -226,6 +243,7 @@ def main() -> int:
     checks = [
         test_tagged_socket_autodiscovery,
         test_stale_inherited_socket_recovers_to_last_socket,
+        test_tagged_stale_inherited_socket_recovers_to_tag_socket,
         test_untagged_shell_does_not_grab_tagged_dev_socket,
     ]
     for check in checks:
