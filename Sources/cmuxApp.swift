@@ -4637,7 +4637,7 @@ enum CommandPaletteRenameSelectionSettings {
 
 enum CommandPaletteSwitcherSearchSettings {
     static let searchAllSurfacesKey = "commandPalette.switcherSearchAllSurfaces"
-    static let defaultSearchAllSurfaces = false
+    static let defaultSearchAllSurfaces = true
 
     static func searchAllSurfacesEnabled(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: searchAllSurfacesKey) == nil {
