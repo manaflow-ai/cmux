@@ -10508,10 +10508,66 @@ private struct SidebarFooterButtons: View {
 
     var body: some View {
         HStack(spacing: 4) {
+            SidebarFileExplorerButton(fileExplorerState: fileExplorerState)
             SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
             UpdatePill(model: updateViewModel)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct SidebarFileExplorerButton: View {
+    @ObservedObject var fileExplorerState: FileExplorerState
+    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+
+    private let buttonSize: CGFloat = 22
+    private let iconSize: CGFloat = 11
+
+    private var isSelected: Bool {
+        fileExplorerState.isVisible && fileExplorerState.mode == .files
+    }
+
+    private var title: String {
+        KeyboardShortcutSettings.Action.switchRightSidebarToFiles.label
+    }
+
+    private var helpText: String {
+        let _ = keyboardShortcutSettingsObserver.revision
+        return KeyboardShortcutSettings.Action.toggleRightSidebar.tooltip(title)
+    }
+
+    var body: some View {
+        Button {
+            showFileExplorer()
+        } label: {
+            Image(systemName: "folder")
+                .symbolRenderingMode(.monochrome)
+                .font(.system(size: iconSize, weight: .medium))
+                .foregroundStyle(isSelected ? Color.accentColor : Color(nsColor: .secondaryLabelColor))
+                .frame(width: buttonSize, height: buttonSize, alignment: .center)
+        }
+        .buttonStyle(SidebarFooterIconButtonStyle())
+        .frame(width: buttonSize, height: buttonSize, alignment: .center)
+        .accessibilityElement(children: .ignore)
+        .safeHelp(helpText)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier("SidebarFileExplorerButton")
+    }
+
+    private func showFileExplorer() {
+        let preferredWindow = NSApp.keyWindow ?? NSApp.mainWindow
+        if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+            mode: .files,
+            focusFirstItem: true,
+            preferredWindow: preferredWindow
+        ) == true {
+            return
+        }
+
+        fileExplorerState.setVisible(true)
+        if fileExplorerState.mode != .files {
+            fileExplorerState.mode = .files
+        }
     }
 }
 
