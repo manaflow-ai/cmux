@@ -32,6 +32,17 @@ final class TerminalDesktopNotificationBridgeTests: XCTestCase {
         XCTAssertTrue(suppressed)
     }
 
+    func testActiveClaudeHookSuppressesGenericClaudeAttentionNotificationTitle() {
+        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
+            claudeHooksEnabled: true,
+            workspaceAgentPIDs: ["claude_code": pid_t(123)],
+            title: "Claude Code needs your attention",
+            body: ""
+        )
+
+        XCTAssertTrue(suppressed)
+    }
+
     func testActiveClaudeHookSuppressesGenericClaudeInputNotification() {
         let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
             claudeHooksEnabled: true,
