@@ -173,6 +173,15 @@ final class FeedCoordinator: @unchecked Sendable {
         } else {
             DispatchQueue.main.async(execute: resolve)
         }
+
+        cancelFeedNotification(requestId: requestId)
+    }
+
+    fileprivate func isAwaitingDecision(requestId: String) -> Bool {
+        waiterLock.lock()
+        defer { waiterLock.unlock() }
+        guard let waiter = waiters[requestId] else { return false }
+        return waiter.decision == nil
     }
 
     private static func findItemId(
@@ -400,6 +409,10 @@ extension Notification.Name {
 /// focused so the user isn't double-notified.
 private func postFeedNotification(event: WorkstreamEvent, requestId: String) {
     DispatchQueue.main.async {
+        guard FeedCoordinator.shared.isAwaitingDecision(requestId: requestId) else {
+            return
+        }
+
         #if DEBUG
         if let observer = FeedCoordinatorTestHooks.notificationPostObserver {
             observer(event, requestId)
@@ -471,19 +484,31 @@ private func postFeedNotification(event: WorkstreamEvent, requestId: String) {
         )
 
         let center = UNUserNotificationCenter.current()
+        let requestIsStillPending: @Sendable () -> Bool = {
+            FeedCoordinator.shared.isAwaitingDecision(requestId: requestId)
+        }
         center.getNotificationSettings { settings in
+            guard requestIsStillPending() else { return }
             switch settings.authorizationStatus {
             case .authorized, .provisional:
                 center.add(request) { _ in /* best effort */ }
             case .notDetermined:
                 center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-                    if granted { center.add(request) { _ in } }
+                    guard granted, requestIsStillPending() else { return }
+                    center.add(request) { _ in }
                 }
             default:
                 break
             }
         }
     }
+}
+
+private func cancelFeedNotification(requestId: String) {
+    let identifier = "feed.\(requestId)"
+    let center = UNUserNotificationCenter.current()
+    center.removePendingNotificationRequests(withIdentifiers: [identifier])
+    center.removeDeliveredNotifications(withIdentifiers: [identifier])
 }
 
 /// JSON-shape helpers used by the V2 `feed.*` socket handlers.
