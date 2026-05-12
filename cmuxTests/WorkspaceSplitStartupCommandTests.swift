@@ -136,22 +136,11 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
 
         window.makeKeyAndOrderFront(nil)
         contentView.layoutSubtreeIfNeeded()
-        let splitView = try waitForWorkspaceSplitView(
+        _ = try waitForWorkspaceSplitView(
             in: hostingView,
             contentView: contentView,
             expectedDividerPosition: expectedDividerPosition,
             accuracy: 0.03
-        )
-        XCTAssertEqual(splitView.arrangedSubviews.count, 2)
-
-        let availableWidth = splitView.bounds.width - splitView.dividerThickness
-        XCTAssertGreaterThan(availableWidth, 0)
-        let renderedDividerPosition = splitView.arrangedSubviews[0].frame.width / availableWidth
-        XCTAssertEqual(
-            renderedDividerPosition,
-            expectedDividerPosition,
-            accuracy: 0.03,
-            "Rendered cmux.json horizontal split should preserve the requested 33:67 ratio"
         )
 
         let modelSplitAfterRender = try XCTUnwrap(workspaceSplitNodes(in: workspace.bonsplitController.treeSnapshot()).first)
