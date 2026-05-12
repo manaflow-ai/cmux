@@ -375,17 +375,20 @@ enum SessionPersistenceStore {
         let decoder = JSONDecoder()
         guard let snapshot = try? decoder.decode(AppSessionSnapshot.self, from: data) else { return nil }
         guard snapshot.version == SessionSnapshotSchema.currentVersion else { return nil }
-        guard !snapshot.windows.isEmpty else { return nil }
-        return snapshot
+        let deduplicatedSnapshot = removingDuplicateWindowWorkspaces(from: snapshot)
+        guard !deduplicatedSnapshot.windows.isEmpty else { return nil }
+        return deduplicatedSnapshot
     }
 
     @discardableResult
     static func save(_ snapshot: AppSessionSnapshot, fileURL: URL? = nil) -> Bool {
         guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return false }
+        let deduplicatedSnapshot = removingDuplicateWindowWorkspaces(from: snapshot)
+        guard !deduplicatedSnapshot.windows.isEmpty else { return false }
         let directory = fileURL.deletingLastPathComponent()
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
-            let data = try encodedSnapshotData(snapshot)
+            let data = try encodedSnapshotData(deduplicatedSnapshot)
             if let existingData = try? Data(contentsOf: fileURL), existingData == data {
                 return true
             }
@@ -400,6 +403,64 @@ enum SessionPersistenceStore {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         return try encoder.encode(snapshot)
+    }
+
+    private static func removingDuplicateWindowWorkspaces(from snapshot: AppSessionSnapshot) -> AppSessionSnapshot {
+        var seenPanelIds = Set<UUID>()
+        var deduplicatedWindows: [SessionWindowSnapshot] = []
+
+        for window in snapshot.windows {
+            if window.tabManager.workspaces.isEmpty {
+                deduplicatedWindows.append(window)
+                continue
+            }
+
+            var deduplicatedWindow = window
+            var keptWorkspaces: [SessionWorkspaceSnapshot] = []
+            var selectedWorkspaceIndex: Int?
+
+            for (workspaceIndex, workspace) in window.tabManager.workspaces.enumerated() {
+                let panelIds = panelIdentityIDs(in: workspace)
+                if !panelIds.isEmpty, !seenPanelIds.isDisjoint(with: panelIds) {
+                    continue
+                }
+
+                let keptIndex = keptWorkspaces.count
+                if workspaceIndex == window.tabManager.selectedWorkspaceIndex {
+                    selectedWorkspaceIndex = keptIndex
+                }
+                keptWorkspaces.append(workspace)
+                seenPanelIds.formUnion(panelIds)
+            }
+
+            guard !keptWorkspaces.isEmpty else { continue }
+
+            if selectedWorkspaceIndex == nil, window.tabManager.selectedWorkspaceIndex != nil {
+                selectedWorkspaceIndex = 0
+            }
+            deduplicatedWindow.tabManager.workspaces = keptWorkspaces
+            deduplicatedWindow.tabManager.selectedWorkspaceIndex = selectedWorkspaceIndex
+            deduplicatedWindows.append(deduplicatedWindow)
+        }
+
+        var deduplicatedSnapshot = snapshot
+        deduplicatedSnapshot.windows = deduplicatedWindows
+        return deduplicatedSnapshot
+    }
+
+    private static func panelIdentityIDs(in workspace: SessionWorkspaceSnapshot) -> Set<UUID> {
+        var panelIds = Set(workspace.panels.map(\.id))
+        panelIds.formUnion(panelIdentityIDs(in: workspace.layout))
+        return panelIds
+    }
+
+    private static func panelIdentityIDs(in layout: SessionWorkspaceLayoutSnapshot) -> Set<UUID> {
+        switch layout {
+        case .pane(let pane):
+            return Set(pane.panelIds)
+        case .split(let split):
+            return panelIdentityIDs(in: split.first).union(panelIdentityIDs(in: split.second))
+        }
     }
 
     static func removeSnapshot(fileURL: URL? = nil) {
