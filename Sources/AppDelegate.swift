@@ -5479,12 +5479,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        guard BrowserAvailabilitySettings.isEnabled() else { return false }
+
         let window = context.window ?? windowForMainWindowId(context.windowId)
         if let window {
             setActiveMainWindow(window)
         }
-
-        guard BrowserAvailabilitySettings.isEnabled() else { return false }
 
         return terminalPanel.toggleSidekick()
     }

@@ -186,10 +186,9 @@ final class TerminalPanel: Panel, ObservableObject {
         guard BrowserAvailabilitySettings.isEnabled() else { return false }
         if sidekickState.isOpen {
             closeSidekick()
-        } else {
-            openSidekick()
+            return true
         }
-        return true
+        return openSidekick()
     }
 
     @discardableResult
