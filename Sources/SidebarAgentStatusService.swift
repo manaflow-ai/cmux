@@ -186,6 +186,9 @@ extension TabManager {
             return
         }
 
+        for registrationKey in dueRegistrationKeys {
+            agentPIDDiscoveryLastStartedAtByRegistration[registrationKey] = now
+        }
         agentPIDDiscoveryInFlight = true
         let generation = agentPIDProbeGeneration
         Task.detached(priority: .utility) { [dueRegistrationKeys] in
