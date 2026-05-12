@@ -102,7 +102,7 @@ final class FeedCoordinatorTests: XCTestCase {
             lookupTarget: { agent, sessionId in
                 XCTAssertEqual(agent, "claude")
                 XCTAssertEqual(sessionId, "notif-match")
-                FeedJumpResolver.Target(
+                return FeedJumpResolver.Target(
                     workspaceId: target.workspaceId.uuidString,
                     surfaceId: target.surfaceId.uuidString
                 )
