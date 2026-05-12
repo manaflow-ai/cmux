@@ -108,22 +108,12 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
-    func testAvailableThemeNamesIncludesCmuxUserThemesDirectory() throws {
+    func testThemesListIncludesCmuxUserThemesDirectory() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-user-theme-list-\(UUID().uuidString)")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
-
-        let originalFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
-        setenv("CFFIXED_USER_HOME", root.path, 1)
-        defer {
-            if let originalFixedHome {
-                setenv("CFFIXED_USER_HOME", originalFixedHome, 1)
-            } else {
-                unsetenv("CFFIXED_USER_HOME")
-            }
-        }
 
         let themesDirectory = root
             .appendingPathComponent("Library/Application Support/com.cmuxterm.app/themes", isDirectory: true)
@@ -134,9 +124,21 @@ final class GhosttyConfigTests: XCTestCase {
             encoding: .utf8
         )
 
-        let themes = CMUXCLI(args: ["cmux", "themes", "list"]).availableThemeNames()
+        let result = runCLI(
+            try bundledCLIPath(),
+            arguments: ["--json", "themes", "list"],
+            environment: ["CFFIXED_USER_HOME": root.path],
+            timeout: 10
+        )
 
-        XCTAssertTrue(themes.contains("Zag Light"))
+        XCTAssertFalse(result.timedOut, result.output)
+        XCTAssertEqual(result.status, 0, result.output)
+
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.output.utf8)) as? [String: Any]
+        )
+        let themes = try XCTUnwrap(payload["themes"] as? [[String: Any]])
+        XCTAssertTrue(themes.contains { ($0["name"] as? String) == "Zag Light" }, result.output)
     }
 
     func testCmuxDefaultThemeConfigContentsSkipsInvalidUTF8Candidate() throws {
@@ -640,6 +642,81 @@ final class GhosttyConfigTests: XCTestCase {
             green: Int(round(green * 255)),
             blue: Int(round(blue * 255))
         )
+    }
+
+    private struct CLIResult {
+        let status: Int32
+        let output: String
+        let timedOut: Bool
+    }
+
+    private func bundledCLIPath() throws -> String {
+        let fileManager = FileManager.default
+        let appBundleURL = Bundle(for: Self.self)
+            .bundleURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let enumerator = fileManager.enumerator(
+            at: appBundleURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+
+        while let item = enumerator?.nextObject() as? URL {
+            guard item.lastPathComponent == "cmux",
+                  item.path.contains(".app/Contents/Resources/bin/cmux") else {
+                continue
+            }
+            return item.path
+        }
+
+        throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
+    }
+
+    private func runCLI(
+        _ cliPath: String,
+        arguments: [String],
+        environment overrides: [String: String],
+        timeout: TimeInterval
+    ) -> CLIResult {
+        let process = Process()
+        let outputPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: cliPath)
+        process.arguments = arguments
+        var environment = ProcessInfo.processInfo.environment
+        for (key, value) in overrides {
+            environment[key] = value
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = outputPipe
+        process.standardError = outputPipe
+
+        do {
+            try process.run()
+        } catch {
+            return CLIResult(status: -1, output: String(describing: error), timedOut: false)
+        }
+
+        let exitSignal = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            process.waitUntilExit()
+            exitSignal.signal()
+        }
+
+        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        if timedOut {
+            process.terminate()
+            _ = exitSignal.wait(timeout: .now() + 1)
+        }
+
+        let output = String(
+            data: outputPipe.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        return CLIResult(status: process.terminationStatus, output: output, timedOut: timedOut)
     }
 
 }
