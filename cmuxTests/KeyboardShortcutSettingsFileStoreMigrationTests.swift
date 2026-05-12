@@ -305,6 +305,44 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: defaultsKey) as? Bool, true)
     }
 
+    func testDeletedPrimaryConfigDoesNotGetRecreatedByUIEdit() throws {
+        let defaultsKey = "sidebarMatchTerminalBackground"
+        let defaults = UserDefaults.standard
+        let originalSetting = defaults.object(forKey: defaultsKey)
+        let originalBackups = defaults.object(forKey: "cmux.settingsFile.backups.v1")
+        defer {
+            restoreDefaultsValue(originalSetting, forKey: defaultsKey)
+            restoreDefaultsValue(originalBackups, forKey: "cmux.settingsFile.backups.v1")
+        }
+
+        defaults.set(false, forKey: defaultsKey)
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let primaryURL = directoryURL.appendingPathComponent("primary/cmux.json", isDirectory: false)
+        let notificationCenter = NotificationCenter()
+        var store: KeyboardShortcutSettingsFileStore?
+        defer { store = nil }
+        store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: nil,
+            notificationCenter: notificationCenter,
+            startWatching: true
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: primaryURL.path))
+
+        try FileManager.default.removeItem(at: primaryURL)
+        try XCTUnwrap(store).reload()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: primaryURL.path))
+        XCTAssertNil(store?.activeSourcePath)
+
+        waitForNoSettingsFileChange(on: notificationCenter) {
+            defaults.set(true, forKey: defaultsKey)
+            notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: primaryURL.path))
+    }
+
     func testProjectConfigManagedDefaultWriteBackPreservesJSONCComments() throws {
         let defaultsKey = "sidebarMatchTerminalBackground"
         let defaults = UserDefaults.standard
@@ -485,6 +523,24 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         }
         action()
         wait(for: [expectation], timeout: 2.0)
+        notificationCenter.removeObserver(observer)
+    }
+
+    private func waitForNoSettingsFileChange(
+        on notificationCenter: NotificationCenter,
+        after action: () -> Void
+    ) {
+        let expectation = expectation(description: "No settings file change notification")
+        expectation.isInverted = true
+        let observer = notificationCenter.addObserver(
+            forName: KeyboardShortcutSettings.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            expectation.fulfill()
+        }
+        action()
+        wait(for: [expectation], timeout: 0.5)
         notificationCenter.removeObserver(observer)
     }
 
