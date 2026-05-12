@@ -10666,13 +10666,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let keyCode: UInt16?
         if trigger.tag == GHOSTTY_TRIGGER_PHYSICAL {
-            keyCode = switch trigger.key.physical {
+            switch trigger.key.physical {
             case GHOSTTY_KEY_PAGE_UP:
-                116
+                keyCode = 116
             case GHOSTTY_KEY_PAGE_DOWN:
-                121
+                keyCode = 121
             default:
-                nil
+                keyCode = nil
             }
         } else {
             keyCode = nil
