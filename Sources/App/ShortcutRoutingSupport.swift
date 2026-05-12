@@ -58,6 +58,10 @@ func browserResponderHasMarkedText(_ responder: NSResponder?) -> Bool {
     return false
 }
 
+func isBrowserReturnOrEnterKeyCode(_ keyCode: UInt16) -> Bool {
+    keyCode == 36 || keyCode == 76
+}
+
 func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
     keyCode: UInt16,
     firstResponderIsBrowser: Bool,
@@ -66,7 +70,7 @@ func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
 ) -> Bool {
     guard firstResponderIsBrowser else { return false }
     guard !firstResponderHasMarkedText else { return false }
-    guard keyCode == 36 || keyCode == 76 else { return false }
+    guard isBrowserReturnOrEnterKeyCode(keyCode) else { return false }
     // Keep browser Return forwarding narrow: only plain/Shift Return should be
     // treated as submit-intent. Command-modified Return is reserved for app shortcuts
     // like Toggle Pane Zoom (Cmd+Shift+Enter).
