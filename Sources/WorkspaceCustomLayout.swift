@@ -88,7 +88,9 @@ extension Workspace {
         guard let rootPaneId = bonsplitController.allPaneIds.first else { return .failure(markdownPath: nil) }
 
         var leaves: [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])] = []
-        buildCustomLayoutTree(layout, inPane: rootPaneId, leaves: &leaves)
+        guard buildCustomLayoutTree(layout, inPane: rootPaneId, leaves: &leaves) else {
+            return .failure(markdownPath: nil)
+        }
 
         // First leaf reuses the initial terminal created by addWorkspace;
         // subsequent leaves were created via newTerminalSplit which also seeds
@@ -118,18 +120,18 @@ extension Workspace {
         _ node: CmuxLayoutNode,
         inPane paneId: PaneID,
         leaves: inout [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])]
-    ) {
+    ) -> Bool {
         switch node {
         case .pane(let pane):
             leaves.append((paneId: paneId, surfaces: pane.surfaces))
+            return true
 
         case .split(let split):
             guard split.children.count == 2 else {
                 workspaceCustomLayoutLogger.warning(
                     "Split node requires exactly 2 children, got \(split.children.count, privacy: .public)"
                 )
-                leaves.append((paneId: paneId, surfaces: []))
-                return
+                return false
             }
 
             var anchorPanelId = bonsplitController
@@ -149,12 +151,15 @@ extension Workspace {
                       focus: false
                   ),
                   let secondPaneId = self.paneId(forPanelId: newSplitPanel.id) else {
-                leaves.append((paneId: paneId, surfaces: []))
-                return
+                workspaceCustomLayoutLogger.warning("Failed to create split while applying custom layout")
+                return false
             }
 
-            buildCustomLayoutTree(split.children[0], inPane: paneId, leaves: &leaves)
-            buildCustomLayoutTree(split.children[1], inPane: secondPaneId, leaves: &leaves)
+            guard buildCustomLayoutTree(split.children[0], inPane: paneId, leaves: &leaves),
+                  buildCustomLayoutTree(split.children[1], inPane: secondPaneId, leaves: &leaves) else {
+                return false
+            }
+            return true
         }
     }
 
