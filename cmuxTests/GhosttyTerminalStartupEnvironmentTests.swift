@@ -30,6 +30,21 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         XCTAssertTrue(protectedKeys.contains("TERM_PROGRAM"))
     }
 
+    func testApplyManagedTerminalIdentityEnvironmentHonorsConfiguredTerminalType() {
+        var environment = [
+            "TERM": "xterm-ghostty"
+        ]
+        var protectedKeys: Set<String> = []
+
+        TerminalSurface.applyManagedTerminalIdentityEnvironment(
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+
+        XCTAssertEqual(environment["TERM"], "xterm-ghostty")
+        XCTAssertTrue(protectedKeys.contains("TERM"))
+    }
+
     func testMergedStartupEnvironmentAllowsSessionReplayAndInitialEnvCMUXKeys() {
         let replayPath = "/tmp/cmux-replay-\(UUID().uuidString)"
         let merged = TerminalSurface.mergedStartupEnvironment(
