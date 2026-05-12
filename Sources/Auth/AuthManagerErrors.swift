@@ -1,6 +1,5 @@
 import AuthenticationServices
 import Foundation
-import OSLog
 
 enum AuthManagerError: LocalizedError, Equatable {
     case invalidCallback
@@ -50,11 +49,6 @@ enum AuthSignInError: Equatable {
 }
 
 extension AuthManager {
-    nonisolated static let authLogger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? AuthKeychainServiceName.stableFallback,
-        category: "auth"
-    )
-
     nonisolated static func signInError(from error: Error) -> AuthSignInError {
         if let authError = error as? AuthManagerError {
             return .authManager(authError)

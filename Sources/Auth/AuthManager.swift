@@ -8,6 +8,13 @@ import StackAuth
 import Security
 #endif
 
+private extension AuthManager {
+    nonisolated static let authLogger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? AuthKeychainServiceName.stableFallback,
+        category: "auth"
+    )
+}
+
 private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
     static let shared = AuthPresentationContext()
 
