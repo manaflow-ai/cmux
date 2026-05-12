@@ -227,18 +227,38 @@ extension CMUXCLI {
         try fm.copyItem(at: checkoutURL, to: tempURL)
         try? fm.removeItem(at: tempURL.appendingPathComponent(".git", isDirectory: true))
 
+        var backupURLToFinalize: URL?
+        var shouldFinalizeBackup = true
+        defer {
+            guard shouldFinalizeBackup,
+                  let backupURL = backupURLToFinalize else { return }
+            if fm.fileExists(atPath: installURL.path) {
+                try? fm.removeItem(at: backupURL)
+            } else if fm.fileExists(atPath: backupURL.path) {
+                try? fm.moveItem(at: backupURL, to: installURL)
+            }
+        }
+
         if existed {
             let backupURL = parentURL.appendingPathComponent(".\(manifest.version).previous.\(UUID().uuidString)", isDirectory: true)
             try fm.moveItem(at: installURL, to: backupURL)
+            backupURLToFinalize = backupURL
             do {
                 try fm.moveItem(at: tempURL, to: installURL)
-                try? fm.removeItem(at: backupURL)
             } catch {
+                let installError = error
                 if !fm.fileExists(atPath: installURL.path),
                    fm.fileExists(atPath: backupURL.path) {
-                    try? fm.moveItem(at: backupURL, to: installURL)
+                    do {
+                        try fm.moveItem(at: backupURL, to: installURL)
+                    } catch {
+                        shouldFinalizeBackup = false
+                        let message = "Failed to replace extension at \(installURL.path): \(installError.localizedDescription). "
+                            + "Previous installation remains at \(backupURL.path) because restore failed: \(error.localizedDescription)"
+                        throw CLIError(message: message)
+                    }
                 }
-                throw error
+                throw installError
             }
         } else {
             try fm.moveItem(at: tempURL, to: installURL)
