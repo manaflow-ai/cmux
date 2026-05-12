@@ -1243,6 +1243,7 @@ final class CmuxSettingsFileStore {
         var sideEffects = ManagedDefaultBatchSideEffects()
         sideEffects.agentSessionAutoResumeDidChange =
             defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
+        sideEffects.terminalStatusBarDidChange = notifyStatusBar
         let language = defaultsKey == LanguageSettings.languageKey ? AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system : nil
         let shouldApplyAppearance = defaultsKey == AppearanceSettings.appearanceModeKey
         let appearanceRawValue = shouldApplyAppearance ? UserDefaults.standard.string(forKey: defaultsKey) : nil
@@ -1250,10 +1251,6 @@ final class CmuxSettingsFileStore {
         let apply = {
             if notifyScrollBar {
                 TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
-            }
-
-            if notifyStatusBar {
-                TerminalStatusBarSettings.notifyDidChange(notificationCenter: notificationCenter)
             }
 
             if let language {
@@ -1274,10 +1271,15 @@ final class CmuxSettingsFileStore {
     }
 
     private func applyManagedDefaultBatchSideEffects(_ sideEffects: ManagedDefaultBatchSideEffects) {
-        guard sideEffects.agentSessionAutoResumeDidChange else { return }
+        guard sideEffects.agentSessionAutoResumeDidChange || sideEffects.terminalStatusBarDidChange else { return }
         let notificationCenter = notificationCenter
         let apply = {
-            AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            if sideEffects.agentSessionAutoResumeDidChange {
+                AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+            if sideEffects.terminalStatusBarDidChange {
+                TerminalStatusBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
         }
         if Thread.isMainThread {
             apply()
@@ -1402,10 +1404,13 @@ private struct ResolvedSettingsSnapshot {
 
 private struct ManagedDefaultBatchSideEffects {
     var agentSessionAutoResumeDidChange = false
+    var terminalStatusBarDidChange = false
 
     mutating func merge(_ other: ManagedDefaultBatchSideEffects) {
         agentSessionAutoResumeDidChange =
             agentSessionAutoResumeDidChange || other.agentSessionAutoResumeDidChange
+        terminalStatusBarDidChange =
+            terminalStatusBarDidChange || other.terminalStatusBarDidChange
     }
 }
 

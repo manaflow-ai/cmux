@@ -203,37 +203,88 @@ final class TerminalStatusBarView: NSView {
 }
 
 private final class TerminalStatusBarProcessWaitState: @unchecked Sendable {
+    private enum Phase {
+        case waiting(timedOut: Bool)
+        case finished(timedOut: Bool)
+    }
+
     let process: Process
     // Termination and timeout callbacks run on different queues; the lock guards
     // the single continuation resume point without involving the MainActor.
     private let lock = NSLock()
-    private var didTimeout = false
-    private var didResume = false
+    private var phase: Phase = .waiting(timedOut: false)
+    private var killSource: DispatchSourceTimer?
 
     init(process: Process) {
         self.process = process
     }
 
+    func attachKillSource(_ source: DispatchSourceTimer) {
+        let shouldCancel: Bool
+        let shouldScheduleKill: Bool
+        lock.lock()
+        switch phase {
+        case .waiting(let timedOut):
+            killSource = source
+            shouldCancel = false
+            shouldScheduleKill = timedOut
+        case .finished:
+            shouldCancel = true
+            shouldScheduleKill = false
+        }
+        lock.unlock()
+
+        if shouldCancel {
+            source.cancel()
+        } else if shouldScheduleKill {
+            source.schedule(deadline: .now() + .milliseconds(500))
+        }
+    }
+
     func markTimedOut() {
         lock.lock()
-        didTimeout = true
+        if case .waiting = phase {
+            phase = .waiting(timedOut: true)
+        }
         lock.unlock()
     }
 
     func shouldTerminateAfterLaunch() -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return didTimeout && !didResume
+        if case .waiting(let timedOut) = phase {
+            return timedOut
+        }
+        return false
     }
 
     func finish() -> (shouldResume: Bool, timedOut: Bool) {
+        let source: DispatchSourceTimer?
         lock.lock()
-        defer { lock.unlock() }
-        guard !didResume else {
-            return (false, didTimeout)
+        switch phase {
+        case .finished(let timedOut):
+            lock.unlock()
+            return (false, timedOut)
+        case .waiting(let timedOut):
+            phase = .finished(timedOut: timedOut)
+            source = killSource
+            killSource = nil
+            lock.unlock()
+            source?.cancel()
+            return (true, timedOut)
         }
-        didResume = true
-        return (true, didTimeout)
+    }
+
+    func scheduleKillAfterGracePeriod() {
+        let source: DispatchSourceTimer?
+        lock.lock()
+        guard case .waiting = phase else {
+            lock.unlock()
+            return
+        }
+        source = killSource
+        lock.unlock()
+        source?.schedule(deadline: .now() + .milliseconds(500))
     }
 
     func terminateProcessIfRunning() {
@@ -416,7 +467,6 @@ final class TerminalStatusBarCommandController {
                 process.terminationHandler = { terminatedProcess in
                     terminatedProcess.terminationHandler = nil
                     timeoutSource.cancel()
-                    killSource.cancel()
                     let result = state.finish()
                     if result.shouldResume {
                         continuation.resume(returning: result.timedOut)
@@ -424,15 +474,15 @@ final class TerminalStatusBarCommandController {
                 }
                 killSource.setEventHandler {
                     state.killProcessIfRunning()
-                    killSource.cancel()
                 }
                 killSource.schedule(deadline: .distantFuture)
                 killSource.resume()
+                state.attachKillSource(killSource)
 
                 timeoutSource.setEventHandler {
                     state.markTimedOut()
                     state.terminateProcessIfRunning()
-                    killSource.schedule(deadline: .now() + 0.5)
+                    state.scheduleKillAfterGracePeriod()
                 }
                 timeoutSource.schedule(deadline: .now() + timeout)
                 timeoutSource.resume()
@@ -440,7 +490,6 @@ final class TerminalStatusBarCommandController {
                 do {
                     if Task.isCancelled {
                         timeoutSource.cancel()
-                        killSource.cancel()
                         process.terminationHandler = nil
                         let result = state.finish()
                         if result.shouldResume {
@@ -452,11 +501,10 @@ final class TerminalStatusBarCommandController {
                     try process.run()
                     if state.shouldTerminateAfterLaunch() {
                         state.terminateProcessIfRunning()
-                        killSource.schedule(deadline: .now() + 0.5)
+                        state.scheduleKillAfterGracePeriod()
                     }
                 } catch {
                     timeoutSource.cancel()
-                    killSource.cancel()
                     process.terminationHandler = nil
                     let result = state.finish()
                     if result.shouldResume {
@@ -467,9 +515,7 @@ final class TerminalStatusBarCommandController {
         }, onCancel: {
             state.markTimedOut()
             state.terminateProcessIfRunning()
-            timerQueue.asyncAfter(deadline: .now() + 0.5) {
-                state.killProcessIfRunning()
-            }
+            state.scheduleKillAfterGracePeriod()
         })
     }
 
