@@ -293,6 +293,10 @@ enum DiffReviewPatchParser {
         let header: String
         private var rawLines: [String] = []
 
+        init(header: String) {
+            self.header = header
+        }
+
         mutating func append(_ line: String) {
             rawLines.append(line)
         }
@@ -551,7 +555,7 @@ enum DiffReviewGitClient {
         process.standardError = errorPipe
 
         let inputPipe: Pipe?
-        if let standardInput {
+        if standardInput != nil {
             let pipe = Pipe()
             process.standardInput = pipe
             inputPipe = pipe
