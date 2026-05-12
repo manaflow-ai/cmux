@@ -145,6 +145,24 @@ def main() -> int:
         ]) or "{}")
         _must(token in str(capture_with_terminator.get("text") or ""), f"agent capture with -- missing token: {capture_with_terminator}")
 
+        scrollback_after_terminator = _run_agent_process(cli, [
+            "capture",
+            "--workspace",
+            workspace_id,
+            "--surface",
+            surface_id,
+            "--lines",
+            "80",
+            "--",
+            "--scrollback",
+        ])
+        scrollback_after_terminator_output = f"{scrollback_after_terminator.stdout}\n{scrollback_after_terminator.stderr}"
+        _must(scrollback_after_terminator.returncode != 0, "agent capture should reject --scrollback after --")
+        _must(
+            "unexpected arguments: --scrollback" in scrollback_after_terminator_output,
+            f"agent capture treated --scrollback after -- as a flag: {scrollback_after_terminator_output!r}",
+        )
+
         raw_capture = _run_agent(cli, [
             "capture",
             "--workspace",
