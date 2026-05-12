@@ -93,8 +93,17 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
             NoMarkedIMEKeyProbe(name: "End", text: "\u{F72B}", keyCode: UInt16(kVK_End)),
             NoMarkedIMEKeyProbe(name: "PageUp", text: "\u{F72C}", keyCode: UInt16(kVK_PageUp)),
             NoMarkedIMEKeyProbe(name: "PageDown", text: "\u{F72D}", keyCode: UInt16(kVK_PageDown)),
+            NoMarkedIMEKeyProbe(name: "Tab", text: "\t", keyCode: UInt16(kVK_Tab)),
             NoMarkedIMEKeyProbe(name: "Space", text: " ", keyCode: UInt16(kVK_Space)),
         ]
+    }
+
+    private var zhuyinCandidateCommandProbeNames: Set<String> {
+        ["Left", "Right", "Up", "Down", "PageUp", "PageDown", "Space"]
+    }
+
+    private var pinyinCandidateCommandProbeNames: Set<String> {
+        ["Left", "Right", "Up", "Down", "PageUp", "PageDown", "Tab"]
     }
 
     private func assertInputSourceDoesNotSwallowNoMarkedIMECommandKeys(
@@ -119,6 +128,117 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
                     inputSourceId: inputSourceId
                 ),
                 "\(inputSourceId) should forward \(probe.name) to Ghostty when no composition is active",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    private func assertInputSourceForwardsUnhandledNoMarkedIMECommandKeys(
+        _ inputSourceId: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let view = GhosttyNSView(frame: .zero)
+
+        for probe in noMarkedNavigationKeyProbes {
+            let event = try keyEvent(text: probe.text, keyCode: probe.keyCode, windowNumber: 0)
+
+            XCTAssertFalse(
+                view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                    markedTextBefore: "",
+                    markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
+                    markedTextAfter: "",
+                    markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                    accumulatedText: [],
+                    event: event,
+                    textInputHandledEvent: false,
+                    inputSourceId: inputSourceId
+                ),
+                "\(inputSourceId) should forward unhandled \(probe.name) to Ghostty when no composition is active",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    private func assertNoMarkedHandledCandidateCommandsStayInTextInput(
+        _ inputSourceId: String,
+        commandNames: Set<String>,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let view = GhosttyNSView(frame: .zero)
+
+        for probe in noMarkedNavigationKeyProbes where commandNames.contains(probe.name) {
+            let event = try keyEvent(text: probe.text, keyCode: probe.keyCode, windowNumber: 0)
+
+            XCTAssertTrue(
+                view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                    markedTextBefore: "",
+                    markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
+                    markedTextAfter: "",
+                    markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                    accumulatedText: [],
+                    event: event,
+                    textInputHandledEvent: true,
+                    inputSourceId: inputSourceId
+                ),
+                "\(inputSourceId) candidate \(probe.name) handled by NSTextInputContext must not leak to Ghostty",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    private func assertNoMarkedHandledNonCandidateCommandsForwardToGhostty(
+        _ inputSourceId: String,
+        candidateCommandNames: Set<String>,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let view = GhosttyNSView(frame: .zero)
+
+        for probe in noMarkedNavigationKeyProbes where !candidateCommandNames.contains(probe.name) {
+            let event = try keyEvent(text: probe.text, keyCode: probe.keyCode, windowNumber: 0)
+
+            XCTAssertFalse(
+                view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                    markedTextBefore: "",
+                    markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
+                    markedTextAfter: "",
+                    markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                    accumulatedText: [],
+                    event: event,
+                    textInputHandledEvent: true,
+                    inputSourceId: inputSourceId
+                ),
+                "\(inputSourceId) handled non-candidate \(probe.name) should still reach Ghostty",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    private func assertRoutesNoMarkedCandidateKeyEquivalentsThroughKeyDown(
+        _ inputSourceId: String,
+        commandNames: Set<String>,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let view = GhosttyNSView(frame: .zero)
+
+        for probe in noMarkedNavigationKeyProbes {
+            let event = try keyEvent(text: probe.text, keyCode: probe.keyCode, windowNumber: 0)
+            let shouldRoute = commandNames.contains(probe.name)
+
+            XCTAssertEqual(
+                view.shouldRouteTextInputKeyEquivalentToKeyDown(
+                    event,
+                    inputSourceId: inputSourceId
+                ),
+                shouldRoute,
+                "\(inputSourceId) \(probe.name) routing should match the no-marked-text candidate command policy",
                 file: file,
                 line: line
             )
@@ -474,9 +594,57 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
-    func testSimplifiedChinesePinyinDoesNotSwallowNavigationAndSpaceKeysWithoutComposition() throws {
-        try assertInputSourceDoesNotSwallowNoMarkedIMECommandKeys(
+    func testSimplifiedChinesePinyinForwardsUnhandledNavigationAndSpaceKeysWithoutComposition() throws {
+        try assertInputSourceForwardsUnhandledNoMarkedIMECommandKeys(
             "com.apple.inputmethod.SCIM.ITABC"
+        )
+    }
+
+    func testTraditionalChinesePinyinForwardsUnhandledNavigationAndSpaceKeysWithoutComposition() throws {
+        try assertInputSourceForwardsUnhandledNoMarkedIMECommandKeys(
+            "com.apple.inputmethod.TCIM.Pinyin"
+        )
+    }
+
+    func testSimplifiedChinesePinyinHandledCandidateCommandsStayInTextInputWithoutMarkedText() throws {
+        try assertNoMarkedHandledCandidateCommandsStayInTextInput(
+            "com.apple.inputmethod.SCIM.ITABC",
+            commandNames: pinyinCandidateCommandProbeNames
+        )
+    }
+
+    func testSimplifiedChinesePinyinHandledNonCandidateCommandsForwardWithoutMarkedText() throws {
+        try assertNoMarkedHandledNonCandidateCommandsForwardToGhostty(
+            "com.apple.inputmethod.SCIM.ITABC",
+            candidateCommandNames: pinyinCandidateCommandProbeNames
+        )
+    }
+
+    func testTraditionalChinesePinyinHandledCandidateCommandsStayInTextInputWithoutMarkedText() throws {
+        try assertNoMarkedHandledCandidateCommandsStayInTextInput(
+            "com.apple.inputmethod.TCIM.Pinyin",
+            commandNames: pinyinCandidateCommandProbeNames
+        )
+    }
+
+    func testTraditionalChinesePinyinHandledNonCandidateCommandsForwardWithoutMarkedText() throws {
+        try assertNoMarkedHandledNonCandidateCommandsForwardToGhostty(
+            "com.apple.inputmethod.TCIM.Pinyin",
+            candidateCommandNames: pinyinCandidateCommandProbeNames
+        )
+    }
+
+    func testRoutesSimplifiedChinesePinyinCandidateKeyEquivalentsThroughKeyDownWithoutMarkedText() throws {
+        try assertRoutesNoMarkedCandidateKeyEquivalentsThroughKeyDown(
+            "com.apple.inputmethod.SCIM.ITABC",
+            commandNames: pinyinCandidateCommandProbeNames
+        )
+    }
+
+    func testRoutesTraditionalChinesePinyinCandidateKeyEquivalentsThroughKeyDownWithoutMarkedText() throws {
+        try assertRoutesNoMarkedCandidateKeyEquivalentsThroughKeyDown(
+            "com.apple.inputmethod.TCIM.Pinyin",
+            commandNames: pinyinCandidateCommandProbeNames
         )
     }
 
@@ -486,25 +654,24 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
-    func testZhuyinPreCompositionStillUsesNoMarkedTextSuppression() throws {
-        let view = GhosttyNSView(frame: .zero)
-        let event = try keyEvent(
-            text: "\u{F701}",
-            keyCode: UInt16(kVK_DownArrow),
-            windowNumber: 0
+    func testZhuyinHandledCandidateCommandsStayInTextInputWithoutMarkedText() throws {
+        try assertNoMarkedHandledCandidateCommandsStayInTextInput(
+            "com.apple.inputmethod.TCIM.Zhuyin",
+            commandNames: zhuyinCandidateCommandProbeNames
         )
+    }
 
-        XCTAssertTrue(
-            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
-                markedTextBefore: "",
-                markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
-                markedTextAfter: "",
-                markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
-                accumulatedText: [],
-                event: event,
-                textInputHandledEvent: true,
-                inputSourceId: "com.apple.inputmethod.TCIM.Zhuyin"
-            )
+    func testZhuyinHandledNonCandidateCommandsForwardWithoutMarkedText() throws {
+        try assertNoMarkedHandledNonCandidateCommandsForwardToGhostty(
+            "com.apple.inputmethod.TCIM.Zhuyin",
+            candidateCommandNames: zhuyinCandidateCommandProbeNames
+        )
+    }
+
+    func testRoutesZhuyinCandidateKeyEquivalentsThroughKeyDownWithoutMarkedText() throws {
+        try assertRoutesNoMarkedCandidateKeyEquivalentsThroughKeyDown(
+            "com.apple.inputmethod.TCIM.Zhuyin",
+            commandNames: zhuyinCandidateCommandProbeNames
         )
     }
 

@@ -1,6 +1,51 @@
 import AppKit
 import Carbon.HIToolbox
 
+private enum NoMarkedIMECandidateCommandSet {
+    case applePinyin
+    case bopomofo
+
+    init?(inputSourceId: String?) {
+        guard let inputSourceId else { return nil }
+        if inputSourceId.localizedCaseInsensitiveContains("Zhuyin")
+            || inputSourceId.localizedCaseInsensitiveContains("Bopomofo") {
+            self = .bopomofo
+            return
+        }
+
+        // Keep this to known Apple Pinyin source IDs. A broad "Pinyin"
+        // predicate can swallow handled no-output keys for unrelated IMEs.
+        if inputSourceId == "com.apple.inputmethod.SCIM.ITABC"
+            || inputSourceId == "com.apple.inputmethod.TCIM.Pinyin" {
+            self = .applePinyin
+            return
+        }
+
+        return nil
+    }
+
+    func contains(_ keyCode: Int) -> Bool {
+        switch self {
+        case .applePinyin:
+            switch keyCode {
+            case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow,
+                 kVK_PageUp, kVK_PageDown, kVK_Tab:
+                return true
+            default:
+                return false
+            }
+        case .bopomofo:
+            switch keyCode {
+            case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow,
+                 kVK_PageUp, kVK_PageDown, kVK_Space:
+                return true
+            default:
+                return false
+            }
+        }
+    }
+}
+
 extension GhosttyNSView {
     /// Clamps AppKit's marked-text selection into the active preedit buffer.
     func normalizedMarkedSelectionRange(_ range: NSRange, markedLength: Int) -> NSRange {
@@ -44,8 +89,8 @@ extension GhosttyNSView {
         let hadMarkedTextBefore = !before.text.isEmpty
         let hasMarkedTextAfter = !after.text.isEmpty
         guard hadMarkedTextBefore || hasMarkedTextAfter else {
-            guard textInputHandledEvent, isBopomofoInputSource(inputSourceId) else { return false }
-            return shouldKeepNoMarkedIMECommandInsideTextInput(event)
+            guard textInputHandledEvent else { return false }
+            return shouldKeepNoMarkedIMECommandInsideTextInput(event, inputSourceId: inputSourceId)
         }
 
         if before.text != after.text {
@@ -67,12 +112,6 @@ extension GhosttyNSView {
         return sourceId.localizedCaseInsensitiveContains("inputmethod")
     }
 
-    func isBopomofoInputSource(_ sourceId: String?) -> Bool {
-        guard let sourceId else { return false }
-        return sourceId.localizedCaseInsensitiveContains("Zhuyin")
-            || sourceId.localizedCaseInsensitiveContains("Bopomofo")
-    }
-
     func hasOnlyTextInputCommandModifiers(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags
             .intersection(.deviceIndependentFlagsMask)
@@ -80,16 +119,13 @@ extension GhosttyNSView {
         return flags.isEmpty || flags == [.shift]
     }
 
-    func shouldKeepNoMarkedIMECommandInsideTextInput(_ event: NSEvent?) -> Bool {
+    func shouldKeepNoMarkedIMECommandInsideTextInput(_ event: NSEvent?, inputSourceId: String?) -> Bool {
         guard let event else { return false }
         guard hasOnlyTextInputCommandModifiers(event) else { return false }
-
-        switch Int(event.keyCode) {
-        case kVK_DownArrow, kVK_PageUp, kVK_PageDown, kVK_Space:
-            return true
-        default:
-            return false
-        }
+        guard let commandSet = NoMarkedIMECandidateCommandSet(
+            inputSourceId: inputSourceId
+        ) else { return false }
+        return commandSet.contains(Int(event.keyCode))
     }
 
     /// Returns true when a window-level key-equivalent probe should re-enter
@@ -106,8 +142,10 @@ extension GhosttyNSView {
             return isInputMethodSource(resolvedInputSourceId)
                 && shouldKeepIMECompositionCommandInsideTextInput(event)
         }
-        return isBopomofoInputSource(resolvedInputSourceId)
-            && shouldKeepNoMarkedIMECommandInsideTextInput(event)
+        return shouldKeepNoMarkedIMECommandInsideTextInput(
+            event,
+            inputSourceId: resolvedInputSourceId
+        )
     }
 
     /// Returns true for active-composition command keys that belong to AppKit's
