@@ -457,6 +457,12 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.showScrollBar", sourcePath: sourcePath)
         }
 
+        if let value = jsonBool(section["copyOnSelect"]) {
+            snapshot.managedUserDefaults[TerminalCopyOnSelectSettings.copyOnSelectKey] = .bool(value)
+        } else if section.keys.contains("copyOnSelect") {
+            logInvalid("terminal.copyOnSelect", sourcePath: sourcePath)
+        }
+
         if let value = jsonBool(section["autoResumeAgentSessions"]) {
             snapshot.managedUserDefaults[AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey] = .bool(value)
         } else if section.keys.contains("autoResumeAgentSessions") {
@@ -1191,6 +1197,8 @@ final class CmuxSettingsFileStore {
         let notificationCenter = notificationCenter
         let notifyScrollBar = defaultsKey == TerminalScrollBarSettings.showScrollBarKey
         var sideEffects = ManagedDefaultBatchSideEffects()
+        sideEffects.terminalCopyOnSelectDidChange =
+            defaultsKey == TerminalCopyOnSelectSettings.copyOnSelectKey
         sideEffects.agentSessionAutoResumeDidChange =
             defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
         let language = defaultsKey == LanguageSettings.languageKey ? AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system : nil
@@ -1220,10 +1228,15 @@ final class CmuxSettingsFileStore {
     }
 
     private func applyManagedDefaultBatchSideEffects(_ sideEffects: ManagedDefaultBatchSideEffects) {
-        guard sideEffects.agentSessionAutoResumeDidChange else { return }
+        guard sideEffects.hasChanges else { return }
         let notificationCenter = notificationCenter
         let apply = {
-            AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            if sideEffects.terminalCopyOnSelectDidChange {
+                TerminalCopyOnSelectSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+            if sideEffects.agentSessionAutoResumeDidChange {
+                AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
         }
         if Thread.isMainThread {
             apply()
@@ -1347,9 +1360,16 @@ private struct ResolvedSettingsSnapshot {
 }
 
 private struct ManagedDefaultBatchSideEffects {
+    var terminalCopyOnSelectDidChange = false
     var agentSessionAutoResumeDidChange = false
 
+    var hasChanges: Bool {
+        terminalCopyOnSelectDidChange || agentSessionAutoResumeDidChange
+    }
+
     mutating func merge(_ other: ManagedDefaultBatchSideEffects) {
+        terminalCopyOnSelectDidChange =
+            terminalCopyOnSelectDidChange || other.terminalCopyOnSelectDidChange
         agentSessionAutoResumeDidChange =
             agentSessionAutoResumeDidChange || other.agentSessionAutoResumeDidChange
     }

@@ -61,6 +61,7 @@ const settingsFileExample = `{
 
   // "terminal": {
   //   "showScrollBar": false,
+  //   "copyOnSelect": true,
   //   "autoResumeAgentSessions": true
   // },
 

@@ -75884,8 +75884,8 @@
         }
     },
     "settings.search.alias.setting.terminal.scrollbar": {
-        "extractionState": "manual",
-        "localizations": {
+      "extractionState": "manual",
+      "localizations": {
             "en": {
                 "stringUnit": {
                     "state": "translated",
@@ -75999,12 +75999,29 @@
                     "state": "translated",
                     "value": "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui програма загальні параметри поведінка док рядок меню статус бічна панель термінал shell історія прокручування смуга екран імпорт міграція закладки cookies профілі • %@"
                 }
-            }
         }
+      }
+    },
+    "settings.search.alias.setting.terminal.copy-on-select": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm 選択 コピー クリップボード マウス ダブルクリック トリプルクリック"
+          }
+        }
+      }
     },
     "settings.search.alias.setting.sidebarAppearance.match-terminal": {
-        "extractionState": "manual",
-        "localizations": {
+      "extractionState": "manual",
+      "localizations": {
             "en": {
                 "stringUnit": {
                     "state": "translated",
@@ -105428,6 +105445,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "シェルのスクロールバックでは右端のターミナルスクロールバーを表示します。cmux は代替画面系の TUI では自動的に隠し、ワークスペースごとにも無効化できます。"
+          }
+        }
+      }
+    },
+    "settings.terminal.copyOnSelect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy on Selection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択時にコピー"
+          }
+        }
+      }
+    },
+    "settings.terminal.copyOnSelect.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal selections do not replace the system clipboard. Use Cmd+C to copy manually."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルで選択してもシステムクリップボードは置き換えません。コピーするには Cmd+C を使います。"
+          }
+        }
+      }
+    },
+    "settings.terminal.copyOnSelect.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected terminal text is copied to the system clipboard when the selection is committed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択が確定したとき、ターミナルで選択したテキストをシステムクリップボードへコピーします。"
           }
         }
       }
