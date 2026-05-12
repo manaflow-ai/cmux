@@ -305,16 +305,11 @@ public enum CmuxSettingsRegistry {
     }
 
     public static func normalizeCommandLineValue(_ raw: String, for definition: SettingDefinition) throws -> Any {
-        if case .string = definition.kind {
-            return try normalizeJSONValue(raw, for: definition)
-        }
-
-        if let jsonValue = parseJSONLiteral(raw) {
-            return try normalizeJSONValue(jsonValue, for: definition)
-        }
-
         switch definition.kind {
         case .bool:
+            if let jsonValue = parseJSONLiteral(raw) {
+                return try normalizeJSONValue(jsonValue, for: definition)
+            }
             switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
             case "true", "yes", "on", "1":
                 return true
@@ -324,11 +319,17 @@ public enum CmuxSettingsRegistry {
                 throw ValidationError(message: "\(definition.key) expects true or false")
             }
         case .int:
+            if let jsonValue = parseJSONLiteral(raw) {
+                return try normalizeJSONValue(jsonValue, for: definition)
+            }
             guard let value = Int(raw) else {
                 throw ValidationError(message: "\(definition.key) expects an integer")
             }
             return try normalizeJSONValue(value, for: definition)
         case .double:
+            if let jsonValue = parseJSONLiteral(raw) {
+                return try normalizeJSONValue(jsonValue, for: definition)
+            }
             guard let value = Double(raw) else {
                 throw ValidationError(message: "\(definition.key) expects a number")
             }
@@ -336,22 +337,37 @@ public enum CmuxSettingsRegistry {
         case .string:
             return try normalizeJSONValue(raw, for: definition)
         case .enumValue:
+            if let jsonValue = parseJSONLiteral(raw) {
+                return try normalizeJSONValue(jsonValue, for: definition)
+            }
             return try normalizeJSONValue(raw, for: definition)
         case .hexColor:
+            if let jsonValue = parseJSONLiteral(raw) {
+                return try normalizeJSONValue(jsonValue, for: definition)
+            }
             return try normalizeJSONValue(raw, for: definition)
         case .nullableHexColor:
+            if let jsonValue = parseJSONLiteral(raw) {
+                return try normalizeJSONValue(jsonValue, for: definition)
+            }
             let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             if ["null", "none", "default", "system"].contains(normalized) {
                 return NSNull()
             }
             return try normalizeJSONValue(raw, for: definition)
         case .stringList:
+            if let jsonValue = parseJSONLiteral(raw) {
+                return try normalizeJSONValue(jsonValue, for: definition)
+            }
             let values = raw
                 .components(separatedBy: CharacterSet(charactersIn: ",\n"))
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
             return try normalizeJSONValue(values, for: definition)
         case .stringDictionary, .hexColorDictionary:
+            if let jsonValue = parseJSONLiteral(raw) {
+                return try normalizeJSONValue(jsonValue, for: definition)
+            }
             throw ValidationError(message: "\(definition.key) expects a JSON object value")
         }
     }
