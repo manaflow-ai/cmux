@@ -99,6 +99,13 @@ extension CMUXCLI {
 
         appendIfExisting(URL(fileURLWithPath: "/Applications/Ghostty.app/Contents/Resources/ghostty/themes", isDirectory: true))
         appendIfExisting(URL(fileURLWithPath: NSString(string: "~/.config/ghostty/themes").expandingTildeInPath, isDirectory: true))
+        if let appSupportDirectory = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            appendIfExisting(
+                appSupportDirectory
+                    .appendingPathComponent(Self.cmuxThemeOverrideBundleIdentifier, isDirectory: true)
+                    .appendingPathComponent("themes", isDirectory: true)
+            )
+        }
         appendIfExisting(
             URL(
                 fileURLWithPath: NSString(

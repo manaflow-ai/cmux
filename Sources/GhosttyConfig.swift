@@ -683,6 +683,7 @@ struct GhosttyConfig {
         // 4) Common system/user fallback locations.
         appendUniquePath("/Applications/Ghostty.app/Contents/Resources/ghostty/themes/\(themeName)")
         appendUniquePath("~/.config/ghostty/themes/\(themeName)")
+        appendUniquePath("~/Library/Application Support/com.cmuxterm.app/themes/\(themeName)")
         appendUniquePath("~/Library/Application Support/com.mitchellh.ghostty/themes/\(themeName)")
 
         return paths
