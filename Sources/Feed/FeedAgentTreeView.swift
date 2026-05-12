@@ -3,6 +3,7 @@ import SwiftUI
 
 struct FeedAgentTreeView: View {
     let graph: WorkstreamAgentGraphSnapshot
+    let rows: [FeedAgentTreeRow]
     let actions: FeedRowActions
     @Binding var collapsedNodeIds: Set<String>
     let selectedNodeId: String?
@@ -33,7 +34,7 @@ struct FeedAgentTreeView: View {
 
     private var rowStack: some View {
         LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(flattenedRows) { row in
+            ForEach(rows) { row in
                 rowView(for: row)
             }
         }
@@ -112,26 +113,6 @@ struct FeedAgentTreeView: View {
         )
     }
 
-    private var flattenedRows: [FeedAgentTreeRow] {
-        var rows: [FeedAgentTreeRow] = []
-        for root in graph.roots {
-            append(node: root, depth: 0, to: &rows)
-        }
-        return rows
-    }
-
-    private func append(
-        node: WorkstreamAgentTreeNode,
-        depth: Int,
-        to rows: inout [FeedAgentTreeRow]
-    ) {
-        rows.append(FeedAgentTreeRow(node: node, depth: depth))
-        guard !collapsedNodeIds.contains(node.id) else { return }
-        for child in node.children {
-            append(node: child, depth: depth + 1, to: &rows)
-        }
-    }
-
     private func toggle(_ id: String) {
         if collapsedNodeIds.contains(id) {
             collapsedNodeIds.remove(id)
@@ -141,7 +122,7 @@ struct FeedAgentTreeView: View {
     }
 }
 
-private struct FeedAgentTreeRow: Identifiable, Equatable {
+struct FeedAgentTreeRow: Identifiable, Equatable {
     let node: WorkstreamAgentTreeNode
     let depth: Int
 

@@ -88,6 +88,9 @@ public nonisolated struct WorkstreamAgentGraphSnapshot: Codable, Sendable, Equat
 }
 
 public nonisolated enum WorkstreamAgentGraphBuilder {
+    private static let sourcesByDescendingPrefixLength = WorkstreamSource.allCases
+        .sorted(by: { $0.rawValue.count > $1.rawValue.count })
+
     public static func snapshot(from items: [WorkstreamItem]) -> WorkstreamAgentGraphSnapshot {
         func shouldCancel() -> Bool {
             Task.isCancelled
@@ -145,7 +148,7 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
         }
 
         func sourceFromWorkstreamId(_ workstreamId: String) -> WorkstreamSource? {
-            for source in WorkstreamSource.allCases.sorted(by: { $0.rawValue.count > $1.rawValue.count }) {
+            for source in Self.sourcesByDescendingPrefixLength {
                 if workstreamId.hasPrefix("\(source.rawValue)-") {
                     return source
                 }
@@ -161,11 +164,11 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
                 createdAt: item.createdAt,
                 workspaceId: item.workspaceId
             )
+            let metadata = AgentGraphMetadata(item: item)
             updateRecord(item.workstreamId) { record in
-                record.absorb(item)
+                record.absorb(item, metadata: metadata)
             }
 
-            let metadata = AgentGraphMetadata(item: item)
             if let parentWorkstreamId = metadata.parentWorkstreamId(source: item.source) {
                 linkChildSession(
                     childWorkstreamId: item.workstreamId,
@@ -356,7 +359,7 @@ private struct SessionRecord {
     let createdAt: Date
     var updatedAt: Date
 
-    mutating func absorb(_ item: WorkstreamItem) {
+    mutating func absorb(_ item: WorkstreamItem, metadata: AgentGraphMetadata? = nil) {
         updatedAt = max(updatedAt, item.updatedAt)
         if workspaceId == nil {
             workspaceId = item.workspaceId
@@ -376,13 +379,13 @@ private struct SessionRecord {
         case .userPrompt(let text):
             mergeTaskDescription(text)
         case .toolUse(let toolName, let toolInputJSON):
-            let metadata = AgentGraphMetadata(
+            let resolvedMetadata = metadata ?? AgentGraphMetadata(
                 source: item.source,
                 extraFieldsJSON: item.extraFieldsJSON,
                 toolName: toolName,
                 toolInputJSON: toolInputJSON
             )
-            merge(metadata: metadata)
+            merge(metadata: resolvedMetadata)
         default:
             break
         }

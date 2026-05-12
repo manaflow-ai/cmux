@@ -178,13 +178,14 @@ private struct FeedListView: View {
     @State private var selectedAgentTreeNodeId: String?
     @State private var agentTreeScrollRequest: FeedAgentTreeScrollRequest?
     @State private var agentTreeScrollRequestSequence = 0
+    @State private var agentTreeVisibleSnapshot = FeedAgentTreeVisibleSnapshot.empty
 
     var body: some View {
         let rowActions = FeedRowActions.bound()
         let snapshots = filter == .agentTree ? [] : visibleSnapshots(items)
         let activityGroups = filter == .activity ? activitySnapshotGroups(snapshots) : nil
         let focusSnapshots = activityGroups?.ordered ?? snapshots
-        let agentTreeFocusTargets = filter == .agentTree ? visibleAgentTreeFocusTargets(agentGraphSnapshot) : []
+        let visibleAgentTree = agentTreeVisibleSnapshot
         ScrollViewReader { proxy in
             Group {
                 if filter == .agentTree {
@@ -193,6 +194,7 @@ private struct FeedListView: View {
                     } else {
                         FeedAgentTreeView(
                             graph: agentGraphSnapshot,
+                            rows: visibleAgentTree.rows,
                             actions: rowActions,
                             collapsedNodeIds: $collapsedAgentTreeNodeIds,
                             selectedNodeId: selectedAgentTreeNodeId,
@@ -230,21 +232,21 @@ private struct FeedListView: View {
                     },
                     onMoveSelection: { delta in
                         if filter == .agentTree {
-                            moveAgentTreeSelection(in: agentTreeFocusTargets, delta: delta)
+                            moveAgentTreeSelection(in: visibleAgentTree.focusTargets, delta: delta)
                         } else {
                             moveSelection(in: focusSnapshots, delta: delta)
                         }
                     },
                     onActivateSelection: {
                         if filter == .agentTree {
-                            activateAgentTreeSelection(in: agentTreeFocusTargets, actions: rowActions)
+                            activateAgentTreeSelection(in: visibleAgentTree.focusTargets, actions: rowActions)
                         } else {
                             activateSelection(in: focusSnapshots, actions: rowActions)
                         }
                     },
                     onFocusFirstItemRequested: {
                         if filter == .agentTree {
-                            focusFirstAgentTreeItem(in: agentTreeFocusTargets, focusHost: false)
+                            focusFirstAgentTreeItem(in: visibleAgentTree.focusTargets, focusHost: false)
                         } else {
                             focusFirstVisibleItem(in: focusSnapshots, focusHost: false)
                         }
@@ -262,6 +264,18 @@ private struct FeedListView: View {
                 )
                 .frame(width: 1, height: 1)
             )
+            .onAppear {
+                refreshAgentTreeVisibleSnapshot()
+            }
+            .onChange(of: filter) { _, _ in
+                refreshAgentTreeVisibleSnapshot()
+            }
+            .onChange(of: agentGraphSnapshot) { _, _ in
+                refreshAgentTreeVisibleSnapshot()
+            }
+            .onChange(of: collapsedAgentTreeNodeIds) { _, _ in
+                refreshAgentTreeVisibleSnapshot()
+            }
         }
     }
 
@@ -474,29 +488,6 @@ private struct FeedListView: View {
         }
     }
 
-    private func visibleAgentTreeFocusTargets(
-        _ graph: WorkstreamAgentGraphSnapshot
-    ) -> [FeedAgentTreeFocusTarget] {
-        var targets: [FeedAgentTreeFocusTarget] = []
-        for root in graph.roots {
-            appendAgentTreeFocusTargets(node: root, to: &targets)
-        }
-        return targets
-    }
-
-    private func appendAgentTreeFocusTargets(
-        node: WorkstreamAgentTreeNode,
-        to targets: inout [FeedAgentTreeFocusTarget]
-    ) {
-        if let target = FeedAgentTreeFocusTarget(node: node) {
-            targets.append(target)
-        }
-        guard !collapsedAgentTreeNodeIds.contains(node.id) else { return }
-        for child in node.children {
-            appendAgentTreeFocusTargets(node: child, to: &targets)
-        }
-    }
-
     private func prefersStableSurface(_ snapshot: FeedItemSnapshot) -> Bool {
         snapshot.status.isPending || snapshot.kind == .stop
     }
@@ -558,6 +549,21 @@ private struct FeedListView: View {
         selectRow(targetId, focusFeed: focusHost)
         scrollRequestSequence &+= 1
         scrollRequest = FeedScrollRequest(id: targetId, sequence: scrollRequestSequence)
+    }
+
+    private func refreshAgentTreeVisibleSnapshot() {
+        let nextSnapshot: FeedAgentTreeVisibleSnapshot
+        if filter == .agentTree {
+            nextSnapshot = FeedAgentTreeVisibleSnapshot(
+                graph: agentGraphSnapshot,
+                collapsedNodeIds: collapsedAgentTreeNodeIds
+            )
+        } else {
+            nextSnapshot = .empty
+        }
+        if agentTreeVisibleSnapshot != nextSnapshot {
+            agentTreeVisibleSnapshot = nextSnapshot
+        }
     }
 
     private func preferredFocusItemId(in snapshots: [FeedItemSnapshot]) -> UUID? {
@@ -776,6 +782,60 @@ private struct FeedListView: View {
 private struct FeedScrollRequest: Equatable {
     let id: UUID
     let sequence: Int
+}
+
+private struct FeedAgentTreeVisibleSnapshot: Equatable {
+    let rows: [FeedAgentTreeRow]
+    let focusTargets: [FeedAgentTreeFocusTarget]
+
+    static let empty = FeedAgentTreeVisibleSnapshot(rows: [], focusTargets: [])
+
+    init(rows: [FeedAgentTreeRow], focusTargets: [FeedAgentTreeFocusTarget]) {
+        self.rows = rows
+        self.focusTargets = focusTargets
+    }
+
+    init(
+        graph: WorkstreamAgentGraphSnapshot,
+        collapsedNodeIds: Set<String>
+    ) {
+        var rows: [FeedAgentTreeRow] = []
+        var focusTargets: [FeedAgentTreeFocusTarget] = []
+        for root in graph.roots {
+            Self.append(
+                node: root,
+                depth: 0,
+                collapsedNodeIds: collapsedNodeIds,
+                rows: &rows,
+                focusTargets: &focusTargets
+            )
+        }
+        self.rows = rows
+        self.focusTargets = focusTargets
+    }
+
+    private static func append(
+        node: WorkstreamAgentTreeNode,
+        depth: Int,
+        collapsedNodeIds: Set<String>,
+        rows: inout [FeedAgentTreeRow],
+        focusTargets: inout [FeedAgentTreeFocusTarget]
+    ) {
+        rows.append(FeedAgentTreeRow(node: node, depth: depth))
+        if let target = FeedAgentTreeFocusTarget(node: node) {
+            focusTargets.append(target)
+        }
+        guard !collapsedNodeIds.contains(node.id) else { return }
+        for child in node.children {
+            append(
+                node: child,
+                depth: depth + 1,
+                collapsedNodeIds: collapsedNodeIds,
+                rows: &rows,
+                focusTargets: &focusTargets
+            )
+        }
+    }
 }
 
 private struct FeedAgentTreeFocusTarget: Equatable {
