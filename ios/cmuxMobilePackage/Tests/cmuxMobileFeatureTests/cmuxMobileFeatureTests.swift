@@ -217,10 +217,12 @@ import Testing
 
 @MainActor
 @Test func manualHostPairingUsesHostPortRouteForLANAddressAndCustomPort() async throws {
-    let responses = try scriptedWorkspaceListResponses(
-        workspaceID: "lan-workspace",
-        title: "LAN Workspace"
-    )
+    let responses = ScriptedTransportResponses([
+        try rpcHostStatusFrame(routes: [
+            try routePayload(kind: .tailscale, host: "100.71.210.41", port: 15432, priority: 10),
+        ]),
+        try rpcWorkspaceListFrame(workspaceID: "lan-workspace", title: "LAN Workspace"),
+    ])
     let runtime = CMUXMobileRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses)
@@ -236,19 +238,25 @@ import Testing
     #expect(store.connectedHostName == "Studio LAN")
     #expect(route.kind == .tailscale)
     if case let .hostPort(host, port) = route.endpoint {
-        #expect(host == "192.168.1.77")
+        #expect(host == "100.71.210.41")
         #expect(port == 15432)
     } else {
-        Issue.record("manual LAN route should use host/port")
+        Issue.record("manual LAN route should switch to the advertised Tailscale host/port")
     }
+    let requests = try await responses.sentRequests()
+    #expect(requests.first?.method == "mobile.host.status")
+    #expect(requests.first?.hasAuth == false)
+    #expect(requests.dropFirst().first?.method == "workspace.list")
 }
 
 @MainActor
 @Test func manualHostPairingUsesHostPortRouteForDNSNameAndCustomPort() async throws {
-    let responses = try scriptedWorkspaceListResponses(
-        workspaceID: "dns-workspace",
-        title: "DNS Workspace"
-    )
+    let responses = ScriptedTransportResponses([
+        try rpcHostStatusFrame(routes: [
+            try routePayload(kind: .tailscale, host: "100.71.210.41", port: 61234, priority: 10),
+        ]),
+        try rpcWorkspaceListFrame(workspaceID: "dns-workspace", title: "DNS Workspace"),
+    ])
     let runtime = CMUXMobileRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses)
@@ -264,11 +272,53 @@ import Testing
     #expect(store.connectedHostName == "devbox.local")
     #expect(route.kind == .tailscale)
     if case let .hostPort(host, port) = route.endpoint {
-        #expect(host == "devbox.local")
+        #expect(host == "100.71.210.41")
         #expect(port == 61234)
     } else {
-        Issue.record("manual DNS route should use host/port")
+        Issue.record("manual DNS route should switch to the advertised Tailscale host/port")
     }
+}
+
+@MainActor
+@Test func manualHostPairingRejectsLANHostWhenMacDoesNotAdvertiseSecureRoute() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcHostStatusFrame(routes: []),
+    ])
+    let runtime = CMUXMobileRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectManualHost(name: "Studio LAN", host: "192.168.1.77", port: 15432)
+
+    #expect(store.phase == .pairing)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.connectionError == "Use your Mac's Tailscale 100.x address, or pair with a QR/link from that Mac.")
+}
+
+@MainActor
+@Test func manualHostPairingTimesOutWrongHostWithoutStayingConnected() async throws {
+    let route = try CmxAttachRoute(
+        id: "tailscale",
+        kind: .tailscale,
+        endpoint: .hostPort(host: "100.71.210.41", port: 4865)
+    )
+    let runtime = CMUXMobileRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: HangingTransportFactory(),
+        rpcRequestTimeoutNanoseconds: 1_000_000
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectManualHost(name: "Slow Mac", host: "100.71.210.41", port: 4865)
+
+    #expect(route.kind == .tailscale)
+    #expect(store.phase == .pairing)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.connectionError == "The Mac did not respond. Check the host and port, then try again.")
 }
 
 @MainActor
@@ -581,20 +631,57 @@ private func scriptedWorkspaceListResponses(
     title: String
 ) throws -> ScriptedTransportResponses {
     ScriptedTransportResponses([
-        try rpcResultFrame(
-            result: [
-                "workspaces": [
-                    [
-                        "id": workspaceID,
-                        "title": title,
-                        "current_directory": "/Users/test/project",
-                        "is_selected": true,
-                        "terminals": [],
-                    ],
-                ],
-            ]
-        ),
+        try rpcWorkspaceListFrame(workspaceID: workspaceID, title: title),
     ])
+}
+
+private func rpcWorkspaceListFrame(
+    workspaceID: String,
+    title: String
+) throws -> Data {
+    try rpcResultFrame(
+        result: [
+            "workspaces": [
+                [
+                    "id": workspaceID,
+                    "title": title,
+                    "current_directory": "/Users/test/project",
+                    "is_selected": true,
+                    "terminals": [],
+                ],
+            ],
+        ]
+    )
+}
+
+private func rpcHostStatusFrame(routes: [[String: Any]]) throws -> Data {
+    try rpcResultFrame(
+        result: [
+            "is_running": true,
+            "port": 4865,
+            "routes": routes,
+            "active_connection_count": 1,
+            "last_error": NSNull(),
+        ]
+    )
+}
+
+private func routePayload(
+    kind: CmxAttachTransportKind,
+    host: String,
+    port: Int,
+    priority: Int
+) throws -> [String: Any] {
+    [
+        "id": kind.rawValue,
+        "kind": kind.rawValue,
+        "endpoint": [
+            "type": "host_port",
+            "host": host,
+            "port": port,
+        ],
+        "priority": priority,
+    ]
 }
 
 private struct ScriptedTransportFactory: CmxByteTransportFactory {
@@ -607,6 +694,7 @@ private struct ScriptedTransportFactory: CmxByteTransportFactory {
 
 private actor ScriptedTransportResponses {
     private var frames: [Data]
+    private var sentPayloads: [Data] = []
 
     init(_ frames: [Data]) {
         self.frames = frames
@@ -618,6 +706,26 @@ private actor ScriptedTransportResponses {
         }
         return frames.removeFirst()
     }
+
+    func recordSend(_ data: Data) throws {
+        var buffer = data
+        sentPayloads.append(contentsOf: try MobileSyncFrameCodec.decodeFrames(from: &buffer))
+    }
+
+    func sentRequests() throws -> [RecordedRPCRequest] {
+        try sentPayloads.map { payload in
+            let request = try #require(JSONSerialization.jsonObject(with: payload) as? [String: Any])
+            return RecordedRPCRequest(
+                method: request["method"] as? String,
+                hasAuth: request["auth"] != nil
+            )
+        }
+    }
+}
+
+private struct RecordedRPCRequest: Sendable {
+    var method: String?
+    var hasAuth: Bool
 }
 
 private actor ScriptedTransport: CmxByteTransport {
@@ -631,6 +739,27 @@ private actor ScriptedTransport: CmxByteTransport {
 
     func receive() async throws -> Data? {
         await responses.next()
+    }
+
+    func send(_ data: Data) async throws {
+        try await responses.recordSend(data)
+    }
+
+    func close() async {}
+}
+
+private struct HangingTransportFactory: CmxByteTransportFactory {
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        HangingTransport()
+    }
+}
+
+private actor HangingTransport: CmxByteTransport {
+    func connect() async throws {}
+
+    func receive() async throws -> Data? {
+        try await Task.sleep(nanoseconds: 60 * 1_000_000_000)
+        return nil
     }
 
     func send(_ data: Data) async throws {}

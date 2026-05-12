@@ -219,12 +219,11 @@ private actor MobileHostStackAuthVerifier {
     private var cache: [String: CacheEntry] = [:]
 
     func verify(auth: MobileHostRPCAuth?) async throws {
-        guard let accessToken = auth?.stackAccessToken,
-              let refreshToken = auth?.stackRefreshToken else {
+        guard let accessToken = auth?.stackAccessToken else {
             throw MobileHostAuthorizationError.missingStackTokens
         }
 
-        let cacheKey = accessToken + "\n" + refreshToken
+        let cacheKey = accessToken
         let now = Date()
         let remoteUserID: String
         if let cached = cache[cacheKey], cached.expiresAt > now {
@@ -234,7 +233,7 @@ private actor MobileHostStackAuthVerifier {
                 projectId: AuthEnvironment.stackProjectID,
                 publishableClientKey: AuthEnvironment.stackPublishableClientKey,
                 baseUrl: AuthEnvironment.stackBaseURL.absoluteString,
-                tokenStore: .explicit(accessToken: accessToken, refreshToken: refreshToken),
+                tokenStore: .custom(MobileHostAccessTokenStore(accessToken: accessToken)),
                 noAutomaticPrefetch: true
             )
             guard let user = try await stack.getUser(or: .throw) else {
@@ -252,6 +251,38 @@ private actor MobileHostStackAuthVerifier {
             localUserID: localUserID,
             remoteUserID: remoteUserID
         )
+    }
+}
+
+private actor MobileHostAccessTokenStore: TokenStoreProtocol {
+    private var accessToken: String?
+
+    init(accessToken: String) {
+        self.accessToken = accessToken
+    }
+
+    func getStoredAccessToken() async -> String? {
+        accessToken
+    }
+
+    func getStoredRefreshToken() async -> String? {
+        nil
+    }
+
+    func setTokens(accessToken: String?, refreshToken: String?) async {
+        if let accessToken {
+            self.accessToken = accessToken
+        }
+    }
+
+    func clearTokens() async {
+        accessToken = nil
+    }
+
+    func compareAndSet(compareRefreshToken: String, newRefreshToken: String?, newAccessToken: String?) async {
+        if let newAccessToken {
+            accessToken = newAccessToken
+        }
     }
 }
 

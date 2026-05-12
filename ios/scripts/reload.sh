@@ -4,8 +4,16 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage: ios/scripts/reload.sh --tag <tag> [--simulator <name>] [--no-launch]
+       ios/scripts/reload.sh --tag <tag> --device [--device-id <id>] [--device-name <name>] [--team <team-id>] [--no-launch]
+       ios/scripts/reload.sh --tag <tag> --device-only [--device-id <id>] [--device-name <name>] [--team <team-id>] [--no-launch]
 
-Build, install, and launch the cmux iOS simulator app with an isolated tag.
+Build, install, and launch the cmux iOS app with an isolated tag.
+
+By default this reloads only the simulator. Use --device to also reload the
+first available paired iPhone/iPad, or --device-only to skip the simulator.
+
+Device signing uses the local Xcode account and profiles. Set
+IOS_DEVELOPMENT_TEAM or pass --team when the project cannot infer a team.
 EOF
 }
 
@@ -21,7 +29,14 @@ sanitize_tag() {
 
 TAG=""
 SIMULATOR_NAME="${IOS_SIMULATOR_NAME:-iPhone 17}"
+DEVICE_ID="${IOS_DEVICE_ID:-}"
+DEVICE_NAME="${IOS_DEVICE_NAME:-}"
+DEVELOPMENT_TEAM="${IOS_DEVELOPMENT_TEAM:-}"
 LAUNCH=1
+RELOAD_SIMULATOR=1
+RELOAD_DEVICE=0
+ALLOW_PROVISIONING_UPDATES=1
+ALLOW_DEVICE_REGISTRATION=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -32,6 +47,37 @@ while [[ $# -gt 0 ]]; do
     --simulator)
       SIMULATOR_NAME="${2:-}"
       shift 2
+      ;;
+    --device)
+      RELOAD_DEVICE=1
+      shift
+      ;;
+    --device-only)
+      RELOAD_DEVICE=1
+      RELOAD_SIMULATOR=0
+      shift
+      ;;
+    --device-id)
+      DEVICE_ID="${2:-}"
+      RELOAD_DEVICE=1
+      shift 2
+      ;;
+    --device-name)
+      DEVICE_NAME="${2:-}"
+      RELOAD_DEVICE=1
+      shift 2
+      ;;
+    --team)
+      DEVELOPMENT_TEAM="${2:-}"
+      shift 2
+      ;;
+    --no-provisioning-updates)
+      ALLOW_PROVISIONING_UPDATES=0
+      shift
+      ;;
+    --allow-device-registration)
+      ALLOW_DEVICE_REGISTRATION=1
+      shift
       ;;
     --no-launch)
       LAUNCH=0
@@ -55,6 +101,18 @@ if [[ -z "$TAG" ]]; then
   exit 1
 fi
 
+if [[ "$RELOAD_SIMULATOR" -eq 0 && "$RELOAD_DEVICE" -eq 0 ]]; then
+  echo "error: nothing to reload" >&2
+  usage >&2
+  exit 1
+fi
+
+if [[ "$ALLOW_DEVICE_REGISTRATION" -eq 1 && "$ALLOW_PROVISIONING_UPDATES" -eq 0 ]]; then
+  echo "error: --allow-device-registration requires provisioning updates" >&2
+  usage >&2
+  exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WORKSPACE="$IOS_DIR/cmuxMobile.xcworkspace"
@@ -65,27 +123,193 @@ BUNDLE_ID="dev.cmux.ios.$TAG_SLUG"
 DERIVED_DATA="$HOME/Library/Developer/Xcode/DerivedData/cmux-ios-$TAG_SLUG"
 DESTINATION="platform=iOS Simulator,name=$SIMULATOR_NAME"
 
-echo "==> iOS reload starting (tag: $TAG, simulator: $SIMULATOR_NAME)"
+run_and_capture() {
+  local log_path="$1"
+  shift
 
-xcodebuild \
-  -workspace "$WORKSPACE" \
-  -scheme "$SCHEME" \
-  -configuration Debug \
-  -destination "$DESTINATION" \
-  -derivedDataPath "$DERIVED_DATA" \
-  PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
-  PRODUCT_DISPLAY_NAME="$DISPLAY_NAME" \
-  EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
-  CODE_SIGNING_ALLOWED=NO \
-  build
+  set +e
+  "$@" 2>&1 | tee "$log_path"
+  local status="${PIPESTATUS[0]}"
+  set -e
 
-APP_PATH="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/cmuxMobile.app"
-if [[ ! -d "$APP_PATH" ]]; then
-  echo "error: built app not found at $APP_PATH" >&2
-  exit 1
-fi
+  return "$status"
+}
 
-SIM_ID="$(SIMULATOR_NAME="$SIMULATOR_NAME" /usr/bin/python3 - <<'PY'
+print_device_build_failure() {
+  local log_path="$1"
+
+  if grep -Eiq "No Accounts|No profiles|requires a development team|requires a provisioning profile|provisioning profile|Automatic signing|Signing for .* requires|No signing certificate|doesn't include the selected device|requires a signing certificate" "$log_path"; then
+    cat >&2 <<EOF
+error: physical device reload needs local iOS signing setup.
+
+Xcode could not sign the tagged app for a connected device. Set up an Apple
+Developer account in Xcode, make sure the device is registered for the team,
+then retry with either:
+
+  IOS_DEVELOPMENT_TEAM=<TEAM_ID> ios/scripts/reload.sh --tag $TAG --device
+  ios/scripts/reload.sh --tag $TAG --device --team <TEAM_ID>
+
+The script does not store signing credentials or hardcode team ids.
+Build log:
+  $log_path
+EOF
+  elif grep -Eiq "developer disk image could not be mounted|Timed out waiting for all destinations|destination specifier|not eligible" "$log_path"; then
+    cat >&2 <<EOF
+error: physical device reload needs the connected device to be ready for Xcode.
+
+Xcode could not prepare the selected iPhone/iPad as a build destination. Make
+sure the device is unlocked, trusted, in Developer Mode, and supported by the
+installed Xcode device support files.
+Build log:
+  $log_path
+EOF
+  else
+    cat >&2 <<EOF
+error: physical device build failed.
+Build log:
+  $log_path
+EOF
+  fi
+}
+
+select_device() {
+  IOS_DEVICE_ID_REQUEST="$DEVICE_ID" IOS_DEVICE_NAME_REQUEST="$DEVICE_NAME" /usr/bin/python3 - <<'PY'
+import json
+import os
+import subprocess
+import sys
+import tempfile
+
+requested_id = os.environ.get("IOS_DEVICE_ID_REQUEST", "")
+requested_name = os.environ.get("IOS_DEVICE_NAME_REQUEST", "")
+
+with tempfile.NamedTemporaryFile() as output:
+    result = subprocess.run(
+        ["xcrun", "devicectl", "list", "devices", "--json-output", output.name],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(result.stderr, file=sys.stderr, end="")
+        raise SystemExit(result.returncode)
+    output.seek(0)
+    data = json.load(output)
+
+devices = []
+for device in data.get("result", {}).get("devices", []):
+    hardware = device.get("hardwareProperties", {})
+    connection = device.get("connectionProperties", {})
+    properties = device.get("deviceProperties", {})
+    if hardware.get("platform") != "iOS":
+        continue
+    if hardware.get("reality") != "physical":
+        continue
+    if connection.get("pairingState") != "paired":
+        continue
+
+    identifier = device.get("identifier") or hardware.get("udid")
+    destination_id = str(hardware.get("udid") or identifier or "")
+    if not destination_id:
+        continue
+
+    name = properties.get("name") or destination_id
+    ids = {
+        str(identifier or ""),
+        destination_id,
+        str(hardware.get("serialNumber") or ""),
+        str(hardware.get("ecid") or ""),
+    }
+    available = (
+        properties.get("bootState") == "booted"
+        and connection.get("tunnelState") != "unavailable"
+    )
+    devices.append({
+        "identifier": destination_id,
+        "name": name,
+        "ids": ids,
+        "available": available,
+        "boot": properties.get("bootState") or "unknown",
+        "tunnel": connection.get("tunnelState") or "unknown",
+    })
+
+if requested_id:
+    for device in devices:
+        if requested_id in device["ids"]:
+            if not device["available"]:
+                print(
+                    f"error: requested device is not available: {device['name']} ({device['identifier']}), "
+                    f"boot={device['boot']}, tunnel={device['tunnel']}",
+                    file=sys.stderr,
+                )
+                raise SystemExit(1)
+            print(f"{device['identifier']}\t{device['name']}")
+            raise SystemExit(0)
+    print(f"error: requested device id not found: {requested_id}", file=sys.stderr)
+    raise SystemExit(1)
+
+if requested_name:
+    matches = [device for device in devices if device["name"] == requested_name]
+    if not matches:
+        matches = [device for device in devices if requested_name.lower() in device["name"].lower()]
+    if len(matches) > 1:
+        print(f"error: device name is ambiguous: {requested_name}", file=sys.stderr)
+        for device in matches:
+            print(f"  {device['name']} ({device['identifier']})", file=sys.stderr)
+        raise SystemExit(1)
+    if matches:
+        device = matches[0]
+        if not device["available"]:
+            print(
+                f"error: requested device is not available: {device['name']} ({device['identifier']}), "
+                f"boot={device['boot']}, tunnel={device['tunnel']}",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        print(f"{device['identifier']}\t{device['name']}")
+        raise SystemExit(0)
+    print(f"error: requested device name not found: {requested_name}", file=sys.stderr)
+    raise SystemExit(1)
+
+for device in devices:
+    if device["available"]:
+        print(f"{device['identifier']}\t{device['name']}")
+        raise SystemExit(0)
+
+print("error: no available paired physical iPhone/iPad found", file=sys.stderr)
+if devices:
+    print("Connected paired physical iOS devices:", file=sys.stderr)
+    for device in devices:
+        print(
+            f"  {device['name']} ({device['identifier']}), boot={device['boot']}, tunnel={device['tunnel']}",
+            file=sys.stderr,
+        )
+raise SystemExit(1)
+PY
+}
+
+reload_simulator() {
+  echo "==> Building simulator app (tag: $TAG, simulator: $SIMULATOR_NAME)"
+
+  xcodebuild \
+    -workspace "$WORKSPACE" \
+    -scheme "$SCHEME" \
+    -configuration Debug \
+    -destination "$DESTINATION" \
+    -derivedDataPath "$DERIVED_DATA" \
+    PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+    PRODUCT_DISPLAY_NAME="$DISPLAY_NAME" \
+    EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
+    CODE_SIGNING_ALLOWED=NO \
+    build
+
+  APP_PATH="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/cmuxMobile.app"
+  if [[ ! -d "$APP_PATH" ]]; then
+    echo "error: built app not found at $APP_PATH" >&2
+    exit 1
+  fi
+
+  SIM_ID="$(SIMULATOR_NAME="$SIMULATOR_NAME" /usr/bin/python3 - <<'PY'
 import json
 import os
 import subprocess
@@ -101,18 +325,18 @@ for runtimes in data.get("devices", {}).values():
 print(f"error: simulator not found: {name}", file=sys.stderr)
 raise SystemExit(1)
 PY
-)"
+  )"
 
-xcrun simctl boot "$SIM_ID" >/dev/null 2>&1 || true
-xcrun simctl install "$SIM_ID" "$APP_PATH"
+  xcrun simctl boot "$SIM_ID" >/dev/null 2>&1 || true
+  xcrun simctl install "$SIM_ID" "$APP_PATH"
 
-if [[ "$LAUNCH" -eq 1 ]]; then
-  xcrun simctl terminate "$SIM_ID" "$BUNDLE_ID" >/dev/null 2>&1 || true
-  xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" >/dev/null
-fi
+  if [[ "$LAUNCH" -eq 1 ]]; then
+    xcrun simctl terminate "$SIM_ID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+    xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" >/dev/null
+  fi
 
-cat <<EOF
-==> iOS reload succeeded
+  cat <<EOF
+==> iOS simulator reload succeeded
 App path:
   $APP_PATH
 Bundle id:
@@ -120,3 +344,93 @@ Bundle id:
 Simulator:
   $SIMULATOR_NAME ($SIM_ID)
 EOF
+}
+
+reload_device() {
+  local selection
+  local selected_device_id
+  local selected_device_name
+  local device_destination
+  local device_app_path
+  local build_log
+  local tab
+  local build_args
+
+  selection="$(select_device)"
+  tab=$'\t'
+  selected_device_id="${selection%%$tab*}"
+  selected_device_name="${selection#*$tab}"
+  device_destination="platform=iOS,id=$selected_device_id"
+  device_app_path="$DERIVED_DATA/Build/Products/Debug-iphoneos/cmuxMobile.app"
+  build_log="${TMPDIR:-/tmp}/cmux-ios-device-build-$TAG_SLUG.log"
+
+  echo "==> Building physical device app (tag: $TAG, device: $selected_device_name)"
+
+  build_args=(
+    xcodebuild
+    -workspace "$WORKSPACE"
+    -scheme "$SCHEME"
+    -configuration Debug
+    -destination "$device_destination"
+    -derivedDataPath "$DERIVED_DATA"
+  )
+
+  if [[ "$ALLOW_PROVISIONING_UPDATES" -eq 1 ]]; then
+    build_args+=(-allowProvisioningUpdates)
+  fi
+
+  if [[ "$ALLOW_DEVICE_REGISTRATION" -eq 1 ]]; then
+    build_args+=(-allowProvisioningDeviceRegistration)
+  fi
+
+  build_args+=(
+    PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
+    PRODUCT_DISPLAY_NAME="$DISPLAY_NAME"
+    EXCLUDED_SOURCE_FILE_NAMES=Info.plist
+    CODE_SIGNING_ALLOWED=YES
+    CODE_SIGN_STYLE=Automatic
+  )
+
+  if [[ -n "$DEVELOPMENT_TEAM" ]]; then
+    build_args+=("DEVELOPMENT_TEAM=$DEVELOPMENT_TEAM")
+  fi
+
+  build_args+=(build)
+
+  if ! run_and_capture "$build_log" "${build_args[@]}"; then
+    print_device_build_failure "$build_log"
+    exit 1
+  fi
+
+  if [[ ! -d "$device_app_path" ]]; then
+    echo "error: built device app not found at $device_app_path" >&2
+    exit 1
+  fi
+
+  echo "==> Installing physical device app"
+  xcrun devicectl device install app --device "$selected_device_id" "$device_app_path"
+
+  if [[ "$LAUNCH" -eq 1 ]]; then
+    xcrun devicectl device process launch --terminate-existing --device "$selected_device_id" "$BUNDLE_ID" >/dev/null
+  fi
+
+  cat <<EOF
+==> iOS physical device reload succeeded
+App path:
+  $device_app_path
+Bundle id:
+  $BUNDLE_ID
+Device:
+  $selected_device_name ($selected_device_id)
+EOF
+}
+
+echo "==> iOS reload starting (tag: $TAG)"
+
+if [[ "$RELOAD_SIMULATOR" -eq 1 ]]; then
+  reload_simulator
+fi
+
+if [[ "$RELOAD_DEVICE" -eq 1 ]]; then
+  reload_device
+fi

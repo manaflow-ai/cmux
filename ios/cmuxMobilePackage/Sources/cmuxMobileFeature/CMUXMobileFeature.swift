@@ -1586,7 +1586,7 @@ struct WorkspaceDetailView: View {
         }
         .foregroundStyle(TerminalPalette.foreground)
         .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
-        .accessibilityIdentifier("MobileNewWorkspaceButton")
+        .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
 
         Menu {
             ForEach(workspace.terminals) { terminal in

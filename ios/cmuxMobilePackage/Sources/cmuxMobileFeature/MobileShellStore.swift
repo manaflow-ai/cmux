@@ -101,18 +101,25 @@ public enum MobileShellPhase: Equatable, Sendable {
 public struct CMUXMobileRuntime: Sendable {
     public var supportedRouteKinds: [CmxAttachTransportKind]
     public var transportFactory: any CmxByteTransportFactory
+    public var rpcRequestTimeoutNanoseconds: UInt64
 
     public init(
         supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback, .websocket],
-        transportFactory: any CmxByteTransportFactory
+        transportFactory: any CmxByteTransportFactory,
+        rpcRequestTimeoutNanoseconds: UInt64 = 10 * 1_000_000_000
     ) {
         self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
+        self.rpcRequestTimeoutNanoseconds = rpcRequestTimeoutNanoseconds
     }
 
-    public init(transportFactory: any CmxRouteAwareByteTransportFactory) {
+    public init(
+        transportFactory: any CmxRouteAwareByteTransportFactory,
+        rpcRequestTimeoutNanoseconds: UInt64 = 10 * 1_000_000_000
+    ) {
         self.supportedRouteKinds = transportFactory.supportedKinds
         self.transportFactory = transportFactory
+        self.rpcRequestTimeoutNanoseconds = rpcRequestTimeoutNanoseconds
     }
 }
 
@@ -241,24 +248,15 @@ public final class CMUXMobileShellStore {
         }
 
         do {
-            let routeKind = Self.manualRouteKind(for: normalizedHost)
-            let route = try CmxAttachRoute(
-                id: routeKind.rawValue,
-                kind: routeKind,
-                endpoint: .hostPort(host: normalizedHost, port: port)
-            )
-            let ticket = try CmxAttachTicket(
-                workspaceID: "manual-workspace",
-                terminalID: nil,
-                macDeviceID: "manual-\(normalizedHost):\(port)",
-                macDisplayName: trimmedName.isEmpty ? normalizedHost : trimmedName,
-                routes: [route],
-                expiresAt: Date().addingTimeInterval(60 * 60)
+            let ticket = try await manualHostTicket(
+                name: trimmedName,
+                host: normalizedHost,
+                port: port
             )
             try await connect(ticket: ticket)
         } catch {
             mobileShellLog.error("manual host pairing failed: \(String(describing: error), privacy: .public)")
-            connectionError = L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to the Mac runtime.")
+            connectionError = Self.localizedConnectionError(for: error)
             connectionState = .disconnected
             remoteClient = nil
         }
@@ -310,7 +308,7 @@ public final class CMUXMobileShellStore {
             try await connect(ticket: ticket)
         } catch {
             mobileShellLog.error("pairing failed: \(String(describing: error), privacy: .public)")
-            connectionError = L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to the Mac runtime.")
+            connectionError = Self.localizedConnectionError(for: error)
             connectionState = .disconnected
             remoteClient = nil
         }
@@ -329,12 +327,79 @@ public final class CMUXMobileShellStore {
 
     private static func manualRouteKind(for host: String) -> CmxAttachTransportKind {
         let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if normalizedHost == "localhost" ||
-            normalizedHost == "::1" ||
-            normalizedHost.hasPrefix("127.") {
+        if isLoopbackHost(normalizedHost) {
             return .debugLoopback
         }
         return .tailscale
+    }
+
+    private func manualHostTicket(name: String, host: String, port: Int) async throws -> CmxAttachTicket {
+        let routeKind = Self.manualRouteKind(for: host)
+        let directRoute = try CmxAttachRoute(
+            id: routeKind.rawValue,
+            kind: routeKind,
+            endpoint: .hostPort(host: host, port: port)
+        )
+        let displayName = name.isEmpty ? host : name
+        if Self.routeAllowsStackAuth(directRoute) {
+            return try Self.manualHostTicket(
+                displayName: displayName,
+                macDeviceID: "manual-\(host):\(port)",
+                route: directRoute
+            )
+        }
+
+        let discoveredRoute = try await discoverSecureManualRoute(
+            probeRoute: directRoute,
+            displayName: displayName
+        )
+        return try Self.manualHostTicket(
+            displayName: displayName,
+            macDeviceID: "manual-\(host):\(port)",
+            route: discoveredRoute
+        )
+    }
+
+    private static func manualHostTicket(
+        displayName: String,
+        macDeviceID: String,
+        route: CmxAttachRoute
+    ) throws -> CmxAttachTicket {
+        try CmxAttachTicket(
+            workspaceID: "manual-workspace",
+            terminalID: nil,
+            macDeviceID: macDeviceID,
+            macDisplayName: displayName,
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60 * 60)
+        )
+    }
+
+    private func discoverSecureManualRoute(
+        probeRoute: CmxAttachRoute,
+        displayName: String
+    ) async throws -> CmxAttachRoute {
+        guard let runtime else {
+            throw MobileShellConnectionError.insecureManualRoute
+        }
+        let probeTicket = try Self.manualHostTicket(
+            displayName: displayName,
+            macDeviceID: "manual-probe",
+            route: probeRoute
+        )
+        let client = MobileCoreRPCClient(runtime: runtime, route: probeRoute, ticket: probeTicket)
+        let resultData = try await client.sendRequest(
+            MobileCoreRPCClient.requestData(method: "mobile.host.status")
+        )
+        let status = try MobileManualHostStatusResponse.decode(resultData)
+        let supportedKinds = Set(runtime.supportedRouteKinds)
+        let secureRoutes = status.routes.filter { route in
+            supportedKinds.contains(route.kind) && Self.routeAllowsStackAuth(route)
+        }
+        guard let route = secureRoutes.sorted(by: Self.routeSortsBefore).first else {
+            throw MobileShellConnectionError.insecureManualRoute
+        }
+        return route
     }
 
     public func createWorkspace() {
@@ -473,7 +538,7 @@ public final class CMUXMobileShellStore {
             syncSelectedTerminalForWorkspace()
             await refreshSelectedTerminalSnapshot()
         } catch {
-            connectionError = L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to the Mac runtime.")
+            connectionError = Self.localizedConnectionError(for: error)
         }
     }
 
@@ -494,7 +559,7 @@ public final class CMUXMobileShellStore {
             }
             await refreshSelectedTerminalSnapshot()
         } catch {
-            connectionError = L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to the Mac runtime.")
+            connectionError = Self.localizedConnectionError(for: error)
         }
     }
 
@@ -542,7 +607,7 @@ public final class CMUXMobileShellStore {
                 connectionError = nil
                 return
             }
-            connectionError = L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to the Mac runtime.")
+            connectionError = Self.localizedConnectionError(for: error)
         }
     }
 
@@ -631,7 +696,7 @@ public final class CMUXMobileShellStore {
             )
             await refreshSelectedTerminalSnapshot()
         } catch {
-            connectionError = L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to the Mac runtime.")
+            connectionError = Self.localizedConnectionError(for: error)
         }
     }
 
@@ -689,10 +754,67 @@ public final class CMUXMobileShellStore {
     }
 
     private static func isTerminalSurfaceNotReady(_ error: Error) -> Bool {
-        guard case let MobileShellConnectionError.rpcError(message) = error else {
+        guard case let MobileShellConnectionError.rpcError(_, message) = error else {
             return false
         }
         return message.localizedCaseInsensitiveContains("surface is not ready")
+    }
+
+    private static func localizedConnectionError(for error: Error) -> String {
+        guard let connectionError = error as? MobileShellConnectionError else {
+            return L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to the Mac runtime.")
+        }
+        switch connectionError {
+        case .requestTimedOut:
+            return L10n.string("mobile.pairing.requestTimedOut", defaultValue: "The Mac did not respond. Check the host and port, then try again.")
+        case .insecureManualRoute:
+            return L10n.string("mobile.pairing.secureRouteRequired", defaultValue: "Use your Mac's Tailscale 100.x address, or pair with a QR/link from that Mac.")
+        case .authorizationFailed:
+            return L10n.string("mobile.pairing.authorizationFailed", defaultValue: "Sign in to cmux on your Mac with the same account, or pair with a QR/link from that Mac.")
+        case .invalidResponse, .connectionClosed, .rpcError:
+            return L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to the Mac runtime.")
+        }
+    }
+
+    private static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
+        switch (route.kind, route.endpoint) {
+        case (.debugLoopback, .hostPort):
+            return true
+        case (.tailscale, let .hostPort(host, _)):
+            return isTailscaleCGNATHost(host) || isTailscaleDNSHost(host)
+        case (.iroh, .peer):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func routeSortsBefore(_ left: CmxAttachRoute, _ right: CmxAttachRoute) -> Bool {
+        if left.priority == right.priority {
+            return left.id < right.id
+        }
+        return left.priority < right.priority
+    }
+
+    private static func isLoopbackHost(_ host: String) -> Bool {
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalizedHost == "localhost" ||
+            normalizedHost == "::1" ||
+            normalizedHost.hasPrefix("127.")
+    }
+
+    private static func isTailscaleCGNATHost(_ host: String) -> Bool {
+        let octets = host.split(separator: ".").compactMap { Int($0) }
+        guard octets.count == 4 else {
+            return false
+        }
+        return octets[0] == 100 && (64...127).contains(octets[1])
+    }
+
+    private static func isTailscaleDNSHost(_ host: String) -> Bool {
+        host.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .hasSuffix(".ts.net")
     }
 
     private func appendPreviewInput(_ text: String) {
@@ -741,6 +863,14 @@ private struct MobileTerminalSnapshotCandidate: Sendable {
     var isReady: Bool
 }
 
+private struct MobileManualHostStatusResponse: Decodable, Sendable {
+    var routes: [CmxAttachRoute]
+
+    static func decode(_ data: Data) throws -> MobileManualHostStatusResponse {
+        try JSONDecoder().decode(MobileManualHostStatusResponse.self, from: data)
+    }
+}
+
 private extension MobileWorkspacePreview {
     var preferredTerminal: MobileTerminalPreview? {
         terminals.first { $0.isReady && $0.isFocused }
@@ -757,7 +887,10 @@ private extension MobileWorkspacePreview {
 private enum MobileShellConnectionError: LocalizedError {
     case invalidResponse
     case connectionClosed
-    case rpcError(String)
+    case requestTimedOut
+    case insecureManualRoute
+    case authorizationFailed(String)
+    case rpcError(String?, String)
 
     var errorDescription: String? {
         switch self {
@@ -765,7 +898,13 @@ private enum MobileShellConnectionError: LocalizedError {
             return "Invalid mobile sync response"
         case .connectionClosed:
             return "Mobile sync connection closed"
-        case let .rpcError(message):
+        case .requestTimedOut:
+            return "Mobile sync request timed out"
+        case .insecureManualRoute:
+            return "Manual host did not advertise a secure mobile sync route"
+        case let .authorizationFailed(message):
+            return message
+        case let .rpcError(_, message):
             return message
         }
     }
@@ -848,13 +987,18 @@ private final class MobileCoreRPCClient: @unchecked Sendable {
     func sendRequest(_ requestData: Data) async throws -> Data {
         let transport = try runtime.transportFactory.makeTransport(for: route)
         do {
-            try await transport.connect()
-            let authenticatedRequestData = try await requestDataWithAuth(requestData)
-            let frame = try MobileSyncFrameCodec.encodeFrame(authenticatedRequestData)
-            try await transport.send(frame)
-            let responseFrame = try await receiveFrame(from: transport)
+            let response = try await Self.withRequestTimeout(
+                timeoutNanoseconds: runtime.rpcRequestTimeoutNanoseconds
+            ) {
+                try await transport.connect()
+                let authenticatedRequestData = try await self.requestDataWithAuth(requestData)
+                let frame = try MobileSyncFrameCodec.encodeFrame(authenticatedRequestData)
+                try await transport.send(frame)
+                let responseFrame = try await self.receiveFrame(from: transport)
+                return try self.decodeResultEnvelope(responseFrame)
+            }
             await transport.close()
-            return try decodeResultEnvelope(responseFrame)
+            return response
         } catch {
             await transport.close()
             throw error
@@ -869,15 +1013,23 @@ private final class MobileCoreRPCClient: @unchecked Sendable {
         if let authToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
            !authToken.isEmpty {
             auth["attach_token"] = authToken
-        }
-        if let tokens = try? await AuthManager.shared.currentTokens() {
-            auth["stack_access_token"] = tokens.accessToken
-            auth["stack_refresh_token"] = tokens.refreshToken
+        } else if Self.requestRequiresAuth(request) {
+            guard Self.routeAllowsStackAuth(route) else {
+                throw MobileShellConnectionError.insecureManualRoute
+            }
+            if let accessToken = try? await AuthManager.shared.getAccessToken() {
+                auth["stack_access_token"] = accessToken
+            }
         }
         if !auth.isEmpty {
             request["auth"] = auth
         }
         return try JSONSerialization.data(withJSONObject: request)
+    }
+
+    private static func requestRequiresAuth(_ request: [String: Any]) -> Bool {
+        let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return method != "mobile.host.status"
     }
 
     private func receiveFrame(from transport: any CmxByteTransport) async throws -> Data {
@@ -908,9 +1060,121 @@ private final class MobileCoreRPCClient: @unchecked Sendable {
         }
         if let error = envelope["error"] as? [String: Any],
            let message = error["message"] as? String {
-            throw MobileShellConnectionError.rpcError(message)
+            let code = error["code"] as? String
+            if code == "unauthorized" {
+                throw MobileShellConnectionError.authorizationFailed(message)
+            }
+            throw MobileShellConnectionError.rpcError(code, message)
         }
         throw MobileShellConnectionError.invalidResponse
+    }
+
+    private static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
+        switch (route.kind, route.endpoint) {
+        case (.debugLoopback, .hostPort):
+            return true
+        case (.tailscale, let .hostPort(host, _)):
+            return isTailscaleCGNATHost(host) || isTailscaleDNSHost(host)
+        case (.iroh, .peer):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isTailscaleCGNATHost(_ host: String) -> Bool {
+        let octets = host.split(separator: ".").compactMap { Int($0) }
+        guard octets.count == 4 else {
+            return false
+        }
+        return octets[0] == 100 && (64...127).contains(octets[1])
+    }
+
+    private static func isTailscaleDNSHost(_ host: String) -> Bool {
+        host.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .hasSuffix(".ts.net")
+    }
+
+    private static func withRequestTimeout<T: Sendable>(
+        timeoutNanoseconds: UInt64,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        let timerQueue = DispatchQueue(label: "dev.cmux.mobile.rpc-timeout.\(UUID().uuidString)")
+        let timer = DispatchSource.makeTimerSource(queue: timerQueue)
+        let operationTask = Task {
+            try await operation()
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let state = MobileRequestTimeoutState(
+                continuation: continuation,
+                operationTask: operationTask,
+                timer: timer
+            )
+            timer.setEventHandler {
+                state.timeout()
+            }
+            timer.schedule(deadline: .now() + .nanoseconds(Int(min(timeoutNanoseconds, UInt64(Int.max)))))
+            timer.resume()
+
+            Task {
+                do {
+                    state.complete(.success(try await operationTask.value))
+                } catch {
+                    state.complete(.failure(error))
+                }
+            }
+        }
+    }
+}
+
+private final class MobileRequestTimeoutState<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<T, Error>?
+    private var operationTask: Task<T, Error>?
+    private var timer: DispatchSourceTimer?
+
+    init(
+        continuation: CheckedContinuation<T, Error>,
+        operationTask: Task<T, Error>,
+        timer: DispatchSourceTimer
+    ) {
+        self.continuation = continuation
+        self.operationTask = operationTask
+        self.timer = timer
+    }
+
+    func complete(_ result: Result<T, Error>) {
+        let continuation = takeContinuation(cancelOperation: false)
+        switch result {
+        case let .success(value):
+            continuation?.resume(returning: value)
+        case let .failure(error):
+            continuation?.resume(throwing: error)
+        }
+    }
+
+    func timeout() {
+        takeContinuation(cancelOperation: true)?
+            .resume(throwing: MobileShellConnectionError.requestTimedOut)
+    }
+
+    private func takeContinuation(cancelOperation: Bool) -> CheckedContinuation<T, Error>? {
+        lock.lock()
+        let continuation = self.continuation
+        let operationTask = self.operationTask
+        let timer = self.timer
+        self.continuation = nil
+        self.operationTask = nil
+        self.timer = nil
+        lock.unlock()
+
+        timer?.cancel()
+        if cancelOperation {
+            operationTask?.cancel()
+        }
+        return continuation
     }
 }
 
