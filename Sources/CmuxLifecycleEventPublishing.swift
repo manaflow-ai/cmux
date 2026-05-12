@@ -216,15 +216,38 @@ extension Workspace {
     }
 }
 
+@MainActor
+private enum MainWindowRedrawInvalidator {
+    static func invalidateAfterKeyRegain(window: NSWindow) {
+        guard let contentView = window.contentView else { return }
+        invalidateDisplayTree(rootedAt: contentView)
+        window.invalidateCursorRects(for: contentView)
+    }
+
+    private static func invalidateDisplayTree(rootedAt view: NSView) {
+        guard !view.isHidden else { return }
+        view.setNeedsDisplay(view.bounds)
+        view.needsDisplay = true
+        view.layer?.setNeedsDisplay()
+        for subview in view.subviews {
+            invalidateDisplayTree(rootedAt: subview)
+        }
+    }
+}
+
 extension AppDelegate {
     func handleCmuxWindowBecameKey(_ note: Notification) {
         guard let window = note.object as? NSWindow else { return }
         MainActor.assumeIsolated {
+            let context = contextForMainTerminalWindow(window)
             setActiveMainWindow(window)
+            if context != nil {
+                MainWindowRedrawInvalidator.invalidateAfterKeyRegain(window: window)
+            }
             if let windowId = mainWindowId(from: window) {
                 publishCmuxWindowLifecycle(name: "window.keyed", windowId: windowId, origin: "appkit_key")
             }
-            _ = contextForMainTerminalWindow(window)?.keyboardFocusCoordinator.restoreTargetAfterWindowBecameKey()
+            _ = context?.keyboardFocusCoordinator.restoreTargetAfterWindowBecameKey()
         }
     }
 
