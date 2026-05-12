@@ -5173,7 +5173,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
             setManagedEnvironmentValue("CMUX_GEMINI_HOOKS_DISABLED", "1")
         }
 
-        if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
+        if let cliBinURL = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true) {
+            let cliBinPath = cliBinURL.path
+            let ghosttyHelperPath = cliBinURL.appendingPathComponent("ghostty", isDirectory: false).path
+            if FileManager.default.isExecutableFile(atPath: ghosttyHelperPath) {
+                setManagedEnvironmentValue("GHOSTTY_BIN_DIR", cliBinPath)
+            }
             let currentPath = env["PATH"]
                 ?? getenv("PATH").map { String(cString: $0) }
                 ?? ProcessInfo.processInfo.environment["PATH"]
