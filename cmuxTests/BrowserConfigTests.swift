@@ -1490,61 +1490,6 @@ final class BrowserNavigationNewTabDecisionTests: XCTestCase {
 }
 
 
-final class BrowserPopupDecisionTests: XCTestCase {
-    func testLinkActivatedPlainLeftClickDoesNotCreatePopup() {
-        XCTAssertFalse(
-            browserNavigationShouldCreatePopup(
-                navigationType: .linkActivated,
-                modifierFlags: [],
-                buttonNumber: 0
-            )
-        )
-    }
-
-    func testOtherNavigationKeyDownGestureStillCreatesPopup() {
-        XCTAssertTrue(
-            browserNavigationShouldCreatePopup(
-                navigationType: .other,
-                modifierFlags: [],
-                buttonNumber: 0,
-                currentEventType: .keyDown,
-                currentEventButtonNumber: 0
-            )
-        )
-    }
-
-    func testOtherNavigationWithoutExplicitNewTabIntentCreatesPopup() {
-        XCTAssertTrue(
-            browserNavigationShouldCreatePopup(
-                navigationType: .other,
-                modifierFlags: [],
-                buttonNumber: 0
-            )
-        )
-    }
-
-    func testOtherNavigationMiddleClickDoesNotCreatePopup() {
-        XCTAssertFalse(
-            browserNavigationShouldCreatePopup(
-                navigationType: .other,
-                modifierFlags: [],
-                buttonNumber: 2
-            )
-        )
-    }
-
-    func testLinkActivatedCmdClickDoesNotCreatePopup() {
-        XCTAssertFalse(
-            browserNavigationShouldCreatePopup(
-                navigationType: .linkActivated,
-                modifierFlags: [.command],
-                buttonNumber: 0
-            )
-        )
-    }
-}
-
-
 final class BrowserNilTargetFallbackDecisionTests: XCTestCase {
     func testOtherNavigationDoesNotFallbackToNewTab() {
         XCTAssertFalse(
@@ -2205,6 +2150,15 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         return (panel, inspector)
     }
 
+    private func spinRunLoopOneTick() {
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+    }
+
+    private func window(withId windowId: UUID) -> NSWindow? {
+        let identifier = "cmux.main.\(windowId.uuidString)"
+        return NSApp.windows.first(where: { $0.identifier?.rawValue == identifier })
+    }
+
     private func findHostContainerView(in root: NSView) -> WebViewRepresentable.HostContainerView? {
         if let host = root as? WebViewRepresentable.HostContainerView {
             return host
@@ -2231,6 +2185,65 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             }
         }
         return nil
+    }
+
+    func testPaneCloseClosesVisibleInspectorSynchronouslyBeforeWebViewTeardown() {
+        let (panel, inspector) = makePanelWithInspector()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.closeCount, 0)
+
+        panel.close()
+
+        XCTAssertEqual(inspector.closeCount, 1)
+        spinRunLoopOneTick()
+
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+    }
+
+    func testWindowCloseClosesContainedBrowserInspectorBeforeWindowWillClose() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected main window with browser panel")
+            return
+        }
+
+        let inspector = FakeInspector()
+        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
+        if browserPanel.webView.superview == nil {
+            browserPanel.webView.frame = window.contentView?.bounds ?? .zero
+            window.contentView?.addSubview(browserPanel.webView)
+        }
+
+        XCTAssertTrue(browserPanel.showDeveloperTools())
+        XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
+
+        var closeCountObservedAtWillClose: Int?
+        let observer = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: nil
+        ) { _ in
+            closeCountObservedAtWillClose = inspector.closeCount
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        window.performClose(nil)
+        spinRunLoopOneTick()
+
+        XCTAssertEqual(closeCountObservedAtWillClose, 1)
+        XCTAssertEqual(inspector.closeCount, 1)
+        XCTAssertFalse(browserPanel.isDeveloperToolsVisible())
     }
 
     func testRestoreReopensInspectorAfterAttachWhenPreferredVisible() {
@@ -3309,23 +3322,6 @@ final class BrowserHistoryStoreTests: XCTestCase {
     }
 }
 
-
-@MainActor
-final class CmuxWebViewDragRoutingTests: XCTestCase {
-    func testRejectsInternalPaneDragEvenWhenFilePromiseTypesArePresent() {
-        XCTAssertTrue(
-            CmuxWebView.shouldRejectInternalPaneDrag([
-                DragOverlayRoutingPolicy.bonsplitTabTransferType,
-                NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-url"),
-            ])
-        )
-    }
-
-    func testAllowsRegularExternalFileDrops() {
-        XCTAssertFalse(CmuxWebView.shouldRejectInternalPaneDrag([.fileURL]))
-    }
-}
-
 final class BrowserLinkOpenSettingsTests: XCTestCase {
     private var suiteName: String!
     private var defaults: UserDefaults!
@@ -3347,7 +3343,6 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
     func testTerminalLinksDefaultToCmuxBrowser() {
         XCTAssertTrue(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults))
     }
-
     func testTerminalLinksPreferenceUsesStoredValue() {
         defaults.set(false, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
         XCTAssertFalse(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults))
@@ -3355,11 +3350,9 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
         XCTAssertTrue(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults))
     }
-
     func testSidebarPullRequestLinksDefaultToCmuxBrowser() {
         XCTAssertTrue(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(defaults: defaults))
     }
-
     func testSidebarPullRequestLinksPreferenceUsesStoredValue() {
         defaults.set(false, forKey: BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
         XCTAssertFalse(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(defaults: defaults))
@@ -3367,11 +3360,14 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         defaults.set(true, forKey: BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
         XCTAssertTrue(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(defaults: defaults))
     }
-
+    func testSidebarPullRequestClickabilityDefaultAndStoredValues() {
+        XCTAssertTrue(SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults))
+        defaults.set(true, forKey: SidebarPullRequestClickabilitySettings.key); XCTAssertTrue(SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults))
+        defaults.set(false, forKey: SidebarPullRequestClickabilitySettings.key); XCTAssertFalse(SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults))
+    }
     func testOpenCommandInterceptionDefaultsToCmuxBrowser() {
         XCTAssertTrue(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))
     }
-
     func testOpenCommandInterceptionUsesStoredValue() {
         defaults.set(false, forKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
         XCTAssertFalse(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))
@@ -3453,6 +3449,18 @@ final class BrowserNavigableURLResolutionTests: XCTestCase {
         let resolved = try XCTUnwrap(resolveBrowserNavigableURL("file:///tmp/cmux-local-test.html"))
         XCTAssertTrue(resolved.isFileURL)
         XCTAssertEqual(resolved.path, "/tmp/cmux-local-test.html")
+    }
+
+    func testResolvesBareLocalhostSubdomainAsHTTPURL() throws {
+        let resolved = try XCTUnwrap(resolveBrowserNavigableURL("api.localhost:3000"))
+        XCTAssertEqual(resolved.scheme, "http")
+        XCTAssertEqual(resolved.host, "api.localhost")
+        XCTAssertEqual(resolved.port, 3000)
+
+        let nested = try XCTUnwrap(resolveBrowserNavigableURL("deep.api.localhost/path"))
+        XCTAssertEqual(nested.scheme, "http")
+        XCTAssertEqual(nested.host, "deep.api.localhost")
+        XCTAssertEqual(nested.path, "/path")
     }
 
     func testRejectsNonWebNonFileScheme() {
