@@ -103387,6 +103387,29 @@
         }
       }
     },
+    "terminalContextMenu.moveTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 이동"
+          }
+        }
+      }
+    },
     "terminalContextMenu.moveTabToNewWorkspace": {
       "extractionState": "manual",
       "localizations": {

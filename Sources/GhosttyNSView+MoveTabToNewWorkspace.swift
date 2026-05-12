@@ -13,7 +13,7 @@ extension GhosttyNSView {
         }
 
         let moveItem = NSMenuItem(
-            title: String(localized: "alert.moveTab.title", defaultValue: "Move Tab"),
+            title: String(localized: "terminalContextMenu.moveTab", defaultValue: "Move Tab"),
             action: nil,
             keyEquivalent: ""
         )
