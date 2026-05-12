@@ -520,6 +520,45 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testRemoteTerminalLifecycleEventsDriveReconnectState() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux@gateway.freestyle.sh",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: ["ControlMaster=no"],
+            localProxyPort: nil,
+            relayPort: 64041,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux@gateway.freestyle.sh",
+            skipDaemonBootstrap: true
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+
+        workspace.markRemoteTerminalSessionReconnecting(
+            surfaceId: panelID,
+            relayPort: 64041,
+            attempt: 1,
+            limit: 2,
+            exitStatus: 255
+        )
+
+        XCTAssertEqual(workspace.remoteConnectionState, .reconnecting)
+        XCTAssertEqual(workspace.remoteStatusPayload()["state"] as? String, "reconnecting")
+        XCTAssertTrue(workspace.remoteConnectionDetail?.contains("attempt 1/2") == true)
+
+        workspace.markRemoteTerminalSessionConnected(surfaceId: panelID, relayPort: 64041)
+
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["state"] as? String, "connected")
+        XCTAssertEqual(workspace.remoteConnectionDetail, "Connected to cmux@gateway.freestyle.sh (VM, proxy disabled)")
+    }
+
+    @MainActor
     func testForegroundSSHAuthReadyBeforeRemoteConfigureStartsDeferredConnect() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
