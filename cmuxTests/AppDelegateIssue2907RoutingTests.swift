@@ -325,6 +325,56 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(shape["windows"] as? Int, 2)
         XCTAssertEqual(shape["workspaces"] as? Int, 2)
     }
+
+    func testSessionAutosaveFingerprintIgnoresKeyWindowOrdering() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let firstWindowId = UUID()
+        let secondWindowId = UUID()
+        let firstWindow = makeMainWindow(id: firstWindowId)
+        let secondWindow = makeMainWindow(id: secondWindowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: firstWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: secondWindowId)
+            firstWindow.orderOut(nil)
+            secondWindow.orderOut(nil)
+        }
+
+        let firstManager = TabManager()
+        let secondManager = TabManager()
+        app.registerMainWindow(
+            firstWindow,
+            windowId: firstWindowId,
+            tabManager: firstManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.registerMainWindow(
+            secondWindow,
+            windowId: secondWindowId,
+            tabManager: secondManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        firstWindow.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(firstWindow.isKeyWindow)
+        let firstFingerprint = try XCTUnwrap(app.debugSessionAutosaveFingerprintForTesting())
+
+        secondWindow.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(secondWindow.isKeyWindow)
+        let secondFingerprint = try XCTUnwrap(app.debugSessionAutosaveFingerprintForTesting())
+
+        XCTAssertEqual(firstFingerprint, secondFingerprint)
+    }
 #endif
 
     func testIssue2907BonsplitTabLookupUsesRecoveredRoute() throws {

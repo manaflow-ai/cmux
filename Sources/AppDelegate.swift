@@ -3193,7 +3193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !includeScrollback else { return nil }
 
         var hasher = Hasher()
-        let routes = sortedMainWindowRoutesForSessionSnapshot()
+        let routes = sortedMainWindowRoutesForSessionAutosaveFingerprint()
         hasher.combine(routes.count)
 
         for route in routes.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot) {
@@ -3224,6 +3224,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         return hasher.finalize()
     }
+
+#if DEBUG
+    func debugSessionAutosaveFingerprintForTesting() -> Int? {
+        sessionAutosaveFingerprint(
+            includeScrollback: false,
+            restorableAgentIndex: .empty
+        )
+    }
+#endif
 
     @discardableResult
     private func saveSessionSnapshot(

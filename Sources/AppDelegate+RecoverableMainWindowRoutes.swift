@@ -45,6 +45,11 @@ private struct MainWindowRouteSnapshot {
     let window: NSWindow?
 }
 
+private enum RegisteredMainWindowSessionRouteOrdering {
+    case keyWindowFirst
+    case stableWindowId
+}
+
 private var mainWindowRouteLedgerKey: UInt8 = 0
 
 extension AppDelegate {
@@ -120,15 +125,22 @@ extension AppDelegate {
         }
     }
 
-    private func registeredMainWindowRoutesForSessionSnapshot() -> [SessionSnapshotMainWindowRoute] {
+    private func registeredMainWindowRoutesForSessionSnapshot(
+        ordering: RegisteredMainWindowSessionRouteOrdering
+    ) -> [SessionSnapshotMainWindowRoute] {
         mainWindowContexts.values
             .sorted { lhs, rhs in
-                let lhsWindow = lhs.window ?? windowForMainWindowId(lhs.windowId)
-                let rhsWindow = rhs.window ?? windowForMainWindowId(rhs.windowId)
-                let lhsIsKey = lhsWindow?.isKeyWindow ?? false
-                let rhsIsKey = rhsWindow?.isKeyWindow ?? false
-                if lhsIsKey != rhsIsKey {
-                    return lhsIsKey && !rhsIsKey
+                switch ordering {
+                case .keyWindowFirst:
+                    let lhsWindow = lhs.window ?? windowForMainWindowId(lhs.windowId)
+                    let rhsWindow = rhs.window ?? windowForMainWindowId(rhs.windowId)
+                    let lhsIsKey = lhsWindow?.isKeyWindow ?? false
+                    let rhsIsKey = rhsWindow?.isKeyWindow ?? false
+                    if lhsIsKey != rhsIsKey {
+                        return lhsIsKey && !rhsIsKey
+                    }
+                case .stableWindowId:
+                    break
                 }
                 return lhs.windowId.uuidString < rhs.windowId.uuidString
             }
@@ -161,11 +173,14 @@ extension AppDelegate {
         }
     }
 
-    func sortedMainWindowRoutesForSessionSnapshot() -> [SessionSnapshotMainWindowRoute] {
+    private func sortedMainWindowRoutesForSessionSnapshot(
+        registeredRouteOrdering: RegisteredMainWindowSessionRouteOrdering
+    ) -> [SessionSnapshotMainWindowRoute] {
         var seen: Set<UUID> = []
         var routes: [SessionSnapshotMainWindowRoute] = []
+        let registeredRoutes = registeredMainWindowRoutesForSessionSnapshot(ordering: registeredRouteOrdering)
 
-        for route in registeredMainWindowRoutesForSessionSnapshot() where seen.insert(route.windowId).inserted {
+        for route in registeredRoutes where seen.insert(route.windowId).inserted {
             routes.append(route)
         }
 
@@ -174,6 +189,14 @@ extension AppDelegate {
         }
 
         return routes
+    }
+
+    func sortedMainWindowRoutesForSessionSnapshot() -> [SessionSnapshotMainWindowRoute] {
+        sortedMainWindowRoutesForSessionSnapshot(registeredRouteOrdering: .keyWindowFirst)
+    }
+
+    func sortedMainWindowRoutesForSessionAutosaveFingerprint() -> [SessionSnapshotMainWindowRoute] {
+        sortedMainWindowRoutesForSessionSnapshot(registeredRouteOrdering: .stableWindowId)
     }
 
     func retireRecoverableMainWindowRoutesWithoutRegisteredTerminalSurfaces(reason: String) {
