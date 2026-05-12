@@ -406,6 +406,21 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
             defaults.object(forKey: primaryFrameAutosaveKey),
             "Promotion should immediately persist the survivor's frame under the stable primary autosave key."
         )
+        let probeWindow = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 10, height: 10),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { probeWindow.close() }
+        XCTAssertTrue(
+            probeWindow.setFrameUsingName(primaryFrameAutosaveName, force: true),
+            "Promotion should leave the survivor's restorable frame in the stable primary autosave slot."
+        )
+        XCTAssertEqual(probeWindow.frame.minX, survivorFrameBeforePromotion.minX, accuracy: 1)
+        XCTAssertEqual(probeWindow.frame.minY, survivorFrameBeforePromotion.minY, accuracy: 1)
+        XCTAssertEqual(probeWindow.frame.width, survivorFrameBeforePromotion.width, accuracy: 1)
+        XCTAssertEqual(probeWindow.frame.height, survivorFrameBeforePromotion.height, accuracy: 1)
         XCTAssertEqual(secondWindow.frame.minX, survivorFrameBeforePromotion.minX, accuracy: 1)
         XCTAssertEqual(secondWindow.frame.minY, survivorFrameBeforePromotion.minY, accuracy: 1)
         XCTAssertEqual(secondWindow.frame.width, survivorFrameBeforePromotion.width, accuracy: 1)

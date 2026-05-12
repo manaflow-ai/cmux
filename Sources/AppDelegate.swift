@@ -6762,9 +6762,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func mainWindowFrameAutosaveName(windowId: UUID, wantsPrimarySlot: Bool) -> NSWindow.FrameAutosaveName {
-        if wantsPrimarySlot,
-           !hasLivePrimaryMainWindowFrameAutosaveOwner() {
+    private func mainWindowFrameAutosaveName(windowId: UUID) -> NSWindow.FrameAutosaveName {
+        if !hasLivePrimaryMainWindowFrameAutosaveOwner() {
             return Self.primaryMainWindowFrameAutosaveName
         }
         return "\(Self.mainWindowFrameAutosaveNamePrefix).\(windowId.uuidString)"
@@ -6914,10 +6913,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else {
             initialRect = CmuxMainWindow.defaultContentRect(styleMask: styleMask)
         }
-        let frameAutosaveName = mainWindowFrameAutosaveName(
-            windowId: windowId,
-            wantsPrimarySlot: !hasLivePrimaryMainWindowFrameAutosaveOwner()
-        )
+        let frameAutosaveName = mainWindowFrameAutosaveName(windowId: windowId)
 
         let window = CmuxMainWindow(
             contentRect: initialRect,
