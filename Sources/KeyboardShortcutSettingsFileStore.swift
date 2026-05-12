@@ -72,6 +72,7 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
     private var importedManagedDefaults: [String: ManagedSettingsValue] = [:]
     private var activeManagedCustomSettings = ManagedCustomSettings()
     private var lastPersistedSettingsValues: [String: ManagedSettingsValue] = [:]
+    private var pendingSettingsJSONValues: [String: ManagedSettingsValue] = [:]
     private var settingsPersistenceTask: Task<Void, Never>?
     private var isApplyingManagedSettings = false
     private(set) var activeSourcePath: String?
@@ -122,6 +123,9 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
                 guard let changedDefaults = notification.object as? UserDefaults else { return false }
                 return changedDefaults === self.userDefaults
             }
+            .handleEvents(receiveOutput: { [weak self] _ in
+                self?.stageUserDefaultsSettingsJSONPersistenceIfNeeded()
+            })
             .receive(on: DispatchQueue.main)
             .debounce(for: .milliseconds(50), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
@@ -166,12 +170,20 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
             managedCustomSettings: resolved.managedCustomSettings
         )
         synchronized {
+            let previousPersistedSettingsValues = lastPersistedSettingsValues
             shortcutsByAction = resolved.shortcuts
             activeManagedUserDefaults = resolved.managedUserDefaults
             importedManagedDefaults = resolved.managedUserDefaults
             activeManagedCustomSettings = resolved.managedCustomSettings
             activeSourcePath = resolved.path
             lastPersistedSettingsValues = currentSettingsValues
+            for path in pendingSettingsJSONValues.keys {
+                if let previousValue = previousPersistedSettingsValues[path] {
+                    lastPersistedSettingsValues[path] = previousValue
+                } else {
+                    lastPersistedSettingsValues.removeValue(forKey: path)
+                }
+            }
         }
         saveImportedManagedDefaults(resolved.managedUserDefaults)
 
@@ -269,11 +281,23 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
     }
 
     private func persistUserDefaultsSettingsChangeIfNeeded() {
+        stageUserDefaultsSettingsJSONPersistenceIfNeeded()
         let currentValues = currentSettingsJSONValues(includingManagedCustomSettings: false)
         let changedValues: [String: ManagedSettingsValue] = synchronized {
-            return currentValues.filter { path, value in
-                lastPersistedSettingsValues[path] != value
+            var stalePaths: [String] = []
+            var changedValues: [String: ManagedSettingsValue] = [:]
+            for (path, value) in pendingSettingsJSONValues {
+                guard let currentValue = currentValues[path] else { continue }
+                if currentValue == value {
+                    changedValues[path] = value
+                } else {
+                    stalePaths.append(path)
+                }
             }
+            for path in stalePaths {
+                pendingSettingsJSONValues.removeValue(forKey: path)
+            }
+            return changedValues
         }
         guard !changedValues.isEmpty else {
             reapplyManagedSettingsIfNeeded()
@@ -286,6 +310,19 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
             rollback: rollback,
             failureLogMessage: "[CmuxSettingsFileStore] failed to persist Settings UI change: %@"
         )
+    }
+
+    private func stageUserDefaultsSettingsJSONPersistenceIfNeeded() {
+        let currentValues = currentSettingsJSONValues(includingManagedCustomSettings: false)
+        synchronized {
+            for (path, value) in currentValues {
+                if lastPersistedSettingsValues[path] != value {
+                    pendingSettingsJSONValues[path] = value
+                } else {
+                    pendingSettingsJSONValues.removeValue(forKey: path)
+                }
+            }
+        }
     }
 
     private func persistSocketPasswordSettingsChangeIfNeeded() {
@@ -1361,6 +1398,7 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
             guard let self else { return }
             do {
                 try persistSettingsJSONValues(values)
+                completeSettingsJSONPersistenceIfCurrent(values)
             } catch {
                 await MainActor.run { [weak self] in
                     NSLog(failureLogMessage, String(describing: error))
@@ -1387,11 +1425,22 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
                     missingPreviousPaths.insert(path)
                 }
                 lastPersistedSettingsValues[path] = value
+                pendingSettingsJSONValues[path] = value
             }
             return SettingsJSONPersistenceRollback(
                 previousValues: previousValues,
                 missingPreviousPaths: missingPreviousPaths
             )
+        }
+    }
+
+    private func completeSettingsJSONPersistenceIfCurrent(_ values: [String: ManagedSettingsValue]) {
+        synchronized {
+            for (path, persistedValue) in values {
+                guard pendingSettingsJSONValues[path] == persistedValue else { continue }
+                pendingSettingsJSONValues.removeValue(forKey: path)
+                lastPersistedSettingsValues[path] = persistedValue
+            }
         }
     }
 
@@ -1401,6 +1450,9 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
     ) {
         synchronized {
             for (path, attemptedValue) in values {
+                if pendingSettingsJSONValues[path] == attemptedValue {
+                    pendingSettingsJSONValues.removeValue(forKey: path)
+                }
                 guard lastPersistedSettingsValues[path] == attemptedValue else {
                     continue
                 }
