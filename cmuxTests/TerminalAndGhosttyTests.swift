@@ -2248,6 +2248,78 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 #endif
     }
 
+    func testActiveSurfaceReadyRefreshCoversDeferredFocusRecovery() throws {
+#if DEBUG
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let window = makeWindow()
+        let originalTabManager = appDelegate.tabManager
+
+        appDelegate.tabManager = manager
+        defer {
+            appDelegate.tabManager = originalTabManager
+            window.orderOut(nil)
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let surface = workspace.focusedTerminalPanel else {
+            XCTFail("Expected an initial focused terminal panel")
+            return
+        }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+
+        let surfaceReady = expectation(description: "active runtime surface ready")
+        let readyObserver = NotificationCenter.default.addObserver(
+            forName: .terminalSurfaceDidBecomeReady,
+            object: surface,
+            queue: .main
+        ) { notification in
+            guard let readySurfaceId = notification.userInfo?["surfaceId"] as? UUID,
+                  readySurfaceId == surface.id else { return }
+            surfaceReady.fulfill()
+        }
+        surface.resetDebugForceRefreshCount()
+        contentView.addSubview(hostedView)
+        defer { NotificationCenter.default.removeObserver(readyObserver) }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        wait(for: [surfaceReady], timeout: 1.0)
+
+        XCTAssertNotNil(
+            surface.surface,
+            "Expected runtime surface before measuring active readiness redraws"
+        )
+        hostedView.debugExpireVisibleSurfaceRefreshThrottleForTesting()
+
+        let firstDrain = expectation(description: "surface-ready active redraw drained")
+        DispatchQueue.main.async { firstDrain.fulfill() }
+        wait(for: [firstDrain], timeout: 1.0)
+
+        let secondDrain = expectation(description: "surface-ready focus recovery drained")
+        DispatchQueue.main.async { secondDrain.fulfill() }
+        wait(for: [secondDrain], timeout: 1.0)
+
+        XCTAssertEqual(
+            surface.debugForceRefreshCount(),
+            1,
+            "Surface readiness should cover the deferred active focus recovery redraw"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testDirectFirstResponderFocusRefreshesCursorStateAfterForeignResponder() throws {
 #if DEBUG
         let window = makeWindow()
