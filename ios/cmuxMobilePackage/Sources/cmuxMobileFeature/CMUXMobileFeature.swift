@@ -26,21 +26,35 @@ struct CMUXMobileRootView: View {
     @Bindable var store: CMUXMobileShellStore
     @State private var authManager = AuthManager.shared
     @State private var pendingAttachURL: String?
+    @State private var isShowingAddDeviceSheet = true
 
     var body: some View {
         Group {
             if !isAuthenticated {
                 SignInView()
             } else if store.connectionState != .connected {
-                PairingView(
-                    pairingCode: $store.pairingCode,
-                    connectionError: store.connectionError,
-                    connectPairingCode: store.connectPreviewHost,
-                    connectManualHost: { name, host, port in
-                        await store.connectManualHost(name: name, host: host, port: port)
-                    },
+                DisconnectedWorkspaceShellView(
+                    showAddDevice: { isShowingAddDeviceSheet = true },
                     signOut: signOut
                 )
+                .sheet(isPresented: $isShowingAddDeviceSheet) {
+                    PairingView(
+                        pairingCode: $store.pairingCode,
+                        connectionError: store.connectionError,
+                        connectPairingCode: store.connectPreviewHost,
+                        connectManualHost: { name, host, port in
+                            await store.connectManualHost(name: name, host: host, port: port)
+                        },
+                        cancel: { isShowingAddDeviceSheet = false }
+                    )
+                    #if os(iOS)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+                    #endif
+                }
+                .onAppear {
+                    isShowingAddDeviceSheet = true
+                }
             } else {
                 WorkspaceShellView(store: store)
             }
@@ -83,6 +97,66 @@ struct CMUXMobileRootView: View {
 enum MobileRootAuthGate {
     static func isAuthenticated(stackAuthenticated: Bool) -> Bool {
         stackAuthenticated
+    }
+}
+
+private struct DisconnectedWorkspaceShellView: View {
+    let showAddDevice: () -> Void
+    let signOut: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ContentUnavailableView {
+                Label(
+                    L10n.string("mobile.devices.emptyTitle", defaultValue: "No devices"),
+                    systemImage: "desktopcomputer.and.iphone"
+                )
+            } description: {
+                Text(L10n.string("mobile.devices.emptyDescription", defaultValue: "Add a Mac to start syncing terminal workspaces."))
+            } actions: {
+                Button(action: showAddDevice) {
+                    Text(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.blue)
+                .accessibilityIdentifier("MobileShowAddDeviceButton")
+            }
+            .navigationTitle(L10n.string("mobile.workspaces.title", defaultValue: "Workspaces"))
+            .mobileInlineNavigationTitle()
+            .toolbar {
+                #if os(iOS)
+                ToolbarItem(placement: .topBarLeading) {
+                    signOutButton
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    addDeviceToolbarButton
+                }
+                #else
+                ToolbarItem {
+                    signOutButton
+                }
+                ToolbarItem {
+                    addDeviceToolbarButton
+                }
+                #endif
+            }
+            .accessibilityIdentifier("MobileDisconnectedWorkspaceShell")
+        }
+    }
+
+    private var signOutButton: some View {
+        Button(action: signOut) {
+            Text(L10n.string("mobile.signOut", defaultValue: "Sign Out"))
+        }
+        .accessibilityIdentifier("MobileSignOutButton")
+    }
+
+    private var addDeviceToolbarButton: some View {
+        Button(action: showAddDevice) {
+            Image(systemName: "plus")
+        }
+        .accessibilityLabel(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
+        .accessibilityIdentifier("MobileShowAddDeviceToolbarButton")
     }
 }
 
@@ -682,7 +756,7 @@ struct PairingView: View {
     let connectionError: String?
     let connectPairingCode: () -> Void
     let connectManualHost: (String, String, Int) async -> Void
-    let signOut: () -> Void
+    let cancel: () -> Void
     @State private var isShowingScanner = false
     @State private var deviceName = UITestConfig.addDeviceName
         ?? L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac")
@@ -693,111 +767,103 @@ struct PairingView: View {
     @FocusState private var focusedField: AddDeviceField?
 
     var body: some View {
-        ZStack {
-            AddDevicePalette.background
-                .ignoresSafeArea()
-
-            ScrollView {
-                VStack(spacing: 32) {
-                    header
-                        .padding(.top, 28)
-
-                    VStack(spacing: 0) {
-                        AddDeviceInputRow(
-                            title: L10n.string("mobile.addDevice.nameLabel", defaultValue: "NAME"),
-                            placeholder: L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac"),
-                            text: $deviceName,
-                            focusedField: $focusedField,
-                            field: .name,
-                            inputKind: .text,
-                            submitLabel: .next
-                        )
-
-                        AddDeviceDivider()
-
-                        AddDeviceInputRow(
-                            title: L10n.string("mobile.addDevice.hostLabel", defaultValue: "HOST"),
-                            placeholder: L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "100.x.y.z or your-mac.local"),
-                            text: $host,
-                            focusedField: $focusedField,
-                            field: .host,
-                            inputKind: .url,
-                            submitLabel: .next
-                        )
-
-                        AddDeviceDivider()
-
-                        AddDeviceInputRow(
-                            title: L10n.string("mobile.addDevice.portLabel", defaultValue: "PORT"),
-                            placeholder: L10n.string("mobile.addDevice.portPlaceholder", defaultValue: "4865"),
-                            text: $port,
-                            focusedField: $focusedField,
-                            field: .port,
-                            inputKind: .number,
-                            submitLabel: .done
-                        )
-                    }
-                    .background(AddDevicePalette.fieldBackground, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .stroke(AddDevicePalette.stroke, lineWidth: 1)
+        NavigationStack {
+            Form {
+                Section {
+                    TextField(
+                        L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac"),
+                        text: $deviceName
                     )
-                    .overlay(alignment: .topLeading) {
-                        #if DEBUG
-                        if UITestConfig.mockDataEnabled {
-                            Color.clear
-                                .frame(width: 1, height: 1)
-                                .accessibilityElement(children: .ignore)
-                                .accessibilityLabel(L10n.string("mobile.addDevice.formAccessibilityLabel", defaultValue: "Add device form"))
-                                .accessibilityIdentifier("MobileAddDeviceForm")
-                        }
-                        #endif
-                    }
+                    .focused($focusedField, equals: .name)
+                    .submitLabel(.next)
+                    .addDeviceInputBehavior(.text)
+                    .accessibilityIdentifier("MobileAddDeviceNameField")
 
+                    TextField(
+                        L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "100.x.y.z or your-mac.local"),
+                        text: $host
+                    )
+                    .focused($focusedField, equals: .host)
+                    .submitLabel(.next)
+                    .addDeviceInputBehavior(.url)
+                    .accessibilityIdentifier("MobileAddDeviceHostField")
+
+                    TextField(
+                        L10n.string("mobile.addDevice.portPlaceholder", defaultValue: "4865"),
+                        text: $port
+                    )
+                    .focused($focusedField, equals: .port)
+                    .submitLabel(.done)
+                    .addDeviceInputBehavior(.number)
+                    .accessibilityIdentifier("MobileAddDevicePortField")
+                } header: {
+                    Text(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
+                } footer: {
+                    Text(L10n.string("mobile.addDevice.help", defaultValue: "Enter any reachable host, including a Tailscale 100.x IP, LAN IP, or local device name. On your Mac, enable Mobile sync in cmux."))
+                }
+                .overlay(alignment: .topLeading) {
+                    #if DEBUG
+                    if UITestConfig.mockDataEnabled {
+                        Color.clear
+                            .frame(width: 1, height: 1)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel(L10n.string("mobile.addDevice.formAccessibilityLabel", defaultValue: "Add device form"))
+                            .accessibilityIdentifier("MobileAddDeviceForm")
+                    }
+                    #endif
+                }
+
+                Section {
                     Button {
                         pair()
                     } label: {
-                        Text(L10n.string("mobile.addDevice.pair", defaultValue: "Pair"))
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 58)
-                            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        HStack {
+                            Spacer(minLength: 0)
+                            if isPairing {
+                                ProgressView()
+                            } else {
+                                Text(L10n.string("mobile.addDevice.pair", defaultValue: "Pair"))
+                            }
+                            Spacer(minLength: 0)
+                        }
                     }
-                    .background(AddDevicePalette.pairGradient, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .tint(.blue)
                     .disabled(isPairing || host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .opacity(isPairing || host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.55 : 1)
                     .accessibilityIdentifier("MobilePairButton")
-
-                    VStack(spacing: 14) {
-                        Text(L10n.string("mobile.addDevice.help", defaultValue: "Enter any reachable host, including a Tailscale 100.x IP, LAN IP, or local device name. On your Mac, enable Mobile sync in cmux."))
-                            .font(.system(size: 17, weight: .medium))
-                            .foregroundStyle(AddDevicePalette.secondaryText)
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        Button {
-                            isShowingScanner = true
-                        } label: {
-                            Label(L10n.string("mobile.pairing.scan", defaultValue: "Scan QR Code"), systemImage: "qrcode.viewfinder")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(AddDevicePalette.secondaryText)
-                        }
-                        .accessibilityIdentifier("MobileScanQRCodeButton")
-
-                        if let errorText {
-                            Text(errorText)
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.red)
-                                .multilineTextAlignment(.center)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .accessibilityIdentifier("MobilePairingError")
-                        }
-                    }
-                    .padding(.horizontal, 32)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 40)
+
+                Section {
+                    Button {
+                        isShowingScanner = true
+                    } label: {
+                        Label(L10n.string("mobile.pairing.scan", defaultValue: "Scan QR Code"), systemImage: "qrcode.viewfinder")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .accessibilityIdentifier("MobileScanQRCodeButton")
+                }
+
+                if let errorText {
+                    Section {
+                        Text(errorText)
+                            .foregroundStyle(.red)
+                            .accessibilityIdentifier("MobilePairingError")
+                    }
+                }
+            }
+            .navigationTitle(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
+            .mobileInlineNavigationTitle()
+            .toolbar {
+                #if os(iOS)
+                ToolbarItem(placement: .cancellationAction) {
+                    cancelButton
+                }
+                #else
+                ToolbarItem {
+                    cancelButton
+                }
+                #endif
             }
         }
         .sheet(isPresented: $isShowingScanner) {
@@ -809,30 +875,9 @@ struct PairingView: View {
         }
     }
 
-    private var header: some View {
-        HStack {
-            Button(action: signOut) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 58, height: 58)
-                    .background(AddDevicePalette.closeBackground, in: Circle())
-                    .overlay(Circle().stroke(AddDevicePalette.stroke, lineWidth: 1))
-            }
-            .accessibilityLabel(L10n.string("mobile.signOut", defaultValue: "Sign Out"))
-            .accessibilityIdentifier("MobileSignOutButton")
-
-            Spacer()
-
-            Text(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
-                .font(.system(size: 26, weight: .bold))
-                .foregroundStyle(.white)
-
-            Spacer()
-
-            Color.clear
-                .frame(width: 58, height: 58)
-                .accessibilityHidden(true)
+    private var cancelButton: some View {
+        Button(action: cancel) {
+            Text(L10n.string("mobile.common.cancel", defaultValue: "Cancel"))
         }
     }
 
@@ -876,85 +921,6 @@ private enum AddDeviceInputKind {
     case text
     case url
     case number
-}
-
-private struct AddDeviceInputRow: View {
-    let title: String
-    let placeholder: String
-    @Binding var text: String
-    var focusedField: FocusState<AddDeviceField?>.Binding
-    let field: AddDeviceField
-    var inputKind: AddDeviceInputKind
-    var submitLabel: SubmitLabel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(title)
-                .font(.system(size: 16, weight: .bold))
-                .tracking(2.5)
-                .foregroundStyle(AddDevicePalette.labelText)
-
-            TextField(
-                text: $text,
-                prompt: Text(placeholder)
-                    .foregroundStyle(AddDevicePalette.placeholderText)
-            ) {
-                Text(placeholder)
-            }
-                .font(.system(size: 23, weight: .regular))
-                .foregroundStyle(.white)
-                .tint(.white)
-                .textFieldStyle(.plain)
-                .addDeviceInputBehavior(inputKind)
-                .submitLabel(submitLabel)
-                .focused(focusedField, equals: field)
-                .accessibilityIdentifier(accessibilityIdentifier)
-        }
-        .padding(.horizontal, 22)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: 112)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            focusedField.wrappedValue = field
-        }
-    }
-
-    private var accessibilityIdentifier: String {
-        switch field {
-        case .name:
-            "MobileAddDeviceNameField"
-        case .host:
-            "MobileAddDeviceHostField"
-        case .port:
-            "MobileAddDevicePortField"
-        }
-    }
-}
-
-private struct AddDeviceDivider: View {
-    var body: some View {
-        Rectangle()
-            .fill(AddDevicePalette.stroke)
-            .frame(height: 1)
-    }
-}
-
-private enum AddDevicePalette {
-    static let background = Color(red: 0.015, green: 0.016, blue: 0.024)
-    static let fieldBackground = Color(red: 0.075, green: 0.075, blue: 0.095)
-    static let closeBackground = Color(red: 0.095, green: 0.095, blue: 0.12)
-    static let stroke = Color.white.opacity(0.055)
-    static let labelText = Color.white.opacity(0.52)
-    static let placeholderText = Color.white.opacity(0.58)
-    static let secondaryText = Color.white.opacity(0.48)
-    static let pairGradient = LinearGradient(
-        colors: [
-            Color(red: 0.52, green: 0.22, blue: 0.94),
-            Color(red: 0.46, green: 0.18, blue: 0.93),
-        ],
-        startPoint: .leading,
-        endPoint: .trailing
-    )
 }
 
 #if os(iOS)
@@ -1518,8 +1484,8 @@ private extension MobileWorkspacePreview {
         let palettes: [[Color]] = [
             [Color.blue, Color.cyan],
             [Color.green, Color.teal],
-            [Color.indigo, Color.orange],
-            [Color.pink, Color.purple],
+            [Color.orange, Color.yellow],
+            [Color.gray, Color.blue],
         ]
         let colors = palettes[abs(stableAvatarSeed) % palettes.count]
         return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -1574,7 +1540,7 @@ struct WorkspaceDetailView: View {
         TerminalPreviewSurface(terminal: selectedTerminal)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(TerminalPalette.background)
-            .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+            .ignoresSafeArea(.container, edges: [.bottom])
             .navigationTitle(workspace.name)
             .mobileTerminalNavigationChrome()
             .toolbar {

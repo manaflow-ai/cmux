@@ -85,6 +85,27 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "デバイスを追加" } }
       }
     },
+    "mobile.common.cancel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Cancel" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "キャンセル" } }
+      }
+    },
+    "mobile.devices.emptyDescription" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Add a Mac to start syncing terminal workspaces." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac を追加してターミナルワークスペースの同期を開始します。" } }
+      }
+    },
+    "mobile.devices.emptyTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No devices" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "デバイスがありません" } }
+      }
+    },
     "mobile.pairing.codePlaceholder" : {
       "extractionState" : "manual",
       "localizations" : {
