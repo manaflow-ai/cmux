@@ -3302,7 +3302,6 @@ private struct FeedInlineTextField: NSViewRepresentable {
         var parent: FeedInlineTextField
         var isProgrammaticMutation = false
         weak var view: FeedInlineTextEditorView?
-        var pendingFocusRequest: Bool?
 
         init(parent: FeedInlineTextField) {
             self.parent = parent
@@ -3319,7 +3318,6 @@ private struct FeedInlineTextField: NSViewRepresentable {
         }
 
         func blurField() {
-            pendingFocusRequest = nil
             if parent.isFocused {
                 parent.isFocused = false
             }
@@ -3413,28 +3411,10 @@ private struct FeedInlineTextField: NSViewRepresentable {
         let firstResponder = window.firstResponder
         let isFirstResponder = firstResponder === nsView.textView
 
-        if isFocused, isEnabled, !isFirstResponder, context.coordinator.pendingFocusRequest != true {
-            context.coordinator.pendingFocusRequest = true
-            DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
-                coordinator?.pendingFocusRequest = nil
-                guard let coordinator, coordinator.parent.isFocused, coordinator.parent.isEnabled else { return }
-                nsView?.focusIfNeeded()
-            }
-        } else if (!isFocused || !isEnabled), isFirstResponder, context.coordinator.pendingFocusRequest != false {
-            context.coordinator.pendingFocusRequest = false
-            Task { @MainActor [weak nsView, weak coordinator = context.coordinator] in
-                coordinator?.pendingFocusRequest = nil
-                guard let nsView, let window = nsView.window else { return }
-                let stillFocused = window.firstResponder === nsView.textView
-                guard stillFocused else { return }
-                if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                    mode: .feed,
-                    focusFirstItem: false,
-                    preferredWindow: window
-                ) != true {
-                    window.makeFirstResponder(nil)
-                }
-            }
+        if isFocused, isEnabled, !isFirstResponder {
+            nsView.focusIfNeeded()
+        } else if !isEnabled, isFirstResponder {
+            window.makeFirstResponder(nil)
         }
     }
 
