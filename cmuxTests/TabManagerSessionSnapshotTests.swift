@@ -34,6 +34,25 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.tabs[1].customTitle, "Second")
     }
 
+    func testAutosaveFingerprintTracksPersistedSessionSnapshotFields() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected initial workspace")
+            return
+        }
+
+        let baseline = manager.sessionAutosaveFingerprint()
+        XCTAssertEqual(baseline, manager.sessionAutosaveFingerprint())
+
+        workspace.applyProcessTitle("Crash Recovery")
+        let titleChanged = manager.sessionAutosaveFingerprint()
+        XCTAssertNotEqual(baseline, titleChanged)
+        XCTAssertEqual(titleChanged, manager.sessionAutosaveFingerprint())
+
+        workspace.setCustomDescription("Autosave should notice persisted metadata")
+        XCTAssertNotEqual(titleChanged, manager.sessionAutosaveFingerprint())
+    }
+
     func testRestoreSessionSnapshotWithNoWorkspacesKeepsSingleFallbackWorkspace() {
         let manager = TabManager()
         let emptySnapshot = SessionTabManagerSnapshot(
