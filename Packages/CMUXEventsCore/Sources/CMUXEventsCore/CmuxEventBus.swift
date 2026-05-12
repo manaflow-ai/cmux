@@ -122,7 +122,12 @@ public final class CmuxEventBus: @unchecked Sendable {
     public static let maxSanitizedArrayItems = 256
     public static let maxSanitizedObjectEntries = 256
     public static let maxSanitizedDepth = 12
-    private static let isoFormatter: ISO8601DateFormatter = { let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return formatter }()
+    // ISO8601DateFormatter is mutable and non-Sendable; every access is serialized by isoFormatterLock.
+    nonisolated(unsafe) private static let isoFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
     private static let isoFormatterLock = NSLock()
 
     private let lock = NSLock()
