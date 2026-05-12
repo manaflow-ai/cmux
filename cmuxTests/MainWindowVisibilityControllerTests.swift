@@ -257,6 +257,90 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         XCTAssertFalse(madeKeyWindows.contains { $0 === dismissedWindow })
     }
 
+    func testPassiveRevealWithoutKeyTransferDoesNotActivateApplication() {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        let visibleIds: Set<ObjectIdentifier> = [ObjectIdentifier(window)]
+        var activationCount = 0
+        var orderedRegardlessWindows: [NSWindow] = []
+        var madeKeyWindows: [NSWindow] = []
+
+        let controller = MainWindowVisibilityController(
+            dependencies: .init(
+                isActivationSuppressed: { false },
+                setActiveMainWindow: { _ in },
+                isApplicationHidden: { false },
+                activateRunningApplication: { _ in activationCount += 1 },
+                windowOperations: makeWindowOperations(
+                    isVisible: { visibleIds.contains(ObjectIdentifier($0)) },
+                    isMiniaturized: { _ in false },
+                    makeKey: { madeKeyWindows.append($0) },
+                    orderFrontRegardless: { orderedRegardlessWindows.append($0) }
+                )
+            )
+        )
+
+        _ = controller.showApplicationWindows(
+            windows: [window],
+            reason: .applicationReopen,
+            makeKey: false
+        )
+
+        XCTAssertEqual(
+            activationCount,
+            0,
+            "Ordering a visible cmux window without transferring key focus must not make cmux the Launch Services frontmost app."
+        )
+        XCTAssertTrue(orderedRegardlessWindows.contains { $0 === window })
+        XCTAssertTrue(madeKeyWindows.isEmpty)
+    }
+
+    func testPassiveRevealWithoutKeyTransferDoesNotDeminiaturizeWindow() {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        var miniaturizedIds: Set<ObjectIdentifier> = [ObjectIdentifier(window)]
+        var activationCount = 0
+        var deminiaturizedWindows: [NSWindow] = []
+        var orderedRegardlessWindows: [NSWindow] = []
+        var madeKeyWindows: [NSWindow] = []
+
+        let controller = MainWindowVisibilityController(
+            dependencies: .init(
+                isActivationSuppressed: { false },
+                setActiveMainWindow: { _ in },
+                isApplicationHidden: { false },
+                activateRunningApplication: { _ in activationCount += 1 },
+                windowOperations: makeWindowOperations(
+                    isVisible: { _ in false },
+                    isMiniaturized: { miniaturizedIds.contains(ObjectIdentifier($0)) },
+                    deminiaturize: { window in
+                        miniaturizedIds.remove(ObjectIdentifier(window))
+                        deminiaturizedWindows.append(window)
+                    },
+                    makeKey: { madeKeyWindows.append($0) },
+                    orderFrontRegardless: { orderedRegardlessWindows.append($0) }
+                )
+            )
+        )
+
+        let revealedWindow = controller.showApplicationWindows(
+            windows: [window],
+            reason: .applicationReopen,
+            makeKey: false
+        )
+
+        XCTAssertNil(
+            revealedWindow,
+            "A passive reveal must not unminiaturize a background cmux window because AppKit can mark the app frontmost."
+        )
+        XCTAssertEqual(activationCount, 0)
+        XCTAssertTrue(deminiaturizedWindows.isEmpty)
+        XCTAssertTrue(orderedRegardlessWindows.isEmpty)
+        XCTAssertTrue(madeKeyWindows.isEmpty)
+    }
+
     func testHiddenAppRestoreFallsBackToSoftDismissedTargets() {
         let window = makeWindow()
         defer { window.orderOut(nil) }

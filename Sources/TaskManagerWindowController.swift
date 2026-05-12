@@ -123,7 +123,11 @@ final class CmuxTaskManagerModel: ObservableObject {
 
     func viewWorkspace(for row: CmuxTaskManagerRow) {
         guard let workspaceId = row.workspaceId,
-              let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
+              let appDelegate = AppDelegate.shared,
+              let manager = appDelegate.tabManagerFor(tabId: workspaceId) else { return }
+        if let windowId = appDelegate.windowId(for: manager) {
+            _ = appDelegate.focusMainWindow(windowId: windowId)
+        }
         manager.focusTab(workspaceId, surfaceId: row.surfaceId, suppressFlash: true)
         flashSelection(workspaceId: workspaceId, surfaceId: row.surfaceId)
     }
@@ -131,7 +135,11 @@ final class CmuxTaskManagerModel: ObservableObject {
     func viewTerminal(for row: CmuxTaskManagerRow) {
         guard let workspaceId = row.workspaceId,
               let terminalSurfaceId = row.terminalSurfaceId,
-              let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
+              let appDelegate = AppDelegate.shared,
+              let manager = appDelegate.tabManagerFor(tabId: workspaceId) else { return }
+        if let windowId = appDelegate.windowId(for: manager) {
+            _ = appDelegate.focusMainWindow(windowId: windowId)
+        }
         manager.focusTab(workspaceId, surfaceId: terminalSurfaceId, suppressFlash: true)
         flashSelection(workspaceId: workspaceId, surfaceId: terminalSurfaceId)
     }
