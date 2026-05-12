@@ -33,18 +33,33 @@ enum TerminalDesktopNotificationBridge {
     }
 
     private static func matchesGenericClaudeAttentionBanner(_ value: String) -> Bool {
-        value.contains("claude needs your attention") ||
-            value.contains("claude needs your input") ||
-            value.contains("claude code needs your attention") ||
-            value.contains("claude code needs your input")
+        switch value {
+        case "claude needs your attention",
+             "claude needs your input",
+             "claude code needs your attention",
+             "claude code needs your input":
+            return true
+        default:
+            return false
+        }
     }
 
     private static func isGenericClaudeNotificationTitle(_ value: String) -> Bool {
-        value == "claude" || value == "claude code"
+        switch value {
+        case "claude", "claude code":
+            return true
+        default:
+            return false
+        }
     }
 
     private static func isGenericAttentionBody(_ value: String) -> Bool {
-        value == "needs your attention" || value == "needs your input"
+        switch value {
+        case "needs your attention", "needs your input":
+            return true
+        default:
+            return false
+        }
     }
 
     private static func normalizedText(_ value: String) -> String {

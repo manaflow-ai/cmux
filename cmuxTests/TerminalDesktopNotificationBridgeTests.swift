@@ -54,6 +54,17 @@ final class TerminalDesktopNotificationBridgeTests: XCTestCase {
         XCTAssertTrue(suppressed)
     }
 
+    func testActiveClaudeHookSuppressesGenericClaudeInputNotificationTitleWithWhitespaceAndCase() {
+        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
+            claudeHooksEnabled: true,
+            workspaceAgentPIDs: ["claude_code": pid_t(123)],
+            title: "  Claude   CODE  needs your INPUT \n",
+            body: ""
+        )
+
+        XCTAssertTrue(suppressed)
+    }
+
     func testActiveClaudeHookSuppressesGenericClaudeInputNotification() {
         let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
             claudeHooksEnabled: true,
@@ -137,6 +148,17 @@ final class TerminalDesktopNotificationBridgeTests: XCTestCase {
             workspaceAgentPIDs: ["claude_code": pid_t(123)],
             title: "From Claude",
             body: "needs your input on the review"
+        )
+
+        XCTAssertFalse(suppressed)
+    }
+
+    func testActiveClaudeHookAllowsLongerTitleContainingGenericBannerText() {
+        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
+            claudeHooksEnabled: true,
+            workspaceAgentPIDs: ["claude_code": pid_t(123)],
+            title: "Claude needs your input on the review",
+            body: ""
         )
 
         XCTAssertFalse(suppressed)
