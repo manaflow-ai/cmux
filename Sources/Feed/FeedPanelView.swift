@@ -90,6 +90,12 @@ struct FeedPanelView: View {
                 onLoadOlderItems: viewModel.loadOlderItems
             )
         }
+        .onAppear {
+            viewModel.setAgentTreeActive(filter == .agentTree)
+        }
+        .onChange(of: filter) { _, filter in
+            viewModel.setAgentTreeActive(filter == .agentTree)
+        }
     }
 
     private var controlBar: some View {
