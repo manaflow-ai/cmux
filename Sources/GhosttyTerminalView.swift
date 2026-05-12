@@ -9727,6 +9727,29 @@ struct TerminalTimestampScrollbarState: Equatable {
             len: Int(clamping: scrollbar.len)
         )
     }
+
+    static func visibleWindow(
+        total: Int,
+        fallbackLen: Int,
+        visibleTopRow: CGFloat,
+        viewportHeight: CGFloat,
+        cellHeight: CGFloat
+    ) -> Self {
+        let total = max(0, total)
+        guard total > 0 else {
+            return Self(total: 0, offset: 0, len: 0)
+        }
+
+        let visibleOffset = min(total, max(0, Int(floor(visibleTopRow))))
+        let viewportLen: Int
+        if cellHeight > 0, viewportHeight > 0 {
+            viewportLen = Int(ceil(viewportHeight / cellHeight)) + 1
+        } else {
+            viewportLen = fallbackLen
+        }
+        let len = min(max(0, total - visibleOffset), max(fallbackLen, viewportLen, 0))
+        return Self(total: total, offset: visibleOffset, len: len)
+    }
 }
 
 struct TerminalTimestampVisibleRow: Equatable {
@@ -12739,10 +12762,17 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
-        let state = TerminalTimestampScrollbarState(scrollbar)
+        let visibleTopRow = currentVisibleTopRow(cellHeight: surfaceView.cellSize.height)
+        let state = TerminalTimestampScrollbarState.visibleWindow(
+            total: Int(clamping: scrollbar.total),
+            fallbackLen: Int(clamping: scrollbar.len),
+            visibleTopRow: visibleTopRow,
+            viewportHeight: scrollView.contentView.documentVisibleRect.height,
+            cellHeight: surfaceView.cellSize.height
+        )
         timestampGutterView.update(
             rows: timestampStore.visibleRows(for: state),
-            visibleTopRow: currentVisibleTopRow(cellHeight: surfaceView.cellSize.height),
+            visibleTopRow: visibleTopRow,
             cellHeight: surfaceView.cellSize.height
         )
     }

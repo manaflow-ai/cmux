@@ -84,6 +84,18 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         )
     }
 
+    func testTerminalTimestampVisibleWindowTracksCurrentScrollPosition() {
+        let state = TerminalTimestampScrollbarState.visibleWindow(
+            total: 100,
+            fallbackLen: 3,
+            visibleTopRow: 42.25,
+            viewportHeight: 25,
+            cellHeight: 10
+        )
+
+        XCTAssertEqual(state, TerminalTimestampScrollbarState(total: 100, offset: 42, len: 4))
+    }
+
     func testTerminalTimestampStoreDoesNotInventOldRowsDuringUserScroll() {
         let store = TerminalTimestampStore()
         let first = Date(timeIntervalSince1970: 100)
