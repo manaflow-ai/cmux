@@ -749,7 +749,7 @@ func applyBrowserSpecialParams(params map[string]any, spec browserCommandSpec) e
 				return fmt.Errorf("--timeout must be a number of seconds")
 			}
 			if _, hasTimeoutMs := params["timeout_ms"]; !hasTimeoutMs {
-				params["timeout_ms"] = fmt.Sprintf("%d", maxInt(1, int(seconds*1000)))
+				params["timeout_ms"] = fmt.Sprintf("%d", max(1, int(seconds*1000)))
 			}
 			delete(params, "timeout")
 		}
@@ -792,13 +792,6 @@ func isIntegerString(value string) bool {
 		}
 	}
 	return true
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 func printBrowserRelayResponse(spec browserCommandSpec, resp string, jsonOutput bool, outPath string) int {
