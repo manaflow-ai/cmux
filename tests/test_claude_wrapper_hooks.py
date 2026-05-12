@@ -537,7 +537,7 @@ def test_live_socket_clears_empty_masked_claude_auth_selection_env(failures: lis
         "CLAUDE_CODE_USE_VERTEX": "",
     }
     code, auth_env, real_argv, stderr = run_wrapper_auth_env(
-        argv=["hello"],
+        argv=["--print", "hello"],
         inherited_env=inherited,
     )
     expect(code == 0, f"masked auth env: wrapper exited {code}: {stderr}", failures)
