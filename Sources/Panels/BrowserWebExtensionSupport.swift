@@ -154,26 +154,51 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
     struct PermissionCapability: Equatable {
         let name: String
         let availability: Availability
+        let appExtensionBundleAvailability: Availability?
         let apiPaths: [String]
 
         init(
             _ name: String,
             availability: Availability,
+            appExtensionBundleAvailability: Availability? = nil,
             apiPaths: [String] = []
         ) {
             self.name = name
             self.availability = availability
+            self.appExtensionBundleAvailability = appExtensionBundleAvailability
             self.apiPaths = apiPaths
+        }
+
+        func availability(for sourceKind: BrowserWebExtensionInstallRecord.SourceKind) -> Availability {
+            if sourceKind == .appExtensionBundle,
+               let appExtensionBundleAvailability {
+                return appExtensionBundleAvailability
+            }
+            return availability
         }
     }
 
     struct APICapability: Equatable {
         let path: String
         let availability: Availability
+        let appExtensionBundleAvailability: Availability?
 
-        init(_ path: String, availability: Availability) {
+        init(
+            _ path: String,
+            availability: Availability,
+            appExtensionBundleAvailability: Availability? = nil
+        ) {
             self.path = path
             self.availability = availability
+            self.appExtensionBundleAvailability = appExtensionBundleAvailability
+        }
+
+        func availability(for sourceKind: BrowserWebExtensionInstallRecord.SourceKind) -> Availability {
+            if sourceKind == .appExtensionBundle,
+               let appExtensionBundleAvailability {
+                return appExtensionBundleAvailability
+            }
+            return availability
         }
     }
 
@@ -197,6 +222,7 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
             PermissionCapability(
                 "nativeMessaging",
                 availability: .unavailable(.missingHostAdapter),
+                appExtensionBundleAvailability: .delegatedToWebKit,
                 apiPaths: ["browser.runtime.connectNative", "browser.runtime.sendNativeMessage"]
             ),
             PermissionCapability(
@@ -237,8 +263,16 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
             APICapability("browser.notifications", availability: .unavailable(.missingHostAdapter)),
             APICapability("browser.offscreen", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.privacy", availability: .unavailable(.noPublicWebKitSurface)),
-            APICapability("browser.runtime.connectNative", availability: .unavailable(.missingHostAdapter)),
-            APICapability("browser.runtime.sendNativeMessage", availability: .unavailable(.missingHostAdapter)),
+            APICapability(
+                "browser.runtime.connectNative",
+                availability: .unavailable(.missingHostAdapter),
+                appExtensionBundleAvailability: .delegatedToWebKit
+            ),
+            APICapability(
+                "browser.runtime.sendNativeMessage",
+                availability: .unavailable(.missingHostAdapter),
+                appExtensionBundleAvailability: .delegatedToWebKit
+            ),
             APICapability("browser.userScripts", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.webRequest.onAuthRequired", availability: .unavailable(.missingHostAdapter)),
         ]
@@ -252,22 +286,31 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
         self.apiCapabilities = apis
     }
 
-    func isPermissionGrantable(_ rawPermission: String) -> Bool {
-        permissionsByName[rawPermission]?.availability.isAvailable == true
+    func isPermissionGrantable(
+        _ rawPermission: String,
+        sourceKind: BrowserWebExtensionInstallRecord.SourceKind = .resourceBaseURL
+    ) -> Bool {
+        permissionsByName[rawPermission]?.availability(for: sourceKind).isAvailable == true
     }
 
-    func grantablePermissionNames(from rawPermissions: [String]) -> [String] {
-        rawPermissions.filter(isPermissionGrantable)
+    func grantablePermissionNames(
+        from rawPermissions: [String],
+        sourceKind: BrowserWebExtensionInstallRecord.SourceKind = .resourceBaseURL
+    ) -> [String] {
+        rawPermissions.filter { isPermissionGrantable($0, sourceKind: sourceKind) }
     }
 
-    func unsupportedAPIs(forPermissionNames rawPermissions: [String]) -> Set<String> {
+    func unsupportedAPIs(
+        forPermissionNames rawPermissions: [String],
+        sourceKind: BrowserWebExtensionInstallRecord.SourceKind = .resourceBaseURL
+    ) -> Set<String> {
         var unsupportedAPIs = Set(apiCapabilities.flatMap { api in
-            api.availability.isAvailable ? [] : Self.namespaceAliases(forAPIPath: api.path)
+            api.availability(for: sourceKind).isAvailable ? [] : Self.namespaceAliases(forAPIPath: api.path)
         })
 
         for rawPermission in rawPermissions {
             guard let permission = permissionsByName[rawPermission],
-                  !permission.availability.isAvailable else {
+                  !permission.availability(for: sourceKind).isAvailable else {
                 continue
             }
             for apiPath in permission.apiPaths {
@@ -291,16 +334,26 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
     }
 }
 
-func browserWebExtensionHostGrantablePermissionNames(from rawPermissions: [String]) -> [String] {
-    BrowserWebExtensionHostCapabilityPolicy.current.grantablePermissionNames(from: rawPermissions)
+func browserWebExtensionHostGrantablePermissionNames(
+    from rawPermissions: [String],
+    sourceKind: BrowserWebExtensionInstallRecord.SourceKind = .resourceBaseURL
+) -> [String] {
+    BrowserWebExtensionHostCapabilityPolicy.current.grantablePermissionNames(
+        from: rawPermissions,
+        sourceKind: sourceKind
+    )
 }
 
 @available(macOS 15.4, *)
-func browserWebExtensionUnsupportedAPIs(for webExtension: WKWebExtension) -> Set<String> {
+func browserWebExtensionUnsupportedAPIs(
+    for webExtension: WKWebExtension,
+    sourceKind: BrowserWebExtensionInstallRecord.SourceKind = .resourceBaseURL
+) -> Set<String> {
     let requestedPermissions = webExtension.requestedPermissions.map { String($0.rawValue) }
     let optionalPermissions = webExtension.optionalPermissions.map { String($0.rawValue) }
     return BrowserWebExtensionHostCapabilityPolicy.current.unsupportedAPIs(
-        forPermissionNames: requestedPermissions + optionalPermissions
+        forPermissionNames: requestedPermissions + optionalPermissions,
+        sourceKind: sourceKind
     )
 }
 
@@ -328,6 +381,54 @@ struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable {
 struct BrowserWebExtensionInstallSource: Equatable {
     let kind: BrowserWebExtensionInstallRecord.SourceKind
     let url: URL
+}
+
+func browserWebExtensionSourceDescription(
+    for sourceKind: BrowserWebExtensionInstallRecord.SourceKind
+) -> String {
+    switch sourceKind {
+    case .appExtensionBundle:
+        return String(localized: "browser.extensions.summary.appExtension", defaultValue: "Safari app extension")
+    case .resourceBaseURL:
+        return String(localized: "browser.extensions.summary.localExtension", defaultValue: "Local extension")
+    }
+}
+
+func browserWebExtensionSummaryDetail(
+    sourceKind: BrowserWebExtensionInstallRecord.SourceKind,
+    displayVersion: String?
+) -> String {
+    let sourceDetail = browserWebExtensionSourceDescription(for: sourceKind)
+    guard let version = displayVersion?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !version.isEmpty else {
+        return sourceDetail
+    }
+    let versionDetail = String(
+        format: String(localized: "browser.extensions.summary.version", defaultValue: "Version %@"),
+        version
+    )
+    return String(
+        format: String(localized: "browser.extensions.summary.sourceWithVersion", defaultValue: "%@, %@"),
+        sourceDetail,
+        versionDetail
+    )
+}
+
+func browserWebExtensionContextUniqueIdentifier(
+    for record: BrowserWebExtensionInstallRecord
+) -> String? {
+    switch record.sourceKind {
+    case .resourceBaseURL:
+        return record.id.uuidString.lowercased()
+    case .appExtensionBundle:
+        let bundleIdentifier = Bundle(url: URL(fileURLWithPath: record.sourcePath))?
+            .bundleIdentifier?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let bundleIdentifier, !bundleIdentifier.isEmpty else {
+            return nil
+        }
+        return bundleIdentifier
+    }
 }
 
 enum BrowserWebExtensionInstallError: LocalizedError, Equatable {
@@ -378,6 +479,15 @@ enum BrowserWebExtensionInstallError: LocalizedError, Equatable {
 }
 
 final class BrowserWebExtensionInstallStore {
+    private enum AppExtensionValidationResult: Equatable {
+        case valid
+        case missingManifest
+        case missingInfoPlist
+        case notSafariWebExtension
+    }
+
+    private static let safariWebExtensionPointIdentifier = "com.apple.Safari.web-extension"
+
     private let registryURL: URL
     private let installedResourceDirectoryURL: URL
     private let fileManager: FileManager
@@ -428,22 +538,13 @@ final class BrowserWebExtensionInstallStore {
 
     func summaries(loadedRecordIDs: Set<UUID> = []) -> [BrowserWebExtensionInstalledSummary] {
         records.map { record in
-            let version = record.displayVersion?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let detail: String
-            if let version, !version.isEmpty {
-                detail = String(
-                    format: String(localized: "browser.extensions.summary.version", defaultValue: "Version %@"),
-                    version
-                )
-            } else {
-                detail = record.sourceKind == .appExtensionBundle
-                    ? String(localized: "browser.extensions.summary.appExtension", defaultValue: "App extension")
-                    : String(localized: "browser.extensions.summary.localExtension", defaultValue: "Local extension")
-            }
             return BrowserWebExtensionInstalledSummary(
                 id: record.id,
                 displayName: record.displayName,
-                detail: detail,
+                detail: browserWebExtensionSummaryDetail(
+                    sourceKind: record.sourceKind,
+                    displayVersion: record.displayVersion
+                ),
                 isEnabled: record.isEnabled,
                 isLoaded: loadedRecordIDs.contains(record.id)
             )
@@ -472,7 +573,10 @@ final class BrowserWebExtensionInstallStore {
             sourceKind: source.kind,
             sourcePath: storedSourceURL.path,
             isEnabled: true,
-            grantedPermissions: browserWebExtensionHostGrantablePermissionNames(from: grantedPermissions).sorted(),
+            grantedPermissions: browserWebExtensionHostGrantablePermissionNames(
+                from: grantedPermissions,
+                sourceKind: source.kind
+            ).sorted(),
             grantedPermissionMatchPatterns: grantedPermissionMatchPatterns.sorted()
         )
 
@@ -515,10 +619,16 @@ final class BrowserWebExtensionInstallStore {
         }
 
         if pathExtension == "appex" {
-            guard appExtensionHasManifest(resolvedURL) else {
+            switch appExtensionValidationResult(for: resolvedURL) {
+            case .valid:
+                return BrowserWebExtensionInstallSource(kind: .appExtensionBundle, url: resolvedURL)
+            case .missingManifest:
                 throw BrowserWebExtensionInstallError.noManifest(resolvedURL)
+            case .missingInfoPlist:
+                throw BrowserWebExtensionInstallError.noWebExtensionInApp(resolvedURL)
+            case .notSafariWebExtension:
+                throw BrowserWebExtensionInstallError.noWebExtensionInApp(resolvedURL)
             }
-            return BrowserWebExtensionInstallSource(kind: .appExtensionBundle, url: resolvedURL)
         }
 
         if pathExtension == "zip" || pathExtension == "crx" {
@@ -643,7 +753,8 @@ final class BrowserWebExtensionInstallStore {
     ) -> BrowserWebExtensionInstallRecord {
         var record = record
         record.grantedPermissions = browserWebExtensionHostGrantablePermissionNames(
-            from: record.grantedPermissions
+            from: record.grantedPermissions,
+            sourceKind: record.sourceKind
         ).sorted()
         return record
     }
@@ -662,7 +773,22 @@ final class BrowserWebExtensionInstallStore {
         return children
             .filter { $0.pathExtension.lowercased() == "appex" }
             .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
-            .first(where: appExtensionHasManifest)
+            .first { appExtensionValidationResult(for: $0) == .valid }
+    }
+
+    private func appExtensionValidationResult(for appexURL: URL) -> AppExtensionValidationResult {
+        guard appExtensionHasManifest(appexURL) else {
+            return .missingManifest
+        }
+
+        guard appExtensionInfoPlistExists(appexURL) else {
+            return .missingInfoPlist
+        }
+
+        guard appExtensionPointIdentifier(in: appexURL) == Self.safariWebExtensionPointIdentifier else {
+            return .notSafariWebExtension
+        }
+        return .valid
     }
 
     private func appExtensionHasManifest(_ appexURL: URL) -> Bool {
@@ -673,6 +799,26 @@ final class BrowserWebExtensionInstallStore {
                 .appendingPathComponent("manifest.json", isDirectory: false)
                 .path
         )
+    }
+
+    private func appExtensionInfoPlistExists(_ appexURL: URL) -> Bool {
+        fileManager.fileExists(atPath: appExtensionInfoPlistURL(for: appexURL).path)
+    }
+
+    private func appExtensionPointIdentifier(in appexURL: URL) -> String? {
+        guard let data = try? Data(contentsOf: appExtensionInfoPlistURL(for: appexURL)),
+              let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
+              let dictionary = plist as? [String: Any],
+              let extensionDictionary = dictionary["NSExtension"] as? [String: Any] else {
+            return nil
+        }
+        return extensionDictionary["NSExtensionPointIdentifier"] as? String
+    }
+
+    private func appExtensionInfoPlistURL(for appexURL: URL) -> URL {
+        appexURL
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Info.plist", isDirectory: false)
     }
 
     private func directoryHasManifest(_ directoryURL: URL) -> Bool {
@@ -906,7 +1052,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         if let firstError = fatalParseErrors.first {
             throw BrowserWebExtensionInstallError.loadFailed(firstError.localizedDescription)
         }
-        try await promptForInstallConsent(webExtension: webExtension)
+        try await promptForInstallConsent(webExtension: webExtension, sourceKind: source.kind)
 
         let record = try store.installRecord(
             from: source,
@@ -921,7 +1067,10 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             ?? BrowserWebExtensionInstalledSummary(
                 id: record.id,
                 displayName: record.displayName,
-                detail: record.displayVersion ?? "",
+                detail: browserWebExtensionSummaryDetail(
+                    sourceKind: record.sourceKind,
+                    displayVersion: record.displayVersion
+                ),
                 isEnabled: record.isEnabled,
                 isLoaded: contextsByRecordID[record.id] != nil
             )
@@ -1033,13 +1182,21 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         )
         let webExtension = try await loadWebExtension(from: source)
         let context = WKWebExtensionContext(for: webExtension)
-        context.uniqueIdentifier = record.id.uuidString.lowercased()
+        if let uniqueIdentifier = browserWebExtensionContextUniqueIdentifier(for: record) {
+            context.uniqueIdentifier = uniqueIdentifier
+        }
         context.inspectionName = record.displayName
 #if DEBUG
         context.isInspectable = true
 #endif
-        context.unsupportedAPIs = browserWebExtensionUnsupportedAPIs(for: webExtension)
-        for rawPermission in browserWebExtensionHostGrantablePermissionNames(from: record.grantedPermissions) {
+        context.unsupportedAPIs = browserWebExtensionUnsupportedAPIs(
+            for: webExtension,
+            sourceKind: record.sourceKind
+        )
+        for rawPermission in browserWebExtensionHostGrantablePermissionNames(
+            from: record.grantedPermissions,
+            sourceKind: record.sourceKind
+        ) {
             context.setPermissionStatus(
                 .grantedExplicitly,
                 for: WKWebExtension.Permission(rawPermission)
@@ -1072,10 +1229,13 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         }
     }
 
-    private func promptForInstallConsent(webExtension: WKWebExtension) async throws {
+    private func promptForInstallConsent(
+        webExtension: WKWebExtension,
+        sourceKind: BrowserWebExtensionInstallRecord.SourceKind
+    ) async throws {
         let alert = NSAlert()
         alert.messageText = String(localized: "browser.extensions.install.title", defaultValue: "Install Browser Extension?")
-        alert.informativeText = installConsentMessage(webExtension)
+        alert.informativeText = installConsentMessage(webExtension, sourceKind: sourceKind)
         alert.addButton(withTitle: String(localized: "browser.extensions.install.confirm", defaultValue: "Install"))
         alert.addButton(withTitle: String(localized: "browser.extensions.install.cancel", defaultValue: "Cancel"))
         alert.alertStyle = .informational
@@ -1085,11 +1245,15 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         }
     }
 
-    private func installConsentMessage(_ webExtension: WKWebExtension) -> String {
+    private func installConsentMessage(
+        _ webExtension: WKWebExtension,
+        sourceKind: BrowserWebExtensionInstallRecord.SourceKind
+    ) -> String {
         let extensionName = webExtension.displayName
             ?? String(localized: "browser.extensions.unknownExtension", defaultValue: "Unknown extension")
         let permissions = browserWebExtensionHostGrantablePermissionNames(
-            from: webExtension.requestedPermissions.map { String($0.rawValue) }
+            from: webExtension.requestedPermissions.map { String($0.rawValue) },
+            sourceKind: sourceKind
         )
             .sorted()
             .joined(separator: ", ")
@@ -1104,9 +1268,10 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         return String(
             format: String(
                 localized: "browser.extensions.install.message",
-                defaultValue: "%@\n\nAPI permissions: %@\nWebsite access: %@\n\ncmux grants only these permissions and lets WebKit enforce extension isolation, host access, and runtime permission prompts."
+                defaultValue: "%@\n\nSource: %@\nAPI permissions: %@\nWebsite access: %@\n\ncmux grants only these permissions and lets WebKit enforce extension isolation, host access, and runtime permission prompts."
             ),
             extensionName,
+            browserWebExtensionSourceDescription(for: sourceKind),
             permissionsLine,
             hostsLine
         )
@@ -1306,8 +1471,12 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         for context: WKWebExtensionContext,
         completionHandler: @escaping (Set<WKWebExtension.Permission>, Date?) -> Void
     ) {
+        let sourceKind = sourceKind(for: context)
         let grantablePermissions = Set(permissions.filter {
-            BrowserWebExtensionHostCapabilityPolicy.current.isPermissionGrantable(String($0.rawValue))
+            BrowserWebExtensionHostCapabilityPolicy.current.isPermissionGrantable(
+                String($0.rawValue),
+                sourceKind: sourceKind
+            )
         })
         guard !grantablePermissions.isEmpty else {
             completionHandler([], nil)
@@ -1317,6 +1486,14 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         promptForRuntimePermission(message: message) { allowed in
             completionHandler(allowed ? grantablePermissions : [], nil)
         }
+    }
+
+    private func sourceKind(for context: WKWebExtensionContext) -> BrowserWebExtensionInstallRecord.SourceKind {
+        guard let recordID = contextsByRecordID.first(where: { $0.value === context })?.key,
+              let record = store.records.first(where: { $0.id == recordID }) else {
+            return .resourceBaseURL
+        }
+        return record.sourceKind
     }
 
     func webExtensionController(

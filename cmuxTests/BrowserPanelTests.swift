@@ -204,7 +204,7 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
             sourceKind: .appExtensionBundle,
             sourcePath: root.appendingPathComponent("Bitwarden.appex").path,
             isEnabled: true,
-            grantedPermissions: ["storage", "webNavigation", "webRequestAuthProvider", "menus"],
+            grantedPermissions: ["storage", "nativeMessaging", "webNavigation", "webRequestAuthProvider", "menus"],
             grantedPermissionMatchPatterns: ["https://example.com/*"]
         )
         try JSONEncoder().encode([staleRecord]).write(to: registryURL)
@@ -214,13 +214,104 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
             installedResourceDirectoryURL: root.appendingPathComponent("resources", isDirectory: true)
         )
 
-        XCTAssertEqual(store.records.first?.grantedPermissions, ["menus", "storage"])
+        XCTAssertEqual(store.records.first?.grantedPermissions, ["menus", "nativeMessaging", "storage", "webNavigation"])
 
         let persisted = try JSONDecoder().decode(
             [BrowserWebExtensionInstallRecord].self,
             from: Data(contentsOf: registryURL)
         )
-        XCTAssertEqual(persisted.first?.grantedPermissions, ["menus", "storage"])
+        XCTAssertEqual(persisted.first?.grantedPermissions, ["menus", "nativeMessaging", "storage", "webNavigation"])
+    }
+
+    func testResourceInstallDoesNotGrantNativeMessaging() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = BrowserWebExtensionInstallStore(
+            registryURL: root.appendingPathComponent("registry.json"),
+            installedResourceDirectoryURL: root.appendingPathComponent("resources", isDirectory: true)
+        )
+        let source = root.appendingPathComponent("uBlock", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try """
+        {
+          "manifest_version": 3,
+          "name": "uBlock",
+          "version": "1.0"
+        }
+        """.data(using: .utf8)?.write(to: source.appendingPathComponent("manifest.json"))
+
+        let record = try store.installRecord(
+            from: try store.discoverSource(from: source),
+            displayName: "uBlock",
+            displayVersion: "1.0",
+            grantedPermissions: ["storage", "nativeMessaging"],
+            grantedPermissionMatchPatterns: []
+        )
+
+        XCTAssertEqual(record.sourceKind, .resourceBaseURL)
+        XCTAssertEqual(record.grantedPermissions, ["storage"])
+    }
+
+    func testAppExtensionInstallGrantsNativeMessaging() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = BrowserWebExtensionInstallStore(
+            registryURL: root.appendingPathComponent("registry.json"),
+            installedResourceDirectoryURL: root.appendingPathComponent("resources", isDirectory: true)
+        )
+        let appexURL = root.appendingPathComponent("Bitwarden.appex", isDirectory: true)
+        try createAppExtension(at: appexURL, bundleIdentifier: "com.example.Bitwarden.Extension")
+
+        let record = try store.installRecord(
+            from: try store.discoverSource(from: appexURL),
+            displayName: "Bitwarden",
+            displayVersion: "1.0",
+            grantedPermissions: ["storage", "nativeMessaging"],
+            grantedPermissionMatchPatterns: []
+        )
+
+        XCTAssertEqual(record.sourceKind, .appExtensionBundle)
+        XCTAssertEqual(record.grantedPermissions, ["nativeMessaging", "storage"])
+    }
+
+    func testContextIdentifierUsesStableResourceIDAndAppExtensionBundleIdentifier() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let resourceID = UUID()
+        let resourceRecord = BrowserWebExtensionInstallRecord(
+            id: resourceID,
+            displayName: "uBlock",
+            displayVersion: "1.0",
+            sourceKind: .resourceBaseURL,
+            sourcePath: root.appendingPathComponent("uBlock").path,
+            isEnabled: true,
+            grantedPermissions: [],
+            grantedPermissionMatchPatterns: []
+        )
+        XCTAssertEqual(
+            browserWebExtensionContextUniqueIdentifier(for: resourceRecord),
+            resourceID.uuidString.lowercased()
+        )
+
+        let appexURL = root.appendingPathComponent("Bitwarden.appex", isDirectory: true)
+        try createAppExtension(at: appexURL, bundleIdentifier: "com.example.Bitwarden.Extension")
+        let appExtensionRecord = BrowserWebExtensionInstallRecord(
+            id: UUID(),
+            displayName: "Bitwarden",
+            displayVersion: "1.0",
+            sourceKind: .appExtensionBundle,
+            sourcePath: appexURL.path,
+            isEnabled: true,
+            grantedPermissions: [],
+            grantedPermissionMatchPatterns: []
+        )
+        XCTAssertEqual(
+            browserWebExtensionContextUniqueIdentifier(for: appExtensionRecord),
+            "com.example.Bitwarden.Extension"
+        )
     }
 
     func testDiscoversSafariWebExtensionInsideApplicationBundle() throws {
@@ -228,20 +319,18 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let appURL = root.appendingPathComponent("Passwords.app", isDirectory: true)
-        let extensionResources = appURL
+        let pluginsURL = appURL
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("PlugIns", isDirectory: true)
-            .appendingPathComponent("Passwords.appex", isDirectory: true)
-            .appendingPathComponent("Contents", isDirectory: true)
-            .appendingPathComponent("Resources", isDirectory: true)
-        try FileManager.default.createDirectory(at: extensionResources, withIntermediateDirectories: true)
-        try """
-        {
-          "manifest_version": 3,
-          "name": "Passwords",
-          "version": "1.0"
-        }
-        """.data(using: .utf8)?.write(to: extensionResources.appendingPathComponent("manifest.json"))
+        try createAppExtension(
+            at: pluginsURL.appendingPathComponent("A-Share.appex", isDirectory: true),
+            bundleIdentifier: "com.example.Passwords.Share",
+            extensionPointIdentifier: "com.apple.share-services"
+        )
+        try createAppExtension(
+            at: pluginsURL.appendingPathComponent("Passwords.appex", isDirectory: true),
+            bundleIdentifier: "com.example.Passwords.Extension"
+        )
 
         let store = BrowserWebExtensionInstallStore(
             registryURL: root.appendingPathComponent("registry.json"),
@@ -251,6 +340,84 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
 
         XCTAssertEqual(source.kind, .appExtensionBundle)
         XCTAssertEqual(source.url.lastPathComponent, "Passwords.appex")
+    }
+
+    func testDiscoversLaterSafariWebExtensionWhenFirstSortedAppExtensionMissingInfoPlist() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let appURL = root.appendingPathComponent("Passwords.app", isDirectory: true)
+        let pluginsURL = appURL
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("PlugIns", isDirectory: true)
+        try createAppExtension(
+            at: pluginsURL.appendingPathComponent("A-MissingInfo.appex", isDirectory: true),
+            bundleIdentifier: "com.example.Passwords.MissingInfo",
+            writesInfoPlist: false
+        )
+        try createAppExtension(
+            at: pluginsURL.appendingPathComponent("Passwords.appex", isDirectory: true),
+            bundleIdentifier: "com.example.Passwords.Extension"
+        )
+
+        let store = BrowserWebExtensionInstallStore(
+            registryURL: root.appendingPathComponent("registry.json"),
+            installedResourceDirectoryURL: root.appendingPathComponent("resources", isDirectory: true)
+        )
+        let source = try store.discoverSource(from: appURL)
+
+        XCTAssertEqual(source.kind, .appExtensionBundle)
+        XCTAssertEqual(source.url.lastPathComponent, "Passwords.appex")
+    }
+
+    func testRejectsNonSafariAppExtensionEvenWhenManifestExists() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let appexURL = root.appendingPathComponent("Share.appex", isDirectory: true)
+        try createAppExtension(
+            at: appexURL,
+            bundleIdentifier: "com.example.Share.Extension",
+            extensionPointIdentifier: "com.apple.share-services"
+        )
+
+        let store = BrowserWebExtensionInstallStore(
+            registryURL: root.appendingPathComponent("registry.json"),
+            installedResourceDirectoryURL: root.appendingPathComponent("resources", isDirectory: true)
+        )
+
+        XCTAssertThrowsError(try store.discoverSource(from: appexURL)) { error in
+            guard case BrowserWebExtensionInstallError.noWebExtensionInApp(let url) = error else {
+                XCTFail("Expected noWebExtensionInApp, got \(error)")
+                return
+            }
+            XCTAssertEqual(url, appexURL.standardizedFileURL)
+        }
+    }
+
+    func testRejectsDirectAppExtensionMissingInfoPlistEvenWhenManifestExists() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let appexURL = root.appendingPathComponent("MissingInfo.appex", isDirectory: true)
+        try createAppExtension(
+            at: appexURL,
+            bundleIdentifier: "com.example.MissingInfo.Extension",
+            writesInfoPlist: false
+        )
+
+        let store = BrowserWebExtensionInstallStore(
+            registryURL: root.appendingPathComponent("registry.json"),
+            installedResourceDirectoryURL: root.appendingPathComponent("resources", isDirectory: true)
+        )
+
+        XCTAssertThrowsError(try store.discoverSource(from: appexURL)) { error in
+            guard case BrowserWebExtensionInstallError.noWebExtensionInApp(let url) = error else {
+                XCTFail("Expected noWebExtensionInApp, got \(error)")
+                return
+            }
+            XCTAssertEqual(url, appexURL.standardizedFileURL)
+        }
     }
 
     func testInstallsChromeCRXPackageAsManagedZipArchive() throws {
@@ -289,6 +456,40 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
             .appendingPathComponent("cmux-browser-extension-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private func createAppExtension(
+        at appexURL: URL,
+        bundleIdentifier: String,
+        extensionPointIdentifier: String = "com.apple.Safari.web-extension",
+        writesInfoPlist: Bool = true
+    ) throws {
+        let contentsURL = appexURL.appendingPathComponent("Contents", isDirectory: true)
+        let resourcesURL = contentsURL.appendingPathComponent("Resources", isDirectory: true)
+        try FileManager.default.createDirectory(at: resourcesURL, withIntermediateDirectories: true)
+        try """
+        {
+          "manifest_version": 3,
+          "name": "Safari Extension",
+          "version": "1.0"
+        }
+        """.data(using: .utf8)?.write(to: resourcesURL.appendingPathComponent("manifest.json"))
+
+        guard writesInfoPlist else { return }
+
+        let infoPlist: [String: Any] = [
+            "CFBundleIdentifier": bundleIdentifier,
+            "CFBundleName": appexURL.deletingPathExtension().lastPathComponent,
+            "NSExtension": [
+                "NSExtensionPointIdentifier": extensionPointIdentifier,
+            ],
+        ]
+        let data = try PropertyListSerialization.data(
+            fromPropertyList: infoPlist,
+            format: .xml,
+            options: 0
+        )
+        try data.write(to: contentsURL.appendingPathComponent("Info.plist"))
     }
 
     private func appendLittleEndianUInt32(_ value: UInt32, to data: inout Data) {
@@ -414,6 +615,44 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
         XCTAssertFalse(unsupportedAPIs.contains("browser.webNavigation"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.webRequest"))
         XCTAssertFalse(unsupportedAPIs.contains("chrome.webNavigation"))
+    }
+
+    func testHostCapabilityPolicyAllowsNativeMessagingOnlyForAppExtensions() {
+        let policy = BrowserWebExtensionHostCapabilityPolicy.current
+        let requestedPermissions = ["storage", "nativeMessaging"]
+
+        XCTAssertEqual(
+            policy.grantablePermissionNames(
+                from: requestedPermissions,
+                sourceKind: .resourceBaseURL
+            ),
+            ["storage"]
+        )
+        XCTAssertEqual(
+            policy.grantablePermissionNames(
+                from: requestedPermissions,
+                sourceKind: .appExtensionBundle
+            ),
+            ["storage", "nativeMessaging"]
+        )
+
+        let resourceUnsupportedAPIs = policy.unsupportedAPIs(
+            forPermissionNames: requestedPermissions,
+            sourceKind: .resourceBaseURL
+        )
+        XCTAssertTrue(resourceUnsupportedAPIs.contains("browser.runtime.connectNative"))
+        XCTAssertTrue(resourceUnsupportedAPIs.contains("browser.runtime.sendNativeMessage"))
+        XCTAssertTrue(resourceUnsupportedAPIs.contains("chrome.runtime.connectNative"))
+        XCTAssertTrue(resourceUnsupportedAPIs.contains("chrome.runtime.sendNativeMessage"))
+
+        let appExtensionUnsupportedAPIs = policy.unsupportedAPIs(
+            forPermissionNames: requestedPermissions,
+            sourceKind: .appExtensionBundle
+        )
+        XCTAssertFalse(appExtensionUnsupportedAPIs.contains("browser.runtime.connectNative"))
+        XCTAssertFalse(appExtensionUnsupportedAPIs.contains("browser.runtime.sendNativeMessage"))
+        XCTAssertFalse(appExtensionUnsupportedAPIs.contains("chrome.runtime.connectNative"))
+        XCTAssertFalse(appExtensionUnsupportedAPIs.contains("chrome.runtime.sendNativeMessage"))
     }
 
     func testWebKitLoadsMinimalUnpackedExtension() async throws {

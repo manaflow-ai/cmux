@@ -111116,8 +111116,8 @@
     "browser.extensions.install.message": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%@\n\nAPI permissions: %@\nWebsite access: %@\n\ncmux grants only these permissions and lets WebKit enforce extension isolation, host access, and runtime permission prompts." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@\n\nAPI 権限: %@\nWeb サイトアクセス: %@\n\ncmux はこれらの権限だけを許可し、拡張機能の分離、ホストアクセス、実行時の権限プロンプトは WebKit が適用します。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "%@\n\nSource: %@\nAPI permissions: %@\nWebsite access: %@\n\ncmux grants only these permissions and lets WebKit enforce extension isolation, host access, and runtime permission prompts." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@\n\nソース: %@\nAPI 権限: %@\nWeb サイトアクセス: %@\n\ncmux はこれらの権限だけを許可し、拡張機能の分離、ホストアクセス、実行時の権限プロンプトは WebKit が適用します。" } }
       }
     },
     "browser.extensions.install.noAPIPermissions": {
@@ -111186,8 +111186,8 @@
     "browser.extensions.summary.appExtension": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "App extension" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "アプリ拡張機能" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Safari app extension" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Safari アプリ拡張機能" } }
       }
     },
     "browser.extensions.summary.localExtension": {
@@ -111195,6 +111195,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Local extension" } },
         "ja": { "stringUnit": { "state": "translated", "value": "ローカル拡張機能" } }
+      }
+    },
+    "browser.extensions.summary.sourceWithVersion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@, %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@、%@" } }
       }
     },
     "browser.extensions.summary.version": {
