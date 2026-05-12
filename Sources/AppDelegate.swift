@@ -5473,6 +5473,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    @discardableResult
+    func showRightSidebarModeInActiveMainWindow(
+        mode: RightSidebarMode,
+        focusFirstItem: Bool = true,
+        preferredWindow: NSWindow? = nil
+    ) -> Bool {
+        guard mode.isAvailable() else {
+            return false
+        }
+
+        let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
+        let window = context.flatMap { $0.window ?? windowForMainWindowId($0.windowId) }
+        if let window {
+            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .rightSidebarFocus)
+        }
+
+        guard let state = context?.fileExplorerState ?? fileExplorerState else {
+            return false
+        }
+
+        if state.mode != mode {
+            state.mode = mode
+        }
+        state.setVisible(true)
+
+        guard let context else {
+            return true
+        }
+
+        _ = context.keyboardFocusCoordinator.focusRightSidebar(
+            mode: mode,
+            focusFirstItem: focusFirstItem
+        )
+        return true
+    }
+
     func applyRightSidebarRemoteCommand(
         _ command: RightSidebarRemoteCommand,
         target: RightSidebarRemoteTarget = RightSidebarRemoteTarget()

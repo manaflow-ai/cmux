@@ -10524,7 +10524,7 @@ private struct SidebarFooterButtons: View {
 
     private func showFileExplorer() {
         let preferredWindow = NSApp.keyWindow ?? NSApp.mainWindow
-        guard AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+        guard AppDelegate.shared?.showRightSidebarModeInActiveMainWindow(
             mode: .files,
             focusFirstItem: true,
             preferredWindow: preferredWindow
