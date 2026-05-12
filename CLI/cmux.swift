@@ -17074,9 +17074,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             switch action {
             case .codexConfigToml:
                 let configPath = "\(configDir)/config.toml"
-                let existingContent: String = fm.fileExists(atPath: configPath)
-                    ? ((try? String(contentsOfFile: configPath, encoding: .utf8)) ?? "")
-                    : ""
+                let existingContent: String
+                if fm.fileExists(atPath: configPath) {
+                    existingContent = try String(contentsOfFile: configPath, encoding: .utf8)
+                } else {
+                    existingContent = ""
+                }
                 let newContent = Self.codexConfigTomlInstallingHooksFeature(in: existingContent)
                 if newContent != existingContent {
                     if !skipConfirm {
@@ -17173,8 +17176,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             switch action {
             case .codexConfigToml:
                 let configPath = "\(configDir)/config.toml"
-                guard fm.fileExists(atPath: configPath),
-                      let content = try? String(contentsOfFile: configPath, encoding: .utf8) else { return }
+                guard fm.fileExists(atPath: configPath) else { return }
+                let content = try String(contentsOfFile: configPath, encoding: .utf8)
                 let newContent = Self.codexConfigTomlUninstallingHooksFeature(from: content)
                 if newContent != content {
                     try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)

@@ -718,6 +718,67 @@ def test_uninstall_removes_cmux_owned_codex_hooks_feature(cli_path: str, root: P
         raise AssertionError(f"empty features table was preserved: {config_toml!r}")
 
 
+def test_install_surfaces_invalid_codex_config_encoding(cli_path: str, root: Path) -> None:
+    codex_home = root / "codex-home-invalid-install-config"
+    codex_home.mkdir()
+    config_path = codex_home / "config.toml"
+    invalid_bytes = b"\xff"
+    config_path.write_bytes(invalid_bytes)
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "install", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode == 0:
+        raise AssertionError("hooks codex install unexpectedly succeeded with invalid config encoding")
+    if config_path.read_bytes() != invalid_bytes:
+        raise AssertionError("hooks codex install overwrote unreadable config content")
+
+
+def test_uninstall_surfaces_invalid_codex_config_encoding(cli_path: str, root: Path) -> None:
+    codex_home = root / "codex-home-invalid-uninstall-config"
+    codex_home.mkdir()
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    install_result = subprocess.run(
+        [cli_path, "hooks", "codex", "install", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if install_result.returncode != 0:
+        raise AssertionError(
+            "initial hooks codex install failed "
+            f"exit={install_result.returncode}\nstdout={install_result.stdout}\nstderr={install_result.stderr}"
+        )
+
+    config_path = codex_home / "config.toml"
+    invalid_bytes = b"\xff"
+    config_path.write_bytes(invalid_bytes)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "uninstall", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode == 0:
+        raise AssertionError("hooks codex uninstall unexpectedly succeeded with invalid config encoding")
+    if config_path.read_bytes() != invalid_bytes:
+        raise AssertionError("hooks codex uninstall overwrote unreadable config content")
+
+
 def test_permission_reply_uses_codex_permission_request_schema(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux.sock"
     payload = {
@@ -821,6 +882,8 @@ def main() -> int:
             test_uninstall_restores_disabled_codex_hooks_feature(cli_path, root)
             test_uninstall_restores_disabled_dotted_codex_hooks_feature(cli_path, root)
             test_uninstall_removes_cmux_owned_codex_hooks_feature(cli_path, root)
+            test_install_surfaces_invalid_codex_config_encoding(cli_path, root)
+            test_uninstall_surfaces_invalid_codex_config_encoding(cli_path, root)
             test_permission_reply_uses_codex_permission_request_schema(cli_path, root)
             test_codex_persistent_permission_modes_degrade_to_once(cli_path, root)
             test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path, root)
