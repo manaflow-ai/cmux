@@ -4983,6 +4983,8 @@ struct SettingsView: View {
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
     @AppStorage(ReactGrabSettings.versionKey) private var reactGrabVersion = ReactGrabSettings.defaultVersion
     @AppStorage(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) private var openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
+    @AppStorage(BrowserLinkOpenSettings.terminalLinkBrowserPlacementKey)
+    private var terminalLinkBrowserPlacement = BrowserLinkOpenSettings.defaultTerminalLinkBrowserPlacement.rawValue
     @AppStorage(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
     private var interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue()
     @AppStorage(BrowserLinkOpenSettings.browserHostWhitelistKey) private var browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
@@ -5212,11 +5214,24 @@ struct SettingsView: View {
         BrowserThemeSettings.mode(for: browserThemeMode)
     }
 
+    private var selectedTerminalLinkBrowserPlacement: TerminalLinkBrowserPlacement {
+        BrowserLinkOpenSettings.terminalLinkBrowserPlacement(for: terminalLinkBrowserPlacement)
+    }
+
     private var browserThemeModeSelection: Binding<String> {
         Binding(
             get: { browserThemeMode },
             set: { newValue in
                 browserThemeMode = BrowserThemeSettings.mode(for: newValue).rawValue
+            }
+        )
+    }
+
+    private var terminalLinkBrowserPlacementSelection: Binding<String> {
+        Binding(
+            get: { terminalLinkBrowserPlacement },
+            set: { newValue in
+                terminalLinkBrowserPlacement = BrowserLinkOpenSettings.terminalLinkBrowserPlacement(for: newValue).rawValue
             }
         )
     }
@@ -6544,6 +6559,22 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        if openTerminalLinksInCmuxBrowser {
+                            SettingsPickerRow(
+                                configurationReview: .json("browser.terminalLinkBrowserPlacement"),
+                                String(localized: "settings.browser.terminalLinkPlacement", defaultValue: "Terminal Link Browser Placement"),
+                                subtitle: selectedTerminalLinkBrowserPlacement.settingsSubtitle,
+                                controlWidth: pickerColumnWidth,
+                                selection: terminalLinkBrowserPlacementSelection
+                            ) {
+                                ForEach(TerminalLinkBrowserPlacement.allCases) { placement in
+                                    Text(placement.displayName).tag(placement.rawValue)
+                                }
+                            }
+
+                            SettingsCardDivider()
+                        }
+
                         SettingsCardRow(
                             configurationReview: .json("browser.interceptTerminalOpenCommandInCmuxBrowser"),
                             String(localized: "settings.browser.interceptOpen", defaultValue: "Intercept open http(s) in Terminal"),
@@ -7212,6 +7243,7 @@ struct SettingsView: View {
         rightSidebarFeedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
         rightSidebarDockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
         openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
+        terminalLinkBrowserPlacement = BrowserLinkOpenSettings.defaultTerminalLinkBrowserPlacement.rawValue
         interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser
         browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
         browserExternalOpenPatterns = BrowserLinkOpenSettings.defaultBrowserExternalOpenPatterns

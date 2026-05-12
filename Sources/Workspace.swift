@@ -7008,6 +7008,13 @@ struct ClosedBrowserPanelRestoreSnapshot {
     let fallbackAnchorPaneId: UUID?
 }
 
+struct TerminalLinkBrowserOpenResult {
+    let panel: BrowserPanel
+    let placement: TerminalLinkBrowserPlacement
+    let placementStrategy: String
+    let createdSplit: Bool
+}
+
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
@@ -10623,6 +10630,70 @@ final class Workspace: Identifiable, ObservableObject {
         guard let tabId = surfaceIdFromPanelId(panelId),
               let paneId = paneId(forPanelId: panelId) else { return nil }
         return bonsplitController.tabs(inPane: paneId).firstIndex(where: { $0.id == tabId })
+    }
+
+    @discardableResult
+    func openTerminalLinkInBrowser(
+        url: URL,
+        fromPanelId panelId: UUID,
+        placement: TerminalLinkBrowserPlacement,
+        focus: Bool = true
+    ) -> TerminalLinkBrowserOpenResult? {
+        switch placement {
+        case .samePane:
+            guard let sourcePane = paneId(forPanelId: panelId),
+                  let browserPanel = newBrowserSurface(inPane: sourcePane, url: url, focus: focus) else {
+                return nil
+            }
+            return TerminalLinkBrowserOpenResult(
+                panel: browserPanel,
+                placement: placement,
+                placementStrategy: "same_pane",
+                createdSplit: false
+            )
+
+        case .split:
+            guard let browserPanel = newBrowserSplit(
+                from: panelId,
+                orientation: .horizontal,
+                url: url,
+                focus: focus
+            ) else {
+                return nil
+            }
+            return TerminalLinkBrowserOpenResult(
+                panel: browserPanel,
+                placement: placement,
+                placementStrategy: "split",
+                createdSplit: true
+            )
+
+        case .reuseOrSplit:
+            if let targetPane = preferredBrowserTargetPane(fromPanelId: panelId),
+               let browserPanel = newBrowserSurface(inPane: targetPane, url: url, focus: focus) {
+                return TerminalLinkBrowserOpenResult(
+                    panel: browserPanel,
+                    placement: placement,
+                    placementStrategy: "reuse_right_sibling",
+                    createdSplit: false
+                )
+            }
+
+            guard let browserPanel = newBrowserSplit(
+                from: panelId,
+                orientation: .horizontal,
+                url: url,
+                focus: focus
+            ) else {
+                return nil
+            }
+            return TerminalLinkBrowserOpenResult(
+                panel: browserPanel,
+                placement: placement,
+                placementStrategy: "split",
+                createdSplit: true
+            )
+        }
     }
 
     /// Returns the nearest right-side sibling pane for browser placement.

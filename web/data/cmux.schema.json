@@ -652,6 +652,12 @@
           "default": true,
           "description": "Open clicked terminal links in the embedded browser."
         },
+        "terminalLinkBrowserPlacement": {
+          "type": "string",
+          "enum": ["reuseOrSplit", "samePane", "split"],
+          "default": "reuseOrSplit",
+          "description": "Where clicked terminal links should open when routed to the embedded browser. reuseOrSplit reuses a nearby browser pane or creates a split, samePane opens a browser tab in the source terminal pane, and split always creates a new browser split."
+        },
         "interceptTerminalOpenCommandInCmuxBrowser": {
           "type": "boolean",
           "default": true,

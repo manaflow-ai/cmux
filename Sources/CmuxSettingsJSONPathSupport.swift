@@ -81,6 +81,7 @@ extension CmuxSettingsFileStore {
         "browser.showSearchSuggestions",
         "browser.theme",
         "browser.openTerminalLinksInCmuxBrowser",
+        "browser.terminalLinkBrowserPlacement",
         "browser.interceptTerminalOpenCommandInCmuxBrowser",
         "browser.hostsToOpenInEmbeddedBrowser",
         "browser.urlsToAlwaysOpenExternally",

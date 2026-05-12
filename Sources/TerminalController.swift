@@ -2825,6 +2825,10 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugBrowserAddressBarFocused(params: params))
         case "debug.browser.favicon":
             return v2Result(id: id, self.v2DebugBrowserFavicon(params: params))
+        case "debug.browser.terminal_link_placement":
+            return v2Result(id: id, self.v2DebugBrowserTerminalLinkPlacement(params: params))
+        case "debug.browser.open_terminal_link":
+            return v2Result(id: id, self.v2DebugBrowserOpenTerminalLink(params: params))
         case "debug.right_sidebar.focus":
             return v2Result(id: id, self.v2DebugRightSidebarFocus(params: params))
         case "debug.sidebar.visible":
@@ -3068,6 +3072,8 @@ class TerminalController {
             "debug.command_palette.rename_input.select_all",
             "debug.browser.address_bar_focused",
             "debug.browser.favicon",
+            "debug.browser.terminal_link_placement",
+            "debug.browser.open_terminal_link",
             "debug.right_sidebar.focus",
             "debug.sidebar.visible",
             "debug.terminal.is_focused",
@@ -9032,6 +9038,113 @@ class TerminalController {
         }
         return result
     }
+
+#if DEBUG
+    private func v2DebugBrowserTerminalLinkPlacement(params: [String: Any]) -> V2CallResult {
+        if v2Bool(params, "reset") == true {
+            UserDefaults.standard.removeObject(forKey: BrowserLinkOpenSettings.terminalLinkBrowserPlacementKey)
+        } else if let rawPlacement = v2String(params, "placement") {
+            guard let placement = TerminalLinkBrowserPlacement(rawValue: rawPlacement) else {
+                return .err(
+                    code: "invalid_params",
+                    message: "Invalid placement '\(rawPlacement)'",
+                    data: ["allowed": TerminalLinkBrowserPlacement.allCases.map(\.rawValue)]
+                )
+            }
+            UserDefaults.standard.set(placement.rawValue, forKey: BrowserLinkOpenSettings.terminalLinkBrowserPlacementKey)
+        }
+
+        let placement = BrowserLinkOpenSettings.terminalLinkBrowserPlacement()
+        return .ok([
+            "placement": placement.rawValue
+        ])
+    }
+
+    private func v2DebugBrowserOpenTerminalLink(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard BrowserAvailabilitySettings.isEnabled() else {
+            return .err(code: "browser_disabled", message: "Browser is disabled", data: nil)
+        }
+        guard let rawURL = v2String(params, "url"),
+              let url = URL(string: rawURL) else {
+            return .err(code: "invalid_params", message: "Missing or invalid url", data: nil)
+        }
+
+        let placement: TerminalLinkBrowserPlacement
+        if let rawPlacement = v2String(params, "placement") {
+            guard let parsedPlacement = TerminalLinkBrowserPlacement(rawValue: rawPlacement) else {
+                return .err(
+                    code: "invalid_params",
+                    message: "Invalid placement '\(rawPlacement)'",
+                    data: ["allowed": TerminalLinkBrowserPlacement.allCases.map(\.rawValue)]
+                )
+            }
+            placement = parsedPlacement
+        } else {
+            placement = BrowserLinkOpenSettings.terminalLinkBrowserPlacement()
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to open terminal link", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+
+            let sourceSurfaceId = v2UUID(params, "surface_id") ?? v2UUID(params, "panel_id") ?? ws.focusedPanelId
+            guard let sourceSurfaceId else {
+                result = .err(code: "not_found", message: "No source surface", data: nil)
+                return
+            }
+            guard ws.panels[sourceSurfaceId] != nil else {
+                result = .err(
+                    code: "not_found",
+                    message: "Source surface not found",
+                    data: ["surface_id": sourceSurfaceId.uuidString]
+                )
+                return
+            }
+
+            let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
+            let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
+            guard let openResult = ws.openTerminalLinkInBrowser(
+                url: url,
+                fromPanelId: sourceSurfaceId,
+                placement: placement,
+                focus: focus
+            ) else {
+                result = .err(code: "internal_error", message: "Failed to create browser surface", data: nil)
+                return
+            }
+
+            let targetPaneUUID = ws.paneId(forPanelId: openResult.panel.id)?.id
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "pane_id": v2OrNull(targetPaneUUID?.uuidString),
+                "pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
+                "surface_id": openResult.panel.id.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: openResult.panel.id),
+                "source_surface_id": sourceSurfaceId.uuidString,
+                "source_surface_ref": v2Ref(kind: .surface, uuid: sourceSurfaceId),
+                "source_pane_id": v2OrNull(sourcePaneUUID?.uuidString),
+                "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneUUID),
+                "target_pane_id": v2OrNull(targetPaneUUID?.uuidString),
+                "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
+                "created_split": openResult.createdSplit,
+                "placement": openResult.placement.rawValue,
+                "placement_strategy": openResult.placementStrategy,
+                "url": url.absoluteString
+            ])
+        }
+        return result
+    }
+#endif
 
     private func v2BrowserNavigate(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
