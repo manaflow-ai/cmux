@@ -99,8 +99,8 @@ Environment:
 | `list-pane-surfaces` | List surfaces in a pane. |
 | `tree` | Print a window, workspace, pane, and surface tree. |
 | `focus-pane` | Focus a pane. |
-| `new-pane` | Create a pane with terminal, browser, or extension content. Extension panes require `--bundle <path>` and trust that bundle by content hash. |
-| `new-surface` | Create a surface inside a pane. |
+| `new-pane` | Create a pane with terminal, browser, or extension content. Extension panes require `--bundle <path>` and trust the bundle by verifying its content hash. |
+| `new-surface` | Create a terminal, browser, or extension surface inside a pane. Extension surfaces use `--bundle <path>` and trust the bundle by verifying its content hash. |
 | `close-surface` | Close a surface. |
 | `move-surface` | Move a surface to another pane, workspace, window, or index. |
 | `split-off` | Move a surface into a new split without changing focus by default. |

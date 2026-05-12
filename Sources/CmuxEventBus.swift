@@ -7,6 +7,7 @@ struct CmuxEventSubscriptionSnapshot {
 }
 
 // Sendable safety: every mutable field is protected by `lock`; `semaphore` only wakes `next(timeout:)`.
+// Handler callbacks are serialized on `deliveryQueue` and never invoked while holding `lock`.
 final class CmuxEventSubscription: @unchecked Sendable {
     typealias EventHandler = ([String: Any]) -> Void
 
@@ -17,8 +18,10 @@ final class CmuxEventSubscription: @unchecked Sendable {
 
     private let lock = NSLock()
     private let semaphore = DispatchSemaphore(value: 0)
+    private let deliveryQueue: DispatchQueue
     private var queue: [[String: Any]] = []
     private var eventHandlers: [UUID: EventHandler] = [:]
+    private var deliveryScheduled = false
     private var closed = false
     private var closedReason: String?
 
@@ -27,6 +30,7 @@ final class CmuxEventSubscription: @unchecked Sendable {
         self.names = names
         self.categories = categories
         self.maxPendingEvents = max(1, maxPendingEvents)
+        deliveryQueue = DispatchQueue(label: "com.cmux.event-subscription.delivery.\(id.uuidString)")
     }
 
     func accepts(_ event: [String: Any]) -> Bool {
@@ -55,34 +59,28 @@ final class CmuxEventSubscription: @unchecked Sendable {
         lock.lock()
         let shouldSignal: Bool
         let accepted: Bool
-        let handlers: [EventHandler]
         if closed {
             shouldSignal = false
             accepted = false
-            handlers = []
-        } else if !eventHandlers.isEmpty {
-            handlers = Array(eventHandlers.values)
-            shouldSignal = false
-            accepted = true
         } else if queue.count >= maxPendingEvents {
             closed = true
             closedReason = "pending event buffer exceeded \(maxPendingEvents) events"
             queue.removeAll()
             shouldSignal = true
             accepted = false
-            handlers = []
         } else {
             queue.append(event)
-            shouldSignal = true
+            if !eventHandlers.isEmpty {
+                scheduleDeliveryLocked()
+                shouldSignal = false
+            } else {
+                shouldSignal = true
+            }
             accepted = true
-            handlers = []
         }
         lock.unlock()
         if shouldSignal {
             semaphore.signal()
-        }
-        for handler in handlers {
-            handler(event)
         }
         return accepted
     }
@@ -94,11 +92,9 @@ final class CmuxEventSubscription: @unchecked Sendable {
             return nil
         }
         let token = UUID()
-        let queuedEvents = queue
-        queue.removeAll()
         eventHandlers[token] = handler
-        for event in queuedEvents {
-            handler(event)
+        if !queue.isEmpty {
+            scheduleDeliveryLocked()
         }
         lock.unlock()
         return token
@@ -112,7 +108,7 @@ final class CmuxEventSubscription: @unchecked Sendable {
 
     func next(timeout: TimeInterval) -> [String: Any]? {
         lock.lock()
-        if !queue.isEmpty {
+        if eventHandlers.isEmpty, !queue.isEmpty {
             let event = queue.removeFirst()
             lock.unlock()
             return event
@@ -128,7 +124,7 @@ final class CmuxEventSubscription: @unchecked Sendable {
 
         lock.lock()
         defer { lock.unlock() }
-        guard !queue.isEmpty else { return nil }
+        guard eventHandlers.isEmpty, !queue.isEmpty else { return nil }
         return queue.removeFirst()
     }
 
@@ -142,6 +138,32 @@ final class CmuxEventSubscription: @unchecked Sendable {
         eventHandlers.removeAll()
         lock.unlock()
         semaphore.signal()
+    }
+
+    private func scheduleDeliveryLocked() {
+        guard !deliveryScheduled else { return }
+        deliveryScheduled = true
+        deliveryQueue.async { [weak self] in
+            self?.deliverQueuedEvents()
+        }
+    }
+
+    private func deliverQueuedEvents() {
+        while true {
+            lock.lock()
+            guard !closed, !eventHandlers.isEmpty, !queue.isEmpty else {
+                deliveryScheduled = false
+                lock.unlock()
+                return
+            }
+            let event = queue.removeFirst()
+            let handlers = Array(eventHandlers.values)
+            lock.unlock()
+
+            for handler in handlers {
+                handler(event)
+            }
+        }
     }
 }
 
