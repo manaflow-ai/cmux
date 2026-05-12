@@ -2217,6 +2217,9 @@ final class MarkdownPanelRenderingTests: XCTestCase {
         XCTAssertFalse(html.contains("</script><img"))
         XCTAssertTrue(html.contains(#"\u003C/script\u003E"#))
         XCTAssertTrue(html.contains("mermaid@10.9.3"))
+        XCTAssertTrue(html.contains(#"integrity="sha384-R63zfMfSwJF4xCR11wXii+QUsbiBIdiDzDbtxia72oGWfkT7WHJfmD/I/eeHPJyT""#))
+        XCTAssertTrue(html.contains("Content-Security-Policy"))
+        XCTAssertTrue(html.contains("script-src 'nonce-"))
     }
 }
 
