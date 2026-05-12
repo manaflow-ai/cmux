@@ -1,13 +1,17 @@
 import Combine
 import Foundation
+import Observation
 
 @MainActor
-final class KeyboardShortcutSettingsObserver: ObservableObject {
+@Observable
+final class KeyboardShortcutSettingsObserver {
     static let shared = KeyboardShortcutSettingsObserver()
 
-    @Published private(set) var revision: UInt64 = 0
+    private(set) var revision: UInt64 = 0
 
+    @ObservationIgnored
     private var settingsCancellable: AnyCancellable?
+    @ObservationIgnored
     private var recorderCancellable: AnyCancellable?
 
     private init(notificationCenter: NotificationCenter = .default) {
