@@ -322,6 +322,66 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testClosingPrimaryMainWindowPromotesSurvivingWindowAutosaveName() throws {
+        let previousShared = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousShared }
+        let defaults = UserDefaults.standard
+        let primaryFrameAutosaveName = AppDelegate.debugPrimaryMainWindowFrameAutosaveName
+        let primaryFrameAutosaveKey = appKitFrameAutosaveDefaultsKey(primaryFrameAutosaveName)
+        let previousPrimaryFrameAutosave = defaults.object(forKey: primaryFrameAutosaveKey)
+        NSWindow.removeFrame(usingName: primaryFrameAutosaveName)
+
+        let firstWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
+        let secondWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
+        var secondaryFrameAutosaveName: NSWindow.FrameAutosaveName?
+        var previousSecondaryFrameAutosave: Any?
+        defer {
+            closeWindow(withId: secondWindowId)
+            closeWindow(withId: firstWindowId)
+            if let secondaryFrameAutosaveName {
+                restoreDefaultsValue(
+                    previousSecondaryFrameAutosave,
+                    forKey: appKitFrameAutosaveDefaultsKey(secondaryFrameAutosaveName),
+                    defaults: defaults
+                )
+            }
+            restoreDefaultsValue(
+                previousPrimaryFrameAutosave,
+                forKey: primaryFrameAutosaveKey,
+                defaults: defaults
+            )
+        }
+
+        let firstWindow = try XCTUnwrap(window(withId: firstWindowId))
+        let secondWindow = try XCTUnwrap(window(withId: secondWindowId))
+        secondaryFrameAutosaveName = secondWindow.frameAutosaveName
+        let secondaryFrameAutosaveKey = appKitFrameAutosaveDefaultsKey(secondWindow.frameAutosaveName)
+        previousSecondaryFrameAutosave = defaults.object(forKey: secondaryFrameAutosaveKey)
+
+        XCTAssertEqual(firstWindow.frameAutosaveName, primaryFrameAutosaveName)
+        XCTAssertNotEqual(secondWindow.frameAutosaveName, primaryFrameAutosaveName)
+        NSWindow.removeFrame(usingName: secondWindow.frameAutosaveName)
+        secondWindow.saveFrame(usingName: secondWindow.frameAutosaveName)
+        XCTAssertNotNil(defaults.object(forKey: secondaryFrameAutosaveKey))
+
+        closeWindow(withId: firstWindowId)
+
+        XCTAssertEqual(
+            secondWindow.frameAutosaveName,
+            primaryFrameAutosaveName,
+            "A surviving main window must take over the stable AppKit autosave slot when the primary closes."
+        )
+        XCTAssertNil(
+            defaults.object(forKey: secondaryFrameAutosaveKey),
+            "Promoting a survivor to the primary slot must also retire its UUID-scoped saved frame."
+        )
+        XCTAssertNotNil(
+            defaults.object(forKey: primaryFrameAutosaveKey),
+            "Promotion should immediately persist the survivor's frame under the stable primary autosave key."
+        )
+    }
+
     private func makeKeyDownEvent(
         key: String,
         keyCode: UInt16,
@@ -378,6 +438,8 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         }
     }
 
+    /// Mirrors AppKit's internal frame-autosave UserDefaults key convention.
+    /// Keep this localized to tests because AppKit does not document the format.
     private func appKitFrameAutosaveDefaultsKey(_ name: NSWindow.FrameAutosaveName) -> String {
         "NSWindow Frame \(name)"
     }

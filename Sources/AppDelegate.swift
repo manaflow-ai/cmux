@@ -3265,7 +3265,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             persistSessionSnapshot(
                 nil,
                 removeWhenEmpty: removeWhenEmpty,
-                persistedGeometryData: nil,
                 synchronously: writeSynchronously
             )
             return false
@@ -3277,7 +3276,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         persistSessionSnapshot(
             snapshot,
             removeWhenEmpty: false,
-            persistedGeometryData: nil,
             synchronously: writeSynchronously
         )
         return true
@@ -3294,12 +3292,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             buildSnapshot: { [self] includeScrollback in
                 buildSessionSnapshot(includeScrollback: includeScrollback)
             },
-            persistedGeometryData: { _ in nil },
-            persistSnapshot: { [self] snapshot, persistedGeometryData in
+            persistSnapshot: { [self] snapshot in
                 persistSessionSnapshot(
                     snapshot,
                     removeWhenEmpty: false,
-                    persistedGeometryData: persistedGeometryData,
                     synchronously: true
                 )
             }
@@ -3501,19 +3497,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func persistSessionSnapshot(
         _ snapshot: AppSessionSnapshot?,
         removeWhenEmpty: Bool,
-        persistedGeometryData: Data?,
         synchronously: Bool
     ) {
-        guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
+        guard snapshot != nil || removeWhenEmpty else { return }
 
         let writeBlock = {
             Self.removeLegacyPersistedWindowGeometry()
-            if let persistedGeometryData {
-                UserDefaults.standard.set(
-                    persistedGeometryData,
-                    forKey: Self.persistedWindowGeometryDefaultsKey
-                )
-            }
             if let snapshot {
                 _ = SessionPersistenceStore.save(snapshot)
             } else if removeWhenEmpty {
@@ -6775,10 +6764,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func mainWindowFrameAutosaveName(windowId: UUID, wantsPrimarySlot: Bool) -> NSWindow.FrameAutosaveName {
         if wantsPrimarySlot,
-           !NSApp.windows.contains(where: { $0.frameAutosaveName == Self.primaryMainWindowFrameAutosaveName }) {
+           !hasLivePrimaryMainWindowFrameAutosaveOwner() {
             return Self.primaryMainWindowFrameAutosaveName
         }
         return "\(Self.mainWindowFrameAutosaveNamePrefix).\(windowId.uuidString)"
+    }
+
+    private func hasLivePrimaryMainWindowFrameAutosaveOwner(excluding excludedWindow: NSWindow? = nil) -> Bool {
+        NSApp.windows.contains { window in
+            if let excludedWindow, window === excludedWindow {
+                return false
+            }
+            return window.frameAutosaveName == Self.primaryMainWindowFrameAutosaveName
+        }
+    }
+
+    private func promotePrimaryMainWindowFrameAutosaveNameIfNeeded(excluding excludedWindow: NSWindow? = nil) {
+        guard !hasLivePrimaryMainWindowFrameAutosaveOwner(excluding: excludedWindow) else { return }
+        guard let survivor = sortedMainWindowContextsForSessionSnapshot()
+            .compactMap({ resolvedWindow(for: $0) })
+            .first(where: { window in
+                guard let excludedWindow else { return true }
+                return window !== excludedWindow
+            }) else {
+            return
+        }
+
+        let previousAutosaveName = survivor.frameAutosaveName
+        guard previousAutosaveName != Self.primaryMainWindowFrameAutosaveName else { return }
+        _ = survivor.setFrameAutosaveName(Self.primaryMainWindowFrameAutosaveName)
+        survivor.saveFrame(usingName: Self.primaryMainWindowFrameAutosaveName)
+
+        if !previousAutosaveName.isEmpty,
+           previousAutosaveName.hasPrefix("\(Self.mainWindowFrameAutosaveNamePrefix).") {
+            NSWindow.removeFrame(usingName: previousAutosaveName)
+        }
     }
 
     private func removeEphemeralMainWindowFrameAutosaveNameIfNeeded(_ window: NSWindow) {
@@ -6890,7 +6910,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let frameAutosaveName = mainWindowFrameAutosaveName(
             windowId: windowId,
-            wantsPrimarySlot: restoredFrame == nil && sourceWindow == nil && mainWindowContexts.isEmpty
+            wantsPrimarySlot: !hasLivePrimaryMainWindowFrameAutosaveOwner()
         )
 
         let window = CmuxMainWindow(
@@ -13412,6 +13432,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         removeEphemeralMainWindowFrameAutosaveNameIfNeeded(window)
 
         guard let removed = unregisterMainWindowContext(for: window) else { return }
+        promotePrimaryMainWindowFrameAutosaveNameIfNeeded(excluding: window)
         publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
         commandPaletteVisibilityByWindowId.removeValue(forKey: removed.windowId)
         commandPalettePendingOpenByWindowId.removeValue(forKey: removed.windowId)
