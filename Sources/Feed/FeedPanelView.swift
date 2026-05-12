@@ -168,6 +168,7 @@ private struct FeedListView: View {
 
     var body: some View {
         let rowActions = FeedRowActions.bound()
+        let snapshots = filter == .agentTree ? [] : visibleSnapshots(items)
         ScrollViewReader { proxy in
             Group {
                 if filter == .agentTree {
@@ -181,7 +182,6 @@ private struct FeedListView: View {
                         )
                     }
                 } else {
-                    let snapshots = visibleSnapshots(items)
                     if snapshots.isEmpty && !shouldShowActivityHistoryLoader {
                         emptyState
                     } else {
@@ -265,6 +265,8 @@ private struct FeedListView: View {
                     )
                 }
             }
+        case .agentTree:
+            EmptyView()
         }
     }
 
