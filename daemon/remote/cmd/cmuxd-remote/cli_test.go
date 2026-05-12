@@ -603,6 +603,48 @@ func TestCLINotifyInTmuxUsesCallerTargeting(t *testing.T) {
 	}
 }
 
+func TestCLINotifyOutsideTmuxOmitsPreferTTY(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_WORKSPACE_ID", "11111111-1111-1111-1111-111111111111")
+	t.Setenv("TMUX", "")
+	t.Setenv("TMUX_PANE", "")
+	t.Setenv("TTY", "/dev/null")
+	t.Setenv("SSH_TTY", "/dev/zero")
+
+	code := runCLI([]string{"--socket", sockPath, "--json", "notify", "--title", "Local"})
+	if code != 0 {
+		t.Fatalf("notify should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		params, _ := req["params"].(map[string]any)
+		if _, ok := params["prefer_tty"]; ok {
+			t.Fatalf("expected prefer_tty to be omitted outside tmux, got %v", params["prefer_tty"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for notify request")
+	}
+}
+
+func TestNormalizedTTYNameFiltersAndPreservesTTYNames(t *testing.T) {
+	cases := map[string]string{
+		"/dev/ttys777": "ttys777",
+		"ttys777":      "ttys777",
+		"/dev/pts/7":   "pts/7",
+		"pts/7":        "pts/7",
+		"/dev/null":    "",
+		"/dev/zero":    "",
+		"/tmp/ttys777": "",
+		"not a tty":    "",
+	}
+	for raw, want := range cases {
+		if got := normalizedTTYName(raw); got != want {
+			t.Fatalf("normalizedTTYName(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
 func TestCLIRPCPassthrough(t *testing.T) {
 	sockPath := startMockV2Socket(t)
 	code := runCLI([]string{"--socket", sockPath, "rpc", "system.capabilities"})
