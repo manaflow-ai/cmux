@@ -2,6 +2,43 @@ import XCTest
 @testable import CMUXEventsCore
 
 final class CmuxEventBusTests: XCTestCase {
+    func testStreamRequestParsesFiltersCursorAndHeartbeatOption() throws {
+        let line = """
+        {"method":"events.stream","params":{"after_seq":"42","names":[" workspace.created ",""],"category":"notification","include_heartbeat":"false"}}
+        """
+
+        let request = try CmuxEventStreamRequest(line: line)
+
+        XCTAssertTrue(CmuxEventStreamRequest.isStreamRequest(line))
+        XCTAssertEqual(request.afterSequence, 42)
+        XCTAssertEqual(request.names, ["workspace.created"])
+        XCTAssertEqual(request.categories, ["notification"])
+        XCTAssertEqual(request.includeHeartbeats, false)
+    }
+
+    func testStreamRequestSupportsAliasesAndDefaults() throws {
+        let line = """
+        {"method":"events.stream","params":{"after":7,"name":"surface.created","categories":["surface","pane"]}}
+        """
+
+        let request = try CmuxEventStreamRequest(line: line)
+
+        XCTAssertEqual(request.afterSequence, 7)
+        XCTAssertEqual(request.names, ["surface.created"])
+        XCTAssertEqual(request.categories, ["surface", "pane"])
+        XCTAssertEqual(request.includeHeartbeats, true)
+    }
+
+    func testStreamRequestRejectsInvalidPayloads() {
+        XCTAssertFalse(CmuxEventStreamRequest.isStreamRequest("events.stream"))
+        XCTAssertThrowsError(try CmuxEventStreamRequest(line: "events.stream")) { error in
+            XCTAssertEqual(error as? CmuxEventStreamRequestParseError, .invalidRequest)
+        }
+        XCTAssertThrowsError(try CmuxEventStreamRequest(line: #"{"method":"surface.focus"}"#)) { error in
+            XCTAssertEqual(error as? CmuxEventStreamRequestParseError, .invalidRequest)
+        }
+    }
+
     func testSubscribeReplaysEventsAfterSequenceAndReportsAck() throws {
         let bus = CmuxEventBus(retainedEventLimit: 4)
         bus.publish(

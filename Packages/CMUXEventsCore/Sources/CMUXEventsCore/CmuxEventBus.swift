@@ -318,7 +318,7 @@ public final class CmuxEventBus: @unchecked Sendable {
     }
 
     #if DEBUG
-    public func resetForTesting() {
+    func resetForTesting() {
         lock.lock()
         nextSequence = 1
         retained.removeAll()
@@ -329,15 +329,15 @@ public final class CmuxEventBus: @unchecked Sendable {
         eventLogWriter?.resetForTesting()
     }
 
-    public func flushEventLogForTesting() {
+    func flushEventLogForTesting() {
         eventLogWriter?.flushForTesting()
     }
 
-    public func setEventLogFlushSuspendedForTesting(_ suspended: Bool) {
+    func setEventLogFlushSuspendedForTesting(_ suspended: Bool) {
         eventLogWriter?.setFlushSuspendedForTesting(suspended)
     }
 
-    public func eventLogBacklogSnapshotForTesting() -> (pending: Int, dropped: Int) {
+    func eventLogBacklogSnapshotForTesting() -> (pending: Int, dropped: Int) {
         eventLogWriter?.backlogSnapshotForTesting() ?? (0, 0)
     }
     #endif

@@ -1,5 +1,5 @@
 import XCTest
-import CMUXEventsCore
+@testable import CMUXEventsCore
 import CMUXWorkstream
 
 #if canImport(cmux_DEV)
