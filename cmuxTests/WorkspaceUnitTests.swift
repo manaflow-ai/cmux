@@ -3742,6 +3742,12 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
 
 @MainActor
 final class WorkspacePanelGitBranchTests: XCTestCase {
+    private final class RejectingCreateTabDelegate: BonsplitDelegate {
+        func splitTabBar(_ controller: BonsplitController, shouldCreateTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+            false
+        }
+    }
+
     private func drainMainQueue() {
         let expectation = expectation(description: "drain main queue")
         DispatchQueue.main.async {
@@ -3841,6 +3847,49 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         let restoredPanelId = workspace.attachDetachedSurface(detached, inPane: paneId, focus: false)
         XCTAssertEqual(restoredPanelId, panelId)
         XCTAssertEqual(workspace.panels.count, 1)
+    }
+
+    func testFailedAttachDoesNotRebindDetachedTerminalPanelToDestinationWorkspace() {
+        let source = Workspace()
+        guard let panelId = source.focusedPanelId,
+              let sourceTerminalPanel = source.panels[panelId] as? TerminalPanel else {
+            XCTFail("Expected initial terminal panel")
+            return
+        }
+
+        XCTAssertEqual(sourceTerminalPanel.workspaceId, source.id)
+
+        guard let detached = source.detachSurface(panelId: panelId),
+              let detachedTerminalPanel = detached.panel as? TerminalPanel else {
+            XCTFail("Expected terminal detach transfer")
+            return
+        }
+
+        XCTAssertEqual(detachedTerminalPanel.workspaceId, source.id)
+
+        let destination = Workspace()
+        guard let destinationPaneId = destination.bonsplitController.focusedPaneId else {
+            XCTFail("Expected destination pane")
+            return
+        }
+
+        let rejectingDelegate = RejectingCreateTabDelegate()
+        destination.bonsplitController.delegate = rejectingDelegate
+
+        let attachedPanelId = destination.attachDetachedSurface(
+            detached,
+            inPane: destinationPaneId,
+            focus: false
+        )
+
+        XCTAssertNil(attachedPanelId)
+        XCTAssertNil(destination.panels[panelId])
+        XCTAssertNil(destination.surfaceIdFromPanelId(panelId))
+        XCTAssertEqual(
+            detachedTerminalPanel.workspaceId,
+            source.id,
+            "A failed attach should leave the detached panel bound to its source workspace for retry"
+        )
     }
 
     func testDetachSurfaceWithRemainingPanelsSkipsDelayedFocusReconcile() {

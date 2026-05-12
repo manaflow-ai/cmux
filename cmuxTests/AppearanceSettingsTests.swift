@@ -10,6 +10,56 @@ import SwiftUI
 
 @MainActor
 final class AppearanceSettingsTests: XCTestCase {
+    func testAppConfigReloadRefreshUpdatesSurfaceConfigBeforeRedraw() throws {
+        let fakeSurface = try XCTUnwrap(UnsafeMutableRawPointer(bitPattern: 0x3851))
+        var events: [String] = []
+
+        GhosttySurfaceConfigurationRefresh.applyAfterAppConfigReload(
+            to: fakeSurface,
+            source: "appearanceSync:test",
+            reloadSurfaceConfiguration: { surface, soft, source in
+                XCTAssertEqual(surface, fakeSurface)
+                XCTAssertTrue(soft)
+                events.append("reload:\(source)")
+            },
+            refreshHostBackground: {
+                events.append("host-background")
+            },
+            forceRefresh: { reason in
+                events.append("force-refresh:\(reason)")
+            }
+        )
+
+        XCTAssertEqual(events, [
+            "reload:appearanceSync:test",
+            "host-background",
+            "force-refresh:\(GhosttySurfaceConfigurationRefresh.forceRefreshReason)"
+        ])
+    }
+
+    func testAppConfigReloadRefreshSkipsSurfaceConfigUpdateWhenSurfaceIsUnavailable() {
+        var events: [String] = []
+
+        GhosttySurfaceConfigurationRefresh.applyAfterAppConfigReload(
+            to: nil,
+            source: "appearanceSync:teardown",
+            reloadSurfaceConfiguration: { _, _, _ in
+                events.append("reload")
+            },
+            refreshHostBackground: {
+                events.append("host-background")
+            },
+            forceRefresh: { reason in
+                events.append("force-refresh:\(reason)")
+            }
+        )
+
+        XCTAssertEqual(events, [
+            "host-background",
+            "force-refresh:\(GhosttySurfaceConfigurationRefresh.forceRefreshReason)"
+        ])
+    }
+
     func testResolvedModeDefaultsToSystemWhenUnset() {
         let suiteName = "AppearanceSettingsTests.Default.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
