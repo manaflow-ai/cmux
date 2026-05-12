@@ -911,7 +911,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         }
 
         args += [
-            "\(scpRemoteDestination(connection.destination)):\(shellSingleQuoted(remotePath))",
+            "\(scpRemoteDestination(connection.destination)):\(remotePath)",
             localDirectory,
         ]
         return args
@@ -998,10 +998,6 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             trimmedHost.contains(":") &&
             !trimmedHost.hasPrefix("[") &&
             !trimmedHost.hasSuffix("]")
-    }
-
-    private static func shellSingleQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
 #if DEBUG

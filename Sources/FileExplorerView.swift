@@ -587,13 +587,25 @@ struct FileExplorerPanelView: NSViewRepresentable {
             NSWorkspace.shared.selectFile(node.path, inFileViewerRootedAtPath: "")
         }
 
+        @MainActor
         @objc private func contextMenuDownloadToLocal(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? FileExplorerNode,
                   store.provider is SSHFileExplorerProvider else {
                 return
             }
+            let remotePath = node.path
+            let isDirectory = node.isDirectory
+            let itemName = node.name
+
             chooseDownloadDirectory(for: node) { [weak self] directoryURL in
-                self?.downloadRemoteNode(node, toLocalDirectory: directoryURL)
+                Task { @MainActor [weak self, remotePath, isDirectory, itemName] in
+                    self?.downloadRemoteItem(
+                        remotePath: remotePath,
+                        isDirectory: isDirectory,
+                        itemName: itemName,
+                        toLocalDirectory: directoryURL
+                    )
+                }
             }
         }
 
@@ -610,6 +622,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             NSPasteboard.general.setString(relativePath, forType: .string)
         }
 
+        @MainActor
         private func chooseDownloadDirectory(for node: FileExplorerNode, completion: @escaping (URL) -> Void) {
             let panel = NSOpenPanel()
             panel.canChooseFiles = false
@@ -651,11 +664,14 @@ struct FileExplorerPanelView: NSViewRepresentable {
             return FileManager.default.homeDirectoryForCurrentUser
         }
 
-        private func downloadRemoteNode(_ node: FileExplorerNode, toLocalDirectory directoryURL: URL) {
+        @MainActor
+        private func downloadRemoteItem(
+            remotePath: String,
+            isDirectory: Bool,
+            itemName: String,
+            toLocalDirectory directoryURL: URL
+        ) {
             guard let provider = store.provider as? SSHFileExplorerProvider else { return }
-            let remotePath = node.path
-            let isDirectory = node.isDirectory
-            let itemName = node.name
             let localDirectory = directoryURL.standardizedFileURL.path
             let workspaceId = workspaceId
             let downloadID = UUID()
