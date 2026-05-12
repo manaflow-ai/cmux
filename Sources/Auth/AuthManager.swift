@@ -2,10 +2,16 @@ import AppKit
 import AuthenticationServices
 import CMUXAuthCore
 import Foundation
+import os
 import StackAuth
 #if canImport(Security)
 import Security
 #endif
+
+nonisolated private let authLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    category: "AuthManager"
+)
 
 private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
     static let shared = AuthPresentationContext()
@@ -247,14 +253,14 @@ final class AuthManager: ObservableObject {
                     self.webAuthSession = nil
                 }
                 if let error {
-                    NSLog("auth.webauth failed: %@", "\(error)")
+                    authLogger.error("ASWebAuthenticationSession failed: \(String(describing: error), privacy: .private)")
                     return
                 }
                 guard let callbackURL else { return }
                 do {
                     try await self.handleCallbackURL(callbackURL)
                 } catch {
-                    NSLog("auth.webauth callback failed: %@", "\(error)")
+                    authLogger.error("ASWebAuthenticationSession callback failed: \(String(describing: error), privacy: .private)")
                 }
             }
         }
@@ -264,7 +270,7 @@ final class AuthManager: ObservableObject {
         if session.start() {
             webAuthSession = session
         } else {
-            NSLog("auth.webauth: session.start() returned false")
+            authLogger.warning("ASWebAuthenticationSession start returned false")
             isLoading = false
         }
     }
