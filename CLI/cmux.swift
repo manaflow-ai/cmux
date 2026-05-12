@@ -4806,6 +4806,7 @@ struct CMUXCLI {
             sshOptions.sshOptions,
             remoteRelayPort: sshOptions.remoteRelayPort
         )
+        let controlPathPreflightShellFunction = sshControlPathPreflightShellFunction(options: sshOptions)
         let initialSSHCommand = buildSSHCommandText(sshOptions)
         // For VM workspaces (Freestyle), skip the interactive bootstrap script: the russh
         // gateway forwards shell-request PTYs but stalls on exec-channel I/O, and the bootstrap
@@ -4859,25 +4860,29 @@ struct CMUXCLI {
                 remoteBootstrapScript: remoteTerminalBootstrapScript,
                 shellFeatures: shellFeaturesValue,
                 remoteRelayPort: sshOptions.remoteRelayPort,
-                localCommandScript: combinedLocalCommandScript
+                localCommandScript: combinedLocalCommandScript,
+                controlPathPreflightShellFunction: controlPathPreflightShellFunction
             )
             remoteTerminalSSHStartupCommand = buildReusableBootstrapSSHStartupCommand(
                 options: sshOptions,
                 remoteBootstrapScript: remoteTerminalBootstrapScript,
                 shellFeatures: shellFeaturesValue,
                 remoteRelayPort: sshOptions.remoteRelayPort,
-                localCommandScript: combinedLocalCommandScript
+                localCommandScript: combinedLocalCommandScript,
+                controlPathPreflightShellFunction: controlPathPreflightShellFunction
             )
         } else {
             initialSSHStartupCommand = try buildSSHStartupCommand(
                 sshCommand: startupInitialSSHCommand,
                 shellFeatures: "",
-                remoteRelayPort: sshOptions.remoteRelayPort
+                remoteRelayPort: sshOptions.remoteRelayPort,
+                controlPathPreflightShellFunction: controlPathPreflightShellFunction
             )
             remoteTerminalSSHStartupCommand = buildReusableSSHStartupCommand(
                 sshCommand: startupRemoteTerminalSSHCommand,
                 shellFeatures: shellFeaturesValue,
-                remoteRelayPort: sshOptions.remoteRelayPort
+                remoteRelayPort: sshOptions.remoteRelayPort,
+                controlPathPreflightShellFunction: controlPathPreflightShellFunction
             )
         }
         let reusableTerminalStartupCommand: String
@@ -5171,7 +5176,8 @@ struct CMUXCLI {
         remoteBootstrapScript: String,
         shellFeatures: String,
         remoteRelayPort: Int,
-        localCommandScript: String? = nil
+        localCommandScript: String? = nil,
+        controlPathPreflightShellFunction: String? = nil
     ) throws -> String {
         let commandSnippet = buildSSHBootstrapCommandSnippet(
             options: options,
@@ -5182,7 +5188,8 @@ struct CMUXCLI {
             sshCommand: commandSnippet,
             shellFeatures: shellFeatures,
             remoteRelayPort: remoteRelayPort,
-            isShellSnippet: true
+            isShellSnippet: true,
+            controlPathPreflightShellFunction: controlPathPreflightShellFunction
         )
     }
 
@@ -5191,7 +5198,8 @@ struct CMUXCLI {
         remoteBootstrapScript: String,
         shellFeatures: String,
         remoteRelayPort: Int,
-        localCommandScript: String? = nil
+        localCommandScript: String? = nil,
+        controlPathPreflightShellFunction: String? = nil
     ) -> String {
         let commandSnippet = buildSSHBootstrapCommandSnippet(
             options: options,
@@ -5202,7 +5210,8 @@ struct CMUXCLI {
             sshCommand: commandSnippet,
             shellFeatures: shellFeatures,
             remoteRelayPort: remoteRelayPort,
-            isShellSnippet: true
+            isShellSnippet: true,
+            controlPathPreflightShellFunction: controlPathPreflightShellFunction
         )
     }
 
@@ -5325,6 +5334,39 @@ struct CMUXCLI {
             merged.append("StrictHostKeyChecking=accept-new")
         }
         return merged
+    }
+
+    private func sshControlPathPreflightShellFunction(options: SSHCommandOptions) -> String? {
+        let effectiveOptions = effectiveSSHOptions(
+            options.sshOptions,
+            remoteRelayPort: options.remoteRelayPort
+        )
+        let controlMaster = sshOptionValue(named: "ControlMaster", in: effectiveOptions)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? "auto"
+        guard !["no", "false", "off"].contains(controlMaster),
+              let controlPath = sshOptionValue(named: "ControlPath", in: effectiveOptions)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !controlPath.isEmpty,
+              controlPath.lowercased() != "none" else {
+            return nil
+        }
+
+        let sshPrefix = baseSSHArguments(options).map(shellQuote).joined(separator: " ")
+        let destination = shellQuote(options.destination)
+        return [
+            "cmux_ssh_preflight_control_path() {",
+            #"  cmux_ssh_control_path="$(command \#(sshPrefix) -G \#(destination) 2>/dev/null | awk 'tolower($1) == "controlpath" { $1 = ""; sub(/^[[:space:]]+/, ""); print; exit }')" "#,
+            "  case \"${cmux_ssh_control_path:-}\" in",
+            "    /tmp/cmux-ssh-*|\"$HOME\"/.cmux/control/*)",
+            "      if ! command \(sshPrefix) -S \"$cmux_ssh_control_path\" -O check \(destination) >/dev/null 2>&1; then",
+            "        rm -f -- \"$cmux_ssh_control_path\" 2>/dev/null || true",
+            "      fi",
+            "      ;;",
+            "  esac",
+            "  unset cmux_ssh_control_path",
+            "}",
+        ].joined(separator: "\n")
     }
 
     func buildInteractiveRemoteShellScript(
@@ -5720,13 +5762,15 @@ struct CMUXCLI {
         sshCommand: String,
         shellFeatures: String,
         remoteRelayPort: Int,
-        isShellSnippet: Bool = false
+        isShellSnippet: Bool = false,
+        controlPathPreflightShellFunction: String? = nil
     ) throws -> String {
         let script = buildSSHStartupScriptBody(
             sshCommand: sshCommand,
             shellFeatures: shellFeatures,
             remoteRelayPort: remoteRelayPort,
-            isShellSnippet: isShellSnippet
+            isShellSnippet: isShellSnippet,
+            controlPathPreflightShellFunction: controlPathPreflightShellFunction
         )
         return try writeSSHStartupScript(script, remoteRelayPort: remoteRelayPort)
     }
@@ -5735,13 +5779,15 @@ struct CMUXCLI {
         sshCommand: String,
         shellFeatures: String,
         remoteRelayPort: Int,
-        isShellSnippet: Bool = false
+        isShellSnippet: Bool = false,
+        controlPathPreflightShellFunction: String? = nil
     ) -> String {
         let script = buildSSHStartupScriptBody(
             sshCommand: sshCommand,
             shellFeatures: shellFeatures,
             remoteRelayPort: remoteRelayPort,
-            isShellSnippet: isShellSnippet
+            isShellSnippet: isShellSnippet,
+            controlPathPreflightShellFunction: controlPathPreflightShellFunction
         )
         return reusableShellStartupCommand(
             scriptBody: script,
@@ -5753,16 +5799,22 @@ struct CMUXCLI {
         sshCommand: String,
         shellFeatures: String,
         remoteRelayPort: Int,
-        isShellSnippet: Bool
+        isShellSnippet: Bool,
+        controlPathPreflightShellFunction: String?
     ) -> String {
         let trimmedFeatures = shellFeatures.trimmingCharacters(in: .whitespacesAndNewlines)
         let shellFeaturesBootstrap: String = trimmedFeatures.isEmpty
             ? ""
             : "export GHOSTTY_SHELL_FEATURES=\(shellQuote(trimmedFeatures))"
         let lifecycleCleanup = buildSSHSessionEndShellCommand(remoteRelayPort: remoteRelayPort)
+        let trimmedControlPathPreflight = controlPathPreflightShellFunction?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         var scriptLines: [String] = []
         if !shellFeaturesBootstrap.isEmpty {
             scriptLines.append(shellFeaturesBootstrap)
+        }
+        if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
+            scriptLines.append(trimmedControlPathPreflight)
         }
         scriptLines += [
             "rm -f -- \"$0\" 2>/dev/null || true",
@@ -5785,6 +5837,9 @@ struct CMUXCLI {
             "trap 'cmux_ssh_signal_exit 143' TERM",
             "while :; do",
         ]
+        if trimmedControlPathPreflight?.isEmpty == false {
+            scriptLines.append("  cmux_ssh_preflight_control_path")
+        }
         if isShellSnippet {
             scriptLines += [
                 "  (",
