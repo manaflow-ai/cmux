@@ -202,8 +202,12 @@ final class GoalSupervisionStore {
         persistTask?.cancel()
         persistTask = Task { [persistence] in
             do {
+                try Task.checkCancellation()
                 try await persistence.save(snapshot)
+                try Task.checkCancellation()
                 await MainActor.run { self.lastError = nil }
+            } catch is CancellationError {
+                return
             } catch {
                 await MainActor.run { self.lastError = error.localizedDescription }
             }

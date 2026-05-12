@@ -92,6 +92,7 @@ struct GoalSupervisionPanelView: View {
                     selectedGoalID = nil
                 }
             )
+            .id(selectedGoal.id)
         } else {
             GoalListView(
                 snapshots: snapshots,
