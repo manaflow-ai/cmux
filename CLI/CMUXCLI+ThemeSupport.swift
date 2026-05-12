@@ -99,7 +99,7 @@ extension CMUXCLI {
 
         appendIfExisting(URL(fileURLWithPath: "/Applications/Ghostty.app/Contents/Resources/ghostty/themes", isDirectory: true))
         appendIfExisting(URL(fileURLWithPath: NSString(string: "~/.config/ghostty/themes").expandingTildeInPath, isDirectory: true))
-        if let appSupportDirectory = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+        for appSupportDirectory in userApplicationSupportDirectories(environment: processEnv) {
             appendIfExisting(
                 appSupportDirectory
                     .appendingPathComponent(Self.cmuxThemeOverrideBundleIdentifier, isDirectory: true)
@@ -109,16 +109,41 @@ extension CMUXCLI {
         appendIfExisting(
             URL(
                 fileURLWithPath: NSString(
-                    string: "~/Library/Application Support/\(Self.cmuxThemeOverrideBundleIdentifier)/themes"
+                    string: "~/Library/Application Support/com.mitchellh.ghostty/themes"
                 ).expandingTildeInPath,
                 isDirectory: true
             )
         )
-        appendIfExisting(
+
+        return urls
+    }
+
+    private func userApplicationSupportDirectories(environment: [String: String]) -> [URL] {
+        let fileManager = FileManager.default
+        var urls: [URL] = []
+        var seen: Set<String> = []
+
+        func append(_ url: URL?) {
+            guard let url else { return }
+            let standardized = url.standardizedFileURL
+            if seen.insert(standardized.path).inserted {
+                urls.append(standardized)
+            }
+        }
+
+        append(fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first)
+
+        if let fixedHome = environment["CFFIXED_USER_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !fixedHome.isEmpty {
+            append(
+                URL(fileURLWithPath: fixedHome, isDirectory: true)
+                    .appendingPathComponent("Library/Application Support", isDirectory: true)
+            )
+        }
+
+        append(
             URL(
-                fileURLWithPath: NSString(
-                    string: "~/Library/Application Support/com.mitchellh.ghostty/themes"
-                ).expandingTildeInPath,
+                fileURLWithPath: NSString(string: "~/Library/Application Support").expandingTildeInPath,
                 isDirectory: true
             )
         )
