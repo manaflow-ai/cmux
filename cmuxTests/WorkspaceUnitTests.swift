@@ -2125,30 +2125,26 @@ final class WorkspaceCustomDescriptionTests: XCTestCase {
     }
 }
 final class WorkspacePlacementSettingsTests: XCTestCase {
-    func testCurrentPlacementDefaultsToAfterCurrentWhenUnset() {
+    func testCurrentPlacementDefaultsToEndWhenUnset() throws {
         let suiteName = "WorkspacePlacementSettingsTests.Default.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertEqual(WorkspacePlacementSettings.current(defaults: defaults), .afterCurrent)
+        XCTAssertEqual(WorkspacePlacementSettings.current(defaults: defaults), .end)
     }
 
-    func testCurrentPlacementReadsStoredValidValueAndFallsBackForInvalid() {
+    func testCurrentPlacementReadsStoredValidValueAndFallsBackForInvalid() throws {
         let suiteName = "WorkspacePlacementSettingsTests.Stored.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(NewWorkspacePlacement.top.rawValue, forKey: WorkspacePlacementSettings.placementKey)
-        XCTAssertEqual(WorkspacePlacementSettings.current(defaults: defaults), .top)
+        for placement in NewWorkspacePlacement.allCases {
+            defaults.set(placement.rawValue, forKey: WorkspacePlacementSettings.placementKey)
+            XCTAssertEqual(WorkspacePlacementSettings.current(defaults: defaults), placement)
+        }
 
         defaults.set("nope", forKey: WorkspacePlacementSettings.placementKey)
-        XCTAssertEqual(WorkspacePlacementSettings.current(defaults: defaults), .afterCurrent)
+        XCTAssertEqual(WorkspacePlacementSettings.current(defaults: defaults), .end)
     }
 
     func testInsertionIndexTopInsertsBeforeUnpinned() {

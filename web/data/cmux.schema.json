@@ -225,7 +225,7 @@
         "newWorkspacePlacement": {
           "type": "string",
           "enum": ["top", "afterCurrent", "end"],
-          "default": "afterCurrent",
+          "default": "end",
           "description": "Where new workspaces are inserted in the sidebar."
         },
         "minimalMode": {

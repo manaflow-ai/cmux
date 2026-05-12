@@ -208,7 +208,7 @@ enum SidebarActiveTabIndicatorSettings {
 
 enum WorkspacePlacementSettings {
     static let placementKey = "newWorkspacePlacement"
-    static let defaultPlacement: NewWorkspacePlacement = .afterCurrent
+    static let defaultPlacement: NewWorkspacePlacement = .end
 
     static func current(defaults: UserDefaults = .standard) -> NewWorkspacePlacement {
         guard let raw = defaults.string(forKey: placementKey),
