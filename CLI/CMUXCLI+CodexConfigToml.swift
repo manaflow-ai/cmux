@@ -1,9 +1,15 @@
 import Foundation
 
 extension CMUXCLI {
-    private static let cmuxCodexHooksFeatureBegin = "# cmux hooks codex feature begin"
-    private static let cmuxCodexHooksFeatureEnd = "# cmux hooks codex feature end"
-    private static let cmuxCodexHooksFeaturePreviousLinePrefix = "# cmux hooks codex feature previous line: "
+    private static let cmuxCodexHooksFeatureBegin =
+        "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df begin"
+    private static let cmuxCodexHooksFeatureEnd =
+        "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df end"
+    private static let cmuxCodexHooksFeaturePreviousLinePrefix =
+        "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df previous line: "
+    private static let legacyCmuxCodexHooksFeatureBegin = "# cmux hooks codex feature begin"
+    private static let legacyCmuxCodexHooksFeatureEnd = "# cmux hooks codex feature end"
+    private static let legacyCmuxCodexHooksFeaturePreviousLinePrefix = "# cmux hooks codex feature previous line: "
 
     static func codexConfigTomlInstallingHooksFeature(in existingContent: String) -> String {
         var lines = tomlLines(from: existingContent)
@@ -140,8 +146,12 @@ extension CMUXCLI {
     }
 
     private static func tomlLineIsAnyTableHeader(_ line: String) -> Bool {
-        line.range(
-            of: #"^\s*\[+[^]]+\]+\s*(#.*)?$"#,
+        let tomlKey = "(?:[A-Za-z0-9_-]+|\"[^\"\\n]*\"|'[^'\\n]*')"
+        let tomlKeyPath = tomlKey + "(?:\\s*\\.\\s*" + tomlKey + ")*"
+        let pattern = "^\\s*(?:\\[\\s*" + tomlKeyPath + "\\s*\\]|\\[\\[\\s*" + tomlKeyPath
+            + "\\s*\\]\\])\\s*(#.*)?$"
+        return line.range(
+            of: pattern,
             options: .regularExpression
         ) != nil
     }
@@ -160,24 +170,40 @@ extension CMUXCLI {
     private static func removeCmuxCodexHooksFeatureBlock(from lines: inout [String]) {
         var index = 0
         while index < lines.count {
-            guard lines[index].trimmingCharacters(in: .whitespaces) == cmuxCodexHooksFeatureBegin else {
+            guard tomlLineIsCodexHooksFeatureBegin(lines[index]) else {
                 index += 1
                 continue
             }
 
             if let endIndex = lines[index...].firstIndex(where: {
-                $0.trimmingCharacters(in: .whitespaces) == cmuxCodexHooksFeatureEnd
+                tomlLineIsCodexHooksFeatureEnd($0)
             }) {
                 let previousLines = lines[index...endIndex].compactMap { line -> String? in
-                    line.hasPrefix(cmuxCodexHooksFeaturePreviousLinePrefix)
-                        ? String(line.dropFirst(cmuxCodexHooksFeaturePreviousLinePrefix.count))
-                        : nil
+                    tomlCodexHooksFeaturePreviousLine(from: line)
                 }
                 lines.replaceSubrange(index...endIndex, with: previousLines)
             } else {
                 lines.remove(at: index)
             }
         }
+    }
+
+    private static func tomlLineIsCodexHooksFeatureBegin(_ line: String) -> Bool {
+        line == cmuxCodexHooksFeatureBegin || line == legacyCmuxCodexHooksFeatureBegin
+    }
+
+    private static func tomlLineIsCodexHooksFeatureEnd(_ line: String) -> Bool {
+        line == cmuxCodexHooksFeatureEnd || line == legacyCmuxCodexHooksFeatureEnd
+    }
+
+    private static func tomlCodexHooksFeaturePreviousLine(from line: String) -> String? {
+        if line.hasPrefix(cmuxCodexHooksFeaturePreviousLinePrefix) {
+            return String(line.dropFirst(cmuxCodexHooksFeaturePreviousLinePrefix.count))
+        }
+        if line.hasPrefix(legacyCmuxCodexHooksFeaturePreviousLinePrefix) {
+            return String(line.dropFirst(legacyCmuxCodexHooksFeaturePreviousLinePrefix.count))
+        }
+        return nil
     }
 
     private static func removeEmptyFeaturesTable(from lines: inout [String]) {
