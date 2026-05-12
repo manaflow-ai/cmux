@@ -140,6 +140,69 @@ def main() -> int:
         env["CMUX_CLI_SENTRY_DISABLED"] = "1"
         env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
+        cron_payload = {
+            "session_id": f"sess-{uuid.uuid4().hex}",
+            "hook_event_name": "PreToolUse",
+            "cwd": "/Users/lawrence/fun",
+            "tool_name": "CronCreate",
+            "tool_input": {
+                "cron": "7 5 1 5 *",
+                "recurring": False,
+                "durable": True,
+                "prompt": "cmux issue 3395 repro",
+            },
+        }
+        cron_proc = subprocess.run(
+            [cli_path, "--socket", server.socket_path, "hooks", "claude", "cron-create-guard"],
+            input=json.dumps(cron_payload),
+            text=True,
+            capture_output=True,
+            env=env,
+            timeout=8,
+            check=False,
+        )
+
+        if cron_proc.returncode != 0:
+            print("FAIL: claude cron-create-guard failed")
+            print(f"stdout={cron_proc.stdout!r}")
+            print(f"stderr={cron_proc.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+        try:
+            cron_decision = json.loads(cron_proc.stdout)
+        except json.JSONDecodeError:
+            print("FAIL: cron-create-guard did not return JSON")
+            print(f"stdout={cron_proc.stdout!r}")
+            return 1
+        hook_output = cron_decision.get("hookSpecificOutput") or {}
+        if hook_output.get("permissionDecision") != "deny":
+            print("FAIL: cron-create-guard should deny durable CronCreate")
+            print(f"stdout={cron_proc.stdout!r}")
+            return 1
+        reason = hook_output.get("permissionDecisionReason") or ""
+        if "durable:true" not in reason or "session-only" not in reason:
+            print("FAIL: cron-create-guard denial should explain the unsupported durable downgrade")
+            print(f"stdout={cron_proc.stdout!r}")
+            return 1
+        feed_frames = []
+        for command in server.commands:
+            if not command.startswith("{"):
+                continue
+            try:
+                frame = json.loads(command)
+            except json.JSONDecodeError:
+                continue
+            if frame.get("method") == "feed.push":
+                feed_frames.append(frame)
+        if not any(
+            (frame.get("params") or {}).get("event", {}).get("hook_event_name") == "PreToolUse"
+            and (frame.get("params") or {}).get("event", {}).get("tool_name") == "CronCreate"
+            for frame in feed_frames
+        ):
+            print("FAIL: denied durable CronCreate should still emit feed telemetry")
+            print(f"commands={server.commands!r}")
+            return 1
+
         proc = subprocess.run(
             [cli_path, "--socket", server.socket_path, "claude-hook", "stop"],
             input=json.dumps(payload),
@@ -172,7 +235,7 @@ def main() -> int:
             print(f"commands={server.commands!r}")
             return 1
 
-    print("PASS: Claude Stop notification uses final assistant text")
+    print("PASS: Claude cron guard denies durable jobs and Stop notification uses final assistant text")
     return 0
 
 
