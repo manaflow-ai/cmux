@@ -654,9 +654,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let display: SessionDisplaySnapshot?
     }
 
+    private nonisolated static let primaryMainWindowFrameAutosaveName: NSWindow.FrameAutosaveName =
+        "cmux.mainWindow.primary"
+    private nonisolated static let mainWindowFrameAutosaveNamePrefix = "cmux.mainWindow"
     nonisolated static let persistedWindowGeometrySchemaVersion = 2
     private nonisolated static let persistedWindowGeometryDefaultsKey = "cmux.session.lastWindowGeometry.v2"
 #if DEBUG
+    nonisolated static var debugPrimaryMainWindowFrameAutosaveName: NSWindow.FrameAutosaveName {
+        primaryMainWindowFrameAutosaveName
+    }
     nonisolated static var debugPersistedWindowGeometryDefaultsKey: String { persistedWindowGeometryDefaultsKey }
 #endif
     private nonisolated static let legacyPersistedWindowGeometryDefaultsKeys = [
@@ -2513,43 +2519,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startupSessionSnapshot = SessionPersistenceStore.load()
     }
 
-    private func persistedWindowGeometry(defaults: UserDefaults = .standard) -> PersistedWindowGeometry? {
-        Self.removeLegacyPersistedWindowGeometry(defaults: defaults)
-        guard let data = defaults.data(forKey: Self.persistedWindowGeometryDefaultsKey) else {
-            return nil
-        }
-        guard let payload = Self.decodedPersistedWindowGeometryData(data) else {
-            defaults.removeObject(forKey: Self.persistedWindowGeometryDefaultsKey)
-            return nil
-        }
-        return payload
-    }
-
-    private func persistWindowGeometry(
-        frame: SessionRectSnapshot?,
-        display: SessionDisplaySnapshot?,
-        defaults: UserDefaults = .standard
-    ) {
-        Self.removeLegacyPersistedWindowGeometry(defaults: defaults)
-        guard let data = Self.encodedPersistedWindowGeometryData(frame: frame, display: display) else {
-            return
-        }
-        defaults.set(data, forKey: Self.persistedWindowGeometryDefaultsKey)
-    }
-
-    private nonisolated static func encodedPersistedWindowGeometryData(
-        frame: SessionRectSnapshot?,
-        display: SessionDisplaySnapshot?
-    ) -> Data? {
-        guard let frame else { return nil }
-        let payload = PersistedWindowGeometry(
-            version: persistedWindowGeometrySchemaVersion,
-            frame: frame,
-            display: display
-        )
-        return try? JSONEncoder().encode(payload)
-    }
-
     nonisolated static func decodedPersistedWindowGeometryData(_ data: Data) -> PersistedWindowGeometry? {
         guard let payload = try? JSONDecoder().decode(PersistedWindowGeometry.self, from: data),
               payload.version == persistedWindowGeometrySchemaVersion else {
@@ -2562,14 +2531,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         defaults: UserDefaults = .standard
     ) {
         legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObject(forKey: $0) }
-    }
-
-    private func persistWindowGeometry(from window: NSWindow?) {
-        guard let window else { return }
-        persistWindowGeometry(
-            frame: SessionRectSnapshot(window.frame),
-            display: displaySnapshot(for: window)
-        )
     }
 
     private func currentDisplayGeometries() -> (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?) {
@@ -2588,17 +2549,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
         return (available, fallback)
-    }
-
-    private func resolvedPersistedWindowGeometryFrame() -> NSRect? {
-        let displays = currentDisplayGeometries()
-        let fallbackGeometry = persistedWindowGeometry()
-        return Self.resolvedWindowFrame(
-            from: fallbackGeometry?.frame,
-            display: fallbackGeometry?.display,
-            availableDisplays: displays.available,
-            fallbackDisplay: displays.fallback
-        )
     }
 
     private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) {
@@ -2623,18 +2573,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 to: primaryContext,
                 window: primaryWindow
             )
-        } else {
-            let displays = currentDisplayGeometries()
-            let fallbackGeometry = persistedWindowGeometry()
-            if let restoredFrame = Self.resolvedStartupPrimaryWindowFrame(
-                primarySnapshot: nil,
-                fallbackFrame: fallbackGeometry?.frame,
-                fallbackDisplaySnapshot: fallbackGeometry?.display,
-                availableDisplays: displays.available,
-                fallbackDisplay: displays.fallback
-            ) {
-                primaryWindow.setFrame(restoredFrame, display: true)
-            }
         }
 
         if let startupSnapshot {
@@ -3327,20 +3265,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        let persistedGeometryData = snapshot.windows.first.flatMap { primaryWindow in
-            Self.encodedPersistedWindowGeometryData(
-                frame: primaryWindow.frame,
-                display: primaryWindow.display
-            )
-        }
-
 #if DEBUG
         debugLogSessionSaveSnapshot(snapshot, includeScrollback: includeScrollback)
 #endif
         persistSessionSnapshot(
             snapshot,
             removeWhenEmpty: false,
-            persistedGeometryData: persistedGeometryData,
+            persistedGeometryData: nil,
             synchronously: writeSynchronously
         )
         return true
@@ -3357,14 +3288,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             buildSnapshot: { [self] includeScrollback in
                 buildSessionSnapshot(includeScrollback: includeScrollback)
             },
-            persistedGeometryData: { snapshot in
-                snapshot?.windows.first.flatMap { primaryWindow in
-                    Self.encodedPersistedWindowGeometryData(
-                        frame: primaryWindow.frame,
-                        display: primaryWindow.display
-                    )
-                }
-            },
+            persistedGeometryData: { _ in nil },
             persistSnapshot: { [self] snapshot, persistedGeometryData in
                 persistSessionSnapshot(
                     snapshot,
@@ -6843,6 +6767,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    private func mainWindowFrameAutosaveName(windowId: UUID, wantsPrimarySlot: Bool) -> NSWindow.FrameAutosaveName {
+        if wantsPrimarySlot,
+           !NSApp.windows.contains(where: { $0.frameAutosaveName == Self.primaryMainWindowFrameAutosaveName }) {
+            return Self.primaryMainWindowFrameAutosaveName
+        }
+        return "\(Self.mainWindowFrameAutosaveNamePrefix).\(windowId.uuidString)"
+    }
+
     @discardableResult
     func createMainWindow(
         initialWorkspaceTitle: String? = nil,
@@ -6929,19 +6861,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let shouldTemporarilyDisallowFullScreenTiling =
             sessionWindowSnapshot == nil && sourceWindowIsNativeFullScreen
         let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
-        let persistedGeometryFrame = (restoredFrame == nil && sourceWindow == nil)
-            ? resolvedPersistedWindowGeometryFrame()
-            : nil
         let initialRect: NSRect
         if restoredFrame == nil, let existingFrame {
             // Convert frame rect to content rect so the new window matches the
             // source window's actual size (frame includes titlebar insets).
             initialRect = NSWindow.contentRect(forFrameRect: existingFrame, styleMask: styleMask)
-        } else if let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame {
+        } else if let explicitInitialFrame = restoredFrame {
             initialRect = NSWindow.contentRect(forFrameRect: explicitInitialFrame, styleMask: styleMask)
         } else {
             initialRect = CmuxMainWindow.defaultContentRect(styleMask: styleMask)
         }
+        let frameAutosaveName = mainWindowFrameAutosaveName(
+            windowId: windowId,
+            wantsPrimarySlot: restoredFrame == nil && sourceWindow == nil && mainWindowContexts.isEmpty
+        )
 
         let window = CmuxMainWindow(
             contentRect: initialRect,
@@ -6969,9 +6902,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // a movable/resizable window. Empty titlebar drags are routed through
         // WindowDragHandleView instead of background dragging.
         window.isMovable = true
-        let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame
+        let appKitSavedFrameApplied = window.setFrameAutosaveName(frameAutosaveName)
+            && restoredFrame == nil
+            && sourceWindow == nil
+            && window.setFrameUsingName(frameAutosaveName, force: true)
+        let explicitInitialFrame = restoredFrame
         if let explicitInitialFrame {
             window.setFrame(explicitInitialFrame, display: false)
+        } else if appKitSavedFrameApplied {
+            lastCascadePoint = NSPoint(x: window.frame.minX, y: window.frame.maxY)
         } else if let sourceWindow {
             positionNewMainWindow(window, relativeTo: sourceWindow)
         } else {
@@ -7034,7 +6973,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             window.setFrame(explicitInitialFrame, display: true)
 #if DEBUG
             cmuxDebugLog(
-                "mainWindow.initialFrameApplied source=\(restoredFrame == nil ? "persistedGeometry" : "sessionSnapshot") window=\(windowId.uuidString.prefix(8)) " +
+                "mainWindow.initialFrameApplied source=sessionSnapshot window=\(windowId.uuidString.prefix(8)) " +
                     "applied={\(debugNSRectDescription(window.frame))}"
             )
 #endif
@@ -13451,9 +13390,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // window's position, matching upstream Ghostty behavior.
         let frame = window.frame
         lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
-
-        // Keep geometry available as a fallback for the next window placement.
-        persistWindowGeometry(from: window)
 
         guard let removed = unregisterMainWindowContext(for: window) else { return }
         publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")

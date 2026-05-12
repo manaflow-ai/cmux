@@ -129,7 +129,7 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, initialCount + 1, "Bare Space chord should dispatch on the second stroke")
     }
 
-    func testCreateMainWindowUsesPersistedGeometryWhenNoSourceWindow() throws {
+    func testCreateMainWindowIgnoresLegacyPersistedGeometryWhenNoSourceWindow() throws {
         let previousShared = AppDelegate.shared
         let appDelegate = AppDelegate()
         defer { AppDelegate.shared = previousShared }
@@ -137,11 +137,20 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         let defaults = UserDefaults.standard
         let persistedGeometryKey = AppDelegate.debugPersistedWindowGeometryDefaultsKey
         let previousPersistedGeometry = defaults.object(forKey: persistedGeometryKey)
+        let primaryFrameAutosaveName = AppDelegate.debugPrimaryMainWindowFrameAutosaveName
+        let primaryFrameAutosaveKey = appKitFrameAutosaveDefaultsKey(primaryFrameAutosaveName)
+        let previousPrimaryFrameAutosave = defaults.object(forKey: primaryFrameAutosaveKey)
+        NSWindow.removeFrame(usingName: primaryFrameAutosaveName)
         var windowId: UUID?
         defer {
             if let windowId {
                 closeWindow(withId: windowId)
             }
+            restoreDefaultsValue(
+                previousPrimaryFrameAutosave,
+                forKey: primaryFrameAutosaveKey,
+                defaults: defaults
+            )
             restoreDefaultsValue(
                 previousPersistedGeometry,
                 forKey: persistedGeometryKey,
@@ -153,15 +162,15 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         let visibleFrame = screen.visibleFrame
         let savedWidth = max(
             CGFloat(SessionPersistencePolicy.minimumWindowWidth),
-            min(1_100, visibleFrame.width - 40)
+            min(720, visibleFrame.width - 80)
         )
         let savedHeight = max(
             CGFloat(SessionPersistencePolicy.minimumWindowHeight),
-            min(760, visibleFrame.height - 40)
+            min(520, visibleFrame.height - 80)
         )
         let savedFrame = CGRect(
-            x: visibleFrame.midX - savedWidth / 2,
-            y: visibleFrame.midY - savedHeight / 2,
+            x: visibleFrame.minX + 37,
+            y: visibleFrame.minY + 43,
             width: savedWidth,
             height: savedHeight
         )
@@ -180,22 +189,39 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         windowId = createdWindowId
 
         let window = try XCTUnwrap(window(withId: createdWindowId))
-        XCTAssertEqual(window.frame.minX, savedFrame.minX, accuracy: 1)
-        XCTAssertEqual(window.frame.minY, savedFrame.minY, accuracy: 1)
-        XCTAssertEqual(window.frame.width, savedFrame.width, accuracy: 1)
-        XCTAssertEqual(window.frame.height, savedFrame.height, accuracy: 1)
+        XCTAssertFalse(window.frameAutosaveName.isEmpty)
+        XCTAssertGreaterThan(
+            abs(window.frame.minX - savedFrame.minX),
+            1,
+            "Legacy cmux lastWindowGeometry must not compete with AppKit frame autosave."
+        )
+        XCTAssertGreaterThan(
+            abs(window.frame.minY - savedFrame.minY),
+            1,
+            "Legacy cmux lastWindowGeometry must not compete with AppKit frame autosave."
+        )
     }
 
     func testCreateMainWindowRegistersAppKitFrameAutosaveNames() throws {
         let previousShared = AppDelegate.shared
         let appDelegate = AppDelegate()
         defer { AppDelegate.shared = previousShared }
+        let defaults = UserDefaults.standard
+        let primaryFrameAutosaveName = AppDelegate.debugPrimaryMainWindowFrameAutosaveName
+        let primaryFrameAutosaveKey = appKitFrameAutosaveDefaultsKey(primaryFrameAutosaveName)
+        let previousPrimaryFrameAutosave = defaults.object(forKey: primaryFrameAutosaveKey)
+        NSWindow.removeFrame(usingName: primaryFrameAutosaveName)
 
         let firstWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
         let secondWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
         defer {
             closeWindow(withId: secondWindowId)
             closeWindow(withId: firstWindowId)
+            restoreDefaultsValue(
+                previousPrimaryFrameAutosave,
+                forKey: primaryFrameAutosaveKey,
+                defaults: defaults
+            )
         }
 
         let firstWindow = try XCTUnwrap(window(withId: firstWindowId))
@@ -270,5 +296,9 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         } else {
             defaults.removeObject(forKey: key)
         }
+    }
+
+    private func appKitFrameAutosaveDefaultsKey(_ name: NSWindow.FrameAutosaveName) -> String {
+        "NSWindow Frame \(name)"
     }
 }
