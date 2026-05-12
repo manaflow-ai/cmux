@@ -931,6 +931,7 @@ extension Workspace {
         let timeout = WorkspacePendingTerminalInputPolicy.timeout(for: reason)
         let panelId = panel.id
         let registration = WorkspacePendingTerminalInputObserver()
+        pendingTerminalInputObserversByPanelId[panelId, default: []].append(registration)
 
         registration.observer = NotificationCenter.default.addObserver(
             forName: .terminalSurfaceDidBecomeReady,
@@ -951,7 +952,13 @@ extension Workspace {
                 }
             }
         }
-        pendingTerminalInputObserversByPanelId[panelId, default: []].append(registration)
+
+        if panel.surface.surface != nil,
+           hasPendingTerminalInputObserver(registration, forPanelId: panelId) {
+            removePendingTerminalInputObserver(registration, forPanelId: panelId)
+            panel.sendInput(text)
+            return
+        }
 
         guard let timeout else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self, registration] in

@@ -4273,13 +4273,13 @@ class TerminalController {
                 return .err(code: "invalid_params", message: "Invalid layout: \(error.localizedDescription)", data: nil)
             }
         }
-        let layoutBaseCwd = layoutNode == nil
-            ? nil
-            : v2MainSync { customLayoutBaseCwdForNewWorkspace(tabManager: tabManager, requestedCwd: cwd) }
+        let layoutBaseCwd: String?
         let resolvedLayoutNode: CmuxLayoutNode?
-        if let layoutNode,
-           let layoutBaseCwd {
-            let resolution = layoutNode.resolvingMarkdownPaths(relativeTo: layoutBaseCwd)
+        if let layoutNode {
+            let resolvedBaseCwd = v2MainSync {
+                customLayoutBaseCwdForNewWorkspace(tabManager: tabManager, requestedCwd: cwd)
+            }
+            let resolution = layoutNode.resolvingMarkdownPaths(relativeTo: resolvedBaseCwd)
             if let failure = resolution.failure {
                 return .err(
                     code: failure.code,
@@ -4290,8 +4290,10 @@ class TerminalController {
             guard let layout = resolution.layout else {
                 return .err(code: "internal_error", message: "Failed to resolve custom layout", data: nil)
             }
+            layoutBaseCwd = resolvedBaseCwd
             resolvedLayoutNode = layout
         } else {
+            layoutBaseCwd = nil
             resolvedLayoutNode = nil
         }
 
