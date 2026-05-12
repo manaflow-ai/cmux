@@ -11,6 +11,10 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+if sys.platform != "darwin":
+    print("SKIP: background workspace footprint regression uses macOS-only lsof/ps/vmmap tooling")
+    raise SystemExit(0)
+
 sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
@@ -74,7 +78,13 @@ def _socket_owner_pid(socket_path: str) -> int:
         if not line:
             continue
         pid = int(line)
-        if pid != os.getpid():
+        if pid == os.getpid():
+            continue
+        try:
+            command = _run(["ps", "-p", str(pid), "-o", "comm="]).strip()
+        except cmuxError:
+            continue
+        if "cmux" in Path(command).name:
             return pid
     raise cmuxError(f"Could not resolve cmux PID from socket owner list: {output!r}")
 
