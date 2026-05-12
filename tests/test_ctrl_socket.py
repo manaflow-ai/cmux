@@ -187,8 +187,8 @@ def test_ctrl_c_python(client: cmux) -> TestResult:
 
 def test_environment_paths(client: cmux) -> TestResult:
     """
-    Verify that TERMINFO points to a real terminfo directory and that
-    XDG_DATA_DIRS includes the app resources path (and defaults when unset).
+    Verify that TERMINFO is hidden from child processes for TUI transparency
+    and that XDG_DATA_DIRS still includes app resource paths.
     """
     result = TestResult("Environment Paths")
     env_path = Path(tempfile.gettempdir()) / f"cmux_env_{os.getpid()}.json"
@@ -230,18 +230,8 @@ def test_environment_paths(client: cmux) -> TestResult:
         terminfo = data.get("TERMINFO", "")
         xdg_data_dirs = data.get("XDG_DATA_DIRS", "")
 
-        if not terminfo:
-            result.failure("TERMINFO is empty")
-            return result
-
-        terminfo_path = Path(terminfo)
-        if not terminfo_path.exists():
-            result.failure(f"TERMINFO path does not exist: {terminfo}")
-            return result
-
-        xterm_entry = terminfo_path / "78" / "xterm-ghostty"
-        if not xterm_entry.exists():
-            result.failure(f"Missing terminfo entry: {xterm_entry}")
+        if terminfo:
+            result.failure(f"TERMINFO should be hidden from child processes, got: {terminfo}")
             return result
 
         if not xdg_data_dirs:
@@ -249,9 +239,9 @@ def test_environment_paths(client: cmux) -> TestResult:
             return result
 
         xdg_entries = xdg_data_dirs.split(":")
-        resources_dir = terminfo_path.parent
-        if resources_dir.as_posix() not in xdg_entries:
-            result.failure(f"XDG_DATA_DIRS missing resources path: {resources_dir}")
+        resource_entries = [Path(entry) for entry in xdg_entries if entry]
+        if not any((entry / "terminfo" / "78" / "xterm-ghostty").exists() for entry in resource_entries):
+            result.failure(f"XDG_DATA_DIRS missing resources path with xterm-ghostty terminfo: {xdg_data_dirs}")
             return result
 
         if not os.environ.get("XDG_DATA_DIRS"):
@@ -261,7 +251,7 @@ def test_environment_paths(client: cmux) -> TestResult:
                 )
                 return result
 
-        result.success("TERMINFO and XDG_DATA_DIRS paths look correct")
+        result.success("TERMINFO is hidden and XDG_DATA_DIRS paths look correct")
         env_path.unlink(missing_ok=True)
         return result
     except Exception as e:
