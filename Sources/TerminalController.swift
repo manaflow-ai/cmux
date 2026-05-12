@@ -11160,8 +11160,6 @@ class TerminalController {
 
     private func v2BrowserDialogRespond(params: [String: Any], accept: Bool) -> V2CallResult {
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            v2BrowserEnsureTelemetryHooks(surfaceId: surfaceId, browserPanel: browserPanel)
-            v2BrowserEnsureDialogHooks(browserPanel: browserPanel)
             let text = v2String(params, "text") ?? v2String(params, "prompt_text")
 
             if let nativeDialog = v2BrowserPopDialog(surfaceId: surfaceId) {
@@ -11181,6 +11179,8 @@ class TerminalController {
                 ])
             }
 
+            v2BrowserEnsureTelemetryHooks(surfaceId: surfaceId, browserPanel: browserPanel)
+            v2BrowserEnsureDialogHooks(browserPanel: browserPanel)
             let acceptLiteral = accept ? "true" : "false"
             let textLiteral = text.map(v2JSONLiteral) ?? "null"
             let script = """
