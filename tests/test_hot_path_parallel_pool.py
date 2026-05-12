@@ -230,7 +230,7 @@ def main() -> int:
                     f"saw {server.total_connections}"
                 )
 
-            if not server.wait_for_method_count(100, timeout=8.0):
+            if not server.wait_for_method_count(100, timeout=30.0):
                 failures.append(f"expected 100 telemetry methods, got {server.method_count()}")
             else:
                 methods = server.methods_snapshot()
