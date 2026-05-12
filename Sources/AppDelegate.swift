@@ -7185,11 +7185,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func toggleGlobalSearchPaletteFromGlobalHotkey() {
-        guard let menuBarExtraController else {
+        if menuBarExtraController == nil {
+            setupMenuBarExtra()
+        }
+
+        guard let menuBarExtraController,
+              menuBarExtraController.toggleGlobalSearchPalette() else {
             NSSound.beep()
             return
         }
-        menuBarExtraController.toggleGlobalSearchPalette()
     }
 
     private func installMenuBarVisibilityObserver() {

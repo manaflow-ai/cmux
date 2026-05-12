@@ -214,6 +214,25 @@ private struct GlobalSearchPaletteView: View {
             openSelectedResult()
             return true
         default:
+            if flags.contains(.command),
+               !flags.contains(.option),
+               !flags.contains(.control) {
+                return !isTextEditingCommand(event)
+            }
+            return false
+        }
+    }
+
+    private func isTextEditingCommand(_ event: NSEvent) -> Bool {
+        if let characters = event.charactersIgnoringModifiers?.lowercased(),
+           ["a", "c", "v", "x", "z"].contains(characters) {
+            return true
+        }
+
+        switch event.keyCode {
+        case 51, 117, 123, 124:
+            return true
+        default:
             return false
         }
     }

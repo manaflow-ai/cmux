@@ -256,9 +256,11 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         }
     }
 
-    func toggleGlobalSearchPalette() {
-        guard let button = statusItem.button else { return }
+    @discardableResult
+    func toggleGlobalSearchPalette() -> Bool {
+        guard let button = statusItem.button else { return false }
         onShowGlobalSearch(button)
+        return true
     }
 
     @objc private func globalSearchAction() {
