@@ -12384,6 +12384,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    func performTitlebarPaneAction(
+        _ builtInAction: CmuxSurfaceTabBarBuiltInAction,
+        preferredWindow: NSWindow? = nil
+    ) -> Bool {
+        switch builtInAction {
+        case .newTerminal, .newBrowser, .splitRight, .splitDown:
+            break
+        case .newWorkspace, .cloudVM:
+            NSSound.beep()
+            return false
+        }
+        guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else {
+            NSSound.beep()
+            return false
+        }
+
+        let action = context.cmuxConfigStore?.resolvedAction(id: builtInAction.configID)
+            ?? .builtIn(builtInAction)
+        let window = preferredWindow ?? resolvedWindow(for: context) ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let didExecute = executeConfiguredCmuxAction(
+            action,
+            context: context,
+            preferredWindow: window
+        )
+        if !didExecute {
+            NSSound.beep()
+        }
+        return didExecute
+    }
+
+    @discardableResult
     func performBrowserSplitShortcut(direction: SplitDirection) -> Bool {
         guard BrowserAvailabilitySettings.isEnabled() else {
 #if DEBUG
