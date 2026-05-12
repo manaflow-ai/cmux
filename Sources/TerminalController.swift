@@ -1061,7 +1061,6 @@ class TerminalController {
         let newServerSocket = socket(AF_UNIX, SOCK_STREAM, 0)
         guard newServerSocket >= 0 else {
             let errnoCode = errno
-            print("TerminalController: Failed to create socket")
             reportSocketListenerFailure(
                 message: "socket.listener.start.failed",
                 stage: "create_socket",
@@ -1115,7 +1114,6 @@ class TerminalController {
             )
             return
         case .failure(let failedPath, let failedStage, let failedErrnoCode):
-            print("TerminalController: Failed to bind socket")
             close(newServerSocket)
             reportSocketListenerFailure(
                 message: "socket.listener.start.failed",
@@ -1129,7 +1127,6 @@ class TerminalController {
         applySocketPermissions()
 
         if let errnoCode = Self.configureNonBlocking(newServerSocket) {
-            print("TerminalController: Failed to configure socket")
             close(newServerSocket)
             reportSocketListenerFailure(
                 message: "socket.listener.start.failed",
@@ -1142,7 +1139,6 @@ class TerminalController {
         // Listen
         guard listen(newServerSocket, Self.socketListenBacklog) >= 0 else {
             let errnoCode = errno
-            print("TerminalController: Failed to listen on socket")
             close(newServerSocket)
             reportSocketListenerFailure(
                 message: "socket.listener.start.failed",
@@ -1169,7 +1165,6 @@ class TerminalController {
         }
         listenerActivated = true
         let listenerSocket = newServerSocket
-        print("TerminalController: Listening on \(activeSocketPath)")
         sentryBreadcrumb(
             "socket.listener.listening",
             category: "socket",
@@ -1369,9 +1364,6 @@ class TerminalController {
         let currentSocketPath = withListenerState { socketPath }
         if chmod(currentSocketPath, permissions) != 0 {
             let errnoCode = errno
-            print(
-                "TerminalController: Failed to set socket permissions to \(String(permissions, radix: 8)) for \(currentSocketPath)"
-            )
             sentryBreadcrumb(
                 "socket.listener.permissions.failed",
                 category: "socket",
