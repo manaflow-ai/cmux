@@ -21,6 +21,7 @@ import { estimateCost } from "../core/cost.ts";
 import { runPrint } from "../headless/print.ts";
 import { createSubagentDispatcher } from "../core/subagent_dispatcher.ts";
 import { cmuxAvailable } from "../tools/cmux/index.ts";
+import { loadHooksFromConfig } from "../hooks/index.ts";
 import type { Provider, PermissionLevel, Message, Tool } from "../core/types.ts";
 import { runDoctor, renderDoctorReport } from "./doctor.ts";
 import { emit } from "./output.ts";
@@ -327,6 +328,11 @@ async function buildSessionInfra(parsed: ReturnType<typeof parseArgs>) {
         }),
       });
 
+  // Hooks
+  const hookRegistry = await loadHooksFromConfig(config);
+  const emitHook = (event: import("../core/types.ts").HookEvent) =>
+    hookRegistry.fire(event);
+
   // Subagent dispatcher
   const spawnSubagent = createSubagentDispatcher({
     provider,
@@ -334,9 +340,10 @@ async function buildSessionInfra(parsed: ReturnType<typeof parseArgs>) {
     parentPermissions: permissions,
     cwd,
     defaultModel: model,
+    emitHook,
   });
 
-  return { cwd, provider, model, toolRegistry, permissions, session, spawnSubagent, cmuxOk };
+  return { cwd, provider, model, toolRegistry, permissions, session, spawnSubagent, cmuxOk, emitHook };
 }
 
 // ---------------------------------------------------------------------------
@@ -372,6 +379,7 @@ async function runHeadless(parsed: ReturnType<typeof parseArgs>): Promise<void> 
     cwd: infra.cwd,
     prompt,
     spawnSubagent: infra.spawnSubagent,
+    emitHook: infra.emitHook,
     verbose: parsed.showThinking,
     quiet: parsed.quiet,
     outputFormat: parsed.outputFormat,
@@ -427,6 +435,7 @@ async function runInteractive(parsed: ReturnType<typeof parseArgs>): Promise<voi
         abortController,
         cwd: infra.cwd,
         spawnSubagent: infra.spawnSubagent,
+        emitHook: infra.emitHook,
         onEvent,
         askUser: (toolName, input) => tui.handle.promptPermission(toolName, input),
       });
