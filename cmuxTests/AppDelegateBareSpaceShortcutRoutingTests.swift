@@ -361,8 +361,34 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
 
         XCTAssertEqual(firstWindow.frameAutosaveName, primaryFrameAutosaveName)
         XCTAssertNotEqual(secondWindow.frameAutosaveName, primaryFrameAutosaveName)
+        let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
+        let visibleFrame = screen.visibleFrame
+        let savedWidth = max(
+            CGFloat(SessionPersistencePolicy.minimumWindowWidth),
+            min(520, visibleFrame.width - 120)
+        )
+        let savedHeight = max(
+            CGFloat(SessionPersistencePolicy.minimumWindowHeight),
+            min(360, visibleFrame.height - 120)
+        )
+        let firstFrame = CGRect(
+            x: visibleFrame.minX + 24,
+            y: visibleFrame.minY + 32,
+            width: savedWidth,
+            height: savedHeight
+        )
+        let secondFrame = CGRect(
+            x: min(visibleFrame.minX + 144, visibleFrame.maxX - savedWidth - 24),
+            y: min(visibleFrame.minY + 152, visibleFrame.maxY - savedHeight - 32),
+            width: savedWidth,
+            height: savedHeight
+        )
+        firstWindow.setFrame(firstFrame, display: false)
+        firstWindow.saveFrame(usingName: primaryFrameAutosaveName)
+        secondWindow.setFrame(secondFrame, display: false)
         NSWindow.removeFrame(usingName: secondWindow.frameAutosaveName)
         secondWindow.saveFrame(usingName: secondWindow.frameAutosaveName)
+        let survivorFrameBeforePromotion = secondWindow.frame
         XCTAssertNotNil(defaults.object(forKey: secondaryFrameAutosaveKey))
 
         closeWindow(withId: firstWindowId)
@@ -380,6 +406,10 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
             defaults.object(forKey: primaryFrameAutosaveKey),
             "Promotion should immediately persist the survivor's frame under the stable primary autosave key."
         )
+        XCTAssertEqual(secondWindow.frame.minX, survivorFrameBeforePromotion.minX, accuracy: 1)
+        XCTAssertEqual(secondWindow.frame.minY, survivorFrameBeforePromotion.minY, accuracy: 1)
+        XCTAssertEqual(secondWindow.frame.width, survivorFrameBeforePromotion.width, accuracy: 1)
+        XCTAssertEqual(secondWindow.frame.height, survivorFrameBeforePromotion.height, accuracy: 1)
     }
 
     private func makeKeyDownEvent(

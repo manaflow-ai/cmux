@@ -6792,7 +6792,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let previousAutosaveName = survivor.frameAutosaveName
         guard previousAutosaveName != Self.primaryMainWindowFrameAutosaveName else { return }
+        let survivorFrame = survivor.frame
+        // Registering an autosave name can reload its saved frame; seed it with the survivor first.
+        survivor.saveFrame(usingName: Self.primaryMainWindowFrameAutosaveName)
         guard survivor.setFrameAutosaveName(Self.primaryMainWindowFrameAutosaveName) else { return }
+        if survivor.frame != survivorFrame {
+            survivor.setFrame(survivorFrame, display: false)
+        }
         survivor.saveFrame(usingName: Self.primaryMainWindowFrameAutosaveName)
 
         if !previousAutosaveName.isEmpty,
