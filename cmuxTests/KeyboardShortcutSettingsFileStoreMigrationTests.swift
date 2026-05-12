@@ -444,6 +444,48 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         withExtendedLifetime(store) {}
     }
 
+    func testSettingsUIChangeSurvivesConfigReloadDuringDebounce() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "sidebarAppearance": {
+                "tintColor": "#000000"
+              }
+            }
+            """,
+            to: primaryURL
+        )
+
+        let defaultsKey = "sidebarTintHex"
+        let defaultsSuiteName = "cmux.settings-file-store.reload-debounce.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuiteName))
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+        defer {
+            defaults.removePersistentDomain(forName: defaultsSuiteName)
+        }
+
+        let notificationCenter = NotificationCenter()
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: nil,
+            userDefaults: defaults,
+            notificationCenter: notificationCenter,
+            startWatching: false
+        )
+        XCTAssertEqual(defaults.string(forKey: defaultsKey), "#000000")
+
+        defaults.set("#111111", forKey: defaultsKey)
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        store.reload()
+        try waitForSidebarAppearanceString("#111111", key: "tintColor", in: primaryURL)
+
+        withExtendedLifetime(store) {}
+    }
+
     func testJSONCSettingsPatcherUpdatesEscapedEffectiveKey() throws {
         let source = """
         {
