@@ -352,7 +352,7 @@ extension CMUXCLI {
             || description.contains("timed out")
     }
 
-    func waitBeforeReconnectingEventStream(seconds: TimeInterval) {
+    private func waitBeforeReconnectingEventStream(seconds: TimeInterval) {
         guard seconds.isFinite, seconds > 0 else { return }
         let deadline = Date(timeIntervalSinceNow: seconds)
         var didFire = false
@@ -364,7 +364,7 @@ extension CMUXCLI {
         timer.invalidate()
     }
 
-    func printEventResumeGapGuidance(_ resume: CmuxEventsResume) {
+    private func printEventResumeGapGuidance(_ resume: CmuxEventsResume) {
         let reason = resume.gapReason.map { " (\($0))" } ?? ""
         fputs(
             """
