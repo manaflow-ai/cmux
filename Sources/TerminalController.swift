@@ -1960,16 +1960,16 @@ class TerminalController {
         authenticated: Bool
     ) -> SocketLineProcessingResult {
         var nextAuthenticated = authenticated
-        let shouldWriteResponse = !CMUXSocketProtocol.isJSONRPCNotification(command)
         if let response = authResponseIfNeeded(for: command, authenticated: &nextAuthenticated) {
             return SocketLineProcessingResult(
                 response: response,
                 authenticated: nextAuthenticated,
-                shouldWriteResponse: shouldWriteResponse
+                shouldWriteResponse: true
             )
         }
 
         let response = processCommandUsingSocketExecutionPolicy(command)
+        let shouldWriteResponse = !CMUXSocketProtocol.isJSONRPCNotification(command)
         return SocketLineProcessingResult(
             response: response,
             authenticated: nextAuthenticated,
