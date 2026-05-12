@@ -163,7 +163,7 @@ final class FileExplorerStoreTests: XCTestCase {
         let provider = MockFileExplorerProvider(homePath: "/home/user")
         let store = FileExplorerStore()
         store.setProviderForTesting(provider)
-        store.rootPath = "/home/user/project"
+        store.setRootForTesting(path: "/home/user/project")
         XCTAssertEqual(store.displayRootPath, "~/project")
     }
 
@@ -495,8 +495,7 @@ final class FileExplorerStoreTests: XCTestCase {
         srcNode.children = [
             FileExplorerNode(name: "main.swift", path: "/project/src/main.swift", isDirectory: false),
         ]
-        store.rootPath = "/project"
-        store.rootNodes = [srcNode]
+        store.setRootForTesting(path: "/project", nodes: [srcNode])
 
         let outlineView = CountingFileExplorerOutlineView(items: [srcNode])
         let coordinator = FileExplorerPanelView.Coordinator(
@@ -527,8 +526,7 @@ final class FileExplorerStoreTests: XCTestCase {
         srcNode.children = [
             FileExplorerNode(name: "main.swift", path: "/project/src/main.swift", isDirectory: false),
         ]
-        store.rootPath = "/project"
-        store.rootNodes = [srcNode]
+        store.setRootForTesting(path: "/project", nodes: [srcNode])
 
         let outlineView = CountingFileExplorerOutlineView(items: [srcNode])
         let coordinator = FileExplorerPanelView.Coordinator(
@@ -559,8 +557,7 @@ final class FileExplorerStoreTests: XCTestCase {
         let store = FileExplorerStore()
         let srcNode = FileExplorerNode(name: "src", path: "/project/src", isDirectory: true)
         store.setProviderForTesting(provider, reloadIfAvailable: false)
-        store.rootPath = "/project"
-        store.rootNodes = [srcNode]
+        store.setRootForTesting(path: "/project", nodes: [srcNode])
 
         let revisionBeforeExpand = store.outlineRevision
         store.expand(node: srcNode)
@@ -619,7 +616,7 @@ final class FileExplorerStoreTests: XCTestCase {
             return activeStatus
         }
 
-        store.rootPath = activeRoot
+        store.setRootForTesting(path: activeRoot)
         store.refreshGitStatus()
         try await waitFor("initial git status applied") {
             store.gitStatusByPath == activeStatus
@@ -637,9 +634,9 @@ final class FileExplorerStoreTests: XCTestCase {
             "Identical git status should not dirty the file outline."
         )
 
-        store.rootPath = staleRoot
+        store.setRootForTesting(path: staleRoot)
         store.refreshGitStatus()
-        store.rootPath = activeRoot
+        store.setRootForTesting(path: activeRoot)
         await fulfillment(of: [staleFetchCompleted], timeout: 1.0)
         try await Task.sleep(nanoseconds: 100_000_000)
 
@@ -918,7 +915,7 @@ final class FileSearchControllerTests: XCTestCase {
             presentation: .files,
             searchController: SpyFileSearchController()
         )
-        store.rootPath = "/tmp/cmux-loading"
+        store.setRootForTesting(path: "/tmp/cmux-loading")
         container.updateHeader(store: store)
         container.updateVisibility(hasContent: true, isLoading: true, statusMessage: nil)
 
@@ -953,7 +950,7 @@ final class FileSearchControllerTests: XCTestCase {
             presentation: .files,
             searchController: SpyFileSearchController()
         )
-        store.rootPath = "/tmp/cmux-loading"
+        store.setRootForTesting(path: "/tmp/cmux-loading")
         container.updateHeader(store: store)
 
         container.updatePresentation(.find)
@@ -1037,7 +1034,7 @@ final class FileSearchControllerTests: XCTestCase {
             transport: MockSSHFileExplorerTransport()
         )
         store.setProviderForTesting(provider, reloadIfAvailable: false)
-        store.rootPath = "/home/dev/project"
+        store.setRootForTesting(path: "/home/dev/project")
         container.updateHeader(store: store)
 
         let searchField = try XCTUnwrap(Self.findSearchField(in: container))

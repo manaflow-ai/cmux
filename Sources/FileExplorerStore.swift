@@ -587,8 +587,8 @@ enum FileExplorerSelectionRestoration {
 /// because NSOutlineView data source/delegate methods are called on the main thread
 /// but are not annotated @MainActor.
 final class FileExplorerStore: ObservableObject {
-    @Published var rootPath: String = ""
-    @Published var rootNodes: [FileExplorerNode] = []
+    @Published private(set) var rootPath: String = ""
+    @Published private(set) var rootNodes: [FileExplorerNode] = []
     @Published private(set) var isRootLoading: Bool = false
     @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
     @Published private(set) var contentRevision = 0
@@ -781,6 +781,17 @@ final class FileExplorerStore: ObservableObject {
     #if DEBUG
     func setProviderForTesting(_ newProvider: FileExplorerProvider?, reloadIfAvailable: Bool = true) {
         setProvider(newProvider, reloadIfAvailable: reloadIfAvailable)
+    }
+
+    func setRootForTesting(path: String, nodes: [FileExplorerNode] = []) {
+        mutateOutline {
+            rootPath = path
+            rootNodes = nodes
+            nodesByPath = nodes.reduce(into: [:]) { result, node in
+                result[node.path] = node
+            }
+            isRootLoading = false
+        }
     }
     #endif
 
