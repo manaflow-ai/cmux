@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -49,16 +50,25 @@ type commandSpec struct {
 }
 
 type browserCommandSpec struct {
-	method                string
-	flagKeys              []string
-	allowPositionalURL    bool
-	allowPositionalScript bool
-	allowPositionalKey    bool
-	allowPositionalQuery  bool
-	allowPositionalValue  bool
-	useWorkspaceEnv       bool
-	useSurfaceEnv         bool
+	method          string
+	defaultParams   map[string]any
+	positionalKeys  []string
+	joinLast        bool
+	useWorkspaceEnv bool
+	useSurfaceEnv   bool
+	flagOverrides   map[string]string
+	special         browserCommandSpecial
 }
+
+type browserCommandSpecial int
+
+const (
+	browserSpecialFindNth browserCommandSpecial = iota + 1
+	browserSpecialTabTarget
+	browserSpecialInputArgs
+	browserSpecialWait
+	browserSpecialScreenshot
+)
 
 var commands = []commandSpec{
 	// V1 text protocol commands
@@ -91,33 +101,122 @@ var commands = []commandSpec{
 }
 
 var browserCommands = map[string]browserCommandSpec{
-	"open":       {method: "browser.open_split", flagKeys: []string{"url", "workspace", "surface"}, allowPositionalURL: true, useWorkspaceEnv: true},
-	"open-split": {method: "browser.open_split", flagKeys: []string{"url", "workspace", "surface"}, allowPositionalURL: true, useWorkspaceEnv: true},
-	"new":        {method: "browser.open_split", flagKeys: []string{"url", "workspace", "surface"}, allowPositionalURL: true, useWorkspaceEnv: true},
-	"navigate":   {method: "browser.navigate", flagKeys: []string{"url", "surface"}, allowPositionalURL: true, useSurfaceEnv: true},
-	"goto":       {method: "browser.navigate", flagKeys: []string{"url", "surface"}, allowPositionalURL: true, useSurfaceEnv: true},
-	"back":       {method: "browser.back", flagKeys: []string{"surface"}, useSurfaceEnv: true},
-	"forward":    {method: "browser.forward", flagKeys: []string{"surface"}, useSurfaceEnv: true},
-	"reload":     {method: "browser.reload", flagKeys: []string{"surface"}, useSurfaceEnv: true},
-	"get-url":    {method: "browser.url.get", flagKeys: []string{"surface"}, useSurfaceEnv: true},
-	"url":        {method: "browser.url.get", flagKeys: []string{"surface"}, useSurfaceEnv: true},
-	"snapshot":   {method: "browser.snapshot", flagKeys: []string{"surface", "selector", "max-depth"}, useSurfaceEnv: true},
-	"eval":       {method: "browser.eval", flagKeys: []string{"surface", "script"}, allowPositionalScript: true, useSurfaceEnv: true},
-	"wait":       {method: "browser.wait", flagKeys: []string{"surface", "selector", "text", "url-contains", "load-state", "function", "timeout-ms"}, useSurfaceEnv: true},
-	"click":      {method: "browser.click", flagKeys: []string{"surface", "selector"}, allowPositionalQuery: true, useSurfaceEnv: true},
-	"dblclick":   {method: "browser.dblclick", flagKeys: []string{"surface", "selector"}, allowPositionalQuery: true, useSurfaceEnv: true},
-	"hover":      {method: "browser.hover", flagKeys: []string{"surface", "selector"}, allowPositionalQuery: true, useSurfaceEnv: true},
-	"focus":      {method: "browser.focus", flagKeys: []string{"surface", "selector"}, allowPositionalQuery: true, useSurfaceEnv: true},
-	"check":      {method: "browser.check", flagKeys: []string{"surface", "selector"}, allowPositionalQuery: true, useSurfaceEnv: true},
-	"uncheck":    {method: "browser.uncheck", flagKeys: []string{"surface", "selector"}, allowPositionalQuery: true, useSurfaceEnv: true},
-	"type":       {method: "browser.type", flagKeys: []string{"surface", "selector", "text"}, allowPositionalValue: true, useSurfaceEnv: true},
-	"fill":       {method: "browser.fill", flagKeys: []string{"surface", "selector", "text"}, allowPositionalValue: true, useSurfaceEnv: true},
-	"press":      {method: "browser.press", flagKeys: []string{"surface", "key"}, allowPositionalKey: true, useSurfaceEnv: true},
-	"key":        {method: "browser.press", flagKeys: []string{"surface", "key"}, allowPositionalKey: true, useSurfaceEnv: true},
-	"keydown":    {method: "browser.keydown", flagKeys: []string{"surface", "key"}, allowPositionalKey: true, useSurfaceEnv: true},
-	"keyup":      {method: "browser.keyup", flagKeys: []string{"surface", "key"}, allowPositionalKey: true, useSurfaceEnv: true},
-	"select":     {method: "browser.select", flagKeys: []string{"surface", "selector", "value"}, allowPositionalValue: true, useSurfaceEnv: true},
-	"screenshot": {method: "browser.screenshot", flagKeys: []string{"surface"}, useSurfaceEnv: true},
+	"open":       {method: "browser.open_split", positionalKeys: []string{"url"}, joinLast: true, useWorkspaceEnv: true},
+	"open-split": {method: "browser.open_split", positionalKeys: []string{"url"}, joinLast: true, useWorkspaceEnv: true},
+	"new":        {method: "browser.open_split", positionalKeys: []string{"url"}, joinLast: true, useWorkspaceEnv: true},
+	"navigate":   {method: "browser.navigate", positionalKeys: []string{"url"}, joinLast: true, useSurfaceEnv: true},
+	"goto":       {method: "browser.navigate", positionalKeys: []string{"url"}, joinLast: true, useSurfaceEnv: true},
+	"back":       {method: "browser.back", useSurfaceEnv: true},
+	"forward":    {method: "browser.forward", useSurfaceEnv: true},
+	"reload":     {method: "browser.reload", useSurfaceEnv: true},
+	"get-url":    {method: "browser.url.get", useSurfaceEnv: true},
+	"url":        {method: "browser.url.get", useSurfaceEnv: true},
+
+	"focus-webview":      {method: "browser.focus_webview", useSurfaceEnv: true},
+	"is-webview-focused": {method: "browser.is_webview_focused", useSurfaceEnv: true},
+	"snapshot":           {method: "browser.snapshot", useSurfaceEnv: true},
+	"eval":               {method: "browser.eval", positionalKeys: []string{"script"}, joinLast: true, useSurfaceEnv: true},
+	"wait":               {method: "browser.wait", positionalKeys: []string{"selector"}, useSurfaceEnv: true, flagOverrides: map[string]string{"text": "text_contains", "url": "url_contains"}, special: browserSpecialWait},
+	"click":              {method: "browser.click", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"dblclick":           {method: "browser.dblclick", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"hover":              {method: "browser.hover", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"focus":              {method: "browser.focus", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"check":              {method: "browser.check", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"uncheck":            {method: "browser.uncheck", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"scroll-into-view":   {method: "browser.scroll_into_view", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"scrollinto":         {method: "browser.scroll_into_view", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"scrollintoview":     {method: "browser.scroll_into_view", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"type":               {method: "browser.type", positionalKeys: []string{"selector", "text"}, joinLast: true, useSurfaceEnv: true},
+	"fill":               {method: "browser.fill", positionalKeys: []string{"selector", "text"}, joinLast: true, useSurfaceEnv: true},
+	"press":              {method: "browser.press", positionalKeys: []string{"key"}, joinLast: true, useSurfaceEnv: true},
+	"key":                {method: "browser.press", positionalKeys: []string{"key"}, joinLast: true, useSurfaceEnv: true},
+	"keydown":            {method: "browser.keydown", positionalKeys: []string{"key"}, joinLast: true, useSurfaceEnv: true},
+	"keyup":              {method: "browser.keyup", positionalKeys: []string{"key"}, joinLast: true, useSurfaceEnv: true},
+	"select":             {method: "browser.select", positionalKeys: []string{"selector", "value"}, joinLast: true, useSurfaceEnv: true},
+	"scroll":             {method: "browser.scroll", positionalKeys: []string{"dy"}, useSurfaceEnv: true},
+	"screenshot":         {method: "browser.screenshot", useSurfaceEnv: true, special: browserSpecialScreenshot},
+
+	"get url":          {method: "browser.url.get", useSurfaceEnv: true},
+	"get title":        {method: "browser.get.title", useSurfaceEnv: true},
+	"get text":         {method: "browser.get.text", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"get html":         {method: "browser.get.html", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"get value":        {method: "browser.get.value", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"get attr":         {method: "browser.get.attr", positionalKeys: []string{"selector", "attr"}, useSurfaceEnv: true},
+	"get count":        {method: "browser.get.count", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"get box":          {method: "browser.get.box", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"get styles":       {method: "browser.get.styles", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"is visible":       {method: "browser.is.visible", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"is enabled":       {method: "browser.is.enabled", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"is checked":       {method: "browser.is.checked", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"find role":        {method: "browser.find.role", positionalKeys: []string{"role"}, useSurfaceEnv: true},
+	"find text":        {method: "browser.find.text", positionalKeys: []string{"text"}, joinLast: true, useSurfaceEnv: true},
+	"find label":       {method: "browser.find.label", positionalKeys: []string{"label"}, joinLast: true, useSurfaceEnv: true},
+	"find placeholder": {method: "browser.find.placeholder", positionalKeys: []string{"placeholder"}, joinLast: true, useSurfaceEnv: true},
+	"find alt":         {method: "browser.find.alt", positionalKeys: []string{"alt"}, joinLast: true, useSurfaceEnv: true},
+	"find title":       {method: "browser.find.title", positionalKeys: []string{"title"}, joinLast: true, useSurfaceEnv: true},
+	"find testid":      {method: "browser.find.testid", positionalKeys: []string{"testid"}, useSurfaceEnv: true},
+	"find first":       {method: "browser.find.first", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"find last":        {method: "browser.find.last", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"find nth":         {method: "browser.find.nth", positionalKeys: []string{"index", "selector"}, useSurfaceEnv: true, special: browserSpecialFindNth},
+
+	"frame":          {method: "browser.frame.select", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"frame select":   {method: "browser.frame.select", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"frame main":     {method: "browser.frame.main", useSurfaceEnv: true},
+	"dialog accept":  {method: "browser.dialog.accept", positionalKeys: []string{"text"}, joinLast: true, useSurfaceEnv: true},
+	"dialog dismiss": {method: "browser.dialog.dismiss", useSurfaceEnv: true},
+	"download":       {method: "browser.download.wait", positionalKeys: []string{"path"}, useSurfaceEnv: true, special: browserSpecialWait},
+	"download wait":  {method: "browser.download.wait", positionalKeys: []string{"path"}, useSurfaceEnv: true, special: browserSpecialWait},
+
+	"cookies":       {method: "browser.cookies.get", useSurfaceEnv: true},
+	"cookies get":   {method: "browser.cookies.get", useSurfaceEnv: true},
+	"cookies set":   {method: "browser.cookies.set", positionalKeys: []string{"name", "value"}, useSurfaceEnv: true},
+	"cookies clear": {method: "browser.cookies.clear", useSurfaceEnv: true},
+
+	"storage local":         {method: "browser.storage.get", defaultParams: map[string]any{"type": "local"}, positionalKeys: []string{"key"}, useSurfaceEnv: true},
+	"storage local get":     {method: "browser.storage.get", defaultParams: map[string]any{"type": "local"}, positionalKeys: []string{"key"}, useSurfaceEnv: true},
+	"storage local set":     {method: "browser.storage.set", defaultParams: map[string]any{"type": "local"}, positionalKeys: []string{"key", "value"}, joinLast: true, useSurfaceEnv: true},
+	"storage local clear":   {method: "browser.storage.clear", defaultParams: map[string]any{"type": "local"}, useSurfaceEnv: true},
+	"storage session":       {method: "browser.storage.get", defaultParams: map[string]any{"type": "session"}, positionalKeys: []string{"key"}, useSurfaceEnv: true},
+	"storage session get":   {method: "browser.storage.get", defaultParams: map[string]any{"type": "session"}, positionalKeys: []string{"key"}, useSurfaceEnv: true},
+	"storage session set":   {method: "browser.storage.set", defaultParams: map[string]any{"type": "session"}, positionalKeys: []string{"key", "value"}, joinLast: true, useSurfaceEnv: true},
+	"storage session clear": {method: "browser.storage.clear", defaultParams: map[string]any{"type": "session"}, useSurfaceEnv: true},
+
+	"tab":           {method: "browser.tab.list", useSurfaceEnv: true},
+	"tab list":      {method: "browser.tab.list", useSurfaceEnv: true},
+	"tab new":       {method: "browser.tab.new", positionalKeys: []string{"url"}, joinLast: true, useSurfaceEnv: true},
+	"tab switch":    {method: "browser.tab.switch", positionalKeys: []string{"target_surface_id"}, useSurfaceEnv: true, special: browserSpecialTabTarget},
+	"tab close":     {method: "browser.tab.close", positionalKeys: []string{"target_surface_id"}, useSurfaceEnv: true, special: browserSpecialTabTarget},
+	"console":       {method: "browser.console.list", useSurfaceEnv: true},
+	"console list":  {method: "browser.console.list", useSurfaceEnv: true},
+	"console clear": {method: "browser.console.clear", useSurfaceEnv: true},
+	"errors":        {method: "browser.errors.list", useSurfaceEnv: true},
+	"errors list":   {method: "browser.errors.list", useSurfaceEnv: true},
+	"errors clear":  {method: "browser.errors.list", defaultParams: map[string]any{"clear": true}, useSurfaceEnv: true},
+	"highlight":     {method: "browser.highlight", positionalKeys: []string{"selector"}, useSurfaceEnv: true},
+	"state save":    {method: "browser.state.save", positionalKeys: []string{"path"}, useSurfaceEnv: true},
+	"state load":    {method: "browser.state.load", positionalKeys: []string{"path"}, useSurfaceEnv: true},
+	"addinitscript": {method: "browser.addinitscript", positionalKeys: []string{"script"}, joinLast: true, useSurfaceEnv: true},
+	"addscript":     {method: "browser.addscript", positionalKeys: []string{"script"}, joinLast: true, useSurfaceEnv: true},
+	"addstyle":      {method: "browser.addstyle", positionalKeys: []string{"css"}, joinLast: true, useSurfaceEnv: true, flagOverrides: map[string]string{"style": "css", "content": "css"}},
+
+	"viewport":         {method: "browser.viewport.set", positionalKeys: []string{"width", "height"}, useSurfaceEnv: true},
+	"viewport set":     {method: "browser.viewport.set", positionalKeys: []string{"width", "height"}, useSurfaceEnv: true},
+	"geolocation":      {method: "browser.geolocation.set", positionalKeys: []string{"latitude", "longitude"}, useSurfaceEnv: true},
+	"geo":              {method: "browser.geolocation.set", positionalKeys: []string{"latitude", "longitude"}, useSurfaceEnv: true},
+	"offline":          {method: "browser.offline.set", positionalKeys: []string{"enabled"}, useSurfaceEnv: true},
+	"trace start":      {method: "browser.trace.start", positionalKeys: []string{"path"}, useSurfaceEnv: true},
+	"trace stop":       {method: "browser.trace.stop", positionalKeys: []string{"path"}, useSurfaceEnv: true},
+	"network route":    {method: "browser.network.route", positionalKeys: []string{"url"}, useSurfaceEnv: true},
+	"network unroute":  {method: "browser.network.unroute", positionalKeys: []string{"url"}, useSurfaceEnv: true},
+	"network requests": {method: "browser.network.requests", useSurfaceEnv: true},
+	"screencast start": {method: "browser.screencast.start", useSurfaceEnv: true},
+	"screencast stop":  {method: "browser.screencast.stop", useSurfaceEnv: true},
+	"input mouse":      {method: "browser.input_mouse", useSurfaceEnv: true, special: browserSpecialInputArgs},
+	"input keyboard":   {method: "browser.input_keyboard", useSurfaceEnv: true, special: browserSpecialInputArgs},
+	"input touch":      {method: "browser.input_touch", useSurfaceEnv: true, special: browserSpecialInputArgs},
+	"input-mouse":      {method: "browser.input_mouse", useSurfaceEnv: true, special: browserSpecialInputArgs},
+	"input-keyboard":   {method: "browser.input_keyboard", useSurfaceEnv: true, special: browserSpecialInputArgs},
+	"input-touch":      {method: "browser.input_touch", useSurfaceEnv: true, special: browserSpecialInputArgs},
 }
 
 var commandIndex map[string]*commandSpec
@@ -328,71 +427,358 @@ func runRPC(socketPath string, args []string, jsonOutput bool, refreshAddr func(
 
 // runBrowserRelay handles "cmux browser <subcommand>" by mapping to browser.* v2 methods.
 func runBrowserRelay(socketPath string, args []string, jsonOutput bool, refreshAddr func() string) int {
-	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "cmux browser: requires a subcommand (%s)\n", browserSubcommandHint())
-		return 2
-	}
-
-	sub := args[0]
-	subArgs := args[1:]
-
-	spec, ok := browserCommands[sub]
-	if !ok {
-		fmt.Fprintf(os.Stderr, "cmux browser: unknown subcommand %q\n", sub)
-		return 2
-	}
-
-	params := make(map[string]any)
-	parsed, err := parseFlags(subArgs, spec.flagKeys)
+	spec, params, parsed, err := buildBrowserRelayRequest(args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cmux browser: %v\n", err)
 		return 2
-	}
-	for _, key := range spec.flagKeys {
-		if val, ok := parsed.flags[key]; ok {
-			paramKey := flagToParamKey(key)
-			params[paramKey] = val
-		}
-	}
-	if spec.allowPositionalURL {
-		if _, ok := params["url"]; !ok && len(parsed.positional) > 0 {
-			params["url"] = strings.Join(parsed.positional, " ")
-		}
-	}
-	if spec.allowPositionalScript {
-		if _, ok := params["script"]; !ok && len(parsed.positional) > 0 {
-			params["script"] = strings.Join(parsed.positional, " ")
-		}
-	}
-	if spec.allowPositionalKey {
-		if _, ok := params["key"]; !ok && len(parsed.positional) > 0 {
-			params["key"] = strings.Join(parsed.positional, " ")
-		}
-	}
-	if spec.allowPositionalQuery {
-		if _, ok := params["selector"]; !ok && len(parsed.positional) > 0 {
-			params["selector"] = strings.Join(parsed.positional, " ")
-		}
-	}
-	if spec.allowPositionalValue {
-		applyBrowserValuePositionals(
-			params,
-			parsed.positional,
-			browserSpecSupportsParam(spec, "value"),
-			browserSpecSupportsParam(spec, "text"),
-		)
-	}
-	if spec.useWorkspaceEnv {
-		applyWorkspaceEnvFallback(params)
-	}
-	if spec.useSurfaceEnv {
-		applySurfaceEnvFallback(params)
 	}
 
 	resp, err := socketRoundTripV2(socketPath, spec.method, params, refreshAddr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
 		return 1
+	}
+	return printBrowserRelayResponse(spec, resp, jsonOutput || parsed.localJSON, parsed.outPath)
+}
+
+type browserParsedArgs struct {
+	flags      map[string]any
+	positional []string
+	localJSON  bool
+	outPath    string
+}
+
+func buildBrowserRelayRequest(args []string) (browserCommandSpec, map[string]any, browserParsedArgs, error) {
+	if len(args) == 0 {
+		return browserCommandSpec{}, nil, browserParsedArgs{}, fmt.Errorf("requires a subcommand (%s)", browserSubcommandHint())
+	}
+	if args[0] == "--help" || args[0] == "-h" || args[0] == "help" {
+		return browserCommandSpec{}, nil, browserParsedArgs{}, fmt.Errorf("usage: cmux browser [--surface <id|ref> | <surface>] <subcommand> [args]")
+	}
+
+	leadingParams := map[string]any{}
+	localJSON := false
+	for len(args) > 0 {
+		switch normalizeBrowserToken(args[0]) {
+		case "--json":
+			localJSON = true
+			args = args[1:]
+			continue
+		case "--surface":
+			if len(args) < 2 {
+				return browserCommandSpec{}, nil, browserParsedArgs{}, fmt.Errorf("--surface requires a value")
+			}
+			leadingParams["surface_id"] = args[1]
+			args = args[2:]
+			continue
+		case "--workspace":
+			if len(args) < 2 {
+				return browserCommandSpec{}, nil, browserParsedArgs{}, fmt.Errorf("--workspace requires a value")
+			}
+			leadingParams["workspace_id"] = args[1]
+			args = args[2:]
+			continue
+		case "--window":
+			if len(args) < 2 {
+				return browserCommandSpec{}, nil, browserParsedArgs{}, fmt.Errorf("--window requires a value")
+			}
+			leadingParams["window_id"] = args[1]
+			args = args[2:]
+			continue
+		case "--pane":
+			if len(args) < 2 {
+				return browserCommandSpec{}, nil, browserParsedArgs{}, fmt.Errorf("--pane requires a value")
+			}
+			leadingParams["pane_id"] = args[1]
+			args = args[2:]
+			continue
+		}
+		if isBrowserSurfaceTarget(args[0]) {
+			leadingParams["surface_id"] = args[0]
+			args = args[1:]
+			continue
+		}
+		break
+	}
+
+	commandKey, spec, consumed, ok := resolveBrowserCommand(args)
+	if !ok {
+		if len(args) == 0 {
+			return browserCommandSpec{}, nil, browserParsedArgs{}, fmt.Errorf("requires a subcommand (%s)", browserSubcommandHint())
+		}
+		return browserCommandSpec{}, nil, browserParsedArgs{}, fmt.Errorf("unknown subcommand %q", args[0])
+	}
+	if commandKey == "open" {
+		if _, hasSurface := leadingParams["surface_id"]; hasSurface {
+			spec = browserCommands["navigate"]
+		}
+	}
+
+	parsed, err := parseBrowserArgs(args[consumed:])
+	if err != nil {
+		return browserCommandSpec{}, nil, browserParsedArgs{}, err
+	}
+	parsed.localJSON = parsed.localJSON || localJSON
+
+	params := make(map[string]any, len(spec.defaultParams)+len(leadingParams)+len(parsed.flags))
+	for key, value := range spec.defaultParams {
+		params[key] = value
+	}
+	for key, value := range leadingParams {
+		params[key] = value
+	}
+	for key, value := range parsed.flags {
+		paramKey := browserFlagToParamKey(key)
+		if override, ok := spec.flagOverrides[key]; ok {
+			paramKey = override
+		}
+		params[paramKey] = value
+	}
+
+	applyBrowserPositionals(params, parsed.positional, spec)
+	applyBrowserSpecialParams(params, spec)
+	if spec.useWorkspaceEnv {
+		applyWorkspaceEnvFallback(params)
+	}
+	if spec.useSurfaceEnv {
+		applySurfaceEnvFallback(params)
+	}
+	return spec, params, parsed, nil
+}
+
+func resolveBrowserCommand(args []string) (string, browserCommandSpec, int, bool) {
+	if len(args) == 0 {
+		return "", browserCommandSpec{}, 0, false
+	}
+	if normalizeBrowserToken(args[0]) == "tab" && len(args) > 1 {
+		second := normalizeBrowserToken(args[1])
+		if second != "new" && second != "list" && second != "switch" && second != "close" && !strings.HasPrefix(second, "--") {
+			spec := browserCommands["tab switch"]
+			return "tab switch", spec, 1, true
+		}
+	}
+
+	maxTokens := 0
+	for maxTokens < len(args) && maxTokens < 3 {
+		if strings.HasPrefix(args[maxTokens], "--") {
+			break
+		}
+		maxTokens++
+	}
+	for count := maxTokens; count >= 1; count-- {
+		key := browserCommandKey(args[:count])
+		if spec, ok := browserCommands[key]; ok {
+			return key, spec, count, true
+		}
+	}
+	return "", browserCommandSpec{}, 0, false
+}
+
+func browserCommandKey(tokens []string) string {
+	normalized := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		normalized = append(normalized, normalizeBrowserToken(token))
+	}
+	return strings.Join(normalized, " ")
+}
+
+func normalizeBrowserToken(token string) string {
+	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(token)), "_", "-")
+}
+
+func isBrowserSurfaceTarget(token string) bool {
+	trimmed := strings.TrimSpace(strings.ToLower(token))
+	if strings.HasPrefix(trimmed, "surface:") || strings.HasPrefix(trimmed, "tab:") {
+		return true
+	}
+	return looksLikeUUID(trimmed)
+}
+
+func looksLikeUUID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for i, r := range value {
+		switch i {
+		case 8, 13, 18, 23:
+			if r != '-' {
+				return false
+			}
+		default:
+			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func parseBrowserArgs(args []string) (browserParsedArgs, error) {
+	parsed := browserParsedArgs{flags: map[string]any{}}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			parsed.positional = append(parsed.positional, args[i+1:]...)
+			break
+		}
+		if arg == "-i" {
+			parsed.flags["interactive"] = true
+			continue
+		}
+		if arg == "-y" {
+			parsed.flags["yes"] = true
+			continue
+		}
+		if !strings.HasPrefix(arg, "--") {
+			parsed.positional = append(parsed.positional, arg)
+			continue
+		}
+		raw := strings.TrimPrefix(arg, "--")
+		key, value, hasInlineValue := strings.Cut(raw, "=")
+		if key == "" {
+			return browserParsedArgs{}, fmt.Errorf("empty flag")
+		}
+		if key == "json" {
+			parsed.localJSON = true
+			continue
+		}
+		var parsedValue any
+		if hasInlineValue {
+			parsedValue = value
+		} else if browserFlagIsBoolean(key) {
+			parsedValue = true
+		} else if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+			parsedValue = args[i+1]
+			i++
+		} else {
+			parsedValue = true
+		}
+		switch key {
+		case "out":
+			outPath, ok := parsedValue.(string)
+			if !ok || strings.TrimSpace(outPath) == "" {
+				return browserParsedArgs{}, fmt.Errorf("--out requires a path")
+			}
+			parsed.outPath = outPath
+		default:
+			parsed.flags[key] = parsedValue
+		}
+	}
+	return parsed, nil
+}
+
+func browserFlagIsBoolean(key string) bool {
+	switch key {
+	case "snapshot-after", "interactive", "cursor", "compact", "exact", "secure", "all", "force", "yes",
+		"non-interactive", "noninteractive", "all-profiles", "create-profile", "create-destination-profile",
+		"abort":
+		return true
+	default:
+		return false
+	}
+}
+
+func applyBrowserPositionals(params map[string]any, positionals []string, spec browserCommandSpec) {
+	switch spec.special {
+	case browserSpecialFindNth:
+		if _, ok := params["index"]; !ok && len(positionals) > 0 {
+			params["index"] = positionals[0]
+		}
+		if _, ok := params["selector"]; !ok && len(positionals) > 1 {
+			params["selector"] = strings.Join(positionals[1:], " ")
+		}
+		return
+	case browserSpecialTabTarget:
+		if len(positionals) == 0 {
+			return
+		}
+		if _, ok := params["target_surface_id"]; ok {
+			return
+		}
+		if _, ok := params["index"]; ok {
+			return
+		}
+		if isIntegerString(positionals[0]) {
+			params["index"] = positionals[0]
+		} else {
+			params["target_surface_id"] = positionals[0]
+		}
+		return
+	case browserSpecialInputArgs:
+		if len(positionals) > 0 {
+			params["args"] = append([]string(nil), positionals...)
+		}
+		return
+	}
+
+	for idx, key := range spec.positionalKeys {
+		if _, ok := params[key]; ok {
+			continue
+		}
+		if idx >= len(positionals) {
+			continue
+		}
+		value := positionals[idx]
+		if spec.joinLast && idx == len(spec.positionalKeys)-1 {
+			value = strings.Join(positionals[idx:], " ")
+		}
+		params[key] = value
+	}
+}
+
+func applyBrowserSpecialParams(params map[string]any, spec browserCommandSpec) {
+	if spec.special == browserSpecialWait {
+		if timeout, ok := params["timeout"]; ok {
+			if _, hasTimeoutMs := params["timeout_ms"]; !hasTimeoutMs {
+				if seconds, ok := parseNumberishString(timeout); ok {
+					params["timeout_ms"] = fmt.Sprintf("%d", maxInt(1, int(seconds*1000)))
+				}
+			}
+			delete(params, "timeout")
+		}
+	}
+}
+
+func parseNumberishString(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case string:
+		var parsed float64
+		if _, err := fmt.Sscanf(strings.TrimSpace(typed), "%f", &parsed); err == nil {
+			return parsed, true
+		}
+	case int:
+		return float64(typed), true
+	case float64:
+		return typed, true
+	}
+	return 0, false
+}
+
+func isIntegerString(value string) bool {
+	if value == "" {
+		return false
+	}
+	for i, r := range value {
+		if i == 0 && (r == '-' || r == '+') {
+			continue
+		}
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func printBrowserRelayResponse(spec browserCommandSpec, resp string, jsonOutput bool, outPath string) int {
+	if spec.special == browserSpecialScreenshot && outPath != "" {
+		return writeBrowserScreenshotOutput(resp, outPath, jsonOutput)
 	}
 	if jsonOutput {
 		fmt.Println(resp)
@@ -411,42 +797,58 @@ func browserSubcommandHint() string {
 	return strings.Join(names, ", ")
 }
 
-func browserSpecSupportsParam(spec browserCommandSpec, paramKey string) bool {
-	for _, key := range spec.flagKeys {
-		if flagToParamKey(key) == paramKey {
-			return true
-		}
+func writeBrowserScreenshotOutput(resp string, outPath string, jsonOutput bool) int {
+	var result map[string]any
+	if err := json.Unmarshal([]byte(resp), &result); err != nil {
+		fmt.Fprintf(os.Stderr, "cmux browser: invalid screenshot response: %v\n", err)
+		return 1
 	}
-	return false
+	b64, _ := result["png_base64"].(string)
+	if strings.TrimSpace(b64) == "" {
+		fmt.Fprintln(os.Stderr, "cmux browser: screenshot response missing png_base64")
+		return 1
+	}
+	data, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux browser: invalid screenshot image data: %v\n", err)
+		return 1
+	}
+	resolvedPath := resolveBrowserOutputPath(outPath)
+	if err := os.MkdirAll(filepath.Dir(resolvedPath), 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "cmux browser: failed to create screenshot directory: %v\n", err)
+		return 1
+	}
+	if err := os.WriteFile(resolvedPath, data, 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "cmux browser: failed to write screenshot: %v\n", err)
+		return 1
+	}
+	result["path"] = resolvedPath
+	delete(result, "png_base64")
+	if jsonOutput {
+		encoded, err := json.Marshal(result)
+		if err != nil {
+			fmt.Println(resp)
+		} else {
+			fmt.Println(string(encoded))
+		}
+	} else {
+		fmt.Println(resolvedPath)
+	}
+	return 0
 }
 
-func applyBrowserValuePositionals(params map[string]any, positionals []string, allowValue bool, allowText bool) {
-	if len(positionals) == 0 {
-		return
-	}
-	if _, ok := params["selector"]; !ok {
-		params["selector"] = positionals[0]
-		positionals = positionals[1:]
-	}
-	joined := strings.Join(positionals, " ")
-	if allowValue {
-		if _, ok := params["value"]; !ok {
-			if joined != "" {
-				params["value"] = joined
-			} else if text, ok := params["text"]; ok {
-				params["value"] = text
-			}
+func resolveBrowserOutputPath(path string) string {
+	if path == "~" {
+		if home, err := os.UserHomeDir(); err == nil {
+			return home
 		}
 	}
-	if allowText {
-		if _, ok := params["text"]; !ok {
-			if joined != "" {
-				params["text"] = joined
-			} else if value, ok := params["value"]; ok {
-				params["text"] = value
-			}
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, strings.TrimPrefix(path, "~/"))
 		}
 	}
+	return path
 }
 
 func applyWorkspaceEnvFallback(params map[string]any) {
@@ -536,7 +938,30 @@ func flagToParamKey(key string) string {
 	case "load-state":
 		return "load_state"
 	default:
-		return key
+		return strings.ReplaceAll(key, "-", "_")
+	}
+}
+
+func browserFlagToParamKey(key string) string {
+	switch key {
+	case "workspace":
+		return "workspace_id"
+	case "surface", "panel":
+		return "surface_id"
+	case "pane":
+		return "pane_id"
+	case "window":
+		return "window_id"
+	case "max-depth":
+		return "max_depth"
+	case "timeout-ms":
+		return "timeout_ms"
+	case "url-contains":
+		return "url_contains"
+	case "load-state":
+		return "load_state"
+	default:
+		return strings.ReplaceAll(key, "-", "_")
 	}
 }
 
