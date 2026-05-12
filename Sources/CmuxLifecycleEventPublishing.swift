@@ -2,7 +2,7 @@ import Foundation
 import AppKit
 import Bonsplit
 
-struct CmuxSurfaceFrameSnapshot: Equatable, Sendable {
+nonisolated struct CmuxSurfaceFrameSnapshot: Equatable, Sendable {
     let frame: CGRect
     let screen: String?
     let inWindow: Bool
@@ -20,8 +20,8 @@ struct CmuxSurfaceFrameSnapshot: Equatable, Sendable {
         ]
     }
 
-    var screenPayload: Any {
-        screen ?? NSNull()
+    var screenPayload: String? {
+        screen
     }
 
     static func rectPayload(_ rect: CGRect) -> [String: Double] {
@@ -47,7 +47,7 @@ struct CmuxSurfaceFrameSnapshot: Equatable, Sendable {
 
         item["frame"] = snapshot.framePayload
         item["bounds"] = snapshot.boundsPayload
-        item["screen"] = snapshot.screenPayload
+        item["screen"] = snapshot.screenPayload ?? NSNull()
         item["in_window"] = snapshot.inWindow
     }
 }
