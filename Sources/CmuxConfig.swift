@@ -327,14 +327,16 @@ enum CmuxButtonIcon: Codable, Sendable, Hashable {
     }
 
     private static let maxImageBytes = 1_000_000
+    private static let minEmojiScale = 0.1
+    private static let maxEmojiScale = 5.0
 
     private static func emojiScale(in container: KeyedDecodingContainer<CodingKeys>) throws -> Double {
         let scale = try container.decodeIfPresent(Double.self, forKey: .scale) ?? 1
-        guard scale.isFinite, scale > 0 else {
+        guard scale.isFinite, scale >= minEmojiScale, scale <= maxEmojiScale else {
             throw DecodingError.dataCorruptedError(
                 forKey: .scale,
                 in: container,
-                debugDescription: "Emoji icon scale must be a positive number"
+                debugDescription: "Emoji icon scale must be between \(minEmojiScale) and \(maxEmojiScale)"
             )
         }
         return scale
