@@ -231,6 +231,7 @@ def decode_nul_argv(encoded: str) -> list[str]:
 def run_wrapper_background_child_spawn(
     *,
     child_args: list[str] | None = None,
+    child_command: str | None = None,
     child_node_options: str | None = None,
     launch_method: str = "spawnSync",
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str]:
@@ -262,11 +263,19 @@ def run_wrapper_background_child_spawn(
             real_dir / "claude",
             """#!/usr/bin/env bash
 set -euo pipefail
-: > "$FAKE_PARENT_ARGS_LOG"
+if [[ "${1:-}" == "agents" ]]; then
+  : > "$FAKE_PARENT_ARGS_LOG"
+  for arg in "$@"; do
+    printf '%s\\n' "$arg" >> "$FAKE_PARENT_ARGS_LOG"
+  done
+  exec node "$FAKE_PARENT_NODE_SCRIPT" "$@"
+fi
+: > "$FAKE_CHILD_ARGS_LOG"
 for arg in "$@"; do
-  printf '%s\\n' "$arg" >> "$FAKE_PARENT_ARGS_LOG"
+  printf '%s\\n' "$arg" >> "$FAKE_CHILD_ARGS_LOG"
 done
-exec node "$FAKE_PARENT_NODE_SCRIPT" "$@"
+printf '%s\\n' "${NODE_OPTIONS-__UNSET__}" > "$FAKE_CHILD_NODE_OPTIONS_ENV_LOG"
+exec node "$FAKE_CHILD_NODE_SCRIPT" "$@"
 """,
         )
         make_executable(
@@ -274,6 +283,7 @@ exec node "$FAKE_PARENT_NODE_SCRIPT" "$@"
             """#!/usr/bin/env node
 const fs = require("node:fs");
 const { execFile, spawnSync } = require("node:child_process");
+const childCommand = process.env.FAKE_CHILD_COMMAND || process.env.FAKE_CHILD_CLAUDE;
 const childArgs = process.env.FAKE_CHILD_ARGS_JSON
   ? JSON.parse(process.env.FAKE_CHILD_ARGS_JSON)
   : ["--session-id", "agent-session-123", "--agent", "claude"];
@@ -283,7 +293,7 @@ if (process.env.FAKE_CHILD_NODE_OPTIONS !== undefined) {
 }
 
 if (process.env.FAKE_CHILD_LAUNCH_METHOD === "execFileCallback") {
-  execFile(process.env.FAKE_CHILD_CLAUDE, childArgs, (error, stdout, stderr) => {
+  execFile(childCommand, childArgs, (error, stdout, stderr) => {
     fs.writeFileSync(process.env.FAKE_EXECFILE_CALLBACK_LOG, "called\\n", "utf8");
     if (error) {
       process.stderr.write(stderr ?? error.message);
@@ -292,7 +302,7 @@ if (process.env.FAKE_CHILD_LAUNCH_METHOD === "execFileCallback") {
   });
 } else {
   const child = spawnSync(
-    process.env.FAKE_CHILD_CLAUDE,
+    childCommand,
     childArgs,
     {
       encoding: "utf8",
@@ -375,6 +385,7 @@ exit 0
             env["FAKE_PARENT_ARGS_LOG"] = str(parent_args_log)
             env["FAKE_PARENT_NODE_SCRIPT"] = str(real_dir / "claude-parent.js")
             env["FAKE_CHILD_CLAUDE"] = str(child_dir / "claude")
+            env["FAKE_CHILD_COMMAND"] = child_command or str(child_dir / "claude")
             env["FAKE_CHILD_ARGS_LOG"] = str(child_args_log)
             env["FAKE_CHILD_NODE_OPTIONS_ENV_LOG"] = str(child_node_options_env_log)
             env["FAKE_CHILD_RUNTIME_NODE_OPTIONS_LOG"] = str(child_runtime_node_options_log)
@@ -739,6 +750,38 @@ def test_background_claude_child_launches_inherit_cmux_hooks(failures: list[str]
     launch_argv = decode_nul_argv(child_launch_argv_b64)
     expect(launch_argv[0].endswith("/child-bin/claude"), f"background child: expected child executable in launch argv, got {launch_argv}", failures)
     expect("--agent" in launch_argv, f"background child: expected child agent flag in launch argv, got {launch_argv}", failures)
+
+
+def test_background_claude_child_through_wrapper_deduplicates_injection(failures: list[str]) -> None:
+    code, _, child_argv, child_node_options_env, child_runtime_node_options, _, _, _, stderr = run_wrapper_background_child_spawn(
+        child_command="claude",
+    )
+    expect(code == 0, f"background wrapper child: wrapper exited {code}: {stderr}", failures)
+    expect(
+        child_argv.count("--settings") == 1,
+        f"background wrapper child: expected exactly one cmux settings payload, got {child_argv}",
+        failures,
+    )
+    expect(
+        child_argv.count("--session-id") == 1,
+        f"background wrapper child: expected original child session id to be preserved once, got {child_argv}",
+        failures,
+    )
+    expect(
+        child_node_options_env.count("--require=") == 1,
+        f"background wrapper child: expected exactly one cmux preload, got {child_node_options_env!r}",
+        failures,
+    )
+    expect(
+        child_node_options_env.count("--max-old-space-size=4096") == 1,
+        f"background wrapper child: expected exactly one cmux heap cap, got {child_node_options_env!r}",
+        failures,
+    )
+    expect(
+        child_runtime_node_options == "__UNSET__",
+        f"background wrapper child: expected runtime NODE_OPTIONS restored, got {child_runtime_node_options!r}",
+        failures,
+    )
 
 
 def test_background_claude_child_preserves_explicit_node_options_override(failures: list[str]) -> None:
@@ -1141,6 +1184,7 @@ def main() -> int:
     test_value_options_before_print_do_not_hide_interactive_entry(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_background_claude_child_launches_inherit_cmux_hooks(failures)
+    test_background_claude_child_through_wrapper_deduplicates_injection(failures)
     test_background_claude_child_preserves_explicit_node_options_override(failures)
     test_background_claude_exec_file_launch_preserves_callback(failures)
     test_background_claude_child_settings_detection_parses_hooks_json(failures)
