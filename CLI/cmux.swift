@@ -15164,10 +15164,14 @@ struct CMUXCLI {
             "event", "event_name", "hook_event_name", "type", "kind", "notification_type", "matcher", "reason",
             "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
             "additional_details", "additionalDetails", "description", "model", "subagent_model", "subagentModel",
-            "parent_workstream_id", "parentWorkstreamId", "parent_session_id", "parentSessionId", "parentSessionID",
+            "parent_workstream_id", "parentWorkstreamId", "parent_workstream", "parentWorkstream",
+            "parent_session_id", "parentSessionId", "parentSessionID",
             "child_workstream_id", "childWorkstreamId", "child_session_id", "childSessionId", "childSessionID",
             "subagent_workstream_id", "subagentWorkstreamId", "subagent_session_id", "subagentSessionId",
+            "parent_source", "parentSource", "parent_agent_source", "parentAgentSource",
+            "child_source", "childSource", "subagent_source", "subagentSource",
             "subagent_type", "subagentType", "agent_type", "agentType",
+            "task_description", "taskDescription", "title", "name",
         ] {
             if let value = compactClaudeHookValue(object[key], key: key) {
                 compact[key] = value
@@ -15179,10 +15183,14 @@ struct CMUXCLI {
             for key in [
                 "file_path", "command", "pattern", "description", "query", "plan", "planFilePath",
                 "prompt", "message", "model", "subagent_model", "subagentModel",
-                "parent_workstream_id", "parentWorkstreamId", "parent_session_id", "parentSessionId", "parentSessionID",
+                "parent_workstream_id", "parentWorkstreamId", "parent_workstream", "parentWorkstream",
+                "parent_session_id", "parentSessionId", "parentSessionID",
                 "child_workstream_id", "childWorkstreamId", "child_session_id", "childSessionId", "childSessionID",
                 "subagent_workstream_id", "subagentWorkstreamId", "subagent_session_id", "subagentSessionId",
+                "parent_source", "parentSource", "parent_agent_source", "parentAgentSource",
+                "child_source", "childSource", "subagent_source", "subagentSource",
                 "subagent_type", "subagentType", "agent_type", "agentType",
+                "task_description", "taskDescription", "title", "name",
             ] {
                 if let value = compactClaudeHookToolInputValue(toolInput[key], key: key) {
                     compactToolInput[key] = value

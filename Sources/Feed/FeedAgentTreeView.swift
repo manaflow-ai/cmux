@@ -24,7 +24,7 @@ struct FeedAgentTreeView: View {
                 rowStack
             }
             .feedZeroScrollContentMargins()
-            .onChange(of: scrollRequest) { request in
+            .onChange(of: scrollRequest) { _, request in
                 guard let request else { return }
                 proxy.scrollTo(request.nodeId, anchor: .center)
             }
@@ -78,13 +78,36 @@ struct FeedAgentTreeView: View {
     }
 
     private var summaryText: String {
-        String.localizedStringWithFormat(
-            String(
-                localized: "feed.agentTree.summary",
-                defaultValue: "%lld nodes · %lld edges · depth %lld"
+        let nodeText = String.localizedStringWithFormat(
+            NSLocalizedString(
+                "feed.agentTree.nodes",
+                tableName: nil,
+                bundle: .main,
+                value: "%lld nodes",
+                comment: "Agent tree node count"
             ),
-            graph.nodeCount,
-            graph.edgeCount,
+            graph.nodeCount
+        )
+        let edgeText = String.localizedStringWithFormat(
+            NSLocalizedString(
+                "feed.agentTree.edges",
+                tableName: nil,
+                bundle: .main,
+                value: "%lld edges",
+                comment: "Agent tree edge count"
+            ),
+            graph.edgeCount
+        )
+        return String.localizedStringWithFormat(
+            NSLocalizedString(
+                "feed.agentTree.summary",
+                tableName: nil,
+                bundle: .main,
+                value: "%@ · %@ · depth %lld",
+                comment: "Agent tree summary"
+            ),
+            nodeText,
+            edgeText,
             graph.maxDepth
         )
     }

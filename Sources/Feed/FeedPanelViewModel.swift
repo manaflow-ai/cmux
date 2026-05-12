@@ -42,10 +42,13 @@ final class FeedPanelViewModel: ObservableObject {
 
     private func arm() {
         guard let store = FeedCoordinator.shared.store else { return }
+        let previousItems = items
         withObservationTracking {
             let currentItems = store.items
             items = currentItems
-            scheduleAgentGraphRebuildIfNeeded(from: currentItems)
+            if currentItems != previousItems {
+                scheduleAgentGraphRebuildIfNeeded(from: currentItems)
+            }
             hasMorePersistedItems = store.hasMorePersistedItems
             isLoadingOlderItems = store.isLoadingOlderItems
         } onChange: { [weak self] in

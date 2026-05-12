@@ -110446,19 +110446,101 @@
         }
       }
     },
+    "feed.agentTree.nodes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld node"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld nodes"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lldノード"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lldノード"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "feed.agentTree.edges": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld edge"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld edges"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lldエッジ"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lldエッジ"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "feed.agentTree.summary": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld nodes · %lld edges · depth %lld"
+            "value": "%@ · %@ · depth %lld"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lldノード · %lldエッジ · 深さ%lld"
+            "value": "%@ · %@ · 深さ%lld"
           }
         }
       }

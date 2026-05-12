@@ -215,7 +215,7 @@ private struct FeedListView: View {
                     }
                 }
             }
-            .onChange(of: scrollRequest) { request in
+            .onChange(of: scrollRequest) { _, request in
                 guard let request else { return }
                 proxy.scrollTo(request.id, anchor: .top)
             }
@@ -664,7 +664,9 @@ private struct FeedListView: View {
         in targets: [FeedAgentTreeFocusTarget],
         actions: FeedRowActions
     ) {
-        guard let target = preferredAgentTreeFocusTarget(in: targets) else { return }
+        let target = targets.first(where: { $0.nodeId == selectedAgentTreeNodeId })
+            ?? (selectedAgentTreeNodeId == nil ? targets.first : nil)
+        guard let target else { return }
         selectAgentTreeNode(target, focusFeed: true)
         actions.jump(target.focusWorkstreamId)
     }

@@ -89,6 +89,10 @@ public nonisolated struct WorkstreamAgentGraphSnapshot: Codable, Sendable, Equat
 
 public nonisolated enum WorkstreamAgentGraphBuilder {
     public static func snapshot(from items: [WorkstreamItem]) -> WorkstreamAgentGraphSnapshot {
+        func shouldCancel() -> Bool {
+            Task.isCancelled
+        }
+
         var records: [String: SessionRecord] = [:]
         var creationOrder: [String] = []
         var pendingSpawnsByParent: [String: [SpawnRecord]] = [:]
@@ -140,7 +144,17 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
             )
         }
 
+        func sourceFromWorkstreamId(_ workstreamId: String) -> WorkstreamSource? {
+            for source in WorkstreamSource.allCases.sorted(by: { $0.rawValue.count > $1.rawValue.count }) {
+                if workstreamId.hasPrefix("\(source.rawValue)-") {
+                    return source
+                }
+            }
+            return nil
+        }
+
         for item in items.sorted(by: { $0.createdAt < $1.createdAt }) {
+            guard !shouldCancel() else { return .empty }
             ensureRecord(
                 workstreamId: item.workstreamId,
                 source: item.source,
@@ -163,19 +177,21 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
             }
 
             if let childWorkstreamId = metadata.childWorkstreamId(source: item.source) {
-                let childSource = metadata.childSource ?? item.source
+                let childSource = metadata.childSource
+                    ?? sourceFromWorkstreamId(childWorkstreamId)
+                    ?? item.source
                 ensureRecord(
                     workstreamId: childWorkstreamId,
                     source: childSource,
                     createdAt: item.createdAt,
-                    workspaceId: item.workspaceId
+                    workspaceId: nil
                 )
                 linkChildSession(
                     childWorkstreamId: childWorkstreamId,
                     parentWorkstreamId: item.workstreamId,
                     metadata: metadata,
                     childSource: childSource,
-                    childWorkspaceId: item.workspaceId
+                    childWorkspaceId: nil
                 )
             } else if let spawn = SpawnRecord(item: item, metadata: metadata) {
                 pendingSpawnsByParent[item.workstreamId, default: []].append(spawn)
@@ -214,6 +230,7 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
             var bestScore = 0
             var hasBestScoreTie = false
             for (index, spawn) in spawns.enumerated() {
+                guard !shouldCancel() else { return nil }
                 var score = 0
                 if spawn.source == childSource {
                     score += 2
@@ -252,6 +269,7 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
 
         var childrenByParent: [String: [String]] = [:]
         for record in records.values {
+            guard !shouldCancel() else { return .empty }
             guard let parent = record.parentWorkstreamId,
                   records[parent] != nil,
                   parent != record.workstreamId
@@ -282,12 +300,14 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
         var maxDepth = 0
 
         func makeNode(_ workstreamId: String, depth: Int) -> WorkstreamAgentTreeNode? {
+            guard !shouldCancel() else { return nil }
             guard let record = records[workstreamId], visited.insert(workstreamId).inserted else {
                 return nil
             }
 
             var children: [WorkstreamAgentTreeNode] = []
             for childId in childrenByParent[workstreamId] ?? [] {
+                guard !shouldCancel() else { return nil }
                 if let child = makeNode(childId, depth: depth + 1) {
                     children.append(child)
                     edgeCount += 1
@@ -306,7 +326,13 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
             return record.node(children: children)
         }
 
-        let treeRoots = roots.compactMap { makeNode($0, depth: 0) }
+        var treeRoots = roots.compactMap { makeNode($0, depth: 0) }
+        for workstreamId in creationOrder where !visited.contains(workstreamId) {
+            guard !shouldCancel() else { return .empty }
+            if let fallbackRoot = makeNode(workstreamId, depth: 0) {
+                treeRoots.append(fallbackRoot)
+            }
+        }
 
         return WorkstreamAgentGraphSnapshot(
             roots: treeRoots,
