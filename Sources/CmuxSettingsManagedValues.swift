@@ -277,7 +277,9 @@ enum CmuxSettingsJSONWriter {
         fileManager: FileManager
     ) throws {
         let fileURL = URL(fileURLWithPath: path)
-        let data = fileManager.contents(atPath: path) ?? Data("{}".utf8)
+        guard let data = fileManager.contents(atPath: path) else {
+            throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: path])
+        }
         let securityAttributes = existingSecurityAttributes(at: path, fileManager: fileManager)
         let sourceText = try JSONCParser.sourceText(from: data)
         let replacements = try changes.map { change in
@@ -290,10 +292,6 @@ enum CmuxSettingsJSONWriter {
         guard let output = editedText.data(using: sourceText.encoding) else {
             throw JSONCValueEditor.EditError.malformedJSONC("failed to encode edited settings file")
         }
-        try fileManager.createDirectory(
-            at: fileURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
         try output.write(to: fileURL, options: [.atomic])
         try restoreSecurityAttributes(securityAttributes, to: path, fileManager: fileManager)
     }
