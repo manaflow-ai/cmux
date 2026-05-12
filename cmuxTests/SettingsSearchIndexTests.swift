@@ -19,6 +19,7 @@ final class SettingsSearchIndexTests: XCTestCase {
         assertSearch("resume on reopen", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
         assertSearch("claude sessions", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
         assertSearch("opencode resume", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
+        assertSearch("sidebar right", contains: SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "sidebar-position"))
         assertSearch("ctrl b", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcut-chords"))
         assertSearch("split right", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcuts"))
         assertSearch("factory defaults", contains: SettingsSearchIndex.settingID(for: .reset, idSuffix: "reset-all"))
@@ -35,6 +36,13 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertEqual(
             SettingsSearchIndex.anchorID(forSettingsPath: "terminal.autoResumeAgentSessions"),
             SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume")
+        )
+    }
+
+    func testSettingsPathAnchorIncludesSidebarPosition() {
+        XCTAssertEqual(
+            SettingsSearchIndex.anchorID(forSettingsPath: "sidebar.position"),
+            SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "sidebar-position")
         )
     }
 

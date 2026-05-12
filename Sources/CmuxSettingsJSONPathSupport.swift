@@ -47,6 +47,7 @@ extension CmuxSettingsFileStore {
         "notifications.command",
         "sidebar.hideAllDetails",
         "sidebar.branchLayout",
+        "sidebar.position",
         "sidebar.showNotificationMessage",
         "sidebar.showBranchDirectory",
         "sidebar.showPullRequests",

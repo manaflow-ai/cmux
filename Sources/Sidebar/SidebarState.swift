@@ -17,7 +17,7 @@ final class SidebarState: ObservableObject {
 }
 
 enum SidebarResizeInteraction {
-    enum Edge {
+    enum Edge: Equatable {
         case leading
         case trailing
 
