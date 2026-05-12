@@ -12,11 +12,12 @@ struct CmuxConfigFile: Codable, Sendable {
     var ui: CmuxConfigUIDefinition?
     var newWorkspaceCommand: String?
     var surfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
+    var promptSnippets: [CmuxPromptSnippetDefinition]
     var commands: [CmuxCommandDefinition]
     var vault: CmuxVaultConfigDefinition?
 
     private enum CodingKeys: String, CodingKey {
-        case actions, ui, newWorkspaceCommand, surfaceTabBarButtons, commands, vault
+        case actions, ui, newWorkspaceCommand, surfaceTabBarButtons, promptSnippets, commands, vault
     }
 
     init(
@@ -24,6 +25,7 @@ struct CmuxConfigFile: Codable, Sendable {
         ui: CmuxConfigUIDefinition? = nil,
         newWorkspaceCommand: String? = nil,
         surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
+        promptSnippets: [CmuxPromptSnippetDefinition] = [],
         commands: [CmuxCommandDefinition] = [],
         vault: CmuxVaultConfigDefinition? = nil
     ) {
@@ -31,6 +33,7 @@ struct CmuxConfigFile: Codable, Sendable {
         self.ui = ui
         self.newWorkspaceCommand = newWorkspaceCommand
         self.surfaceTabBarButtons = surfaceTabBarButtons
+        self.promptSnippets = promptSnippets
         self.commands = commands
         self.vault = vault
     }
@@ -77,6 +80,7 @@ struct CmuxConfigFile: Codable, Sendable {
         } else {
             surfaceTabBarButtons = nil
         }
+        promptSnippets = try container.decodeIfPresent([CmuxPromptSnippetDefinition].self, forKey: .promptSnippets) ?? []
         commands = try container.decodeIfPresent([CmuxCommandDefinition].self, forKey: .commands) ?? []
         vault = try container.decodeIfPresent(CmuxVaultConfigDefinition.self, forKey: .vault)
     }
@@ -1501,6 +1505,195 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
     }
 }
 
+struct CmuxPromptSnippetDefinition: Codable, Sendable, Hashable, Identifiable {
+    var id: String
+    var title: String
+    var text: String
+    var description: String?
+    var keywords: [String]
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case name
+        case text
+        case prompt
+        case content
+        case body
+        case description
+        case keywords
+    }
+
+    init(
+        id: String? = nil,
+        title: String,
+        text: String,
+        description: String? = nil,
+        keywords: [String] = []
+    ) {
+        let sanitizedTitle = Self.sanitizedString(title)
+        let explicitID = id.map(Self.sanitizedString).flatMap { $0.isEmpty ? nil : $0 }
+        self.id = explicitID ?? Self.generatedID(for: sanitizedTitle)
+        self.title = sanitizedTitle
+        self.text = text
+        self.description = description.map(Self.sanitizedString).flatMap { $0.isEmpty ? nil : $0 }
+        self.keywords = Self.sanitizedKeywords(keywords)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let title = try Self.firstTrimmedString(
+            keys: [.title, .name],
+            in: container,
+            debugName: "promptSnippets entries require title or name"
+        )
+        let text = try Self.firstNonBlankString(
+            keys: [.text, .prompt, .content, .body],
+            in: container,
+            debugName: "promptSnippets entries require text, prompt, content, or body"
+        )
+        let explicitID = try Self.trimmedString(forKey: .id, in: container, allowBlankAsNil: true)
+        let description = try Self.trimmedString(forKey: .description, in: container, allowBlankAsNil: true)
+        let keywords = try container.decodeIfPresent([String].self, forKey: .keywords) ?? []
+
+        self.init(
+            id: explicitID,
+            title: title,
+            text: text,
+            description: description,
+            keywords: keywords
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encode(text, forKey: .text)
+        try container.encodeIfPresent(description, forKey: .description)
+        if !keywords.isEmpty {
+            try container.encode(keywords, forKey: .keywords)
+        }
+    }
+
+    private static func firstTrimmedString(
+        keys: [CodingKeys],
+        in container: KeyedDecodingContainer<CodingKeys>,
+        debugName: String
+    ) throws -> String {
+        for key in keys {
+            if let value = try trimmedString(forKey: key, in: container, allowBlankAsNil: true) {
+                return value
+            }
+        }
+        throw DecodingError.dataCorrupted(
+            DecodingError.Context(
+                codingPath: container.codingPath,
+                debugDescription: debugName
+            )
+        )
+    }
+
+    private static func firstNonBlankString(
+        keys: [CodingKeys],
+        in container: KeyedDecodingContainer<CodingKeys>,
+        debugName: String
+    ) throws -> String {
+        for key in keys where container.contains(key) {
+            let raw = try container.decode(String.self, forKey: key)
+            guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            return raw
+        }
+        throw DecodingError.dataCorrupted(
+            DecodingError.Context(
+                codingPath: container.codingPath,
+                debugDescription: debugName
+            )
+        )
+    }
+
+    private static func trimmedString(
+        forKey key: CodingKeys,
+        in container: KeyedDecodingContainer<CodingKeys>,
+        allowBlankAsNil: Bool
+    ) throws -> String? {
+        guard container.contains(key) else { return nil }
+        let raw = try container.decode(String.self, forKey: key)
+        let trimmed = sanitizedString(raw)
+        if trimmed.isEmpty {
+            if allowBlankAsNil { return nil }
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: container,
+                debugDescription: "\(key.stringValue) must not be blank"
+            )
+        }
+        return trimmed
+    }
+
+    private static func sanitizedKeywords(_ rawKeywords: [String]) -> [String] {
+        var result: [String] = []
+        var seen: Set<String> = []
+        for keyword in rawKeywords {
+            let sanitized = sanitizedString(keyword)
+            guard !sanitized.isEmpty else { continue }
+            let key = sanitized.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current).lowercased()
+            guard seen.insert(key).inserted else { continue }
+            result.append(sanitized)
+        }
+        return result
+    }
+
+    private static func sanitizedString(_ text: String) -> String {
+        let dangerous: Set<Unicode.Scalar> = [
+            "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
+            "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",
+            "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}",
+            "\u{FEFF}",
+        ]
+        let filtered = String(text.unicodeScalars.filter { !dangerous.contains($0) })
+        return filtered.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func generatedID(for title: String) -> String {
+        let normalized = title
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        var slug = ""
+        var previousWasSeparator = false
+        for scalar in normalized.unicodeScalars {
+            if allowed.contains(scalar) {
+                slug.append(String(scalar))
+                previousWasSeparator = false
+            } else if !previousWasSeparator {
+                slug.append("-")
+                previousWasSeparator = true
+            }
+        }
+        let trimmedSlug = slug.trimmingCharacters(in: CharacterSet(charactersIn: "-_"))
+        return trimmedSlug.isEmpty ? "prompt-snippet" : trimmedSlug
+    }
+}
+
+struct CmuxResolvedPromptSnippet: Identifiable, Sendable, Hashable {
+    var id: String
+    var title: String
+    var text: String
+    var description: String?
+    var keywords: [String]
+    var sourcePath: String?
+
+    init(definition: CmuxPromptSnippetDefinition, sourcePath: String?) {
+        id = definition.id
+        title = definition.title
+        text = definition.text
+        description = definition.description
+        keywords = definition.keywords
+        self.sourcePath = sourcePath
+    }
+}
+
 indirect enum CmuxLayoutNode: Codable, Sendable {
     case pane(CmuxPaneDefinition)
     case split(CmuxSplitDefinition)
@@ -1699,6 +1892,7 @@ final class CmuxConfigStore: ObservableObject {
 
     @Published private(set) var loadedCommands: [CmuxCommandDefinition] = []
     @Published private(set) var loadedActions: [CmuxResolvedConfigAction] = []
+    @Published private(set) var loadedPromptSnippets: [CmuxResolvedPromptSnippet] = []
     @Published private(set) var newWorkspaceCommandName: String?
     @Published private(set) var newWorkspaceActionID: String?
     @Published private(set) var newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem] = []
@@ -1930,6 +2124,12 @@ final class CmuxConfigStore: ObservableObject {
         }
         let localActions = localConfig.map { actionEntries(from: $0.actions, sourcePath: localPath) } ?? [:]
         let globalActions = globalConfig.map { actionEntries(from: $0.actions, sourcePath: globalConfigPath) } ?? [:]
+        let resolvedPromptSnippets = resolvedPromptSnippets(
+            localDefinitions: localConfig?.promptSnippets ?? [],
+            localSourcePath: localPath,
+            globalDefinitions: globalConfig?.promptSnippets ?? [],
+            globalSourcePath: globalConfigPath
+        )
 
         // Local config takes precedence
         if let localConfig {
@@ -2043,6 +2243,7 @@ final class CmuxConfigStore: ObservableObject {
 
         loadedCommands = commands
         loadedActions = resolvedActions
+        loadedPromptSnippets = resolvedPromptSnippets
         commandSourcePaths = sourcePaths
         actionLookup = resolvedActionLookup
         newWorkspaceActionID = configuredNewWorkspaceActionID
@@ -2076,6 +2277,27 @@ final class CmuxConfigStore: ObservableObject {
         fallback: [String: ActionEntry]
     ) -> [String: ActionEntry] {
         fallback.merging(primary) { _, primary in primary }
+    }
+
+    private func resolvedPromptSnippets(
+        localDefinitions: [CmuxPromptSnippetDefinition],
+        localSourcePath: String?,
+        globalDefinitions: [CmuxPromptSnippetDefinition],
+        globalSourcePath: String
+    ) -> [CmuxResolvedPromptSnippet] {
+        var snippets: [CmuxResolvedPromptSnippet] = []
+        var seenIDs = Set<String>()
+
+        func append(_ definitions: [CmuxPromptSnippetDefinition], sourcePath: String?) {
+            for definition in definitions {
+                guard seenIDs.insert(definition.id).inserted else { continue }
+                snippets.append(CmuxResolvedPromptSnippet(definition: definition, sourcePath: sourcePath))
+            }
+        }
+
+        append(localDefinitions, sourcePath: localSourcePath)
+        append(globalDefinitions, sourcePath: globalSourcePath)
+        return snippets
     }
 
     private func sanitizeConfigText(_ text: String) -> String {

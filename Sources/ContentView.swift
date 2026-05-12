@@ -6989,8 +6989,48 @@ struct ContentView: View {
                 )
             )
         }
+        for snippet in cmuxConfigStore.loadedPromptSnippets {
+            let titleText = commandPalettePromptSnippetTitle(snippet)
+            let subtitleText = commandPalettePromptSnippetSubtitle(snippet)
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: commandPalettePromptSnippetCommandID(snippet),
+                    title: constant(titleText),
+                    subtitle: constant(subtitleText),
+                    keywords: commandPalettePromptSnippetKeywords(snippet),
+                    dismissOnRun: false,
+                    when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+                )
+            )
+        }
 
         return contributions
+    }
+
+    private func commandPalettePromptSnippetCommandID(_ snippet: CmuxResolvedPromptSnippet) -> String {
+        "palette.promptSnippet.\(snippet.id)"
+    }
+
+    private func commandPalettePromptSnippetTitle(_ snippet: CmuxResolvedPromptSnippet) -> String {
+        let format = String(
+            localized: "command.promptSnippet.title",
+            defaultValue: "Insert Prompt Snippet: %@"
+        )
+        return String(format: format, sanitizeCmuxConfigPaletteText(snippet.title))
+    }
+
+    private func commandPalettePromptSnippetSubtitle(_ snippet: CmuxResolvedPromptSnippet) -> String {
+        if let description = snippet.description.map(sanitizeCmuxConfigPaletteText),
+           !description.isEmpty {
+            return description
+        }
+        return String(localized: "command.promptSnippet.subtitle", defaultValue: "Prompt Snippet")
+    }
+
+    private func commandPalettePromptSnippetKeywords(_ snippet: CmuxResolvedPromptSnippet) -> [String] {
+        ["prompt", "prompts", "snippet", "snippets", "library", "insert"]
+            + snippet.keywords.map(sanitizeCmuxConfigPaletteText)
+            + [snippet.title, snippet.description ?? "", snippet.text]
     }
 
     private func sanitizeCmuxConfigPaletteText(_ text: String) -> String {
@@ -7507,6 +7547,26 @@ struct ContentView: View {
                 executeConfiguredAction(captured)
             }
         }
+        for snippet in cmuxConfigStore.loadedPromptSnippets {
+            let captured = snippet
+            registry.register(commandId: commandPalettePromptSnippetCommandID(snippet)) {
+                guard insertPromptSnippet(captured) else {
+                    NSSound.beep()
+                    return
+                }
+                dismissCommandPalette(restoreFocus: true)
+            }
+        }
+    }
+
+    @discardableResult
+    private func insertPromptSnippet(_ snippet: CmuxResolvedPromptSnippet) -> Bool {
+        guard let panelContext = focusedPanelContext,
+              let terminalPanel = panelContext.panel as? TerminalPanel else {
+            return false
+        }
+        terminalPanel.sendText(snippet.text)
+        return true
     }
 
     private func openCmuxConfigIssue(_ issue: CmuxConfigIssue) {

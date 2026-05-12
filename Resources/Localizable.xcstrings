@@ -20161,6 +20161,40 @@
         }
       }
     },
+    "command.promptSnippet.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt Snippet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロンプトスニペット"
+          }
+        }
+      }
+    },
+    "command.promptSnippet.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insert Prompt Snippet: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロンプトスニペットを挿入: %@"
+          }
+        }
+      }
+    },
     "command.cmuxConfig.subtitle": {
       "extractionState": "manual",
       "localizations": {
