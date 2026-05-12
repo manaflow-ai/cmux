@@ -393,6 +393,34 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(config.surfaceTabBarButtons?[7].icon, .imagePath("./icons/logo.ico"))
     }
 
+    func testDecodeActionEmojiIconRejectsScaleOutsideSchemaBounds() {
+        let tooSmallJSON = """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                { "id": "emoji", "icon": { "type": "emoji", "value": "🤖", "scale": 0.01 }, "command": "codex" }
+              ]
+            }
+          }
+        }
+        """
+        let tooLargeJSON = """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                { "id": "emoji", "icon": { "type": "emoji", "value": "🤖", "scale": 5.01 }, "command": "codex" }
+              ]
+            }
+          }
+        }
+        """
+
+        XCTAssertThrowsError(try decode(tooSmallJSON))
+        XCTAssertThrowsError(try decode(tooLargeJSON))
+    }
+
     func testDecodeStringIconThrows() {
         let json = """
         {
