@@ -383,11 +383,11 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
             f"{hook_name} hook should pin bundled cmux, got {hook_command!r}",
             failures,
         )
-    # PreToolUse should be async to avoid blocking tool execution
+    # PreToolUse is high-frequency; keep it synchronous so Claude reaps it.
     pre_tool_use_hooks = hooks.get("PreToolUse", [{}])[0].get("hooks", [{}])
     expect(
-        any(h.get("async") is True for h in pre_tool_use_hooks),
-        f"PreToolUse hook should have async:true, got {pre_tool_use_hooks}",
+        all(h.get("async") is not True and h.get("timeout", 999) <= 2 for h in pre_tool_use_hooks),
+        f"PreToolUse hook should be synchronous with a tight timeout, got {pre_tool_use_hooks}",
         failures,
     )
     permission_request_hooks = hooks.get("PermissionRequest", [{}])[0].get("hooks", [{}])
