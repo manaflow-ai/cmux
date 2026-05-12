@@ -24,6 +24,8 @@ private final class FileExplorerGitStatusColorPalette {
 
     private let defaults: UserDefaults
     private let notificationCenter: NotificationCenter
+    // Keep FileExplorerStyle.gitColor(for:) synchronous while protecting cache reloads
+    // from style/defaults notifications that may be posted off-main.
     private let lock = NSLock()
     private var colorsByStatus: [String: NSColor] = [:]
     private var styleObserver: NSObjectProtocol?
@@ -74,12 +76,13 @@ private final class FileExplorerGitStatusColorPalette {
     private static func loadedColors(from defaults: UserDefaults) -> [String: NSColor] {
         guard let colors = defaults.dictionary(
             forKey: FileExplorerGitStatusColorSettings.userDefaultsKey
-        ) as? [String: String] else {
+        ) else {
             return [:]
         }
         return colors.reduce(into: [:]) { result, pair in
-            guard let status = FileExplorerGitStatusColorSettings.normalizedStatusName(pair.key),
-                  let color = NSColor(hex: pair.value) else {
+            guard let hex = pair.value as? String,
+                  let status = FileExplorerGitStatusColorSettings.normalizedStatusName(pair.key),
+                  let color = NSColor(hex: hex) else {
                 return
             }
             result[status] = color

@@ -518,6 +518,49 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testFileExplorerGitStatusColorsIgnoreMalformedPersistedEntries() throws {
+        let suiteName = "cmux-file-explorer-git-colors-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(
+            [
+                "modified": "#123456",
+                "added": 12,
+                "deleted": "not-a-color",
+                "unknown": "#FFFFFF",
+            ],
+            forKey: FileExplorerGitStatusColorSettings.userDefaultsKey
+        )
+        let addedFallback = try XCTUnwrap(NSColor(hex: "#00AA00"))
+        let deletedFallback = try XCTUnwrap(NSColor(hex: "#AA0000"))
+
+        XCTAssertEqual(
+            FileExplorerGitStatusColorSettings.resolvedColor(
+                for: .modified,
+                fallback: .systemOrange,
+                defaults: defaults
+            ).hexString(),
+            "#123456"
+        )
+        XCTAssertEqual(
+            FileExplorerGitStatusColorSettings.resolvedColor(
+                for: .added,
+                fallback: addedFallback,
+                defaults: defaults
+            ).hexString(),
+            "#00AA00"
+        )
+        XCTAssertEqual(
+            FileExplorerGitStatusColorSettings.resolvedColor(
+                for: .deleted,
+                fallback: deletedFallback,
+                defaults: defaults
+            ).hexString(),
+            "#AA0000"
+        )
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-settings-startup-\(UUID().uuidString)",
