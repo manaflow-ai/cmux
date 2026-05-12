@@ -20,35 +20,37 @@ struct TerminalPanelView: View {
     let onTriggerFlash: () -> Void
 
     var body: some View {
-        Group {
+        GeometryReader { proxy in
             if panel.sidekickState.isOpen, let sidekickPanel = panel.sidekickBrowserPanel {
-                GeometryReader { proxy in
-                    HStack(spacing: 0) {
-                        terminalSurface
-                            .frame(
-                                width: TerminalSidekickLayout.terminalWidth(
-                                    totalWidth: proxy.size.width,
-                                    splitRatio: panel.sidekickState.splitRatio
-                                )
-                            )
-                        Rectangle()
-                            .fill(appearance.dividerColor.opacity(0.9))
-                            .frame(width: TerminalSidekickLayout.dividerWidth)
-                        TerminalSidekickView(
-                            terminalPanel: panel,
-                            browserPanel: sidekickPanel
-                        )
+                HStack(spacing: 0) {
+                    terminalSurface
                         .frame(
-                            width: TerminalSidekickLayout.sidekickWidth(
+                            width: TerminalSidekickLayout.terminalWidth(
                                 totalWidth: proxy.size.width,
                                 splitRatio: panel.sidekickState.splitRatio
                             )
                         )
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                    }
+                    Rectangle()
+                        .fill(appearance.dividerColor.opacity(0.9))
+                        .frame(width: TerminalSidekickLayout.dividerWidth)
+                    TerminalSidekickView(
+                        browserPanel: sidekickPanel,
+                        onNavigate: { panel.navigateSidekick(input: $0) },
+                        onRecordCurrentURL: { panel.recordSidekickCurrentURL($0) },
+                        onClose: { panel.closeSidekick() }
+                    )
+                    .frame(
+                        width: TerminalSidekickLayout.sidekickWidth(
+                            totalWidth: proxy.size.width,
+                            splitRatio: panel.sidekickState.splitRatio
+                        )
+                    )
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
+                .frame(width: proxy.size.width, height: proxy.size.height)
             } else {
                 terminalSurface
+                    .frame(width: proxy.size.width, height: proxy.size.height)
             }
         }
         .animation(.easeInOut(duration: 0.16), value: panel.sidekickState.isOpen)
@@ -101,8 +103,10 @@ private enum TerminalSidekickLayout {
 }
 
 private struct TerminalSidekickView: View {
-    @ObservedObject var terminalPanel: TerminalPanel
     @ObservedObject var browserPanel: BrowserPanel
+    let onNavigate: (String) -> Void
+    let onRecordCurrentURL: (URL?) -> Void
+    let onClose: () -> Void
     @State private var addressText = ""
     @FocusState private var addressFocused: Bool
 
@@ -121,7 +125,7 @@ private struct TerminalSidekickView: View {
             syncAddressFromPanel()
         }
         .onChange(of: browserPanel.currentURL) { _, url in
-            terminalPanel.recordSidekickCurrentURL(url)
+            onRecordCurrentURL(url)
             guard !addressFocused else { return }
             syncAddressFromPanel()
         }
@@ -194,7 +198,7 @@ private struct TerminalSidekickView: View {
             toolbarButton(
                 systemName: "sidebar.trailing",
                 help: String(localized: "terminalSidekick.collapse", defaultValue: "Collapse Sidekick"),
-                action: { terminalPanel.closeSidekick() }
+                action: onClose
             )
         }
         .padding(.horizontal, 6)
@@ -229,7 +233,7 @@ private struct TerminalSidekickView: View {
     }
 
     private func commitAddress() {
-        terminalPanel.navigateSidekick(input: addressText)
+        onNavigate(addressText)
         addressFocused = false
     }
 

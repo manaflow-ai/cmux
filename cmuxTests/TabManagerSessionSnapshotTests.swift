@@ -66,6 +66,80 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNotNil(restoredTerminal.sidekickBrowserPanel)
     }
 
+    func testTerminalSidekickRestoreStaysClosedWhenBrowserIsDisabled() throws {
+        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+        BrowserAvailabilitySettings.setDisabled(true)
+        defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
+
+        let manager = TabManager()
+        let terminalPanel = try XCTUnwrap(manager.selectedWorkspace?.focusedTerminalPanel)
+
+        terminalPanel.restoreSidekick(
+            SessionTerminalSidekickSnapshot(
+                urlString: "https://sidekick.example/restored",
+                isOpen: true,
+                splitRatio: 0.4
+            )
+        )
+
+        XCTAssertFalse(terminalPanel.sidekickState.isOpen)
+        XCTAssertEqual(terminalPanel.sidekickState.urlString, "https://sidekick.example/restored")
+        XCTAssertNil(terminalPanel.sidekickBrowserPanel)
+    }
+
+    func testTerminalSidekickManualNavigationDoesNotPreloadStoredURL() throws {
+        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+        BrowserAvailabilitySettings.setDisabled(false)
+        defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
+
+        let manager = TabManager()
+        let terminalPanel = try XCTUnwrap(manager.selectedWorkspace?.focusedTerminalPanel)
+
+        terminalPanel.restoreSidekick(
+            SessionTerminalSidekickSnapshot(
+                urlString: "https://sidekick.example/stale",
+                isOpen: false,
+                splitRatio: 0.4
+            )
+        )
+        terminalPanel.navigateSidekick(input: "https://sidekick.example/current")
+
+        let browserPanel = try XCTUnwrap(terminalPanel.sidekickBrowserPanel)
+        XCTAssertTrue(terminalPanel.sidekickState.isOpen)
+        XCTAssertEqual(browserPanel.currentURL?.absoluteString, "https://sidekick.example/current")
+    }
+
+    func testTerminalSidekickRestoreNavigatesExistingPanelToSnapshotURL() throws {
+        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+        BrowserAvailabilitySettings.setDisabled(false)
+        defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
+
+        let manager = TabManager()
+        let terminalPanel = try XCTUnwrap(manager.selectedWorkspace?.focusedTerminalPanel)
+
+        terminalPanel.restoreSidekick(
+            SessionTerminalSidekickSnapshot(
+                urlString: "https://sidekick.example/first",
+                isOpen: true,
+                splitRatio: 0.4
+            )
+        )
+        let browserPanel = try XCTUnwrap(terminalPanel.sidekickBrowserPanel)
+        XCTAssertEqual(browserPanel.currentURL?.absoluteString, "https://sidekick.example/first")
+
+        terminalPanel.restoreSidekick(
+            SessionTerminalSidekickSnapshot(
+                urlString: "https://sidekick.example/second",
+                isOpen: true,
+                splitRatio: 0.4
+            )
+        )
+
+        let restoredBrowserPanel = try XCTUnwrap(terminalPanel.sidekickBrowserPanel)
+        XCTAssertTrue(browserPanel === restoredBrowserPanel)
+        XCTAssertEqual(restoredBrowserPanel.currentURL?.absoluteString, "https://sidekick.example/second")
+    }
+
     func testRestoreSessionSnapshotWithNoWorkspacesKeepsSingleFallbackWorkspace() {
         let manager = TabManager()
         let emptySnapshot = SessionTabManagerSnapshot(

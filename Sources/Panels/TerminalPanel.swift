@@ -195,6 +195,8 @@ final class TerminalPanel: Panel, ObservableObject {
     @discardableResult
     func openSidekick(url: URL? = nil) -> Bool {
         guard BrowserAvailabilitySettings.isEnabled() else { return false }
+        guard let browserPanel = ensureSidekickBrowserPanel(renderInitialNavigation: url == nil) else { return false }
+
         var next = sidekickState
         next.isOpen = true
         if let url {
@@ -202,7 +204,6 @@ final class TerminalPanel: Panel, ObservableObject {
         }
         sidekickState = next
 
-        guard let browserPanel = ensureSidekickBrowserPanel(renderInitialNavigation: url == nil) else { return false }
         if let url {
             browserPanel.navigate(to: url, recordTypedNavigation: true)
         }
@@ -219,8 +220,12 @@ final class TerminalPanel: Panel, ObservableObject {
     func navigateSidekick(input: String) {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        guard openSidekick() else { return }
-        sidekickBrowserPanel?.navigateSmart(trimmed)
+        guard BrowserAvailabilitySettings.isEnabled() else { return }
+        guard let browserPanel = ensureSidekickBrowserPanel(renderInitialNavigation: false) else { return }
+        var next = sidekickState
+        next.isOpen = true
+        sidekickState = next
+        browserPanel.navigateSmart(trimmed)
     }
 
     func recordSidekickCurrentURL(_ url: URL?) {
@@ -252,8 +257,27 @@ final class TerminalPanel: Panel, ObservableObject {
             isOpen: snapshot.isOpen,
             splitRatio: snapshot.splitRatio
         )
+
+        guard BrowserAvailabilitySettings.isEnabled() else {
+            var next = sidekickState
+            next.isOpen = false
+            sidekickState = next
+            sidekickBrowserPanel?.close()
+            sidekickBrowserPanel = nil
+            return
+        }
+
         if sidekickState.isOpen {
-            _ = ensureSidekickBrowserPanel()
+            let hadBrowserPanel = sidekickBrowserPanel != nil
+            guard let browserPanel = ensureSidekickBrowserPanel() else {
+                var next = sidekickState
+                next.isOpen = false
+                sidekickState = next
+                return
+            }
+            if hadBrowserPanel, let url = sidekickState.url {
+                browserPanel.navigate(to: url, recordTypedNavigation: false)
+            }
         }
     }
 
