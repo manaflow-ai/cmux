@@ -14765,10 +14765,12 @@ private struct SidebarTabDropDelegate: DropDelegate {
     }
 }
 
+@MainActor
 private func sidebarVisualIndex(of workspaceId: UUID, in tabManager: TabManager) -> Int? {
     sidebarVisibleWorkspaceIds(in: tabManager).firstIndex(of: workspaceId)
 }
 
+@MainActor
 private func sidebarVisibleWorkspaceIds(in tabManager: TabManager) -> [UUID] {
     SidebarWorkspaceGroupingPlanner.plan(
         for: tabManager.tabs.map {
