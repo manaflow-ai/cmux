@@ -5894,7 +5894,7 @@ struct CMUXCLI {
         extraArguments: [String] = []
     ) -> String {
         let suffix = extraArguments.isEmpty ? "" : " " + extraArguments.joined(separator: " ")
-        [
+        return [
             "if [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ]",
             "&& [ -x \"${CMUX_BUNDLED_CLI_PATH}\" ]",
             "&& [ -n \"${CMUX_SOCKET_PATH:-}\" ]",
