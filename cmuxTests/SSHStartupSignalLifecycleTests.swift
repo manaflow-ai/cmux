@@ -64,6 +64,72 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
+    func testSSHPaneCloseSignalDoesNotTerminateWrappedSSHChild() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-pane-close-child-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let logFile = root.appendingPathComponent("ssh-session-end.log")
+        let childSignalLog = root.appendingPathComponent("ssh-child-signal.log")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SESSION_END_LOG}\"",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "trap 'printf \"%s\\n\" child-term >> \"${CMUX_TEST_CHILD_SIGNAL_LOG}\"; exit 0' TERM",
+            "printf '%s\\n' child-started >> \"${CMUX_TEST_CHILD_SIGNAL_LOG}\"",
+            "kill -TERM \"${CMUX_SSH_STARTUP_PID:-$PPID}\"",
+            "sleep 0.2",
+            "printf '%s\\n' child-completed >> \"${CMUX_TEST_CHILD_SIGNAL_LOG}\"",
+            "exit 0",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+
+        let startupCommand = try generatedVMSSHInitialStartupCommand()
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
+        environment["CMUX_TEST_CHILD_SIGNAL_LOG"] = childSignalLog.path
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 143, result.stderr)
+        XCTAssertTrue(
+            waitForSSHSignalLifecycleLog(childSignalLog) { contents in
+                contents.contains("child-completed") || contents.contains("child-term")
+            },
+            "Timed out waiting for fake SSH child to record completion or TERM"
+        )
+        let childSignalLogContents = (try? String(contentsOf: childSignalLog, encoding: .utf8)) ?? ""
+        XCTAssertTrue(childSignalLogContents.contains("child-started"), childSignalLogContents)
+        XCTAssertFalse(
+            childSignalLogContents.contains("child-term"),
+            "Pane-close signals should let the terminal/PTY teardown own the child process; explicitly terminating the SSH child can kill the shared control-master path and sibling panes. Log: \(childSignalLogContents)"
+        )
+        let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
+        let sessionEndCalls = recordedCalls
+            .split(separator: "\n")
+            .filter { $0.contains("ssh-session-end") }
+        XCTAssertTrue(sessionEndCalls.isEmpty, recordedCalls)
+    }
+
     func testSSHStartupRetriesTransientSSHExitBeforeReportingSessionEnd() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -585,5 +651,22 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try lines.joined(separator: "\n")
             .appending("\n")
             .write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func waitForSSHSignalLifecycleLog(
+        _ url: URL,
+        timeout: TimeInterval = 2,
+        condition: (String) -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let contents = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            if condition(contents) {
+                return true
+            }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        let contents = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        return condition(contents)
     }
 }
