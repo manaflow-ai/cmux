@@ -21,6 +21,28 @@ public enum PasteboardTextFidelity {
             (richTextHasLossySubstitution && richTextSubstitutionIsRelevant)
     }
 
+    public static func shouldInspectRichTextForPlainTextLoss(_ plainText: String) -> Bool {
+        let metrics = textFidelityMetrics(plainText)
+        return metrics.questionMarks > 0 || metrics.replacementCharacters > 0
+    }
+
+    public static func shouldPreferRichText(
+        _ richText: String,
+        overPlainText plainText: String
+    ) -> Bool {
+        guard plainText != richText else { return false }
+
+        let plainMetrics = textFidelityMetrics(plainText)
+        let richMetrics = textFidelityMetrics(richText)
+
+        let plainTextHasLossySubstitution =
+            plainMetrics.replacementCharacters > richMetrics.replacementCharacters ||
+            plainMetrics.questionMarks > richMetrics.questionMarks
+
+        return plainTextHasLossySubstitution &&
+            richMetrics.nonASCII > plainMetrics.nonASCII
+    }
+
     public static func htmlHasNoVisibleText(_ html: String) -> Bool {
         var visibleCandidate = html.replacingOccurrences(
             of: "<!--[\\s\\S]*?-->",

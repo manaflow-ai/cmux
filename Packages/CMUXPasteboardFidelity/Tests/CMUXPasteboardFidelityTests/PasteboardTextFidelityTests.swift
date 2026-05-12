@@ -56,6 +56,30 @@ final class PasteboardTextFidelityTests: XCTestCase {
         )
     }
 
+    func testInspectsRichTextWhenPlainTextHasLossyMarkers() {
+        XCTAssertTrue(PasteboardTextFidelity.shouldInspectRichTextForPlainTextLoss("??~"))
+        XCTAssertTrue(PasteboardTextFidelity.shouldInspectRichTextForPlainTextLoss("\u{FFFD}~"))
+        XCTAssertFalse(PasteboardTextFidelity.shouldInspectRichTextForPlainTextLoss("您好~"))
+    }
+
+    func testPrefersRichTextWhenPlainTextReplacesNonASCIIWithQuestionMarks() {
+        XCTAssertTrue(
+            PasteboardTextFidelity.shouldPreferRichText(
+                "您好~",
+                overPlainText: "??~"
+            )
+        )
+    }
+
+    func testDoesNotPreferRichTextWhenQuestionMarkIsPreservedContent() {
+        XCTAssertFalse(
+            PasteboardTextFidelity.shouldPreferRichText(
+                "what? 您好",
+                overPlainText: "what?"
+            )
+        )
+    }
+
     func testHTMLWithOnlyHiddenBlocksHasNoVisibleText() {
         let html = """
         <!-- comment -->
