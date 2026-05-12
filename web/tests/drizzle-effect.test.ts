@@ -35,7 +35,7 @@ describe("Drizzle Effect integration", () => {
   dbTest("queries Postgres through the Effect-backed Drizzle driver", async () => {
     if (!sql) throw new Error("test database not initialized");
 
-    await sql`truncate cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     await sql`
       insert into cloud_vms (
         user_id,

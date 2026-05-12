@@ -174,6 +174,32 @@ _cmux_install_claude_wrapper() {
 }
 _cmux_install_claude_wrapper
 
+_cmux_normalize_claude_config_dir() {
+    [[ -n "${CLAUDE_CONFIG_DIR:-}" && -n "${HOME:-}" ]] || return 0
+
+    local value="$CLAUDE_CONFIG_DIR"
+    if [[ "$value" == "~/"* ]]; then
+        value="$HOME/${value#~/}"
+    fi
+
+    local legacy_root="$HOME/.subrouter/codex/claude"
+    local account_root="$HOME/.codex-accounts/claude"
+    local suffix candidate
+
+    if [[ "$value" == "$legacy_root" ]]; then
+        candidate="$account_root"
+    elif [[ "$value" == "$legacy_root/"* ]]; then
+        suffix="${value#$legacy_root/}"
+        candidate="$account_root/$suffix"
+    else
+        return 0
+    fi
+
+    [[ -d "$candidate" ]] || return 0
+    export CLAUDE_CONFIG_DIR="$candidate"
+}
+_cmux_normalize_claude_config_dir
+
 # Throttle heavy work to avoid prompt latency.
 typeset -g _CMUX_PWD_LAST_PWD=""
 typeset -g _CMUX_GIT_LAST_PWD=""
@@ -1065,6 +1091,7 @@ _cmux_command_starts_nested_shell() {
 }
 
 _cmux_preexec() {
+    _cmux_normalize_claude_config_dir
     if (( ! _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT )); then
         _cmux_restore_terminal_identity_after_startup
     fi
@@ -1102,6 +1129,7 @@ _cmux_preexec() {
 
 _cmux_precmd() {
     local last_status=$?
+    _cmux_normalize_claude_config_dir
     if (( _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT )); then
         _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=0
     fi

@@ -157,8 +157,8 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.com
 | ⌘ ⇧ R | Rename workspace |
 | ⌥ ⌘ E | Edit workspace description |
 | ⌘ B | Toggle sidebar |
-| ⌘ ⇧ E | Focus right sidebar |
-| ⌃ 1 / ⌃ 2 / ⌃ 3 | Switch Files / Sessions / Feed when the right sidebar is focused |
+| ⌥ ⌘ B | Toggle right sidebar |
+| ⌘ ⇧ E | Toggle right sidebar focus |
 
 ### Surfaces
 
@@ -185,6 +185,7 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.com
 ### Browser
 
 Browser developer-tool shortcuts follow Safari defaults and are customizable in `Settings → Keyboard Shortcuts`.
+Command palette navigation shortcuts, including ⌃ P, are also customizable and can be cleared so the keypress reaches the active terminal.
 
 | Shortcut | Action |
 |----------|--------|
@@ -208,8 +209,9 @@ Browser developer-tool shortcuts follow Safari defaults and are customizable in 
 | Shortcut | Action |
 |----------|--------|
 | ⌘ F | Find |
-| ⌘ G / ⌘ ⇧ G | Find next / previous |
-| ⌘ ⇧ F | Hide find bar |
+| ⌘ ⇧ F | Find in directory |
+| ⌘ G / ⌥ ⌘ G | Find next / previous |
+| ⌥ ⌘ ⇧ F | Hide find bar |
 | ⌘ E | Use selection for find |
 
 ### Terminal

@@ -237,6 +237,7 @@ actor VMClient {
         } catch {
             throw VMClientError.notSignedIn
         }
+        let teamID = await AuthManager.shared.resolvedTeamID
 
         guard var url = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
             throw VMClientError.malformedResponse("bad vmAPIBaseURL")
@@ -253,6 +254,9 @@ actor VMClient {
         }
         req.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
         req.setValue(tokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        if let teamID, !teamID.isEmpty {
+            req.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
+        }
         if let jsonBody {
             req.setValue("application/json", forHTTPHeaderField: "content-type")
             req.httpBody = try JSONSerialization.data(withJSONObject: jsonBody, options: [])

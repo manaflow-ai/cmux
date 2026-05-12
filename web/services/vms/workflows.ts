@@ -12,13 +12,16 @@ import {
   VmBillingGateway,
   VmBillingGatewayLive,
   type BillingCustomerType,
+  type VmCreateCreditGrant,
   type VmCreateCreditReservation,
   type VmBillingGatewayShape,
 } from "./billingGateway";
 import {
+  VmBillingError,
   VmCreateFailedError,
   VmCreateInProgressError,
   VmNotFoundError,
+  vmWorkflowErrorCause,
   type VmWorkflowError,
 } from "./errors";
 import { isProviderNotFoundError } from "./providerErrors";
@@ -41,16 +44,20 @@ export type VmEntry = {
 
 export const VmWorkflowLive = Layer.mergeAll(VmRepositoryLive, VmProviderGatewayLive, VmBillingGatewayLive);
 
-export function runVmWorkflow<A>(
+export async function runVmWorkflow<A>(
   program: Effect.Effect<A, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway>,
 ): Promise<A> {
-  return Effect.runPromise(program.pipe(Effect.provide(VmWorkflowLive)));
+  try {
+    return await Effect.runPromise(program.pipe(Effect.provide(VmWorkflowLive)));
+  } catch (err) {
+    throw vmWorkflowErrorCause(err) ?? err;
+  }
 }
 
-export function listUserVms(userId: string) {
+export function listUserVms(userId: string, billingTeamId?: string | null) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
-    const rows = yield* repo.listUserVms(userId);
+    const rows = yield* repo.listUserVms(userId, billingTeamId);
     return rows.filter((row) => row.providerVmId).map(vmEntryFromRow);
   });
 }
@@ -90,6 +97,25 @@ export function createVm(input: {
       return vmEntryFromRow(existing);
     }
 
+    yield* seedInitialCreateCredits(billing, repo, input, create.vm).pipe(
+      Effect.catchAll((err) =>
+        repo.recordUsageEvent({
+          userId: input.userId,
+          billingTeamId: input.billingTeamId,
+          billingPlanId: input.billingPlanId,
+          vmId: create.vm.id,
+          eventType: "vm.create.credit.grant_failed",
+          provider: input.provider,
+          imageId: input.image,
+          metadata: {
+            idempotencyKeySet: !!input.idempotencyKey,
+            imageVersion: input.imageVersion ?? null,
+            message: errorMessage(err),
+          },
+        }).pipe(Effect.catchAll(() => Effect.void))
+      ),
+    );
+
     const creditReservation = yield* billing.reserveCreate({
       userId: input.userId,
       billingCustomerType: input.billingCustomerType,
@@ -100,7 +126,33 @@ export function createVm(input: {
       imageVersion: input.imageVersion ?? null,
       vmId: create.vm.id,
       idempotencyKey: input.idempotencyKey,
-    });
+    }).pipe(
+      Effect.tapError((err) =>
+        Effect.all([
+          repo.markCreateFailed({
+            id: create.vm.id,
+            code: "billing_reserve_failed",
+            message: errorMessage(err),
+          }),
+          repo.recordUsageEvent({
+            userId: input.userId,
+            billingTeamId: input.billingTeamId,
+            billingPlanId: input.billingPlanId,
+            vmId: create.vm.id,
+            eventType: "vm.create.billing_failed",
+            provider: input.provider,
+            imageId: input.image,
+            metadata: {
+              idempotencyKeySet: !!input.idempotencyKey,
+              imageVersion: input.imageVersion ?? null,
+              errorTag: typeof err === "object" && err !== null && "_tag" in err
+                ? String((err as { _tag?: unknown })._tag)
+                : null,
+            },
+          }),
+        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+      ),
+    );
 
     yield* recordCreditEvent(repo, create.vm, "vm.create.credit.reserved", creditReservation)
       .pipe(Effect.catchAll(() => Effect.void));
@@ -380,6 +432,71 @@ function recordCreditEvent(
       amount: reservation.amount,
       customerType: reservation.customerType,
       customerIdSet: !!reservation.customerId,
+    },
+  });
+}
+
+function seedInitialCreateCredits(
+  billing: VmBillingGatewayShape,
+  repo: VmRepositoryShape,
+  input: {
+    readonly userId: string;
+    readonly billingCustomerType: BillingCustomerType;
+    readonly billingTeamId: string;
+    readonly billingPlanId: string;
+    readonly provider: ProviderId;
+  },
+  vm: CloudVmRow,
+) {
+  return Effect.gen(function* () {
+    const grant = yield* Effect.try({
+      try: () => billing.resolveInitialCreateCreditGrant(input),
+      catch: (cause) => new VmBillingError({ operation: "resolveInitialCreateCreditGrant", cause }),
+    });
+    if (grant.kind === "none") return;
+
+    const claim = yield* repo.claimBillingGrant({
+      billingCustomerType: grant.customerType,
+      billingCustomerId: grant.customerId,
+      billingPlanId: input.billingPlanId,
+      itemId: grant.itemId,
+      amount: grant.amount,
+      reason: grant.reason,
+    });
+    if (claim.kind !== "inserted") return;
+
+    yield* billing.applyCreateCreditGrant(grant).pipe(
+      Effect.tapError(() =>
+        repo.deleteBillingGrant(claim.grantId).pipe(Effect.catchAll(() => Effect.void))
+      ),
+    );
+    yield* repo.markBillingGrantApplied(claim.grantId).pipe(Effect.catchAll(() => Effect.void));
+    yield* recordGrantEvent(repo, vm, "vm.create.credit.granted", grant)
+      .pipe(Effect.catchAll(() => Effect.void));
+  });
+}
+
+function recordGrantEvent(
+  repo: VmRepositoryShape,
+  vm: CloudVmRow,
+  eventType: string,
+  grant: VmCreateCreditGrant,
+) {
+  if (grant.kind === "none") return Effect.void;
+  return repo.recordUsageEvent({
+    userId: vm.userId,
+    billingTeamId: vm.billingTeamId,
+    billingPlanId: vm.billingPlanId,
+    vmId: vm.id,
+    eventType,
+    provider: vm.provider,
+    imageId: vm.imageId,
+    metadata: {
+      itemId: grant.itemId,
+      amount: grant.amount,
+      reason: grant.reason,
+      customerType: grant.customerType,
+      customerIdSet: !!grant.customerId,
     },
   });
 }
