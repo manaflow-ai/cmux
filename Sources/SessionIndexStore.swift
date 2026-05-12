@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
+import CMUXAgentVault
 import Combine
 import Foundation
 import SQLite3
@@ -504,7 +505,7 @@ final class SessionIndexStore: ObservableObject {
         let noFolderScope = (cwd == nil) || ((cwd ?? "").isEmpty)
         let cwdFilter = noFolderScope ? nil : cwd
         // Large limit so every per-agent loader returns all matching rows.
-        // Claude's `searchMaxFiles` cap still applies (currently 1500); if
+        // Claude's `SessionIndexCore.searchMaxFiles` cap still applies (currently 1500); if
         // anyone has more Claude sessions in a single cwd we'll bump it.
         let bigLimit = 10_000
         let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
@@ -574,10 +575,6 @@ final class SessionIndexStore: ObservableObject {
     // MARK: - Scanning
 
     private static let perAgentLimit = 30
-    nonisolated static let headByteCap = 64 * 1024
-    nonisolated static let tailByteCap = 32 * 1024
-    /// Hard cap on candidate files inspected per call to keep deep-page searches bounded.
-    nonisolated static let searchMaxFiles = 1500
 
     private static func scanAll() async -> [SessionEntry] {
         // Initial scan errors are silently ignored — UI just shows the cached
@@ -879,7 +876,7 @@ final class SessionIndexStore: ObservableObject {
     /// of the file, but the line itself can be 30+ KB (it embeds the full system
     /// prompt). Read up to 64 KB to cover that, parse the JSON, return cwd.
     nonisolated private static func peekCodexSessionMetaCwd(url: URL) -> String? {
-        let head = readFileHead(url: url, byteCap: headByteCap)
+        let head = SessionIndexCore.readFileHead(url: url, byteCap: SessionIndexCore.headByteCap)
         guard let nl = head.firstIndex(of: "\n") else { return nil }
         let firstLine = head[..<nl]
         guard let data = firstLine.data(using: .utf8),
@@ -899,7 +896,7 @@ final class SessionIndexStore: ObservableObject {
     nonisolated private static func extractCodexMetadata(url: URL) -> CodexParsed {
         var out = CodexParsed()
         let maxBytes = 4 * 1024 * 1024
-        forEachJSONLine(url: url, maxBytes: maxBytes) { obj in
+        SessionIndexCore.forEachJSONLine(url: url, maxBytes: maxBytes) { obj in
             let type = obj["type"] as? String
             let payload = obj["payload"] as? [String: Any]
             if type == "session_meta", let p = payload {
@@ -955,44 +952,6 @@ final class SessionIndexStore: ObservableObject {
         return out
     }
 
-    /// Stream JSON-lines from the start of `url`. `body` returns true to stop early.
-    /// Caps total bytes read at `maxBytes`.
-    nonisolated static func forEachJSONLine(
-        url: URL,
-        maxBytes: Int,
-        body: ([String: Any]) -> Bool
-    ) {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return }
-        defer { try? handle.close() }
-        var leftover = Data()
-        var totalRead = 0
-        let chunkSize = 64 * 1024
-        while totalRead < maxBytes {
-            let chunk: Data
-            if #available(macOS 10.15.4, *) {
-                chunk = (try? handle.read(upToCount: chunkSize)) ?? Data()
-            } else {
-                chunk = handle.readData(ofLength: chunkSize)
-            }
-            if chunk.isEmpty { break }
-            totalRead += chunk.count
-            leftover.append(chunk)
-            while let nl = leftover.firstIndex(of: 0x0a) {
-                let lineData = leftover.subdata(in: 0..<nl)
-                leftover.removeSubrange(0..<(nl + 1))
-                if lineData.isEmpty { continue }
-                if let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] {
-                    if body(obj) { return }
-                }
-            }
-        }
-        // Flush trailing line if no newline at EOF.
-        if !leftover.isEmpty,
-           let obj = try? JSONSerialization.jsonObject(with: leftover) as? [String: Any] {
-            _ = body(obj)
-        }
-    }
-
     // MARK: OpenCode
 
     nonisolated private static func parseOpenCodeAssistant(_ raw: String?) -> (String?, String?) {
@@ -1040,21 +999,7 @@ final class SessionIndexStore: ObservableObject {
         var errors: [String]
     }
 
-    /// Thread-safe accumulator passed down to per-agent helpers so they can
-    /// report failures (e.g. SQL prepare errors when an agent bumps its
-    /// schema) without requiring the helpers to throw across actor boundaries.
-    final class ErrorBag: @unchecked Sendable {
-        private let lock = NSLock()
-        private var messages: [String] = []
-        func add(_ msg: String) {
-            lock.lock(); defer { lock.unlock() }
-            messages.append(msg)
-        }
-        func snapshot() -> [String] {
-            lock.lock(); defer { lock.unlock() }
-            return messages
-        }
-    }
+    typealias ErrorBag = SessionIndexErrorBag
 
     /// Paginated on-demand search across the full filesystem (Claude/Codex) and
     /// SQLite (OpenCode). Empty query is allowed and returns the most-recent
@@ -1207,93 +1152,6 @@ final class SessionIndexStore: ObservableObject {
         }
     }
 
-    /// Path to `rg` (ripgrep), if installed. Resolved once. nil when not found —
-    /// the search code falls back to the Foundation substring scan.
-    nonisolated private static let cachedRipgrepPath: String? = {
-        let fm = FileManager.default
-        let common = [
-            "/opt/homebrew/bin/rg",
-            "/usr/local/bin/rg",
-            "/usr/bin/rg",
-            "/opt/local/bin/rg",
-        ]
-        for path in common where fm.isExecutableFile(atPath: path) {
-            return path
-        }
-        if let pathEnv = ProcessInfo.processInfo.environment["PATH"] {
-            for dir in pathEnv.split(separator: ":") {
-                let full = String(dir) + "/rg"
-                if fm.isExecutableFile(atPath: full) { return full }
-            }
-        }
-        return nil
-    }()
-
-    /// Run `rg --files-with-matches --ignore-case --fixed-strings` for `needle`
-    /// under `root`, restricted to `glob` (e.g. `*.jsonl`). Returns matched file
-    /// URLs, or nil if rg isn't available or the run failed (caller falls back).
-    ///
-    /// Async by design so we can wire cancellation: when the awaiting Task is
-    /// cancelled (e.g. user types another key), `onCancel` calls
-    /// `process.terminate()`, killing the in-flight rg instead of letting it
-    /// grind to completion. Wait is also async (via `terminationHandler`) so we
-    /// don't tie up a cooperative-pool thread on `waitUntilExit`.
-    nonisolated static func ripgrepMatchingPaths(
-        needle: String, root: String, fileGlob: String
-    ) async -> [URL]? {
-        guard let rg = cachedRipgrepPath else { return nil }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: rg)
-        process.arguments = [
-            "--files-with-matches",
-            "--ignore-case",
-            "--fixed-strings",
-            "--no-messages",
-            "--no-ignore",
-            "--hidden",
-            "--glob", fileGlob,
-            "--",
-            needle,
-            root,
-        ]
-        let outPipe = Pipe()
-        process.standardOutput = outPipe
-        // Discard stderr to /dev/null so its pipe can never deadlock either.
-        if let nullDev = FileHandle(forWritingAtPath: "/dev/null") {
-            process.standardError = nullDev
-        }
-
-        return await withTaskCancellationHandler {
-            do { try process.run() } catch { return nil as [URL]? }
-            // Drain stdout BEFORE waitUntilExit. With many matches rg writes
-            // more than the ~64 KB pipe buffer; reading until EOF lets rg
-            // make progress and EOF arrives when rg closes its stdout on exit.
-            // Once readDataToEndOfFile returns, the process is already exiting,
-            // so waitUntilExit is essentially instant — we just need it to make
-            // terminationStatus observable. (Setting terminationHandler here
-            // would race: if rg already exited, the handler is registered too
-            // late and never fires → deadlock.)
-            let data = outPipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            // rg exit codes: 0 = matches, 1 = no matches, 2 = error/terminated.
-            switch process.terminationStatus {
-            case 0:
-                guard let str = String(data: data, encoding: .utf8) else { return nil as [URL]? }
-                return str.split(separator: "\n", omittingEmptySubsequences: true)
-                    .map { URL(fileURLWithPath: String($0)) }
-            case 1:
-                return []
-            default:
-                return nil
-            }
-        } onCancel: {
-            // Fires synchronously when the awaiting Task is cancelled. Sends
-            // SIGTERM to rg, which closes stdout, lets readDataToEndOfFile
-            // return, and unblocks the body so this call can complete cleanly.
-            process.terminate()
-        }
-    }
-
     /// Returns Claude session entries paginated by mtime desc.
     /// - When `needle` is empty: fast path. Skips rg, enumerates configured Claude
     ///   roots, takes the top `offset+limit` by mtime, parses metadata, returns the slice.
@@ -1314,7 +1172,7 @@ final class SessionIndexStore: ObservableObject {
         var candidates: [ClaudeSessionCandidate] = []
         if !needle.isEmpty {
             for root in roots {
-                guard let rgPaths = await ripgrepMatchingPaths(
+                guard let rgPaths = await SessionIndexCore.ripgrepMatchingPaths(
                     needle: needle,
                     root: root.projectsRoot,
                     fileGlob: "*.jsonl"
@@ -1369,9 +1227,9 @@ final class SessionIndexStore: ObservableObject {
 
         // Take a generous window of candidates to inspect in parallel. We need
         // enough to cover both targets and skipped files; we'll trim to
-        // (offset+limit) matches afterwards. Cap at searchMaxFiles.
+        // (offset+limit) matches afterwards. Cap at SessionIndexCore.searchMaxFiles.
         let target = offset + limit
-        let workSize = min(target * 2, candidates.count, searchMaxFiles)
+        let workSize = min(target * 2, candidates.count, SessionIndexCore.searchMaxFiles)
         let workCandidates = Array(candidates.prefix(workSize))
 
         #if DEBUG
@@ -1392,8 +1250,8 @@ final class SessionIndexStore: ObservableObject {
                         if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
                         return (idx, cached, true)
                     }
-                    let head = readFileHead(url: candidate.url, byteCap: headByteCap)
-                    let tail = readFileTail(url: candidate.url, byteCap: tailByteCap)
+                    let head = SessionIndexCore.readFileHead(url: candidate.url, byteCap: SessionIndexCore.headByteCap)
+                    let tail = SessionIndexCore.readFileTail(url: candidate.url, byteCap: SessionIndexCore.tailByteCap)
                     if !needle.isEmpty && !candidate.prefilteredByRipgrep {
                         let combined = head + "\n" + tail
                         if combined.range(of: needle, options: [.caseInsensitive, .literal]) == nil {
@@ -1466,15 +1324,6 @@ final class SessionIndexStore: ObservableObject {
         )
     }
 
-    nonisolated static func fileContainsNeedle(url: URL, needle: String) -> Bool {
-        guard !needle.isEmpty,
-              let data = try? Data(contentsOf: url, options: .mappedIfSafe),
-              let text = String(data: data, encoding: .utf8) else {
-            return false
-        }
-        return text.range(of: needle, options: [.caseInsensitive, .literal]) != nil
-    }
-
     /// Disk-scan fallback for Codex when state_5.sqlite isn't present (very old
     /// Codex installs, or non-default config). Same shape as the original loader.
     nonisolated private static func loadCodexEntriesFromDisk(
@@ -1486,7 +1335,7 @@ final class SessionIndexStore: ObservableObject {
         var rgFiltered = false
         var candidates: [(URL, Date)] = []
         if !needle.isEmpty,
-           let rgPaths = await ripgrepMatchingPaths(needle: needle, root: root, fileGlob: "*.jsonl") {
+           let rgPaths = await SessionIndexCore.ripgrepMatchingPaths(needle: needle, root: root, fileGlob: "*.jsonl") {
             rgFiltered = true
             for url in rgPaths {
                 guard let attrs = try? fm.attributesOfItem(atPath: url.path),
@@ -1516,10 +1365,10 @@ final class SessionIndexStore: ObservableObject {
         for (url, mtime) in candidates {
             if Task.isCancelled { break }
             if matches.count >= target { break }
-            if scanned >= searchMaxFiles { break }
+            if scanned >= SessionIndexCore.searchMaxFiles { break }
             scanned += 1
             if !needle.isEmpty && !rgFiltered {
-                let head = readFileHead(url: url, byteCap: headByteCap)
+                let head = SessionIndexCore.readFileHead(url: url, byteCap: SessionIndexCore.headByteCap)
                 guard head.range(of: needle, options: [.caseInsensitive, .literal]) != nil else { continue }
             }
             // Fast cwd reject: session_meta is the FIRST line of every Codex
@@ -1647,44 +1496,5 @@ final class SessionIndexStore: ObservableObject {
             ))
         }
         return results
-    }
-
-    // MARK: Helpers
-
-    /// Read up to `byteCap` bytes from the start of the file as UTF-8.
-    nonisolated static func readFileHead(url: URL, byteCap: Int) -> String {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
-        defer { try? handle.close() }
-        let data: Data
-        if #available(macOS 10.15.4, *) {
-            data = (try? handle.read(upToCount: byteCap)) ?? Data()
-        } else {
-            data = handle.readData(ofLength: byteCap)
-        }
-        return String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
-    }
-
-    /// Read up to `byteCap` bytes from the end of the file as UTF-8.
-    /// Used to find late-arriving events like pr-link without scanning the whole file.
-    nonisolated static func readFileTail(url: URL, byteCap: Int) -> String {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
-        defer { try? handle.close() }
-        let size: UInt64
-        do { size = try handle.seekToEnd() } catch { return "" }
-        if size == 0 { return "" }
-        let cap = UInt64(byteCap)
-        let offset: UInt64 = size > cap ? size - cap : 0
-        do { try handle.seek(toOffset: offset) } catch { return "" }
-        let data: Data
-        if #available(macOS 10.15.4, *) {
-            data = (try? handle.read(upToCount: byteCap)) ?? Data()
-        } else {
-            data = handle.readData(ofLength: byteCap)
-        }
-        // Trim leading partial line (we likely cut mid-record).
-        if offset > 0, let nl = data.firstIndex(of: 0x0a) {
-            return String(data: data[(nl + 1)...], encoding: .utf8) ?? ""
-        }
-        return String(data: data, encoding: .utf8) ?? ""
     }
 }

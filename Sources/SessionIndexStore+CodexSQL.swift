@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentVault
 import SQLite3
 
 extension SessionIndexStore {
@@ -71,7 +72,7 @@ extension SessionIndexStore {
         if needle.isEmpty {
             sql += " ORDER BY updated_at_ms DESC LIMIT \(limit) OFFSET \(offset)"
         } else {
-            sql += " ORDER BY updated_at_ms DESC LIMIT \(searchMaxFiles)"
+            sql += " ORDER BY updated_at_ms DESC LIMIT \(SessionIndexCore.searchMaxFiles)"
         }
 
         var stmt: OpaquePointer?
@@ -217,7 +218,7 @@ extension SessionIndexStore {
         _ needle: String,
         sessionsRoot: String
     ) async -> Set<String>? {
-        guard let matches = await ripgrepMatchingPaths(
+        guard let matches = await SessionIndexCore.ripgrepMatchingPaths(
             needle: needle,
             root: sessionsRoot,
             fileGlob: "*.jsonl"
@@ -239,6 +240,6 @@ extension SessionIndexStore {
         if let rgMatchedPaths, isUnderDefaultRoot {
             return rgMatchedPaths.contains(path)
         }
-        return fileContainsNeedle(url: URL(fileURLWithPath: path), needle: needle)
+        return SessionIndexCore.fileContainsNeedle(url: URL(fileURLWithPath: path), needle: needle)
     }
 }
