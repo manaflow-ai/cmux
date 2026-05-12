@@ -9315,7 +9315,42 @@ final class Workspace: Identifiable, ObservableObject {
                 return
             }
             disconnectRemoteConnection(clearConfiguration: true)
+            return
         }
+        settleRemoteConnectionStateAfterLastTerminalSessionEnded()
+    }
+
+    private func settleRemoteConnectionStateAfterLastTerminalSessionEnded() {
+        guard activeRemoteTerminalSurfaceIds.isEmpty, remoteConfiguration != nil else { return }
+        guard remoteConnectionState != .error,
+              remoteDaemonStatus.state != .error,
+              remoteConnectionState != .connecting else {
+            return
+        }
+
+        let target = remoteConfiguration?.displayTarget ?? String(
+            localized: "remote.state.targetFallback",
+            defaultValue: "remote host"
+        )
+        if remoteProxyEndpoint != nil || remoteDaemonStatus.state == .ready {
+            if remoteConnectionState != .connected {
+                applyRemoteConnectionStateUpdate(.connected, detail: nil, target: target)
+            }
+            return
+        }
+
+        guard remoteConnectionState == .connected || remoteConnectionState == .reconnecting else {
+            return
+        }
+        let detailFormat = String(
+            localized: "remote.state.disconnected.terminalEnded",
+            defaultValue: "SSH session to %@ ended."
+        )
+        applyRemoteConnectionStateUpdate(
+            .disconnected,
+            detail: String(format: detailFormat, target),
+            target: target
+        )
     }
 
     @MainActor

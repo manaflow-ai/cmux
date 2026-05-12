@@ -110594,6 +110594,23 @@
         }
       }
     },
+    "remote.state.disconnected.terminalEnded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH session to %@ ended."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ への SSH セッションが終了しました。"
+          }
+        }
+      }
+    },
     "remote.state.targetFallback": {
       "extractionState": "manual",
       "localizations": {
