@@ -197,12 +197,11 @@ final class CmuxEventBusTests: XCTestCase {
 
     func testV1NotifySurfacePublishesSurfaceIdWithoutWorkspaceId() throws {
         let surfaceId = UUID()
-        CmuxEventBus.shared.resetForTesting()
-        defer { CmuxEventBus.shared.resetForTesting() }
+        let bus = CmuxEventBus(retainedEventLimit: 4)
 
-        CmuxSocketEventMapper.publish(command: "notify_surface \(surfaceId.uuidString) done", response: "OK")
+        CmuxSocketEventMapper.publish(command: "notify_surface \(surfaceId.uuidString) done", response: "OK", bus: bus)
 
-        let event = try XCTUnwrap(CmuxEventBus.shared.retainedSnapshot().last)
+        let event = try XCTUnwrap(bus.retainedSnapshot().last)
         XCTAssertEqual(event["name"] as? String, "notification.requested")
         XCTAssertTrue(event["workspace_id"] is NSNull)
         XCTAssertEqual(event["surface_id"] as? String, surfaceId.uuidString)
@@ -211,14 +210,32 @@ final class CmuxEventBusTests: XCTestCase {
     }
 
     func testV1MapperIgnoresNonSuccessResponses() throws {
-        CmuxEventBus.shared.resetForTesting()
-        defer { CmuxEventBus.shared.resetForTesting() }
+        let bus = CmuxEventBus(retainedEventLimit: 4)
 
-        CmuxSocketEventMapper.publish(command: "notify title", response: "OKAY")
-        CmuxSocketEventMapper.publish(command: "notify title", response: "queued")
-        CmuxSocketEventMapper.publish(command: "notify title", response: "ERROR: failed")
+        CmuxSocketEventMapper.publish(command: "notify title", response: "OKAY", bus: bus)
+        CmuxSocketEventMapper.publish(command: "notify title", response: "queued", bus: bus)
+        CmuxSocketEventMapper.publish(command: "notify title", response: "ERROR: failed", bus: bus)
 
-        XCTAssertTrue(CmuxEventBus.shared.retainedSnapshot().isEmpty)
+        XCTAssertTrue(bus.retainedSnapshot().isEmpty)
+    }
+
+    func testV2MapperPublishesToInjectedBus() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 4)
+        let workspaceId = UUID().uuidString
+        let command = """
+        {"method":"workspace.rename","params":{"workspace_id":"\(workspaceId)"}}
+        """
+        let response = """
+        {"ok":true,"result":{"workspace_id":"\(workspaceId)","title":"Renamed"}}
+        """
+
+        CmuxSocketEventMapper.publish(command: command, response: response, bus: bus)
+
+        let event = try XCTUnwrap(bus.retainedSnapshot().last)
+        XCTAssertEqual(event["name"] as? String, "workspace.renamed")
+        XCTAssertEqual(event["category"] as? String, "workspace")
+        XCTAssertEqual(event["source"] as? String, "socket.v2")
+        XCTAssertEqual(event["workspace_id"] as? String, workspaceId)
     }
 
     func testPublishAppendsDurableEventLog() throws {
