@@ -1655,6 +1655,9 @@ class GhosttyApp {
     }
 
     static let shared = GhosttyApp()
+#if DEBUG
+    @MainActor static var debugShowChildExitedActionObserver: ((UUID?, UUID?) -> Void)?
+#endif
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let fallbackAppearanceConfig = GhosttyConfig()
     private static let backgroundLogTimestampFormatter: ISO8601DateFormatter = {
@@ -3732,6 +3735,9 @@ class GhosttyApp {
                 "surface.action.showChildExited tab=\(callbackTabId?.uuidString.prefix(5) ?? "nil") " +
                 "surface=\(callbackSurfaceId?.uuidString.prefix(5) ?? "nil")"
             )
+            Task { @MainActor in
+                GhosttyApp.debugShowChildExitedActionObserver?(callbackTabId, callbackSurfaceId)
+            }
 #endif
 #if DEBUG
             cmuxWriteChildExitProbe(
