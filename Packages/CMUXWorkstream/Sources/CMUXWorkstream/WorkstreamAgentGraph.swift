@@ -121,6 +121,25 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
             records[workstreamId] = record
         }
 
+        func linkChildSession(
+            childWorkstreamId: String,
+            parentWorkstreamId: String,
+            metadata: AgentGraphMetadata,
+            childSource: WorkstreamSource,
+            childWorkspaceId: String?
+        ) {
+            updateRecord(childWorkstreamId) { record in
+                record.parentWorkstreamId = parentWorkstreamId
+                record.merge(metadata: metadata)
+            }
+            pruneResolvedSpawn(
+                parentWorkstreamId: parentWorkstreamId,
+                metadata: metadata,
+                childSource: childSource,
+                childWorkspaceId: childWorkspaceId
+            )
+        }
+
         for item in items.sorted(by: { $0.createdAt < $1.createdAt }) {
             ensureRecord(
                 workstreamId: item.workstreamId,
@@ -134,11 +153,8 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
 
             let metadata = AgentGraphMetadata(item: item)
             if let parentWorkstreamId = metadata.parentWorkstreamId(source: item.source) {
-                updateRecord(item.workstreamId) { record in
-                    record.parentWorkstreamId = parentWorkstreamId
-                    record.merge(metadata: metadata)
-                }
-                pruneResolvedSpawn(
+                linkChildSession(
+                    childWorkstreamId: item.workstreamId,
                     parentWorkstreamId: parentWorkstreamId,
                     metadata: metadata,
                     childSource: item.source,
@@ -147,16 +163,20 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
             }
 
             if let childWorkstreamId = metadata.childWorkstreamId(source: item.source) {
+                let childSource = metadata.childSource ?? item.source
                 ensureRecord(
                     workstreamId: childWorkstreamId,
-                    source: metadata.childSource ?? item.source,
+                    source: childSource,
                     createdAt: item.createdAt,
                     workspaceId: item.workspaceId
                 )
-                updateRecord(childWorkstreamId) { record in
-                    record.parentWorkstreamId = item.workstreamId
-                    record.merge(metadata: metadata)
-                }
+                linkChildSession(
+                    childWorkstreamId: childWorkstreamId,
+                    parentWorkstreamId: item.workstreamId,
+                    metadata: metadata,
+                    childSource: childSource,
+                    childWorkspaceId: item.workspaceId
+                )
             } else if let spawn = SpawnRecord(item: item, metadata: metadata) {
                 pendingSpawnsByParent[item.workstreamId, default: []].append(spawn)
             }
