@@ -164,9 +164,14 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         let timestamp = Date(timeIntervalSince1970: 100)
 
         store.record(
+            scrollbar: TerminalTimestampScrollbarState(total: 0, offset: 0, len: 0),
+            at: timestamp,
+            markVisibleRows: false
+        )
+        store.record(
             scrollbar: TerminalTimestampScrollbarState(total: 5, offset: 0, len: 5),
             at: timestamp,
-            markVisibleRows: true
+            markVisibleRows: false
         )
 
         XCTAssertEqual(
@@ -175,6 +180,32 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
                 TerminalTimestampVisibleRow(row: 2, timestamp: timestamp),
                 TerminalTimestampVisibleRow(row: 3, timestamp: timestamp),
                 TerminalTimestampVisibleRow(row: 4, timestamp: timestamp),
+            ]
+        )
+    }
+
+    @MainActor
+    func testTerminalTimestampStoreKeepsVisibleRowsMarkedOutsideRetentionWindow() {
+        let store = TerminalTimestampStore(maxRetainedRows: 3)
+        let tailTimestamp = Date(timeIntervalSince1970: 100)
+        let visibleTimestamp = Date(timeIntervalSince1970: 200)
+
+        store.record(
+            scrollbar: TerminalTimestampScrollbarState(total: 5, offset: 2, len: 3),
+            at: tailTimestamp,
+            markVisibleRows: true
+        )
+        store.record(
+            scrollbar: TerminalTimestampScrollbarState(total: 5, offset: 0, len: 2),
+            at: visibleTimestamp,
+            markVisibleRows: true
+        )
+
+        XCTAssertEqual(
+            store.visibleRows(for: TerminalTimestampScrollbarState(total: 5, offset: 0, len: 2)),
+            [
+                TerminalTimestampVisibleRow(row: 0, timestamp: visibleTimestamp),
+                TerminalTimestampVisibleRow(row: 1, timestamp: visibleTimestamp),
             ]
         )
     }
