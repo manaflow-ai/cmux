@@ -624,6 +624,12 @@ def main() -> int:
         expected_escaped_command = "tab\tcr\rbs\bff\funicode!"
         if valid_escape_get.stdout.strip() != expected_escaped_command:
             failures.append(f"standard TOML escapes did not import correctly: {valid_escape_get.stdout!r}")
+        export_escaped_path = home / "export-standard-escapes.toml"
+        export_escaped = run_cli(cli_path, ["settings", "export", "--format", "toml", "--out", str(export_escaped_path)], home)
+        assert_ok(failures, "settings export standard TOML escapes", export_escaped)
+        exported_escaped_text = export_escaped_path.read_text(encoding="utf-8") if export_escaped_path.exists() else ""
+        if 'notifications.command = "tab\\tcr\\rbs\\bff\\funicode!"' not in exported_escaped_text:
+            failures.append(f"settings export did not escape TOML control characters: {exported_escaped_text!r}")
 
         bad_escape_path = home / "bad-escape.toml"
         bad_escape_path.write_text('notifications.command = "bad\\q"\n', encoding="utf-8")
@@ -779,6 +785,10 @@ openSettings = "cmd+option+,"
                 f"before={before_duplicate_action_import} after={after_duplicate_action_import}"
             )
 
+        config = read_config(home)
+        config.setdefault("shortcuts", {}).setdefault("bindings", {})["closeWindow"] = "cmd+n"
+        config_path(home).write_text(json.dumps(config), encoding="utf-8")
+
         forced = run_cli(cli_path, ["settings", "shortcuts", "set", "openSettings", "cmd+n", "--force"], home)
         assert_ok(failures, "shortcut forced set", forced)
         shortcut = run_cli(cli_path, ["settings", "shortcuts", "get", "openSettings"], home)
@@ -791,6 +801,8 @@ openSettings = "cmd+option+,"
             failures.append(f"shortcut binding was not written to cmux.json: {config}")
         if bindings.get("newTab") != "none":
             failures.append(f"shortcut --force did not clear the previous conflicting binding: {config}")
+        if bindings.get("closeWindow") != "none":
+            failures.append(f"shortcut --force did not clear every conflicting binding: {config}")
 
         config.setdefault("shortcuts", {}).setdefault("bindings", {})["legacyAction"] = "cmd+option+y"
         config_path(home).write_text(json.dumps(config), encoding="utf-8")

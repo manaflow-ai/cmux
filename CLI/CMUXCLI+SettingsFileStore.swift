@@ -99,13 +99,22 @@ extension CMUXCLI {
         func conflictingShortcutAction(
             for proposed: CLIShortcut,
             action proposedAction: CmuxSettingsRegistry.ShortcutActionDefinition,
-            root: [String: Any],
-            skipCurrentShortcutCheck: Bool = false
+            root: [String: Any]
         ) throws -> String? {
-            let current = try resolvedShortcut(for: proposedAction, root: root).shortcut
-            if !skipCurrentShortcutCheck && proposed == current {
-                return nil
-            }
+            let conflicts = try conflictingShortcutActions(
+                for: proposed,
+                action: proposedAction,
+                root: root
+            )
+            return conflicts.first
+        }
+
+        func conflictingShortcutActions(
+            for proposed: CLIShortcut,
+            action proposedAction: CmuxSettingsRegistry.ShortcutActionDefinition,
+            root: [String: Any]
+        ) throws -> [String] {
+            var conflicts: [String] = []
             for definition in CmuxSettingsRegistry.shortcutActions where definition.action != proposedAction.action {
                 guard definition.context.overlaps(proposedAction.context) else {
                     continue
@@ -114,9 +123,9 @@ extension CMUXCLI {
                 guard configured.conflicts(with: proposed, lhsNumbered: definition.usesNumberedDigitMatching, rhsNumbered: proposedAction.usesNumberedDigitMatching) else {
                     continue
                 }
-                return definition.action
+                conflicts.append(definition.action)
             }
-            return nil
+            return conflicts
         }
 
         func validateShortcutConflicts(
@@ -128,8 +137,7 @@ extension CMUXCLI {
                 if let conflict = try conflictingShortcutAction(
                     for: shortcut,
                     action: definition,
-                    root: root,
-                    skipCurrentShortcutCheck: true
+                    root: root
                 ) {
                     throw CLIError(message: "Shortcut '\(shortcut.configString)' for \(definition.action) conflicts with \(conflict)")
                 }
@@ -348,10 +356,30 @@ extension CMUXCLI {
         }
 
         private func escapeToml(_ value: String) -> String {
-            value
-                .replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "\"", with: "\\\"")
-                .replacingOccurrences(of: "\n", with: "\\n")
+            var output = ""
+            for scalar in value.unicodeScalars {
+                switch scalar.value {
+                case 0x08:
+                    output.append("\\b")
+                case 0x09:
+                    output.append("\\t")
+                case 0x0A:
+                    output.append("\\n")
+                case 0x0C:
+                    output.append("\\f")
+                case 0x0D:
+                    output.append("\\r")
+                case 0x22:
+                    output.append("\\\"")
+                case 0x5C:
+                    output.append("\\\\")
+                case 0x00...0x07, 0x0B, 0x0E...0x1F, 0x7F:
+                    output.append(String(format: "\\u%04X", scalar.value))
+                default:
+                    output.append(String(scalar))
+                }
+            }
+            return output
         }
 
         private func parseToml(data: Data) throws -> [String: Any] {

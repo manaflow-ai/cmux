@@ -368,11 +368,14 @@ extension CMUXCLI {
         let definition = try CmuxSettingsRegistry.shortcutAction(for: remaining[0])
         let shortcut = try CLIShortcut.parse(remaining[1], action: definition)
         var root = try store.loadRoot()
-        if let conflict = try store.conflictingShortcutAction(for: shortcut, action: definition, root: root) {
+        let conflicts = try store.conflictingShortcutActions(for: shortcut, action: definition, root: root)
+        if !conflicts.isEmpty {
             if !force {
-                throw CLIError(message: "Shortcut '\(shortcut.configString)' for \(definition.action) conflicts with \(conflict)")
+                throw CLIError(message: "Shortcut '\(shortcut.configString)' for \(definition.action) conflicts with \(conflicts.joined(separator: ", "))")
             }
-            store.setValue(CLIShortcut.unbound.configString, forPath: "shortcuts.bindings.\(conflict)", in: &root)
+            for conflict in conflicts {
+                store.setValue(CLIShortcut.unbound.configString, forPath: "shortcuts.bindings.\(conflict)", in: &root)
+            }
         }
         store.setValue(shortcut.configString, forPath: "shortcuts.bindings.\(definition.action)", in: &root)
         try store.save(root)
