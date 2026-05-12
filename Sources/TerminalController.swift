@@ -1999,7 +1999,7 @@ class TerminalController {
                     return
                 }
                 publishSocketEvents(command: trimmed, response: result.response)
-                performPostResponseAction(result.postResponseAction)
+                schedulePostResponseAction(result.postResponseAction)
             }
         }
     }
@@ -2035,11 +2035,21 @@ class TerminalController {
         return .reloadConfiguration(source: "socket.reload_config")
     }
 
-    private nonisolated func performPostResponseAction(_ action: SocketLinePostResponseAction?) {
+    private nonisolated func schedulePostResponseAction(_ action: SocketLinePostResponseAction?) {
         guard let action else { return }
         switch action {
         case .reloadConfiguration(let source):
             Task { @MainActor in
+                Self.performSocketReloadConfiguration(source: source)
+            }
+        }
+    }
+
+    private nonisolated func performPostResponseActionSynchronously(_ action: SocketLinePostResponseAction?) {
+        guard let action else { return }
+        switch action {
+        case .reloadConfiguration(let source):
+            v2MainSync {
                 Self.performSocketReloadConfiguration(source: source)
             }
         }
@@ -2077,7 +2087,7 @@ class TerminalController {
     /// its auth/policy wrappers.
     nonisolated func handleSocketLine(_ line: String) -> String {
         let response = processCommandUsingSocketExecutionPolicy(line)
-        performPostResponseAction(postResponseAction(for: line, response: response))
+        performPostResponseActionSynchronously(postResponseAction(for: line, response: response))
         return response
     }
 
