@@ -301,6 +301,11 @@
           "default": true,
           "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
         },
+        "showTimestamps": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show a left-side terminal timestamp gutter aligned with output rows."
+        },
         "autoResumeAgentSessions": {
           "type": "boolean",
           "default": true,

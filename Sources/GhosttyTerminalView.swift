@@ -9695,6 +9695,166 @@ private final class GhosttyFlashOverlayView: NSView {
     }
 }
 
+struct TerminalTimestampScrollbarState: Equatable {
+    let total: Int
+    let offset: Int
+    let len: Int
+
+    init(total: Int, offset: Int, len: Int) {
+        self.total = max(0, total)
+        self.offset = max(0, offset)
+        self.len = max(0, len)
+    }
+
+    init(_ scrollbar: GhosttyScrollbar) {
+        self.init(total: scrollbar.total, offset: scrollbar.offset, len: scrollbar.len)
+    }
+}
+
+struct TerminalTimestampVisibleRow: Equatable {
+    let row: Int
+    let timestamp: Date
+}
+
+final class TerminalTimestampStore {
+    private let maxRetainedRows: Int
+    private var timestampsByRow: [Int: Date] = [:]
+    private var lastScrollbar: TerminalTimestampScrollbarState?
+
+    init(maxRetainedRows: Int = 20_000) {
+        self.maxRetainedRows = max(1, maxRetainedRows)
+    }
+
+    func record(
+        scrollbar: TerminalTimestampScrollbarState,
+        at date: Date,
+        markVisibleRows: Bool
+    ) {
+        if let previous = lastScrollbar {
+            if scrollbar.total < previous.total {
+                timestampsByRow = timestampsByRow.filter { entry in entry.key < scrollbar.total }
+            } else if scrollbar.total > previous.total {
+                for row in previous.total..<scrollbar.total {
+                    timestampsByRow[row] = date
+                }
+            }
+        }
+
+        if markVisibleRows {
+            for row in visibleRange(for: scrollbar) where timestampsByRow[row] == nil {
+                timestampsByRow[row] = date
+            }
+        }
+
+        prune(forTotalRows: scrollbar.total)
+        lastScrollbar = scrollbar
+    }
+
+    func visibleRows(for scrollbar: TerminalTimestampScrollbarState) -> [TerminalTimestampVisibleRow] {
+        visibleRange(for: scrollbar).compactMap { row in
+            guard let timestamp = timestampsByRow[row] else { return nil }
+            return TerminalTimestampVisibleRow(row: row, timestamp: timestamp)
+        }
+    }
+
+    func reset() {
+        timestampsByRow.removeAll()
+        lastScrollbar = nil
+    }
+
+    private func visibleRange(for scrollbar: TerminalTimestampScrollbarState) -> Range<Int> {
+        guard scrollbar.total > 0, scrollbar.len > 0 else { return 0..<0 }
+        let lower = min(scrollbar.offset, scrollbar.total)
+        let upper = min(scrollbar.total, lower + scrollbar.len)
+        return lower..<upper
+    }
+
+    private func prune(forTotalRows totalRows: Int) {
+        let minimumRow = max(0, totalRows - maxRetainedRows)
+        timestampsByRow = timestampsByRow.filter { entry in
+            entry.key >= minimumRow && entry.key < totalRows
+        }
+    }
+}
+
+private final class TerminalTimestampGutterView: NSView {
+    private static let formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .medium
+        return formatter
+    }()
+
+    var onMouseDown: (() -> Void)?
+    private var rows: [TerminalTimestampVisibleRow] = []
+    private var visibleTopRow: CGFloat = 0
+    private var cellHeight: CGFloat = 0
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.isOpaque = false
+        setAccessibilityRole(.group)
+        setAccessibilityLabel(
+            String(localized: "terminal.timestamps.gutter.accessibility", defaultValue: "Terminal timestamps")
+        )
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) not implemented")
+    }
+
+    override var acceptsFirstResponder: Bool { false }
+    override var isOpaque: Bool { false }
+
+    func update(
+        rows: [TerminalTimestampVisibleRow],
+        visibleTopRow: CGFloat,
+        cellHeight: CGFloat
+    ) {
+        self.rows = rows
+        self.visibleTopRow = visibleTopRow
+        self.cellHeight = cellHeight
+        needsDisplay = true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onMouseDown?()
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        NSColor.separatorColor.withAlphaComponent(0.35).setFill()
+        NSRect(x: bounds.maxX - 1, y: 0, width: 1, height: bounds.height).fill()
+
+        guard cellHeight > 0, !rows.isEmpty else { return }
+
+        let fontSize = min(11, max(9, cellHeight * 0.58))
+        let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .regular)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .right
+        paragraph.lineBreakMode = .byClipping
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.secondaryLabelColor.withAlphaComponent(0.72),
+            .paragraphStyle: paragraph,
+        ]
+        let lineHeight = font.ascender - font.descender + font.leading
+        let textWidth = max(0, bounds.width - 12)
+
+        for row in rows {
+            let rowOffset = CGFloat(row.row) - visibleTopRow
+            let rowTopFromBottom = bounds.height - ((rowOffset + 1) * cellHeight)
+            let textY = floor(rowTopFromBottom + ((cellHeight - lineHeight) / 2))
+            let textRect = NSRect(x: 4, y: textY, width: textWidth, height: lineHeight)
+            guard textRect.intersects(dirtyRect) else { continue }
+            Self.formatter.string(from: row.timestamp).draw(in: textRect, withAttributes: attributes)
+        }
+    }
+}
+
 final class GhosttySurfaceScrollView: NSView {
     enum FlashStyle {
         case navigation
@@ -9719,6 +9879,8 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
+    private static let timestampGutterWidth: CGFloat = 88
+
     private enum NotificationRingMetrics {
         static let inset = PanelOverlayRingMetrics.inset
         static let cornerRadius = PanelOverlayRingMetrics.cornerRadius
@@ -9726,6 +9888,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private let backgroundView: NSView
+    private let timestampGutterView: TerminalTimestampGutterView
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
     private let surfaceView: GhosttyNSView
@@ -9758,6 +9921,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var imageTransferIndicatorShowWorkItem: DispatchWorkItem?
     private var activeImageTransferOperation: TerminalImageTransferOperation?
     private var activeImageTransferCancelHandler: (() -> Void)?
+    private let timestampStore = TerminalTimestampStore()
     private var lastSearchOverlayStateID: ObjectIdentifier?
     private weak var cachedOwningWorkspace: Workspace?
     private weak var observedWorkspaceTerminalScrollBar: Workspace?
@@ -9973,6 +10137,7 @@ final class GhosttySurfaceScrollView: NSView {
 
         self.surfaceView = surfaceView
         backgroundView = NSView(frame: .zero)
+        timestampGutterView = TerminalTimestampGutterView(frame: .zero)
         scrollView = GhosttyScrollView()
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
         dropZoneOverlayView = GhosttyFlashOverlayView(frame: .zero)
@@ -10013,6 +10178,11 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView.layer?.isOpaque = false
         addSubview(backgroundView)
         addSubview(scrollView)
+        timestampGutterView.isHidden = !TerminalTimestampsSettings.isVisible()
+        timestampGutterView.onMouseDown = { [weak self] in
+            self?.moveFocus()
+        }
+        addSubview(timestampGutterView)
         paneDropTargetView.hostedView = self
         addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
         synchronizeScrollbarAppearance()
@@ -10292,6 +10462,14 @@ final class GhosttySurfaceScrollView: NSView {
             self?.handleTerminalScrollBarPreferenceChange()
         })
 
+        observers.append(NotificationCenter.default.addObserver(
+            forName: TerminalTimestampsSettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleTerminalTimestampsPreferenceChange()
+        })
+
     }
 
     required init?(coder: NSCoder) {
@@ -10405,8 +10583,20 @@ final class GhosttySurfaceScrollView: NSView {
 
         let didScrollbarAppearanceChange = synchronizeScrollbarAppearance()
         let previousSurfaceSize = surfaceView.frame.size
+        let timestampGutterWidth = terminalTimestampGutterWidth()
         _ = setFrameIfNeeded(backgroundView, to: bounds)
-        _ = setFrameIfNeeded(scrollView, to: bounds)
+        _ = setFrameIfNeeded(
+            timestampGutterView,
+            to: CGRect(x: 0, y: 0, width: timestampGutterWidth, height: bounds.height)
+        )
+        timestampGutterView.isHidden = timestampGutterWidth <= 0
+        let scrollFrame = CGRect(
+            x: timestampGutterWidth,
+            y: 0,
+            width: max(0, bounds.width - timestampGutterWidth),
+            height: bounds.height
+        )
+        _ = setFrameIfNeeded(scrollView, to: scrollFrame)
         let targetSize = scrollView.bounds.size
 #if DEBUG
         logLayoutDuringActiveDrag(targetSize: targetSize)
@@ -10457,6 +10647,7 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeScrollView()
         synchronizeSurfaceView()
         let didCoreSurfaceChange = synchronizeCoreSurface()
+        refreshTimestampGutter()
         return !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
     }
 
@@ -12511,6 +12702,33 @@ final class GhosttySurfaceScrollView: NSView {
         // Intentionally no-op (no retry loops).
     }
 
+    private func terminalTimestampGutterWidth() -> CGFloat {
+        TerminalTimestampsSettings.isVisible() ? Self.timestampGutterWidth : 0
+    }
+
+    private func currentVisibleTopRow(cellHeight: CGFloat) -> CGFloat {
+        guard cellHeight > 0 else { return 0 }
+        let visibleRect = scrollView.contentView.documentVisibleRect
+        let scrollOffset = documentView.frame.height - visibleRect.origin.y - visibleRect.height
+        return max(0, scrollOffset / cellHeight)
+    }
+
+    private func refreshTimestampGutter() {
+        guard TerminalTimestampsSettings.isVisible(),
+              let scrollbar = surfaceView.scrollbar,
+              surfaceView.cellSize.height > 0 else {
+            timestampGutterView.update(rows: [], visibleTopRow: 0, cellHeight: 0)
+            return
+        }
+
+        let state = TerminalTimestampScrollbarState(scrollbar)
+        timestampGutterView.update(
+            rows: timestampStore.visibleRows(for: state),
+            visibleTopRow: currentVisibleTopRow(cellHeight: surfaceView.cellSize.height),
+            cellHeight: surfaceView.cellSize.height
+        )
+    }
+
     private func synchronizeSurfaceView() {
         let visibleRect = scrollView.contentView.documentVisibleRect
         guard !pointApproximatelyEqual(surfaceView.frame.origin, visibleRect.origin) else { return }
@@ -12628,6 +12846,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func handleScrollChange() {
         synchronizeSurfaceView()
+        refreshTimestampGutter()
     }
 
     private func handleLiveScroll() {
@@ -12657,6 +12876,13 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
         let wasVisible = scrollView.hasVerticalScroller
+        let isUserInitiatedScroll = pendingExplicitWheelScroll || isLiveScrolling
+        let shouldMarkVisibleTimestampRows = !isUserInitiatedScroll && !userScrolledAwayFromBottom
+        timestampStore.record(
+            scrollbar: TerminalTimestampScrollbarState(scrollbar),
+            at: .now,
+            markVisibleRows: shouldMarkVisibleTimestampRows
+        )
         if pendingExplicitWheelScroll {
             userScrolledAwayFromBottom = scrollbar.offset + scrollbar.len < scrollbar.total
             allowExplicitScrollbarSync = true
@@ -12669,6 +12895,7 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
         synchronizeScrollView()
+        refreshTimestampGutter()
     }
 
     @discardableResult
@@ -12712,6 +12939,24 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
+        _ = synchronizeGeometryAndContent()
+    }
+
+    private func handleTerminalTimestampsPreferenceChange() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.handleTerminalTimestampsPreferenceChange()
+            }
+            return
+        }
+
+        if TerminalTimestampsSettings.isVisible(), let scrollbar = surfaceView.scrollbar {
+            timestampStore.record(
+                scrollbar: TerminalTimestampScrollbarState(scrollbar),
+                at: .now,
+                markVisibleRows: true
+            )
+        }
         _ = synchronizeGeometryAndContent()
     }
 

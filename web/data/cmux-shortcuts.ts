@@ -103,6 +103,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "closeOtherTabsInPane", combos: [["⌥", "⌘", "T"]], description: { en: "Close other tabs in pane", ja: "ペイン内の他のタブを閉じる" } },
       { id: "reopenClosedBrowserPanel", combos: [["⌘", "⇧", "T"]], description: { en: "Reopen closed browser panel", ja: "閉じたブラウザパネルを再度開く" } },
       { id: "toggleTerminalCopyMode", combos: [["⌘", "⇧", "M"]], description: { en: "Toggle terminal copy mode", ja: "ターミナルコピーモードを切り替え" } },
+      { id: "toggleTerminalTimestamps", combos: [["⌥", "⌘", "⇧", "E"]], description: { en: "Toggle terminal timestamps", ja: "ターミナルタイムスタンプを切り替え" } },
       {
         id: "saveFilePreview",
         combos: [["⌘", "S"]],

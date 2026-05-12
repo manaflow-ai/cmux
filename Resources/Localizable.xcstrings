@@ -105432,6 +105432,142 @@
         }
       }
     },
+    "settings.terminal.timestamps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Terminal Timestamps"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのタイムスタンプを表示"
+          }
+        }
+      }
+    },
+    "settings.terminal.timestamps.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides the terminal timestamp gutter. Timestamps can also be toggled from the View menu or command palette."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのタイムスタンプ欄を隠します。タイムスタンプは表示メニューやコマンドパレットからも切り替えられます。"
+          }
+        }
+      }
+    },
+    "settings.terminal.timestamps.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows a left-side time gutter aligned with terminal output rows."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル出力行にそろえた左側の時刻欄を表示します。"
+          }
+        }
+      }
+    },
+    "shortcut.toggleTerminalTimestamps.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Terminal Timestamps"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルタイムスタンプを切り替え"
+          }
+        }
+      }
+    },
+    "menu.view.toggleTerminalTimestamps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Terminal Timestamps"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルタイムスタンプを切り替え"
+          }
+        }
+      }
+    },
+    "command.terminalToggleTimestamps.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Terminal Timestamps"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルタイムスタンプを切り替え"
+          }
+        }
+      }
+    },
+    "terminal.timestamps.gutter.accessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal timestamps"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルタイムスタンプ"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.timestamps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showTimestamps timestamps time gutter output lines long running agent hang debug"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showTimestamps タイムスタンプ 時刻 出力 行 長時間 エージェント 停止 デバッグ"
+          }
+        }
+      }
+    },
     "settings.terminal.agentAutoResume": {
       "extractionState": "manual",
       "localizations": {

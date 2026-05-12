@@ -11253,6 +11253,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return handled
         }
 
+        if matchConfiguredShortcut(event: event, action: .toggleTerminalTimestamps) {
+            let enabled = TerminalTimestampsSettings.toggle()
+#if DEBUG
+            cmuxDebugLog(
+                "shortcut.action name=toggleTerminalTimestamps enabled=\(enabled ? 1 : 0) " +
+                "\(debugShortcutRouteSnapshot(event: event))"
+            )
+#endif
+            return true
+        }
+
         // Workspace navigation: Cmd+Ctrl+] / Cmd+Ctrl+[
         if matchConfiguredShortcut(event: event, action: .nextSidebarTab) {
 #if DEBUG

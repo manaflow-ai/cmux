@@ -457,6 +457,12 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.showScrollBar", sourcePath: sourcePath)
         }
 
+        if let value = jsonBool(section["showTimestamps"]) {
+            snapshot.managedUserDefaults[TerminalTimestampsSettings.showTimestampsKey] = .bool(value)
+        } else if section.keys.contains("showTimestamps") {
+            logInvalid("terminal.showTimestamps", sourcePath: sourcePath)
+        }
+
         if let value = jsonBool(section["autoResumeAgentSessions"]) {
             snapshot.managedUserDefaults[AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey] = .bool(value)
         } else if section.keys.contains("autoResumeAgentSessions") {
@@ -1190,6 +1196,7 @@ final class CmuxSettingsFileStore {
     ) -> ManagedDefaultBatchSideEffects {
         let notificationCenter = notificationCenter
         let notifyScrollBar = defaultsKey == TerminalScrollBarSettings.showScrollBarKey
+        let notifyTimestamps = defaultsKey == TerminalTimestampsSettings.showTimestampsKey
         var sideEffects = ManagedDefaultBatchSideEffects()
         sideEffects.agentSessionAutoResumeDidChange =
             defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
@@ -1200,6 +1207,9 @@ final class CmuxSettingsFileStore {
         let apply = {
             if notifyScrollBar {
                 TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+            if notifyTimestamps {
+                TerminalTimestampsSettings.notifyDidChange(notificationCenter: notificationCenter)
             }
 
             if let language {

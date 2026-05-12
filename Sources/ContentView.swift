@@ -6008,6 +6008,8 @@ struct ContentView: View {
             return "⌥⌘⇧F"
         case "palette.terminalUseSelectionForFind":
             return "⌘E"
+        case "palette.toggleTerminalTimestamps":
+            return "⌥⌘⇧E"
         case "palette.toggleFullScreen":
             return "\u{2303}\u{2318}F"
         default:
@@ -6901,6 +6903,16 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.toggleTerminalTimestamps",
+                title: constant(String(localized: "command.terminalToggleTimestamps.title", defaultValue: "Toggle Terminal Timestamps")),
+                subtitle: terminalPanelSubtitle,
+                shortcutHint: "⌥⌘⇧E",
+                keywords: ["terminal", "timestamps", "time", "output"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitRight",
                 title: constant(String(localized: "command.terminalSplitRight.title", defaultValue: "Split Right")),
                 subtitle: constant(String(localized: "command.terminalSplitRight.subtitle", defaultValue: "Terminal Layout")),
@@ -7465,6 +7477,9 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalUseSelectionForFind") {
             tabManager.searchSelection()
+        }
+        registry.register(commandId: "palette.toggleTerminalTimestamps") {
+            _ = TerminalTimestampsSettings.toggle()
         }
         registry.register(commandId: "palette.terminalSplitRight") {
             if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.splitRight.configID) {

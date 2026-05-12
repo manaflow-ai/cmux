@@ -67,6 +67,8 @@ extension ContentView {
             return .hideFind
         case "palette.terminalUseSelectionForFind":
             return .useSelectionForFind
+        case "palette.toggleTerminalTimestamps":
+            return .toggleTerminalTimestamps
         case "palette.toggleSplitZoom":
             return .toggleSplitZoom
         case "palette.equalizeSplits":

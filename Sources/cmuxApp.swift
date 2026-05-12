@@ -743,6 +743,10 @@ struct cmuxApp: App {
                 targetWindow.toggleFullScreen(nil)
             }
 
+            splitCommandButton(title: String(localized: "menu.view.toggleTerminalTimestamps", defaultValue: "Toggle Terminal Timestamps"), shortcut: menuShortcut(for: .toggleTerminalTimestamps)) {
+                _ = TerminalTimestampsSettings.toggle()
+            }
+
             Divider()
 
             splitCommandButton(title: String(localized: "menu.view.splitRight", defaultValue: "Split Right"), shortcut: menuShortcut(for: .splitRight)) {
@@ -5011,6 +5015,8 @@ struct SettingsView: View {
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
     @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
     private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
+    @AppStorage(TerminalTimestampsSettings.showTimestampsKey)
+    private var showTerminalTimestamps = TerminalTimestampsSettings.defaultShowTimestamps
     @AppStorage(FileDropBehaviorSettings.defaultBehaviorKey)
     private var fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
     @AppStorage(AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
@@ -5135,6 +5141,17 @@ struct SettingsView: View {
                 guard showTerminalScrollBar != newValue else { return }
                 showTerminalScrollBar = newValue
                 TerminalScrollBarSettings.notifyDidChange()
+            }
+        )
+    }
+
+    private var showTerminalTimestampsBinding: Binding<Bool> {
+        Binding(
+            get: { showTerminalTimestamps },
+            set: { newValue in
+                guard showTerminalTimestamps != newValue else { return }
+                showTerminalTimestamps = newValue
+                TerminalTimestampsSettings.notifyDidChange()
             }
         )
     }
@@ -6132,6 +6149,24 @@ struct SettingsView: View {
                                 .accessibilityIdentifier("SettingsTerminalScrollBarToggle")
                                 .accessibilityLabel(
                                     String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.showTimestamps"),
+                            String(localized: "settings.terminal.timestamps", defaultValue: "Show Terminal Timestamps"),
+                            subtitle: showTerminalTimestamps
+                                ? String(localized: "settings.terminal.timestamps.subtitleOn", defaultValue: "Shows a left-side time gutter aligned with terminal output rows.")
+                                : String(localized: "settings.terminal.timestamps.subtitleOff", defaultValue: "Hides the terminal timestamp gutter. Timestamps can also be toggled from the View menu or command palette.")
+                        ) {
+                            Toggle("", isOn: showTerminalTimestampsBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsTerminalTimestampsToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.terminal.timestamps", defaultValue: "Show Terminal Timestamps")
                                 )
                         }
 
@@ -7246,6 +7281,11 @@ struct SettingsView: View {
         showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
         if previousShowTerminalScrollBar != showTerminalScrollBar {
             TerminalScrollBarSettings.notifyDidChange()
+        }
+        let previousShowTerminalTimestamps = showTerminalTimestamps
+        showTerminalTimestamps = TerminalTimestampsSettings.defaultShowTimestamps
+        if previousShowTerminalTimestamps != showTerminalTimestamps {
+            TerminalTimestampsSettings.notifyDidChange()
         }
         fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
         let previousAutoResumeAgentSessions = autoResumeAgentSessions
