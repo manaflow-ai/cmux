@@ -528,11 +528,15 @@ _cmux_report_shell_activity_state() {
     _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
 }
 
+_cmux_reset_terminal_keyboard_protocols() {
+    [[ -t 1 || -n "${CMUX_TEST_FORCE_KEYBOARD_RESET:-}${CMUX_TEST_FORCE_KITTY_RESET:-}" ]] || return 0
+    # A crashed TUI may leave keyboard protocol state pushed. At a fresh shell
+    # prompt, return terminal input encoding to plain readline bytes.
+    printf '\033[>m\033[<8u'
+}
+
 _cmux_reset_kitty_keyboard_protocol() {
-    [[ -t 1 || -n "${CMUX_TEST_FORCE_KITTY_RESET:-}" ]] || return 0
-    # A crashed TUI may leave Kitty keyboard mode pushed. At a fresh shell prompt,
-    # reset the whole stack so ordinary readline input is encoded as plain bytes.
-    printf '\033[<8u'
+    _cmux_reset_terminal_keyboard_protocols
 }
 
 _cmux_ports_kick() {
@@ -1148,7 +1152,7 @@ _cmux_precmd() {
     (( cmux_has_unix_socket )) || _cmux_has_port_scan_transport || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     if [[ -n "$CMUX_PANEL_ID" ]]; then
-        _cmux_reset_kitty_keyboard_protocol
+        _cmux_reset_terminal_keyboard_protocols
         _cmux_report_shell_activity_state prompt
     fi
 

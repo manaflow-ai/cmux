@@ -1621,7 +1621,7 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
         "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 
-    private func cmuxZshKittyKeyboardResetSequence() throws -> Data {
+    private func cmuxZshTerminalKeyboardResetSequence() throws -> Data {
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -1636,13 +1636,13 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
             "-c",
             """
             source \(shellSingleQuoted(integrationPath)) >/dev/null 2>&1 || true
-            if (( $+functions[_cmux_reset_kitty_keyboard_protocol] )); then
-              _cmux_reset_kitty_keyboard_protocol
+            if (( $+functions[_cmux_reset_terminal_keyboard_protocols] )); then
+              _cmux_reset_terminal_keyboard_protocols
             fi
             """
         ]
         process.environment = [
-            "CMUX_TEST_FORCE_KITTY_RESET": "1"
+            "CMUX_TEST_FORCE_KEYBOARD_RESET": "1"
         ]
         let output = Pipe()
         process.standardOutput = output
@@ -1818,12 +1818,13 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
         XCTAssertTrue(readyText.contains(captureReadyMarker), "Expected Kitty enable marker before clear-history")
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
 
-        let kittyResetData = try cmuxZshKittyKeyboardResetSequence()
-        XCTAssertFalse(
-            kittyResetData.isEmpty,
-            "cmuxZshKittyKeyboardResetSequence must emit a reset sequence; check cmux-zsh-integration.zsh sourcing"
+        let keyboardResetData = try cmuxZshTerminalKeyboardResetSequence()
+        XCTAssertEqual(
+            keyboardResetData,
+            Data("\u{1B}[>m\u{1B}[<8u".utf8),
+            "cmuxZshTerminalKeyboardResetSequence must reset modifyOtherKeys and Kitty keyboard state"
         )
-        try processTerminalOutput(kittyResetData, in: hostedTerminal)
+        try processTerminalOutput(keyboardResetData, in: hostedTerminal)
 
         // Mirrors the surface.clear_history socket handler path: clear_screen binding, then refresh.
         XCTAssertTrue(hostedTerminal.surface.performBindingAction("clear_screen"))
