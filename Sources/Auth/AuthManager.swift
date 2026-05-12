@@ -540,14 +540,10 @@ final class AuthManager: ObservableObject {
                            teams: teams)
     }
 
-    func applySignInResult(_ result: SignInResult) {
+    func applySignInResult(_ result: SignInResult) async {
         // Cache access token for fast synchronous reads
         lastKnownAccessToken = result.accessToken
-        // Store tokens in keychain (fire-and-forget)
-        let store = tokenStore
-        Task.detached {
-            await store.setTokens(accessToken: result.accessToken, refreshToken: result.refreshToken)
-        }
+        await tokenStore.setTokens(accessToken: result.accessToken, refreshToken: result.refreshToken)
         // Update published state synchronously on main actor
         let user = CMUXAuthUser(id: result.userId, primaryEmail: result.email, displayName: result.displayName)
         currentUser = user

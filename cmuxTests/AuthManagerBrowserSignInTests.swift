@@ -212,7 +212,7 @@ final class AuthManagerBrowserSignInTests: XCTestCase {
         )
         await manager.awaitBootstrapped()
 
-        manager.applySignInResult(AuthManager.SignInResult(
+        await manager.applySignInResult(AuthManager.SignInResult(
             accessToken: "old-access-token",
             refreshToken: "old-refresh-token",
             email: "old@example.com",
