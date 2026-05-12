@@ -567,6 +567,12 @@ def main() -> int:
         assert_ok(failures, "settings get string-looking bool", get_primitive_string)
         if get_primitive_string.stdout.strip() != "true":
             failures.append(f"string setting that looks like a bool was not preserved: {get_primitive_string.stdout!r}")
+        literal_json_flag = run_cli(cli_path, ["settings", "set", "notifications.command", "--", "--json"], home)
+        assert_ok(failures, "settings set literal --json after separator", literal_json_flag)
+        get_literal_json_flag = run_cli(cli_path, ["settings", "get", "notifications.command"], home)
+        assert_ok(failures, "settings get literal --json after separator", get_literal_json_flag)
+        if get_literal_json_flag.stdout.strip() != "--json":
+            failures.append(f"literal --json setting value was not preserved: {get_literal_json_flag.stdout!r}")
 
         set_password = run_cli(cli_path, ["settings", "set", "automation.socketPassword", "secret-token"], home)
         assert_ok(failures, "settings set socket password", set_password)
@@ -733,6 +739,35 @@ openSettings = "cmd+option+,"
         if after_shortcut_import != before_shortcut_import:
             failures.append(
                 f"failed shortcut import changed cmux.json: before={before_shortcut_import} after={after_shortcut_import}"
+            )
+
+        before_duplicate_action_import = read_config(home)
+        duplicate_action_import_path = home / "duplicate-shortcut-action-import.json"
+        duplicate_action_import_path.write_text(
+            json.dumps(
+                {
+                    "shortcuts": {
+                        "bindings": {
+                            "toggleFileExplorer": "cmd+option+j",
+                            "toggleRightSidebar": "cmd+option+k",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        duplicate_action_import = run_cli(cli_path, ["settings", "import", str(duplicate_action_import_path)], home)
+        assert_fails(
+            failures,
+            "shortcut import rejects duplicate canonical action",
+            duplicate_action_import,
+            "Duplicate shortcut action 'toggleFileExplorer'",
+        )
+        after_duplicate_action_import = read_config(home)
+        if after_duplicate_action_import != before_duplicate_action_import:
+            failures.append(
+                "failed duplicate-action shortcut import changed cmux.json: "
+                f"before={before_duplicate_action_import} after={after_duplicate_action_import}"
             )
 
         forced = run_cli(cli_path, ["settings", "shortcuts", "set", "openSettings", "cmd+n", "--force"], home)
