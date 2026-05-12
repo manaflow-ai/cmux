@@ -476,7 +476,7 @@ enum MinimalModeTitlebarDebugSettings {
     static let defaultLeftControlsLeadingInset = 72.0
     static let defaultLeftControlsTopInset = -4.0
     static let defaultTrafficLightsXOffset = 0.0
-    static let defaultTrafficLightsYOffset = 2.0
+    static let defaultTrafficLightsYOffset = 3.0
     static let titlebarControlsUpwardOffset = 2.0
     static let defaultTrafficLightTabBarInset = 80.0
     static let defaultTrafficLightTitlebarLeadingInset = 78.0
