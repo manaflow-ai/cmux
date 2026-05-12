@@ -464,13 +464,136 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     }
 
     // Keeps the child process reachable from the cancellation handler while
-    // the blocking wait runs off Swift's cooperative executor.
+    // stdout/stderr are drained concurrently with process execution.
     private final class CommandProcess: @unchecked Sendable {
+        private final class OutputCollector: @unchecked Sendable {
+            private enum Stream {
+                case stdout
+                case stderr
+            }
+
+            private let stdoutHandle: FileHandle
+            private let stderrHandle: FileHandle
+            private let lock = NSLock()
+            private var stdout = Data()
+            private var stderr = Data()
+            private var isFinished = false
+
+            init(stdout: Pipe, stderr: Pipe) {
+                stdoutHandle = stdout.fileHandleForReading
+                stderrHandle = stderr.fileHandleForReading
+            }
+
+            func start() {
+                stdoutHandle.readabilityHandler = { [weak self] handle in
+                    self?.appendAvailableData(from: handle, to: .stdout)
+                }
+                stderrHandle.readabilityHandler = { [weak self] handle in
+                    self?.appendAvailableData(from: handle, to: .stderr)
+                }
+            }
+
+            func finish() -> (stdout: String, stderr: String) {
+                lock.lock()
+                guard !isFinished else {
+                    let output = outputLocked()
+                    lock.unlock()
+                    return output
+                }
+                isFinished = true
+                lock.unlock()
+
+                stdoutHandle.readabilityHandler = nil
+                stderrHandle.readabilityHandler = nil
+                append(stdoutHandle.readDataToEndOfFile(), to: .stdout)
+                append(stderrHandle.readDataToEndOfFile(), to: .stderr)
+
+                lock.lock()
+                let output = outputLocked()
+                lock.unlock()
+                return output
+            }
+
+            func cancel() {
+                lock.lock()
+                guard !isFinished else {
+                    lock.unlock()
+                    return
+                }
+                isFinished = true
+                lock.unlock()
+
+                stdoutHandle.readabilityHandler = nil
+                stderrHandle.readabilityHandler = nil
+            }
+
+            private func appendAvailableData(from handle: FileHandle, to stream: Stream) {
+                let data = handle.availableData
+                guard !data.isEmpty else {
+                    handle.readabilityHandler = nil
+                    return
+                }
+                append(data, to: stream)
+            }
+
+            private func append(_ data: Data, to stream: Stream) {
+                guard !data.isEmpty else { return }
+                lock.lock()
+                defer { lock.unlock() }
+                switch stream {
+                case .stdout:
+                    stdout.append(data)
+                case .stderr:
+                    stderr.append(data)
+                }
+            }
+
+            private func outputLocked() -> (stdout: String, stderr: String) {
+                (
+                    String(data: stdout, encoding: .utf8) ?? "",
+                    String(data: stderr, encoding: .utf8) ?? ""
+                )
+            }
+        }
+
+        private final class TerminationWaiter: @unchecked Sendable {
+            private let lock = NSLock()
+            private var status: Int32?
+            private var continuation: CheckedContinuation<Int32, Never>?
+
+            func wait() async -> Int32 {
+                await withCheckedContinuation { continuation in
+                    lock.lock()
+                    if let status {
+                        lock.unlock()
+                        continuation.resume(returning: status)
+                        return
+                    }
+                    self.continuation = continuation
+                    lock.unlock()
+                }
+            }
+
+            func finish(status: Int32) {
+                lock.lock()
+                if let continuation {
+                    self.continuation = nil
+                    lock.unlock()
+                    continuation.resume(returning: status)
+                    return
+                }
+                self.status = status
+                lock.unlock()
+            }
+        }
+
         private let process = Process()
         private let outPipe = Pipe()
         private let errPipe = Pipe()
         private let lock = NSLock()
         private var cancelled = false
+        private var started = false
+        private var timedOut = false
 
         init(executable: String, arguments: [String]) {
             process.executableURL = URL(fileURLWithPath: executable)
@@ -480,7 +603,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             process.standardError = errPipe
         }
 
-        func run(timeout: TimeInterval? = nil) throws -> SSHCommandResult {
+        func run(timeout: TimeInterval? = nil) async throws -> SSHCommandResult {
             lock.lock()
             let wasCancelled = cancelled
             lock.unlock()
@@ -488,56 +611,140 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
                 throw CancellationError()
             }
 
-            try process.run()
+            let outputCollector = OutputCollector(stdout: outPipe, stderr: errPipe)
+            let terminationWaiter = TerminationWaiter()
+            process.terminationHandler = { terminatedProcess in
+                terminationWaiter.finish(status: terminatedProcess.terminationStatus)
+            }
+            outputCollector.start()
+
+            do {
+                try process.run()
+            } catch {
+                outputCollector.cancel()
+                process.terminationHandler = nil
+                throw error
+            }
 
             lock.lock()
+            started = true
             let shouldTerminate = cancelled && process.isRunning
             lock.unlock()
             if shouldTerminate {
                 process.terminate()
             }
 
-            let data: Data
-            let stderrData: Data
-            if let timeout {
-                let exitSignal = DispatchSemaphore(value: 0)
-                DispatchQueue.global(qos: .userInitiated).async { [process] in
-                    process.waitUntilExit()
-                    exitSignal.signal()
-                }
-
-                if exitSignal.wait(timeout: .now() + timeout) == .timedOut {
-                    terminate()
-                    _ = exitSignal.wait(timeout: .now() + 1)
-                    if process.isRunning {
-                        _ = Darwin.kill(process.processIdentifier, SIGKILL)
-                        process.waitUntilExit()
-                    }
-                    throw FileExplorerError.sshCommandFailed("scp timed out")
-                }
-                data = outPipe.fileHandleForReading.readDataToEndOfFile()
-                stderrData = errPipe.fileHandleForReading.readDataToEndOfFile()
-            } else {
-                data = outPipe.fileHandleForReading.readDataToEndOfFile()
-                stderrData = errPipe.fileHandleForReading.readDataToEndOfFile()
-                process.waitUntilExit()
+            let terminationStatus: Int32
+            do {
+                terminationStatus = try await waitForTermination(timeout: timeout, waiter: terminationWaiter)
+            } catch {
+                terminate()
+                forceKillIfRunning()
+                _ = await terminationWaiter.wait()
+                _ = outputCollector.finish()
+                process.terminationHandler = nil
+                throw error
+            }
+            let output = outputCollector.finish()
+            process.terminationHandler = nil
+            try Task.checkCancellation()
+            if hasTimedOut {
+                throw FileExplorerError.downloadTimedOut
             }
 
             return SSHCommandResult(
-                stdout: String(data: data, encoding: .utf8) ?? "",
-                stderr: String(data: stderrData, encoding: .utf8) ?? "",
-                terminationStatus: process.terminationStatus
+                stdout: output.stdout,
+                stderr: output.stderr,
+                terminationStatus: terminationStatus
             )
         }
 
         func terminate() {
             lock.lock()
             cancelled = true
-            let isRunning = process.isRunning
+            let shouldTerminate = started && process.isRunning
             lock.unlock()
 
-            if isRunning {
+            if shouldTerminate {
                 process.terminate()
+            }
+        }
+
+        private var hasTimedOut: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return timedOut
+        }
+
+        private func markTimedOutAndTerminate() {
+            lock.lock()
+            timedOut = true
+            let shouldTerminate = started && process.isRunning
+            lock.unlock()
+
+            if shouldTerminate {
+                process.terminate()
+            }
+        }
+
+        private func forceKillIfRunning() {
+            lock.lock()
+            let shouldKill = started && process.isRunning
+            let processIdentifier = process.processIdentifier
+            lock.unlock()
+
+            if shouldKill {
+                _ = Darwin.kill(processIdentifier, SIGKILL)
+            }
+        }
+
+        private func waitForTermination(timeout: TimeInterval?, waiter: TerminationWaiter) async throws -> Int32 {
+            guard let timeout else {
+                let status = await waiter.wait()
+                if hasTimedOut {
+                    throw FileExplorerError.downloadTimedOut
+                }
+                return status
+            }
+
+            let timeoutNanoseconds = UInt64(max(0, timeout) * 1_000_000_000)
+            return try await withThrowingTaskGroup(of: Int32.self) { group in
+                group.addTask { [self, waiter] in
+                    let status = await waiter.wait()
+                    if hasTimedOut {
+                        throw FileExplorerError.downloadTimedOut
+                    }
+                    return status
+                }
+                group.addTask { [self] in
+                    do {
+                        try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                    } catch {
+                        terminate()
+                        forceKillIfRunning()
+                        throw error
+                    }
+                    markTimedOutAndTerminate()
+                    do {
+                        try await Task.sleep(nanoseconds: 1_000_000_000)
+                    } catch {
+                        forceKillIfRunning()
+                        throw error
+                    }
+                    forceKillIfRunning()
+                    throw FileExplorerError.downloadTimedOut
+                }
+
+                do {
+                    guard let status = try await group.next() else {
+                        throw FileExplorerError.downloadTimedOut
+                    }
+                    group.cancelAll()
+                    return status
+                } catch {
+                    group.cancelAll()
+                    throw error
+                }
             }
         }
     }
@@ -548,11 +755,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             arguments: sshArguments(connection: connection, command: command)
         )
         let result = try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                DispatchQueue.global(qos: .userInitiated).async {
-                    continuation.resume(with: Result { try commandProcess.run() })
-                }
-            }
+            try await commandProcess.run()
         } onCancel: {
             commandProcess.terminate()
         }
@@ -566,11 +769,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     private static func runSCPCommand(arguments: [String], timeout: TimeInterval) async throws -> SSHCommandResult {
         let commandProcess = CommandProcess(executable: "/usr/bin/scp", arguments: arguments)
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                DispatchQueue.global(qos: .userInitiated).async {
-                    continuation.resume(with: Result { try commandProcess.run(timeout: timeout) })
-                }
-            }
+            try await commandProcess.run(timeout: timeout)
         } onCancel: {
             commandProcess.terminate()
         }
@@ -806,6 +1005,7 @@ enum FileExplorerError: LocalizedError {
     case sshCommandFailed(String)
     case invalidDownloadDestination(String)
     case downloadFailed(String)
+    case downloadTimedOut
 
     var errorDescription: String? {
         switch self {
@@ -829,6 +1029,8 @@ enum FileExplorerError: LocalizedError {
                 format: String(localized: "fileExplorer.error.downloadFailed", defaultValue: "Download failed: %@"),
                 detail
             )
+        case .downloadTimedOut:
+            return String(localized: "fileExplorer.error.downloadTimedOut", defaultValue: "Download timed out.")
         }
     }
 }

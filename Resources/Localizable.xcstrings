@@ -85935,13 +85935,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Download to Local..."
+            "value": "Download to Local…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ローカルにダウンロード..."
+            "value": "ローカルにダウンロード…"
           }
         }
       }
@@ -86180,6 +86180,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ダウンロードに失敗しました: %@"
+          }
+        }
+      }
+    },
+    "fileExplorer.error.downloadTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download timed out."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロードがタイムアウトしました。"
           }
         }
       }

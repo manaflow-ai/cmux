@@ -542,7 +542,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 let downloadItem = NSMenuItem(
                     title: String(
                         localized: "fileExplorer.contextMenu.downloadToLocal",
-                        defaultValue: "Download to Local..."
+                        defaultValue: "Download to Local…"
                     ),
                     action: #selector(contextMenuDownloadToLocal(_:)),
                     keyEquivalent: ""
@@ -684,17 +684,33 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         @MainActor
         private func presentDownloadCompletion(itemName: String, localPath: String, workspaceId: UUID?) {
-            guard let workspaceId else { return }
-            AppDelegate.shared?.notificationStore?.addNotification(
-                tabId: workspaceId,
-                surfaceId: nil,
-                title: String(localized: "fileExplorer.download.complete.title", defaultValue: "Download Complete"),
-                subtitle: itemName,
-                body: String(
-                    format: String(localized: "fileExplorer.download.complete.body", defaultValue: "Saved to %@"),
-                    localPath
-                )
+            let title = String(localized: "fileExplorer.download.complete.title", defaultValue: "Download Complete")
+            let body = String(
+                format: String(localized: "fileExplorer.download.complete.body", defaultValue: "Saved to %@"),
+                localPath
             )
+
+            if let workspaceId {
+                AppDelegate.shared?.notificationStore?.addNotification(
+                    tabId: workspaceId,
+                    surfaceId: nil,
+                    title: title,
+                    subtitle: itemName,
+                    body: body
+                )
+                return
+            }
+
+            let alert = NSAlert()
+            alert.alertStyle = .informational
+            alert.messageText = title
+            alert.informativeText = body
+            alert.addButton(withTitle: String(localized: "fileExplorer.download.alertOK", defaultValue: "OK"))
+            if let window = containerView?.window {
+                alert.beginSheetModal(for: window, completionHandler: nil)
+            } else {
+                _ = alert.runModal()
+            }
         }
 
         @MainActor
