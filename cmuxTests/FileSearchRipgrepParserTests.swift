@@ -57,6 +57,37 @@ final class FileSearchRipgrepParserTests: XCTestCase {
         XCTAssertEqual(result?.preview.unicodeScalars.map(\.value), [102, 111, 65_533, 111])
     }
 
+    func testParseMatchLineUsesSharedRelativePathBoundaryRules() throws {
+        let line = try makeMatchLine(
+            pathPayload: [
+                "text": "/tmp/project-backup/Sources/App.swift",
+            ],
+            linesPayload: [
+                "text": "let title = \"Search files\"\n",
+            ]
+        )
+
+        let result = FileSearchRipgrepParser.parseMatchLine(line, rootPath: "/tmp/project")
+
+        XCTAssertEqual(result?.relativePath, "/tmp/project-backup/Sources/App.swift")
+    }
+
+    func testParseMatchLineUsesSharedRelativePathSymlinkStandardization() throws {
+        let line = try makeMatchLine(
+            pathPayload: [
+                "text": "/private/tmp/project/Sources/App.swift",
+            ],
+            linesPayload: [
+                "text": "let title = \"Search files\"\n",
+            ]
+        )
+
+        let result = FileSearchRipgrepParser.parseMatchLine(line, rootPath: "/tmp/project")
+
+        XCTAssertEqual(result?.path, "/private/tmp/project/Sources/App.swift")
+        XCTAssertEqual(result?.relativePath, "Sources/App.swift")
+    }
+
     func testParseMatchLineIgnoresNonMatchEvents() {
         let line = #"{"type":"summary","data":{"elapsed_total":{"secs":0,"nanos":1}}}"#
 
@@ -72,6 +103,72 @@ final class FileSearchRipgrepParserTests: XCTestCase {
             "data": [
                 "path": pathPayload,
                 "lines": linesPayload,
+                "line_number": 7,
+                "submatches": [
+                    [
+                        "match": ["text": "title"],
+                        "start": 4,
+                        "end": 9,
+                    ],
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: object)
+        return String(decoding: data, as: UTF8.self)
+    }
+}
+
+final class FileSearchOutputPipelineTests: XCTestCase {
+    func testFinishPreservesLimitedStatusFromTrailingBufferedLine() async throws {
+        let pipeline = FileSearchOutputPipeline(
+            rootPath: "/tmp/project",
+            maxResults: 1,
+            snapshotInterval: 60
+        )
+        let line = try makeMatchLine(relativePath: "Sources/App.swift")
+
+        let streamingUpdate = await pipeline.consumeStdout(Data(line.utf8))
+        XCTAssertNil(streamingUpdate, "A match without a trailing newline should remain buffered until finish.")
+
+        let finalUpdate = await pipeline.finish(status: 0)
+
+        XCTAssertEqual(finalUpdate.status, .limited(1))
+        XCTAssertEqual(finalUpdate.results.map(\.relativePath), ["Sources/App.swift"])
+        XCTAssertFalse(finalUpdate.isSearching)
+        XCTAssertTrue(finalUpdate.shouldStopProcess)
+    }
+
+    func testFinishKeepsEarlierLimitedStatusAfterStreamingLimit() async throws {
+        let pipeline = FileSearchOutputPipeline(
+            rootPath: "/tmp/project",
+            maxResults: 1,
+            snapshotInterval: 60
+        )
+        let line = try makeMatchLine(relativePath: "Sources/App.swift") + "\n"
+
+        let maybeStreamingUpdate = await pipeline.consumeStdout(Data(line.utf8))
+        let streamingUpdate = try XCTUnwrap(maybeStreamingUpdate)
+        XCTAssertEqual(streamingUpdate.status, .limited(1))
+        XCTAssertTrue(streamingUpdate.shouldStopProcess)
+
+        let finalUpdate = await pipeline.finish(status: 0)
+
+        XCTAssertEqual(finalUpdate.status, .limited(1))
+        XCTAssertEqual(finalUpdate.results.map(\.relativePath), ["Sources/App.swift"])
+        XCTAssertFalse(finalUpdate.isSearching)
+        XCTAssertTrue(finalUpdate.shouldStopProcess)
+    }
+
+    private func makeMatchLine(relativePath: String) throws -> String {
+        let object: [String: Any] = [
+            "type": "match",
+            "data": [
+                "path": [
+                    "text": "/tmp/project/\(relativePath)",
+                ],
+                "lines": [
+                    "text": "let title = \"Search files\"\n",
+                ],
                 "line_number": 7,
                 "submatches": [
                     [

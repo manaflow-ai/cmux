@@ -26,7 +26,7 @@ extension ContentView {
         case "palette.toggleSidebar":
             return .toggleSidebar
         case Self.commandPaletteToggleRightSidebarCommandID:
-            return .focusRightSidebar
+            return .toggleRightSidebar
         case "palette.showNotifications":
             return .showNotifications
         case "palette.jumpUnread":
@@ -89,7 +89,7 @@ extension ContentView {
 
         return CommandPaletteCommandContribution(
             commandId: commandPaletteToggleRightSidebarCommandID,
-            title: constant(KeyboardShortcutSettings.Action.focusRightSidebar.label),
+            title: constant(KeyboardShortcutSettings.Action.toggleRightSidebar.label),
             subtitle: constant(String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")),
             keywords: ["toggle", "right", "sidebar", "show", "hide", "close", "focus"]
         )

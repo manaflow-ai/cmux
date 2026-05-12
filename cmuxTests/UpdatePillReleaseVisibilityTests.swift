@@ -12,13 +12,16 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
     func testDefaultAllowlistPatternsArePresent() {
         XCTAssertEqual(
             BrowserInsecureHTTPSettings.normalizedAllowlistPatterns(rawValue: nil),
-            ["localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]
+            ["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]
         )
     }
 
     func testWildcardAndExactHostMatching() {
         XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("localhost", rawAllowlist: nil))
+        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("a.localhost", rawAllowlist: nil))
+        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("deep.a.localhost", rawAllowlist: nil))
         XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("127.0.0.1", rawAllowlist: nil))
+        XCTAssertFalse(BrowserInsecureHTTPSettings.isHostAllowed("a.127.0.0.1", rawAllowlist: nil))
         XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("::1", rawAllowlist: nil))
         XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("0.0.0.0", rawAllowlist: nil))
         XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("api.localtest.me", rawAllowlist: nil))
@@ -46,6 +49,9 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
     func testBlockDecisionUsesAllowlistAndSchemeRules() throws {
         let localURL = try XCTUnwrap(URL(string: "http://foo.localtest.me:3000"))
         XCTAssertFalse(browserShouldBlockInsecureHTTPURL(localURL, rawAllowlist: nil))
+
+        let localhostSubdomainURL = try XCTUnwrap(URL(string: "http://a.localhost:3000"))
+        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(localhostSubdomainURL, rawAllowlist: nil))
 
         let insecureURL = try XCTUnwrap(URL(string: "http://neverssl.com"))
         XCTAssertTrue(browserShouldBlockInsecureHTTPURL(insecureURL, rawAllowlist: nil))
@@ -154,6 +160,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         let baseline = TitlebarControlsLayoutSnapshot(
             contentSize: NSSize(width: 128, height: 22),
             containerHeight: 28,
+            xOffset: 0,
             yOffset: 3
         )
         XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: nil, next: baseline))
@@ -162,9 +169,18 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         let changed = TitlebarControlsLayoutSnapshot(
             contentSize: NSSize(width: 132, height: 22),
             containerHeight: 28,
+            xOffset: 0,
             yOffset: 3
         )
         XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: changed))
+
+        let offsetChanged = TitlebarControlsLayoutSnapshot(
+            contentSize: NSSize(width: 128, height: 22),
+            containerHeight: 28,
+            xOffset: 1,
+            yOffset: 3
+        )
+        XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: offsetChanged))
     }
 
     func testShortcutHintVerticalOffsetKeepsPillInsideButtonLane() {

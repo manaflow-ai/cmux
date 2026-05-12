@@ -59,12 +59,12 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         }
     }
 
-    func testCommandPaletteRightSidebarToggleUsesFocusShortcutAction() {
+    func testCommandPaletteRightSidebarToggleUsesVisibilityToggleShortcutAction() {
         XCTAssertEqual(
             ContentView.commandPaletteShortcutAction(
                 forCommandID: ContentView.commandPaletteToggleRightSidebarCommandID
             ),
-            .focusRightSidebar
+            .toggleRightSidebar
         )
     }
 

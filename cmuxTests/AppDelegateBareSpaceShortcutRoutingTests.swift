@@ -129,6 +129,63 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, initialCount + 1, "Bare Space chord should dispatch on the second stroke")
     }
 
+    func testCreateMainWindowUsesPersistedGeometryWhenNoSourceWindow() throws {
+        let previousShared = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousShared }
+
+        let defaults = UserDefaults.standard
+        let persistedGeometryKey = AppDelegate.debugPersistedWindowGeometryDefaultsKey
+        let previousPersistedGeometry = defaults.object(forKey: persistedGeometryKey)
+        var windowId: UUID?
+        defer {
+            if let windowId {
+                closeWindow(withId: windowId)
+            }
+            restoreDefaultsValue(
+                previousPersistedGeometry,
+                forKey: persistedGeometryKey,
+                defaults: defaults
+            )
+        }
+
+        let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
+        let visibleFrame = screen.visibleFrame
+        let savedWidth = max(
+            CGFloat(SessionPersistencePolicy.minimumWindowWidth),
+            min(1_100, visibleFrame.width - 40)
+        )
+        let savedHeight = max(
+            CGFloat(SessionPersistencePolicy.minimumWindowHeight),
+            min(760, visibleFrame.height - 40)
+        )
+        let savedFrame = CGRect(
+            x: visibleFrame.midX - savedWidth / 2,
+            y: visibleFrame.midY - savedHeight / 2,
+            width: savedWidth,
+            height: savedHeight
+        )
+        let payload = AppDelegate.PersistedWindowGeometry(
+            version: AppDelegate.persistedWindowGeometrySchemaVersion,
+            frame: SessionRectSnapshot(savedFrame),
+            display: SessionDisplaySnapshot(
+                displayID: screen.cmuxDisplayID,
+                frame: SessionRectSnapshot(screen.frame),
+                visibleFrame: SessionRectSnapshot(screen.visibleFrame)
+            )
+        )
+        defaults.set(try JSONEncoder().encode(payload), forKey: persistedGeometryKey)
+
+        let createdWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
+        windowId = createdWindowId
+
+        let window = try XCTUnwrap(window(withId: createdWindowId))
+        XCTAssertEqual(window.frame.minX, savedFrame.minX, accuracy: 1)
+        XCTAssertEqual(window.frame.minY, savedFrame.minY, accuracy: 1)
+        XCTAssertEqual(window.frame.width, savedFrame.width, accuracy: 1)
+        XCTAssertEqual(window.frame.height, savedFrame.height, accuracy: 1)
+    }
+
     private func makeKeyDownEvent(
         key: String,
         keyCode: UInt16,
@@ -175,5 +232,13 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         guard let window = window(withId: windowId) else { return }
         window.performClose(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    }
+
+    private func restoreDefaultsValue(_ value: Any?, forKey key: String, defaults: UserDefaults) {
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
     }
 }

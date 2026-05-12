@@ -48,6 +48,7 @@ final class FileDropOverlayViewTests: XCTestCase {
 
     private final class DragSpyWebView: WKWebView {
         var dragCalls: [String] = []
+        var performResult = true
 
         override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
             dragCalls.append("entered")
@@ -61,7 +62,7 @@ final class FileDropOverlayViewTests: XCTestCase {
 
         override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
             dragCalls.append("perform")
-            return true
+            return performResult
         }
 
         override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
@@ -252,6 +253,80 @@ final class FileDropOverlayViewTests: XCTestCase {
             webView.dragCalls,
             ["entered", "prepare", "perform", "conclude"],
             "Finder file drops over browser panes should still reach the portal-hosted WKWebView"
+        )
+    }
+
+    func testOverlayDoesNotRecordTextDragWhenWebViewRejectsDrop() {
+        let defaults = UserDefaults.standard
+        let savedDefaultBehavior = defaults.object(forKey: FileDropBehaviorSettings.defaultBehaviorKey)
+        defaults.set(FileDropDefaultBehavior.text.rawValue, forKey: FileDropBehaviorSettings.defaultBehaviorKey)
+        defer {
+            if let savedDefaultBehavior {
+                defaults.set(savedDefaultBehavior, forKey: FileDropBehaviorSettings.defaultBehaviorKey)
+            } else {
+                defaults.removeObject(forKey: FileDropBehaviorSettings.defaultBehaviorKey)
+            }
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        realizeWindowLayout(window)
+
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected content container")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 52, y: 44, width: 210, height: 140))
+        contentView.addSubview(anchor)
+
+        let webView = DragSpyWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        webView.performResult = false
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        defer { BrowserWindowPortalRegistry.detach(webView: webView) }
+
+        let overlay = FileDropOverlayView(frame: container.bounds)
+        overlay.autoresizingMask = [.width, .height]
+        container.addSubview(overlay, positioned: .above, relativeTo: nil)
+
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.drag.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        XCTAssertTrue(
+            pasteboard.writeObjects([URL(fileURLWithPath: "/tmp/rejected-upload.mov") as NSURL]),
+            "Expected file URL drag payload"
+        )
+
+        let dropPoint = anchor.convert(
+            NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY),
+            to: nil
+        )
+        let dragInfo = MockDraggingInfo(
+            window: window,
+            location: dropPoint,
+            pasteboard: pasteboard
+        )
+
+        XCTAssertEqual(overlay.draggingEntered(dragInfo), .copy)
+        XCTAssertTrue(overlay.prepareForDragOperation(dragInfo))
+        XCTAssertFalse(overlay.performDragOperation(dragInfo))
+        XCTAssertFalse(overlay.didPerformDragAsText)
+        XCTAssertNil(overlay.performedTextDragWebView)
+
+        overlay.concludeDragOperation(dragInfo)
+        XCTAssertEqual(
+            webView.dragCalls,
+            ["entered", "prepare", "perform"],
+            "Rejected text drops should not be recorded as performed or receive a text-route conclude"
         )
     }
 }

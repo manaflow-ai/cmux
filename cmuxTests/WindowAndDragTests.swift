@@ -623,6 +623,19 @@ final class WindowDragHandleHitTests: XCTestCase {
         }
     }
 
+    private final class RecordingTitlebarActionWindow: NSWindow {
+        var zoomCallCount = 0
+        var miniaturizeCallCount = 0
+
+        override func zoom(_ sender: Any?) {
+            zoomCallCount += 1
+        }
+
+        override func miniaturize(_ sender: Any?) {
+            miniaturizeCallCount += 1
+        }
+    }
+
     /// A sibling view whose hitTest re-enters windowDragHandleShouldCaptureHit,
     /// simulating the crash path where sibling.hitTest triggers a SwiftUI layout
     /// pass that calls back into the drag handle's hit resolution.
@@ -639,6 +652,55 @@ final class WindowDragHandleHitTests: XCTestCase {
             )
             return nil
         }
+    }
+
+    private static func firstSubview(
+        in view: NSView,
+        matching predicate: (NSView) -> Bool
+    ) -> NSView? {
+        if predicate(view) {
+            return view
+        }
+
+        for subview in view.subviews {
+            if let match = firstSubview(in: subview, matching: predicate) {
+                return match
+            }
+        }
+
+        return nil
+    }
+
+    private static func firstCapturableTitlebarPoint(
+        in dragHandle: NSView,
+        window: NSWindow
+    ) -> NSPoint? {
+        let bounds = dragHandle.bounds.insetBy(dx: 4, dy: 4)
+        guard bounds.width > 0, bounds.height > 0 else { return nil }
+
+        let yCandidates = [
+            bounds.midY,
+            bounds.minY + bounds.height * 0.25,
+            bounds.minY + bounds.height * 0.75
+        ]
+
+        for y in yCandidates {
+            var x = bounds.maxX
+            while x >= bounds.minX {
+                let point = NSPoint(x: x, y: y)
+                if windowDragHandleShouldCaptureHit(
+                    point,
+                    in: dragHandle,
+                    eventType: .leftMouseDown,
+                    eventWindow: window
+                ) {
+                    return point
+                }
+                x -= 4
+            }
+        }
+
+        return nil
     }
 
     func testDragHandleCapturesHitWhenNoSiblingClaimsPoint() {
@@ -690,6 +752,64 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertFalse(
             TitlebarControlsHitRegions.pointFallsInButtonColumn(NSPoint(x: secondGapX, y: 14), config: config),
             "The gap between the notification and new-workspace icons should remain available for window dragging"
+        )
+    }
+
+    func testMinimalModeSidebarFallbackHitUsesHardcodedLeadingInset() {
+        let suiteName = "WindowDragHandleHitTests.leadingInset.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defaults.set(TitlebarControlsStyle.classic.rawValue, forKey: "titlebarControlsStyle")
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.test")
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let firstButtonX = TitlebarControlsHitRegions.buttonXRanges(config: TitlebarControlsStyle.classic.config)[0].lowerBound + 1
+        let titlebarY = contentView.bounds.maxY - 4
+        XCTAssertEqual(
+            minimalModeSidebarControlActionSlot(
+                window: window,
+                locationInWindow: NSPoint(
+                    x: CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset) + firstButtonX,
+                    y: titlebarY
+                ),
+                defaults: defaults
+            ),
+            .toggleSidebar
+        )
+    }
+
+    func testTitlebarChromeSettingsUseHardcodedDefaults() {
+        let suiteName = "WindowDragHandleHitTests.titlebarChromeSettings.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let snapshot = MinimalModeTitlebarDebugSettings.snapshot(defaults: defaults)
+        XCTAssertEqual(
+            snapshot.leftControlsLeadingInset,
+            MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            snapshot.leftControlsTopInset,
+            MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            MinimalModeTitlebarDebugSettings.leftControlsLeadingInset(defaults: defaults),
+            CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset),
+            accuracy: 0.001
         )
     }
 
@@ -1290,6 +1410,85 @@ final class WindowDragHandleHitTests: XCTestCase {
             "Reentrant same-window top-hit resolution should not trigger exclusivity crashes"
         )
     }
+
+    func testRightSidebarModeBarEmptySpaceDoubleClickPerformsTitlebarAction() {
+        _ = NSApplication.shared
+
+        let previousGlobalDefaults = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)
+        var testGlobalDefaults = previousGlobalDefaults ?? [:]
+        testGlobalDefaults["AppleActionOnDoubleClick"] = "Fill"
+        testGlobalDefaults["AppleMiniaturizeOnDoubleClick"] = false
+        UserDefaults.standard.setPersistentDomain(testGlobalDefaults, forName: UserDefaults.globalDomain)
+        defer {
+            if let previousGlobalDefaults {
+                UserDefaults.standard.setPersistentDomain(previousGlobalDefaults, forName: UserDefaults.globalDomain)
+            } else {
+                UserDefaults.standard.removePersistentDomain(forName: UserDefaults.globalDomain)
+            }
+        }
+
+        let window = RecordingTitlebarActionWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 260),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let rootView = RightSidebarPanelView(
+            fileExplorerStore: FileExplorerStore(),
+            fileExplorerState: FileExplorerState(),
+            sessionIndexStore: SessionIndexStore(),
+            titlebarHeight: 36,
+            workspaceId: nil,
+            onResumeSession: nil,
+            onOpenFilePreview: { _ in },
+            onClose: {}
+        )
+        let hostingView = NSHostingView(rootView: rootView)
+        hostingView.frame = window.contentRect(forFrameRect: window.frame)
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        hostingView.layoutSubtreeIfNeeded()
+
+        guard let dragHandle = Self.firstSubview(
+            in: hostingView,
+            matching: { $0.identifier == WindowDragHandleView.viewIdentifier }
+        ) else {
+            XCTFail("Expected right-sidebar mode bar to install a titlebar drag handle")
+            return
+        }
+
+        guard let emptyModeBarLocalPoint = Self.firstCapturableTitlebarPoint(
+            in: dragHandle,
+            window: window
+        ) else {
+            XCTFail("Expected right-sidebar mode bar to expose at least one empty titlebar point")
+            return
+        }
+
+        let emptyModeBarPoint = dragHandle.convert(emptyModeBarLocalPoint, to: nil as NSView?)
+        guard let event = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: emptyModeBarPoint,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 2,
+            pressure: 1.0
+        ) else {
+            XCTFail("Expected to create right-sidebar mode-bar double-click event")
+            return
+        }
+
+        NSApp.sendEvent(event)
+
+        XCTAssertEqual(window.zoomCallCount, 1)
+        XCTAssertEqual(window.miniaturizeCallCount, 0)
+    }
 }
 
 #if DEBUG
@@ -1347,34 +1546,52 @@ final class FolderWindowMoveSuppressionTests: XCTestCase {
         )
     }
 
-    func testSuppressionDisablesMovableWindow() {
+    func testSuppressionTracksMovableWindowWithoutChangingMovability() {
         let window = makeWindow()
         window.isMovable = true
 
-        let previous = temporarilyDisableWindowDragging(window: window)
+        let depth = beginWindowDragSuppression(window: window)
 
-        XCTAssertEqual(previous, true)
-        XCTAssertFalse(window.isMovable)
-    }
-
-    func testSuppressionPreservesAlreadyImmovableWindow() {
-        let window = makeWindow()
-        window.isMovable = false
-
-        let previous = temporarilyDisableWindowDragging(window: window)
-
-        XCTAssertEqual(previous, false)
-        XCTAssertFalse(window.isMovable)
-    }
-
-    func testRestoreAppliesPreviousMovableState() {
-        let window = makeWindow()
-        window.isMovable = false
-
-        restoreWindowDragging(window: window, previousMovableState: true)
+        XCTAssertEqual(depth, 1)
+        XCTAssertTrue(isWindowDragSuppressed(window: window))
         XCTAssertTrue(window.isMovable)
+    }
 
-        restoreWindowDragging(window: window, previousMovableState: false)
+    func testSuppressionTracksImmovableWindowWithoutChangingMovability() {
+        let window = makeWindow()
+        window.isMovable = false
+
+        let depth = beginWindowDragSuppression(window: window)
+
+        XCTAssertEqual(depth, 1)
+        XCTAssertTrue(isWindowDragSuppressed(window: window))
+        XCTAssertFalse(window.isMovable)
+    }
+
+    func testEndingSuppressionDoesNotRestoreStaleMovability() {
+        let window = makeWindow()
+        window.isMovable = false
+
+        XCTAssertEqual(beginWindowDragSuppression(window: window), 1)
+        XCTAssertFalse(window.isMovable)
+
+        window.isMovable = true
+
+        XCTAssertEqual(endWindowDragSuppression(window: window), 0)
+        XCTAssertFalse(isWindowDragSuppressed(window: window))
+        XCTAssertTrue(window.isMovable)
+    }
+
+    func testClearWindowDragSuppressionRemovesAllDepth() {
+        let window = makeWindow()
+        window.isMovable = false
+
+        XCTAssertEqual(beginWindowDragSuppression(window: window), 1)
+        XCTAssertEqual(beginWindowDragSuppression(window: window), 2)
+        XCTAssertEqual(windowDragSuppressionDepth(window: window), 2)
+
+        XCTAssertEqual(clearWindowDragSuppression(window: window), 0)
+        XCTAssertEqual(windowDragSuppressionDepth(window: window), 0)
         XCTAssertFalse(window.isMovable)
     }
 

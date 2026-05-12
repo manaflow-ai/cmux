@@ -1118,11 +1118,11 @@ struct FeedItemRow: View, Equatable {
         case .claude: return Color(red: 0.92, green: 0.54, blue: 0.29)
         case .codex: return .green
         case .opencode: return .blue
+        case .hermesAgent: return .teal
         case .cursor: return .purple
         default: return .secondary
         }
     }
-
     private var sourceChipBackground: Color {
         return sourceChipForeground.opacity(0.18)
     }
