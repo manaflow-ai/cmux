@@ -27,7 +27,7 @@ struct BlockedExtensionPanelView: View {
         VStack(spacing: 10) {
             Image(systemName: panel.isLoading ? "puzzlepiece.extension" : "exclamationmark.triangle")
                 .font(.system(size: 28, weight: .semibold))
-                .foregroundStyle(panel.isLoading ? .secondary : .orange)
+                .foregroundStyle(panel.isLoading ? Color.secondary : Color.orange)
             Text(panel.statusTitle)
                 .font(.headline)
             Text(panel.statusMessage)
