@@ -75,8 +75,10 @@ extension GhosttyNSView {
 
     func isApplePinyinInputSource(_ sourceId: String?) -> Bool {
         guard let sourceId else { return false }
-        return sourceId == "com.apple.inputmethod.SCIM.ITABC"
-            || sourceId == "com.apple.inputmethod.TCIM.Pinyin"
+        let normalized = sourceId.lowercased()
+        guard normalized.hasPrefix("com.apple.inputmethod.") else { return false }
+        return normalized == "com.apple.inputmethod.scim.itabc"
+            || normalized.contains(".pinyin")
     }
 
     func hasOnlyTextInputCommandModifiers(_ event: NSEvent) -> Bool {
@@ -102,7 +104,7 @@ extension GhosttyNSView {
         if isApplePinyinInputSource(inputSourceId) {
             switch Int(event.keyCode) {
             case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow,
-                 kVK_PageUp, kVK_PageDown, kVK_Tab:
+                 kVK_PageUp, kVK_PageDown, kVK_Tab, kVK_Space:
                 return true
             default:
                 return false

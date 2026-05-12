@@ -99,7 +99,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
     }
 
     private var pinyinCandidateCommandProbeNames: Set<String> {
-        ["Left", "Right", "Up", "Down", "PageUp", "PageDown", "Tab"]
+        ["Left", "Right", "Up", "Down", "PageUp", "PageDown", "Tab", "Space"]
     }
 
     private func assertInputSourceDoesNotSwallowNoMarkedIMECommandKeys(
@@ -597,6 +597,12 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
     func testTraditionalChinesePinyinHandledCandidateCommandsStayInTextInputWithoutMarkedText() throws {
         try assertApplePinyinInputSourceHandledCandidateCommandsStayInTextInputWithoutMarkedText(
             "com.apple.inputmethod.TCIM.Pinyin"
+        )
+    }
+
+    func testFutureApplePinyinVariantHandledCandidateCommandsStayInTextInputWithoutMarkedText() throws {
+        try assertApplePinyinInputSourceHandledCandidateCommandsStayInTextInputWithoutMarkedText(
+            "com.apple.inputmethod.TCIM.PinyinExtended"
         )
     }
 
