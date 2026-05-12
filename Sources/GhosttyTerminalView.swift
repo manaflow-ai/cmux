@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import Metal
 import QuartzCore
+import CoreImage
 import Combine
 import CoreText
 import Darwin
@@ -6273,7 +6274,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             layer.isOpaque = false
             CATransaction.commit()
         }
-        terminalSurface?.hostedView.setBackgroundColor(color)
+        terminalSurface?.hostedView.setBackgroundColor(
+            color,
+            clearsSharedWindowBackdrop: fillPlan.clearsSharedWindowBackdrop
+        )
         if GhosttyApp.shared.backgroundLogEnabled {
             let signature = "\(fillPlan.usesHostLayerFill ? color.hexString() : "transparent-host"):\(String(format: "%.3f", color.alphaComponent)):\(fillPlan.logBackdropLabel)"
             if signature != lastLoggedSurfaceBackgroundSignature {
@@ -6325,8 +6329,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         applySurfaceBackground()
         let snapshot = TerminalSurfaceBackgroundFillPlan.windowRootSnapshot(
-            from: WindowAppearanceSnapshot.currentFromUserDefaults(app: GhosttyApp.shared),
-            surfaceBackgroundColor: backgroundColor
+            from: WindowAppearanceSnapshot.currentFromUserDefaults(app: GhosttyApp.shared)
         )
         let color = snapshot.compositedTerminalBackgroundColor
         let plan = snapshot.backdropPlan()
@@ -9678,6 +9681,8 @@ final class GhosttySurfaceScrollView: NSView {
         static let lineWidth = PanelOverlayRingMetrics.lineWidth
     }
 
+    private let sharedBackdropCutoutView: NSView
+    private let sharedBackdropCutoutAvailable: Bool
     private let backgroundView: NSView
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
@@ -9925,6 +9930,9 @@ final class GhosttySurfaceScrollView: NSView {
         #endif
 
         self.surfaceView = surfaceView
+        let sharedBackdropCutoutFilter = CIFilter(name: "CIDestinationOutCompositing")
+        sharedBackdropCutoutView = NSView(frame: .zero)
+        sharedBackdropCutoutAvailable = sharedBackdropCutoutFilter != nil
         backgroundView = NSView(frame: .zero)
         scrollView = GhosttyScrollView()
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
@@ -9959,8 +9967,16 @@ final class GhosttySurfaceScrollView: NSView {
 
         super.init(frame: .zero)
         wantsLayer = true
+        layerUsesCoreImageFilters = true
         layer?.masksToBounds = true
 
+        sharedBackdropCutoutView.wantsLayer = true
+        sharedBackdropCutoutView.layerUsesCoreImageFilters = true
+        sharedBackdropCutoutView.compositingFilter = sharedBackdropCutoutFilter
+        sharedBackdropCutoutView.layer?.backgroundColor = NSColor.white.cgColor
+        sharedBackdropCutoutView.layer?.isOpaque = true
+        sharedBackdropCutoutView.isHidden = true
+        addSubview(sharedBackdropCutoutView)
         backgroundView.wantsLayer = true
         backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
         backgroundView.layer?.isOpaque = false
@@ -10358,6 +10374,7 @@ final class GhosttySurfaceScrollView: NSView {
 
         let didScrollbarAppearanceChange = synchronizeScrollbarAppearance()
         let previousSurfaceSize = surfaceView.frame.size
+        _ = setFrameIfNeeded(sharedBackdropCutoutView, to: bounds)
         _ = setFrameIfNeeded(backgroundView, to: bounds)
         _ = setFrameIfNeeded(scrollView, to: bounds)
         let targetSize = scrollView.bounds.size
@@ -10617,10 +10634,11 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.onTriggerFlash = handler
     }
 
-    func setBackgroundColor(_ color: NSColor) {
+    func setBackgroundColor(_ color: NSColor, clearsSharedWindowBackdrop: Bool) {
         guard let layer = backgroundView.layer else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        sharedBackdropCutoutView.isHidden = !(clearsSharedWindowBackdrop && sharedBackdropCutoutAvailable)
         layer.backgroundColor = color.cgColor
         layer.isOpaque = color.alphaComponent >= 1.0
         CATransaction.commit()

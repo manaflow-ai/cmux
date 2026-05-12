@@ -93,16 +93,17 @@ enum WindowBackdropPolicy {
     }
 }
 
-enum TerminalSurfaceBackgroundFillOwner: Equatable {
+nonisolated enum TerminalSurfaceBackgroundFillOwner: Equatable {
     case surfaceHostLayer
     case sharedWindowBackdrop
     case bonsplitPaneBackdrop
     case ghosttyNativeRenderer
 }
 
-struct TerminalSurfaceBackgroundFillPlan {
+nonisolated struct TerminalSurfaceBackgroundFillPlan {
     let owner: TerminalSurfaceBackgroundFillOwner
     let hostLayerColor: NSColor
+    let clearsSharedWindowBackdrop: Bool
 
     var usesHostLayerFill: Bool {
         owner == .surfaceHostLayer
@@ -145,7 +146,9 @@ struct TerminalSurfaceBackgroundFillPlan {
         let resolvedColor = (surfaceBackgroundColor ?? defaultBackgroundColor)
             .withAlphaComponent(WindowAppearanceSnapshot.clampedOpacity(backgroundOpacity))
         let owner: TerminalSurfaceBackgroundFillOwner
-        if surfaceBackgroundColor != nil && renderingMode.usesWindowHostBackdrop {
+        let usesPaneLocalSurfaceFill = surfaceBackgroundColor != nil &&
+            renderingMode.usesWindowHostBackdrop
+        if usesPaneLocalSurfaceFill {
             owner = .surfaceHostLayer
         } else if renderingMode.usesWindowHostBackdrop && !sharesWindowBackdrop && !usesBonsplitPaneBackdrop {
             owner = .surfaceHostLayer
@@ -158,17 +161,16 @@ struct TerminalSurfaceBackgroundFillPlan {
         }
         return Self(
             owner: owner,
-            hostLayerColor: owner == .surfaceHostLayer ? resolvedColor : .clear
+            hostLayerColor: owner == .surfaceHostLayer ? resolvedColor : .clear,
+            clearsSharedWindowBackdrop: usesPaneLocalSurfaceFill && sharesWindowBackdrop
         )
     }
 
     static func windowRootSnapshot(
-        from snapshot: WindowAppearanceSnapshot,
-        surfaceBackgroundColor _: NSColor?
+        from snapshot: WindowAppearanceSnapshot
     ) -> WindowAppearanceSnapshot {
         // OSC 11 is pane-local state. The shared root remains the default
-        // workspace backdrop so focusing a tinted pane does not repaint every
-        // other pane's translucent backing layer with the active pane's color.
+        // workspace backdrop; surface-owned fills cut out that root locally.
         return snapshot
     }
 }
