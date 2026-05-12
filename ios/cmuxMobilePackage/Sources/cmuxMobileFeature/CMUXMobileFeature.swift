@@ -1689,6 +1689,7 @@ struct TerminalPreviewSurface: View {
             }
         }
         .foregroundStyle(TerminalPalette.foreground)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileTerminalSurface")
     }
 

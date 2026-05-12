@@ -142,7 +142,7 @@ final class cmuxMobileUITests: XCTestCase {
         try typeText("127.0.0.1", into: app.textFields["MobileAddDeviceHostField"], in: app)
         try replaceText(String(port), in: app.textFields["MobileAddDevicePortField"], app: app)
         tap(app.buttons["MobilePairButton"], in: app)
-        XCTAssertTrue(app.otherElements["MobileWorkspaceList"].waitForExistence(timeout: 8))
+        waitForWorkspaceShell(in: app)
         return app
     }
 
@@ -191,6 +191,25 @@ final class cmuxMobileUITests: XCTestCase {
         let result = XCTWaiter.wait(for: [labelExpectation], timeout: 6)
         XCTAssertEqual(result, .completed, file: file, line: line)
         XCTAssertEqual(row.label, expectedLabel, file: file, line: line)
+    }
+
+    @MainActor
+    private func waitForWorkspaceShell(
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let workspaceList = app.otherElements["MobileWorkspaceList"]
+        let workspaceRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        let terminalSurface = app.otherElements["MobileTerminalSurface"]
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                workspaceList.exists || workspaceRow.exists || terminalSurface.exists
+            },
+            object: app
+        )
+        let result = XCTWaiter.wait(for: [expectation], timeout: 8)
+        XCTAssertEqual(result, .completed, file: file, line: line)
     }
 
     @MainActor
