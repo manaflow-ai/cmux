@@ -8124,7 +8124,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ flags: NSEvent.ModifierFlags,
         suppressCommandPathHover: Bool
     ) -> ghostty_input_mods_e {
-        let effectiveFlags = suppressCommandPathHover ? flags.subtracting(.command) : flags
+        let effectiveFlags = suppressCommandPathHover
+            ? cmuxGhosttyModifierFlagsByRemovingCommand(from: flags)
+            : flags
 #if DEBUG
         if suppressCommandPathHover, flags.contains(.command) {
             _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(
