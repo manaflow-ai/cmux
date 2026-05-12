@@ -17,6 +17,7 @@ extension Notification.Name {
 nonisolated private struct SocketLineProcessingResult: Sendable {
     let response: String
     let authenticated: Bool
+    let shouldWriteResponse: Bool
 }
 
 /// Unix socket-based controller for programmatic terminal control
@@ -1420,7 +1421,7 @@ class TerminalController {
             return "ERROR: Authentication required — send auth <password> first"
         }
         let id = dict["id"]
-        let usesJSONRPC = (dict["jsonrpc"] as? String) == "2.0"
+        let usesJSONRPC = Self.usesJSONRPC(dict)
         return v2Error(id: id, jsonRPC: usesJSONRPC, code: "auth_required", message: message)
     }
 
@@ -1456,7 +1457,7 @@ class TerminalController {
             return nil
         }
         let id = dict["id"]
-        let usesJSONRPC = (dict["jsonrpc"] as? String) == "2.0"
+        let usesJSONRPC = Self.usesJSONRPC(dict)
         let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard method == "auth.login" else {
             return nil
@@ -1516,6 +1517,20 @@ class TerminalController {
         let usesJSONRPC: Bool
     }
 
+    private nonisolated static func usesJSONRPC(_ dict: [String: Any]) -> Bool {
+        (dict["jsonrpc"] as? String) == "2.0"
+    }
+
+    private nonisolated static func isJSONRPCNotification(_ command: String) -> Bool {
+        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedCommand.hasPrefix("{"),
+              let data = trimmedCommand.data(using: .utf8),
+              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
+            return false
+        }
+        return usesJSONRPC(dict) && !dict.keys.contains("id")
+    }
+
     private nonisolated static let socketWorkerV2Methods: Set<String> = [
         "auth.status",
         "auth.begin_sign_in",
@@ -1558,7 +1573,7 @@ class TerminalController {
             id: dict["id"],
             method: method,
             params: dict["params"] as? [String: Any] ?? [:],
-            usesJSONRPC: (dict["jsonrpc"] as? String) == "2.0"
+            usesJSONRPC: Self.usesJSONRPC(dict)
         )
     }
 
@@ -2000,7 +2015,9 @@ class TerminalController {
 
                 let result = processSocketLine(trimmed, authenticated: authenticated)
                 authenticated = result.authenticated
-                let didWriteResponse = writeSocketResponse(result.response, to: socket)
+                let didWriteResponse = result.shouldWriteResponse
+                    ? writeSocketResponse(result.response, to: socket)
+                    : true
                 publishSocketEvents(command: trimmed, response: result.response)
                 guard didWriteResponse else {
                     return
@@ -2014,12 +2031,21 @@ class TerminalController {
         authenticated: Bool
     ) -> SocketLineProcessingResult {
         var nextAuthenticated = authenticated
+        let shouldWriteResponse = !Self.isJSONRPCNotification(command)
         if let response = authResponseIfNeeded(for: command, authenticated: &nextAuthenticated) {
-            return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+            return SocketLineProcessingResult(
+                response: response,
+                authenticated: nextAuthenticated,
+                shouldWriteResponse: shouldWriteResponse
+            )
         }
 
         let response = processCommandUsingSocketExecutionPolicy(command)
-        return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+        return SocketLineProcessingResult(
+            response: response,
+            authenticated: nextAuthenticated,
+            shouldWriteResponse: shouldWriteResponse
+        )
     }
 
     private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String {
@@ -2054,7 +2080,8 @@ class TerminalController {
     /// request) can reuse the full V1/V2 dispatcher without duplicating
     /// its auth/policy wrappers.
     nonisolated func handleSocketLine(_ line: String) -> String {
-        return processCommandUsingSocketExecutionPolicy(line)
+        let response = processCommandUsingSocketExecutionPolicy(line)
+        return Self.isJSONRPCNotification(line) ? "" : response
     }
 
     private func processCommand(_ command: String) -> String {
@@ -2446,7 +2473,7 @@ class TerminalController {
         }
 
         let id: Any? = dict["id"]
-        let usesJSONRPC = (dict["jsonrpc"] as? String) == "2.0"
+        let usesJSONRPC = Self.usesJSONRPC(dict)
         let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let params = dict["params"] as? [String: Any] ?? [:]
 
@@ -3981,8 +4008,10 @@ class TerminalController {
         switch code {
         case "parse_error":
             return -32700
-        case "invalid_request", "invalid_dispatch":
+        case "invalid_request":
             return -32600
+        case "invalid_dispatch":
+            return -32603
         case "method_not_found":
             return -32601
         case "invalid_params":

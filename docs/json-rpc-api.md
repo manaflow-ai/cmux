@@ -31,6 +31,11 @@ Response:
 {"jsonrpc":"2.0","id":"1","result":{"pong":true}}
 ```
 
+Requests with `"jsonrpc": "2.0"` and no `"id"` member are JSON-RPC
+notifications. cmux executes those methods but does not write a response frame.
+An explicit `"id": null` is still a request and receives a response with
+`"id": null`.
+
 ## Errors
 
 JSON-RPC mode uses standard numeric error codes where possible and preserves the
@@ -53,9 +58,10 @@ Common mappings:
 | cmux code | JSON-RPC code |
 | --- | --- |
 | `parse_error` | `-32700` |
-| `invalid_request`, `invalid_dispatch` | `-32600` |
+| `invalid_request` | `-32600` |
 | `method_not_found` | `-32601` |
 | `invalid_params` | `-32602` |
+| `invalid_dispatch` | `-32603` |
 | other cmux errors | `-32000` |
 
 ## Discovery

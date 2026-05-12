@@ -103,6 +103,71 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(data["cmux_code"] as? String, "invalid_params")
     }
 
+    func testJSONRPCNotificationDoesNotWriteSocketResponse() throws {
+        let socketPath = makeSocketPath("jsonrpc-notification")
+        let tabManager = TabManager()
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let fd = try connect(to: socketPath)
+        defer { Darwin.close(fd) }
+
+        let explicitNullID: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": NSNull(),
+            "method": "system.ping",
+            "params": [String: Any]()
+        ]
+        let explicitNullIDData = try JSONSerialization.data(withJSONObject: explicitNullID)
+        let explicitNullIDLine = try XCTUnwrap(String(data: explicitNullIDData, encoding: .utf8))
+        try writeLine(explicitNullIDLine, to: fd)
+
+        let explicitNullIDResponseLine = try readLine(from: fd)
+        let explicitNullIDResponseData = Data(explicitNullIDResponseLine.utf8)
+        let explicitNullIDResponse = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: explicitNullIDResponseData) as? [String: Any],
+            "Expected response for explicit null JSON-RPC id"
+        )
+        XCTAssertTrue(explicitNullIDResponse["id"] is NSNull, "Unexpected v2 response: \(explicitNullIDResponse)")
+
+        let notification: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "system.ping",
+            "params": [String: Any]()
+        ]
+        let notificationData = try JSONSerialization.data(withJSONObject: notification)
+        let notificationLine = try XCTUnwrap(String(data: notificationData, encoding: .utf8))
+        try writeLine(notificationLine, to: fd)
+
+        XCTAssertNil(try readLineIfAvailable(from: fd, timeoutMilliseconds: 250))
+
+        let followUp: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": "after-notification",
+            "method": "system.ping",
+            "params": [String: Any]()
+        ]
+        let followUpData = try JSONSerialization.data(withJSONObject: followUp)
+        let followUpLine = try XCTUnwrap(String(data: followUpData, encoding: .utf8))
+        try writeLine(followUpLine, to: fd)
+
+        let responseLine = try readLine(from: fd)
+        let responseData = Data(responseLine.utf8)
+        let response = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+            "Expected response after notification"
+        )
+
+        XCTAssertEqual(response["jsonrpc"] as? String, "2.0", "Unexpected v2 response: \(response)")
+        XCTAssertEqual(response["id"] as? String, "after-notification", "Unexpected v2 response: \(response)")
+        XCTAssertNotNil(response["result"], "Unexpected v2 response: \(response)")
+    }
+
     func testSocketCommandPolicyDistinguishesFocusIntent() throws {
 #if DEBUG
         let nonFocus = TerminalController.debugSocketCommandPolicySnapshot(
@@ -882,6 +947,18 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             ])
         }
         return line
+    }
+
+    private nonisolated func readLineIfAvailable(from fd: Int32, timeoutMilliseconds: Int32) throws -> String? {
+        var descriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+        let ready = Darwin.poll(&descriptor, 1, timeoutMilliseconds)
+        guard ready >= 0 else {
+            throw posixError("poll")
+        }
+        guard ready > 0, (descriptor.revents & Int16(POLLIN)) != 0 else {
+            return nil
+        }
+        return try readLine(from: fd)
     }
 
     private nonisolated func posixError(_ operation: String) -> NSError {

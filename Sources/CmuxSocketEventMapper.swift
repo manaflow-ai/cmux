@@ -26,7 +26,9 @@ enum CmuxSocketEventMapper {
         }
 
         let isLegacySuccess = (responseObject["ok"] as? Bool) == true
-        let isJSONRPCSuccess = (responseObject["jsonrpc"] as? String) == "2.0" && responseObject["error"] == nil
+        let isJSONRPCSuccess = (responseObject["jsonrpc"] as? String) == "2.0"
+            && responseObject["error"] == nil
+            && responseObject["result"] != nil
         guard isLegacySuccess || isJSONRPCSuccess else {
             return true
         }
