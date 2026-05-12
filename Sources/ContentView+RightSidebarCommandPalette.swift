@@ -3,6 +3,10 @@ import AppKit
 extension ContentView {
     static let commandPaletteToggleRightSidebarCommandID = "palette.toggleRightSidebar"
 
+    private static func constantCommandPaletteText(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
+        { _ in value }
+    }
+
     static func commandPaletteShortcutAction(forCommandID commandId: String) -> KeyboardShortcutSettings.Action? {
         if let rightSidebarModeAction = commandPaletteRightSidebarModeShortcutAction(forCommandID: commandId) {
             return rightSidebarModeAction
@@ -83,28 +87,20 @@ extension ContentView {
     }
 
     static func commandPaletteRightSidebarToggleCommandContribution() -> CommandPaletteCommandContribution {
-        func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
-            { _ in value }
-        }
-
         return CommandPaletteCommandContribution(
             commandId: commandPaletteToggleRightSidebarCommandID,
-            title: constant(KeyboardShortcutSettings.Action.toggleRightSidebar.label),
-            subtitle: constant(String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")),
+            title: constantCommandPaletteText(KeyboardShortcutSettings.Action.toggleRightSidebar.label),
+            subtitle: constantCommandPaletteText(String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")),
             keywords: ["toggle", "right", "sidebar", "show", "hide", "close", "focus"]
         )
     }
 
     static func commandPaletteRightSidebarModeCommandContributions() -> [CommandPaletteCommandContribution] {
-        func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
-            { _ in value }
-        }
-
         return RightSidebarMode.availableModes().map { mode in
             CommandPaletteCommandContribution(
                 commandId: Self.commandPaletteRightSidebarModeCommandID(mode),
-                title: constant(mode.shortcutAction.label),
-                subtitle: constant(String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")),
+                title: constantCommandPaletteText(mode.shortcutAction.label),
+                subtitle: constantCommandPaletteText(String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")),
                 keywords: ["right", "sidebar", "show", "switch", "focus", mode.rawValue]
             )
         }
