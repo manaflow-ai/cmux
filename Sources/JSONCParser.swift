@@ -9,7 +9,7 @@ enum JSONCParser {
         return Data(normalized.utf8)
     }
 
-    private static func sourceString(from data: Data) throws -> String {
+    static func sourceString(from data: Data) throws -> String {
         if let encoding = detectedJSONEncoding(for: data),
            let source = String(data: data, encoding: encoding) {
             return source

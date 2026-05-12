@@ -285,6 +285,7 @@ struct RightSidebarPanelView: View {
     private var closeButton: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleRightSidebar)
+        let controlSize = RightSidebarChromeMetrics.controlHeight(uiScaleFactor: uiScaleFactor)
         let showsShortcutHint = titlebarShortcutHintShouldShow(
             shortcut: shortcut,
             alwaysShowShortcutHints: alwaysShowShortcutHints,
@@ -294,7 +295,7 @@ struct RightSidebarPanelView: View {
             Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(.system(size: RightSidebarModeBarMetrics.closeIconFontSize(uiScaleFactor: uiScaleFactor), weight: .semibold))
-                    .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
+                    .frame(width: controlSize, height: controlSize)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -307,7 +308,7 @@ struct RightSidebarPanelView: View {
             .accessibilityLabel(String(localized: "rightSidebar.close.accessibilityLabel", defaultValue: "Close Right Sidebar"))
             .accessibilityIdentifier("RightSidebar.closeButton")
         }
-        .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
+        .frame(width: controlSize, height: controlSize)
         .overlay(alignment: .top) {
             if showsShortcutHint {
                 ShortcutHintPill(shortcut: shortcut, fontSize: 9, emphasis: 1.05)
@@ -586,13 +587,16 @@ private struct ModeBarButton: View {
 struct RightSidebarUIScaleProbeView: View {
     @Environment(\.uiScaleFactor) private var uiScaleFactor
 
-    let onResolve: (CGFloat) -> Void
+    let onResolve: (CGFloat, CGFloat) -> Void
 
     var body: some View {
         Color.clear
             .frame(width: 1, height: 1)
             .onAppear {
-                onResolve(RightSidebarModeBarMetrics.labelFontSize(uiScaleFactor: uiScaleFactor))
+                onResolve(
+                    RightSidebarModeBarMetrics.labelFontSize(uiScaleFactor: uiScaleFactor),
+                    RightSidebarChromeMetrics.controlHeight(uiScaleFactor: uiScaleFactor)
+                )
             }
     }
 }

@@ -97,10 +97,42 @@ final class UIScaleSettingsTests: XCTestCase {
         XCTAssertEqual(UIScaleSettings.resolved(), 1.23, accuracy: 0.001)
     }
 
+    func testWritingAppUIScalePreservesJSONCTemplateComments() throws {
+        let settingsFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-scale-template-\(UUID().uuidString).json", isDirectory: false)
+        try CmuxSettingsFileStore.defaultTemplate().write(
+            to: settingsFileURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+
+        try store.writeAppUIScale(1.4)
+
+        let updated = try String(contentsOf: settingsFileURL, encoding: .utf8)
+        XCTAssertTrue(updated.contains("// This file uses JSON with comments (JSONC)."))
+        XCTAssertTrue(updated.contains("// Uncomment and edit any setting to make it file-managed."))
+        XCTAssertTrue(updated.contains("\"terminal\""))
+
+        let data = Data(updated.utf8)
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONCParser.preprocess(data: data)) as? [String: Any]
+        )
+        let appSection = try XCTUnwrap(json["app"] as? [String: Any])
+        XCTAssertEqual(try XCTUnwrap(appSection["uiScale"] as? Double), 1.4, accuracy: 0.001)
+    }
+
     func testSidebarViewReceivesUIScaleThroughEnvironment() throws {
         var capturedFontSize: CGFloat?
-        let view = RightSidebarUIScaleProbeView { fontSize in
+        var capturedControlHeight: CGFloat?
+        let view = RightSidebarUIScaleProbeView { fontSize, controlHeight in
             capturedFontSize = fontSize
+            capturedControlHeight = controlHeight
         }
         .environment(\.uiScaleFactor, 1.35)
         let hostingView = NSHostingView(rootView: view)
@@ -126,6 +158,14 @@ final class UIScaleSettingsTests: XCTestCase {
             scaledFontSize,
             RightSidebarModeBarMetrics.labelFontSize(uiScaleFactor: 1.0)
         )
+
+        let scaledControlHeight = try XCTUnwrap(capturedControlHeight)
+        XCTAssertEqual(
+            scaledControlHeight,
+            RightSidebarChromeMetrics.controlHeight(uiScaleFactor: 1.35),
+            accuracy: 0.001
+        )
+        XCTAssertGreaterThan(scaledControlHeight, scaledFontSize)
     }
 
     func testUIScaleShortcutsClampAndReset() throws {

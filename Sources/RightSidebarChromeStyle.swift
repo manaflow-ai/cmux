@@ -1,20 +1,24 @@
 import SwiftUI
 
 struct RightSidebarChromeBarModifier: ViewModifier {
+    @Environment(\.uiScaleFactor) private var uiScaleFactor
+
     var leadingPadding: CGFloat
     var trailingPadding: CGFloat
     var height: CGFloat
 
     func body(content: Content) -> some View {
         content
-            .padding(.leading, leadingPadding)
-            .padding(.trailing, trailingPadding)
-            .padding(.vertical, RightSidebarChromeMetrics.barVerticalPadding)
-            .frame(height: height)
+            .padding(.leading, UIScaleSettings.scaled(leadingPadding, by: uiScaleFactor))
+            .padding(.trailing, UIScaleSettings.scaled(trailingPadding, by: uiScaleFactor))
+            .padding(.vertical, RightSidebarChromeMetrics.barVerticalPadding(uiScaleFactor: uiScaleFactor))
+            .frame(height: RightSidebarChromeMetrics.scaledBarHeight(height, uiScaleFactor: uiScaleFactor))
     }
 }
 
 struct RightSidebarChromePillModifier: ViewModifier {
+    @Environment(\.uiScaleFactor) private var uiScaleFactor
+
     var isSelected: Bool
     var isHovered: Bool
     var selectedForeground: Color = .primary
@@ -25,18 +29,24 @@ struct RightSidebarChromePillModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .foregroundColor(isSelected ? selectedForeground : defaultForeground)
-            .padding(.horizontal, horizontalPadding)
-            .frame(height: RightSidebarChromeMetrics.controlHeight)
+            .padding(.horizontal, RightSidebarChromeMetrics.controlHorizontalPadding(horizontalPadding, uiScaleFactor: uiScaleFactor))
+            .frame(height: RightSidebarChromeMetrics.controlHeight(uiScaleFactor: uiScaleFactor))
             .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
                 keyPrefix: geometryKeyPrefix,
                 isVisible: true
             )
             .background(
-                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
+                RoundedRectangle(
+                    cornerRadius: RightSidebarChromeMetrics.controlCornerRadius(uiScaleFactor: uiScaleFactor),
+                    style: .continuous
+                )
                     .fill(backgroundColor)
             )
             .contentShape(
-                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
+                RoundedRectangle(
+                    cornerRadius: RightSidebarChromeMetrics.controlCornerRadius(uiScaleFactor: uiScaleFactor),
+                    style: .continuous
+                )
             )
     }
 

@@ -78,7 +78,7 @@ struct SessionIndexView: View {
             }
             .toggleStyle(.checkbox)
             .controlSize(.small)
-            .frame(height: RightSidebarChromeMetrics.controlHeight)
+            .frame(height: RightSidebarChromeMetrics.controlHeight(uiScaleFactor: uiScaleFactor))
             .reportRightSidebarChromeNamedGeometryForBonsplitUITest(keyPrefix: "rightSidebarSecondaryControl_scope", isVisible: true)
             .disabled(store.currentDirectory == nil)
             .accessibilityIdentifier("SessionScopeToggle.thisFolder")
