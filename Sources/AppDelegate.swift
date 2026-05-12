@@ -4846,8 +4846,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func closeMainWindow(windowId: UUID) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
-        window.performClose(nil)
-        return true
+        return closeMainTerminalWindow(window, expectedWindowId: windowId)
+    }
+
+    @discardableResult
+    private func closeMainTerminalWindow(
+        _ window: NSWindow,
+        expectedWindowId: UUID? = nil
+    ) -> Bool {
+        let windowId = expectedWindowId
+            ?? contextForMainTerminalWindow(window, reindex: false)?.windowId
+            ?? mainWindowId(from: window)
+        guard let windowId else { return false }
+
+        WebViewInspectorTeardown.closeAllInspectors(in: window)
+        window.close()
+        forgetRecoverableMainWindowRoute(windowId: windowId)
+
+        let didClose = !mainWindowContexts.values.contains { $0.windowId == windowId }
+#if DEBUG
+        if !didClose {
+            cmuxDebugLog(
+                "mainWindow.close.incomplete windowId=\(String(windowId.uuidString.prefix(8))) window={\(debugWindowToken(window))}"
+            )
+        }
+#endif
+        return didClose
     }
 
     private func confirmCloseMainWindow(_ window: NSWindow) -> Bool {
@@ -4885,9 +4909,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             window.performClose(nil)
             return true
         }
-        guard confirmCloseMainWindow(window) else { return true }
-        window.performClose(nil)
-        return true
+        guard confirmCloseMainWindow(window) else { return false }
+        return closeMainTerminalWindow(window)
     }
 
     private func orderedMainWindowSummaries(referenceWindowId: UUID?) -> [MainWindowSummary] {
@@ -13455,6 +13478,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Keep geometry available as a fallback for the next window placement.
         persistWindowGeometry(from: window)
 
+        let closingContext = contextForMainTerminalWindow(window, reindex: false)
+        closingContext?.tabManager.teardownForWindowClose()
+
         guard let removed = unregisterMainWindowContext(for: window) else { return }
         publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
         commandPaletteVisibilityByWindowId.removeValue(forKey: removed.windowId)
@@ -13513,9 +13539,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func closeMainWindowContainingTabId(_ tabId: UUID) {
         guard let context = contextContainingTabId(tabId) else { return }
-        let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
-        let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
-        window?.performClose(nil)
+        _ = closeMainWindow(windowId: context.windowId)
     }
 
     @discardableResult

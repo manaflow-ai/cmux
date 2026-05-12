@@ -4162,6 +4162,28 @@ class TabManager: ObservableObject {
         publishCmuxWorkspaceClosed(workspace)
     }
 
+    func teardownForWindowClose() {
+        guard !tabs.isEmpty else { return }
+        sentryBreadcrumb("window.close", data: ["workspaceCount": tabs.count])
+
+        let closingWorkspaces = tabs
+        sidebarSelectedWorkspaceIds.removeAll()
+
+        for workspace in closingWorkspaces {
+            clearWorkspaceGitProbes(workspaceId: workspace.id)
+            clearWorkspacePullRequestTracking(workspaceId: workspace.id)
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            unwireClosedBrowserTracking(for: workspace)
+            workspace.owningTabManager = nil
+            publishCmuxWorkspaceClosed(workspace)
+        }
+
+        tabs.removeAll(keepingCapacity: false)
+        selectedTabId = nil
+    }
+
     /// Detach a workspace from this window without closing its panels.
     /// Used by the socket API for cross-window moves.
     @discardableResult
@@ -4553,10 +4575,10 @@ class TabManager: ObservableObject {
         }
         if tabs.count <= 1 {
             // Last workspace in this window: match Close Workspace shortcut behavior.
-            if let window {
-                window.performClose(nil)
+            if let app = AppDelegate.shared {
+                app.closeMainWindowContainingTabId(workspace.id)
             } else {
-                AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
+                window?.close()
             }
         } else {
             closeWorkspace(workspace)
