@@ -2363,6 +2363,58 @@ final class WorkspaceSurfaceCreationPlacementTests: XCTestCase {
         }
     }
 
+    func testContextMenuNewBrowserUsesAnchorProfileWithEndPlacement() throws {
+        try withSurfacePlacement(.end) {
+            let workspace = Workspace()
+            let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+            let initialPanelId = try XCTUnwrap(workspace.focusedPanelId)
+            let anchorProfile = try makeTemporaryBrowserProfile(named: "ContextMenuAnchor")
+            let selectedProfile = try makeTemporaryBrowserProfile(named: "ContextMenuSelected")
+            let anchorBrowser = try XCTUnwrap(
+                workspace.newBrowserSurface(
+                    inPane: paneId,
+                    focus: true,
+                    preferredProfileID: anchorProfile.id,
+                    placementOverride: .end
+                )
+            )
+            let selectedBrowser = try XCTUnwrap(
+                workspace.newBrowserSurface(
+                    inPane: paneId,
+                    focus: true,
+                    preferredProfileID: selectedProfile.id,
+                    placementOverride: .end
+                )
+            )
+            let anchorTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(anchorBrowser.id))
+            let anchorTab = try XCTUnwrap(workspace.bonsplitController.tab(anchorTabId))
+
+            workspace.focusPanel(selectedBrowser.id)
+            workspace.splitTabBar(
+                workspace.bonsplitController,
+                didRequestTabContextAction: .newBrowserToRight,
+                for: anchorTab,
+                inPane: paneId
+            )
+
+            let order = orderedPanelIds(in: workspace, paneId: paneId)
+            let createdPanelId = try XCTUnwrap(
+                order.first { ![initialPanelId, anchorBrowser.id, selectedBrowser.id].contains($0) }
+            )
+            let createdBrowser = try XCTUnwrap(workspace.browserPanel(for: createdPanelId))
+            XCTAssertEqual(
+                order,
+                [initialPanelId, anchorBrowser.id, selectedBrowser.id, createdPanelId]
+            )
+            XCTAssertEqual(
+                createdBrowser.profileID,
+                anchorProfile.id,
+                "Expected context-menu browser creation to inherit the right-clicked tab profile, not the selected tab profile"
+            )
+            XCTAssertEqual(workspace.focusedPanelId, createdPanelId)
+        }
+    }
+
     func testDefaultPlacementInsertsNewTerminalSurfaceAfterFocusedSurface() throws {
         try withSurfacePlacement(.afterCurrent) {
             let workspace = Workspace()

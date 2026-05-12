@@ -12566,7 +12566,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func createBrowserToRight(of anchorTabId: TabID, inPane paneId: PaneID, url: URL? = nil) {
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
-        let preferredProfileID = panelIdFromSurfaceId(anchorTabId).flatMap { browserPanel(for: $0)?.profileID }
+        let preferredProfileID = browserProfileID(forSurface: anchorTabId)
         _ = newBrowserSurface(
             inPane: paneId,
             url: url,
@@ -12576,12 +12576,21 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
+    private func browserProfileID(forSurface surfaceId: TabID) -> UUID? {
+        panelIdFromSurfaceId(surfaceId).flatMap { browserPanel(for: $0)?.profileID }
+    }
+
     private func createBrowserFromContextMenu(anchorTabId: TabID, inPane paneId: PaneID, url: URL? = nil) {
         guard SurfacePlacementSettings.current() != .afterCurrent else {
             createBrowserToRight(of: anchorTabId, inPane: paneId, url: url)
             return
         }
-        _ = newBrowserSurface(inPane: paneId, url: url, focus: true)
+        _ = newBrowserSurface(
+            inPane: paneId,
+            url: url,
+            focus: true,
+            preferredProfileID: browserProfileID(forSurface: anchorTabId)
+        )
     }
 
     private func duplicateBrowserToRight(anchorTabId: TabID, inPane paneId: PaneID) {
