@@ -546,6 +546,9 @@ func omoRequestedModel(args []string) string {
 			if index+1 >= len(args) {
 				return requestedModel
 			}
+			if args[index+1] == "--" {
+				break
+			}
 			value := strings.TrimSpace(args[index+1])
 			if value != "" {
 				requestedModel = value
@@ -565,6 +568,7 @@ func omoRequestedModel(args []string) string {
 			if value != "" {
 				requestedModel = value
 			}
+			continue
 		}
 	}
 	return requestedModel

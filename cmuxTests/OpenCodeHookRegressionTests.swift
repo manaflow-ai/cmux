@@ -171,6 +171,29 @@ final class OpenCodeHookRegressionTests: XCTestCase {
             let config = resetCategories?[category] as? [String: Any]
             XCTAssertNil(config?["model"], "category \(category) should not keep the previous model")
         }
+
+        let terminatorResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["omo", "--model", "--", "run", "hello"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(terminatorResult.timedOut, terminatorResult.stderr)
+        XCTAssertEqual(terminatorResult.status, 0, terminatorResult.stderr)
+        let terminatorConfig = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: omoConfigURL), options: []) as? [String: Any]
+        )
+        let terminatorAgents = terminatorConfig["agents"] as? [String: Any]
+        for agent in expectedAgentKeys {
+            let config = terminatorAgents?[agent] as? [String: Any]
+            XCTAssertNil(config?["model"], "agent \(agent) should not treat -- as a model")
+        }
+        let terminatorCategories = terminatorConfig["categories"] as? [String: Any]
+        for category in expectedCategoryKeys {
+            let config = terminatorCategories?[category] as? [String: Any]
+            XCTAssertNil(config?["model"], "category \(category) should not treat -- as a model")
+        }
     }
 
     private func bundledCLIPath() throws -> String {

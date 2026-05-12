@@ -87,6 +87,15 @@ func TestRunVersion(t *testing.T) {
 	}
 }
 
+func TestOMORequestedModelHonorsTerminator(t *testing.T) {
+	if got := omoRequestedModel([]string{"--model", "--", "run", "hello"}); got != "" {
+		t.Fatalf("omoRequestedModel should not treat -- as a model, got %q", got)
+	}
+	if got := omoRequestedModel([]string{"-m=deepinfra/zai-org/GLM-4.7-Flash", "run"}); got != "deepinfra/zai-org/GLM-4.7-Flash" {
+		t.Fatalf("omoRequestedModel -m=value = %q", got)
+	}
+}
+
 func TestWrapperBinaryDispatchesIntoCLI(t *testing.T) {
 	if os.Getenv("CMUXD_REMOTE_MAIN_HELPER") == "1" {
 		separator := 0

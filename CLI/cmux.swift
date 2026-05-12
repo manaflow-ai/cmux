@@ -12648,6 +12648,9 @@ struct CMUXCLI {
             if arg == "--model" || arg == "-m" {
                 let nextIndex = commandArgs.index(after: index)
                 guard nextIndex < commandArgs.endIndex else { return requestedModel }
+                if commandArgs[nextIndex] == "--" {
+                    break
+                }
                 let value = commandArgs[nextIndex].trimmingCharacters(in: .whitespacesAndNewlines)
                 if !value.isEmpty {
                     requestedModel = value
