@@ -123,6 +123,10 @@ final class GhosttyConfigTests: XCTestCase {
             atomically: true,
             encoding: .utf8
         )
+        let configURL = themesDirectory
+            .deletingLastPathComponent()
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        try "theme = Zag Light\n".write(to: configURL, atomically: true, encoding: .utf8)
 
         let result = runCLI(
             try bundledCLIPath(),
@@ -139,6 +143,10 @@ final class GhosttyConfigTests: XCTestCase {
         )
         let themes = try XCTUnwrap(payload["themes"] as? [[String: Any]])
         XCTAssertTrue(themes.contains { ($0["name"] as? String) == "Zag Light" }, result.output)
+        let current = try XCTUnwrap(payload["current"] as? [String: Any])
+        XCTAssertEqual(current["light"] as? String, "Zag Light")
+        XCTAssertEqual(current["dark"] as? String, "Zag Light")
+        XCTAssertEqual(current["source_path"] as? String, configURL.path)
     }
 
     func testCmuxDefaultThemeConfigContentsSkipsInvalidUTF8Candidate() throws {
