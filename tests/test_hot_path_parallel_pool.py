@@ -164,10 +164,10 @@ def main() -> int:
     failures: list[str] = []
     cli_path = resolve_cmux_cli()
 
-    with tempfile.TemporaryDirectory(prefix="cmux-hot-path-pool-") as td:
+    with tempfile.TemporaryDirectory(dir="/tmp", prefix="cmuxhp-") as td:
         root = Path(td)
-        app_socket = str(root / "cmux.sock")
-        broker_socket = str(root / "hot-path-broker.sock")
+        app_socket = str(root / "a.sock")
+        broker_socket = str(root / "b.sock")
         server = FakeJSONRPCSocketServer(socket_path=app_socket, response_delay=0.02)
         server.start()
         burst_total_connections = 0
@@ -244,7 +244,7 @@ def main() -> int:
                 "CMUX_HOT_PATH_BROKER_CLIENT_READ_TIMEOUT_SECONDS": "0.2",
                 "CMUX_HOT_PATH_BROKER_IDLE_TIMEOUT_SECONDS": "3",
             }
-            stall_broker_socket = str(root / "hot-path-broker-stall.sock")
+            stall_broker_socket = str(root / "c.sock")
             warmup = run_hot_path_rpc(cli_path, app_socket, stall_broker_socket, params, stall_env)
             if warmup.returncode != 0:
                 failures.append(f"warmup hot-path request failed: stderr={warmup.stderr!r}")

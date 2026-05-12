@@ -7235,9 +7235,9 @@ extension TabManager {
         if let data = try? encoder.encode(snapshot) {
             hasher.combine(data)
         } else {
-            // If the persisted snapshot cannot be encoded, avoid incorrectly
-            // treating later autosave ticks as unchanged.
-            hasher.combine(UUID())
+            // Keep the fallback stable. A fresh UUID would make every autosave
+            // tick look like a state change while encoding is failing.
+            hasher.combine(Int.max)
         }
     }
 

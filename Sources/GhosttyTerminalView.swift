@@ -9982,13 +9982,12 @@ final class GhosttySurfaceScrollView: NSView {
             return nil
         }
 
-        let image = NSImage(size: size)
-        let rect = NSRect(origin: .zero, size: size)
-        image.lockFocus()
-        symbol.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-        tintColor.setFill()
-        rect.fill(using: .sourceIn)
-        image.unlockFocus()
+        let image = NSImage(size: size, flipped: false) { rect in
+            symbol.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            tintColor.setFill()
+            rect.fill(using: .sourceIn)
+            return true
+        }
         image.isTemplate = false
         return image
     }

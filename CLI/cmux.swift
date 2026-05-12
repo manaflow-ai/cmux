@@ -1911,6 +1911,10 @@ struct CMUXCLI {
     private static let hotPathRequestMaxBytes = 1_048_576
     private static let hotPathEnvironmentThreadKey = "com.cmux.hot-path.environment"
 
+    private static func writeHookNoopResponse() {
+        CMUXCLIOutput.writeStandardOutput("{}\n")
+    }
+
     private struct CapturedPrintedOutput {
         let stdout: String
         let stderr: String
@@ -2937,7 +2941,7 @@ struct CMUXCLI {
         }
         if command == "setup-hooks" || command == "uninstall-hooks" { try runSetupHooks(uninstall: command == "uninstall-hooks"); return } // Backwards compatibility for old hook setup docs/scripts.
         if (command == "codex-hook" || command == "feed-hook"), processEnv["CMUX_SURFACE_ID"]?.isEmpty != false, processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
-           !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { print("{}"); return } // Backwards compatibility for old installed hooks outside cmux terminals.
+           !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { Self.writeHookNoopResponse(); return } // Backwards compatibility for old installed hooks outside cmux terminals.
         if command == "hooks" {
             if try runHooksNoSocketCommand(commandArgs: commandArgs) {
                 return
@@ -2946,7 +2950,7 @@ struct CMUXCLI {
                processEnv["CMUX_SURFACE_ID"]?.isEmpty != false,
                processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
                !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) {
-                print("{}")
+                Self.writeHookNoopResponse()
                 return
             }
         }
@@ -3282,7 +3286,12 @@ struct CMUXCLI {
                     }
                     break
                 }
-                if !stdout.isEmpty { print(stdout, terminator: stdout.hasSuffix("\n") ? "" : "\n") }
+                if !stdout.isEmpty {
+                    CMUXCLIOutput.writeStandardOutput(stdout)
+                    if !stdout.hasSuffix("\n") {
+                        CMUXCLIOutput.writeStandardOutput("\n")
+                    }
+                }
                 if !stderr.isEmpty {
                     CMUXCLIOutput.writeStandardError(stderr)
                     if !stderr.hasSuffix("\n") {
@@ -4086,7 +4095,7 @@ struct CMUXCLI {
                 throw error
             }
         case "codex-hook": // Backwards compatibility for older installed Codex hooks. Hidden from help.
-            guard let codexDef = Self.agentDef(named: "codex") else { print("{}"); return }
+            guard let codexDef = Self.agentDef(named: "codex") else { Self.writeHookNoopResponse(); return }
             try runGenericAgentHook(def: codexDef, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
         case "feed-hook": // Backwards compatibility for older installed Feed hooks. Hidden from help.
             try runFeedHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
@@ -18165,7 +18174,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             break
         }
 
-        print("{}")
+        Self.writeHookNoopResponse()
     }
 
     // MARK: - Feed telemetry helper
@@ -20034,7 +20043,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // Outside a cmux terminal (no CMUX_SURFACE_ID) → silently no-op.
         // Also matches the graceful-fallback pattern of the other hooks.
         guard processEnv["CMUX_SURFACE_ID"]?.isEmpty == false else {
-            print("{}")
+            Self.writeHookNoopResponse()
             return
         }
 
@@ -20045,7 +20054,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         guard !stdinData.isEmpty,
               let stdinObj = try? JSONSerialization.jsonObject(with: stdinData) as? [String: Any]
         else {
-            print("{}")
+            Self.writeHookNoopResponse()
             return
         }
 
@@ -20066,7 +20075,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             event: rawEvent,
             processEnv: processEnv
         ) {
-            print("{}")
+            Self.writeHookNoopResponse()
             return
         }
 
@@ -20170,7 +20179,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 responseTimeout: waitTimeout > 0 ? waitTimeout + 5 : nil
             )
         } catch {
-            print("{}")
+            Self.writeHookNoopResponse()
             return
         }
 
@@ -20179,7 +20188,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
               let ok = respObj["ok"] as? Bool, ok,
               let result = respObj["result"] as? [String: Any]
         else {
-            print("{}")
+            Self.writeHookNoopResponse()
             return
         }
 
@@ -20193,10 +20202,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 rawObject: stdinObj,
                 decision: decision
             )
-            print(out)
+            CMUXCLIOutput.writeStandardOutput(out.hasSuffix("\n") ? out : "\(out)\n")
             return
         }
-        print("{}")
+        Self.writeHookNoopResponse()
     }
 
     private static func shouldBypassClaudeTeamPermissionRequestFeedHook(
