@@ -8249,13 +8249,31 @@ final class Workspace: Identifiable, ObservableObject {
     }
     private var backgroundPrimeTerminalPanels: [TerminalPanel] {
         var seenPanelIds = Set<UUID>()
-        return bonsplitController.allPaneIds.compactMap { paneId -> TerminalPanel? in
-            guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id ?? bonsplitController.tabs(inPane: paneId).first?.id, let panelId = panelIdFromSurfaceId(tabId), seenPanelIds.insert(panelId).inserted else { return nil }
-            return panels[panelId] as? TerminalPanel
+        var orderedTargets: [TerminalPanel] = []
+        let renderedPaneIds = bonsplitController.zoomedPaneId.map { [$0] } ?? bonsplitController.allPaneIds
+
+        for paneId in renderedPaneIds {
+            guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id ?? bonsplitController.tabs(inPane: paneId).first?.id,
+                  let panelId = panelIdFromSurfaceId(tabId),
+                  seenPanelIds.insert(panelId).inserted,
+                  let terminalPanel = panels[panelId] as? TerminalPanel else {
+                continue
+            }
+            orderedTargets.append(terminalPanel)
         }
+
+        if let focusedPanelId,
+           let focusedPaneId = paneId(forPanelId: focusedPanelId),
+           renderedPaneIds.contains(where: { $0.id == focusedPaneId.id }),
+           seenPanelIds.insert(focusedPanelId).inserted,
+           let focusedTerminal = panels[focusedPanelId] as? TerminalPanel {
+            orderedTargets.append(focusedTerminal)
+        }
+
+        return orderedTargets
     }
     func requestBackgroundPrimeTerminalSurfaceStartIfNeeded() { backgroundPrimeTerminalPanels.forEach { $0.surface.requestBackgroundSurfaceStartIfNeeded() } }
-    func hasLoadedBackgroundPrimeTerminalSurface() -> Bool { backgroundPrimeTerminalPanels.allSatisfy { $0.surface.surface != nil } }
+    func hasLoadedBackgroundPrimeTerminalSurface() -> Bool { backgroundPrimeTerminalPanels.allSatisfy { $0.surface.hasLiveSurface } }
     @discardableResult
     func preloadTerminalPanelForDebugStress(
         tabId: TabID,

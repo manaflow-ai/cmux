@@ -97,10 +97,8 @@ final class BackgroundWorkspacePrimeCoordinator {
         // Explicit for the required_deinit lint; per-prime resources live on Waiter.
     }
 
-    func taskKey(for tabManager: TabManager) -> [String] {
+    func taskKey(for tabManager: TabManager) -> Set<UUID> {
         tabManager.pendingBackgroundWorkspaceLoadIds
-            .map(\.uuidString)
-            .sorted()
     }
 
     func primePendingBackgroundWorkspaces(tabManager: TabManager) async {
@@ -114,8 +112,9 @@ final class BackgroundWorkspacePrimeCoordinator {
 
                 switch reason {
                 case .timeout:
-                    // Keep the hidden mount retained; pending background initial commands
-                    // must stay eligible to start until the surface is actually ready.
+                    // Do not pin a hidden workspace in SwiftUI just to keep retrying.
+                    // Normal terminal creation still runs when the workspace is selected.
+                    tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
                     continue
                 case .cancelled:
                     continue
@@ -134,7 +133,6 @@ final class BackgroundWorkspacePrimeCoordinator {
             tabManager.releaseBackgroundWorkspaceMount(for: workspaceId)
             return .alreadyCleared
         }
-        tabManager.retainBackgroundWorkspaceMount(for: workspaceId)
 
 #if DEBUG
         let startedAt = ProcessInfo.processInfo.systemUptime
