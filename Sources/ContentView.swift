@@ -3267,7 +3267,7 @@ struct ContentView: View {
             syncTrafficLightInset()
         })
 
-        view = AnyView(view.onChange(of: workspaceSidebarPositionRaw) { _ in
+        view = AnyView(view.onChange(of: workspaceSidebarPositionRaw) {
             if let observedWindow {
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
             }
