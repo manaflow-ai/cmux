@@ -330,6 +330,56 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(shape["workspaces"] as? Int, 2)
     }
 
+    func testSessionSnapshotCanBeBuiltFromOnlyRecoveredWindowSnapshotAfterManagerRelease() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let recoveredWindowId = UUID()
+        let recoveredWindow = makeMainWindow(id: recoveredWindowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
+            recoveredWindow.orderOut(nil)
+        }
+
+        weak var releasedRecoveredManager: TabManager?
+        do {
+            let recoveredManager = TabManager()
+            releasedRecoveredManager = recoveredManager
+            app.registerMainWindow(
+                recoveredWindow,
+                windowId: recoveredWindowId,
+                tabManager: recoveredManager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: FileExplorerState()
+            )
+
+            let recoveredWorkspace = try XCTUnwrap(recoveredManager.selectedWorkspace)
+            let recoveredTerminal = try XCTUnwrap(recoveredWorkspace.focusedTerminalPanel)
+            XCTAssertTrue(TerminalSurfaceRegistry.shared.surface(id: recoveredTerminal.id) === recoveredTerminal.surface)
+
+            app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        XCTAssertNil(releasedRecoveredManager)
+        app.retireRecoverableMainWindowRoutesWithoutRegisteredTerminalSurfaces(reason: "test")
+
+        let payload = app.debugBenchmarkSessionSnapshot(
+            includeScrollback: false,
+            persist: false,
+            includeRecoverableRoutes: true
+        )
+        let shape = try XCTUnwrap(payload["shape"] as? [String: Any])
+        XCTAssertEqual(shape["windows"] as? Int, 1)
+        XCTAssertEqual(shape["workspaces"] as? Int, 1)
+    }
+
     func testSessionSnapshotExcludesRecoveredWindowRouteDuringNormalCloseSave() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
