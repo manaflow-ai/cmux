@@ -85,10 +85,7 @@ actor RestorableAgentSessionIndexProvider {
         }.value
     }
 
-    private static func detectLiveProcessSnapshots(
-        registry: CmuxVaultAgentRegistry,
-        fileManager: FileManager
-    ) -> RestorableAgentSessionIndex.DetectedSnapshots {
+    private static let detectLiveProcessSnapshots: ProcessDetector = { registry, fileManager in
         RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: registry,
             fileManager: fileManager
