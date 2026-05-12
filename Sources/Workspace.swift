@@ -11389,10 +11389,6 @@ final class Workspace: Identifiable, ObservableObject {
            panelSubscriptions[filePreviewPanel.id] == nil {
             installFilePreviewPanelSubscription(filePreviewPanel)
         }
-        if let extensionPanel = detached.panel as? ExtensionPanel,
-           panelSubscriptions[extensionPanel.id] == nil {
-            installExtensionPanelSubscription(extensionPanel)
-        }
         let didAdoptWorkspaceRemoteTracking =
             detached.isRemoteTerminal
             && detached.remoteRelayPort == remoteConfiguration?.relayPort

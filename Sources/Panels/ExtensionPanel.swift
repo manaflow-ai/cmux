@@ -197,6 +197,7 @@ final class ExtensionPanel: NSObject, Panel, ObservableObject {
                 self?.dispatchEventSubscriptionMessage(subscriptionId: subscriptionId, event: event)
             }
         }) else {
+            CmuxEventBus.shared.unsubscribe(subscription)
             return ExtensionBridgeCodec.bridgeError(code: "subscription_closed", message: "Event subscription is already closed")
         }
         eventSubscriptions[subscriptionId] = (subscription: subscription, handlerToken: handlerToken)
