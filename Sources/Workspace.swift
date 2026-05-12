@@ -7441,12 +7441,9 @@ final class Workspace: Identifiable, ObservableObject {
         backgroundColor: NSColor,
         splitDividerColor: NSColor?
     ) -> String {
-        if let splitDividerColor {
-            return splitDividerColor.hexString(includeAlpha: splitDividerColor.alphaComponent < 0.999)
-        }
-        return WindowChromeSeparatorColor
+        let resolved = splitDividerColor ?? WindowChromeSeparatorColor
             .color(forChromeBackground: backgroundColor)
-            .hexString(includeAlpha: true)
+        return resolved.hexString(includeAlpha: resolved.alphaComponent < 0.999)
     }
 
     private static func bonsplitChromeColorsEqual(
