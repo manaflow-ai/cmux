@@ -194,12 +194,11 @@ if [[ -f "$INFO_PLIST" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$INFO_PLIST" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $BUNDLE_ID" "$INFO_PLIST"
 
-  # Inject staging socket paths via LSEnvironment so the Release binary
-  # (which defaults to the per-user stable socket) uses isolated sockets instead.
+  # Keep staging on the bundle-scoped App Support socket path used by the app.
   STAGING_SLUG="${TAG_SLUG:-staging}"
   APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
   CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-${STAGING_SLUG}.sock"
-  CMUX_SOCKET_PATH_VALUE="/tmp/cmux-${STAGING_SLUG}.sock"
+  CMUX_SOCKET_PATH_VALUE="${APP_SUPPORT_DIR}/com.cmuxterm.app.staging.sock"
   write_last_socket_path "$CMUX_SOCKET_PATH_VALUE"
   /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
   /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUXD_UNIX_PATH \"${CMUXD_SOCKET}\"" "$INFO_PLIST" 2>/dev/null \
@@ -258,8 +257,8 @@ OPEN_CLEAN_ENV=(
   -u XDG_DATA_DIRS
 )
 
-# Always inject staging socket paths via env to ensure they take effect
-# (LSEnvironment requires app restart to pick up plist changes).
+# Pass the same staging socket path through the launch environment for child
+# process consistency; the app also derives this path from its staging bundle id.
 "${OPEN_CLEAN_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -g "$APP_PATH"
 
 # Safety: ensure only one instance is running.

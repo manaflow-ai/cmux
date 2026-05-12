@@ -109,12 +109,7 @@ def _focus_first_surface(client: cmux) -> str:
 
 
 def main() -> int:
-    tag = os.environ.get("CMUX_TAG", "")
-
-    socket_path = None
-    if tag:
-        socket_path = f"/tmp/cmux-debug-{tag}.sock"
-    client = cmux(socket_path=socket_path)
+    client = cmux()
     client.connect()
 
     # Use resolved paths to avoid /tmp -> /private/tmp symlink mismatch on macOS

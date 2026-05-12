@@ -759,6 +759,10 @@ private enum CLISocketPathResolver {
     private static let stableSocketFileName = "com.cmuxterm.app.sock"
     private static let legacyStableSocketFileName = "cmux.sock"
     private static let lastSocketPathFileName = "last-socket-path"
+    private static let unixSocketPathMaxLength: Int = {
+        var addr = sockaddr_un()
+        return MemoryLayout.size(ofValue: addr.sun_path) - 1
+    }()
     static let legacyDefaultSocketPath = "/tmp/cmux.sock"
     private static let fallbackSocketPath = "/tmp/cmux-debug.sock"
     private static let stagingSocketPath = "/tmp/cmux-staging.sock"
@@ -806,6 +810,7 @@ private enum CLISocketPathResolver {
 
         if let tag = normalized(environment["CMUX_TAG"]) {
             let slug = sanitizeTagSlug(tag)
+            candidates.append(taggedAppSupportSocketPath(slug: slug))
             candidates.append("/tmp/cmux-debug-\(slug).sock")
             candidates.append("/tmp/cmux-\(slug).sock")
         }
@@ -920,6 +925,48 @@ private enum CLISocketPathResolver {
             return nil
         }
         return appSupportDirectory.appendingPathComponent(appSupportDirectoryName, isDirectory: true)
+    }
+
+    private static func taggedAppSupportSocketPath(slug: String) -> String {
+        socketPath(fileName: "com.cmuxterm.app.dev.\(slug).sock")
+    }
+
+    private static func socketPath(fileName: String) -> String {
+        guard let directoryURL = stableSocketDirectoryURL() else {
+            return "/tmp/\(shortenedSocketFileName(fileName, directoryPath: "/tmp"))"
+        }
+        let candidate = directoryURL.appendingPathComponent(fileName, isDirectory: false).path
+        guard candidate.utf8.count > unixSocketPathMaxLength else {
+            return candidate
+        }
+        return directoryURL
+            .appendingPathComponent(shortenedSocketFileName(fileName, directoryPath: directoryURL.path), isDirectory: false)
+            .path
+    }
+
+    private static func shortenedSocketFileName(_ fileName: String, directoryPath: String) -> String {
+        let separatorLength = 1
+        let budget = unixSocketPathMaxLength - directoryPath.utf8.count - separatorLength
+        guard fileName.utf8.count > budget, budget > ".sock".count + 10 else {
+            return fileName
+        }
+
+        let suffix = ".sock"
+        let stem = fileName.hasSuffix(suffix) ? String(fileName.dropLast(suffix.count)) : fileName
+        let hashSuffix = "-\(fnv1a32Hex(fileName))"
+        let stemBudget = max(1, budget - hashSuffix.utf8.count - suffix.utf8.count)
+        let shortenedStem = String(stem.prefix(stemBudget)).trimmingCharacters(in: CharacterSet(charactersIn: ".-"))
+        let safeStem = shortenedStem.isEmpty ? "cmux" : shortenedStem
+        return "\(safeStem)\(hashSuffix)\(suffix)"
+    }
+
+    private static func fnv1a32Hex(_ value: String) -> String {
+        var hash: UInt32 = 2_166_136_261
+        for byte in value.utf8 {
+            hash ^= UInt32(byte)
+            hash = hash &* 16_777_619
+        }
+        return String(format: "%08x", hash)
     }
 
     private static var legacyStableSocketPath: String {

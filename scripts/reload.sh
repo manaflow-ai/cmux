@@ -170,6 +170,7 @@ socket_path_for_file_name() {
   local directory="$HOME/Library/Application Support/cmux"
   local file_name="$1"
   local max_path_length=103
+  local LC_ALL=C
   local candidate="${directory}/${file_name}"
   if (( ${#candidate} <= max_path_length )); then
     echo "$candidate"
@@ -186,7 +187,7 @@ socket_path_for_file_name() {
     return 0
   fi
   local shortened_stem="${stem:0:stem_budget}"
-  shortened_stem="$(echo "$shortened_stem" | sed -E 's/[.-]+$//')"
+  shortened_stem="$(echo "$shortened_stem" | sed -E 's/^[.-]+//; s/[.-]+$//')"
   if [[ -z "$shortened_stem" ]]; then
     shortened_stem="cmux"
   fi

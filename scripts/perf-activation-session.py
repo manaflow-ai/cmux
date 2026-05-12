@@ -48,7 +48,7 @@ def socket_path_for_file_name(file_name: str) -> pathlib.Path:
     stem_budget = budget - len(hash_suffix.encode("utf-8")) - len(suffix)
     if stem_budget < 1:
         return candidate
-    shortened_stem = stem[:stem_budget].rstrip(".-") or "cmux"
+    shortened_stem = stem[:stem_budget].strip(".-") or "cmux"
     return directory / f"{shortened_stem}{hash_suffix}{suffix}"
 
 

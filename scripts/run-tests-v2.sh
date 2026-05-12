@@ -37,6 +37,7 @@ cleanup() {
   pkill -x "cmux DEV" || true
   pkill -x "cmux" || true
   rm -f /tmp/cmux*.sock || true
+  rm -f "$HOME/Library/Application Support/cmux/com.cmuxterm.app.dev.${RUN_TAG}.sock" || true
 }
 
 launch_and_wait() {
@@ -54,9 +55,9 @@ launch_and_wait() {
   # Launch directly with UI test mode enabled so startup follows deterministic test codepaths.
   CMUX_TAG="$RUN_TAG" CMUX_UI_TEST_MODE=1 "$APP/Contents/MacOS/cmux DEV" >/dev/null 2>&1 &
 
-  SOCK=""
+  SOCK="$HOME/Library/Application Support/cmux/com.cmuxterm.app.dev.${RUN_TAG}.sock"
+  rm -f "$SOCK"
   for _ in {1..120}; do
-    SOCK=$(ls -t /tmp/cmux-debug*.sock /tmp/cmux*.sock 2>/dev/null | head -1 || true)
     if [ -n "$SOCK" ] && [ -S "$SOCK" ]; then
       break
     fi
@@ -64,7 +65,7 @@ launch_and_wait() {
   done
 
   if [ -z "$SOCK" ] || [ ! -S "$SOCK" ]; then
-    echo "ERROR: Socket not ready (looked for /tmp/cmux*.sock)" >&2
+    echo "ERROR: Socket not ready at $SOCK" >&2
     exit 1
   fi
   export CMUX_SOCKET_PATH="$SOCK"

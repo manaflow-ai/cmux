@@ -466,14 +466,14 @@ jobs:
           fi
 
           TAG="ci-lag"
-          SOCK="/tmp/cmux-debug-${TAG}.sock"
+          SOCK="$HOME/Library/Application Support/cmux/com.cmuxterm.app.dev.${TAG}.sock"
           BUNDLE_ID="$(
             /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist" 2>/dev/null \
               || echo 'com.cmuxterm.app.debug'
           )"
 
           pkill -x "cmux DEV" || true
-          rm -f "$SOCK" "/tmp/cmux-${TAG}.sock" || true
+          rm -f "$SOCK" "/tmp/cmux-debug-${TAG}.sock" "/tmp/cmux-${TAG}.sock" || true
           defaults write "$BUNDLE_ID" socketControlMode -string full >/dev/null 2>&1 || true
 
           CMUX_TAG="$TAG" CMUX_SOCKET_PATH="$SOCK" CMUX_UI_TEST_MODE=1 "$APP/Contents/MacOS/cmux DEV" >/tmp/cmux-ci-lag.log 2>&1 &

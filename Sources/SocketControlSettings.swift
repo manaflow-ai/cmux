@@ -567,7 +567,7 @@ struct SocketControlSettings {
         if isTruthy(environment[allowSocketPathOverrideKey]) {
             return true
         }
-        if isDebugLikeBundleIdentifier(bundleIdentifier) || isStagingBundleIdentifier(bundleIdentifier) {
+        if isDebugLikeBundleIdentifier(bundleIdentifier) {
             return true
         }
         return isDebugBuild

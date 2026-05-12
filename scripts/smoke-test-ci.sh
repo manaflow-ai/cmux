@@ -2,7 +2,7 @@
 # Smoke test for CI: launch the app, send a command, verify it stays alive for 15 seconds.
 set -euo pipefail
 
-SOCKET_PATH="/tmp/cmux-debug.sock"
+SOCKET_PATH="$HOME/Library/Application Support/cmux/com.cmuxterm.app.dev.sock"
 STABILITY_WAIT=15
 
 echo "=== Smoke Test ==="
@@ -21,7 +21,7 @@ if [ ! -x "$BINARY" ]; then
 fi
 
 # --- Clean up stale socket and any existing instances ---
-rm -f "$SOCKET_PATH"
+rm -f "$SOCKET_PATH" /tmp/cmux-debug.sock
 pkill -x "cmux DEV" 2>/dev/null || true
 sleep 1
 
@@ -70,7 +70,7 @@ if [ "$SOCKET_READY" != "true" ]; then
   cat /tmp/cmux-smoke-stdout.log 2>/dev/null | tail -30 || true
   echo "--- debug log ---"
   tail -30 /tmp/cmux-debug.log 2>/dev/null || true
-  ls -la /tmp/cmux-debug* 2>/dev/null || true
+  ls -la /tmp/cmux-debug* "$HOME/Library/Application Support/cmux"/com.cmuxterm.app*.sock 2>/dev/null || true
   pgrep -la "cmux" || echo "No cmux processes found"
   exit 1
 fi
