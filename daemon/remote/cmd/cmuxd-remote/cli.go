@@ -431,7 +431,7 @@ func extractJSONOutputFlag(args []string, valueFlags []string) ([]string, bool) 
 		cleaned = append(cleaned, arg)
 		if strings.HasPrefix(arg, "--") {
 			key := strings.TrimPrefix(arg, "--")
-			if valueFlagSet[key] && i+1 < len(args) {
+			if valueFlagSet[key] && i+1 < len(args) && args[i+1] != "--json" {
 				i++
 				cleaned = append(cleaned, args[i])
 			}
