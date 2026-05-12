@@ -32,6 +32,7 @@
 		3069F1D10000000000000005 /* CMUXPasteboardFidelity in Frameworks */ = {isa = PBXBuildFile; productRef = 3069F1D10000000000000006 /* CMUXPasteboardFidelity */; };
 		350DAC5EBD38642A3E81471A /* AuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 312DE7503B4658DD173121B8 /* AuthManager.swift */; };
 		36CE99ED050785B5E96B72BB /* AuthCallbackRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61A19A4145F034965110CF87 /* AuthCallbackRouter.swift */; };
+		3DD2157D2EE7F616187887E3 /* SidekickTerminalTap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6485A46CD2DF8384C6A4EDE5 /* SidekickTerminalTap.swift */; };
 		4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */; };
 		46F6AC15863EC84DCD3770A2 /* TerminalAndGhosttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */; };
 		4D8B37E0E11A29997632765F /* InternalTabDragConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 610008EA5E3744DDBE05C8E2 /* InternalTabDragConfiguration.swift */; };
@@ -540,6 +541,7 @@
 		6083A7DAD962E287FC2FFE94 /* ShortcutAndCommandPaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutAndCommandPaletteTests.swift; sourceTree = "<group>"; };
 		610008EA5E3744DDBE05C8E2 /* InternalTabDragConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/InternalTabDragConfiguration.swift; sourceTree = "<group>"; };
 		61A19A4145F034965110CF87 /* AuthCallbackRouter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthCallbackRouter.swift; sourceTree = "<group>"; };
+		6485A46CD2DF8384C6A4EDE5 /* SidekickTerminalTap.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SidekickTerminalTap.swift; path = Panels/SidekickTerminalTap.swift; sourceTree = "<group>"; };
 		6B8E2E03F4A64C61B729CF19 /* TerminalDirectoryOpenSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalDirectoryOpenSupport.swift; sourceTree = "<group>"; };
 		71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceUnitTests.swift; sourceTree = "<group>"; };
 		71F8ED92A4B55D34BE6A0668 /* WorkspaceSplitStartupCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSplitStartupCommandTests.swift; sourceTree = "<group>"; };
@@ -1307,6 +1309,7 @@
 				FB1E99FD638166CF696DBB0B /* SidekickState.swift */,
 				20C621BD23C2F1BA4B9A6CEF /* SidekickWebView.swift */,
 				9A775C7836A8576756DA98EF /* SidekickStore.swift */,
+				6485A46CD2DF8384C6A4EDE5 /* SidekickTerminalTap.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -1971,6 +1974,7 @@
 				53EB910CF054FF9C28274330 /* SidekickState.swift in Sources */,
 				2B93E9E1A6324F6DC28ECF96 /* SidekickWebView.swift in Sources */,
 				BF6DF79923A3E90945F2879B /* SidekickStore.swift in Sources */,
+				3DD2157D2EE7F616187887E3 /* SidekickTerminalTap.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
