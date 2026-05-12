@@ -684,9 +684,10 @@ struct PairingView: View {
     let connectManualHost: (String, String, Int) async -> Void
     let signOut: () -> Void
     @State private var isShowingScanner = false
-    @State private var deviceName = L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac")
-    @State private var host = ""
-    @State private var port = "4865"
+    @State private var deviceName = UITestConfig.addDeviceName
+        ?? L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac")
+    @State private var host = UITestConfig.addDeviceHost ?? ""
+    @State private var port = UITestConfig.addDevicePort ?? "4865"
     @State private var validationError: String?
     @State private var isPairing = false
     @FocusState private var focusedField: AddDeviceField?

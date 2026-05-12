@@ -137,27 +137,35 @@ final class cmuxMobileUITests: XCTestCase {
 
     @MainActor
     private func launchConnectedApp(port: UInt16) throws -> XCUIApplication {
-        let app = launchAddDeviceApp()
-        try replaceText("UI Test Mac", in: app.textFields["MobileAddDeviceNameField"], app: app)
-        try typeText("127.0.0.1", into: app.textFields["MobileAddDeviceHostField"], in: app)
-        try replaceText(String(port), in: app.textFields["MobileAddDevicePortField"], app: app)
+        let app = launchAddDeviceApp(environment: [
+            "CMUX_UITEST_ADD_DEVICE_NAME": "UI Test Mac",
+            "CMUX_UITEST_ADD_DEVICE_HOST": "127.0.0.1",
+            "CMUX_UITEST_ADD_DEVICE_PORT": String(port),
+        ])
         tap(app.buttons["MobilePairButton"], in: app)
         waitForWorkspaceShell(in: app)
         return app
     }
 
     @MainActor
-    private func launchAddDeviceApp() -> XCUIApplication {
-        let app = launchApp(mockData: true)
+    private func launchAddDeviceApp(environment: [String: String] = [:]) -> XCUIApplication {
+        let app = launchApp(mockData: true, environment: environment)
         XCTAssertTrue(app.otherElements["MobileAddDeviceForm"].waitForExistence(timeout: 8))
         return app
     }
 
     @MainActor
-    private func launchApp(mockData: Bool, clearAuth: Bool = false) -> XCUIApplication {
+    private func launchApp(
+        mockData: Bool,
+        clearAuth: Bool = false,
+        environment: [String: String] = [:]
+    ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = mockData ? "1" : "0"
+        for (key, value) in environment {
+            app.launchEnvironment[key] = value
+        }
         if clearAuth {
             app.launchEnvironment["CMUX_UITEST_CLEAR_AUTH"] = "1"
         }
