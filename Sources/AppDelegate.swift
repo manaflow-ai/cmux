@@ -664,9 +664,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         primaryMainWindowFrameAutosaveName
     }
     nonisolated static var debugPersistedWindowGeometryDefaultsKey: String { persistedWindowGeometryDefaultsKey }
+    nonisolated static func debugRemoveLegacyPersistedWindowGeometry(
+        defaults: UserDefaults = .standard
+    ) {
+        removeLegacyPersistedWindowGeometry(defaults: defaults)
+    }
 #endif
     private nonisolated static let legacyPersistedWindowGeometryDefaultsKeys = [
-        "cmux.session.lastWindowGeometry.v1"
+        "cmux.session.lastWindowGeometry.v1",
+        persistedWindowGeometryDefaultsKey,
     ]
 
     weak var tabManager: TabManager?
@@ -6782,6 +6788,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               autosaveName.hasPrefix("\(Self.mainWindowFrameAutosaveNamePrefix).") else {
             return
         }
+        _ = window.setFrameAutosaveName("")
         NSWindow.removeFrame(usingName: autosaveName)
     }
 

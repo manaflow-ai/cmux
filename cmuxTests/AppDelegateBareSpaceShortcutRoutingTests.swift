@@ -202,6 +202,28 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testLegacyPersistedGeometryCleanupRemovesCurrentV2Key() throws {
+        let defaults = UserDefaults.standard
+        let persistedGeometryKey = AppDelegate.debugPersistedWindowGeometryDefaultsKey
+        let previousPersistedGeometry = defaults.object(forKey: persistedGeometryKey)
+        defer {
+            restoreDefaultsValue(
+                previousPersistedGeometry,
+                forKey: persistedGeometryKey,
+                defaults: defaults
+            )
+        }
+
+        defaults.set(Data([1, 2, 3]), forKey: persistedGeometryKey)
+
+        AppDelegate.debugRemoveLegacyPersistedWindowGeometry(defaults: defaults)
+
+        XCTAssertNil(
+            defaults.object(forKey: persistedGeometryKey),
+            "The removed cmux-owned frame geometry key must be cleared so AppKit frame autosave is the only persisted frame source."
+        )
+    }
+
     func testCreateMainWindowRegistersAppKitFrameAutosaveNames() throws {
         let previousShared = AppDelegate.shared
         let appDelegate = AppDelegate()
@@ -290,6 +312,10 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
 
         closeWindow(withId: secondWindowId)
 
+        XCTAssertTrue(
+            secondWindow.frameAutosaveName.isEmpty,
+            "Ephemeral autosave names must be cleared before removing their saved frame."
+        )
         XCTAssertNil(
             defaults.object(forKey: secondaryFrameAutosaveKey),
             "UUID-scoped autosave names are per-window and must be removed when the window closes."
