@@ -1768,6 +1768,7 @@ final class FileExplorerHeaderView: NSView {
     private var displayPath = ""
     private var quickSearchQuery: String?
     private var uiScaleFactor = UIScaleSettings.defaultValue
+    private var headerHeightConstraint: NSLayoutConstraint!
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -1794,8 +1795,11 @@ final class FileExplorerHeaderView: NSView {
 
         iconWidthConstraint = iconView.widthAnchor.constraint(equalToConstant: UIScaleSettings.scaled(14, by: uiScaleFactor))
         iconHeightConstraint = iconView.heightAnchor.constraint(equalToConstant: UIScaleSettings.scaled(14, by: uiScaleFactor))
+        headerHeightConstraint = heightAnchor.constraint(
+            equalToConstant: UIScaleSettings.scaled(RightSidebarChromeMetrics.secondaryBarHeight, by: uiScaleFactor)
+        )
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.secondaryBarHeight),
+            headerHeightConstraint,
 
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -1824,6 +1828,10 @@ final class FileExplorerHeaderView: NSView {
         pathLabel.font = .cmuxSystemFont(ofSize: 11, weight: .medium, uiScaleFactor: uiScaleFactor)
         iconWidthConstraint?.constant = UIScaleSettings.scaled(14, by: uiScaleFactor)
         iconHeightConstraint?.constant = UIScaleSettings.scaled(14, by: uiScaleFactor)
+        headerHeightConstraint?.constant = UIScaleSettings.scaled(
+            RightSidebarChromeMetrics.secondaryBarHeight,
+            by: uiScaleFactor
+        )
         applyHeaderState()
     }
 

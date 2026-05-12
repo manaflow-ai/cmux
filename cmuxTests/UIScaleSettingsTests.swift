@@ -168,6 +168,44 @@ final class UIScaleSettingsTests: XCTestCase {
         XCTAssertGreaterThan(scaledControlHeight, scaledFontSize)
     }
 
+    func testFileExplorerHeaderHeightTracksUIScale() throws {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 120))
+        let window = NSWindow(
+            contentRect: container.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer { window.close() }
+
+        let header = FileExplorerHeaderView()
+        header.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(header)
+        NSLayoutConstraint.activate([
+            header.topAnchor.constraint(equalTo: container.topAnchor),
+            header.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            header.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+        ])
+
+        container.layoutSubtreeIfNeeded()
+        XCTAssertEqual(
+            header.frame.height,
+            RightSidebarChromeMetrics.secondaryBarHeight,
+            accuracy: 0.001
+        )
+
+        header.updateUIScale(1.4)
+        container.needsLayout = true
+        container.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            header.frame.height,
+            UIScaleSettings.scaled(RightSidebarChromeMetrics.secondaryBarHeight, by: 1.4),
+            accuracy: 0.001
+        )
+    }
+
     func testUIScaleShortcutsClampAndReset() throws {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
