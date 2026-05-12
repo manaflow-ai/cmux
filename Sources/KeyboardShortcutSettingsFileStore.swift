@@ -24,6 +24,7 @@ final class CmuxSettingsFileStore {
     private static let legacySchemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json"
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let backupsDefaultsKey = "cmux.settingsFile.backups.v1"
+    private static let importedManagedDefaultsDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
     fileprivate static let socketPasswordBackupIdentifier = "automation.socketPassword"
 
     static var defaultPrimaryPath: String {
@@ -66,6 +67,7 @@ final class CmuxSettingsFileStore {
 
     private var shortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var activeManagedUserDefaults: [String: ManagedSettingsValue] = [:]
+    private var importedManagedDefaults: [String: ManagedSettingsValue] = [:]
     private var activeManagedCustomSettings = ManagedCustomSettings()
     private var lastPersistedSettingsValues: [String: ManagedSettingsValue] = [:]
     private var settingsPersistenceTask: Task<Void, Never>?
@@ -93,6 +95,7 @@ final class CmuxSettingsFileStore {
         self.loadSocketPassword = loadSocketPassword
         self.saveSocketPassword = saveSocketPassword
         self.clearSocketPassword = clearSocketPassword
+        importedManagedDefaults = Self.loadImportedManagedDefaults(defaults: userDefaults)
 
         bootstrapPrimaryTemplateIfNeeded()
         reload()
@@ -141,22 +144,36 @@ final class CmuxSettingsFileStore {
     }
 
     func reload() {
-        let previousShortcuts = synchronized { shortcutsByAction }
-        let previousActiveSourcePath = synchronized { activeSourcePath }
+        let previousState = synchronized {
+            (
+                shortcuts: shortcutsByAction,
+                importedManagedDefaults: importedManagedDefaults,
+                sourcePath: activeSourcePath
+            )
+        }
         let resolved = resolveSettings()
-        applyManagedSettings(snapshot: resolved)
+        applyManagedSettings(
+            snapshot: resolved,
+            importedManagedDefaults: previousState.importedManagedDefaults,
+            changedManagedDefaultKeys: newOrChangedManagedDefaultKeys(
+                previous: previousState.importedManagedDefaults,
+                next: resolved.managedUserDefaults
+            )
+        )
         let currentSettingsValues = currentSettingsJSONValues(
             managedCustomSettings: resolved.managedCustomSettings
         )
         synchronized {
             shortcutsByAction = resolved.shortcuts
             activeManagedUserDefaults = resolved.managedUserDefaults
+            importedManagedDefaults = resolved.managedUserDefaults
             activeManagedCustomSettings = resolved.managedCustomSettings
             activeSourcePath = resolved.path
             lastPersistedSettingsValues = currentSettingsValues
         }
+        saveImportedManagedDefaults(resolved.managedUserDefaults)
 
-        if previousShortcuts != resolved.shortcuts || previousActiveSourcePath != resolved.path {
+        if previousState.shortcuts != resolved.shortcuts || previousState.sourcePath != resolved.path {
             KeyboardShortcutSettings.notifySettingsFileDidChange(center: notificationCenter)
         }
     }
@@ -215,20 +232,38 @@ final class CmuxSettingsFileStore {
     }
 
     private func reapplyManagedSettingsIfNeeded() {
-        let snapshot: ResolvedSettingsSnapshot? = synchronized {
+        let managedState: (snapshot: ResolvedSettingsSnapshot, importedManagedDefaults: [String: ManagedSettingsValue])? = synchronized {
             guard !isApplyingManagedSettings else { return nil }
             if activeManagedUserDefaults.isEmpty && activeManagedCustomSettings.isEmpty {
                 return nil
             }
-            return ResolvedSettingsSnapshot(
-                path: activeSourcePath,
-                shortcuts: shortcutsByAction,
-                managedUserDefaults: activeManagedUserDefaults,
-                managedCustomSettings: activeManagedCustomSettings
+            return (
+                ResolvedSettingsSnapshot(
+                    path: activeSourcePath,
+                    shortcuts: shortcutsByAction,
+                    managedUserDefaults: activeManagedUserDefaults,
+                    managedCustomSettings: activeManagedCustomSettings
+                ),
+                importedManagedDefaults
             )
         }
-        guard let snapshot else { return }
-        applyManagedSettings(snapshot: snapshot, updateBackups: false)
+        guard let managedState else { return }
+        applyManagedSettings(
+            snapshot: managedState.snapshot,
+            importedManagedDefaults: managedState.importedManagedDefaults,
+            changedManagedDefaultKeys: [],
+            updateBackups: false
+        )
+    }
+
+    // Only keys present in the next snapshot can force-apply; removed keys restore backups instead.
+    private func newOrChangedManagedDefaultKeys(
+        previous: [String: ManagedSettingsValue],
+        next: [String: ManagedSettingsValue]
+    ) -> Set<String> {
+        Set(next.compactMap { key, value in
+            previous[key] == value ? nil : key
+        })
     }
 
     private func persistUserDefaultsSettingsChangeIfNeeded() {
@@ -872,11 +907,16 @@ final class CmuxSettingsFileStore {
         return .some(normalized)
     }
 
-    private func applyManagedSettings(snapshot: ResolvedSettingsSnapshot, updateBackups: Bool = true) {
+    private func applyManagedSettings(
+        snapshot: ResolvedSettingsSnapshot,
+        importedManagedDefaults: [String: ManagedSettingsValue],
+        changedManagedDefaultKeys: Set<String>,
+        updateBackups: Bool = true
+    ) {
         var backups = loadBackups()
         var sideEffects = ManagedDefaultBatchSideEffects()
         let currentManagedIdentifiers = Set(backups.keys)
-        let nextManagedIdentifiers = Set(snapshot.managedUserDefaults.keys.filter { !SidebarMatchTerminalBackgroundSettings.isSettingsFileDefaultKey($0) })
+        let nextManagedIdentifiers = Set(snapshot.managedUserDefaults.keys)
             .union(snapshot.managedCustomSettings.managedIdentifiers)
         synchronized {
             isApplyingManagedSettings = true
@@ -888,7 +928,7 @@ final class CmuxSettingsFileStore {
         }
 
         if updateBackups {
-            for (defaultsKey, value) in snapshot.managedUserDefaults where backups[defaultsKey] == nil && !SidebarMatchTerminalBackgroundSettings.isSettingsFileDefaultKey(defaultsKey) {
+            for (defaultsKey, value) in snapshot.managedUserDefaults where backups[defaultsKey] == nil {
                 backups[defaultsKey] = backupValueForUserDefaultsKey(defaultsKey, managedValue: value)
             }
             if snapshot.managedCustomSettings.socketPassword != nil,
@@ -898,14 +938,20 @@ final class CmuxSettingsFileStore {
         }
 
         for identifier in currentManagedIdentifiers.subtracting(nextManagedIdentifiers) {
-            if SidebarMatchTerminalBackgroundSettings.isSettingsFileDefaultKey(identifier) { backups.removeValue(forKey: identifier); continue }
             guard let backup = backups[identifier] else { continue }
             sideEffects.merge(restoreBackup(backup, for: identifier))
             backups.removeValue(forKey: identifier)
         }
 
         for (defaultsKey, value) in snapshot.managedUserDefaults {
-            sideEffects.merge(applyManagedUserDefaultsValue(value, for: defaultsKey))
+            sideEffects.merge(
+                applyManagedUserDefaultsValue(
+                    value,
+                    for: defaultsKey,
+                    importedDefault: importedManagedDefaults[defaultsKey],
+                    forceApply: changedManagedDefaultKeys.contains(defaultsKey)
+                )
+            )
         }
         applyManagedCustomSettings(snapshot.managedCustomSettings)
         if updateBackups {
@@ -989,9 +1035,21 @@ final class CmuxSettingsFileStore {
 
     private func applyManagedUserDefaultsValue(
         _ value: ManagedSettingsValue,
-        for defaultsKey: String
+        for defaultsKey: String,
+        importedDefault: ManagedSettingsValue?,
+        forceApply: Bool
     ) -> ManagedDefaultBatchSideEffects {
         let defaults = userDefaults
+        guard shouldApplyManagedUserDefaultsValue(
+            value,
+            for: defaultsKey,
+            importedDefault: importedDefault,
+            forceApply: forceApply,
+            defaults: defaults
+        ) else {
+            return ManagedDefaultBatchSideEffects()
+        }
+
         if defaultsKey == WorkspaceTabColorSettings.paletteKey,
            case .stringDictionary(let next) = value {
             let current = WorkspaceTabColorSettings.resolvedPaletteMap(defaults: defaults)
@@ -1004,18 +1062,10 @@ final class CmuxSettingsFileStore {
         var didMutateStoredValue = false
         switch value {
         case .bool(let next):
-            let shouldTrackFileDefault = SidebarMatchTerminalBackgroundSettings.isSettingsFileDefaultKey(defaultsKey)
-            if shouldTrackFileDefault, !SidebarMatchTerminalBackgroundSettings.shouldApplySettingsFileDefault(defaults: defaults) {
-                SidebarMatchTerminalBackgroundSettings.recordSettingsFileDefault(next, defaults: defaults)
-                return ManagedDefaultBatchSideEffects()
-            }
             let current = defaults.object(forKey: defaultsKey) as? Bool
             if current != next {
                 defaults.set(next, forKey: defaultsKey)
                 didMutateStoredValue = true
-            }
-            if shouldTrackFileDefault, didMutateStoredValue {
-                SidebarMatchTerminalBackgroundSettings.recordSettingsFileDefault(next, defaults: defaults)
             }
         case .int(let next):
             let current = defaults.object(forKey: defaultsKey) as? Int
@@ -1066,6 +1116,78 @@ final class CmuxSettingsFileStore {
             )
         }
         return ManagedDefaultBatchSideEffects()
+    }
+
+    private func shouldApplyManagedUserDefaultsValue(
+        _ value: ManagedSettingsValue,
+        for defaultsKey: String,
+        importedDefault: ManagedSettingsValue?,
+        forceApply: Bool,
+        defaults: UserDefaults
+    ) -> Bool {
+        guard !forceApply else { return true }
+        guard let importedDefault else { return true }
+        // Precedence: user explicit choice (UserDefaults) > cmux.json imported default > built-in default.
+        guard let current = currentManagedUserDefaultsValue(
+            for: defaultsKey,
+            matching: value,
+            defaults: defaults
+        ) else {
+            return shouldApplyManagedUserDefaultsValueWhenCurrentIsMissing(
+                value,
+                importedDefault: importedDefault
+            )
+        }
+        return current == importedDefault
+    }
+
+    private func shouldApplyManagedUserDefaultsValueWhenCurrentIsMissing(
+        _ value: ManagedSettingsValue,
+        importedDefault: ManagedSettingsValue
+    ) -> Bool {
+        switch (value, importedDefault) {
+        case (.nullableString, .nullableString(nil)):
+            return true
+        case (.nullableString, _):
+            return false
+        default:
+            return true
+        }
+    }
+
+    private func currentManagedUserDefaultsValue(
+        for defaultsKey: String,
+        matching value: ManagedSettingsValue,
+        defaults: UserDefaults
+    ) -> ManagedSettingsValue? {
+        switch value {
+        case .bool:
+            guard let current = defaults.object(forKey: defaultsKey) as? Bool else { return nil }
+            return .bool(current)
+        case .int:
+            guard let current = defaults.object(forKey: defaultsKey) as? Int else { return nil }
+            return .int(current)
+        case .double:
+            guard let current = defaults.object(forKey: defaultsKey) as? Double else { return nil }
+            return .double(current)
+        case .string:
+            guard let current = defaults.string(forKey: defaultsKey) else { return nil }
+            return .string(current)
+        case .nullableString:
+            guard let current = defaults.object(forKey: defaultsKey) as? String else { return nil }
+            return .nullableString(current)
+        case .stringArray:
+            guard let current = defaults.array(forKey: defaultsKey) as? [String] else { return nil }
+            return .stringArray(current)
+        case .stringDictionary:
+            if defaultsKey == WorkspaceTabColorSettings.paletteKey {
+                return .stringDictionary(WorkspaceTabColorSettings.resolvedPaletteMap(defaults: defaults))
+            }
+            guard let current = defaults.dictionary(forKey: defaultsKey) as? [String: String] else {
+                return nil
+            }
+            return .stringDictionary(current)
+        }
     }
 
     private func restoreUserDefaultsBackup(
@@ -1158,6 +1280,35 @@ final class CmuxSettingsFileStore {
         } else {
             DispatchQueue.main.async { apply() }
         }
+    }
+
+    private static func loadImportedManagedDefaults(defaults: UserDefaults) -> [String: ManagedSettingsValue] {
+        var imported: [String: ManagedSettingsValue]
+        if let data = defaults.data(forKey: importedManagedDefaultsDefaultsKey),
+           let decoded = try? JSONDecoder().decode([String: ManagedSettingsValue].self, from: data) {
+            imported = decoded
+        } else {
+            imported = [:]
+        }
+
+        if imported[SidebarMatchTerminalBackgroundSettings.userDefaultsKey] == nil,
+           let legacyValue = defaults.object(
+               forKey: SidebarMatchTerminalBackgroundSettings.legacyAppliedSettingsFileDefaultKey
+           ) as? Bool {
+            imported[SidebarMatchTerminalBackgroundSettings.userDefaultsKey] = .bool(legacyValue)
+        }
+        return imported
+    }
+
+    private func saveImportedManagedDefaults(_ imported: [String: ManagedSettingsValue]) {
+        let defaults = userDefaults
+        defaults.removeObject(forKey: SidebarMatchTerminalBackgroundSettings.legacyAppliedSettingsFileDefaultKey)
+        guard !imported.isEmpty else {
+            defaults.removeObject(forKey: Self.importedManagedDefaultsDefaultsKey)
+            return
+        }
+        guard let data = try? JSONEncoder().encode(imported) else { return }
+        defaults.set(data, forKey: Self.importedManagedDefaultsDefaultsKey)
     }
 
     private func loadBackups() -> [String: BackupValue] {

@@ -78,6 +78,7 @@ extension CmuxSettingsFileStore {
                     "iMessageMode": IMessageModeSettings.defaultValue,
                     "sendAnonymousTelemetry": TelemetrySettings.defaultSendAnonymousTelemetry,
                     "warnBeforeQuit": QuitWarningSettings.defaultWarnBeforeQuit,
+                    "warnBeforeClosingTab": CloseTabWarningSettings.defaultWarnBeforeClosingTab,
                     "renameSelectsExistingName": CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus,
                     "commandPaletteSearchesAllSurfaces": CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces,
                 ],
@@ -104,16 +105,16 @@ extension CmuxSettingsFileStore {
                     "hideAllDetails": SidebarWorkspaceDetailSettings.defaultHideAllDetails,
                     "branchLayout": SidebarBranchLayoutSettings.defaultVerticalLayout ? "vertical" : "inline",
                     "showNotificationMessage": SidebarWorkspaceDetailSettings.defaultShowNotificationMessage,
-                    "showBranchDirectory": true,
-                    "showPullRequests": true,
+                    "showBranchDirectory": SidebarWorkspaceDetailDefaults.showBranchDirectory,
+                    "showPullRequests": SidebarWorkspaceDetailDefaults.showPullRequests,
                     "makePullRequestsClickable": SidebarPullRequestClickabilitySettings.defaultClickable,
                     "openPullRequestLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser,
                     "openPortLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser,
-                    "showSSH": true,
-                    "showPorts": true,
-                    "showLog": true,
-                    "showProgress": true,
-                    "showCustomMetadata": true,
+                    "showSSH": SidebarWorkspaceDetailDefaults.showSSH,
+                    "showPorts": SidebarWorkspaceDetailDefaults.showPorts,
+                    "showLog": SidebarWorkspaceDetailDefaults.showLog,
+                    "showProgress": SidebarWorkspaceDetailDefaults.showProgress,
+                    "showCustomMetadata": SidebarWorkspaceDetailDefaults.showCustomMetadata,
                 ],
             ],
             [
@@ -123,7 +124,7 @@ extension CmuxSettingsFileStore {
                     "notificationBadgeColor": NSNull(),
                     "colors": Dictionary(
                         uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) }
-                    )
+                    ),
                 ],
             ],
             [
@@ -143,8 +144,8 @@ extension CmuxSettingsFileStore {
                     "claudeBinaryPath": "",
                     "cursorIntegration": CursorIntegrationSettings.defaultHooksEnabled,
                     "geminiIntegration": GeminiIntegrationSettings.defaultHooksEnabled,
-                    "portBase": 9100,
-                    "portRange": 10,
+                    "portBase": AutomationSettings.defaultPortBase,
+                    "portRange": AutomationSettings.defaultPortRange,
                 ],
             ],
             [
