@@ -717,6 +717,7 @@ final class TerminalNotificationStore: ObservableObject {
     @Published private(set) var notifications: [TerminalNotification] = [] {
         didSet {
             indexes = Self.buildIndexes(for: notifications)
+            latestNotificationDeliverySequenceByTarget = Self.buildLatestDeliverySequences(for: notifications)
             let nextMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: notifications)
             if notificationMenuSnapshot != nextMenuSnapshot { notificationMenuSnapshot = nextMenuSnapshot }
             refreshDockBadge()
@@ -779,6 +780,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
         refreshDockBadge()
         refreshAuthorizationStatus()
+        latestNotificationDeliverySequenceByTarget = Self.buildLatestDeliverySequences(for: notifications)
     }
 
     deinit {
@@ -991,7 +993,6 @@ final class TerminalNotificationStore: ObservableObject {
            resolvedDeliverySequence < latestDeliverySequence {
             return
         }
-        latestNotificationDeliverySequenceByTarget[notificationTarget] = resolvedDeliverySequence
 
         var updated = notifications
         var idsToClear: [String] = []
@@ -1224,20 +1225,6 @@ final class TerminalNotificationStore: ObservableObject {
         }
         if didMoveNotification {
             notifications = updated
-            let sourceKey = TabSurfaceKey(tabId: sourceTabId, surfaceId: surfaceId)
-            let destinationKey = TabSurfaceKey(tabId: destinationTabId, surfaceId: surfaceId)
-            let movedSequence = updated
-                .filter { $0.tabId == destinationTabId && $0.surfaceId == surfaceId }
-                .map { $0.deliverySequence }
-                .max()
-            let sourceSequence = latestNotificationDeliverySequenceByTarget[sourceKey]
-            if movedSequence != nil || sourceSequence != nil {
-                let movedSequence = max(movedSequence ?? 0, sourceSequence ?? 0)
-                latestNotificationDeliverySequenceByTarget[destinationKey] = max(
-                    latestNotificationDeliverySequenceByTarget[destinationKey] ?? 0,
-                    movedSequence
-                )
-            }
         }
 
         if focusedReadIndicatorByTabId[sourceTabId] == surfaceId {
@@ -1584,7 +1571,6 @@ final class TerminalNotificationStore: ObservableObject {
     func replaceNotificationsForTesting(_ notifications: [TerminalNotification]) {
         TerminalMutationBus.shared.discardPendingNotifications()
         self.notifications = notifications
-        latestNotificationDeliverySequenceByTarget = Self.buildLatestDeliverySequences(for: notifications)
         clearWorkspaceManualUnread()
         focusedReadIndicatorByTabId.removeAll()
     }
