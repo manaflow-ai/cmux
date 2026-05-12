@@ -221,6 +221,28 @@ final class TerminalRegexHighlightSettingsTests: XCTestCase {
         )
     }
 
+    func testMatcherUsesTerminalColumnsForWideCharacters() {
+        let rules = [
+            TerminalRegexHighlightRule(pattern: "日本", backgroundHex: "#7BD88F80"),
+            TerminalRegexHighlightRule(pattern: "ERROR", backgroundHex: "#FFE06680"),
+        ]
+
+        let runs = TerminalRegexHighlightMatcher.runs(
+            in: [
+                "日本語 ERROR",
+            ],
+            compiledRules: TerminalRegexHighlightMatcher.compiledRules(from: rules)
+        )
+
+        XCTAssertEqual(
+            runs,
+            [
+                TerminalRegexHighlightRun(row: 0, column: 0, length: 4, backgroundHex: "#7BD88F80"),
+                TerminalRegexHighlightRun(row: 0, column: 7, length: 5, backgroundHex: "#FFE06680"),
+            ]
+        )
+    }
+
     func testParserSkipsInvalidColorPrefixedRules() {
         let rules = TerminalRegexHighlightSettings.rules(
             from: """

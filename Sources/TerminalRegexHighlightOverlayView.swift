@@ -11,6 +11,7 @@ struct TerminalRegexHighlightOverlayMetrics: Equatable {
 final class TerminalRegexHighlightOverlayView: NSView {
     private var runs: [TerminalRegexHighlightRun] = []
     private var metrics = TerminalRegexHighlightOverlayMetrics()
+    private var colorsByHex: [String: NSColor] = [:]
 
     override var acceptsFirstResponder: Bool { false }
     override var isFlipped: Bool { true }
@@ -29,6 +30,7 @@ final class TerminalRegexHighlightOverlayView: NSView {
         }
         self.runs = runs
         self.metrics = metrics
+        colorsByHex = Self.colorsByHex(for: runs)
         isHidden = runs.isEmpty
         needsDisplay = true
     }
@@ -67,7 +69,7 @@ final class TerminalRegexHighlightOverlayView: NSView {
                 height: metrics.cellSize.height
             ).insetBy(dx: 1, dy: 1)
 
-            TerminalRegexHighlightOverlayView.color(for: run.backgroundHex).setFill()
+            (colorsByHex[run.backgroundHex] ?? Self.color(for: run.backgroundHex)).setFill()
             NSBezierPath(
                 roundedRect: rect,
                 xRadius: min(3, rect.height / 3),
@@ -100,6 +102,14 @@ final class TerminalRegexHighlightOverlayView: NSView {
             alpha = 0.5
         }
 
-        return NSColor(calibratedRed: red, green: green, blue: blue, alpha: alpha)
+        return NSColor(srgbRed: red, green: green, blue: blue, alpha: alpha)
+    }
+
+    private static func colorsByHex(for runs: [TerminalRegexHighlightRun]) -> [String: NSColor] {
+        var colors: [String: NSColor] = [:]
+        for run in runs where colors[run.backgroundHex] == nil {
+            colors[run.backgroundHex] = color(for: run.backgroundHex)
+        }
+        return colors
     }
 }
