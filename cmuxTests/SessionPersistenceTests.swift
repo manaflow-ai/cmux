@@ -144,6 +144,53 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(loaded.windows.first?.sidebar.width, 321)
     }
 
+    func testLoadDropsDuplicateWindowSnapshotsSharingPanelIdentity() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
+        let panelId = UUID()
+        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        snapshot.windows[0].tabManager.workspaces[0].focusedPanelId = panelId
+        snapshot.windows[0].tabManager.workspaces[0].layout = .pane(
+            SessionPaneLayoutSnapshot(panelIds: [panelId], selectedPanelId: panelId)
+        )
+        snapshot.windows[0].tabManager.workspaces[0].panels = [
+            SessionPanelSnapshot(
+                id: panelId,
+                type: .terminal,
+                title: "Terminal 1",
+                customTitle: nil,
+                directory: "/tmp",
+                isPinned: false,
+                isManuallyUnread: false,
+                gitBranch: nil,
+                listeningPorts: [],
+                ttyName: nil,
+                terminal: SessionTerminalPanelSnapshot(
+                    workingDirectory: "/tmp",
+                    scrollback: nil,
+                    agent: nil,
+                    tmuxStartCommand: nil
+                ),
+                browser: nil,
+                markdown: nil,
+                filePreview: nil
+            )
+        ]
+        var duplicateWindow = snapshot.windows[0]
+        duplicateWindow.frame = SessionRectSnapshot(x: 60, y: 80, width: 900, height: 700)
+        snapshot.windows.append(duplicateWindow)
+
+        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+
+        let loaded = try XCTUnwrap(SessionPersistenceStore.load(fileURL: snapshotURL))
+        XCTAssertEqual(loaded.windows.count, 1)
+        XCTAssertEqual(loaded.windows[0].tabManager.workspaces[0].focusedPanelId, panelId)
+    }
+
     func testSaveAndLoadRoundTripPreservesWorkspaceCustomColor() {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
