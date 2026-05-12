@@ -44,6 +44,33 @@ func captureStdout(t *testing.T, fn func()) string {
 	return string(output)
 }
 
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	original := os.Stderr
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stderr: %v", err)
+	}
+	os.Stderr = writer
+	defer func() {
+		os.Stderr = original
+	}()
+
+	fn()
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close stderr writer: %v", err)
+	}
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read stderr: %v", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close stderr reader: %v", err)
+	}
+	return string(output)
+}
+
 func makeShortUnixSocketPath(t *testing.T) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "cmuxd-")
@@ -780,6 +807,58 @@ func TestCLIBrowserOpenUsesOpenSplitAndWorkspaceEnv(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserOpenAliasWithSurfaceNavigatesExistingSurface(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "new",
+		"--surface", "surface:2",
+		"https://example.com",
+	})
+	if code != 0 {
+		t.Fatalf("browser new with surface should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.navigate" {
+			t.Fatalf("expected browser.navigate for surface-targeted open alias, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "surface:2" {
+			t.Fatalf("expected surface_id surface:2, got %v", got)
+		}
+		if got := params["url"]; got != "https://example.com" {
+			t.Fatalf("expected url, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser navigate request")
+	}
+}
+
+func TestCLIBrowserHelpPrintsUsageToStdout(t *testing.T) {
+	output := captureStdout(t, func() {
+		code := runCLI([]string{"browser", "help"})
+		if code != 0 {
+			t.Fatalf("browser help should return 0, got %d", code)
+		}
+	})
+	if !strings.Contains(output, "Usage: cmux browser") {
+		t.Fatalf("browser help should print browser usage, got %q", output)
+	}
+	if !strings.Contains(output, "find,") || !strings.Contains(output, "viewport") {
+		t.Fatalf("browser help should include subcommand hints, got %q", output)
+	}
+}
+
+func TestCLIBrowserRejectsEmptySurfacePrefix(t *testing.T) {
+	sockPath, _ := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{"--socket", sockPath, "--json", "browser", "surface:", "get-url"})
+	if code != 2 {
+		t.Fatalf("browser empty surface prefix should return 2, got %d", code)
+	}
+}
+
 func TestCLIBrowserGetURLUsesCurrentMethodAndSurfaceEnv(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	t.Setenv("CMUX_SURFACE_ID", "env-sf")
@@ -832,6 +911,36 @@ func TestCLIBrowserSnapshotUsesSurfaceEnvAndForwardsOptions(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for browser snapshot request")
+	}
+}
+
+func TestCLIBrowserFindNthConsumesSelectorAfterIndexFlag(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_SURFACE_ID", "env-sf")
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "find", "nth",
+		"--index", "2",
+		".item", ".title",
+	})
+	if code != 0 {
+		t.Fatalf("browser find nth should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.find.nth" {
+			t.Fatalf("expected browser.find.nth, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["index"]; got != "2" {
+			t.Fatalf("expected index 2, got %v", got)
+		}
+		if got := params["selector"]; got != ".item .title" {
+			t.Fatalf("expected selector to consume all remaining positionals, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser find nth request")
 	}
 }
 
@@ -1260,6 +1369,18 @@ func TestCLIHelpFlag(t *testing.T) {
 	code := runCLI([]string{"--help"})
 	if code != 0 {
 		t.Fatalf("--help should return 0, got %d", code)
+	}
+}
+
+func TestCLIHelpMentionsBrowserHelp(t *testing.T) {
+	output := captureStderr(t, func() {
+		code := runCLI([]string{"--help"})
+		if code != 0 {
+			t.Fatalf("--help should return 0, got %d", code)
+		}
+	})
+	if !strings.Contains(output, "cmux browser help") {
+		t.Fatalf("top-level help should point to browser help, got %q", output)
 	}
 }
 
