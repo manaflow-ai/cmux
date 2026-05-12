@@ -13,6 +13,7 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
         app.launchArguments += ["-workspacePresentationMode", "minimal"]
+        app.launchArguments += ["-rightSidebar.beta.feed.enabled", "YES"]
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
         XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
@@ -76,18 +77,15 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
 
         let feedControlHeightKeys = [
             "rightSidebarSecondaryControl_feed_actionableHeight",
-            "rightSidebarSecondaryControl_feed_activityHeight",
         ]
         guard let feedGeometry = waitForJSONNumbers(feedControlHeightKeys, greaterThan: 1, atPath: dataPath, timeout: 5),
               let feedSecondaryBarHeight = Double(feedGeometry["rightSidebarSecondaryBarHeight"] ?? ""),
-              let actionableControlHeight = Double(feedGeometry["rightSidebarSecondaryControl_feed_actionableHeight"] ?? ""),
-              let activityControlHeight = Double(feedGeometry["rightSidebarSecondaryControl_feed_activityHeight"] ?? "") else {
+              let actionableControlHeight = Double(feedGeometry["rightSidebarSecondaryControl_feed_actionableHeight"] ?? "") else {
             XCTFail("Timed out waiting for feed secondary bar geometry. data=\(loadJSON(atPath: dataPath) ?? [:])")
             return
         }
         XCTAssertEqual(feedSecondaryBarHeight, modeBarHeight, accuracy: 0.5, "Expected feed secondary bar to match the mode bar. geometry=\(feedGeometry)")
         XCTAssertEqual(actionableControlHeight, modeControlHeight, accuracy: 0.5, "Expected Feed Actionable pill to match mode button height. geometry=\(feedGeometry)")
-        XCTAssertEqual(activityControlHeight, modeControlHeight, accuracy: 0.5, "Expected Feed Activity pill to match mode button height. geometry=\(feedGeometry)")
     }
 
     private func waitForJSONNumbers(_ keys: [String], greaterThan threshold: Double, atPath path: String, timeout: TimeInterval) -> [String: String]? {

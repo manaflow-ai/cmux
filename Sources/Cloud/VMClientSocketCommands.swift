@@ -1,25 +1,7 @@
 import Foundation
 
 extension TerminalController {
-    nonisolated func socketWorkerCloudVMResponseIfNeeded(for command: String) -> String? {
-        guard command.hasPrefix("{"),
-              let data = command.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data, options: []),
-              let dict = object as? [String: Any] else {
-            return nil
-        }
-
-        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard method.hasPrefix("vm.") else { return nil }
-
-        let id: Any? = dict["id"]
-        let params = dict["params"] as? [String: Any] ?? [:]
-        return withSocketCommandPolicy(commandKey: method, isV2: true) {
-            socketWorkerCloudVMResponse(method: method, id: id, params: params)
-        }
-    }
-
-    private nonisolated func socketWorkerCloudVMResponse(
+    nonisolated func socketWorkerCloudVMResponse(
         method: String,
         id: Any?,
         params: [String: Any]

@@ -5,10 +5,16 @@ import SwiftUI
 struct WindowAccessor: NSViewRepresentable {
     let onWindow: @MainActor (NSWindow) -> Void
     let dedupeByWindow: Bool
+    let refreshID: AnyHashable?
 
-    init(dedupeByWindow: Bool = true, onWindow: @escaping @MainActor (NSWindow) -> Void) {
+    init(
+        dedupeByWindow: Bool = true,
+        refreshID: AnyHashable? = nil,
+        onWindow: @escaping @MainActor (NSWindow) -> Void
+    ) {
         self.onWindow = onWindow
         self.dedupeByWindow = dedupeByWindow
+        self.refreshID = refreshID
     }
 
     func makeCoordinator() -> Coordinator {
@@ -40,9 +46,13 @@ struct WindowAccessor: NSViewRepresentable {
     ) {
         let handler = onWindow
         let shouldDedupeByWindow = dedupeByWindow
+        let refreshID = refreshID
         view.onWindow = { window in
-            guard !shouldDedupeByWindow || coordinator.lastWindow !== window else { return }
-            coordinator.lastWindow = window
+            guard coordinator.shouldInvoke(
+                window: window,
+                dedupeByWindow: shouldDedupeByWindow,
+                refreshID: refreshID
+            ) else { return }
             handler(window)
         }
     }
@@ -50,7 +60,22 @@ struct WindowAccessor: NSViewRepresentable {
 
 extension WindowAccessor {
     final class Coordinator {
-        weak var lastWindow: NSWindow?
+        private weak var lastWindow: NSWindow?
+        private var lastRefreshID: AnyHashable?
+
+        func shouldInvoke(
+            window: NSWindow,
+            dedupeByWindow: Bool,
+            refreshID: AnyHashable?
+        ) -> Bool {
+            if dedupeByWindow, lastWindow === window, lastRefreshID == refreshID {
+                return false
+            }
+
+            lastWindow = window
+            lastRefreshID = refreshID
+            return true
+        }
     }
 }
 

@@ -352,6 +352,7 @@ struct TitlebarControlButton<Content: View>: View {
     let accessibilityIdentifier: String
     let accessibilityLabel: String
     let action: () -> Void
+    var rightClickAction: ((NSView, NSEvent) -> Void)? = nil
     @ViewBuilder let content: () -> Content
     @State private var isHovering = false
 
@@ -368,6 +369,11 @@ struct TitlebarControlButton<Content: View>: View {
         .accessibilityIdentifier(accessibilityIdentifier)
         .accessibilityLabel(accessibilityLabel)
         .background(hoverBackground)
+        .overlay {
+            if let rightClickAction {
+                TitlebarControlRightClickView(onRightMouseDown: rightClickAction)
+            }
+        }
 
         if titlebarControlsShouldTrackButtonHover(config: config) {
             baseButton.onHover { isHovering = $0 }
@@ -385,6 +391,38 @@ struct TitlebarControlButton<Content: View>: View {
     }
 }
 
+private struct TitlebarControlRightClickView: NSViewRepresentable {
+    let onRightMouseDown: (NSView, NSEvent) -> Void
+
+    func makeNSView(context: Context) -> TitlebarControlRightClickNSView {
+        let view = TitlebarControlRightClickNSView()
+        view.onRightMouseDown = onRightMouseDown
+        return view
+    }
+
+    func updateNSView(_ nsView: TitlebarControlRightClickNSView, context: Context) {
+        nsView.onRightMouseDown = onRightMouseDown
+    }
+}
+
+private final class TitlebarControlRightClickNSView: NSView {
+    var onRightMouseDown: ((NSView, NSEvent) -> Void)?
+
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard bounds.contains(point),
+              NSApp.currentEvent?.type == .rightMouseDown else {
+            return nil
+        }
+        return self
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        onRightMouseDown?(self, event)
+    }
+}
+
 struct TitlebarControlsView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
     @ObservedObject var viewModel: TitlebarControlsViewModel
@@ -394,13 +432,13 @@ struct TitlebarControlsView: View {
     let visibilityMode: TitlebarControlsVisibilityMode
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
-    @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
-    @AppStorage(ShortcutHintDebugSettings.titlebarHintYKey) private var titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
-    @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @State private var shortcutRefreshTick = 0
     @State private var isHoveringControls = false
     @State private var hostWindowNumber: Int?
     @StateObject private var modifierKeyMonitor = TitlebarShortcutHintModifierMonitor()
+    private let titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
+    private let titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
+    private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
     private let titlebarHintRightSafetyShift: CGFloat = 10
     private let titlebarHintBaseXShift: CGFloat = -10
 
@@ -550,7 +588,10 @@ struct TitlebarControlsView: View {
                 cmuxDebugLog("titlebar.newTab")
                 #endif
                 onNewTab()
-            }) {
+            },
+                rightClickAction: { anchorView, event in
+                    _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: anchorView, event: event)
+                }) {
                 iconLabel(systemName: "plus", config: config)
             }
             .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
@@ -1254,6 +1295,7 @@ private final class TitlebarShortcutHintModifierMonitor: ObservableObject {
 struct TitlebarControlsLayoutSnapshot: Equatable {
     let contentSize: NSSize
     let containerHeight: CGFloat
+    let xOffset: CGFloat
     let yOffset: CGFloat
 }
 
@@ -1281,6 +1323,7 @@ func titlebarControlsShouldApplyLayout(
     return abs(previous.contentSize.width - next.contentSize.width) > tolerance
         || abs(previous.contentSize.height - next.contentSize.height) > tolerance
         || abs(previous.containerHeight - next.containerHeight) > tolerance
+        || abs(previous.xOffset - next.xOffset) > tolerance
         || abs(previous.yOffset - next.yOffset) > tolerance
 }
 
@@ -1331,7 +1374,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         containerView.wantsLayer = true
         containerView.layer?.masksToBounds = false
         hostingView.translatesAutoresizingMaskIntoConstraints = true
-        hostingView.autoresizingMask = [.width, .height]
+        hostingView.autoresizingMask = []
         containerView.addSubview(hostingView)
 
         userDefaultsObserver = NotificationCenter.default.addObserver(
@@ -1342,6 +1385,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             self?.applyWorkspaceTitlebarVisibility()
             if self?.showsWorkspaceTitlebar == true {
                 self?.restoreSizeAfterMinimalMode()
+                self?.scheduleSizeUpdate()
             }
         }
 
@@ -1419,10 +1463,16 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             } ?? contentSize.height
         }()
         let containerHeight = max(contentSize.height, titlebarHeight)
+        let debugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
+        let xOffset = MinimalModeTitlebarDebugSettings.leftControlsXOffset(
+            leadingInset: debugSnapshot.leftControlsLeadingInset
+        )
         let yOffset = max(0, (containerHeight - contentSize.height) / 2.0)
+            + CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset - debugSnapshot.leftControlsTopInset)
         let nextLayoutSnapshot = TitlebarControlsLayoutSnapshot(
             contentSize: contentSize,
             containerHeight: containerHeight,
+            xOffset: xOffset,
             yOffset: yOffset
         )
         guard titlebarControlsShouldApplyLayout(
@@ -1432,9 +1482,10 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             return
         }
         lastAppliedLayoutSnapshot = nextLayoutSnapshot
-        preferredContentSize = NSSize(width: contentSize.width, height: containerHeight)
-        containerView.frame = NSRect(x: 0, y: 0, width: contentSize.width, height: containerHeight)
-        hostingView.frame = NSRect(x: 0, y: yOffset, width: contentSize.width, height: contentSize.height)
+        let containerWidth = contentSize.width + abs(xOffset)
+        preferredContentSize = NSSize(width: containerWidth, height: containerHeight)
+        containerView.setFrameSize(NSSize(width: containerWidth, height: containerHeight))
+        hostingView.frame = NSRect(x: xOffset, y: yOffset, width: contentSize.width, height: contentSize.height)
     }
 
     private func applyWorkspaceTitlebarVisibility() {

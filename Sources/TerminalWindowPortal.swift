@@ -7,24 +7,6 @@ import Bonsplit
 private var cmuxWindowTerminalPortalKey: UInt8 = 0
 private var cmuxWindowTerminalPortalCloseObserverKey: UInt8 = 0
 
-#if DEBUG
-private func portalDebugToken(_ view: NSView?) -> String {
-    guard let view else { return "nil" }
-    let ptr = Unmanaged.passUnretained(view).toOpaque()
-    return String(describing: ptr)
-}
-
-private func portalDebugFrame(_ rect: NSRect) -> String {
-    String(format: "%.1f,%.1f %.1fx%.1f", rect.origin.x, rect.origin.y, rect.size.width, rect.size.height)
-}
-
-private func portalDebugFrameInWindow(_ view: NSView?) -> String {
-    guard let view else { return "nil" }
-    guard view.window != nil else { return "no-window" }
-    return portalDebugFrame(view.convert(view.bounds, to: nil))
-}
-#endif
-
 final class WindowTerminalHostView: NSView {
     private struct DividerRegion {
         let rectInWindow: NSRect
@@ -140,17 +122,9 @@ final class WindowTerminalHostView: NSView {
     // `NSApp.currentEvent`; tests can call this directly with a synthetic
     // pointer event so the typing-latency guard doesn't gate them out.
     func performHitTest(at point: NSPoint, currentEvent: NSEvent?) -> NSView? {
-        let isPointerEvent: Bool
-        switch currentEvent?.type {
-        case .mouseMoved, .mouseEntered, .mouseExited,
-             .leftMouseDown, .leftMouseUp, .leftMouseDragged,
-             .rightMouseDown, .rightMouseUp, .rightMouseDragged,
-             .otherMouseDown, .otherMouseUp, .otherMouseDragged,
-             .scrollWheel, .cursorUpdate:
-            isPointerEvent = true
-        default:
-            isPointerEvent = false
-        }
+        let eventType = currentEvent?.type
+        let isPointerEvent = eventType == .scrollWheel
+            || BonsplitTabBarPassThrough.isPassThroughPointerEvent(eventType)
 
         if isPointerEvent {
             if shouldPassThroughToTitlebar(at: point) {
@@ -183,11 +157,23 @@ final class WindowTerminalHostView: NSView {
 
             let dragPasteboardTypes = NSPasteboard(name: .drag).types
             let eventType = currentEvent?.type
-            let shouldPassThrough = DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
+            let shouldPassThrough = DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
                 pasteboardTypes: dragPasteboardTypes,
                 eventType: eventType
             )
             if shouldPassThrough {
+                let hitView = super.hitTest(point)
+                if hitView is TerminalPaneDropTargetView {
+#if DEBUG
+                    logDragRouteDecision(
+                        passThrough: false,
+                        eventType: eventType,
+                        pasteboardTypes: dragPasteboardTypes,
+                        hitView: hitView
+                    )
+#endif
+                    return hitView
+                }
 #if DEBUG
                 logDragRouteDecision(
                     passThrough: true,
@@ -231,7 +217,20 @@ final class WindowTerminalHostView: NSView {
             in: self,
             eventType: eventType
         ) else { return false }
-        return decision.result
+        guard decision.result else { return false }
+        return hostedTerminalHitView(at: point) == nil
+    }
+
+    private func hostedTerminalHitView(at point: NSPoint) -> NSView? {
+        for subview in subviews.reversed() {
+            guard let hostedView = subview as? GhosttySurfaceScrollView,
+                  !hostedView.isHidden,
+                  hostedView.alphaValue > 0,
+                  hostedView.frame.contains(point) else { continue }
+
+            return hostedView.hitTest(point) ?? hostedView
+        }
+        return nil
     }
 
     private func shouldPassThroughToChrome(at point: NSPoint, eventType: NSEvent.EventType?) -> Bool {
@@ -460,6 +459,7 @@ final class WindowTerminalHostView: NSView {
     ) {
         let hasRelevantTypes = DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
             || DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboardTypes)
+            || DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
         guard passThrough || hasRelevantTypes else { return }
 
         let targetClass = hitView.map { NSStringFromClass(type(of: $0)) } ?? "nil"
@@ -927,14 +927,11 @@ final class WindowTerminalPortal: NSObject {
     }
 
     private func installationTarget(for window: NSWindow) -> (container: NSView, reference: NSView)? {
-        guard let contentView = window.contentView else { return nil }
-
-        // If NSGlassEffectView wraps the original content view, install inside the glass view
-        // so terminals are above the glass background but below SwiftUI content.
-        if contentView.className == "NSGlassEffectView",
-           let foreground = contentView.subviews.first(where: { $0 !== hostView }) {
-            return (contentView, foreground)
+        if let glassTarget = WindowGlassEffect.portalInstallationTarget(for: window) {
+            return glassTarget
         }
+
+        guard let contentView = window.contentView else { return nil }
 
         guard let themeFrame = contentView.superview else { return nil }
         return (themeFrame, contentView)
@@ -1742,42 +1739,34 @@ final class WindowTerminalPortal: NSObject {
     }
 #endif
 
-    func viewAtWindowPoint(_ windowPoint: NSPoint) -> NSView? {
+    private func hostedScrollViewAtWindowPoint(_ windowPoint: NSPoint) -> (view: GhosttySurfaceScrollView, point: NSPoint)? {
         guard ensureInstalled() else { return nil }
         let point = hostView.convert(windowPoint, from: nil)
 
-        // Restrict hit-testing to currently mapped entries so stale detached views
-        // can't steal file-drop/mouse routing.
         for subview in hostView.subviews.reversed() {
-            guard let hostedView = subview as? GhosttySurfaceScrollView else { continue }
-            let hostedId = ObjectIdentifier(hostedView)
-            guard entriesByHostedId[hostedId] != nil else { continue }
-            guard !hostedView.isHidden else { continue }
-            guard hostedView.frame.contains(point) else { continue }
-            let localPoint = hostedView.convert(point, from: hostView)
-            return hostedView.hitTest(localPoint) ?? hostedView
+            guard let hostedView = subview as? GhosttySurfaceScrollView,
+                  entriesByHostedId[ObjectIdentifier(hostedView)] != nil,
+                  !hostedView.isHidden,
+                  hostedView.frame.contains(point) else { continue }
+            return (hostedView, hostedView.convert(point, from: hostView))
         }
 
         return nil
     }
 
+    func viewAtWindowPoint(_ windowPoint: NSPoint) -> NSView? {
+        guard let hit = hostedScrollViewAtWindowPoint(windowPoint) else { return nil }
+        return hit.view.hitTest(hit.point) ?? hit.view
+    }
+
     func terminalViewAtWindowPoint(_ windowPoint: NSPoint) -> GhosttyNSView? {
-        guard ensureInstalled() else { return nil }
-        let point = hostView.convert(windowPoint, from: nil)
+        guard let hit = hostedScrollViewAtWindowPoint(windowPoint) else { return nil }
+        return hit.view.terminalViewForDrop(at: hit.point)
+    }
 
-        for subview in hostView.subviews.reversed() {
-            guard let hostedView = subview as? GhosttySurfaceScrollView else { continue }
-            let hostedId = ObjectIdentifier(hostedView)
-            guard entriesByHostedId[hostedId] != nil else { continue }
-            guard !hostedView.isHidden else { continue }
-            guard hostedView.frame.contains(point) else { continue }
-            let localPoint = hostedView.convert(point, from: hostView)
-            if let terminal = hostedView.terminalViewForDrop(at: localPoint) {
-                return terminal
-            }
-        }
-
-        return nil
+    func terminalPaneDropTargetAtWindowPoint(_ windowPoint: NSPoint) -> TerminalPaneDropTargetView? {
+        guard let hit = hostedScrollViewAtWindowPoint(windowPoint) else { return nil }
+        return hit.view.paneDropTargetForDrop(at: hit.point)
     }
 }
 
@@ -2111,6 +2100,14 @@ enum TerminalWindowPortalRegistry {
     static func terminalViewAtWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> GhosttyNSView? {
         let portal = portal(for: window)
         return portal.terminalViewAtWindowPoint(windowPoint)
+    }
+
+    static func terminalPaneDropTargetAtWindowPoint(
+        _ windowPoint: NSPoint,
+        in window: NSWindow
+    ) -> TerminalPaneDropTargetView? {
+        let portal = portal(for: window)
+        return portal.terminalPaneDropTargetAtWindowPoint(windowPoint)
     }
 
 #if DEBUG

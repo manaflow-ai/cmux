@@ -12,8 +12,10 @@ final class FeedSidebarUITests: XCTestCase {
     private var diagnosticsPath = ""
     private var feedResultPath = ""
     private var feedTUIReadyPath = ""
+    private var dockConfigPath = ""
     private var requestId = ""
     private let modeKey = "socketControlMode"
+    private let dockBetaFeatureKey = "rightSidebar.beta.dock.enabled"
     private let launchTag = "ui-tests-feed-sidebar"
 
     override func setUp() {
@@ -23,17 +25,22 @@ final class FeedSidebarUITests: XCTestCase {
         diagnosticsPath = "/tmp/cmux-feed-sidebar-\(UUID().uuidString).json"
         feedResultPath = "/tmp/cmux-feed-sidebar-result-\(UUID().uuidString).json"
         feedTUIReadyPath = "/tmp/cmux-feed-sidebar-tui-ready-\(UUID().uuidString).json"
+        dockConfigPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-feed-sidebar-dock-\(UUID().uuidString).json")
+            .path
         requestId = "uitest-\(UUID().uuidString)"
         removeSocketFile()
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
         try? FileManager.default.removeItem(atPath: feedResultPath)
         try? FileManager.default.removeItem(atPath: feedTUIReadyPath)
+        try? FileManager.default.removeItem(atPath: dockConfigPath)
     }
 
     func testFeedReceivesAndResolvesPermissionRequest() throws {
         let app = XCUIApplication()
         app.launchArguments += [
             "-\(modeKey)", "allowAll",
+            "-\(dockBetaFeatureKey)", "YES",
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US"
         ]
@@ -49,12 +56,12 @@ final class FeedSidebarUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_FEED_SIDEBAR_RESULT_PATH"] = feedResultPath
         app.launchEnvironment["CMUX_UI_TEST_FEED_SIDEBAR_REQUEST_ID"] = requestId
         app.launchEnvironment["CMUX_UI_TEST_FEED_TUI_READY_PATH"] = feedTUIReadyPath
+        app.launchEnvironment["CMUX_UI_TEST_DOCK_CONFIG_PATH"] = dockConfigPath
         if let path = ProcessInfo.processInfo.environment["PATH"], !path.isEmpty {
             app.launchEnvironment["PATH"] = path
         }
-        if let bunPath = resolvedBunPathForFeedTUI() {
-            app.launchEnvironment["CMUX_UI_TEST_FEED_TUI_BUN_PATH"] = bunPath
-        }
+        let bunPath = resolvedBunPathForFeedTUI()
+        try writeFeedDockConfig(bunPath: bunPath)
         launchAndEnsureUsable(app)
 
         XCTAssertTrue(
@@ -334,6 +341,23 @@ final class FeedSidebarUITests: XCTestCase {
             return [:]
         }
         return object
+    }
+
+    private func writeFeedDockConfig(bunPath: String?) throws {
+        var env = ["CMUX_FEED_TUI_READY_PATH": feedTUIReadyPath]
+        if let bunPath, !bunPath.isEmpty {
+            env["CMUX_FEED_TUI_BUN_PATH"] = bunPath
+        }
+        let config: [String: Any] = [
+            "controls": [[
+                "id": "feed",
+                "title": "Feed",
+                "command": "cmux feed tui --opentui",
+                "env": env
+            ]]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: URL(fileURLWithPath: dockConfigPath), options: .atomic)
     }
 
     private func pollUntil(timeout: TimeInterval, interval: TimeInterval = 0.1, _ predicate: () -> Bool) -> Bool {

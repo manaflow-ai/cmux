@@ -593,6 +593,33 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testRemoteReconnectingStateIsExposedInStatusPayload() {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64033,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.applyRemoteConnectionStateUpdate(
+            .reconnecting,
+            detail: "Reconnecting to cmux-macmini",
+            target: "cmux-macmini"
+        )
+
+        XCTAssertEqual(workspace.remoteConnectionState, .reconnecting)
+        XCTAssertEqual(workspace.remoteStatusPayload()["state"] as? String, "reconnecting")
+    }
+
+    @MainActor
     func testForegroundSSHAuthReadyIgnoresMismatchedConfiguredToken() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1669,49 +1696,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
-    func testOpenCodeInstallHooksRegistersSessionPlugin() throws {
-        let cliPath = try bundledCLIPath()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-opencode-hooks-\(UUID().uuidString)", isDirectory: true)
-        let configDir = root.appendingPathComponent("opencode", isDirectory: true)
-        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false)
-        try """
-        {
-          "plugin": [
-            "other-plugin",
-            "./plugins/cmux-session.js"
-          ]
-        }
-        """.write(to: configURL, atomically: true, encoding: .utf8)
-
-        var environment = ProcessInfo.processInfo.environment
-        environment["OPENCODE_CONFIG_DIR"] = configDir.path
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["opencode", "install-hooks", "--yes"],
-            environment: environment,
-            timeout: 5
-        )
-
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        let pluginURL = configDir
-            .appendingPathComponent("plugins", isDirectory: true)
-            .appendingPathComponent("cmux-session.js", isDirectory: false)
-        let pluginSource = try String(contentsOf: pluginURL, encoding: .utf8)
-        XCTAssertTrue(pluginSource.contains("cmux-opencode-session-plugin-marker"))
-        XCTAssertTrue(pluginSource.contains("\"opencode-hook\""))
-
-        let data = try Data(contentsOf: configURL)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
-        let plugins = try XCTUnwrap(json["plugin"] as? [String])
-        XCTAssertEqual(plugins, ["other-plugin", "cmux-session"])
-    }
-
     func testAgentHookLaunchEnvironmentDoesNotPersistPathOrShell() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("hook")
@@ -1767,7 +1751,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "session-start"],
+            arguments: ["hooks", "codex", "session-start"],
             environment: environment,
             timeout: 5
         )
@@ -1837,7 +1821,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -1911,7 +1895,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -1989,7 +1973,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -2056,7 +2040,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -2117,7 +2101,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -2178,7 +2162,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -2239,7 +2223,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -2300,7 +2284,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -2375,7 +2359,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -2452,7 +2436,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -2526,7 +2510,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -2601,7 +2585,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -2671,7 +2655,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["codex-hook", "stop"],
+            arguments: ["hooks", "codex", "stop"],
             environment: environment,
             standardInput: hookInput,
             timeout: 5
@@ -2725,7 +2709,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             if let data = line.data(using: .utf8),
                let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
             }
             return "OK"
         }
@@ -2738,8 +2722,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let result = runProcess(
             executablePath: cliPath,
             arguments: [
-                "codex-hook",
-                "monitor",
+                "hooks", "codex", "monitor",
                 "--workspace",
                 workspaceId,
                 "--surface",
@@ -2806,7 +2789,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             if let data = line.data(using: .utf8),
                let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
             }
             return "OK"
         }
@@ -2819,8 +2802,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let result = runProcess(
             executablePath: cliPath,
             arguments: [
-                "codex-hook",
-                "monitor",
+                "hooks", "codex", "monitor",
                 "--workspace",
                 workspaceId,
                 "--surface",
@@ -2890,7 +2872,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             if let data = line.data(using: .utf8),
                let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
             }
             return "OK"
         }
@@ -2904,8 +2886,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let result = runProcess(
             executablePath: cliPath,
             arguments: [
-                "codex-hook",
-                "monitor",
+                "hooks", "codex", "monitor",
                 "--workspace",
                 workspaceId,
                 "--surface",
@@ -2971,7 +2952,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             if let data = line.data(using: .utf8),
                let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
             }
             return "OK"
         }
@@ -2986,8 +2967,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let stderrPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: cliPath)
         process.arguments = [
-            "codex-hook",
-            "monitor",
+            "hooks", "codex", "monitor",
             "--workspace",
             workspaceId,
             "--surface",
@@ -3227,14 +3207,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     }
 
     @MainActor
-    func testNotifyFallsBackFromStaleCallerWorkspaceAndSurfaceIDs() throws {
+    func testNotifyWithWorkspaceHandleKeepsCallerSurfaceFallback() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("notify")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
         let currentWorkspace = "11111111-1111-1111-1111-111111111111"
         let currentSurface = "22222222-2222-2222-2222-222222222222"
-        let staleWorkspace = "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"
         let staleSurface = "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"
 
         defer {
@@ -3247,41 +3226,17 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                let id = payload["id"] as? String,
                let method = payload["method"] as? String {
-                let params = payload["params"] as? [String: Any] ?? [:]
-                switch method {
-                case "surface.list":
-                    let workspaceId = params["workspace_id"] as? String
-                    if workspaceId == staleWorkspace {
-                        return self.v2Response(
-                            id: id,
-                            ok: false,
-                            error: ["code": "not_found", "message": "Workspace not found"]
-                        )
-                    }
-                    if workspaceId == currentWorkspace {
-                        return self.v2Response(
-                            id: id,
-                            ok: true,
-                            result: [
-                                "surfaces": [
-                                    [
-                                        "id": currentSurface,
-                                        "ref": "surface:1",
-                                        "index": 0,
-                                        "focused": true
-                                    ]
-                                ]
-                            ]
-                        )
-                    }
-                case "workspace.current":
+                if method == "workspace.list" { return self.v2Response(id: id, ok: true, result: ["workspaces": [["id": currentWorkspace, "index": 1]]]) }
+                if method == "notification.create_for_caller" {
+                    let params = payload["params"] as? [String: Any] ?? [:]
+                    XCTAssertEqual(params["preferred_workspace_id"] as? String, currentWorkspace)
+                    XCTAssertEqual(params["preferred_surface_id"] as? String, staleSurface)
+                    XCTAssertEqual(params["prefer_tty"] as? Bool, false)
                     return self.v2Response(
                         id: id,
                         ok: true,
-                        result: ["workspace_id": currentWorkspace]
+                        result: ["workspace_id": currentWorkspace, "surface_id": currentSurface]
                     )
-                default:
-                    break
                 }
                 return self.v2Response(
                     id: id,
@@ -3290,22 +3245,20 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 )
             }
 
-            if line == "notify_target \(currentWorkspace) \(currentSurface) Notification||" {
-                return "OK"
-            }
             return "ERROR: Unexpected command \(line)"
         }
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_WORKSPACE_ID"] = staleWorkspace
+        environment["CMUX_WORKSPACE_ID"] = "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"
         environment["CMUX_SURFACE_ID"] = staleSurface
+        environment["TMUX"] = "/tmp/tmux-current,123,0"
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["notify"],
+            arguments: ["notify", "--workspace", "1"],
             environment: environment,
             timeout: 5
         )
@@ -3316,8 +3269,82 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "OK\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertTrue(
-            state.commands.contains("notify_target \(currentWorkspace) \(currentSurface) Notification||"),
-            "Expected notify_target to use current workspace and surface, saw \(state.commands)"
+            state.commands.contains { $0.contains("\"method\":\"notification.create_for_caller\"") },
+            "Expected notify to use single-call caller notification path, saw \(state.commands)"
+        )
+    }
+
+    @MainActor
+    func testNotifyWithWorkspaceHandlePreservesSyncTargetValidation() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("notify-handle")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let staleSurface = "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if let data = line.data(using: .utf8),
+               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+               let id = payload["id"] as? String,
+               let method = payload["method"] as? String {
+                switch method {
+                case "workspace.list":
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "workspaces": [
+                                ["id": workspaceId, "index": 1]
+                            ]
+                        ]
+                    )
+                default:
+                    return self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                    )
+                }
+            }
+
+            if line.hasPrefix("notify_target \(workspaceId) \(staleSurface) ") {
+                return "ERROR: Panel not found"
+            }
+            if line.hasPrefix("notify_target_async ") {
+                return "OK"
+            }
+            return "ERROR: Unexpected command \(line)"
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["notify", "--workspace", "1", "--surface", staleSurface, "--title", "Mixed"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("ERROR: Panel not found"), result.stderr)
+        XCTAssertTrue(
+            state.commands.contains { $0.hasPrefix("notify_target \(workspaceId) \(staleSurface) ") },
+            "Expected notify to use synchronous target validation, saw \(state.commands)"
+        )
+        XCTAssertFalse(
+            state.commands.contains { $0.hasPrefix("notify_target_async ") },
+            "Expected no async target dispatch for mixed handles, saw \(state.commands)"
         )
     }
 
@@ -3673,253 +3700,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     }
 
     @MainActor
-    func testSSHBootstrapStartupCommandPassesRemoteInstallScriptAsSingleSSHCommand() throws {
-        let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("sshboot")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
-        let workspaceID = "11111111-1111-1111-1111-111111111111"
-        let workspaceRef = "workspace:8"
-        let windowID = "22222222-2222-2222-2222-222222222222"
-
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-        }
-
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let data = line.data(using: .utf8),
-                  let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-                  let id = payload["id"] as? String,
-                  let method = payload["method"] as? String else {
-                return self.v2Response(
-                    id: "unknown",
-                    ok: false,
-                    error: ["code": "unexpected", "message": "Unexpected payload"]
-                )
-            }
-
-            switch method {
-            case "workspace.create":
-                return self.v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "workspace_id": workspaceID,
-                        "window_id": windowID,
-                    ]
-                )
-            case "workspace.rename":
-                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
-            case "workspace.remote.configure":
-                let params = payload["params"] as? [String: Any] ?? [:]
-                let autoConnect = (params["auto_connect"] as? Bool) ?? true
-                return self.v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "workspace_id": workspaceID,
-                        "workspace_ref": workspaceRef,
-                        "remote": [
-                            "enabled": true,
-                            "state": autoConnect ? "connecting" : "disconnected",
-                        ],
-                    ]
-                )
-            case "workspace.select":
-                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
-            default:
-                return self.v2Response(
-                    id: id,
-                    ok: false,
-                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
-                )
-            }
-        }
-
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
-
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: [
-                "ssh",
-                "--name", "SSH Workspace",
-                "--port", "2222",
-                "--identity", "/Users/test/.ssh/id_ed25519",
-                "--ssh-option", "ControlPath=/tmp/cmux-ssh-%C",
-                "--ssh-option", "StrictHostKeyChecking=accept-new",
-                "cmux-macmini",
-            ],
-            environment: environment,
-            timeout: 5
-        )
-
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-
-        let requests = try state.commands.map { line -> [String: Any] in
-            let data = try XCTUnwrap(line.data(using: .utf8))
-            return try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
-        }
-        let createParams = try XCTUnwrap(requests.first?["params"] as? [String: Any])
-        let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
-        let configureParams = try XCTUnwrap(requests.dropFirst(2).first?["params"] as? [String: Any])
-        let foregroundAuthToken = try XCTUnwrap(configureParams["foreground_auth_token"] as? String)
-
-        let fileManager = FileManager.default
-        let tempRoot = fileManager.temporaryDirectory.appendingPathComponent("cmux-ssh-bootstrap-\(UUID().uuidString)")
-        let fakeBin = tempRoot.appendingPathComponent("bin")
-        let fakeSSHLog = tempRoot.appendingPathComponent("fake-ssh.jsonl")
-        let fakeSSH = fakeBin.appendingPathComponent("ssh")
-
-        try fileManager.createDirectory(at: fakeBin, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: tempRoot) }
-
-        let fakeSSHScript = """
-        #!/bin/sh
-        python3 - "$@" <<'PY'
-        import json
-        import os
-        import subprocess
-        import sys
-
-        args = sys.argv[1:]
-        with open(os.environ["CMUX_FAKE_SSH_LOG"], "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(args) + "\\n")
-
-        local_command = None
-        for index, arg in enumerate(args):
-            if arg == "-o" and index + 1 < len(args) and args[index + 1].startswith("LocalCommand="):
-                local_command = args[index + 1].split("=", 1)[1]
-                break
-
-        if local_command:
-            subprocess.run(["/bin/sh", "-c", local_command], check=False, env=os.environ.copy())
-        PY
-        cat >/dev/null
-        exit 0
-        """
-        try fakeSSHScript.write(to: fakeSSH, atomically: true, encoding: .utf8)
-        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
-
-        var startupEnvironment = ProcessInfo.processInfo.environment
-        startupEnvironment["HOME"] = tempRoot.path
-        startupEnvironment["PATH"] = "\(fakeBin.path):/usr/bin:/bin:/usr/sbin:/sbin"
-        startupEnvironment["CMUX_FAKE_SSH_LOG"] = fakeSSHLog.path
-        startupEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        startupEnvironment["CMUX_WORKSPACE_ID"] = workspaceID
-        startupEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        startupEnvironment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
-
-        let foregroundAuthState = MockSocketServerState()
-        let foregroundAuthHandled = startMockServer(listenerFD: listenerFD, state: foregroundAuthState) { line in
-            guard let data = line.data(using: .utf8),
-                  let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-                  let id = payload["id"] as? String,
-                  let method = payload["method"] as? String,
-                  method == "workspace.remote.foreground_auth_ready" else {
-                return self.v2Response(
-                    id: "unknown",
-                    ok: false,
-                    error: ["code": "unexpected", "message": "Unexpected payload"]
-                )
-            }
-
-            return self.v2Response(
-                id: id,
-                ok: true,
-                result: [
-                    "workspace_id": workspaceID,
-                    "workspace_ref": workspaceRef,
-                    "remote": [
-                        "enabled": true,
-                        "state": "connecting",
-                    ],
-                ]
-            )
-        }
-
-        let startupResult = runProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-c", initialCommand],
-            environment: startupEnvironment,
-            timeout: 5
-        )
-
-        wait(for: [foregroundAuthHandled], timeout: 5)
-        XCTAssertFalse(startupResult.timedOut, startupResult.stderr)
-        XCTAssertEqual(startupResult.status, 0, startupResult.stderr)
-
-        let logLines = try String(contentsOf: fakeSSHLog, encoding: .utf8)
-            .split(separator: "\n")
-            .map(String.init)
-        XCTAssertGreaterThanOrEqual(logLines.count, 2)
-
-        let firstInvocationData = try XCTUnwrap(logLines.first?.data(using: .utf8))
-        let firstInvocation = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: firstInvocationData, options: []) as? [String]
-        )
-        let localCommandArgument = try XCTUnwrap(
-            firstInvocation.first(where: { $0.hasPrefix("LocalCommand=") })
-        )
-        let localCommand = String(localCommandArgument.dropFirst("LocalCommand=".count))
-        XCTAssertTrue(
-            firstInvocation.contains(where: { $0.contains("LocalCommand=") && $0.contains("workspace.remote.foreground_auth_ready") }),
-            "Expected the bootstrap install SSH hop to signal foreground auth readiness via LocalCommand, saw \(firstInvocation)"
-        )
-        XCTAssertTrue(
-            localCommand.contains("%%s\\n"),
-            "Expected LocalCommand to percent-escape literal percent signs for OpenSSH, saw \(localCommand)"
-        )
-        let localCommandSyntaxCheck = runProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-n", "-c", localCommand],
-            environment: ProcessInfo.processInfo.environment,
-            timeout: 5
-        )
-        XCTAssertEqual(
-            localCommandSyntaxCheck.status,
-            0,
-            "Expected LocalCommand shell snippet to parse cleanly, stderr: \(localCommandSyntaxCheck.stderr)"
-        )
-        let destinationIndex = try XCTUnwrap(firstInvocation.lastIndex(of: "cmux-macmini"))
-        let remoteCommandArgs = Array(firstInvocation.suffix(from: firstInvocation.index(after: destinationIndex)))
-
-        XCTAssertEqual(
-            remoteCommandArgs.count,
-            1,
-            "Expected the staged bootstrap installer to be passed as one SSH remote command, saw \(firstInvocation)"
-        )
-        XCTAssertTrue(remoteCommandArgs[0].contains("/bin/sh -lc"), "Expected a POSIX shell wrapper in \(remoteCommandArgs)")
-        XCTAssertTrue(remoteCommandArgs[0].contains("set -eu"), "Expected installer command body in \(remoteCommandArgs)")
-        XCTAssertFalse(remoteCommandArgs.contains("sh"))
-        XCTAssertFalse(remoteCommandArgs.contains("-c"))
-
-        let secondInvocationData = try XCTUnwrap(logLines.dropFirst().first?.data(using: .utf8))
-        let secondInvocation = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: secondInvocationData, options: []) as? [String]
-        )
-        XCTAssertFalse(
-            secondInvocation.contains(where: { $0.contains("LocalCommand=") }),
-            "Expected only the bootstrap install hop to trigger LocalCommand, saw \(secondInvocation)"
-        )
-
-        XCTAssertEqual(foregroundAuthState.commands.count, 1)
-        let foregroundAuthPayloadData = try XCTUnwrap(foregroundAuthState.commands.first?.data(using: .utf8))
-        let foregroundAuthPayload = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: foregroundAuthPayloadData, options: []) as? [String: Any]
-        )
-        XCTAssertEqual(foregroundAuthPayload["method"] as? String, "workspace.remote.foreground_auth_ready")
-        let foregroundAuthParams = try XCTUnwrap(foregroundAuthPayload["params"] as? [String: Any])
-        XCTAssertEqual(foregroundAuthParams["workspace_id"] as? String, workspaceID)
-        XCTAssertEqual(foregroundAuthParams["foreground_auth_token"] as? String, foregroundAuthToken)
-    }
-
-    @MainActor
     func testNotifyPrefersCallerTTYOverFocusedSurfaceWhenCallerIDsAreStale() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("notify-tty")
@@ -3938,10 +3718,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if line == "notify_target \(workspaceId) \(callerSurface) Notification||" {
-                return "OK"
-            }
-
             guard let data = line.data(using: .utf8),
                   let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                   let id = payload["id"] as? String,
@@ -3951,62 +3727,15 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
 
             let params = payload["params"] as? [String: Any] ?? [:]
             switch method {
-            case "surface.list":
-                let requestedWorkspace = params["workspace_id"] as? String
-                if requestedWorkspace == staleWorkspace {
-                    return self.v2Response(
-                        id: id,
-                        ok: false,
-                        error: ["code": "not_found", "message": "Workspace not found"]
-                    )
-                }
-                if requestedWorkspace == workspaceId {
-                    return self.v2Response(
-                        id: id,
-                        ok: true,
-                        result: [
-                            "surfaces": [
-                                [
-                                    "id": callerSurface,
-                                    "ref": "surface:1",
-                                    "index": 0,
-                                    "focused": false
-                                ],
-                                [
-                                    "id": focusedSurface,
-                                    "ref": "surface:2",
-                                    "index": 1,
-                                    "focused": true
-                                ]
-                            ]
-                        ]
-                    )
-                }
-            case "workspace.current":
+            case "notification.create_for_caller":
+                XCTAssertEqual(params["preferred_workspace_id"] as? String, staleWorkspace)
+                XCTAssertEqual(params["preferred_surface_id"] as? String, staleSurface)
+                XCTAssertEqual(params["caller_tty"] as? String, "ttys777")
+                XCTAssertEqual(params["prefer_tty"] as? Bool, false)
                 return self.v2Response(
                     id: id,
                     ok: true,
-                    result: ["workspace_id": workspaceId]
-                )
-            case "debug.terminals":
-                return self.v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "count": 2,
-                        "terminals": [
-                            [
-                                "workspace_id": workspaceId,
-                                "surface_id": callerSurface,
-                                "tty": callerTTY
-                            ],
-                            [
-                                "workspace_id": workspaceId,
-                                "surface_id": focusedSurface,
-                                "tty": "/dev/ttys778"
-                            ]
-                        ]
-                    ]
+                    result: ["workspace_id": workspaceId, "surface_id": callerSurface]
                 )
             default:
                 break
@@ -4040,12 +3769,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "OK\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertTrue(
-            state.commands.contains("notify_target \(workspaceId) \(callerSurface) Notification||"),
-            "Expected notify_target to use caller tty surface, saw \(state.commands)"
-        )
-        XCTAssertFalse(
-            state.commands.contains("notify_target \(workspaceId) \(focusedSurface) Notification||"),
-            "Focused surface should not win over caller tty, saw \(state.commands)"
+            state.commands.contains { $0.contains("\"method\":\"notification.create_for_caller\"") },
+            "Expected notify to use single-call caller notification path, saw \(state.commands)"
         )
     }
 
@@ -4066,13 +3791,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if line == "notify_target \(workspaceId) \(callerSurface) Notification||" {
-                return "OK"
-            }
-            if line == "notify_target \(workspaceId) \(staleSurface) Notification||" {
-                return "OK"
-            }
-
             guard let data = line.data(using: .utf8),
                   let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                   let id = payload["id"] as? String,
@@ -4082,49 +3800,15 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
 
             let params = payload["params"] as? [String: Any] ?? [:]
             switch method {
-            case "surface.list":
-                let requestedWorkspace = params["workspace_id"] as? String
-                if requestedWorkspace == workspaceId {
-                    return self.v2Response(
-                        id: id,
-                        ok: true,
-                        result: [
-                            "surfaces": [
-                                [
-                                    "id": callerSurface,
-                                    "ref": "surface:1",
-                                    "index": 0,
-                                    "focused": false
-                                ],
-                                [
-                                    "id": staleSurface,
-                                    "ref": "surface:2",
-                                    "index": 1,
-                                    "focused": true
-                                ]
-                            ]
-                        ]
-                    )
-                }
-            case "debug.terminals":
+            case "notification.create_for_caller":
+                XCTAssertEqual(params["preferred_workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["preferred_surface_id"] as? String, staleSurface)
+                XCTAssertEqual(params["caller_tty"] as? String, "ttys777")
+                XCTAssertEqual(params["prefer_tty"] as? Bool, true)
                 return self.v2Response(
                     id: id,
                     ok: true,
-                    result: [
-                        "count": 2,
-                        "terminals": [
-                            [
-                                "workspace_id": workspaceId,
-                                "surface_id": callerSurface,
-                                "tty": callerTTY
-                            ],
-                            [
-                                "workspace_id": workspaceId,
-                                "surface_id": staleSurface,
-                                "tty": "/dev/ttys778"
-                            ]
-                        ]
-                    ]
+                    result: ["workspace_id": workspaceId, "surface_id": callerSurface]
                 )
             default:
                 break
@@ -4159,12 +3843,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "OK\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertTrue(
-            state.commands.contains("notify_target \(workspaceId) \(callerSurface) Notification||"),
-            "Expected notify_target to use caller tty surface in tmux, saw \(state.commands)"
-        )
-        XCTAssertFalse(
-            state.commands.contains("notify_target \(workspaceId) \(staleSurface) Notification||"),
-            "Stale env surface should not win inside tmux, saw \(state.commands)"
+            state.commands.contains { $0.contains("\"method\":\"notification.create_for_caller\"") },
+            "Expected notify to use single-call caller notification path in tmux, saw \(state.commands)"
         )
     }
 

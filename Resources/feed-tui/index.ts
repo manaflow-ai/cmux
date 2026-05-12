@@ -669,8 +669,17 @@ class FeedApp {
     }
     switch (item.kind) {
       case "permissionRequest":
+        if (!sourceSupportsPersistentPermissionModes(item.source)) {
+          return "Enter once | d deny";
+        }
+        if (!sourceSupportsBypassPermissions(item.source)) {
+          return "Enter once | a always | l all | d deny";
+        }
         return "Enter once | a always | l all | b bypass | d deny";
       case "exitPlan":
+        if (!sourceSupportsBypassPermissions(item.source)) {
+          return "Enter default | a auto | m manual | u ultra | f replan | d deny";
+        }
         return "Enter default | a auto | m manual | u ultra | b bypass | f replan | d deny";
       case "question":
         if (item.questionOptions.length === 0) {
@@ -711,9 +720,20 @@ class FeedApp {
     }
     switch (item.kind) {
       case "permissionRequest":
-        return ["deny", "always", "all", "bypass"].includes(action);
+        if (!sourceSupportsPersistentPermissionModes(item.source)) {
+          // Codex PermissionRequest hooks only accept allow/deny for this
+          // invocation. Persistent permission modes are agent-specific.
+          return ["deny"].includes(action);
+        }
+        return (
+          ["deny", "always", "all"].includes(action) ||
+          (action === "bypass" && sourceSupportsBypassPermissions(item.source))
+        );
       case "exitPlan":
-        return ["deny", "always", "manual", "ultraplan", "bypass"].includes(action);
+        return (
+          ["deny", "always", "manual", "ultraplan"].includes(action) ||
+          (action === "bypass" && sourceSupportsBypassPermissions(item.source))
+        );
       case "question":
         return action === "default" || action.startsWith("option:");
       default:
@@ -1049,6 +1069,14 @@ function isCtrlC(key: KeyEvent): boolean {
   return (key.ctrl && isKey(key, "c")) || key.sequence === "\u0003" || key.raw === "\u0003";
 }
 
+function sourceSupportsPersistentPermissionModes(source: string): boolean {
+  return source !== "codex";
+}
+
+function sourceSupportsBypassPermissions(source: string): boolean {
+  return source !== "codex" && source !== "claude";
+}
+
 function actionForKey(key: KeyEvent): string | undefined {
   if (isKey(key, "d")) {
     return "deny";
@@ -1147,7 +1175,7 @@ function writeReadyMarker(stage: string, details: Record<string, string> = {}): 
 }
 
 async function main() {
-  const socketPath = process.env.CMUX_SOCKET_PATH || process.env.CMUX_SOCKET;
+  const socketPath = process.env.CMUX_SOCKET_PATH;
   if (!socketPath) {
     throw new Error("CMUX_SOCKET_PATH is required.");
   }

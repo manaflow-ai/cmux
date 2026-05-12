@@ -351,6 +351,23 @@ struct BrowserProfileDefinition: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
+struct BrowserProfileClearOutcome: Sendable {
+    let profile: BrowserProfileDefinition
+    let clearedWebsiteDataTypes: [String]
+    let clearedHistory: Bool
+
+    var socketPayload: [String: Any] {
+        [
+            "id": profile.id.uuidString,
+            "name": profile.displayName,
+            "slug": profile.slug,
+            "built_in_default": profile.isBuiltInDefault,
+            "cleared_website_data_types": clearedWebsiteDataTypes,
+            "cleared_history": clearedHistory,
+        ]
+    }
+}
+
 @MainActor
 final class BrowserProfileStore: ObservableObject {
     static let shared = BrowserProfileStore()
@@ -430,6 +447,56 @@ final class BrowserProfileStore: ObservableObject {
     func canRenameProfile(id: UUID) -> Bool {
         guard let profile = profileDefinition(id: id) else { return false }
         return !profile.isBuiltInDefault
+    }
+
+    func deleteProfile(id: UUID) -> BrowserProfileDefinition? {
+        guard let index = profiles.firstIndex(where: { $0.id == id }),
+              !profiles[index].isBuiltInDefault else {
+            return nil
+        }
+        let removed = profiles.remove(at: index)
+        let historyDirectoryURL = historyFileURL(for: id)?.deletingLastPathComponent()
+        historyStores[id]?.cancelPendingSaves()
+        dataStores.removeValue(forKey: id)
+        historyStores.removeValue(forKey: id)
+        if lastUsedProfileID == id {
+            lastUsedProfileID = Self.builtInDefaultProfileID
+            defaults.set(lastUsedProfileID.uuidString, forKey: Self.lastUsedProfileDefaultsKey)
+        }
+        persist()
+        if let historyDirectoryURL {
+            Task.detached(priority: .utility) {
+                try? FileManager.default.removeItem(at: historyDirectoryURL)
+            }
+        }
+        return removed
+    }
+
+    func clearProfileData(id: UUID) async -> BrowserProfileClearOutcome? {
+        guard let profile = profileDefinition(id: id) else { return nil }
+        let store = websiteDataStore(for: id)
+        let historyURL = historyFileURL(for: id)
+        historyStore(for: id).clearHistoryWithoutLoadingPersistedFile()
+        let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
+        await withCheckedContinuation { continuation in
+            store.removeData(ofTypes: dataTypes, modifiedSince: .distantPast) {
+                continuation.resume()
+            }
+        }
+        if let historyURL {
+            await Self.removeItemIfExists(at: historyURL)
+        }
+        return BrowserProfileClearOutcome(
+            profile: profile,
+            clearedWebsiteDataTypes: Array(dataTypes).sorted(),
+            clearedHistory: true
+        )
+    }
+
+    private nonisolated static func removeItemIfExists(at url: URL) async {
+        await Task.detached(priority: .utility) {
+            try? FileManager.default.removeItem(at: url)
+        }.value
     }
 
     func noteUsed(_ id: UUID) {
@@ -716,6 +783,7 @@ enum BrowserInsecureHTTPSettings {
     static let allowlistKey = "browserInsecureHTTPAllowlist"
     static let defaultAllowlistPatterns = [
         "localhost",
+        "*.localhost",
         "127.0.0.1",
         "::1",
         "0.0.0.0",
@@ -1051,7 +1119,7 @@ final class BrowserHistoryStore: ObservableObject {
 
     func loadIfNeeded() {
         guard !didLoad else { return }
-        didLoad = true
+        didLoad = true; if let seededEntries = BrowserHistoryStore.uiTestSeedEntriesIfConfigured() { entries = seededEntries.sorted { $0.lastVisited > $1.lastVisited }; return }
         guard let fileURL else { return }
         migrateLegacyTaggedHistoryFileIfNeeded(to: fileURL)
 
@@ -1322,6 +1390,18 @@ final class BrowserHistoryStore: ObservableObject {
         entries = []
         guard let fileURL else { return }
         try? FileManager.default.removeItem(at: fileURL)
+    }
+
+    func clearHistoryWithoutLoadingPersistedFile() {
+        saveTask?.cancel()
+        saveTask = nil
+        didLoad = true
+        entries = []
+    }
+
+    func cancelPendingSaves() {
+        saveTask?.cancel()
+        saveTask = nil
     }
 
     @discardableResult
@@ -1788,14 +1868,6 @@ final class BrowserPortalAnchorView: NSView {
 
 @MainActor
 final class BrowserPanel: Panel, ObservableObject {
-    private static let remoteLoopbackProxyAliasHost = "cmux-loopback.localtest.me"
-    private static let remoteLoopbackHosts: Set<String> = [
-        "localhost",
-        "127.0.0.1",
-        "::1",
-        "0.0.0.0",
-    ]
-
     /// Shared process pool for cookie sharing across all browser panels
     private static let sharedProcessPool = WKProcessPool()
 
@@ -2238,13 +2310,16 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Incremented whenever async browser find focus ownership changes.
     @Published private(set) var searchFocusRequestGeneration: UInt64 = 0
+    private var lastSearchNeedle = ""
 
     /// Find-in-page state. Non-nil when the find bar is visible.
     @Published var searchState: BrowserSearchState? = nil {
         didSet {
             if let searchState {
                 preferredFocusIntent = .findField
-                NSLog("Find: browser search state created panel=%@", id.uuidString)
+#if DEBUG
+                cmuxDebugLog("browser.find.state.created panel=\(id.uuidString.prefix(5))")
+#endif
                 searchNeedleCancellable = searchState.$needle
                     .removeDuplicates()
                     .map { needle -> AnyPublisher<String, Never> in
@@ -2258,16 +2333,19 @@ final class BrowserPanel: Panel, ObservableObject {
                     .switchToLatest()
                     .sink { [weak self] needle in
                         guard let self else { return }
-                        NSLog("Find: browser needle updated panel=%@ needle=%@", self.id.uuidString, needle)
+#if DEBUG
+                        cmuxDebugLog("browser.find.needle.updated panel=\(self.id.uuidString.prefix(5)) bytes=\(needle.lengthOfBytes(using: .utf8))")
+#endif
                         self.executeFindSearch(needle)
                     }
-            } else if oldValue != nil {
+            } else if let oldValue {
+                lastSearchNeedle = oldValue.needle
                 searchNeedleCancellable = nil
-                if preferredFocusIntent == .findField {
-                    preferredFocusIntent = .webView
-                }
+                if preferredFocusIntent == .findField { preferredFocusIntent = .webView }
                 invalidateSearchFocusRequests(reason: "searchStateCleared")
-                NSLog("Find: browser search state cleared panel=%@", id.uuidString)
+#if DEBUG
+                cmuxDebugLog("browser.find.state.cleared panel=\(id.uuidString.prefix(5))")
+#endif
                 executeFindClear()
             }
         }
@@ -2605,6 +2683,13 @@ final class BrowserPanel: Panel, ObservableObject {
                 forMainFrameOnly: true
             )
         )
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: RemoteLoopbackRuntimeBridge.runtimeBridgeScriptSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
+            )
+        )
         // Track the last editable focused element continuously so omnibar exit can
         // restore page input focus even if capture runs after first-responder handoff.
         // Main frame only — same CAPTCHA interference concern as telemetry hooks.
@@ -2637,7 +2722,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.onContextMenuOpenLinkInNewTab = { [weak self] url in
             self?.openLinkInNewTab(url: url)
         }
-        configureNavigationDelegateCallbacks()
+        configureMoveTabToNewWorkspaceContextMenu(for: webView); configureNavigationDelegateCallbacks()
         webView.navigationDelegate = navigationDelegate
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
@@ -3442,6 +3527,8 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func close() {
+        closeDeveloperToolsForTeardown()
+
         // Ensure we don't keep a hidden WKWebView (or its content view) as first responder while
         // bonsplit/SwiftUI reshuffles views during close.
         unfocus()
@@ -3943,20 +4030,26 @@ final class BrowserPanel: Panel, ObservableObject {
     private static func remoteProxyDisplayURL(for url: URL?) -> URL? {
         guard let url else { return nil }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return url }
-        guard host == BrowserInsecureHTTPSettings.normalizeHost(remoteLoopbackProxyAliasHost) else { return url }
+        guard let displayHost = RemoteLoopbackProxyAlias.localhostFamilyHost(
+            forAliasHost: host,
+            aliasHost: RemoteLoopbackProxyAlias.aliasHost
+        ) else { return url }
 
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        components?.host = "localhost"
+        components?.host = displayHost
         return components?.url ?? url
     }
 
     private static func remoteProxyLoopbackAliasURL(for url: URL) -> URL? {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" else { return nil }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return nil }
-        guard remoteLoopbackHosts.contains(host) else { return nil }
+        guard RemoteLoopbackProxyAlias.isLoopbackHost(host) else { return nil }
 
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        components?.host = remoteLoopbackProxyAliasHost
+        components?.host = RemoteLoopbackProxyAlias.browserAliasHost(
+            forLoopbackHost: host,
+            aliasHost: RemoteLoopbackProxyAlias.aliasHost
+        )
         return components?.url
     }
 
@@ -4208,6 +4301,13 @@ extension BrowserPanel {
     }
 }
 
+private func browserBareHostCandidate(_ lowercasedInput: String) -> String {
+    let end = lowercasedInput.firstIndex { character in
+        character == ":" || character == "/" || character == "?" || character == "#"
+    } ?? lowercasedInput.endIndex
+    return String(lowercasedInput[..<end])
+}
+
 func resolveBrowserNavigableURL(_ input: String) -> URL? {
     let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
@@ -4216,7 +4316,11 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
     // Check localhost/loopback before generic URL parsing because
     // URL(string: "localhost:3777") treats "localhost" as a scheme.
     let lower = trimmed.lowercased()
-    if lower.hasPrefix("localhost") || lower.hasPrefix("127.0.0.1") || lower.hasPrefix("[::1]") {
+    let bareHost = browserBareHostCandidate(lower)
+    if lower.hasPrefix("localhost") ||
+        lower.hasPrefix("127.0.0.1") ||
+        lower.hasPrefix("[::1]") ||
+        (bareHost != ".localhost" && bareHost.hasSuffix(".localhost")) {
         return URL(string: "http://\(trimmed)")
     }
 
@@ -4736,6 +4840,22 @@ extension BrowserPanel {
         return true
     }
 
+    @discardableResult
+    func closeDeveloperToolsForTeardown() -> Bool {
+        developerToolsTransitionSettleWorkItem?.cancel()
+        developerToolsTransitionSettleWorkItem = nil
+        pendingDeveloperToolsTransitionTargetVisible = nil
+        developerToolsTransitionTargetVisible = nil
+        developerToolsDetachedOpenGraceDeadline = nil
+        developerToolsLastKnownVisibleAt = nil
+        forceDeveloperToolsRefreshOnNextAttach = false
+        cancelDeveloperToolsRestoreRetry()
+
+        let closed = WebViewInspectorTeardown.closeInspector(for: webView)
+        setPreferredDeveloperToolsVisible(false)
+        return closed
+    }
+
     /// Called before WKWebView detaches so manual inspector closes are respected.
     func syncDeveloperToolsPreferenceFromInspector(preserveVisibleIntent: Bool = false) {
         guard let inspector = webView.cmuxInspectorObject() else { return }
@@ -5015,30 +5135,19 @@ extension BrowserPanel {
     func startFind() {
         preferredFocusIntent = .findField
         let created = searchState == nil
-        if created {
-            searchState = BrowserSearchState()
-        }
+        let recoveredNeedle = created ? lastSearchNeedle : ""
+        if created { searchState = BrowserSearchState(needle: recoveredNeedle) }
+        let shouldSelectAll = created && !recoveredNeedle.isEmpty
         pendingAddressBarFocusRequestId = nil
         NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
         let generation = beginSearchFocusRequest(reason: "startFind")
-#if DEBUG
-        let window = webView.window
-        cmuxDebugLog(
-            "browser.find.start panel=\(id.uuidString.prefix(5)) " +
-            "created=\(created ? 1 : 0) render=\(shouldRenderWebView ? 1 : 0) " +
-            "generation=\(generation) " +
-            "window=\(window?.windowNumber ?? -1) key=\(NSApp.keyWindow === window ? 1 : 0) " +
-            "firstResponder=\(String(describing: window?.firstResponder))"
-        )
-#endif
-        postBrowserSearchFocusNotification(reason: "immediate", generation: generation, selectAll: !created)
-        // Focus notification can race with portal overlay mount. Re-post on the
-        // next runloop and shortly after so the find field can claim first responder.
+        postBrowserSearchFocusNotification(reason: "immediate", generation: generation, selectAll: shouldSelectAll)
+        // Re-post because portal overlay mount can race first responder focus.
         DispatchQueue.main.async { [weak self] in
-            self?.postBrowserSearchFocusNotification(reason: "async0", generation: generation, selectAll: !created)
+            self?.postBrowserSearchFocusNotification(reason: "async0", generation: generation, selectAll: shouldSelectAll)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.postBrowserSearchFocusNotification(reason: "async50ms", generation: generation, selectAll: false)
+            self?.postBrowserSearchFocusNotification(reason: "async50ms", generation: generation, selectAll: shouldSelectAll)
         }
     }
 
@@ -5081,8 +5190,10 @@ extension BrowserPanel {
     }
 
     func hideFind() {
+        let shouldRestoreWebViewFocus = searchState != nil && preferredFocusIntent == .findField
         invalidateSearchFocusRequests(reason: "hideFind")
         searchState = nil
+        if shouldRestoreWebViewFocus { focus() }
     }
 
     private func restoreFindStateAfterNavigation(replaySearch: Bool) {
@@ -5346,7 +5457,8 @@ extension BrowserPanel {
     }
 
     func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent? {
-        if AppDelegate.shared?.focusedBrowserAddressBarPanelId() == id {
+        if AppDelegate.shared?.focusedBrowserAddressBarPanelId() == id,
+           browserOmnibarPanelId(for: responder) == id {
             return .browser(.addressBar)
         }
 
@@ -5377,17 +5489,26 @@ extension BrowserPanel {
             return yielded
         case .addressBar:
             guard AppDelegate.shared?.focusedBrowserAddressBarPanelId() == id else { return false }
-            let yielded = window.makeFirstResponder(nil)
-#if DEBUG
-            if yielded {
-                cmuxDebugLog("focus.handoff.yield panel=\(id.uuidString.prefix(5)) target=addressBar")
+            guard browserOmnibarPanelId(for: window.firstResponder) == id else {
+                clearAddressBarFocusTrackingForYield()
+                return false
             }
+            browserPrepareOmnibarForProgrammaticBlur(panelId: id, responder: window.firstResponder)
+            clearAddressBarFocusTrackingForYield()
+#if DEBUG
+            cmuxDebugLog("focus.handoff.yield panel=\(id.uuidString.prefix(5)) target=addressBar")
 #endif
-            return yielded
+            return true
         case .webView:
             guard Self.responderChainContains(window.firstResponder, target: webView) else { return false }
             return window.makeFirstResponder(nil)
         }
+    }
+
+    private func clearAddressBarFocusTrackingForYield() {
+        endSuppressWebViewFocusForAddressBar()
+        AppDelegate.shared?.clearBrowserAddressBarFocus(panelId: id, reason: "yield")
+        NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
     }
 
     @discardableResult
@@ -5870,6 +5991,87 @@ extension WKWebView {
             return nil
         }
         return inspectorWebView
+    }
+}
+
+@MainActor
+enum WebViewInspectorTeardown {
+    @discardableResult
+    static func closeAllInspectors(in window: NSWindow) -> Int {
+        assert(Thread.isMainThread)
+
+        return webViews(in: window).reduce(0) { count, webView in
+            closeInspector(for: webView) ? count + 1 : count
+        }
+    }
+
+    @discardableResult
+    static func closeAllInspectors(in windows: [NSWindow]) -> Int {
+        windows.reduce(0) { count, window in
+            count + closeAllInspectors(in: window)
+        }
+    }
+
+    @discardableResult
+    static func closeInspector(for webView: WKWebView) -> Bool {
+        assert(Thread.isMainThread)
+
+        guard !isInspectorFrontendWebView(webView),
+              let inspector = webView.cmuxInspectorObject() else {
+            return false
+        }
+
+        let isVisibleSelector = NSSelectorFromString("isVisible")
+        let isAttachedSelector = NSSelectorFromString("isAttached")
+        let isVisible = inspector.cmuxCallBool(selector: isVisibleSelector)
+        let isAttached = inspector.cmuxCallBool(selector: isAttachedSelector)
+        let shouldClose = (isVisible == true)
+            || (isAttached == true)
+            || (isVisible == nil && isAttached == nil)
+        guard shouldClose else { return false }
+
+        // cmux already opens Web Inspector through WebKit's `_inspector` object
+        // because the deployable SDK surface does not expose a stable close API.
+        // Keep teardown on the same auditable SPI path so WebKit unregisters the
+        // inspector window observers before the parent AppKit close cascade runs.
+        let closeSelector = NSSelectorFromString("close")
+        guard inspector.responds(to: closeSelector) else { return false }
+        inspector.cmuxCallVoid(selector: closeSelector)
+        return true
+    }
+
+    private static func webViews(in window: NSWindow) -> [WKWebView] {
+        var seen = Set<ObjectIdentifier>()
+        var result: [WKWebView] = []
+        let roots = [window.contentView, window.contentView?.superview].compactMap { $0 }
+        for root in roots {
+            collectWebViews(in: root, seen: &seen, result: &result)
+        }
+        return result
+    }
+
+    private static func collectWebViews(
+        in view: NSView,
+        seen: inout Set<ObjectIdentifier>,
+        result: inout [WKWebView]
+    ) {
+        if let webView = view as? WKWebView,
+           !isInspectorFrontendWebView(webView) {
+            let id = ObjectIdentifier(webView)
+            if !seen.contains(id) {
+                seen.insert(id)
+                result.append(webView)
+            }
+        }
+
+        for subview in view.subviews {
+            collectWebViews(in: subview, seen: &seen, result: &result)
+        }
+    }
+
+    private static func isInspectorFrontendWebView(_ webView: WKWebView) -> Bool {
+        let className = NSStringFromClass(type(of: webView))
+        return className.contains("WKInspector") || className.contains("WebInspector")
     }
 }
 
@@ -7820,6 +8022,29 @@ struct BrowserImportOutcome: Sendable {
     var totalImportedHistoryEntries: Int {
         entries.reduce(0) { $0 + $1.importedHistoryEntries }
     }
+
+    var socketPayload: [String: Any] {
+        [
+            "browser": browserName,
+            "scope": scope.rawValue,
+            "domain_filters": domainFilters,
+            "created_destination_profiles": createdDestinationProfileNames,
+            "imported_cookies": totalImportedCookies,
+            "skipped_cookies": totalSkippedCookies,
+            "imported_history_entries": totalImportedHistoryEntries,
+            "warnings": warnings,
+            "entries": entries.map { entry in
+                [
+                    "source_profiles": entry.sourceProfileNames,
+                    "destination_profile": entry.destinationProfileName,
+                    "imported_cookies": entry.importedCookies,
+                    "skipped_cookies": entry.skippedCookies,
+                    "imported_history_entries": entry.importedHistoryEntries,
+                    "warnings": entry.warnings,
+                ] as [String: Any]
+            },
+        ]
+    }
 }
 
 struct RealizedBrowserImportExecutionEntry: Sendable {
@@ -9098,18 +9323,22 @@ enum BrowserDataImporter {
             BrowserProfileStore.shared.websiteDataStore(for: destinationProfileID).httpCookieStore
         }
         var importedCount = 0
-        for cookie in cookies {
-            await setCookie(cookie, in: store)
-            importedCount += 1
+        for (index, cookie) in cookies.enumerated() {
+            if await setCookie(cookie, in: store) {
+                importedCount += 1
+            }
+            if index > 0 && index.isMultiple(of: 50) {
+                await Task.yield()
+            }
         }
         return importedCount
     }
 
     @MainActor
-    private static func setCookie(_ cookie: HTTPCookie, in store: WKHTTPCookieStore) async {
+    private static func setCookie(_ cookie: HTTPCookie, in store: WKHTTPCookieStore) async -> Bool {
         await withCheckedContinuation { continuation in
             store.setCookie(cookie) {
-                continuation.resume()
+                continuation.resume(returning: true)
             }
         }
     }
@@ -9353,8 +9582,15 @@ final class BrowserDataImportCoordinator {
 
     private init() {}
 
-    func presentImportDialog(defaultDestinationProfileID: UUID? = nil) {
-        presentImportDialog(prefilledBrowsers: nil, defaultDestinationProfileID: defaultDestinationProfileID)
+    func presentImportDialog(
+        defaultDestinationProfileID: UUID? = nil,
+        defaultScope: BrowserImportScope? = nil
+    ) {
+        presentImportDialog(
+            prefilledBrowsers: nil,
+            defaultDestinationProfileID: defaultDestinationProfileID,
+            defaultScope: defaultScope
+        )
     }
 
     private struct ImportSelection {
@@ -9366,7 +9602,8 @@ final class BrowserDataImportCoordinator {
 
     private func presentImportDialog(
         prefilledBrowsers: [InstalledBrowserCandidate]?,
-        defaultDestinationProfileID: UUID?
+        defaultDestinationProfileID: UUID?,
+        defaultScope: BrowserImportScope?
     ) {
         guard !importInProgress else { return }
 #if DEBUG
@@ -9397,7 +9634,8 @@ final class BrowserDataImportCoordinator {
         guard let selection = promptForSelection(
             browsers: browsers,
             destinationProfiles: fixtureDestinationProfiles,
-            defaultDestinationProfileID: defaultDestinationProfileID
+            defaultDestinationProfileID: defaultDestinationProfileID,
+            defaultScope: defaultScope
         ) else { return }
 
 #if DEBUG
@@ -9456,13 +9694,15 @@ final class BrowserDataImportCoordinator {
     private func promptForSelection(
         browsers: [InstalledBrowserCandidate],
         destinationProfiles: [BrowserProfileDefinition]?,
-        defaultDestinationProfileID: UUID?
+        defaultDestinationProfileID: UUID?,
+        defaultScope: BrowserImportScope?
     ) -> ImportSelection? {
         guard !browsers.isEmpty else { return nil }
         let wizard = ImportWizardWindowController(
             browsers: browsers,
             destinationProfiles: destinationProfiles,
-            defaultDestinationProfileID: defaultDestinationProfileID
+            defaultDestinationProfileID: defaultDestinationProfileID,
+            defaultScope: defaultScope
         )
         return wizard.runModal()
     }
@@ -9471,12 +9711,14 @@ final class BrowserDataImportCoordinator {
     func debugMakeImportWizardWindow(
         browsers: [InstalledBrowserCandidate],
         destinationProfiles: [BrowserProfileDefinition]? = nil,
-        defaultDestinationProfileID: UUID? = nil
+        defaultDestinationProfileID: UUID? = nil,
+        defaultScope: BrowserImportScope? = nil
     ) -> NSWindow {
         let wizard = ImportWizardWindowController(
             browsers: browsers,
             destinationProfiles: destinationProfiles,
-            defaultDestinationProfileID: defaultDestinationProfileID
+            defaultDestinationProfileID: defaultDestinationProfileID,
+            defaultScope: defaultScope
         )
         return wizard.debugPanelWindow
     }
@@ -9571,6 +9813,7 @@ final class BrowserDataImportCoordinator {
         private let browsers: [InstalledBrowserCandidate]
         private let destinationProfiles: [BrowserProfileDefinition]
         private let initialDestinationProfileID: UUID
+        private let defaultScope: BrowserImportScope?
 
         private var step: Step = .source
         private var didFinishModal = false
@@ -9617,7 +9860,8 @@ final class BrowserDataImportCoordinator {
         init(
             browsers: [InstalledBrowserCandidate],
             destinationProfiles: [BrowserProfileDefinition]?,
-            defaultDestinationProfileID: UUID?
+            defaultDestinationProfileID: UUID?,
+            defaultScope: BrowserImportScope?
         ) {
             let resolvedDestinationProfiles = destinationProfiles ?? BrowserProfileStore.shared.profiles
             let fallbackDestinationProfileID = resolvedDestinationProfiles.first?.id
@@ -9627,6 +9871,7 @@ final class BrowserDataImportCoordinator {
             self.initialDestinationProfileID = defaultDestinationProfileID
                 .flatMap { candidateID in resolvedDestinationProfiles.first(where: { $0.id == candidateID })?.id }
                 ?? fallbackDestinationProfileID
+            self.defaultScope = defaultScope
             self.mergeDestinationProfileID = self.initialDestinationProfileID
             self.panel = NSPanel(
                 contentRect: NSRect(x: 0, y: 0, width: 560, height: 292),
@@ -9992,9 +10237,10 @@ final class BrowserDataImportCoordinator {
         }
 
         private func setupDataTypesContainer() {
-            cookiesCheckbox.state = .on
-            historyCheckbox.state = .on
-            additionalDataCheckbox.state = .off
+            let initialScope = defaultScope ?? .cookiesAndHistory
+            cookiesCheckbox.state = initialScope.includesCookies ? .on : .off
+            historyCheckbox.state = initialScope.includesHistory ? .on : .off
+            additionalDataCheckbox.state = initialScope == .everything ? .on : .off
             cookiesCheckbox.title = String(
                 localized: "browser.import.cookies",
                 defaultValue: "Cookies (site sign-ins)"
