@@ -98,6 +98,19 @@ should_preserve_claude_auth_selection_key() {
     return 1
 }
 
+should_clear_claude_auth_selection_key() {
+    local key="$1"
+
+    should_preserve_claude_auth_selection_key "$key" && return 1
+    [[ ${!key+x} ]] || return 1
+
+    if [[ "$PRESERVE_CLAUDE_AUTH_SELECTION_ENV" == true && -n "${CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS:-}" ]]; then
+        return 0
+    fi
+
+    [[ -z "${!key}" ]]
+}
+
 normalize_claude_config_dir() {
     [[ -n "${CLAUDE_CONFIG_DIR:-}" ]] || return 0
     [[ -n "${HOME:-}" ]] || return 0
@@ -124,8 +137,7 @@ clear_inherited_claude_auth_selection_env() {
     if [[ "${IN_CMUX:-0}" == "1" ]]; then
         local key
         for key in "${CLAUDE_AUTH_SELECTION_ENV_KEYS[@]}"; do
-            should_preserve_claude_auth_selection_key "$key" && continue
-            unset "$key"
+            should_clear_claude_auth_selection_key "$key" && unset "$key"
         done
     fi
     # Safe outside cmux: this only rewrites an existing subrouter path when the account alias exists.

@@ -13,6 +13,12 @@ cmux hooks uninstall <agent>
 
 Supported agent names are `codex`, `opencode`, `pi`, `cursor`, `gemini`, `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, and `qoder`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
 
+The Claude wrapper preserves non-empty environment-driven Claude auth selectors such as `ANTHROPIC_API_KEY`,
+`ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `CLAUDE_CODE_USE_BEDROCK`, and `CLAUDE_CODE_USE_VERTEX`.
+cmux may clear empty masked values that it inserted during terminal startup to avoid leaking stale parent-session auth
+into a new shell. Resume commands use `CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1` with
+`CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS` internally when they need to preserve a captured auth selector value.
+
 ## Integrations
 
 | Agent | Binary checked | Installed file | Session restore | Feed bridge |
