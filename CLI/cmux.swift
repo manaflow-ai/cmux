@@ -17765,7 +17765,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
 
                 let suppressNotification =
-                    (input.object?["suppress_notification"] as? Bool == true)
+                    (input.rawObject?["suppress_notification"] as? Bool == true)
+                    || (input.rawObject?["suppressNotification"] as? Bool == true)
+                    || (input.object?["suppress_notification"] as? Bool == true)
                     || (input.object?["suppressNotification"] as? Bool == true)
                 if !suppressNotification {
                     let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
