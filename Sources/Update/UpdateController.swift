@@ -225,7 +225,7 @@ class UpdateController {
         }
 
         installCancellable?.cancel()
-        viewModel.state.cancel()
+        viewModel.cancelActiveStateForNewCheck()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(100)) { [weak self] in
             self?.updater.checkForUpdates()
