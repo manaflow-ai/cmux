@@ -40,6 +40,25 @@ final class TerminalDeadPaneInputTests: XCTestCase {
         let sentinel = "cmuxdeadpaneinput3998"
         XCTAssertFalse(try readSurfaceText(from: hostedTerminal.surface).contains(sentinel))
 
+        var postExitGhosttyKeyEvents = 0
+        let previousKeyObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyObserver?(keyEvent)
+            postExitGhosttyKeyEvents += 1
+        }
+        defer { GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyObserver }
+
+        let directInsertSentinel = "cmuxdirectdeadpane3998"
+        hostedTerminal.surfaceView.insertText(
+            directInsertSentinel,
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        XCTAssertEqual(
+            postExitGhosttyKeyEvents,
+            0,
+            "Direct committed text after child exit should not reach Ghostty input"
+        )
+
         for scalar in sentinel.unicodeScalars {
             XCTAssertTrue(
                 hostedTerminal.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
@@ -51,9 +70,18 @@ final class TerminalDeadPaneInputTests: XCTestCase {
         }
 
         let afterInput = try readSurfaceText(from: hostedTerminal.surface)
+        XCTAssertEqual(
+            postExitGhosttyKeyEvents,
+            0,
+            "Synthetic key events after child exit should not reach Ghostty input"
+        )
         XCTAssertFalse(
             afterInput.contains(sentinel),
             "Terminal input after child exit should be dropped before Ghostty can render it into the cell grid"
+        )
+        XCTAssertFalse(
+            afterInput.contains(directInsertSentinel),
+            "Direct committed text after child exit should be dropped before Ghostty can render it into the cell grid"
         )
 #else
         throw XCTSkip("Debug-only regression test")

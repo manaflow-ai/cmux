@@ -3746,13 +3746,16 @@ class GhosttyApp {
                 increments: ["probeShowChildExitedCount": 1]
             )
 #endif
-            // Keep host-close async to avoid re-entrant close/deinit while Ghostty is still
-            // dispatching this action callback.
-            Task { @MainActor in
+            performOnMain {
+                // Stop every host-owned input path before Ghostty returns to normal event
+                // processing. The panel close remains async below to avoid re-entrant teardown
+                // while Ghostty is still dispatching this action callback.
                 callbackTerminalSurface?.markChildProcessExited(reason: "ghostty.childExited")
 #if DEBUG
                 GhosttyApp.debugShowChildExitedActionObserver?(callbackTabId, callbackSurfaceId)
 #endif
+            }
+            Task { @MainActor in
                 guard let app = AppDelegate.shared else { return }
                 if let callbackTabId,
                    let callbackSurfaceId,
@@ -4902,6 +4905,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
     }
 
+    func acceptInputOrLogDrop(reason: String, bytes: Int? = nil) -> Bool {
+        guard canAcceptInput else {
+            logDroppedInput(reason: reason, bytes: bytes)
+            return false
+        }
+        return true
+    }
+
     private func allowsRuntimeSurfaceCreation() -> Bool {
         canAcceptInput
     }
@@ -5643,10 +5654,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     func sendText(_ text: String) {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return }
-        guard canAcceptInput else {
-            logDroppedInput(reason: "sendText.deadConsumer", bytes: data.count)
-            return
-        }
+        guard acceptInputOrLogDrop(reason: "sendText.deadConsumer", bytes: data.count) else { return }
         guard let surface = surface else {
             enqueuePendingSocketInput(.text(data))
             requestBackgroundSurfaceStartIfNeeded()
@@ -5658,10 +5666,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @discardableResult
     func sendNamedKey(_ keyName: String) -> Bool {
         guard let event = pendingKeyEvent(for: keyName) else { return false }
-        guard canAcceptInput else {
-            logDroppedInput(reason: "sendNamedKey.deadConsumer", bytes: max(event.label.utf8.count, 1))
-            return true
-        }
+        guard acceptInputOrLogDrop(
+            reason: "sendNamedKey.deadConsumer",
+            bytes: max(event.label.utf8.count, 1)
+        ) else { return true }
         if let surface = surface {
             sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
         } else {
@@ -5675,10 +5683,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// events so the shell processes them, while regular text is sent via the
     /// normal key-text path.  Mirrors `TerminalController.sendSocketText`.
     func sendInput(_ text: String) {
-        guard canAcceptInput else {
-            logDroppedInput(reason: "sendInput.deadConsumer", bytes: text.utf8.count)
-            return
-        }
+        guard acceptInputOrLogDrop(reason: "sendInput.deadConsumer", bytes: text.utf8.count) else { return }
         guard let surface = surface else { return }
         var bufferedText = ""
         var previousWasCR = false
@@ -6854,13 +6859,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @discardableResult
     private func ensureSurfaceReadyForInput() -> ghostty_surface_t? {
-        if let terminalSurface, !terminalSurface.canAcceptInput {
-#if DEBUG
-            cmuxDebugLog(
-                "surface.input.view_drop surface=\(terminalSurface.id.uuidString.prefix(5)) " +
-                "reason=ensureSurfaceReadyForInput"
-            )
-#endif
+        if let terminalSurface,
+           !terminalSurface.acceptInputOrLogDrop(reason: "ensureSurfaceReadyForInput") {
             return nil
         }
         if let surface = surface {
@@ -12917,6 +12917,10 @@ extension GhosttyNSView: NSTextInputClient {
     /// execution, etc.). Programmatic callers can preserve literal ESC bytes so
     /// automation payloads remain byte-for-byte stable.
     fileprivate func sendTextToSurface(_ chars: String, preserveLiteralEscape: Bool) {
+        if let terminalSurface,
+           !terminalSurface.acceptInputOrLogDrop(reason: "sendTextToSurface.deadConsumer", bytes: chars.utf8.count) {
+            return
+        }
         guard let surface = surface else { return }
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
@@ -13193,6 +13197,7 @@ extension GhosttyNSView: NSTextInputClient {
             )
         }
 #endif
+        guard terminalSurface?.canAcceptInput != false else { return }
         guard let surface = surface else { return }
 
         if markedText.length > 0 {
