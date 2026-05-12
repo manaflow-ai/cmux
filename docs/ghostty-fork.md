@@ -13,12 +13,16 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `ee397e28d`, based on `495316732`, with the
-manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53 and
-the stationary link-click fix in https://github.com/manaflow-ai/ghostty/pull/54.
-This head keeps the cmux theme picker hooks, exposes the manual surface IO needed
-by libghostty iOS clients, and refreshes embedded mouse modifiers for stationary
-OSC 8 hyperlink clicks.
+Current cmux pinned fork head: `ec097438e`, based on `41ab6c5ab`, with the
+manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
+the stationary link-click fix in https://github.com/manaflow-ai/ghostty/pull/54,
+and the Metal renderer row rebuild guard for cmux issue #3369. This head keeps
+the cmux theme picker hooks, exposes the manual surface IO needed by libghostty
+iOS clients, refreshes embedded mouse modifiers for stationary OSC 8 hyperlink
+clicks, and bounds shaped glyph iteration during IME/preedit row rebuilds.
+The corresponding prebuilt archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-ec097438eff7f11d5b6b6942a0e24bbef106d278
+and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
 
@@ -173,7 +177,9 @@ tend to conflict together during rebases.
 
 ### 11) Embedded mouse modifier refresh for stationary link clicks
 
-- Commit: `ee397e28d` (Carry embedded mouse-state fix onto current fork main)
+- Commits:
+  - `5d1ba056b` (Refresh embedded mouse state when modifiers change)
+  - `ee397e28d` (Carry embedded mouse-state fix onto current fork main)
 - PR: https://github.com/manaflow-ai/ghostty/pull/54
 - Files:
   - `src/apprt/embedded.zig`
@@ -185,10 +191,26 @@ tend to conflict together during rebases.
     link state before mouse release, so `.open_url` fires for `https://`, `file://`, and
     other supported link schemes.
 
-The current cmux pin is `ee397e28d`. It is reachable from the fork branch in
-https://github.com/manaflow-ai/ghostty/pull/54; the fork `main` branch is protected
-and will become the reachable source once that PR lands.
-Published `xcframework-ee397e28dab4a125f038cde47d8eb9b102a8ae4c` and pinned
+### 12) Metal renderer preedit row rebuild guard
+
+- Commits:
+  - `70b95dada` (Expose unsafe preedit catch-up in renderer rows)
+  - `fe972c095` (Bound renderer preedit catch-up to shaped glyphs)
+- Files:
+  - `src/renderer/generic.zig`
+- Summary:
+  - Adds a regression test for the row-rebuild path where IME/preedit covers the
+    only shaped glyph in a row and the remaining terminal cells are empty.
+  - Bounds the shaped glyph cursor before reading from the shaped-cell slice, so
+    `GenericRenderer(Metal).rebuildRow` no longer assumes terminal cells and
+    shaped glyph cells have one-to-one cardinality.
+  - The first commit intentionally preserves the panic so cmux can keep the
+    required failing-test-then-fix history for issue #3369.
+
+The current cmux pin is `ec097438e`. It is reachable from the fork branch in
+https://github.com/manaflow-ai/ghostty/pull/54 and merges the branch
+`issue-3369-metal-renderer-crash`.
+Published `xcframework-ec097438eff7f11d5b6b6942a0e24bbef106d278` and pinned
 its archive checksum in `scripts/ghosttykit-checksums.txt`. The release and
 checksum pin must be regenerated whenever this commit changes, even for
 comment-only amends, because the release tag is keyed by the Ghostty commit SHA.
@@ -256,6 +278,14 @@ These files change frequently upstream; be careful when rebasing the fork:
     its archive checksum in `scripts/ghosttykit-checksums.txt`.
   - Merged https://github.com/manaflow-ai/ghostty/pull/53 so the submodule SHA is
     reachable from fork `main`.
+
+- May 12, 2026, stationary link click plus Metal row guard merge:
+  - Merged the issue #3557 embedded mouse modifier refresh head with the issue #3369
+    Metal renderer preedit row rebuild guard head.
+  - Verified the universal macOS plus iOS xcframework path with
+    `CMUX_GHOSTTYKIT_NO_PREBUILT=1 ./scripts/ensure-ghosttykit.sh`.
+  - Published `xcframework-ec097438eff7f11d5b6b6942a0e24bbef106d278` and pinned
+    its archive checksum in `scripts/ghosttykit-checksums.txt`.
 
 - `src/terminal/osc.zig`
   - OSC dispatch logic moves often. Re-check the integration points for the OSC 99 parser and keep
