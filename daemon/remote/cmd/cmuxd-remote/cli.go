@@ -758,10 +758,14 @@ func isIntegerString(value string) bool {
 	if value == "" {
 		return false
 	}
-	for i, r := range value {
-		if i == 0 && (r == '-' || r == '+') {
-			continue
-		}
+	start := 0
+	if value[0] == '-' || value[0] == '+' {
+		start = 1
+	}
+	if start >= len(value) {
+		return false
+	}
+	for _, r := range value[start:] {
 		if r < '0' || r > '9' {
 			return false
 		}
