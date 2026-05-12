@@ -333,16 +333,15 @@ class CmuxEventsStress:
     def launch_app(self) -> None:
         self.stop_app(kill_only=True)
         self.clean_runtime_paths()
-        stdout = open(self.stdout_path, "ab", buffering=0)
-        self.proc = subprocess.Popen(
-            [str(self.binary_path)],
-            cwd=self.repo_root,
-            env=self.app_env(),
-            stdout=stdout,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
-        stdout.close()
+        with open(self.stdout_path, "ab", buffering=0) as stdout:
+            self.proc = subprocess.Popen(
+                [str(self.binary_path)],
+                cwd=self.repo_root,
+                env=self.app_env(),
+                stdout=stdout,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
         self.summary["app_pid"] = self.proc.pid
         self.summary["app_path"] = str(self.app_path)
 

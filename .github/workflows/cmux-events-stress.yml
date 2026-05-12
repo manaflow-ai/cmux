@@ -69,14 +69,17 @@ jobs:
         run: ./scripts/install-zig-ci.sh
 
       - name: Run cmux events stress harness
+        env:
+          STRESS_EVENTS: ${{ inputs.events || '40000' }}
+          STRESS_CONSUMERS: ${{ inputs.consumers || '6' }}
         run: |
           set -euo pipefail
           mkdir -p stress-results
           python3 scripts/cmux-events-stress.py \
             --build \
             --tag "$STRESS_TAG" \
-            --events "${{ inputs.events || '40000' }}" \
-            --consumers "${{ inputs.consumers || '6' }}" \
+            --events "$STRESS_EVENTS" \
+            --consumers "$STRESS_CONSUMERS" \
             --output stress-results/cmux-events-stress.json
 
       - name: Write stress summary
