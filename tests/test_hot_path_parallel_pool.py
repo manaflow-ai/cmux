@@ -21,6 +21,18 @@ from pathlib import Path
 from claude_teams_test_utils import resolve_cmux_cli
 
 
+def write_github_step_summary(title: str, rows: list[tuple[str, str]]) -> None:
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+    with open(summary_path, "a", encoding="utf-8") as summary:
+        summary.write(f"\n### {title}\n\n")
+        summary.write("| Metric | Value |\n")
+        summary.write("| --- | ---: |\n")
+        for label, value in rows:
+            summary.write(f"| {label} | {value} |\n")
+
+
 class FakeJSONRPCSocketServer:
     def __init__(self, socket_path: str, response_delay: float) -> None:
         self.socket_path = socket_path
@@ -200,6 +212,15 @@ def main() -> int:
         return 1
 
     reduction = 100 / max(server.total_connections, 1)
+    write_github_step_summary(
+        "Hot-path telemetry fan-out",
+        [
+            ("Parallel calls", "100"),
+            ("App socket connections", str(server.total_connections)),
+            ("Max concurrent app socket connections", str(server.max_active_connections)),
+            ("Fan-out reduction vs one socket per call", f"{reduction:.1f}x"),
+        ],
+    )
     print(
         "PASS: hot-path broker bounds app socket fan-out under 100 parallel calls "
         f"(app_socket_connections={server.total_connections}, "

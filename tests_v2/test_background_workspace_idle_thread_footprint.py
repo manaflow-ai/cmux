@@ -131,6 +131,18 @@ def _mb(value: int) -> float:
     return value / (1024.0 * 1024.0)
 
 
+def _write_github_step_summary(title: str, rows: list[tuple[str, str]]) -> None:
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+    with open(summary_path, "a", encoding="utf-8") as summary:
+        summary.write(f"\n### {title}\n\n")
+        summary.write("| Metric | Value |\n")
+        summary.write("| --- | ---: |\n")
+        for label, value in rows:
+            summary.write(f"| {label} | {value} |\n")
+
+
 def main() -> int:
     created_workspaces: list[str] = []
 
@@ -213,6 +225,21 @@ def main() -> int:
             _must(
                 client.current_workspace() == baseline_workspace,
                 "background workspace priming should not switch the selected workspace",
+            )
+            _write_github_step_summary(
+                "Background workspace footprint",
+                [
+                    ("Workspaces", str(WORKSPACE_COUNT)),
+                    ("Surfaces per workspace", str(SURFACES_PER_WORKSPACE)),
+                    ("Thread delta", str(absolute_thread_growth)),
+                    ("Thread budget", str(thread_budget)),
+                    ("Idle thread delta", str(idle_thread_growth)),
+                    ("Idle thread budget", str(IDLE_THREAD_GROWTH_BUDGET)),
+                    ("Physical footprint delta", f"{_mb(absolute_footprint_growth):.1f} MB"),
+                    ("Physical footprint budget", f"{_mb(footprint_budget_bytes):.1f} MB"),
+                    ("Idle physical footprint delta", f"{_mb(idle_footprint_growth):.1f} MB"),
+                    ("Idle physical footprint budget", f"{_mb(idle_footprint_budget_bytes):.1f} MB"),
+                ],
             )
         finally:
             active_exc_type = sys.exc_info()[0]

@@ -22,6 +22,18 @@ from pathlib import Path
 from claude_teams_test_utils import resolve_cmux_cli
 
 
+def write_github_step_summary(title: str, rows: list[tuple[str, str]]) -> None:
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+    with open(summary_path, "a", encoding="utf-8") as summary:
+        summary.write(f"\n### {title}\n\n")
+        summary.write("| Metric | Value |\n")
+        summary.write("| --- | ---: |\n")
+        for label, value in rows:
+            summary.write(f"| {label} | {value} |\n")
+
+
 WORKSPACE_ID = "11111111-1111-1111-1111-111111111111"
 PANE_ID = "22222222-2222-2222-2222-222222222222"
 SURFACE_ID = "33333333-3333-3333-3333-333333333333"
@@ -210,6 +222,15 @@ def main() -> int:
         return 1
 
     reduction = 60 / max(server.total_connections, 1)
+    write_github_step_summary(
+        "Hot-path tmux fan-out",
+        [
+            ("Parallel calls", "60"),
+            ("App socket connections", str(server.total_connections)),
+            ("Max concurrent app socket connections", str(server.max_active_connections)),
+            ("Fan-out reduction vs one socket per call", f"{reduction:.1f}x"),
+        ],
+    )
     print(
         "PASS: hot-path tmux broker bounds app socket fan-out under parallel agent-team calls "
         f"(app_socket_connections={server.total_connections}, "
