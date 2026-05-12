@@ -207,6 +207,19 @@ def main() -> int:
         _must(escaped_newline_payload.get("ok") is True, f"agent escaped newline send returned unexpected payload: {escaped_newline_payload}")
         _wait_for(lambda: _surface_has(c, workspace_id, surface_id, "RAW_LF_BYTES_0a"), timeout_s=5.0)
 
+        _start_raw_byte_probe(c, workspace_id, surface_id, 2, "RAW_DIRECT_LITERAL")
+        direct_literal_payload = json.loads(_run_agent(cli, [
+            "send",
+            "--workspace",
+            workspace_id,
+            "--surface",
+            surface_id,
+            "--",
+            "\\\\n",
+        ]) or "{}")
+        _must(direct_literal_payload.get("ok") is True, f"agent direct literal escape send returned unexpected payload: {direct_literal_payload}")
+        _wait_for(lambda: _surface_has(c, workspace_id, surface_id, "RAW_DIRECT_LITERAL_BYTES_5c6e"), timeout_s=5.0)
+
         _start_raw_byte_probe(c, workspace_id, surface_id, 2, "RAW_BATCH_LITERAL")
         batch_literal = json.dumps([
             {"op": "send", "workspace": workspace_id, "surface": surface_id, "text": "\\n"},
