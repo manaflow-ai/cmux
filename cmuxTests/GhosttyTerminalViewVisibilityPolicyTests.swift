@@ -58,6 +58,7 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testTerminalTimestampStoreAssignsNewRowsFromScrollbarGrowth() {
         let store = TerminalTimestampStore()
         let first = Date(timeIntervalSince1970: 100)
@@ -96,6 +97,7 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         XCTAssertEqual(state, TerminalTimestampScrollbarState(total: 100, offset: 42, len: 4))
     }
 
+    @MainActor
     func testTerminalTimestampStoreDoesNotInventOldRowsDuringUserScroll() {
         let store = TerminalTimestampStore()
         let first = Date(timeIntervalSince1970: 100)
@@ -126,6 +128,7 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testTerminalTimestampStoreMarksNewRowsWithoutBackfillingVisibleScrollback() {
         let store = TerminalTimestampStore()
         let first = Date(timeIntervalSince1970: 100)
@@ -155,6 +158,7 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testTerminalTimestampStorePrunesRowsOutsideRetentionWindow() {
         let store = TerminalTimestampStore(maxRetainedRows: 3)
         let timestamp = Date(timeIntervalSince1970: 100)

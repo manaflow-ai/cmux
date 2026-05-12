@@ -49,6 +49,7 @@ struct TerminalTimestampVisibleRow: Equatable {
     let timestamp: Date
 }
 
+@MainActor
 final class TerminalTimestampStore {
     private let maxRetainedRows: Int
     private var timestampsByRow: [Int: Date] = [:]
