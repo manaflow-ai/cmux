@@ -121,7 +121,7 @@ struct GoalDetailView: View {
                 )
                 MetricTile(
                     title: String(localized: "goals.metrics.updated", defaultValue: "Updated"),
-                    value: Self.relativeFormatter.localizedString(for: snapshot.updatedAt, relativeTo: .now)
+                    value: Self.relativeFormatter.localizedString(for: snapshot.updatedAt, relativeTo: now)
                 )
             }
         }
