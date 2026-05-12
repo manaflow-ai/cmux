@@ -521,6 +521,42 @@
         }
       }
     },
+    "fileExplorer": {
+      "title": "fileExplorer",
+      "description": "File Explorer appearance settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "gitStatusColors": {
+          "type": "object",
+          "description": "Override File Explorer label colors for git statuses. Omit a status to use the current File Explorer style's built-in color.",
+          "default": {},
+          "additionalProperties": false,
+          "properties": {
+            "modified": {
+              "$ref": "#/$defs/colorHex",
+              "description": "Color for modified files and folders."
+            },
+            "added": {
+              "$ref": "#/$defs/colorHex",
+              "description": "Color for added files."
+            },
+            "deleted": {
+              "$ref": "#/$defs/colorHex",
+              "description": "Color for deleted files."
+            },
+            "renamed": {
+              "$ref": "#/$defs/colorHex",
+              "description": "Color for renamed files."
+            },
+            "untracked": {
+              "$ref": "#/$defs/colorHex",
+              "description": "Color for untracked files and folders."
+            }
+          }
+        }
+      }
+    },
     "sidebarAppearance": {
       "title": "sidebarAppearance",
       "description": "Sidebar tint settings from Settings > Sidebar Appearance.",

@@ -148,6 +148,13 @@ enum FileExplorerStyle: Int, CaseIterable {
     }
 
     func gitColor(for status: GitFileStatus) -> NSColor {
+        FileExplorerGitStatusColorSettings.resolvedColor(
+            for: status,
+            fallback: defaultGitColor(for: status)
+        )
+    }
+
+    private func defaultGitColor(for status: GitFileStatus) -> NSColor {
         switch self {
         case .liquidGlass:
             switch status {
@@ -198,6 +205,29 @@ enum FileExplorerStyle: Int, CaseIterable {
             return .highDensity
         }
         return FileExplorerStyle(rawValue: defaults.integer(forKey: "fileExplorer.style")) ?? .highDensity
+    }
+}
+
+enum FileExplorerGitStatusColorSettings {
+    static let userDefaultsKey = "fileExplorer.gitStatusColors"
+
+    static func normalizedStatusName(_ rawName: String) -> String? {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard GitFileStatus(rawValue: name) != nil else { return nil }
+        return name
+    }
+
+    static func resolvedColor(
+        for status: GitFileStatus,
+        fallback: NSColor,
+        defaults: UserDefaults = .standard
+    ) -> NSColor {
+        guard let colors = defaults.dictionary(forKey: userDefaultsKey) as? [String: String],
+              let hex = colors[status.rawValue],
+              let color = NSColor(hex: hex) else {
+            return fallback
+        }
+        return color
     }
 }
 
@@ -1155,7 +1185,7 @@ final class FileExplorerDirectoryWatcher {
 
 // MARK: - Git Status
 
-enum GitFileStatus {
+enum GitFileStatus: String, CaseIterable {
     case modified, added, deleted, renamed, untracked
 }
 

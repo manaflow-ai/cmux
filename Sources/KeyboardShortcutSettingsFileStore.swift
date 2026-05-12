@@ -317,6 +317,9 @@ final class CmuxSettingsFileStore {
         if let sidebarSection = root["sidebar"] as? [String: Any] {
             parseSidebarSection(sidebarSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let fileExplorerSection = root["fileExplorer"] as? [String: Any] {
+            parseFileExplorerSection(fileExplorerSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let workspaceColorsSection = root["workspaceColors"] as? [String: Any] {
             parseWorkspaceColorsSection(workspaceColorsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -609,6 +612,33 @@ final class CmuxSettingsFileStore {
         if let normalizedLegacyPalette {
             snapshot.managedUserDefaults[WorkspaceTabColorSettings.paletteKey] = .stringDictionary(normalizedLegacyPalette)
         }
+    }
+
+    private func parseFileExplorerSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        guard section.keys.contains("gitStatusColors") else { return }
+        guard let rawColors = section["gitStatusColors"] as? [String: Any] else {
+            logInvalid("fileExplorer.gitStatusColors", sourcePath: sourcePath)
+            return
+        }
+
+        var normalizedColors: [String: String] = [:]
+        for (rawStatus, rawValue) in rawColors {
+            guard let status = FileExplorerGitStatusColorSettings.normalizedStatusName(rawStatus) else {
+                NSLog("[CmuxSettingsFileStore] ignoring unknown file explorer git status '%@' in %@", rawStatus, sourcePath)
+                continue
+            }
+            guard let rawHex = jsonString(rawValue),
+                  let hex = WorkspaceTabColorSettings.normalizedHex(rawHex) else {
+                NSLog("[CmuxSettingsFileStore] ignoring invalid file explorer git status color '%@' in %@", rawStatus, sourcePath)
+                continue
+            }
+            normalizedColors[status] = hex
+        }
+        snapshot.managedUserDefaults[FileExplorerGitStatusColorSettings.userDefaultsKey] = .stringDictionary(normalizedColors)
     }
 
     private func parseSidebarAppearanceSection(
@@ -1197,9 +1227,13 @@ final class CmuxSettingsFileStore {
         let shouldApplyAppearance = defaultsKey == AppearanceSettings.appearanceModeKey
         let appearanceRawValue = shouldApplyAppearance ? UserDefaults.standard.string(forKey: defaultsKey) : nil
         let appIconMode = defaultsKey == AppIconSettings.modeKey ? AppIconSettings.resolvedMode() : nil
+        let notifyFileExplorerAppearance = defaultsKey == FileExplorerGitStatusColorSettings.userDefaultsKey
         let apply = {
             if notifyScrollBar {
                 TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+            if notifyFileExplorerAppearance {
+                notificationCenter.post(name: .fileExplorerStyleDidChange, object: nil)
             }
 
             if let language {
