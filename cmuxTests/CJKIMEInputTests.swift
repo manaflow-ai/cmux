@@ -8,6 +8,7 @@ import ObjectiveC.runtime
 @testable import cmux
 #endif
 
+@MainActor
 var cjkIMEInterpretKeyEventsHook: ((GhosttyNSView, [NSEvent]) -> Bool)?
 private var ghosttyPasteActionSwizzled = false
 private var ghosttyPasteActionHook: ((GhosttyNSView, Any?) -> Void)?
@@ -1121,6 +1122,10 @@ final class KoreanIMEReturnCommitRegressionTests: XCTestCase {
 
         view.setMarkedText("한", selectedRange: NSRange(location: 0, length: 1), replacementRange: NSRange(location: NSNotFound, length: 0))
 
+        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+
         // Simulate Korean input source so shouldSendCommittedIMEConfirmKey fires
         KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.Korean.2SetKorean"
         installCJKIMEInterpretKeyEventsSwizzle()
@@ -1130,8 +1135,9 @@ final class KoreanIMEReturnCommitRegressionTests: XCTestCase {
             return true
         }
         defer {
-            KeyboardLayout.debugInputSourceIdOverride = nil
-            cjkIMEInterpretKeyEventsHook = nil
+            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
         }
 
         var sawReturnPress = false
@@ -1178,6 +1184,9 @@ final class KoreanIMEMarkedTextLeakRegressionTests: XCTestCase {
             workingDirectory: nil
         )
         let hostedView = surface.hostedView
+        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -1187,8 +1196,9 @@ final class KoreanIMEMarkedTextLeakRegressionTests: XCTestCase {
         )
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
-            KeyboardLayout.debugInputSourceIdOverride = nil
-            cjkIMEInterpretKeyEventsHook = nil
+            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
             window.orderOut(nil)
         }
 

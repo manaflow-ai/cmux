@@ -220,10 +220,12 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
         let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
             KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
             cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
             window.orderOut(nil)
             withExtendedLifetime(terminalSurface) {}
         }
@@ -312,10 +314,12 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
         let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
             KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
             cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
             window.orderOut(nil)
             withExtendedLifetime(terminalSurface) {}
         }
