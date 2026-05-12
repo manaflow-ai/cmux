@@ -281,11 +281,11 @@ _cmux_with_context() {
     local -a env_args=()
     local key value
     for key in "${_CMUX_CONTEXT_EXPORT_KEYS[@]}"; do
+        (( ${+parameters[$key]} )) || continue
         value="${(P)key}"
-        [[ -n "$value" ]] || continue
         env_args+=("$key=$value")
     done
-    builtin env "${env_args[@]}" "$@"
+    command env "${env_args[@]}" "$@"
 }
 
 _cmux_install_context_command_wrapper() {

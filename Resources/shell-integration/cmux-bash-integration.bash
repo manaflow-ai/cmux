@@ -248,7 +248,6 @@ _cmux_with_context() {
     for key in "${_CMUX_CONTEXT_EXPORT_KEYS[@]}"; do
         if [[ ${!key+x} ]]; then
             value="${!key}"
-            [[ -n "$value" ]] || continue
             env_args+=("$key=$value")
         fi
     done

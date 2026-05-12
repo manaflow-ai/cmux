@@ -3137,10 +3137,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
         XCTAssertEqual(
             output,
-            """
-            shell=socket|tab-test|panel-test|\(terminfoPath)
-            child=
-            """,
+            "shell=socket|tab-test|panel-test|\(terminfoPath)\nchild=",
             output
         )
     }
