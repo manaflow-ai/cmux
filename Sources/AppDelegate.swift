@@ -13429,12 +13429,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let frame = window.frame
         lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
 
-        if window.frameAutosaveName == Self.primaryMainWindowFrameAutosaveName {
-            _ = window.setFrameAutosaveName("")
-        }
+        let shouldReleasePrimaryFrameAutosaveName =
+            window.frameAutosaveName == Self.primaryMainWindowFrameAutosaveName
         removeEphemeralMainWindowFrameAutosaveNameIfNeeded(window)
 
         guard let removed = unregisterMainWindowContext(for: window) else { return }
+        if shouldReleasePrimaryFrameAutosaveName {
+            _ = window.setFrameAutosaveName("")
+        }
         promotePrimaryMainWindowFrameAutosaveNameIfNeeded(excluding: window)
         publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
         commandPaletteVisibilityByWindowId.removeValue(forKey: removed.windowId)
