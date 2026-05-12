@@ -177,7 +177,11 @@ final class AuthManager: ObservableObject {
     }
 
     private func beginSignIn(keepLoadingForExternalBrowser: Bool) {
-        guard webAuthSession == nil else { return }
+        if let existingSession = webAuthSession {
+            guard !isLoading else { return }
+            existingSession.cancel()
+            webAuthSession = nil
+        }
         lastSignInError = nil
 
         if usesSystemWebAuthenticationSession() {
@@ -273,6 +277,8 @@ final class AuthManager: ObservableObject {
         if !isLoading { return isAuthenticated }
         let signedIn = await waitForSignInSettled(timeout: timeout)
         if !signedIn && isLoading && !isAuthenticated {
+            webAuthSession?.cancel()
+            webAuthSession = nil
             isLoading = false
         }
         return signedIn
