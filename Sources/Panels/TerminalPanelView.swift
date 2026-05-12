@@ -47,7 +47,8 @@ struct TerminalPanelView: View {
 
             HStack(spacing: 0) {
                 terminalSurface
-                    .frame(width: terminalWidth, maxHeight: .infinity)
+                    .frame(width: terminalWidth)
+                    .frame(maxHeight: .infinity)
                 Rectangle()
                     .fill(appearance.dividerColor.opacity(0.9))
                     .frame(width: TerminalSidekickLayout.dividerWidth)
@@ -62,7 +63,8 @@ struct TerminalPanelView: View {
                     onRecordCurrentURL: { panel.recordSidekickCurrentURL($0) },
                     onClose: { panel.closeSidekick() }
                 )
-                .frame(width: sidekickWidth, maxHeight: .infinity)
+                .frame(width: sidekickWidth)
+                .frame(maxHeight: .infinity)
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -127,6 +129,7 @@ private struct TerminalSidekickBrowserSnapshot: Equatable {
     let preferredAddressText: String?
     let webViewInstanceID: UUID
 
+    @MainActor
     init(browserPanel: BrowserPanel) {
         self.canGoBack = browserPanel.canGoBack
         self.canGoForward = browserPanel.canGoForward
