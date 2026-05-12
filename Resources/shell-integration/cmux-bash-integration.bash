@@ -987,8 +987,9 @@ _cmux_prompt_command() {
     local pwd="$PWD"
     if (( ! cmux_has_unix_socket )); then
         if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
-            _CMUX_PWD_LAST_PWD="$pwd"
-            _cmux_report_pwd_via_relay "$pwd"
+            if _cmux_report_pwd_via_relay "$pwd"; then
+                _CMUX_PWD_LAST_PWD="$pwd"
+            fi
         fi
         if (( now - _CMUX_PORTS_LAST_RUN >= 10 )); then
             _cmux_ports_kick refresh

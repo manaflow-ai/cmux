@@ -211,6 +211,10 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         let response = try XCTUnwrap(JSONSerialization.jsonObject(with: responseData, options: []) as? [String: Any])
 
         XCTAssertEqual(response["ok"] as? Bool, true)
+        let deadline = Date().addingTimeInterval(1.0)
+        while workspace.currentDirectory != directory && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
         XCTAssertEqual(workspace.panelDirectories[surfaceId], directory)
         XCTAssertEqual(workspace.currentDirectory, directory)
     }

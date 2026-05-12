@@ -5197,6 +5197,32 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing directory", data: nil)
         }
 
+        if let requestedSurfaceId {
+            let fallbackTabManager = self.tabManager
+            DispatchQueue.main.async {
+                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) ?? fallbackTabManager,
+                      let tab = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+                    return
+                }
+                let validSurfaceIds = Set(tab.panels.keys)
+                tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+                guard validSurfaceIds.contains(requestedSurfaceId) else { return }
+                tabManager.updateSurfaceDirectory(
+                    tabId: workspaceId,
+                    surfaceId: requestedSurfaceId,
+                    directory: directory
+                )
+            }
+            return .ok([
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                "surface_id": requestedSurfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: requestedSurfaceId),
+                "directory": directory,
+                "pending": true,
+            ])
+        }
+
         var result: V2CallResult = .err(
             code: "not_found",
             message: "Workspace not found",
