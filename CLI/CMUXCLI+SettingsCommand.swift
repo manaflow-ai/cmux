@@ -317,14 +317,15 @@ extension CMUXCLI {
         let root = try store.loadRoot()
         let rows = try CmuxSettingsRegistry.sortedShortcutActions.map { action -> ShortcutListRow in
             let definition = try CmuxSettingsRegistry.shortcutAction(for: action)
-            let resolved = try store.resolvedShortcut(for: definition, root: root)
+            let resolved = try store.resolvedShortcutForDisplay(for: definition, root: root)
             return ShortcutListRow(
                 action: definition.action,
                 label: definition.label,
                 context: definition.context.rawValue,
-                value: resolved.shortcut.configString,
+                value: resolved.value,
                 defaultValue: definition.defaultValue,
-                source: resolved.source
+                source: resolved.source,
+                error: resolved.error
             )
         }
         if jsonOutput {
@@ -334,7 +335,11 @@ extension CMUXCLI {
             ]))
         } else {
             for row in rows {
-                print("\(row.action)\t\(row.value)\tdefault=\(row.defaultValue)\tsource=\(row.source)")
+                var line = "\(row.action)\t\(store.displayString(row.value))\tdefault=\(row.defaultValue)\tsource=\(row.source)"
+                if let error = row.error {
+                    line += "\terror=\(error)"
+                }
+                print(line)
             }
         }
     }
@@ -345,17 +350,25 @@ extension CMUXCLI {
         }
         let definition = try CmuxSettingsRegistry.shortcutAction(for: rawAction)
         let root = try store.loadRoot()
-        let resolved = try store.resolvedShortcut(for: definition, root: root)
+        let resolved = try store.resolvedShortcutForDisplay(for: definition, root: root)
         if jsonOutput {
-            print(jsonString([
+            var payload: [String: Any] = [
                 "action": definition.action,
                 "context": definition.context.rawValue,
-                "value": resolved.shortcut.configString,
+                "value": resolved.value,
                 "default": definition.defaultValue,
                 "source": resolved.source,
-            ]))
+            ]
+            if let error = resolved.error {
+                payload["error"] = error
+            }
+            print(jsonString(payload))
         } else {
-            print(resolved.shortcut.configString)
+            if let error = resolved.error {
+                print("invalid \(store.displayString(resolved.value)): \(error)")
+            } else {
+                print(store.displayString(resolved.value))
+            }
         }
     }
 
@@ -445,12 +458,13 @@ extension CMUXCLI {
         let action: String
         let label: String
         let context: String
-        let value: String
+        let value: Any
         let defaultValue: String
         let source: String
+        let error: String?
 
         var payload: [String: Any] {
-            [
+            var result: [String: Any] = [
                 "action": action,
                 "label": label,
                 "context": context,
@@ -458,6 +472,10 @@ extension CMUXCLI {
                 "default": defaultValue,
                 "source": source,
             ]
+            if let error {
+                result["error"] = error
+            }
+            return result
         }
     }
 }

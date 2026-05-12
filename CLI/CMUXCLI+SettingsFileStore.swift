@@ -77,6 +77,22 @@ extension CMUXCLI {
             return (try CLIShortcut.parse(definition.defaultValue, action: definition), "default")
         }
 
+        func resolvedShortcutForDisplay(
+            for definition: CmuxSettingsRegistry.ShortcutActionDefinition,
+            root: [String: Any]
+        ) throws -> (value: Any, source: String, error: String?) {
+            if let raw = value(forPath: "shortcuts.bindings.\(definition.action)", in: root) {
+                do {
+                    let shortcut = try CLIShortcut.parseJSONValue(raw, action: definition)
+                    return (shortcut.configString, "cmux.json", nil)
+                } catch {
+                    return (raw, "invalid", String(describing: error))
+                }
+            }
+            let shortcut = try CLIShortcut.parse(definition.defaultValue, action: definition)
+            return (shortcut.configString, "default", nil)
+        }
+
         func configuredShortcutBindings(root: [String: Any]) throws -> [String: String] {
             guard let rawBindings = value(forPath: "shortcuts.bindings", in: root) else {
                 return [:]
@@ -96,19 +112,6 @@ extension CMUXCLI {
             return result
         }
 
-        func conflictingShortcutAction(
-            for proposed: CLIShortcut,
-            action proposedAction: CmuxSettingsRegistry.ShortcutActionDefinition,
-            root: [String: Any]
-        ) throws -> String? {
-            let conflicts = try conflictingShortcutActions(
-                for: proposed,
-                action: proposedAction,
-                root: root
-            )
-            return conflicts.first
-        }
-
         func conflictingShortcutActions(
             for proposed: CLIShortcut,
             action proposedAction: CmuxSettingsRegistry.ShortcutActionDefinition,
@@ -119,7 +122,9 @@ extension CMUXCLI {
                 guard definition.context.overlaps(proposedAction.context) else {
                     continue
                 }
-                let configured = try resolvedShortcut(for: definition, root: root).shortcut
+                guard let configured = try resolvedShortcutForConflictScan(for: definition, root: root) else {
+                    continue
+                }
                 guard configured.conflicts(with: proposed, lhsNumbered: definition.usesNumberedDigitMatching, rhsNumbered: proposedAction.usesNumberedDigitMatching) else {
                     continue
                 }
@@ -128,18 +133,29 @@ extension CMUXCLI {
             return conflicts
         }
 
+        private func resolvedShortcutForConflictScan(
+            for definition: CmuxSettingsRegistry.ShortcutActionDefinition,
+            root: [String: Any]
+        ) throws -> CLIShortcut? {
+            if let raw = value(forPath: "shortcuts.bindings.\(definition.action)", in: root) {
+                return try? CLIShortcut.parseJSONValue(raw, action: definition)
+            }
+            return try CLIShortcut.parse(definition.defaultValue, action: definition)
+        }
+
         func validateShortcutConflicts(
             for definitions: [CmuxSettingsRegistry.ShortcutActionDefinition],
             root: [String: Any]
         ) throws {
             for definition in definitions.sorted(by: { $0.action < $1.action }) {
                 let shortcut = try resolvedShortcut(for: definition, root: root).shortcut
-                if let conflict = try conflictingShortcutAction(
+                let conflicts = try conflictingShortcutActions(
                     for: shortcut,
                     action: definition,
                     root: root
-                ) {
-                    throw CLIError(message: "Shortcut '\(shortcut.configString)' for \(definition.action) conflicts with \(conflict)")
+                )
+                if !conflicts.isEmpty {
+                    throw CLIError(message: "Shortcut '\(shortcut.configString)' for \(definition.action) conflicts with \(conflicts.joined(separator: ", "))")
                 }
             }
         }
