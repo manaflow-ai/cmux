@@ -8869,9 +8869,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
-            let testData = self.loadTerminalViewportUITestData()
+            let commandData = self.loadTerminalViewportUITestCommandData()
+            let requestedWindowSizeText = commandData["terminalViewportRequestedWindowSize"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             let requestedWindowSize = self.parseTerminalViewportUITestWindowSize(
-                testData["terminalViewportRequestedWindowSize"]
+                requestedWindowSizeText
             ) ?? initialWindowSize
 
             if hideSidebar {
@@ -8893,14 +8895,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             didRecordReadyGeometry = true
 
             var viewportData = self.terminalViewportHostedGeometryForUITest(terminalPanel: terminalPanel)
-            viewportData.merge([
+            var recorderData: [String: String] = [
                 "terminalViewportReady": "1",
                 "terminalViewportWindowWidth": String(format: "%.3f", Double(window.frame.width)),
                 "terminalViewportWindowHeight": String(format: "%.3f", Double(window.frame.height)),
                 "terminalViewportSidebarVisible": context.sidebarState.isVisible ? "1" : "0",
                 "terminalViewportRightSidebarVisible": context.fileExplorerState?.isVisible == true ? "1" : "0",
                 "terminalViewportWorkspaceId": terminalPanel.workspaceId.uuidString,
-            ]) { _, newValue in newValue }
+            ]
+            if let requestedWindowSize {
+                recorderData["terminalViewportRequestedWindowSize"] = requestedWindowSizeText?.isEmpty == false
+                    ? requestedWindowSizeText!
+                    : "\(Int(requestedWindowSize.width))x\(Int(requestedWindowSize.height))"
+            }
+            viewportData.merge(recorderData) { _, newValue in newValue }
             self.writeTerminalViewportUITestData(viewportData)
         }
         terminalViewportUITestRecorder = timer
@@ -9013,6 +9021,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func loadTerminalViewportUITestData() -> [String: String] {
         guard let path = terminalViewportUITestDataPath(),
+              let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
+        return object
+    }
+
+    private func terminalViewportUITestCommandPath() -> String? {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_TERMINAL_VIEWPORT_SETUP"] == "1",
+              let path = env["CMUX_UI_TEST_TERMINAL_VIEWPORT_COMMAND_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty else {
+            return nil
+        }
+        return path
+    }
+
+    private func loadTerminalViewportUITestCommandData() -> [String: String] {
+        guard let path = terminalViewportUITestCommandPath(),
               let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
             return [:]

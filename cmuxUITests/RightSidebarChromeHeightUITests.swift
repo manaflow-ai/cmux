@@ -141,12 +141,15 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
 final class TerminalViewportUITests: XCTestCase {
     func testTerminalSurfaceUsesAvailableViewportAndTracksWindowResize() {
         let dataPath = "/tmp/cmux-ui-test-terminal-viewport-\(UUID().uuidString).json"
+        let commandPath = "/tmp/cmux-ui-test-terminal-viewport-command-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
+        try? FileManager.default.removeItem(atPath: commandPath)
 
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_COMMAND_PATH"] = commandPath
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_WINDOW_SIZE"] = "900x620"
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_HIDE_SIDEBAR"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_HIDE_RIGHT_SIDEBAR"] = "1"
@@ -157,6 +160,10 @@ final class TerminalViewportUITests: XCTestCase {
             app.launch()
         }
         defer { app.terminate() }
+        defer {
+            try? FileManager.default.removeItem(atPath: dataPath)
+            try? FileManager.default.removeItem(atPath: commandPath)
+        }
 
         if app.state == .runningBackground {
             app.activate()
@@ -174,7 +181,7 @@ final class TerminalViewportUITests: XCTestCase {
         }
         assertTerminalViewportFillsAvailableSpace(small)
 
-        writeViewportResizeRequest("1180x780", atPath: dataPath)
+        writeViewportResizeRequest("1180x780", atPath: commandPath)
 
         guard let large = waitForViewportGeometry(atPath: dataPath, timeout: 10, matching: { geometry in
             geometry.requestedWindowSize == "1180x780" &&
