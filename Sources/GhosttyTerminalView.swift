@@ -26,7 +26,7 @@ enum TerminalDesktopNotificationBridge {
     }
 
     static func shouldSuppressNotification(
-        claudeHooksEnabled: Bool = true,
+        claudeHooksEnabled: Bool,
         workspaceAgentPIDs: [String: pid_t],
         title: String,
         body: String
@@ -43,9 +43,12 @@ enum TerminalDesktopNotificationBridge {
     private static func matchesClaudeAttentionDuplicate(title: String, body: String) -> Bool {
         let normalizedTitle = normalizedText(title)
         let normalizedBody = normalizedText(body)
-        return matchesGenericClaudeAttentionBanner(normalizedTitle) ||
-            matchesGenericClaudeAttentionBanner(normalizedBody) ||
-            matchesGenericClaudeAttentionBanner("\(normalizedTitle) \(normalizedBody)")
+        if matchesGenericClaudeAttentionBanner(normalizedTitle) ||
+            matchesGenericClaudeAttentionBanner(normalizedBody) {
+            return true
+        }
+        return isGenericClaudeNotificationTitle(normalizedTitle) &&
+            isGenericAttentionBody(normalizedBody)
     }
 
     private static func matchesGenericClaudeAttentionBanner(_ value: String) -> Bool {
@@ -53,6 +56,14 @@ enum TerminalDesktopNotificationBridge {
             value.contains("claude needs your input") ||
             value.contains("claude code needs your attention") ||
             value.contains("claude code needs your input")
+    }
+
+    private static func isGenericClaudeNotificationTitle(_ value: String) -> Bool {
+        value == "claude" || value == "claude code"
+    }
+
+    private static func isGenericAttentionBody(_ value: String) -> Bool {
+        value == "needs your attention" || value == "needs your input"
     }
 
     private static func normalizedText(_ value: String) -> String {

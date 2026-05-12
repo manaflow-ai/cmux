@@ -9,6 +9,7 @@ import XCTest
 final class TerminalDesktopNotificationBridgeTests: XCTestCase {
     func testActiveClaudeHookStillAllowsNonClaudeTerminalNotificationPayloads() {
         let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
+            claudeHooksEnabled: true,
             workspaceAgentPIDs: ["claude_code": pid_t(123)],
             title: "Codex question",
             body: "Does this notification work?"
@@ -22,6 +23,7 @@ final class TerminalDesktopNotificationBridgeTests: XCTestCase {
 
     func testActiveClaudeHookSuppressesGenericClaudeAttentionNotification() {
         let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
+            claudeHooksEnabled: true,
             workspaceAgentPIDs: ["claude_code": pid_t(123)],
             title: "Claude Code",
             body: "Claude Code needs your attention"
@@ -32,6 +34,7 @@ final class TerminalDesktopNotificationBridgeTests: XCTestCase {
 
     func testActiveClaudeHookSuppressesGenericClaudeInputNotification() {
         let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
+            claudeHooksEnabled: true,
             workspaceAgentPIDs: ["claude_code": pid_t(123)],
             title: "Claude Code",
             body: "Claude needs your input"
@@ -42,6 +45,7 @@ final class TerminalDesktopNotificationBridgeTests: XCTestCase {
 
     func testActiveClaudeHookSuppressesSplitGenericClaudeAttentionNotification() {
         let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
+            claudeHooksEnabled: true,
             workspaceAgentPIDs: ["claude_code": pid_t(123)],
             title: "Claude Code",
             body: "needs your attention"
@@ -52,6 +56,7 @@ final class TerminalDesktopNotificationBridgeTests: XCTestCase {
 
     func testNoClaudePIDAllowsMatchingClaudeAttentionNotification() {
         let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
+            claudeHooksEnabled: true,
             workspaceAgentPIDs: [:],
             title: "Claude Code",
             body: "Claude needs your attention"
@@ -62,6 +67,7 @@ final class TerminalDesktopNotificationBridgeTests: XCTestCase {
 
     func testZeroClaudePIDAllowsMatchingClaudeAttentionNotification() {
         let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
+            claudeHooksEnabled: true,
             workspaceAgentPIDs: ["claude_code": pid_t(0)],
             title: "Claude Code",
             body: "Claude needs your attention"
@@ -83,9 +89,21 @@ final class TerminalDesktopNotificationBridgeTests: XCTestCase {
 
     func testActiveClaudeHookAllowsCrossPhraseNonClaudeNotification() {
         let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
+            claudeHooksEnabled: true,
             workspaceAgentPIDs: ["claude_code": pid_t(123)],
             title: "claude.py review",
             body: "Codex needs your input on the diff"
+        )
+
+        XCTAssertFalse(suppressed)
+    }
+
+    func testActiveClaudeHookAllowsTitleBodyConcatenationFalsePositive() {
+        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
+            claudeHooksEnabled: true,
+            workspaceAgentPIDs: ["claude_code": pid_t(123)],
+            title: "From Claude",
+            body: "needs your input on the review"
         )
 
         XCTAssertFalse(suppressed)
