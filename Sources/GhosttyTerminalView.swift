@@ -7485,7 +7485,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 return false
             }
 
-            if !shouldRetryMainMenu { return performKeyEquivalentAfterMenuMissFallback(with: event) }
+            if !shouldRetryMainMenu {
+                lastPerformKeyEvent = nil
+                if CmuxSystemShortcutMatcher.shouldYieldTerminalCommandEquivalentToSystem(event: event) {
+                    return false
+                }
+                keyDown(with: event)
+                return true
+            }
             if let lastPerformKeyEvent {
                 self.lastPerformKeyEvent = nil
                 if lastPerformKeyEvent == event.timestamp {
