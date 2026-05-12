@@ -125,6 +125,34 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         }
     }
 
+    private func assertInputSourceForwardsUnhandledNoMarkedIMECommandKeys(
+        _ inputSourceId: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let view = GhosttyNSView(frame: .zero)
+
+        for probe in noMarkedNavigationKeyProbes {
+            let event = try keyEvent(text: probe.text, keyCode: probe.keyCode, windowNumber: 0)
+
+            XCTAssertFalse(
+                view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                    markedTextBefore: "",
+                    markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
+                    markedTextAfter: "",
+                    markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                    accumulatedText: [],
+                    event: event,
+                    textInputHandledEvent: false,
+                    inputSourceId: inputSourceId
+                ),
+                "\(inputSourceId) should forward unhandled \(probe.name) to Ghostty when no composition is active",
+                file: file,
+                line: line
+            )
+        }
+    }
+
     func testSelectedRangeReturnsEmptyRangeWithoutSelectionOrMarkedText() {
         let view = GhosttyNSView(frame: .zero)
         let range = view.selectedRange()
@@ -474,13 +502,35 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
-    func testSimplifiedChinesePinyinDoesNotSwallowNavigationAndSpaceKeysWithoutComposition() throws {
-        try assertInputSourceDoesNotSwallowNoMarkedIMECommandKeys(
+    func testSimplifiedChinesePinyinForwardsUnhandledNavigationAndSpaceKeysWithoutComposition() throws {
+        try assertInputSourceForwardsUnhandledNoMarkedIMECommandKeys(
             "com.apple.inputmethod.SCIM.ITABC"
         )
     }
 
     func testSimplifiedChinesePinyinHandledCandidateArrowStaysInTextInputWithoutMarkedText() throws {
+        let view = GhosttyNSView(frame: .zero)
+
+        for probe in noMarkedNavigationKeyProbes where ["Left", "Right", "Up", "Down"].contains(probe.name) {
+            let event = try keyEvent(text: probe.text, keyCode: probe.keyCode, windowNumber: 0)
+
+            XCTAssertTrue(
+                view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                    markedTextBefore: "",
+                    markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
+                    markedTextAfter: "",
+                    markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                    accumulatedText: [],
+                    event: event,
+                    textInputHandledEvent: true,
+                    inputSourceId: "com.apple.inputmethod.SCIM.ITABC"
+                ),
+                "Simplified Chinese Pinyin candidate \(probe.name) handled by NSTextInputContext must not leak to Ghostty"
+            )
+        }
+    }
+
+    func testRoutesSimplifiedChinesePinyinCandidateArrowKeyEquivalentThroughKeyDownWithoutMarkedText() throws {
         let view = GhosttyNSView(frame: .zero)
         let event = try keyEvent(
             text: "\u{F701}",
@@ -489,17 +539,11 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
-                markedTextBefore: "",
-                markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
-                markedTextAfter: "",
-                markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
-                accumulatedText: [],
-                event: event,
-                textInputHandledEvent: true,
+            view.shouldRouteTextInputKeyEquivalentToKeyDown(
+                event,
                 inputSourceId: "com.apple.inputmethod.SCIM.ITABC"
             ),
-            "Simplified Chinese Pinyin candidate arrows handled by NSTextInputContext must not leak to Ghostty"
+            "Simplified Chinese Pinyin candidate arrows should reach NSTextInputContext before terminal routing"
         )
     }
 
