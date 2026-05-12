@@ -4,7 +4,7 @@ import Foundation
 
 private struct EventStreamLimitReached: Error {}
 
-struct CmuxEventsResume: Equatable {
+nonisolated struct CmuxEventsResume: Equatable {
     let afterSequence: Int64?
     let requestedAfterSequence: Int64
     let oldestSequence: Int64
@@ -14,7 +14,7 @@ struct CmuxEventsResume: Equatable {
     let gapReason: String?
 }
 
-struct CmuxEventsClientFrame {
+nonisolated struct CmuxEventsClientFrame {
     enum Kind: Equatable {
         case ack(CmuxEventsResume)
         case event(seq: Int64)
@@ -30,14 +30,16 @@ struct CmuxEventsClientFrame {
     }
 }
 
-struct CmuxEventsReconnectBackoff {
+nonisolated struct CmuxEventsReconnectBackoff {
     private(set) var attempt = 0
     var baseDelay: TimeInterval = 1.0
     var maximumDelay: TimeInterval = 10.0
 
     mutating func nextDelay() -> TimeInterval {
+        let effectiveBaseDelay = max(baseDelay, 0.1)
+        let effectiveMaximumDelay = max(maximumDelay, effectiveBaseDelay)
         let exponent = min(attempt, 6)
-        let delay = min(maximumDelay, baseDelay * pow(2.0, Double(exponent)))
+        let delay = min(effectiveMaximumDelay, effectiveBaseDelay * pow(2.0, Double(exponent)))
         attempt += 1
         return delay
     }
@@ -47,7 +49,7 @@ struct CmuxEventsReconnectBackoff {
     }
 }
 
-struct CmuxEventsClientHelper {
+nonisolated struct CmuxEventsClientHelper {
     private(set) var receivedAck = false
     private var highWaterSequence: Int64?
 
@@ -202,7 +204,7 @@ struct CmuxEventsClientHelper {
         return sequence
     }
 
-    static func int64Value(_ value: Any?) -> Int64? {
+    private static func int64Value(_ value: Any?) -> Int64? {
         if let number = value as? NSNumber {
             guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
             let type = String(cString: number.objCType)
@@ -351,10 +353,10 @@ extension CMUXCLI {
     }
 
     func waitBeforeReconnectingEventStream(seconds: TimeInterval) {
-        let delay = min(max(seconds, 0.1), 60.0)
-        let deadline = Date(timeIntervalSinceNow: delay)
+        guard seconds.isFinite, seconds > 0 else { return }
+        let deadline = Date(timeIntervalSinceNow: seconds)
         var didFire = false
-        let timer = Timer(timeInterval: delay, repeats: false) { _ in
+        let timer = Timer(timeInterval: seconds, repeats: false) { _ in
             didFire = true
         }
         RunLoop.current.add(timer, forMode: .default)
