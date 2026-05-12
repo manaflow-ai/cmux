@@ -24,6 +24,7 @@ public enum SessionIndexCore {
     public static let tailByteCap = 32 * 1024
     /// Hard cap on candidate files inspected per call to keep deep-page searches bounded.
     public static let searchMaxFiles = 1500
+    // CMUXAgentVault targets macOS 13+, so `FileHandle.read(upToCount:)` does not need an older 10.15.4 fallback.
 
     /// Stream JSON-lines from the start of `url`. `body` returns true to stop early.
     /// Caps total bytes read at `maxBytes`.
@@ -159,6 +160,7 @@ public enum SessionIndexCore {
                 return nil as [URL]?
             }
 
+            // Drain stdout before waiting; otherwise rg can fill the pipe buffer and deadlock before exit.
             let data = outPipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
             processBox.clear(process)

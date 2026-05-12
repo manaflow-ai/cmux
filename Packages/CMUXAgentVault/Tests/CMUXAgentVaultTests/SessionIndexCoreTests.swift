@@ -29,7 +29,7 @@ final class SessionIndexCoreTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
 
         XCTAssertEqual(SessionIndexCore.readFileHead(url: fixture.file, byteCap: 6), "line-1")
-        XCTAssertEqual(SessionIndexCore.readFileTail(url: fixture.file, byteCap: 14), "line-3\nline-4")
+        XCTAssertEqual(SessionIndexCore.readFileTail(url: fixture.file, byteCap: 16), "line-3\nline-4\n")
     }
 
     func testFileContainsNeedleScansAcrossChunksCaseInsensitively() throws {
