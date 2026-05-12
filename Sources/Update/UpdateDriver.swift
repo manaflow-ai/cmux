@@ -237,7 +237,12 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
 
     private func applyState(_ newState: UpdateState) {
-        viewModel.state = newState
+        switch newState {
+        case .updateAvailable(let update):
+            viewModel.recordAvailableUpdate(update)
+        default:
+            viewModel.state = newState
+        }
         UpdateLogStore.shared.append("state -> \(describe(newState))")
     }
 
