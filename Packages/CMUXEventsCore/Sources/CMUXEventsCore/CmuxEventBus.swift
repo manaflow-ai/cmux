@@ -73,6 +73,8 @@ public final class CmuxEventSubscription: @unchecked Sendable {
         return accepted
     }
 
+    /// Blocks the calling thread until the next event arrives, the subscription closes, or `timeout` expires.
+    /// Intended for dedicated event-streaming threads, not actor-isolated or cooperative Swift concurrency tasks.
     public func next(timeout: TimeInterval) -> [String: Any]? {
         lock.lock()
         if !queue.isEmpty {
@@ -116,7 +118,7 @@ public final class CmuxEventBus: @unchecked Sendable {
     public static let defaultRetainedEventLimit = 4_096
     public static let defaultMaxEventLineBytes = 16 * 1024
     public static let defaultMaxEventLogBytes: UInt64 = 16 * 1024 * 1024
-    public static let defaultMaxPendingEventLogLines = 1_024
+    public static let defaultMaxPendingEventLogLines = CmuxEventLogWriter.defaultMaxPendingLines
     public static let defaultMaxPendingEventsPerSubscription = 1_024
     public static let maxSanitizedStringBytes = 8 * 1024
     public static let maxSanitizedArrayItems = 256
