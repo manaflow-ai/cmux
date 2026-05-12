@@ -57,11 +57,46 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testShowRightSidebarModeUsesGlobalStateWhenNoMainWindowContextExists() {
+        withSavedRightSidebarDefaults {
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            let fileExplorerState = FileExplorerState()
+            defer { AppDelegate.shared = previousAppDelegate }
+
+            fileExplorerState.mode = .find
+            fileExplorerState.setVisible(false)
+            appDelegate.fileExplorerState = fileExplorerState
+
+            XCTAssertTrue(
+                appDelegate.showRightSidebarModeInActiveMainWindow(
+                    mode: .files,
+                    focusFirstItem: true,
+                    preferredWindow: nil
+                )
+            )
+            XCTAssertTrue(fileExplorerState.isVisible)
+            XCTAssertEqual(fileExplorerState.mode, .files)
+        }
+    }
+
     private func withSavedBetaFeatureDefaults(_ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
         let previousDock = defaults.object(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
         defer {
             restore(previousDock, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        }
+        try body()
+    }
+
+    private func withSavedRightSidebarDefaults(_ body: () throws -> Void) rethrows {
+        let defaults = UserDefaults.standard
+        let previousVisibility = defaults.object(forKey: "fileExplorer.isVisible")
+        let previousMode = defaults.object(forKey: "rightSidebar.mode")
+        defer {
+            restore(previousVisibility, forKey: "fileExplorer.isVisible")
+            restore(previousMode, forKey: "rightSidebar.mode")
         }
         try body()
     }
