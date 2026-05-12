@@ -5252,11 +5252,9 @@ struct SettingsView: View {
         formatter.maximumFractionDigits = interval.rounded() == interval ? 0 : 1
         let numberText = formatter.string(from: NSNumber(value: interval))
             ?? String(format: "%.1f", interval)
-        let labelKey = interval == 1
-            ? "settings.app.sidebarResourceUsageSampleInterval.option.one"
-            : "settings.app.sidebarResourceUsageSampleInterval.option.other"
-        let defaultValue = interval == 1 ? "%1$@ second" : "%1$@ seconds"
-        let format = Bundle.main.localizedString(forKey: labelKey, value: defaultValue, table: nil)
+        let format = interval == 1
+            ? String(localized: "settings.app.sidebarResourceUsageSampleInterval.option.one", defaultValue: "%1$@ second")
+            : String(localized: "settings.app.sidebarResourceUsageSampleInterval.option.other", defaultValue: "%1$@ seconds")
         return String(
             format: format,
             locale: .current,
@@ -7680,14 +7678,24 @@ private struct SettingsPickerRow<SelectionValue: Hashable, PickerContent: View, 
     var body: some View {
         SettingsCardRow(configurationReview: configurationReview, title, subtitle: subtitle, controlWidth: controlWidth) {
             HStack(spacing: 6) {
-                Picker("", selection: $selection) {
-                    pickerContent
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .applyIf(accessibilityId != nil) { $0.accessibilityIdentifier(accessibilityId!) }
+                pickerWithOptionalAccessibility
                 extraTrailing
             }
+        }
+    }
+
+    @ViewBuilder
+    private var pickerWithOptionalAccessibility: some View {
+        let picker = Picker("", selection: $selection) {
+            pickerContent
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+
+        if let accessibilityId {
+            picker.accessibilityIdentifier(accessibilityId)
+        } else {
+            picker
         }
     }
 }

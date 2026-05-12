@@ -6010,11 +6010,21 @@ extension WKWebView {
 
 extension BrowserPanel {
     func resourceUsageRootPIDs() -> Set<Int32> {
+        var pids = webView.cmuxResourceUsageRootPIDs()
+        for popup in popupControllers {
+            pids.formUnion(popup.resourceUsageRootPIDs())
+        }
+        return pids
+    }
+}
+
+extension WKWebView {
+    func cmuxResourceUsageRootPIDs() -> Set<Int32> {
         var pids: Set<Int32> = []
-        if let webProcessPID = webView.cmuxWebProcessIdentifier() {
+        if let webProcessPID = cmuxWebProcessIdentifier() {
             pids.insert(webProcessPID)
         }
-        if let inspectorPID = webView.cmuxInspectorFrontendWebView()?.cmuxWebProcessIdentifier() {
+        if let inspectorPID = cmuxInspectorFrontendWebView()?.cmuxWebProcessIdentifier() {
             pids.insert(inspectorPID)
         }
         return pids

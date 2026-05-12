@@ -7286,6 +7286,7 @@ struct ContentView: View {
             moveSelectedWorkspace(by: 1)
         }
         registry.register(commandId: "palette.moveWorkspaceToTop") {
+            guard allowsWorkspaceManualReordering else { return }
             guard let workspace = tabManager.selectedWorkspace else {
                 NSSound.beep()
                 return
@@ -8557,6 +8558,7 @@ struct ContentView: View {
     }
 
     private func moveSelectedWorkspace(by delta: Int) {
+        guard allowsWorkspaceManualReordering else { return }
         guard let workspace = tabManager.selectedWorkspace,
               let currentIndex = selectedWorkspaceIndex() else { return }
         let targetIndex = currentIndex + delta
@@ -8576,6 +8578,7 @@ struct ContentView: View {
     }
 
     private func closeSelectedWorkspacesBelow() {
+        guard allowsWorkspaceManualReordering else { return }
         guard tabManager.selectedWorkspace != nil,
               let anchorIndex = selectedWorkspaceIndex() else { return }
         let workspaceIds = tabManager.tabs.suffix(from: anchorIndex + 1).map(\.id)
@@ -8583,10 +8586,16 @@ struct ContentView: View {
     }
 
     private func closeSelectedWorkspacesAbove() {
+        guard allowsWorkspaceManualReordering else { return }
         guard tabManager.selectedWorkspace != nil,
               let anchorIndex = selectedWorkspaceIndex() else { return }
         let workspaceIds = tabManager.tabs.prefix(upTo: anchorIndex).map(\.id)
         closeWorkspaceIds(workspaceIds, allowPinned: true)
+    }
+
+    private var allowsWorkspaceManualReordering: Bool {
+        let configuration = SidebarWorkspaceResourceUsageConfiguration.current()
+        return !configuration.isEnabled || configuration.sortMode == .manual
     }
 
     private func syncSidebarSelectedWorkspaceIds() {
@@ -9040,7 +9049,7 @@ struct VerticalTabsSidebar: View {
     @StateObject private var dragAutoScrollController = SidebarDragAutoScrollController()
     @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore()
-    @StateObject private var resourceUsageStore = SidebarWorkspaceResourceUsageStore()
+    @State private var resourceUsageStore = SidebarWorkspaceResourceUsageStore()
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State private var draggedTabId: UUID?
     @State private var dropIndicator: SidebarDropIndicator?
@@ -11797,6 +11806,41 @@ private struct SidebarEmptyArea: View {
     let allowsManualReordering: Bool
 
     var body: some View {
+        emptyAreaWithOptionalDrop
+            .overlay { SidebarBonsplitTabNewWorkspaceDropOverlay(tabManager: tabManager, selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, dropIndicator: $dropIndicator).frame(maxWidth: .infinity, maxHeight: .infinity) }
+            .overlay(alignment: .top) {
+                if shouldShowTopDropIndicator {
+                    Rectangle()
+                        .fill(cmuxAccentColor())
+                        .frame(height: 2)
+                        .padding(.horizontal, 8)
+                        .offset(y: -(rowSpacing / 2))
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var emptyAreaWithOptionalDrop: some View {
+        if allowsManualReordering {
+            emptyAreaBase.onDrop(
+                of: SidebarTabDragPayload.dropContentTypes,
+                delegate: SidebarTabDropDelegate(
+                    targetTabId: nil,
+                    tabManager: tabManager,
+                    draggedTabId: $draggedTabId,
+                    selectedTabIds: $selectedTabIds,
+                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                    targetRowHeight: nil,
+                    dragAutoScrollController: dragAutoScrollController,
+                    dropIndicator: $dropIndicator
+                )
+            )
+        } else {
+            emptyAreaBase
+        }
+    }
+
+    private var emptyAreaBase: some View {
         Color.clear
             .contentShape(Rectangle())
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -11807,28 +11851,6 @@ private struct SidebarEmptyArea: View {
                     lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
                 }
                 selection = .tabs
-            }
-            .applyIf(allowsManualReordering) { content in
-                content.onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: SidebarTabDropDelegate(
-                    targetTabId: nil,
-                    tabManager: tabManager,
-                    draggedTabId: $draggedTabId,
-                    selectedTabIds: $selectedTabIds,
-                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                    targetRowHeight: nil,
-                    dragAutoScrollController: dragAutoScrollController,
-                    dropIndicator: $dropIndicator
-                ))
-            }
-            .overlay { SidebarBonsplitTabNewWorkspaceDropOverlay(tabManager: tabManager, selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, dropIndicator: $dropIndicator).frame(maxWidth: .infinity, maxHeight: .infinity) }
-            .overlay(alignment: .top) {
-                if shouldShowTopDropIndicator {
-                    Rectangle()
-                        .fill(cmuxAccentColor())
-                        .frame(height: 2)
-                        .padding(.horizontal, 8)
-                        .offset(y: -(rowSpacing / 2))
-                }
             }
     }
 
@@ -11858,17 +11880,6 @@ enum SidebarPathFormatter {
             return "~" + trimmed.dropFirst(homeDirectoryPath.count)
         }
         return trimmed
-    }
-}
-
-extension View {
-    @ViewBuilder
-    func applyIf(_ condition: Bool, transform: (Self) -> some View) -> some View {
-        if condition {
-            transform(self)
-        } else {
-            self
-        }
     }
 }
 
@@ -12040,19 +12051,23 @@ private enum SidebarResourceUsageFormatter {
 
         let remainingProcessCount = usage.processes.count - visibleProcesses.count
         if remainingProcessCount > 0 {
-            let moreProcessesKey = remainingProcessCount == 1
-                ? "sidebar.resourceUsage.moreProcesses.one"
-                : "sidebar.resourceUsage.moreProcesses.other"
-            let moreProcessesDefaultValue = remainingProcessCount == 1
-                ? "+%lld more process"
-                : "+%lld more processes"
-            lines.append(
-                localizedFormat(
-                    moreProcessesKey,
-                    defaultValue: moreProcessesDefaultValue,
-                    Int64(remainingProcessCount)
+            if remainingProcessCount == 1 {
+                lines.append(
+                    localizedFormat(
+                        "sidebar.resourceUsage.moreProcesses.one",
+                        defaultValue: "+%1$lld more process",
+                        Int64(remainingProcessCount)
+                    )
                 )
-            )
+            } else {
+                lines.append(
+                    localizedFormat(
+                        "sidebar.resourceUsage.moreProcesses.other",
+                        defaultValue: "+%1$lld more processes",
+                        Int64(remainingProcessCount)
+                    )
+                )
+            }
         }
 
         return lines.joined(separator: "\n")
@@ -12102,11 +12117,11 @@ private enum SidebarResourceUsageFormatter {
     }
 
     private static func localizedFormat(
-        _ key: String,
-        defaultValue: String,
+        _ key: StaticString,
+        defaultValue: String.LocalizationValue,
         _ arguments: CVarArg...
     ) -> String {
-        let format = Bundle.main.localizedString(forKey: key, value: defaultValue, table: nil)
+        let format = String(localized: key, defaultValue: defaultValue)
         return String(
             format: format,
             locale: .current,
@@ -12850,29 +12865,7 @@ private struct TabItemView: View, Equatable {
 
     private var rowWithDrops: AnyView {
         AnyView(
-            rowWithLifecycle
-                .applyIf(allowsManualReordering) { content in
-                    content
-                        .onDrag {
-                            #if DEBUG
-                            cmuxDebugLog("sidebar.onDrag tab=\(tab.id.uuidString.prefix(5))")
-                            #endif
-                            draggedTabId = tab.id
-                            dropIndicator = nil
-                            return SidebarTabDragPayload.provider(for: tab.id)
-                        }
-                        .internalOnlyTabDrag()
-                        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: SidebarTabDropDelegate(
-                            targetTabId: tab.id,
-                            tabManager: tabManager,
-                            draggedTabId: $draggedTabId,
-                            selectedTabIds: $selectedTabIds,
-                            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                            targetRowHeight: rowHeight,
-                            dragAutoScrollController: dragAutoScrollController,
-                            dropIndicator: $dropIndicator
-                        ))
-                }
+            rowWithWorkspaceDrop
                 .onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: SidebarBonsplitTabDropDelegate(
                     targetWorkspaceId: tab.id,
                     tabManager: tabManager,
@@ -12880,6 +12873,34 @@ private struct TabItemView: View, Equatable {
                     lastSidebarSelectionIndex: $lastSidebarSelectionIndex
                 ))
         )
+    }
+
+    @ViewBuilder
+    private var rowWithWorkspaceDrop: some View {
+        if allowsManualReordering {
+            rowWithLifecycle
+                .onDrag {
+                    #if DEBUG
+                    cmuxDebugLog("sidebar.onDrag tab=\(tab.id.uuidString.prefix(5))")
+                    #endif
+                    draggedTabId = tab.id
+                    dropIndicator = nil
+                    return SidebarTabDragPayload.provider(for: tab.id)
+                }
+                .internalOnlyTabDrag()
+                .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: SidebarTabDropDelegate(
+                    targetTabId: tab.id,
+                    tabManager: tabManager,
+                    draggedTabId: $draggedTabId,
+                    selectedTabIds: $selectedTabIds,
+                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                    targetRowHeight: rowHeight,
+                    dragAutoScrollController: dragAutoScrollController,
+                    dropIndicator: $dropIndicator
+                ))
+        } else {
+            rowWithLifecycle
+        }
     }
 
     private var rowWithLifecycle: AnyView {

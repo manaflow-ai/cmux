@@ -526,6 +526,8 @@ final class CmuxSettingsFileStore {
             } else {
                 logInvalid("sidebar.sortMode", sourcePath: sourcePath)
             }
+        } else if section.keys.contains("sortMode") {
+            logInvalid("sidebar.sortMode", sourcePath: sourcePath)
         }
     }
 

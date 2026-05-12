@@ -1,6 +1,7 @@
 import Combine
 import Darwin
 import Foundation
+import Observation
 import WebKit
 
 /// Batched port scanner that replaces per-shell `ps + lsof` scanning.
@@ -949,7 +950,8 @@ private enum MachAbsoluteTimeConverter {
 }
 
 @MainActor
-final class SidebarWorkspaceResourceUsageStore: ObservableObject, @unchecked Sendable {
+@Observable
+final class SidebarWorkspaceResourceUsageStore {
     struct Snapshot: Equatable, Sendable {
         var workspaces: [UUID: SidebarWorkspaceResourceUsageSnapshot]
         var total: SidebarWorkspaceResourceUsageSnapshot?
@@ -971,16 +973,20 @@ final class SidebarWorkspaceResourceUsageStore: ObservableObject, @unchecked Sen
         let elapsedNanoseconds: UInt64
     }
 
-    @Published private(set) var snapshot: Snapshot = .empty
+    private struct SamplingOutput: Sendable {
+        let resolution: SidebarWorkspaceResourceResolution
+        let trackedCPUTimeByPID: [Int32: UInt64]
+    }
 
-    private weak var tabManager: TabManager?
-    private var configuration = SidebarWorkspaceResourceUsageConfiguration.current()
-    private let queue = DispatchQueue(label: "com.cmux.sidebar-resource-usage", qos: .utility)
-    private var timer: DispatchSourceTimer?
-    private var generation: UInt64 = 0
-    private var previousCPUTimeByPID: [Int32: UInt64] = [:]
-    private var hasEstablishedCPUBaseline = false
-    private var lastSampleUptimeNanoseconds: UInt64?
+    private(set) var snapshot: Snapshot = .empty
+
+    @ObservationIgnored private weak var tabManager: TabManager?
+    @ObservationIgnored private var configuration = SidebarWorkspaceResourceUsageConfiguration.current()
+    @ObservationIgnored private var sampleLoopTask: Task<Void, Never>?
+    @ObservationIgnored private var generation: UInt64 = 0
+    @ObservationIgnored private var previousCPUTimeByPID: [Int32: UInt64] = [:]
+    @ObservationIgnored private var hasEstablishedCPUBaseline = false
+    @ObservationIgnored private var lastSampleUptimeNanoseconds: UInt64?
 
     func bind(tabManager: TabManager, configuration: SidebarWorkspaceResourceUsageConfiguration) {
         self.tabManager = tabManager
@@ -991,7 +997,7 @@ final class SidebarWorkspaceResourceUsageStore: ObservableObject, @unchecked Sen
         generation &+= 1
         self.configuration = configuration
 
-        stopTimer()
+        stopSampleLoop()
 
         guard configuration.isEnabled else {
             previousCPUTimeByPID.removeAll()
@@ -1002,50 +1008,46 @@ final class SidebarWorkspaceResourceUsageStore: ObservableObject, @unchecked Sen
         }
 
         let currentGeneration = generation
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(
-            deadline: .now() + configuration.sampleInterval,
-            repeating: configuration.sampleInterval
-        )
-        timer.setEventHandler { [weak self] in
-            self?.performSample(generation: currentGeneration)
-        }
-        self.timer = timer
-        timer.resume()
-
-        queue.async { [weak self] in
-            self?.performSample(generation: currentGeneration)
+        let intervalNanoseconds = Self.sampleIntervalNanoseconds(configuration.sampleInterval)
+        sampleLoopTask = Task { [weak self] in
+            guard let self else { return }
+            await self.performSample(generation: currentGeneration)
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: intervalNanoseconds)
+                } catch {
+                    break
+                }
+                await self.performSample(generation: currentGeneration)
+            }
         }
     }
 
     func stop() {
         generation &+= 1
-        stopTimer()
+        stopSampleLoop()
         previousCPUTimeByPID.removeAll()
         hasEstablishedCPUBaseline = false
         lastSampleUptimeNanoseconds = nil
         snapshot = .empty
     }
 
-    private func stopTimer() {
-        timer?.cancel()
-        timer = nil
+    private func stopSampleLoop() {
+        sampleLoopTask?.cancel()
+        sampleLoopTask = nil
     }
 
-    nonisolated private func performSample(generation: UInt64) {
+    private func performSample(generation: UInt64) async {
         let currentUptimeNanoseconds = DispatchTime.now().uptimeNanoseconds
 
-        Task { [weak self] in
-            guard let self else { return }
-            guard let context = await MainActor.run(body: {
-                self.makeSamplingContext(
-                    generation: generation,
-                    currentUptimeNanoseconds: currentUptimeNanoseconds
-                )
-            }) else {
-                return
-            }
+        guard let context = makeSamplingContext(
+            generation: generation,
+            currentUptimeNanoseconds: currentUptimeNanoseconds
+        ) else {
+            return
+        }
 
+        let output = await Task.detached(priority: .utility) {
             let trackingRoots = Self.resolveTrackingRoots(from: context.workspaces)
             let processCatalog = Self.captureProcessCatalog()
             let nextCPUTimeByPID = processCatalog.reduce(into: [Int32: UInt64]()) { partial, item in
@@ -1071,20 +1073,34 @@ final class SidebarWorkspaceResourceUsageStore: ObservableObject, @unchecked Sen
                 }
             }
 
-            await MainActor.run {
-                guard self.generation == generation else { return }
-                self.previousCPUTimeByPID = trackedCPUTimeByPID
-                self.hasEstablishedCPUBaseline = true
-                self.lastSampleUptimeNanoseconds = currentUptimeNanoseconds
-                let nextSnapshot = Snapshot(
-                    workspaces: resolution.workspaces,
-                    total: resolution.total
-                )
-                if nextSnapshot != self.snapshot {
-                    self.snapshot = nextSnapshot
-                }
-            }
+            return SamplingOutput(
+                resolution: resolution,
+                trackedCPUTimeByPID: trackedCPUTimeByPID
+            )
+        }.value
+
+        guard !Task.isCancelled, self.generation == generation else { return }
+        previousCPUTimeByPID = output.trackedCPUTimeByPID
+        hasEstablishedCPUBaseline = true
+        lastSampleUptimeNanoseconds = currentUptimeNanoseconds
+        let nextSnapshot = Snapshot(
+            workspaces: output.resolution.workspaces,
+            total: output.resolution.total
+        )
+        if nextSnapshot != snapshot {
+            snapshot = nextSnapshot
         }
+    }
+
+    private static func sampleIntervalNanoseconds(_ interval: TimeInterval) -> UInt64 {
+        let nanoseconds = interval * 1_000_000_000
+        guard nanoseconds.isFinite, nanoseconds > 0 else {
+            return 1_000_000_000
+        }
+        if nanoseconds >= Double(UInt64.max) {
+            return UInt64.max
+        }
+        return UInt64(nanoseconds.rounded(.up))
     }
 
     private func makeSamplingContext(
