@@ -459,7 +459,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
-    func testAllowsDeferredNumpadFallbackWithoutMarkedText() throws {
+    func testZhuyinNumpadInputForwardsWithoutMarkedText() throws {
         let view = GhosttyNSView(frame: .zero)
         let event = try keyEvent(
             text: "1",
@@ -477,7 +477,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
                 accumulatedText: [],
                 event: event,
                 textInputHandledEvent: true,
-                inputSourceId: "com.apple.inputmethod.TCIM.Pinyin"
+                inputSourceId: "com.apple.inputmethod.TCIM.Zhuyin"
             )
         )
     }

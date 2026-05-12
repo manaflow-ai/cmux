@@ -46,7 +46,6 @@ extension GhosttyNSView {
         guard hadMarkedTextBefore || hasMarkedTextAfter else {
             guard textInputHandledEvent, isBopomofoInputSource(inputSourceId) else { return false }
             return shouldKeepNoMarkedIMECommandInsideTextInput(event)
-                && !shouldAllowDeferredNumpadIMEFallback(event)
         }
 
         if before.text != after.text {
@@ -123,19 +122,6 @@ extension GhosttyNSView {
         default:
             return false
         }
-    }
-
-    func shouldAllowDeferredNumpadIMEFallback(_ event: NSEvent?) -> Bool {
-        guard let event,
-              let text = event.characters,
-              !text.isEmpty,
-              text.allSatisfy(\.isNumber) else {
-            return false
-        }
-        let flags = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.function, .capsLock])
-        return flags == [.numericPad]
     }
 
 #if DEBUG
