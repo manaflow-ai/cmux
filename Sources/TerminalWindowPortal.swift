@@ -685,7 +685,7 @@ final class WindowTerminalPortal: NSObject {
     private var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
     private var hostedByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
 
-    init(window: NSWindow) {
+    init(window: NSWindow, syncLayout: Bool = true) {
         self.window = window
         super.init()
         hostView.wantsLayer = true
@@ -696,7 +696,7 @@ final class WindowTerminalPortal: NSObject {
         dividerOverlayView.translatesAutoresizingMaskIntoConstraints = true
         dividerOverlayView.autoresizingMask = [.width, .height]
         installGeometryObservers(for: window)
-        _ = ensureInstalled()
+        _ = ensureInstalled(syncLayout: syncLayout)
     }
 
     private func installGeometryObservers(for window: NSWindow) {
@@ -1954,14 +1954,14 @@ enum TerminalWindowPortalRegistry {
         }
     }
 
-    private static func portal(for window: NSWindow) -> WindowTerminalPortal {
+    private static func portal(for window: NSWindow, syncLayout: Bool = true) -> WindowTerminalPortal {
         if let existing = objc_getAssociatedObject(window, &cmuxWindowTerminalPortalKey) as? WindowTerminalPortal {
             portalsByWindowId[ObjectIdentifier(window)] = existing
             installWindowCloseObserverIfNeeded(for: window)
             return existing
         }
 
-        let portal = WindowTerminalPortal(window: window)
+        let portal = WindowTerminalPortal(window: window, syncLayout: syncLayout)
         objc_setAssociatedObject(window, &cmuxWindowTerminalPortalKey, portal, .OBJC_ASSOCIATION_RETAIN)
         portalsByWindowId[ObjectIdentifier(window)] = portal
         installWindowCloseObserverIfNeeded(for: window)
@@ -2018,7 +2018,7 @@ enum TerminalWindowPortalRegistry {
             return
         }
 
-        let nextPortal = portal(for: window)
+        let nextPortal = portal(for: window, syncLayout: !deferLayoutSynchronization)
 
         if let oldWindowId = hostedToWindowId[hostedId],
            oldWindowId != windowId {
