@@ -83,6 +83,25 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
     }
 
+    /// Regression test for https://github.com/manaflow-ai/cmux/issues/3910.
+    /// Some editors expose a lossy plain-text flavor where CJK scalars are
+    /// replaced with literal "?" characters, while the HTML flavor preserves the
+    /// original text. The terminal paste path should recover the faithful text.
+    func testPrefersFaithfulRichTextWhenPlainTextReplacesChineseWithQuestionMarks() {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-lossy-chinese-plain-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let chineseText = "您好~"
+        pasteboard.declareTypes([.string, .html], owner: nil)
+        pasteboard.setString("??~", forType: .string)
+        pasteboard.setString("<p>\(chineseText)</p>", forType: .html)
+
+        XCTAssertEqual(
+            cmuxPasteboardStringContentsForTesting(pasteboard),
+            chineseText
+        )
+    }
+
     /// Fallback-loop coverage: when *only* a legacy / unknown plain-text
     /// type is present and no UTF-8 variant exists, the helper should still
     /// return whatever string the pasteboard does expose (best-effort).
