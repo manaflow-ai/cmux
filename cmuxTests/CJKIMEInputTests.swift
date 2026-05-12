@@ -350,6 +350,7 @@ final class CJKIMEMarkedTextTests: XCTestCase {
 /// terminal view has active CJK IME composition (marked text). Without this,
 /// CJK IME input would be broken because key events would be consumed by
 /// shortcut handling instead of flowing through to the input method.
+@MainActor
 final class CJKIMEPerformKeyEquivalentTests: XCTestCase {
 
     func testPerformKeyEquivalentReturnsFalseDuringIMEComposition() {
