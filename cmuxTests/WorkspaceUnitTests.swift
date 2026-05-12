@@ -1121,9 +1121,11 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let previousEnabled = defaults.object(forKey: SidebarWorkspaceResourceUsageSettings.enabledKey)
         let previousInterval = defaults.object(forKey: SidebarWorkspaceResourceUsageSettings.sampleIntervalKey)
         let previousSortMode = defaults.object(forKey: SidebarWorkspaceResourceUsageSettings.sortModeKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defaults.removeObject(forKey: SidebarWorkspaceResourceUsageSettings.enabledKey)
         defaults.removeObject(forKey: SidebarWorkspaceResourceUsageSettings.sampleIntervalKey)
         defaults.removeObject(forKey: SidebarWorkspaceResourceUsageSettings.sortModeKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
         defer {
             if let previousEnabled {
                 defaults.set(previousEnabled, forKey: SidebarWorkspaceResourceUsageSettings.enabledKey)
@@ -1139,6 +1141,11 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                 defaults.set(previousSortMode, forKey: SidebarWorkspaceResourceUsageSettings.sortModeKey)
             } else {
                 defaults.removeObject(forKey: SidebarWorkspaceResourceUsageSettings.sortModeKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
             }
         }
 
