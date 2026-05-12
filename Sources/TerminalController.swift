@@ -162,25 +162,25 @@ class TerminalController {
         case surface
     }
 
-    private var v2NextHandleOrdinal: [V2HandleKind: Int] = [
+    private nonisolated(unsafe) var v2NextHandleOrdinal: [V2HandleKind: Int] = [
         .window: 1,
         .workspace: 1,
         .pane: 1,
         .surface: 1,
     ]
-    private var v2RefByUUID: [V2HandleKind: [UUID: String]] = [
+    private nonisolated(unsafe) var v2RefByUUID: [V2HandleKind: [UUID: String]] = [
         .window: [:],
         .workspace: [:],
         .pane: [:],
         .surface: [:],
     ]
-    private var v2UUIDByRef: [V2HandleKind: [String: UUID]] = [
+    private nonisolated(unsafe) var v2UUIDByRef: [V2HandleKind: [String: UUID]] = [
         .window: [:],
         .workspace: [:],
         .pane: [:],
         .surface: [:],
     ]
-    private let v2HandleRefLock = NSLock()
+    private nonisolated let v2HandleRefLock = NSLock()
 
     private struct V2BrowserElementRefEntry {
         let surfaceId: UUID

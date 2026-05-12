@@ -1907,8 +1907,14 @@ struct CMUXCLI {
     private static let browserDisabledDefaultsKey = "browserDisabledOverride"
     private static let defaultBrowserSettingsDomain = "com.cmuxterm.app"
     private static let hotPathBrokerIdleTimeoutSeconds: TimeInterval = 180
+    private static let hotPathBrokerClientReadTimeoutSeconds: TimeInterval = 30
     private static let hotPathRequestMaxBytes = 1_048_576
     private static let hotPathEnvironmentThreadKey = "com.cmux.hot-path.environment"
+
+    private struct CapturedPrintedOutput {
+        let stdout: String
+        let stderr: String
+    }
 
     private func hotPathEnvironmentSnapshot(from environment: [String: String]) -> [String: String] {
         let prefixes = [
@@ -1964,9 +1970,29 @@ struct CMUXCLI {
         return result
     }
 
-    private func capturePrintedOutput(_ body: () throws -> Void) throws -> String {
-        let pipe = Pipe()
-        let writeFD = pipe.fileHandleForWriting.fileDescriptor
+    private func capturePrintedOutput(_ body: () throws -> Void) throws -> CapturedPrintedOutput {
+        let captureId = UUID().uuidString
+        let stdoutURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hot-path-stdout-\(captureId).log")
+        let stderrURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hot-path-stderr-\(captureId).log")
+        let stdoutFD = open(stdoutURL.path, O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR)
+        guard stdoutFD >= 0 else {
+            throw CLIError(message: "Failed to open stdout capture for hot-path capture")
+        }
+        defer {
+            Darwin.close(stdoutFD)
+            try? FileManager.default.removeItem(at: stdoutURL)
+        }
+        let stderrFD = open(stderrURL.path, O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR)
+        guard stderrFD >= 0 else {
+            throw CLIError(message: "Failed to open stderr capture for hot-path capture")
+        }
+        defer {
+            Darwin.close(stderrFD)
+            try? FileManager.default.removeItem(at: stderrURL)
+        }
+
         let savedStdout = dup(STDOUT_FILENO)
         guard savedStdout >= 0 else {
             throw CLIError(message: "Failed to duplicate stdout for hot-path capture")
@@ -1979,12 +2005,12 @@ struct CMUXCLI {
 
         fflush(stdout)
         fflush(stderr)
-        guard dup2(writeFD, STDOUT_FILENO) >= 0 else {
+        guard dup2(stdoutFD, STDOUT_FILENO) >= 0 else {
             Darwin.close(savedStdout)
             Darwin.close(savedStderr)
             throw CLIError(message: "Failed to redirect stdout for hot-path capture")
         }
-        guard dup2(writeFD, STDERR_FILENO) >= 0 else {
+        guard dup2(stderrFD, STDERR_FILENO) >= 0 else {
             _ = dup2(savedStdout, STDOUT_FILENO)
             Darwin.close(savedStdout)
             Darwin.close(savedStderr)
@@ -2005,10 +2031,13 @@ struct CMUXCLI {
         _ = dup2(savedStderr, STDERR_FILENO)
         Darwin.close(savedStdout)
         Darwin.close(savedStderr)
-        try pipe.fileHandleForWriting.close()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let stdoutData = (try? Data(contentsOf: stdoutURL)) ?? Data()
+        let stderrData = (try? Data(contentsOf: stderrURL)) ?? Data()
         try bodyResult.get()
-        return String(data: data, encoding: .utf8) ?? ""
+        return CapturedPrintedOutput(
+            stdout: String(data: stdoutData, encoding: .utf8) ?? "",
+            stderr: String(data: stderrData, encoding: .utf8) ?? ""
+        )
     }
 
     private func currentProcessEnvironment() -> [String: String] {
@@ -2026,6 +2055,16 @@ struct CMUXCLI {
             return Self.hotPathBrokerIdleTimeoutSeconds
         }
         return min(parsed, Self.hotPathBrokerIdleTimeoutSeconds)
+    }
+
+    private func hotPathBrokerClientReadTimeout(from environment: [String: String]) -> TimeInterval {
+        guard let rawValue = environment["CMUX_HOT_PATH_BROKER_CLIENT_READ_TIMEOUT_SECONDS"],
+              let parsed = TimeInterval(rawValue),
+              parsed > 0
+        else {
+            return Self.hotPathBrokerClientReadTimeoutSeconds
+        }
+        return min(max(parsed, 0.05), Self.hotPathBrokerClientReadTimeoutSeconds)
     }
 
     private func withHotPathEnvironment<T>(
@@ -2313,8 +2352,12 @@ struct CMUXCLI {
         let response = try parseHotPathRequestLine(rawResponse)
         if let ok = response["ok"] as? Bool, ok {
             let stdout = response["stdout"] as? String ?? ""
+            let stderr = response["stderr"] as? String ?? ""
             if !stdout.isEmpty {
                 CMUXCLIOutput.writeStandardOutput(stdout)
+            }
+            if !stderr.isEmpty {
+                CMUXCLIOutput.writeStandardError(stderr)
             }
             return
         }
@@ -2376,7 +2419,9 @@ struct CMUXCLI {
         let workerQueue = DispatchQueue(label: "com.cmux.hot-path-broker.worker")
         var sharedClient: SocketClient?
         var lastActivity = Date()
-        let idleTimeout = hotPathBrokerIdleTimeout(from: ProcessInfo.processInfo.environment)
+        let processEnvironment = ProcessInfo.processInfo.environment
+        let idleTimeout = hotPathBrokerIdleTimeout(from: processEnvironment)
+        let clientReadTimeout = hotPathBrokerClientReadTimeout(from: processEnvironment)
 
         func withHotClient<T>(_ body: (SocketClient) throws -> T) throws -> T {
             if sharedClient == nil {
@@ -2492,7 +2537,7 @@ struct CMUXCLI {
                         }
                     }
                 }
-                return ["ok": true, "stdout": output]
+                return ["ok": true, "stdout": output.stdout, "stderr": output.stderr]
 
             case "tmux":
                 let forwardedArgs = request["command_args"] as? [String] ?? []
@@ -2511,7 +2556,7 @@ struct CMUXCLI {
                         }
                     }
                 }
-                return ["ok": true, "stdout": output]
+                return ["ok": true, "stdout": output.stdout, "stderr": output.stderr]
 
             default:
                 throw CLIError(message: "Unsupported hot-path mode: \(mode)")
@@ -2538,6 +2583,27 @@ struct CMUXCLI {
             }
         }
 
+        func configureAcceptedClientReadTimeout(_ clientFD: Int32) throws {
+            let timeout = clientReadTimeout
+            var interval = timeval(
+                tv_sec: Int(timeout.rounded(.down)),
+                tv_usec: __darwin_suseconds_t((timeout.truncatingRemainder(dividingBy: 1)) * 1_000_000)
+            )
+            let result = withUnsafePointer(to: &interval) { ptr in
+                setsockopt(
+                    clientFD,
+                    SOL_SOCKET,
+                    SO_RCVTIMEO,
+                    ptr,
+                    socklen_t(MemoryLayout<timeval>.size)
+                )
+            }
+            guard result == 0 else {
+                let reason = String(cString: strerror(errno))
+                throw CLIError(message: "Failed to configure hot-path broker client read timeout: \(reason)")
+            }
+        }
+
         while true {
             var pollFD = pollfd(fd: listenerFD, events: Int16(POLLIN), revents: 0)
             let ready = poll(&pollFD, 1, 1000)
@@ -2559,12 +2625,22 @@ struct CMUXCLI {
                 continue
             }
             lastActivity = Date()
+            do {
+                try configureAcceptedClientReadTimeout(clientFD)
+            } catch {
+                Darwin.close(clientFD)
+                continue
+            }
 
             do {
                 var data = Data()
                 var buffer = [UInt8](repeating: 0, count: 1)
                 while true {
                     let count = Darwin.read(clientFD, &buffer, 1)
+                    if count < 0, errno == EINTR { continue }
+                    if count < 0, errno == EAGAIN || errno == EWOULDBLOCK {
+                        throw CLIError(message: "Hot-path broker request timed out")
+                    }
                     if count <= 0 { break }
                     if buffer[0] == 0x0A { break }
                     data.append(buffer, count: count)

@@ -581,7 +581,7 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
-    func testUnchangedAutosaveFingerprintSkipsByDefaultUntilStateChanges() {
+    func testUnchangedAutosaveFingerprintUsesBoundedDefaultUntilStateChanges() {
         let now = Date()
         let oneDayAgo: TimeInterval = -86_400
         XCTAssertTrue(
@@ -590,7 +590,7 @@ final class SessionPersistenceTests: XCTestCase {
                 includeScrollback: false,
                 previousFingerprint: 1234,
                 currentFingerprint: 1234,
-                lastPersistedAt: now.addingTimeInterval(oneDayAgo),
+                lastPersistedAt: now.addingTimeInterval(-5),
                 now: now
             )
         )
@@ -600,6 +600,16 @@ final class SessionPersistenceTests: XCTestCase {
                 includeScrollback: false,
                 previousFingerprint: 1234,
                 currentFingerprint: 5678,
+                lastPersistedAt: now.addingTimeInterval(oneDayAgo),
+                now: now
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldSkipSessionAutosaveForUnchangedFingerprint(
+                isTerminatingApp: false,
+                includeScrollback: false,
+                previousFingerprint: 1234,
+                currentFingerprint: 1234,
                 lastPersistedAt: now.addingTimeInterval(oneDayAgo),
                 now: now
             )

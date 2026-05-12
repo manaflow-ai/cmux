@@ -3534,7 +3534,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         currentFingerprint: Int?,
         lastPersistedAt: Date,
         now: Date,
-        maximumAutosaveSkippableInterval: TimeInterval? = nil
+        maximumAutosaveSkippableInterval: TimeInterval? = 3_600
     ) -> Bool {
         guard !isTerminatingApp,
               !includeScrollback,

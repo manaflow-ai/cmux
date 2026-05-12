@@ -33,6 +33,35 @@ def write_github_step_summary(title: str, rows: list[tuple[str, str]]) -> None:
             summary.write(f"| {label} | {value} |\n")
 
 
+def run_hot_path_rpc(
+    cli_path: str,
+    app_socket: str,
+    broker_socket: str,
+    params: str,
+    env: dict[str, str],
+    timeout: float = 5.0,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            cli_path,
+            "--socket",
+            app_socket,
+            "__hot-path",
+            "--broker-socket",
+            broker_socket,
+            "rpc",
+            "surface.telemetry",
+            params,
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+        timeout=timeout,
+        check=False,
+    )
+
+
 class FakeJSONRPCSocketServer:
     def __init__(self, socket_path: str, response_delay: float) -> None:
         self.socket_path = socket_path
@@ -141,6 +170,8 @@ def main() -> int:
         broker_socket = str(root / "hot-path-broker.sock")
         server = FakeJSONRPCSocketServer(socket_path=app_socket, response_delay=0.02)
         server.start()
+        burst_total_connections = 0
+        burst_max_active_connections = 0
         try:
             params = json.dumps(
                 {
@@ -205,6 +236,32 @@ def main() -> int:
                 methods = server.methods_snapshot()
                 if set(methods) != {"surface.telemetry"}:
                     failures.append(f"expected only surface.telemetry, got {methods!r}")
+            burst_total_connections = server.total_connections
+            burst_max_active_connections = server.max_active_connections
+
+            stall_env = {
+                **env,
+                "CMUX_HOT_PATH_BROKER_CLIENT_READ_TIMEOUT_SECONDS": "0.2",
+                "CMUX_HOT_PATH_BROKER_IDLE_TIMEOUT_SECONDS": "3",
+            }
+            stall_broker_socket = str(root / "hot-path-broker-stall.sock")
+            warmup = run_hot_path_rpc(cli_path, app_socket, stall_broker_socket, params, stall_env)
+            if warmup.returncode != 0:
+                failures.append(f"warmup hot-path request failed: stderr={warmup.stderr!r}")
+            else:
+                stalled_client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                try:
+                    stalled_client.connect(stall_broker_socket)
+                    stalled_client.sendall(b'{"mode":"rpc"')
+                    time.sleep(0.4)
+                    after_stall = run_hot_path_rpc(cli_path, app_socket, stall_broker_socket, params, stall_env)
+                    if after_stall.returncode != 0:
+                        failures.append(
+                            "valid hot-path request failed after stalled broker client: "
+                            f"stderr={after_stall.stderr!r}"
+                        )
+                finally:
+                    stalled_client.close()
         finally:
             server.stop()
 
@@ -213,20 +270,20 @@ def main() -> int:
             print(f"FAIL: {failure}")
         return 1
 
-    reduction = 100 / max(server.total_connections, 1)
+    reduction = 100 / max(burst_total_connections, 1)
     write_github_step_summary(
         "Hot-path telemetry fan-out",
         [
             ("Parallel calls", "100"),
-            ("App socket connections", str(server.total_connections)),
-            ("Max concurrent app socket connections", str(server.max_active_connections)),
+            ("App socket connections", str(burst_total_connections)),
+            ("Max concurrent app socket connections", str(burst_max_active_connections)),
             ("Fan-out reduction vs one socket per call", f"{reduction:.1f}x"),
         ],
     )
     print(
         "PASS: hot-path broker bounds app socket fan-out under 100 parallel calls "
-        f"(app_socket_connections={server.total_connections}, "
-        f"max_concurrent={server.max_active_connections}, "
+        f"(app_socket_connections={burst_total_connections}, "
+        f"max_concurrent={burst_max_active_connections}, "
         f"fanout_reduction_vs_one_socket_per_call={reduction:.1f}x)"
     )
     return 0
