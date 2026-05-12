@@ -79,7 +79,6 @@ final class FeedPanelViewModel: ObservableObject {
 
     private func scheduleAgentGraphRebuildIfNeeded(from currentItems: [WorkstreamItem]) {
         guard isAgentTreeActive else {
-            graphBuildSequence &+= 1
             graphBuildTask?.cancel()
             graphBuildTask = nil
             pendingGraphBuildRequest = nil
