@@ -575,6 +575,34 @@ def test_install_codex_hooks_only_edits_real_features_table(cli_path: str, root:
         raise AssertionError(f"codex_hooks should be inserted into [features]: {config_toml!r}")
 
 
+def test_install_codex_hooks_preserves_config_when_toml_read_fails(cli_path: str, root: Path) -> None:
+    codex_home = root / "codex-home"
+    codex_home.mkdir()
+    config_path = codex_home / "config.toml"
+    original_bytes = b'model = "safe"\ninvalid_utf8 = "\xff"\n'
+    config_path.write_bytes(original_bytes)
+
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "install", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode == 0:
+        raise AssertionError(
+            "hooks codex install should fail when existing config.toml cannot be read as UTF-8"
+        )
+    if config_path.read_bytes() != original_bytes:
+        raise AssertionError(
+            "hooks codex install should not overwrite config.toml after a read failure"
+        )
+
+
 def test_permission_reply_uses_codex_permission_request_schema(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux.sock"
     payload = {
