@@ -3066,6 +3066,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    func sessionWindowSnapshotForSessionPersistence(
+        tabManager: TabManager,
+        window: NSWindow?,
+        sidebarState: SidebarState,
+        sidebarSelectionState: SidebarSelectionState,
+        includeScrollback: Bool,
+        restorableAgentIndex: RestorableAgentSessionIndex
+    ) -> SessionWindowSnapshot {
+        SessionWindowSnapshot(
+            frame: window.map { SessionRectSnapshot($0.frame) },
+            display: displaySnapshot(for: window),
+            tabManager: tabManager.sessionSnapshot(
+                includeScrollback: includeScrollback,
+                restorableAgentIndex: restorableAgentIndex
+            ),
+            sidebar: SessionSidebarSnapshot(
+                isVisible: sidebarState.isVisible,
+                selection: SessionSidebarSelection(selection: sidebarSelectionState.selection),
+                width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(sidebarState.persistedWidth))
+            )
+        )
+    }
+
     private func startSessionAutosaveTimerIfNeeded() {
         guard sessionAutosaveTimer == nil else { return }
         let env = ProcessInfo.processInfo.environment
@@ -3559,27 +3582,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             includeRecoverableRoutes: includeRecoverableRoutes
         )
 
-        guard !routes.isEmpty else { return nil }
         let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
 
-        let windows: [SessionWindowSnapshot] = routes
-            .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
-            .map { route in
-                let window = route.window
-                return SessionWindowSnapshot(
-                    frame: window.map { SessionRectSnapshot($0.frame) },
-                    display: displaySnapshot(for: window),
-                    tabManager: route.tabManager.sessionSnapshot(
-                        includeScrollback: includeScrollback,
-                        restorableAgentIndex: restorableAgentIndex
-                    ),
-                    sidebar: SessionSidebarSnapshot(
-                        isVisible: route.sidebarState.isVisible,
-                        selection: SessionSidebarSelection(selection: route.sidebarSelectionState.selection),
-                        width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(route.sidebarState.persistedWidth))
-                    )
+        var seenWindowIds: Set<UUID> = []
+        var windows: [SessionWindowSnapshot] = []
+        for route in routes where seenWindowIds.insert(route.windowId).inserted {
+            windows.append(
+                sessionWindowSnapshotForSessionPersistence(
+                    tabManager: route.tabManager,
+                    window: route.window,
+                    sidebarState: route.sidebarState,
+                    sidebarSelectionState: route.sidebarSelectionState,
+                    includeScrollback: includeScrollback,
+                    restorableAgentIndex: restorableAgentIndex
                 )
+            )
+        }
+
+        if includeRecoverableRoutes {
+            for recoverable in recoverableMainWindowSnapshotsForSessionSnapshot(
+                includeScrollback: includeScrollback,
+                restorableAgentIndex: restorableAgentIndex
+            ) where seenWindowIds.insert(recoverable.windowId).inserted {
+                windows.append(recoverable.snapshot)
             }
+        }
+
+        windows = Array(windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot))
 
         guard !windows.isEmpty else { return nil }
         return AppSessionSnapshot(

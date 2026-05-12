@@ -552,18 +552,24 @@ enum SessionScrollbackReplayStore {
         var iterator = text.unicodeScalars.makeIterator()
 
         while let scalar = iterator.next() {
-            guard scalar.value == 0x1B else {
-                output.append(scalar)
-                continue
-            }
-
-            guard let introducer = iterator.next() else { continue }
-            if introducer.value == 0x5B {
+            switch scalar.value {
+            case 0x1B:
+                guard let introducer = iterator.next() else { continue }
+                if introducer.value == 0x5B {
+                    skipCSISequence(using: &iterator)
+                } else if introducer.value == 0x5D {
+                    skipOSCSequence(using: &iterator)
+                } else if isStringTerminatedEscapeIntroducer(introducer) {
+                    skipStringTerminatedSequence(using: &iterator)
+                }
+            case 0x9B:
                 skipCSISequence(using: &iterator)
-            } else if introducer.value == 0x5D {
+            case 0x9D:
                 skipOSCSequence(using: &iterator)
-            } else if isStringTerminatedEscapeIntroducer(introducer) {
+            case 0x90, 0x9E, 0x9F:
                 skipStringTerminatedSequence(using: &iterator)
+            default:
+                output.append(scalar)
             }
         }
 
@@ -593,6 +599,9 @@ enum SessionScrollbackReplayStore {
         var previousWasEscape = false
         while let scalar = iterator.next() {
             if allowsBellTerminator, scalar.value == 0x07 {
+                return
+            }
+            if scalar.value == 0x9C {
                 return
             }
             if previousWasEscape, scalar.value == 0x5C {
