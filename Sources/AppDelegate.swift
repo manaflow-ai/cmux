@@ -8886,12 +8886,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             window.contentView?.layoutSubtreeIfNeeded()
             TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+            TerminalWindowPortalRegistry.synchronizeExternalGeometryNow(for: window)
             terminalPanel.hostedView.superview?.layoutSubtreeIfNeeded()
             terminalPanel.hostedView.layoutSubtreeIfNeeded()
             terminalPanel.surface.forceRefresh(reason: "uiTest.terminalViewport")
             didRecordReadyGeometry = true
 
-            self.writeTerminalViewportUITestData([
+            var viewportData = self.terminalViewportHostedGeometryForUITest(terminalPanel: terminalPanel)
+            viewportData.merge([
                 "terminalViewportReady": "1",
                 "terminalViewportWindowWidth": String(format: "%.3f", Double(window.frame.width)),
                 "terminalViewportWindowHeight": String(format: "%.3f", Double(window.frame.height)),
@@ -8899,7 +8901,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "terminalViewportRightSidebarVisible": context.fileExplorerState?.isVisible == true ? "1" : "0",
                 "terminalViewportRequestedWindowSize": requestedWindowSize.map { "\(Int($0.width))x\(Int($0.height))" } ?? "",
                 "terminalViewportWorkspaceId": terminalPanel.workspaceId.uuidString,
-            ])
+            ]) { _, newValue in newValue }
+            self.writeTerminalViewportUITestData(viewportData)
         }
         terminalViewportUITestRecorder = timer
         timer.resume()
@@ -8952,6 +8955,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !window.frame.equalTo(frame) {
             window.setFrame(frame, display: true)
         }
+    }
+
+    private func terminalViewportHostedGeometryForUITest(terminalPanel: TerminalPanel) -> [String: String] {
+        let hostedView = terminalPanel.hostedView
+        let hostedFrame = hostedView.frame
+        let hostedBounds = hostedView.bounds
+        let hostedSuperviewBounds = hostedView.superview?.bounds ?? .zero
+        let windowContentBounds = hostedView.window?.contentView?.bounds ?? .zero
+        let hostedFrameInContent: NSRect
+        if let contentView = hostedView.window?.contentView {
+            hostedFrameInContent = contentView.convert(hostedView.convert(hostedView.bounds, to: nil), from: nil)
+        } else {
+            hostedFrameInContent = .zero
+        }
+
+        return [
+            "terminalViewportHostedFrameMinX": terminalViewportGeometryFormat(hostedFrame.minX),
+            "terminalViewportHostedFrameMinY": terminalViewportGeometryFormat(hostedFrame.minY),
+            "terminalViewportHostedFrameMaxX": terminalViewportGeometryFormat(hostedFrame.maxX),
+            "terminalViewportHostedFrameMaxY": terminalViewportGeometryFormat(hostedFrame.maxY),
+            "terminalViewportHostedFrameWidth": terminalViewportGeometryFormat(hostedFrame.width),
+            "terminalViewportHostedFrameHeight": terminalViewportGeometryFormat(hostedFrame.height),
+            "terminalViewportHostedBoundsWidth": terminalViewportGeometryFormat(hostedBounds.width),
+            "terminalViewportHostedBoundsHeight": terminalViewportGeometryFormat(hostedBounds.height),
+            "terminalViewportHostedSuperviewWidth": terminalViewportGeometryFormat(hostedSuperviewBounds.width),
+            "terminalViewportHostedSuperviewHeight": terminalViewportGeometryFormat(hostedSuperviewBounds.height),
+            "terminalViewportWindowContentWidth": terminalViewportGeometryFormat(windowContentBounds.width),
+            "terminalViewportWindowContentHeight": terminalViewportGeometryFormat(windowContentBounds.height),
+            "terminalViewportHostedContentMinX": terminalViewportGeometryFormat(hostedFrameInContent.minX),
+            "terminalViewportHostedContentMinY": terminalViewportGeometryFormat(hostedFrameInContent.minY),
+            "terminalViewportHostedContentMaxX": terminalViewportGeometryFormat(hostedFrameInContent.maxX),
+            "terminalViewportHostedContentMaxY": terminalViewportGeometryFormat(hostedFrameInContent.maxY),
+        ]
+    }
+
+    private func terminalViewportGeometryFormat(_ value: CGFloat) -> String {
+        String(format: "%.3f", Double(value))
     }
 
     private func writeTerminalViewportUITestData(_ updates: [String: String]) {
