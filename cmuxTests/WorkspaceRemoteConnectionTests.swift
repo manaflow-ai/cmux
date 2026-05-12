@@ -6,18 +6,18 @@ import XCTest
 @testable import cmux
 #endif
 
+private struct SIGPIPEInspectResult: Decodable {
+    let signal: String
+    let stdout_nosigpipe: Int32
+    let stderr_nosigpipe: Int32
+}
+
 final class WorkspaceRemoteConnectionTests: XCTestCase {
     private struct ProcessRunResult {
         let status: Int32
         let stdout: String
         let stderr: String
         let timedOut: Bool
-    }
-
-    private struct SIGPIPEInspectResult: Decodable {
-        let signal: String
-        let stdout_nosigpipe: Int32
-        let stderr_nosigpipe: Int32
     }
 
     private func runProcess(
