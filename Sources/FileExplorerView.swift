@@ -685,16 +685,16 @@ struct FileExplorerPanelView: NSViewRepresentable {
                         isDirectory: isDirectory,
                         toLocalDirectory: localDirectory
                     )
-                    await self?.completeDownloadTask(
+                    self?.completeDownloadTask(
                         downloadID,
                         itemName: itemName,
                         localPath: localPath,
                         workspaceId: workspaceId
                     )
                 } catch is CancellationError {
-                    await self?.cancelDownloadTask(downloadID)
+                    self?.cancelDownloadTask(downloadID)
                 } catch {
-                    await self?.failDownloadTask(
+                    self?.failDownloadTask(
                         downloadID,
                         itemName: itemName,
                         error: error,
