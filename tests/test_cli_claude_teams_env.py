@@ -371,6 +371,46 @@ def main() -> int:
         )
         return 1
 
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-stale-restore-") as td:
+        stale_tmpdir = Path(td) / "deleted-session-tmp"
+        stale_node_options = (
+            f"--require={stale_tmpdir}/cmux-claude-node-options/restore-node-options.cjs "
+            "--max-old-space-size=4096 --trace-warnings"
+        )
+        proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
+            cli_path,
+            base_env,
+            stale_node_options,
+            tmpdir=str(stale_tmpdir),
+        )
+    if proc.returncode != 0:
+        print("FAIL: `cmux claude-teams --version` should strip stale inherited cmux NODE_OPTIONS preloads")
+        print(f"exit={proc.returncode}")
+        print(f"stdout={proc.stdout.strip()}")
+        print(f"stderr={proc.stderr.strip()}")
+        return 1
+
+    if "deleted-session-tmp" in node_options_value:
+        print(
+            "FAIL: expected launcher NODE_OPTIONS to drop stale cmux restore preload, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+
+    if runtime_node_options_value != "--trace-warnings":
+        print(
+            "FAIL: expected Claude runtime NODE_OPTIONS to drop stale cmux restore preload, "
+            f"got {runtime_node_options_value!r}"
+        )
+        return 1
+
+    if child_node_options_value != "--trace-warnings":
+        print(
+            "FAIL: expected child NODE_OPTIONS to drop stale cmux restore preload, "
+            f"got {child_node_options_value!r}"
+        )
+        return 1
+
     print("PASS: cmux claude-teams restores child NODE_OPTIONS while injecting the auto-mode tmux env")
     return 0
 

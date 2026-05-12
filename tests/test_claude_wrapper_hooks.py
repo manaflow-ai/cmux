@@ -965,6 +965,41 @@ def test_live_socket_restore_module_survives_session_tmpdir_cleanup(failures: li
         expect(child.stdout == "ok", f"persistent restore module: expected child stdout 'ok', got {child.stdout!r}", failures)
 
 
+def test_live_socket_strips_inherited_cmux_restore_module(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-inherited-restore-") as td:
+        root = Path(td)
+        stale_tmpdir = root / "deleted-session-tmp"
+        home = root / "home"
+        home.mkdir()
+        inherited = (
+            f"--require={stale_tmpdir}/cmux-claude-node-options/restore-node-options.cjs "
+            "--max-old-space-size=4096 --trace-warnings"
+        )
+        code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["--print", "hello"],
+            node_options=inherited,
+            tmpdir=str(stale_tmpdir),
+            home=str(home),
+        )
+    expect(code == 0, f"inherited restore module: wrapper exited {code}: {stderr}", failures)
+    expect(
+        "deleted-session-tmp" not in node_options,
+        f"inherited restore module: expected wrapper NODE_OPTIONS to drop stale restore preload, got {node_options!r}",
+        failures,
+    )
+    expect(
+        runtime_node_options == "--trace-warnings",
+        f"inherited restore module: expected runtime NODE_OPTIONS to drop cmux restore preload, got {runtime_node_options!r}",
+        failures,
+    )
+    expect(
+        child_node_options == "--trace-warnings",
+        f"inherited restore module: expected child NODE_OPTIONS to drop cmux restore preload, got {child_node_options!r}",
+        failures,
+    )
+
+
 def test_live_socket_preserves_explicit_bypass_availability_flag(failures: list[str]) -> None:
     cases = [
         ("allow/print", ["--allow-dangerously-skip-permissions", "--print", "hello"], True, "--allow-dangerously-skip-permissions"),
@@ -1088,6 +1123,7 @@ def main() -> int:
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
     test_live_socket_tmpdir_failure_uses_persistent_restore_module(failures)
     test_live_socket_restore_module_survives_session_tmpdir_cleanup(failures)
+    test_live_socket_strips_inherited_cmux_restore_module(failures)
     test_live_socket_preserves_explicit_bypass_availability_flag(failures)
     test_live_socket_stale_mktemp_literal_does_not_warn(failures)
     test_missing_socket_skips_hook_injection(failures)

@@ -411,6 +411,16 @@ func TestMergeNodeOptions(t *testing.T) {
 	if got := mergeNodeOptions(spaceSeparated, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
 		t.Fatalf("mergeNodeOptions should replace space-separated size flag = %q", got)
 	}
+
+	staleRestore := "--require=/var/folders/session/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings"
+	if got := mergeNodeOptions(staleRestore, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should drop stale cmux restore module = %q", got)
+	}
+
+	persistentRestore := "--require /Users/test/.claude/cmux/restore-node-options.cjs --max-old-space-size 4096 --trace-warnings"
+	if got := mergeNodeOptions(persistentRestore, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should drop persistent cmux restore module = %q", got)
+	}
 }
 
 func TestEnsureClaudeNodeOptionsRestoreModuleUsesHome(t *testing.T) {
