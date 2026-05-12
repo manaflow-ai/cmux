@@ -52489,6 +52489,23 @@
         }
       }
     },
+    "settings.app.newSurfacePlacement": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Surface Placement"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規サーフェスの配置"
+          }
+        }
+      }
+    },
     "settings.app.settingsFile.openButton": {
       "extractionState": "manual",
       "localizations": {
@@ -72173,6 +72190,23 @@
                 "stringUnit": {
                     "state": "translated",
                     "value": "app.newWorkspacePlacement new tab insert position order top bottom end програма загальні параметри поведінка док рядок меню статус бічна панель робочий простір вкладка кольори палітра значок вибрано підсвічування індикатор активний крапка нова Робоча область • %@ Розташування нової робочої області В кінці На початку"
+                }
+            }
+        }
+    },
+    "settings.search.alias.setting.app.new-surface-placement": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.newSurfacePlacement surface tab insert position order start end after current"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.newSurfacePlacement surface tab insert position order start end after current 新規サーフェス 新しいタブ 挿入位置 並び順 先頭 末尾 現在の後"
                 }
             }
         }
@@ -100101,6 +100135,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "고정된 워크스페이스는 고정된 상태에서 닫을 수 없습니다. 먼저 워크스페이스의 고정을 해제하세요."
+          }
+        }
+      }
+    },
+    "surface.placement.afterCurrent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After current"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在の後"
+          }
+        }
+      }
+    },
+    "surface.placement.afterCurrent.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insert new surfaces directly after the active surface."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティブなサーフェスの直後に新しいサーフェスを挿入します。"
+          }
+        }
+      }
+    },
+    "surface.placement.end": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "末尾"
+          }
+        }
+      }
+    },
+    "surface.placement.end.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Append new surfaces to the end of the pane's tab strip."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいサーフェスをペインのタブ列の末尾に追加します。"
+          }
+        }
+      }
+    },
+    "surface.placement.top": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先頭"
+          }
+        }
+      }
+    },
+    "surface.placement.top.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insert new surfaces at the start of the pane's tab strip."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいサーフェスをペインのタブ列の先頭に挿入します。"
           }
         }
       }

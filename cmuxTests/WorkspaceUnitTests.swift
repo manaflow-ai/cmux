@@ -1543,13 +1543,21 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
     func testReloadConfigurationReloadsManagedAppSettingsFromSettingsFile() throws {
         let defaults = UserDefaults.standard
         let managedKey = WorkspacePlacementSettings.placementKey
+        let managedSurfaceKey = SurfacePlacementSettings.placementKey
         let previousValue = defaults.object(forKey: managedKey)
+        let previousSurfaceValue = defaults.object(forKey: managedSurfaceKey)
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defer {
             if let previousValue {
                 defaults.set(previousValue, forKey: managedKey)
             } else {
                 defaults.removeObject(forKey: managedKey)
+            }
+
+            if let previousSurfaceValue {
+                defaults.set(previousSurfaceValue, forKey: managedSurfaceKey)
+            } else {
+                defaults.removeObject(forKey: managedSurfaceKey)
             }
 
             if let previousBackups {
@@ -1560,6 +1568,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         }
 
         defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: managedSurfaceKey)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
 
         let directoryURL = try makeTemporaryDirectory()
@@ -1570,7 +1579,8 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             """
             {
               "app": {
-                "newWorkspacePlacement": "top"
+                "newWorkspacePlacement": "top",
+                "newSurfacePlacement": "top"
               }
             }
             """,
@@ -1584,12 +1594,14 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(WorkspacePlacementSettings.current(), .top)
+        XCTAssertEqual(SurfacePlacementSettings.current(), .top)
 
         try writeSettingsFile(
             """
             {
               "app": {
-                "newWorkspacePlacement": "end"
+                "newWorkspacePlacement": "end",
+                "newSurfacePlacement": "end"
               }
             }
             """,
@@ -1599,6 +1611,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         GhosttyApp.shared.reloadConfiguration(source: "test.reload_config_app_setting")
 
         XCTAssertEqual(WorkspacePlacementSettings.current(), .end)
+        XCTAssertEqual(SurfacePlacementSettings.current(), .end)
     }
 
     @MainActor
@@ -2200,6 +2213,197 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
             totalCount: 5
         )
         XCTAssertEqual(noSelectionIndex, 5)
+    }
+}
+
+final class SurfacePlacementSettingsTests: XCTestCase {
+    func testCurrentPlacementDefaultsToAfterCurrentWhenUnset() {
+        let suiteName = "SurfacePlacementSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(SurfacePlacementSettings.current(defaults: defaults), .afterCurrent)
+    }
+
+    func testCurrentPlacementReadsStoredValidValueAndFallsBackForInvalid() {
+        let suiteName = "SurfacePlacementSettingsTests.Stored.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(NewSurfacePlacement.top.rawValue, forKey: SurfacePlacementSettings.placementKey)
+        XCTAssertEqual(SurfacePlacementSettings.current(defaults: defaults), .top)
+
+        defaults.set("nope", forKey: SurfacePlacementSettings.placementKey)
+        XCTAssertEqual(SurfacePlacementSettings.current(defaults: defaults), .afterCurrent)
+    }
+
+    func testInsertionIndexTopPreservesPinnedSurfaces() {
+        let index = SurfacePlacementSettings.insertionIndex(
+            placement: .top,
+            selectedIndexBeforeCreation: 4,
+            selectedWasPinned: false,
+            pinnedCount: 2,
+            totalCountAfterCreation: 7
+        )
+        XCTAssertEqual(index, 2)
+    }
+
+    func testInsertionIndexAfterCurrentHandlesPinnedAndUnpinnedSelection() {
+        let afterUnpinned = SurfacePlacementSettings.insertionIndex(
+            placement: .afterCurrent,
+            selectedIndexBeforeCreation: 3,
+            selectedWasPinned: false,
+            pinnedCount: 2,
+            totalCountAfterCreation: 6
+        )
+        XCTAssertEqual(afterUnpinned, 4)
+
+        let afterPinned = SurfacePlacementSettings.insertionIndex(
+            placement: .afterCurrent,
+            selectedIndexBeforeCreation: 0,
+            selectedWasPinned: true,
+            pinnedCount: 2,
+            totalCountAfterCreation: 6
+        )
+        XCTAssertEqual(afterPinned, 2)
+    }
+
+    func testInsertionIndexEndAndNoSelectionAppend() {
+        let endIndex = SurfacePlacementSettings.insertionIndex(
+            placement: .end,
+            selectedIndexBeforeCreation: 1,
+            selectedWasPinned: false,
+            pinnedCount: 1,
+            totalCountAfterCreation: 5
+        )
+        XCTAssertEqual(endIndex, 4)
+
+        let noSelectionIndex = SurfacePlacementSettings.insertionIndex(
+            placement: .afterCurrent,
+            selectedIndexBeforeCreation: nil,
+            selectedWasPinned: false,
+            pinnedCount: 0,
+            totalCountAfterCreation: 5
+        )
+        XCTAssertEqual(noSelectionIndex, 4)
+    }
+}
+
+@MainActor
+final class WorkspaceSurfaceCreationPlacementTests: XCTestCase {
+    private func withSurfacePlacement(_ placement: NewSurfacePlacement, run body: () throws -> Void) rethrows {
+        let defaults = UserDefaults.standard
+        let key = SurfacePlacementSettings.placementKey
+        let previousValue = defaults.object(forKey: key)
+        defaults.set(placement.rawValue, forKey: key)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        try body()
+    }
+
+    private func orderedPanelIds(in workspace: Workspace, paneId: PaneID) -> [UUID] {
+        workspace.bonsplitController
+            .tabs(inPane: paneId)
+            .compactMap { workspace.panelIdFromSurfaceId($0.id) }
+    }
+
+    func testEndPlacementAppendsNewTerminalSurfaceToPaneEnd() throws {
+        try withSurfacePlacement(.end) {
+            let workspace = Workspace()
+            let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+            let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+            let secondPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: true))
+            let thirdPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: true))
+
+            workspace.focusPanel(firstPanelId)
+            let createdPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: true))
+
+            XCTAssertEqual(
+                orderedPanelIds(in: workspace, paneId: paneId),
+                [firstPanelId, secondPanel.id, thirdPanel.id, createdPanel.id]
+            )
+            XCTAssertEqual(workspace.focusedPanelId, createdPanel.id)
+        }
+    }
+
+    func testContextMenuNewTerminalUsesEndPlacement() throws {
+        try withSurfacePlacement(.end) {
+            let workspace = Workspace()
+            let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+            let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+            let secondPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: true))
+            let thirdPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: true))
+            let firstTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(firstPanelId))
+            let firstTab = try XCTUnwrap(workspace.bonsplitController.tab(firstTabId))
+
+            workspace.splitTabBar(
+                workspace.bonsplitController,
+                didRequestTabContextAction: .newTerminalToRight,
+                for: firstTab,
+                inPane: paneId
+            )
+
+            let order = orderedPanelIds(in: workspace, paneId: paneId)
+            let createdPanelId = try XCTUnwrap(
+                order.first { ![firstPanelId, secondPanel.id, thirdPanel.id].contains($0) }
+            )
+            XCTAssertEqual(order, [firstPanelId, secondPanel.id, thirdPanel.id, createdPanelId])
+            XCTAssertEqual(workspace.focusedPanelId, createdPanelId)
+        }
+    }
+
+    func testDefaultPlacementInsertsNewTerminalSurfaceAfterFocusedSurface() throws {
+        try withSurfacePlacement(.afterCurrent) {
+            let workspace = Workspace()
+            let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+            let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+            let secondPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: true))
+            let thirdPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: true))
+
+            workspace.focusPanel(firstPanelId)
+            let createdPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: true))
+
+            XCTAssertEqual(
+                orderedPanelIds(in: workspace, paneId: paneId),
+                [firstPanelId, createdPanel.id, secondPanel.id, thirdPanel.id]
+            )
+            XCTAssertEqual(workspace.focusedPanelId, createdPanel.id)
+        }
+    }
+
+    func testTopPlacementInsertsUnpinnedSurfaceAfterPinnedSurfaces() throws {
+        try withSurfacePlacement(.end) {
+            let workspace = Workspace()
+            let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+            let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+            let secondPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: true))
+            let thirdPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: true))
+
+            workspace.setPanelPinned(panelId: firstPanelId, pinned: true)
+            UserDefaults.standard.set(
+                NewSurfacePlacement.top.rawValue,
+                forKey: SurfacePlacementSettings.placementKey
+            )
+            workspace.focusPanel(thirdPanel.id)
+            let createdPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: true))
+
+            XCTAssertEqual(
+                orderedPanelIds(in: workspace, paneId: paneId),
+                [firstPanelId, createdPanel.id, secondPanel.id, thirdPanel.id]
+            )
+            XCTAssertEqual(workspace.focusedPanelId, createdPanel.id)
+        }
     }
 }
 

@@ -658,7 +658,7 @@ extension Workspace {
                 .first
 
             if anchorPanelId == nil {
-                anchorPanelId = newTerminalSurface(inPane: paneId, focus: false)?.id
+                anchorPanelId = newTerminalSurface(inPane: paneId, focus: false, placementOverride: .end)?.id
             }
 
             guard let anchorPanelId,
@@ -778,7 +778,8 @@ extension Workspace {
                 initialCommand: restoredTmuxStartupScript?.path,
                 tmuxStartCommand: restoredTmuxStartCommand,
                 initialInput: restoredAgentResumeInput,
-                startupEnvironment: replayEnvironment
+                startupEnvironment: replayEnvironment,
+                placementOverride: .end
             ) else {
                 return nil
             }
@@ -811,7 +812,8 @@ extension Workspace {
                 url: nil,
                 focus: false,
                 preferredProfileID: snapshot.browser?.profileID,
-                creationPolicy: .restoration
+                creationPolicy: .restoration,
+                placementOverride: .end
             ) else {
                 return nil
             }
@@ -822,7 +824,8 @@ extension Workspace {
                   let markdownPanel = newMarkdownSurface(
                     inPane: paneId,
                     filePath: filePath,
-                    focus: false
+                    focus: false,
+                    placementOverride: .end
                   ) else {
                 return nil
             }
@@ -833,7 +836,8 @@ extension Workspace {
                   let filePreviewPanel = newFilePreviewSurface(
                     inPane: paneId,
                     filePath: filePath,
-                    focus: false
+                    focus: false,
+                    placementOverride: .end
                   ) else {
                 return nil
             }
@@ -962,7 +966,7 @@ extension Workspace {
                 .first
 
             if anchorPanelId == nil {
-                anchorPanelId = newTerminalSurface(inPane: paneId, focus: false)?.id
+                anchorPanelId = newTerminalSurface(inPane: paneId, focus: false, placementOverride: .end)?.id
             }
 
             guard let anchorPanelId,
@@ -1030,7 +1034,8 @@ extension Workspace {
                 inPane: paneId,
                 focus: false,
                 workingDirectory: resolvedCwd,
-                startupEnvironment: surface.env ?? [:]
+                startupEnvironment: surface.env ?? [:],
+                placementOverride: .end
             ) {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
@@ -1051,7 +1056,8 @@ extension Workspace {
                 inPane: paneId,
                 url: url,
                 focus: false,
-                creationPolicy: .restoration
+                creationPolicy: .restoration,
+                placementOverride: .end
             ) {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
@@ -1073,7 +1079,8 @@ extension Workspace {
                 inPane: paneId,
                 focus: false,
                 workingDirectory: resolvedCwd,
-                startupEnvironment: surface.env ?? [:]
+                startupEnvironment: surface.env ?? [:],
+                placementOverride: .end
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
@@ -1086,7 +1093,8 @@ extension Workspace {
                 inPane: paneId,
                 url: url,
                 focus: false,
-                creationPolicy: .restoration
+                creationPolicy: .restoration,
+                placementOverride: .end
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
@@ -8206,6 +8214,49 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    private struct SurfaceSelectionBeforeCreation {
+        let index: Int?
+        let wasPinned: Bool
+    }
+
+    private func surfaceSelectionBeforeCreation(inPane paneId: PaneID) -> SurfaceSelectionBeforeCreation {
+        let tabs = bonsplitController.tabs(inPane: paneId)
+        guard let selectedTabId = bonsplitController.selectedTab(inPane: paneId)?.id,
+              let selectedIndex = tabs.firstIndex(where: { $0.id == selectedTabId }) else {
+            return SurfaceSelectionBeforeCreation(index: nil, wasPinned: false)
+        }
+        let selectedPanelId = panelIdFromSurfaceId(selectedTabId)
+        return SurfaceSelectionBeforeCreation(
+            index: selectedIndex,
+            wasPinned: selectedPanelId.map { pinnedPanelIds.contains($0) } ?? false
+        )
+    }
+
+    private func applyNewSurfacePlacement(
+        to newTabId: TabID,
+        inPane paneId: PaneID,
+        selectionBeforeCreation: SurfaceSelectionBeforeCreation,
+        placementOverride: NewSurfacePlacement? = nil
+    ) {
+        let placement = placementOverride ?? SurfacePlacementSettings.current()
+        let tabs = bonsplitController.tabs(inPane: paneId)
+        guard let currentIndex = tabs.firstIndex(where: { $0.id == newTabId }) else { return }
+        let pinnedCount = tabs.reduce(into: 0) { count, tab in
+            if let panelId = panelIdFromSurfaceId(tab.id), pinnedPanelIds.contains(panelId) {
+                count += 1
+            }
+        }
+        let targetIndex = SurfacePlacementSettings.insertionIndex(
+            placement: placement,
+            selectedIndexBeforeCreation: selectionBeforeCreation.index,
+            selectedWasPinned: selectionBeforeCreation.wasPinned,
+            pinnedCount: pinnedCount,
+            totalCountAfterCreation: tabs.count
+        )
+        guard currentIndex != targetIndex else { return }
+        _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+    }
+
     private func insertionIndexToRight(of anchorTabId: TabID, inPane paneId: PaneID) -> Int {
         let tabs = bonsplitController.tabs(inPane: paneId)
         guard let anchorIndex = tabs.firstIndex(where: { $0.id == anchorTabId }) else { return tabs.count }
@@ -9967,9 +10018,11 @@ final class Workspace: Identifiable, ObservableObject {
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
-        startupEnvironment: [String: String] = [:]
+        startupEnvironment: [String: String] = [:],
+        placementOverride: NewSurfacePlacement? = nil
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let selectionBeforeCreation = surfaceSelectionBeforeCreation(inPane: paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
@@ -10026,6 +10079,12 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         surfaceIdToPanelId[newTabId] = newPanel.id
+        applyNewSurfacePlacement(
+            to: newTabId,
+            inPane: paneId,
+            selectionBeforeCreation: selectionBeforeCreation,
+            placementOverride: placementOverride
+        )
         publishCmuxSurfaceCreated(newPanel.id, paneId: paneId, kind: "terminal", origin: "terminal_tab", focused: shouldFocusNewTab)
 
         // bonsplit's createTab may not reliably emit didSelectTab, and its internal selection
@@ -10171,7 +10230,8 @@ final class Workspace: Identifiable, ObservableObject {
         insertAtEnd: Bool = false,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
-        creationPolicy: BrowserPanelCreationPolicy = .userInitiated
+        creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
+        placementOverride: NewSurfacePlacement? = nil
     ) -> BrowserPanel? {
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
@@ -10182,6 +10242,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let selectionBeforeCreation = surfaceSelectionBeforeCreation(inPane: paneId)
         let sourcePanelId = effectiveSelectedPanelId(inPane: paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
@@ -10219,12 +10280,12 @@ final class Workspace: Identifiable, ObservableObject {
 
         surfaceIdToPanelId[newTabId] = browserPanel.id
         setPreferredBrowserProfileID(browserPanel.profileID)
-
-        // Keyboard/browser-open paths want "new tab at end" regardless of global new-tab placement.
-        if insertAtEnd {
-            let targetIndex = max(0, bonsplitController.tabs(inPane: paneId).count - 1)
-            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
-        }
+        applyNewSurfacePlacement(
+            to: newTabId,
+            inPane: paneId,
+            selectionBeforeCreation: selectionBeforeCreation,
+            placementOverride: insertAtEnd ? .end : placementOverride
+        )
         publishCmuxSurfaceCreated(browserPanel.id, paneId: paneId, kind: "browser", origin: "browser_tab", focused: shouldFocusNewTab)
 
         // Match terminal behavior: enforce deterministic selection + focus.
@@ -10342,9 +10403,11 @@ final class Workspace: Identifiable, ObservableObject {
     func newMarkdownSurface(
         inPane paneId: PaneID,
         filePath: String,
-        focus: Bool? = nil
+        focus: Bool? = nil,
+        placementOverride: NewSurfacePlacement? = nil
     ) -> MarkdownPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let selectionBeforeCreation = surfaceSelectionBeforeCreation(inPane: paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
@@ -10367,6 +10430,12 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         surfaceIdToPanelId[newTabId] = markdownPanel.id
+        applyNewSurfacePlacement(
+            to: newTabId,
+            inPane: paneId,
+            selectionBeforeCreation: selectionBeforeCreation,
+            placementOverride: placementOverride
+        )
         publishCmuxSurfaceCreated(markdownPanel.id, paneId: paneId, kind: "markdown", origin: "markdown_tab", focused: shouldFocusNewTab)
         if shouldFocusNewTab {
             bonsplitController.focusPane(paneId)
@@ -10409,9 +10478,11 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         filePath: String,
         focus: Bool? = nil,
-        targetIndex: Int? = nil
+        targetIndex: Int? = nil,
+        placementOverride: NewSurfacePlacement? = nil
     ) -> FilePreviewPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let selectionBeforeCreation = surfaceSelectionBeforeCreation(inPane: paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
@@ -10436,6 +10507,13 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceIdToPanelId[newTabId] = filePreviewPanel.id
         if let targetIndex {
             _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        } else {
+            applyNewSurfacePlacement(
+                to: newTabId,
+                inPane: paneId,
+                selectionBeforeCreation: selectionBeforeCreation,
+                placementOverride: placementOverride
+            )
         }
         publishCmuxSurfaceCreated(filePreviewPanel.id, paneId: paneId, kind: "file_preview", origin: "file_preview_tab", focused: shouldFocusNewTab)
         if shouldFocusNewTab {
@@ -12393,6 +12471,14 @@ final class Workspace: Identifiable, ObservableObject {
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
     }
 
+    private func createTerminalFromContextMenu(anchorTabId: TabID, inPane paneId: PaneID) {
+        guard SurfacePlacementSettings.current() != .afterCurrent else {
+            createTerminalToRight(of: anchorTabId, inPane: paneId)
+            return
+        }
+        _ = newTerminalSurface(inPane: paneId, focus: true)
+    }
+
     private func createBrowserToRight(of anchorTabId: TabID, inPane paneId: PaneID, url: URL? = nil) {
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
         let preferredProfileID = panelIdFromSurfaceId(anchorTabId).flatMap { browserPanel(for: $0)?.profileID }
@@ -12403,6 +12489,14 @@ final class Workspace: Identifiable, ObservableObject {
             preferredProfileID: preferredProfileID
         ) else { return }
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
+    }
+
+    private func createBrowserFromContextMenu(anchorTabId: TabID, inPane paneId: PaneID, url: URL? = nil) {
+        guard SurfacePlacementSettings.current() != .afterCurrent else {
+            createBrowserToRight(of: anchorTabId, inPane: paneId, url: url)
+            return
+        }
+        _ = newBrowserSurface(inPane: paneId, url: url, focus: true)
     }
 
     private func duplicateBrowserToRight(anchorTabId: TabID, inPane paneId: PaneID) {
@@ -13668,7 +13762,7 @@ extension Workspace: BonsplitDelegate {
                         "fallback=createTerminalAndDropPlaceholders"
                     )
 #endif
-                    _ = newTerminalSurface(inPane: originalPane, focus: false)
+                    _ = newTerminalSurface(inPane: originalPane, focus: false, placementOverride: .end)
                     for tab in controller.tabs(inPane: originalPane) {
                         if panelIdFromSurfaceId(tab.id) == nil {
                             bonsplitController.closeTab(tab.id)
@@ -13895,9 +13989,9 @@ extension Workspace: BonsplitDelegate {
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             _ = moveSurfaceToAdjacentPane(panelId: panelId, direction: .right)
         case .newTerminalToRight:
-            createTerminalToRight(of: tab.id, inPane: pane)
+            createTerminalFromContextMenu(anchorTabId: tab.id, inPane: pane)
         case .newBrowserToRight:
-            createBrowserToRight(of: tab.id, inPane: pane)
+            createBrowserFromContextMenu(anchorTabId: tab.id, inPane: pane)
         case .reload:
             guard let panelId = panelIdFromSurfaceId(tab.id),
                   let browser = browserPanel(for: panelId) else { return }

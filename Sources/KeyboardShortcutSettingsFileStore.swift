@@ -374,6 +374,13 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[WorkspacePlacementSettings.placementKey] = .string(placement.rawValue)
         }
+        if let raw = jsonString(section["newSurfacePlacement"]) {
+            guard let placement = NewSurfacePlacement(rawValue: raw) else {
+                logInvalid("app.newSurfacePlacement", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[SurfacePlacementSettings.placementKey] = .string(placement.rawValue)
+        }
         if let value = jsonBool(section["minimalMode"]) {
             let mode = value ? WorkspacePresentationModeSettings.Mode.minimal : .standard
             snapshot.managedUserDefaults[WorkspacePresentationModeSettings.modeKey] = .string(mode.rawValue)
