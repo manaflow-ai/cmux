@@ -157,7 +157,9 @@ extension CMUXCLI {
                 ?? (formattedResponse["workspace_id"] as? String)
                 ?? (response["workspace_ref"] as? String)
                 ?? (response["workspace_id"] as? String)
-                ?? ""
+            guard let workspaceHandle, !workspaceHandle.isEmpty else {
+                throw CLIError(message: "workspace.create did not return workspace_id or workspace_ref")
+            }
 
             if jsonOutput {
                 var payload: [String: Any] = formattedResponse
@@ -188,11 +190,7 @@ extension CMUXCLI {
                 return
             }
 
-            if workspaceHandle.isEmpty {
-                print("OK")
-            } else {
-                print("OK \(workspaceHandle)")
-            }
+            print("OK \(workspaceHandle)")
             print("Repository: \(repository.fullName)")
             print("Mode: \(install.mode)")
             print("Extension: \(manifest.id) \(manifest.version)")
