@@ -573,6 +573,121 @@ function installClaudeChildHookPropagation() {
     return original.call(thisArg, command, args, options);
   }
 
+  function splitShellCommand(command) {
+    if (typeof command !== "string") {
+      return null;
+    }
+    const tokens = [];
+    let token = "";
+    let quote = "";
+    let escaped = false;
+    let hadToken = false;
+    for (let index = 0; index < command.length; index += 1) {
+      const char = command[index];
+      if (escaped) {
+        token += char;
+        escaped = false;
+        hadToken = true;
+        continue;
+      }
+      if (quote === "'") {
+        if (char === "'") {
+          quote = "";
+        } else {
+          token += char;
+        }
+        hadToken = true;
+        continue;
+      }
+      if (quote === '"') {
+        if (char === '"') {
+          quote = "";
+        } else if (char === "\\") {
+          const next = command[index + 1];
+          if (next !== undefined && '"\\$`'.includes(next)) {
+            token += next;
+            index += 1;
+          } else {
+            token += char;
+          }
+        } else if (char === "$" || char === "`") {
+          return null;
+        } else {
+          token += char;
+        }
+        hadToken = true;
+        continue;
+      }
+      if (char === "\\") {
+        escaped = true;
+        hadToken = true;
+        continue;
+      }
+      if (char === "'" || char === '"') {
+        quote = char;
+        hadToken = true;
+        continue;
+      }
+      if (/\s/.test(char)) {
+        if (hadToken) {
+          tokens.push(token);
+          token = "";
+          hadToken = false;
+        }
+        continue;
+      }
+      if ("|&;<>()[{}]$`*?".includes(char) || char === "[" || char === "]") {
+        return null;
+      }
+      token += char;
+      hadToken = true;
+    }
+    if (escaped || quote) {
+      return null;
+    }
+    if (hadToken) {
+      tokens.push(token);
+    }
+    return tokens;
+  }
+
+  function shellQuote(value) {
+    const stringValue = String(value);
+    if (stringValue === "") {
+      return "''";
+    }
+    if (/^[A-Za-z0-9_/:.,@%+=-]+$/.test(stringValue)) {
+      return stringValue;
+    }
+    return `'${stringValue.replace(/'/g, "'\"'\"'")}'`;
+  }
+
+  function patchClaudeShellCommand(command, options) {
+    const tokens = splitShellCommand(command);
+    if (!tokens || tokens.length === 0) {
+      return { command, options, patched: false };
+    }
+    const patched = patchClaudeChild(tokens[0], tokens.slice(1), options);
+    if (!patched.patched) {
+      return { command, options, patched: false };
+    }
+    return {
+      command: [tokens[0], ...patched.args].map(shellQuote).join(" "),
+      options: patched.options,
+      patched: true,
+    };
+  }
+
+  function callOriginalExec(original, thisArg, command, argCount, options, callback) {
+    if (argCount <= 1) {
+      return original.call(thisArg, command);
+    }
+    if (argCount === 2) {
+      return original.call(thisArg, command, options);
+    }
+    return original.call(thisArg, command, options, callback);
+  }
+
   function normalizeExecFileArgs(args, options, callback, argCount) {
     if (Array.isArray(args)) {
       return {
@@ -610,6 +725,27 @@ function installClaudeChildHookPropagation() {
     }
     return original.call(thisArg, file, args, options, callback);
   }
+
+  const originalExec = childProcess.exec;
+  childProcess.exec = function patchedExec(command, options, callback) {
+    const argCount = arguments.length;
+    const actualOptions = typeof options === "function" ? undefined : options;
+    const actualCallback = typeof options === "function" ? options : callback;
+    const patched = patchClaudeShellCommand(command, actualOptions);
+    if (!patched.patched) {
+      return callOriginalExec(originalExec, this, command, argCount, options, callback);
+    }
+    return originalExec.call(this, patched.command, patched.options, actualCallback);
+  };
+
+  const originalExecSync = childProcess.execSync;
+  childProcess.execSync = function patchedExecSync(command, options) {
+    const patched = patchClaudeShellCommand(command, options);
+    if (patched.patched) {
+      return originalExecSync.call(this, patched.command, patched.options);
+    }
+    return originalExecSync.call(this, command, options);
+  };
 
   const originalSpawn = childProcess.spawn;
   childProcess.spawn = function patchedSpawn(command, args, options) {

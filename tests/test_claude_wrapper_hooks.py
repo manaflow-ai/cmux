@@ -282,7 +282,7 @@ exec node "$FAKE_CHILD_NODE_SCRIPT" "$@"
             real_dir / "claude-parent.js",
             """#!/usr/bin/env node
 const fs = require("node:fs");
-const { execFile, spawnSync } = require("node:child_process");
+const { exec, execFile, execSync, spawnSync } = require("node:child_process");
 const childCommand = process.env.FAKE_CHILD_COMMAND || process.env.FAKE_CHILD_CLAUDE;
 const childArgs = process.env.FAKE_CHILD_ARGS_JSON
   ? JSON.parse(process.env.FAKE_CHILD_ARGS_JSON)
@@ -292,7 +292,41 @@ if (process.env.FAKE_CHILD_NODE_OPTIONS !== undefined) {
   childEnv.NODE_OPTIONS = process.env.FAKE_CHILD_NODE_OPTIONS;
 }
 
-if (process.env.FAKE_CHILD_LAUNCH_METHOD === "execFileCallback") {
+function shellQuote(value) {
+  const stringValue = String(value);
+  if (stringValue === "") {
+    return "''";
+  }
+  if (/^[A-Za-z0-9_/:.,@%+=-]+$/.test(stringValue)) {
+    return stringValue;
+  }
+  return "'" + stringValue.replace(/'/g, "'\"'\"'") + "'";
+}
+
+function childShellCommand() {
+  return [childCommand, ...childArgs].map(shellQuote).join(" ");
+}
+
+if (process.env.FAKE_CHILD_LAUNCH_METHOD === "execCallback") {
+  exec(childShellCommand(), { env: childEnv }, (error, stdout, stderr) => {
+    fs.writeFileSync(process.env.FAKE_EXECFILE_CALLBACK_LOG, "called\\n", "utf8");
+    if (error) {
+      process.stderr.write(stderr ?? error.message);
+      process.exitCode = error.code || 1;
+    }
+  });
+} else if (process.env.FAKE_CHILD_LAUNCH_METHOD === "execSync") {
+  try {
+    execSync(childShellCommand(), {
+      encoding: "utf8",
+      env: childEnv,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    process.stderr.write(error.stderr ?? error.message);
+    process.exit(error.status ?? 1);
+  }
+} else if (process.env.FAKE_CHILD_LAUNCH_METHOD === "execFileCallback") {
   execFile(childCommand, childArgs, (error, stdout, stderr) => {
     fs.writeFileSync(process.env.FAKE_EXECFILE_CALLBACK_LOG, "called\\n", "utf8");
     if (error) {
@@ -972,6 +1006,36 @@ def test_background_claude_exec_file_launch_preserves_callback(failures: list[st
     expect(execfile_callback == "called", f"background execFile: expected execFile callback to run, got {execfile_callback!r}", failures)
 
 
+def test_background_claude_exec_shell_launches_inherit_cmux_hooks(failures: list[str]) -> None:
+    cases = [
+        ("exec callback", "execCallback"),
+        ("exec sync", "execSync"),
+    ]
+    for label, launch_method in cases:
+        code, _, child_argv, child_node_options_env, child_runtime_node_options, _, child_launch_argv_b64, execfile_callback, stderr = run_wrapper_background_child_spawn(
+            launch_method=launch_method,
+        )
+        expect(code == 0, f"background {label}: wrapper exited {code}: {stderr}", failures)
+        expect("--settings" in child_argv, f"background {label}: expected child claude launch to receive --settings, got {child_argv}", failures)
+        expect("--agent" in child_argv, f"background {label}: expected child agent args preserved, got {child_argv}", failures)
+        expect(
+            "--require=" in child_node_options_env and "--max-old-space-size=4096" in child_node_options_env,
+            f"background {label}: expected preload NODE_OPTIONS, got {child_node_options_env!r}",
+            failures,
+        )
+        expect(
+            child_runtime_node_options == "__UNSET__",
+            f"background {label}: expected runtime NODE_OPTIONS restored, got {child_runtime_node_options!r}",
+            failures,
+        )
+        launch_argv = decode_nul_argv(child_launch_argv_b64)
+        expect(bool(launch_argv), f"background {label}: expected non-empty launch argv, got {launch_argv}", failures)
+        if launch_argv:
+            expect(launch_argv[0].endswith("/child-bin/claude"), f"background {label}: expected child executable in launch argv, got {launch_argv}", failures)
+        if launch_method == "execCallback":
+            expect(execfile_callback == "called", f"background {label}: expected exec callback to run, got {execfile_callback!r}", failures)
+
+
 def test_background_claude_child_settings_detection_parses_hooks_json(failures: list[str]) -> None:
     user_settings = json.dumps(
         {
@@ -1565,6 +1629,7 @@ def main() -> int:
     test_background_claude_child_preserves_explicit_node_options_override(failures)
     test_background_claude_child_preserves_options_when_args_omitted(failures)
     test_background_claude_exec_file_launch_preserves_callback(failures)
+    test_background_claude_exec_shell_launches_inherit_cmux_hooks(failures)
     test_background_claude_child_settings_detection_parses_hooks_json(failures)
     test_background_claude_daemon_child_gets_env_without_settings(failures)
     test_background_claude_env_only_subcommands_after_options_get_env_without_settings(failures)
