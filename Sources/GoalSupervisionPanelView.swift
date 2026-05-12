@@ -146,27 +146,30 @@ private struct GoalListView: View {
     let onSelect: (UUID) -> Void
 
     var body: some View {
-        ScrollView(.vertical) {
-            LazyVStack(spacing: 0) {
-                ForEach(snapshots) { snapshot in
-                    GoalListRow(snapshot: snapshot) {
-                        onSelect(snapshot.id)
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            ScrollView(.vertical) {
+                LazyVStack(spacing: 0) {
+                    ForEach(snapshots) { snapshot in
+                        GoalListRow(snapshot: snapshot, relativeTo: context.date) {
+                            onSelect(snapshot.id)
+                        }
+                        .equatable()
                     }
-                    .equatable()
                 }
+                .padding(.vertical, 6)
             }
-            .padding(.vertical, 6)
+            .modifier(ClearScrollBackground())
         }
-        .modifier(ClearScrollBackground())
     }
 }
 
 private struct GoalListRow: View, Equatable {
     let snapshot: GoalSupervisionSnapshot
+    let relativeTo: Date
     let onSelect: () -> Void
 
     static func == (lhs: GoalListRow, rhs: GoalListRow) -> Bool {
-        lhs.snapshot == rhs.snapshot
+        lhs.snapshot == rhs.snapshot && lhs.relativeTo == rhs.relativeTo
     }
 
     var body: some View {
@@ -175,7 +178,7 @@ private struct GoalListRow: View, Equatable {
                 HStack(spacing: 6) {
                     StatusChip(status: snapshot.status)
                     Spacer(minLength: 0)
-                    Text(Self.relativeFormatter.localizedString(for: snapshot.updatedAt, relativeTo: .now))
+                    Text(Self.relativeFormatter.localizedString(for: snapshot.updatedAt, relativeTo: relativeTo))
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                 }
