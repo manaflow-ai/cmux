@@ -488,6 +488,47 @@ def test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path: str, root:
             raise AssertionError(f"monitor exited before publishing transcript failure: {fake.frames!r}")
 
 
+def test_codex_monitor_exits_when_transcript_never_resolves(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-monitor-missing-transcript.sock"
+
+    session_id = f"codex-monitor-missing-transcript-session-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_WORKSPACE_ID"] = "workspace-codex-feed-test"
+    env["CMUX_CODEX_MONITOR_UNRESOLVED_TRANSCRIPT_TIMEOUT_SECONDS"] = "0.15"
+
+    with FakeCmuxSocket(socket_path, None) as fake:
+        try:
+            result = subprocess.run(
+                [
+                    cli_path,
+                    "--socket",
+                    str(socket_path),
+                    "hooks",
+                    "codex",
+                    "monitor",
+                    "--workspace",
+                    "workspace-codex-feed-test",
+                    "--session",
+                    session_id,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=3,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise AssertionError("monitor stayed alive when no transcript ever appeared") from exc
+        if result.returncode != 0:
+            raise AssertionError(
+                f"__hot-path hook codex monitor failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+        if not any(frame.get("method") == "surface.list" for frame in fake.frames):
+            raise AssertionError(f"monitor did not verify owner surfaces before exiting: {fake.frames!r}")
+
+
 def run_feed_hook(
     cli_path: str,
     socket_path: Path,
@@ -709,6 +750,7 @@ def main() -> int:
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_exits_when_owner_process_is_gone(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
+            test_codex_monitor_exits_when_transcript_never_resolves(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_permission_reply_uses_codex_permission_request_schema(cli_path, root)
             test_codex_persistent_permission_modes_degrade_to_once(cli_path, root)

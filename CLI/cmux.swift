@@ -16409,6 +16409,7 @@ struct CMUXCLI {
     private static let codexMonitorRetiredLeaseMaxAgeSeconds: TimeInterval = 2 * 60
     private static let codexMonitorOwnerCheckIntervalSeconds: TimeInterval = 60
     private static let codexMonitorOwnerCheckTimeoutSeconds: TimeInterval = 1
+    private static let codexMonitorUnresolvedTranscriptTimeoutSeconds: TimeInterval = 5 * 60
 
     private func codexMonitorLeaseDirectory(env: [String: String]) -> URL {
         let statePath = NSString(
@@ -16565,6 +16566,15 @@ struct CMUXCLI {
         return errno == ESRCH
     }
 
+    private func codexMonitorUnresolvedTranscriptTimeout(env: [String: String]) -> TimeInterval {
+        guard let rawValue = env["CMUX_CODEX_MONITOR_UNRESOLVED_TRANSCRIPT_TIMEOUT_SECONDS"],
+              let parsed = TimeInterval(rawValue),
+              parsed > 0 else {
+            return Self.codexMonitorUnresolvedTranscriptTimeoutSeconds
+        }
+        return min(max(parsed, 0.05), Self.codexMonitorUnresolvedTranscriptTimeoutSeconds)
+    }
+
     private func startCodexTranscriptMonitor(
         sessionId: String,
         turnId: String?,
@@ -16654,6 +16664,8 @@ struct CMUXCLI {
 
         defer { removeCodexMonitorLease(path: leasePath) }
         let deadline = Date().addingTimeInterval(4 * 60 * 60)
+        let unresolvedTranscriptTimeout = codexMonitorUnresolvedTranscriptTimeout(env: env)
+        var transcriptMissingSince: Date?
         var nextOwnerCheck = Date.distantPast
         while Date() < deadline {
             if codexMonitorOwnerProcessIsGone(ownerPID) {
@@ -16672,6 +16684,15 @@ struct CMUXCLI {
 
             if transcriptPath == nil {
                 transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
+            }
+            if transcriptPath == nil {
+                let missingSince = transcriptMissingSince ?? now
+                transcriptMissingSince = missingSince
+                if now.timeIntervalSince(missingSince) >= unresolvedTranscriptTimeout {
+                    return
+                }
+            } else {
+                transcriptMissingSince = nil
             }
 
             if let currentTranscriptPath = transcriptPath {
@@ -16706,7 +16727,12 @@ struct CMUXCLI {
 
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return }
-            waitForCodexTranscriptChange(path: transcriptPath, leasePath: leasePath, timeout: min(30, remaining))
+            var waitTimeout = min(30, remaining)
+            if let transcriptMissingSince {
+                let unresolvedRemaining = unresolvedTranscriptTimeout - Date().timeIntervalSince(transcriptMissingSince)
+                waitTimeout = min(waitTimeout, max(0.05, unresolvedRemaining))
+            }
+            waitForCodexTranscriptChange(path: transcriptPath, leasePath: leasePath, timeout: waitTimeout)
         }
     }
 
