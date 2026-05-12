@@ -4306,35 +4306,25 @@ class GhosttyApp {
                )?.workspace,
                !workspace.isRemoteTerminalSurface(sourcePanelId),
                CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path) {
-                // Defer the split creation. Ghostty's Surface.openUrl holds
-                // an internal os_unfair_lock when it dispatches into this
-                // Swift handler; opening a new panel synchronously triggers
-                // Surface.encodeKey on the focus path, which tries to
-                // acquire the same lock and aborts (recursive os_unfair_lock
-                // — see crash reports referenced in #3370).
-                //
-                // CAVEAT — timing-based mitigation: this works because the
-                // Ghostty C side currently releases the surface lock within
-                // the same runloop cycle that dispatches this callback,
-                // which is an undocumented Ghostty implementation detail.
-                // If a future Ghostty change moves the unlock to a later
-                // tick, every Swift caller that re-enters Surface state from
-                // the open-url handler can regress to the same crash. The
-                // structural fix is to dispatch the OPEN_URL callback
-                // asynchronously from C so the lock is always released before
-                // any Swift runs — tracked in #3560. Until that lands, do NOT
-                // remove this DispatchQueue.main.async.
+                // Defer split creation by one main-actor turn. The Ghostty
+                // callback has already returned, but opening a split changes
+                // focus and can move tabs; re-resolving the workspace at
+                // execution time keeps this route aligned with the deferred
+                // embedded-browser path below.
                 let preferredWorkspaceId = context.sourceWorkspaceId ?? workspace.id
                 let surfaceId = sourcePanelId
-                DispatchQueue.main.async {
+                Task { @MainActor [preferredWorkspaceId, surfaceId, fileURL] in
                     // Re-resolve workspace at dispatch time: tabs can move
                     // between workspaces in the runloop gap, so the captured
                     // value may be stale. Mirrors the deferred browser path's
                     // pattern.
-                    let resolvedWorkspace = AppDelegate.shared?.workspaceContainingPanel(
+                    guard let resolvedWorkspace = AppDelegate.shared?.workspaceContainingPanel(
                         panelId: surfaceId,
                         preferredWorkspaceId: preferredWorkspaceId
-                    )?.workspace ?? workspace
+                    )?.workspace else {
+                        NSWorkspace.shared.open(fileURL)
+                        return
+                    }
                     // Re-apply the remote-surface gate; panel may have moved.
                     guard !resolvedWorkspace.isRemoteTerminalSurface(surfaceId) else {
                         NSWorkspace.shared.open(fileURL)
