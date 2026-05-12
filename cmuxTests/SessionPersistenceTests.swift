@@ -1736,6 +1736,55 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertTrue(scriptContents.contains("'019dad34-d218-7943-b81a-eddac5c87951'"))
     }
 
+    func testRestorableAgentStartupInputEncodesNonASCIILauncherPath() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume-测试-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let unicodeWorkingDirectory = "/Users/example/Desktop/测试目录"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: unicodeWorkingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "--model",
+                    "gpt-5.4"
+                ],
+                workingDirectory: unicodeWorkingDirectory,
+                environment: ["CODEX_HOME": "/tmp/codex"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        let input = try XCTUnwrap(snapshot.resumeStartupInput(temporaryDirectory: tempDir))
+        XCTAssertLessThanOrEqual(input.utf8.count, SessionRestorableAgentSnapshot.maxInlineStartupInputBytes)
+        XCTAssertTrue(input.utf8.allSatisfy { $0 < 0x80 })
+        XCTAssertTrue(input.hasPrefix("/bin/zsh -lc '"))
+        XCTAssertTrue(input.contains("base64"))
+        XCTAssertFalse(input.contains(tempDir.path))
+        XCTAssertFalse(input.contains(unicodeWorkingDirectory))
+
+        let scriptsDirectory = tempDir.appendingPathComponent("cmux-agent-resume", isDirectory: true)
+        let scripts = try FileManager.default.contentsOfDirectory(
+            at: scriptsDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ).filter { $0.pathExtension == "zsh" }
+        XCTAssertEqual(scripts.count, 1)
+        let scriptURL = try XCTUnwrap(scripts.first)
+        let scriptContents = try String(contentsOf: scriptURL, encoding: .utf8)
+        XCTAssertTrue(scriptURL.path.contains("测试"))
+        XCTAssertTrue(scriptContents.contains(unicodeWorkingDirectory))
+        XCTAssertTrue(scriptContents.contains("'resume'"))
+        XCTAssertTrue(scriptContents.contains("'019dad34-d218-7943-b81a-eddac5c87951'"))
+    }
+
     func testRestorableAgentStartupInputUsesLauncherScriptWhenCommandExceedsTerminalInputBudget() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-resume-test-\(UUID().uuidString)", isDirectory: true)

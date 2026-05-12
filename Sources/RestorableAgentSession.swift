@@ -396,12 +396,25 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             return nil
         }
 
-        let scriptInput = "/bin/zsh \(shellSingleQuoted(scriptURL.path))\n"
-        guard Self.canUseInlineStartupInput(scriptInput) else {
+        guard let scriptInput = Self.launcherStartupInput(for: scriptURL) else {
             try? fileManager.removeItem(at: scriptURL)
             return nil
         }
         return scriptInput
+    }
+
+    private static func launcherStartupInput(for scriptURL: URL) -> String? {
+        let directInput = "/bin/zsh \(shellSingleQuoted(scriptURL.path))\n"
+        if canUseInlineStartupInput(directInput) {
+            return directInput
+        }
+
+        let encodedPath = Data(scriptURL.path.utf8).base64EncodedString()
+        let decodeCommand = """
+        cmux_agent_resume_script="$(printf '%s' \(shellSingleQuoted(encodedPath)) | base64 --decode 2>/dev/null || printf '%s' \(shellSingleQuoted(encodedPath)) | base64 -D 2>/dev/null)"; exec /bin/zsh "$cmux_agent_resume_script"
+        """
+        let encodedInput = "/bin/zsh -lc \(shellSingleQuoted(decodeCommand))\n"
+        return canUseInlineStartupInput(encodedInput) ? encodedInput : nil
     }
 
     private static func canUseInlineStartupInput(_ input: String) -> Bool {
