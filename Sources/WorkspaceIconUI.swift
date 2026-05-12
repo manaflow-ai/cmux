@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+@MainActor
 enum WorkspaceIconPrompting {
     static func promptSymbol(apply: (CmuxButtonIcon) -> Void) {
         promptText(
