@@ -3249,31 +3249,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !includeScrollback else { return nil }
 
         var hasher = Hasher()
-        let contexts = mainWindowContexts.values.sorted { lhs, rhs in
-            lhs.windowId.uuidString < rhs.windowId.uuidString
-        }
-        hasher.combine(contexts.count)
+        let routes = sortedMainWindowRoutesForSessionSnapshot()
+        hasher.combine(routes.count)
 
-        for context in contexts.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot) {
-            hasher.combine(context.windowId)
+        for route in routes.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot) {
+            hasher.combine(route.windowId)
             hasher.combine(
-                context.tabManager.sessionAutosaveFingerprint(
+                route.tabManager.sessionAutosaveFingerprint(
                     restorableAgentIndex: restorableAgentIndex
                 )
             )
-            hasher.combine(context.sidebarState.isVisible)
+            hasher.combine(route.sidebarState.isVisible)
             hasher.combine(
-                Int(SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth)).rounded())
+                Int(SessionPersistencePolicy.sanitizedSidebarWidth(Double(route.sidebarState.persistedWidth)).rounded())
             )
 
-            switch context.sidebarSelectionState.selection {
+            switch route.sidebarSelectionState.selection {
             case .tabs:
                 hasher.combine(0)
             case .notifications:
                 hasher.combine(1)
             }
 
-            if let window = context.window ?? windowForMainWindowId(context.windowId) {
+            if let window = route.window {
                 Self.hashFrame(window.frame, into: &hasher)
             } else {
                 hasher.combine(-1)
@@ -3377,8 +3375,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func debugSeedSessionSnapshotScrollback(charactersPerTerminal: Int) -> [String: Any] {
-        let workspaces = sortedMainWindowContextsForSessionSnapshot().flatMap { context in
-            context.tabManager.tabs.filter { !$0.isRemoteWorkspace }
+        let workspaces = sortedMainWindowRoutesForSessionSnapshot().flatMap { route in
+            route.tabManager.tabs.filter { !$0.isRemoteWorkspace }
         }
         return SessionSnapshotDebugBenchmark.seedScrollback(
             workspaces: workspaces,
@@ -3615,26 +3613,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         includeScrollback: Bool,
         restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil
     ) -> AppSessionSnapshot? {
-        let contexts = sortedMainWindowContextsForSessionSnapshot()
+        let routes = sortedMainWindowRoutesForSessionSnapshot()
 
-        guard !contexts.isEmpty else { return nil }
+        guard !routes.isEmpty else { return nil }
         let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
 
-        let windows: [SessionWindowSnapshot] = contexts
+        let windows: [SessionWindowSnapshot] = routes
             .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
-            .map { context in
-                let window = context.window ?? windowForMainWindowId(context.windowId)
+            .map { route in
+                let window = route.window
                 return SessionWindowSnapshot(
                     frame: window.map { SessionRectSnapshot($0.frame) },
                     display: displaySnapshot(for: window),
-                    tabManager: context.tabManager.sessionSnapshot(
+                    tabManager: route.tabManager.sessionSnapshot(
                         includeScrollback: includeScrollback,
                         restorableAgentIndex: restorableAgentIndex
                     ),
                     sidebar: SessionSidebarSnapshot(
-                        isVisible: context.sidebarState.isVisible,
-                        selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
-                        width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
+                        isVisible: route.sidebarState.isVisible,
+                        selection: SessionSidebarSelection(selection: route.sidebarSelectionState.selection),
+                        width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(route.sidebarState.persistedWidth))
                     )
                 )
             }
@@ -5083,7 +5081,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in removedKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
-        rememberRecoverableMainWindowRoute(windowId: removed.windowId, tabManager: removed.tabManager, window: removed.window)
+        rememberRecoverableMainWindowRoute(
+            windowId: removed.windowId,
+            tabManager: removed.tabManager,
+            window: removed.window,
+            sidebarState: removed.sidebarState,
+            sidebarSelectionState: removed.sidebarSelectionState
+        )
         notifyMainWindowContextsDidChange()
         return removed
     }
@@ -5095,7 +5099,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in contextKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
-        rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
+        rememberRecoverableMainWindowRoute(
+            windowId: context.windowId,
+            tabManager: context.tabManager,
+            window: context.window,
+            sidebarState: context.sidebarState,
+            sidebarSelectionState: context.sidebarSelectionState
+        )
         notifyMainWindowContextsDidChange()
 
         commandPaletteVisibilityByWindowId.removeValue(forKey: context.windowId)

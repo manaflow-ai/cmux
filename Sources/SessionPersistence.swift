@@ -503,7 +503,90 @@ enum SessionScrollbackReplayStore {
         guard let scrollback else { return nil }
         guard scrollback.contains(where: { !$0.isWhitespace }) else { return nil }
         guard let truncated = SessionPersistencePolicy.truncatedScrollback(scrollback) else { return nil }
-        return ansiSafeReplayText(truncated)
+        let replayText = removingTrailingZshEndOfLinePercentMarkers(from: truncated)
+        guard replayText.contains(where: { !$0.isWhitespace }) else { return nil }
+        return ansiSafeReplayText(replayText)
+    }
+
+    private static func removingTrailingZshEndOfLinePercentMarkers(from text: String) -> String {
+        var output = text
+        while let lineRange = trailingNonEmptyLineRange(in: output) {
+            let line = String(output[lineRange])
+            guard isZshEndOfLinePercentMarker(line) else { break }
+            output.removeSubrange(lineRange.lowerBound..<output.endIndex)
+        }
+        return output
+    }
+
+    private static func trailingNonEmptyLineRange(in text: String) -> Range<String.Index>? {
+        guard !text.isEmpty else { return nil }
+
+        var lineEnd = text.endIndex
+        while lineEnd > text.startIndex {
+            let previous = text.index(before: lineEnd)
+            guard isLineSeparator(text[previous]) else { break }
+            lineEnd = previous
+        }
+        guard lineEnd > text.startIndex else { return nil }
+
+        var lineStart = lineEnd
+        while lineStart > text.startIndex {
+            let previous = text.index(before: lineStart)
+            guard !isLineSeparator(text[previous]) else { break }
+            lineStart = previous
+        }
+        return lineStart..<lineEnd
+    }
+
+    private static func isLineSeparator(_ character: Character) -> Bool {
+        character == "\n" || character == "\r"
+    }
+
+    private static func isZshEndOfLinePercentMarker(_ line: String) -> Bool {
+        removingANSIControlSequences(from: line)
+            .trimmingCharacters(in: .whitespacesAndNewlines) == "%"
+    }
+
+    private static func removingANSIControlSequences(from text: String) -> String {
+        var output = String.UnicodeScalarView()
+        var iterator = text.unicodeScalars.makeIterator()
+
+        while let scalar = iterator.next() {
+            guard scalar.value == 0x1B else {
+                output.append(scalar)
+                continue
+            }
+
+            guard let introducer = iterator.next() else { continue }
+            if introducer.value == 0x5B {
+                skipCSISequence(using: &iterator)
+            } else if introducer.value == 0x5D {
+                skipOSCSequence(using: &iterator)
+            }
+        }
+
+        return String(output)
+    }
+
+    private static func skipCSISequence(using iterator: inout String.UnicodeScalarView.Iterator) {
+        while let scalar = iterator.next() {
+            if (0x40...0x7E).contains(scalar.value) {
+                return
+            }
+        }
+    }
+
+    private static func skipOSCSequence(using iterator: inout String.UnicodeScalarView.Iterator) {
+        var previousWasEscape = false
+        while let scalar = iterator.next() {
+            if scalar.value == 0x07 {
+                return
+            }
+            if previousWasEscape, scalar.value == 0x5C {
+                return
+            }
+            previousWasEscape = scalar.value == 0x1B
+        }
     }
 
     /// Preserve ANSI color state safely across replay boundaries.
