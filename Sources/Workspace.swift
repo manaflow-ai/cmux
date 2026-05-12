@@ -9311,8 +9311,7 @@ final class Workspace: Identifiable, ObservableObject {
         if !hasBrowserPanels {
             if remoteConnectionState == .error ||
                 remoteDaemonStatus.state == .error ||
-                remoteConnectionState == .connecting ||
-                remoteConnectionState == .reconnecting {
+                remoteConnectionState == .connecting {
                 return
             }
             disconnectRemoteConnection(clearConfiguration: true)

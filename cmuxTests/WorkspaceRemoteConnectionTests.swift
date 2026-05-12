@@ -597,6 +597,47 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testRemoteTerminalSessionEndWhileReconnectingDemotesWorkspace() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux@gateway.freestyle.sh",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: ["ControlMaster=no"],
+            localProxyPort: nil,
+            relayPort: 64044,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux@gateway.freestyle.sh",
+            skipDaemonBootstrap: true
+        )
+
+        Workspace.runSSHControlMasterCommandOverrideForTesting = { _ in }
+        defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+
+        workspace.markRemoteTerminalSessionReconnecting(
+            surfaceId: panelID,
+            relayPort: 64044,
+            attempt: 2,
+            limit: 2,
+            exitStatus: 255
+        )
+        XCTAssertEqual(workspace.remoteConnectionState, .reconnecting)
+
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: 64044)
+
+        XCTAssertFalse(workspace.isRemoteWorkspace)
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(panelID))
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteStatusPayload()["state"] as? String, "disconnected")
+    }
+
+    @MainActor
     func testForegroundSSHAuthReadyBeforeRemoteConfigureStartsDeferredConnect() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
