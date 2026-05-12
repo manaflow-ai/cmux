@@ -147,7 +147,8 @@ nonisolated struct TerminalSurfaceBackgroundFillPlan {
             .withAlphaComponent(WindowAppearanceSnapshot.clampedOpacity(backgroundOpacity))
         let owner: TerminalSurfaceBackgroundFillOwner
         let usesPaneLocalSurfaceFill = surfaceBackgroundColor != nil &&
-            renderingMode.usesWindowHostBackdrop
+            renderingMode.usesWindowHostBackdrop &&
+            !usesBonsplitPaneBackdrop
         if usesPaneLocalSurfaceFill {
             owner = .surfaceHostLayer
         } else if renderingMode.usesWindowHostBackdrop && !sharesWindowBackdrop && !usesBonsplitPaneBackdrop {
@@ -166,13 +167,6 @@ nonisolated struct TerminalSurfaceBackgroundFillPlan {
         )
     }
 
-    static func windowRootSnapshot(
-        from snapshot: WindowAppearanceSnapshot
-    ) -> WindowAppearanceSnapshot {
-        // OSC 11 is pane-local state. The shared root remains the default
-        // workspace backdrop; surface-owned fills cut out that root locally.
-        return snapshot
-    }
 }
 
 struct SidebarBackdropSettingsSnapshot {

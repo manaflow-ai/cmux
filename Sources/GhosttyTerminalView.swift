@@ -6356,9 +6356,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         applySurfaceBackground()
-        let snapshot = TerminalSurfaceBackgroundFillPlan.windowRootSnapshot(
-            from: WindowAppearanceSnapshot.currentFromUserDefaults(app: GhosttyApp.shared)
-        )
+        // OSC 11 is pane-local state. The shared root remains the default
+        // workspace backdrop; surface-owned fills cut out that root locally.
+        let snapshot = WindowAppearanceSnapshot.currentFromUserDefaults(app: GhosttyApp.shared)
         let color = snapshot.compositedTerminalBackgroundColor
         let plan = snapshot.backdropPlan()
         _ = WindowBackdropController.apply(plan: plan, to: window)

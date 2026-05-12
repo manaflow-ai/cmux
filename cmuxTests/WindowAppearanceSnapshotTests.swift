@@ -218,17 +218,19 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertFalse(plan.clearsSharedWindowBackdrop)
     }
 
-    func testSurfaceOverrideDoesNotReplaceWindowRootBackdropColor() {
-        let snapshot = makeSnapshot(
-            unifySurfaceBackdrops: true,
-            backgroundOpacity: 0.42
-        )
-        let rootSnapshot = TerminalSurfaceBackgroundFillPlan.windowRootSnapshot(
-            from: snapshot
+    func testOSCOverrideKeepsBonsplitPaneBackdropOwnerWhenNoCutoutIsAvailable() {
+        let plan = TerminalSurfaceBackgroundFillPlan.resolve(
+            renderingMode: .windowHostBackdrop,
+            surfaceBackgroundColor: NSColor(hex: "#D2EEF9") ?? .white,
+            defaultBackgroundColor: NSColor(hex: "#272822") ?? .black,
+            backgroundOpacity: 0.42,
+            sharesWindowBackdrop: false,
+            usesBonsplitPaneBackdrop: true
         )
 
-        XCTAssertEqual(rootSnapshot.terminalBackgroundColor.hexString(), "#272822")
-        XCTAssertEqual(rootSnapshot.terminalBackgroundOpacity, 0.42, accuracy: 0.0001)
+        XCTAssertEqual(plan.owner, .bonsplitPaneBackdrop)
+        XCTAssertEqual(plan.hostLayerColor.hexString(includeAlpha: true), "#00000000")
+        XCTAssertFalse(plan.clearsSharedWindowBackdrop)
     }
 
     private func makeSnapshot(
