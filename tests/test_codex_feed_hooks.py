@@ -528,6 +528,53 @@ def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -
         raise AssertionError(f"codex_hooks feature was not enabled: {config_toml!r}")
 
 
+def test_install_codex_hooks_only_edits_real_features_table(cli_path: str, root: Path) -> None:
+    codex_home = root / "codex-home"
+    codex_home.mkdir()
+    config_path = codex_home / "config.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "# See [features] in the documentation.",
+                'note = "literal [features] mention"',
+                "",
+                "[features]",
+                "existing = true",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "install", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex install failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    config_toml = config_path.read_text(encoding="utf-8")
+    if config_toml.count("codex_hooks = true") != 1:
+        raise AssertionError(f"codex_hooks should be inserted exactly once: {config_toml!r}")
+    if "# See [features] in the documentation." not in config_toml:
+        raise AssertionError(f"comment with [features] was corrupted: {config_toml!r}")
+    if 'note = "literal [features] mention"' not in config_toml:
+        raise AssertionError(f"string literal with [features] was corrupted: {config_toml!r}")
+
+    lines = config_toml.splitlines()
+    features_index = lines.index("[features]")
+    if lines[features_index + 1] != "codex_hooks = true":
+        raise AssertionError(f"codex_hooks should be inserted into [features]: {config_toml!r}")
+
+
 def test_permission_reply_uses_codex_permission_request_schema(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux.sock"
     payload = {
