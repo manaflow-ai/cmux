@@ -5,33 +5,6 @@ extension CMUXCLI {
     private func agentFastPathUsage() -> String {
         "Usage: cmux agent <capture|send|send-key|list-panes|list-surfaces|batch> [flags]"
     }
-    private func removeAgentFastPathFlags(_ flags: Set<String>, from args: [String]) -> [String] {
-        var remaining: [String] = []
-        var pastTerminator = false
-        for arg in args {
-            if arg == "--" {
-                pastTerminator = true
-                remaining.append(arg)
-                continue
-            }
-            if !pastTerminator, flags.contains(arg) {
-                continue
-            }
-            remaining.append(arg)
-        }
-        return remaining
-    }
-    private func hasAgentFastPathFlag(_ flag: String, in args: [String]) -> Bool {
-        for arg in args {
-            if arg == "--" {
-                return false
-            }
-            if arg == flag {
-                return true
-            }
-        }
-        return false
-    }
 
     private func agentFastPathString(_ raw: Any?) -> String? {
         guard let raw, !(raw is NSNull) else { return nil }
@@ -387,8 +360,13 @@ extension CMUXCLI {
             print(agentFastPathUsage())
 
         case "capture", "read", "read-screen":
-            let rawOutput = hasAgentFastPathFlag("--raw", in: rawArgs)
-            let args = removeAgentFastPathFlags(["--raw"], from: rawArgs)
+            let parsedFlags = agentFastPathExtractFlags(
+                ["--raw"],
+                from: rawArgs,
+                valueOptions: ["--workspace", "--surface", "--lines"]
+            )
+            let rawOutput = parsedFlags.present.contains("--raw")
+            let args = parsedFlags.remaining
             let (workspaceArg, rem0) = parseOption(args, name: "--workspace")
             let (surfaceArg, rem1) = parseOption(rem0, name: "--surface")
             let (linesArg, rem2) = parseOption(rem1, name: "--lines")
@@ -412,8 +390,13 @@ extension CMUXCLI {
             }
 
         case "send":
-            let appendEnter = hasAgentFastPathFlag("--enter", in: rawArgs)
-            let args = removeAgentFastPathFlags(["--enter"], from: rawArgs)
+            let parsedFlags = agentFastPathExtractFlags(
+                ["--enter"],
+                from: rawArgs,
+                valueOptions: ["--workspace", "--surface"]
+            )
+            let appendEnter = parsedFlags.present.contains("--enter")
+            let args = parsedFlags.remaining
             let (workspaceArg, rem0) = parseOption(args, name: "--workspace")
             let (surfaceArg, rem1) = parseOption(rem0, name: "--surface")
             let rawText = rem1
