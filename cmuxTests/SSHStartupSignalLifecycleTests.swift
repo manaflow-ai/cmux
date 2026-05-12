@@ -52,7 +52,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             )
 
             XCTAssertFalse(result.timedOut, result.stderr)
-            XCTAssertEqual(result.status, expectedStatuses[signal], result.stderr)
+            let expectedStatus = try XCTUnwrap(expectedStatuses[signal])
+            XCTAssertEqual(result.status, expectedStatus, result.stderr)
             let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
             let sessionEndCalls = recordedCalls
                 .split(separator: "\n")
@@ -82,9 +83,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ])
         try writeShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",
+            "trap 'printf \"%s\\n\" child-hup >> \"${CMUX_TEST_CHILD_SIGNAL_LOG}\"; exit 0' HUP",
+            "trap 'printf \"%s\\n\" child-int >> \"${CMUX_TEST_CHILD_SIGNAL_LOG}\"; exit 0' INT",
             "trap 'printf \"%s\\n\" child-term >> \"${CMUX_TEST_CHILD_SIGNAL_LOG}\"; exit 0' TERM",
             "printf '%s\\n' child-started >> \"${CMUX_TEST_CHILD_SIGNAL_LOG}\"",
-            "kill -TERM \"${CMUX_SSH_STARTUP_PID:-$PPID}\"",
+            "kill -\"${CMUX_TEST_SIGNAL:?}\" \"${CMUX_SSH_STARTUP_PID:-$PPID}\"",
             "sleep 0.2",
             "printf '%s\\n' child-completed >> \"${CMUX_TEST_CHILD_SIGNAL_LOG}\"",
             "exit 0",
@@ -92,42 +95,58 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
-        let startupCommand = try generatedVMSSHInitialStartupCommand()
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
-        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
-        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
-        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
-        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
-        environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
-        environment["CMUX_TEST_CHILD_SIGNAL_LOG"] = childSignalLog.path
+        let expectedStatuses: [String: Int32] = [
+            "HUP": 129,
+            "INT": 130,
+            "TERM": 143,
+        ]
+        for signal in ["HUP", "INT", "TERM"] {
+            try? fileManager.removeItem(at: logFile)
+            try? fileManager.removeItem(at: childSignalLog)
 
-        let result = runProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-c", startupCommand],
-            environment: environment,
-            timeout: 5
-        )
+            let startupCommand = try generatedVMSSHInitialStartupCommand()
+            var environment = ProcessInfo.processInfo.environment
+            environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+            environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+            environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+            environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+            environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+            environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
+            environment["CMUX_TEST_CHILD_SIGNAL_LOG"] = childSignalLog.path
+            environment["CMUX_TEST_SIGNAL"] = signal
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 143, result.stderr)
-        XCTAssertTrue(
-            waitForSSHSignalLifecycleLog(childSignalLog) { contents in
-                contents.contains("child-completed") || contents.contains("child-term")
-            },
-            "Timed out waiting for fake SSH child to record completion or TERM"
-        )
-        let childSignalLogContents = (try? String(contentsOf: childSignalLog, encoding: .utf8)) ?? ""
-        XCTAssertTrue(childSignalLogContents.contains("child-started"), childSignalLogContents)
-        XCTAssertFalse(
-            childSignalLogContents.contains("child-term"),
-            "Pane-close signals should let the terminal/PTY teardown own the child process; explicitly terminating the SSH child can kill the shared control-master path and sibling panes. Log: \(childSignalLogContents)"
-        )
-        let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
-        let sessionEndCalls = recordedCalls
-            .split(separator: "\n")
-            .filter { $0.contains("ssh-session-end") }
-        XCTAssertTrue(sessionEndCalls.isEmpty, recordedCalls)
+            let result = runProcess(
+                executablePath: "/bin/sh",
+                arguments: ["-c", startupCommand],
+                environment: environment,
+                timeout: 5
+            )
+
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, expectedStatuses[signal], result.stderr)
+            XCTAssertTrue(
+                waitForSSHSignalLifecycleLog(childSignalLog) { contents in
+                    contents.contains("child-completed") ||
+                    contents.contains("child-hup") ||
+                    contents.contains("child-int") ||
+                    contents.contains("child-term")
+                },
+                "Timed out waiting for fake SSH child to record completion or signal for \(signal)"
+            )
+            let childSignalLogContents = (try? String(contentsOf: childSignalLog, encoding: .utf8)) ?? ""
+            XCTAssertTrue(childSignalLogContents.contains("child-started"), childSignalLogContents)
+            XCTAssertFalse(
+                childSignalLogContents.contains("child-hup") ||
+                childSignalLogContents.contains("child-int") ||
+                childSignalLogContents.contains("child-term"),
+                "Pane-close \(signal) should let the terminal/PTY teardown own the child process; explicitly signaling the SSH child can kill the shared control-master path and sibling panes. Log: \(childSignalLogContents)"
+            )
+            let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
+            let sessionEndCalls = recordedCalls
+                .split(separator: "\n")
+                .filter { $0.contains("ssh-session-end") }
+            XCTAssertTrue(sessionEndCalls.isEmpty, recordedCalls)
+        }
     }
 
     func testSSHStartupRetriesTransientSSHExitBeforeReportingSessionEnd() throws {
