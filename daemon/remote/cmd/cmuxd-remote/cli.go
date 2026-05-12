@@ -975,53 +975,38 @@ func relayResultIsEmpty(result any) bool {
 // flagToParamKey maps a CLI flag name to its JSON-RPC param key.
 func flagToParamKey(key string) string {
 	switch key {
-	case "workspace":
-		return "workspace_id"
-	case "surface":
-		return "surface_id"
 	case "panel":
 		return "panel_id"
-	case "pane":
-		return "pane_id"
-	case "window":
-		return "window_id"
 	case "command":
 		return "initial_command"
 	case "name":
 		return "title"
 	case "working-directory":
 		return "working_directory"
-	case "max-depth":
-		return "max_depth"
-	case "timeout-ms":
-		return "timeout_ms"
-	case "url-contains":
-		return "url_contains"
-	case "load-state":
-		return "load_state"
 	default:
-		return strings.ReplaceAll(key, "-", "_")
+		return commonFlagToParamKey(key)
 	}
 }
 
 func browserFlagToParamKey(key string) string {
 	switch key {
+	case "panel":
+		return "surface_id"
+	default:
+		return commonFlagToParamKey(key)
+	}
+}
+
+func commonFlagToParamKey(key string) string {
+	switch key {
 	case "workspace":
 		return "workspace_id"
-	case "surface", "panel":
+	case "surface":
 		return "surface_id"
 	case "pane":
 		return "pane_id"
 	case "window":
 		return "window_id"
-	case "max-depth":
-		return "max_depth"
-	case "timeout-ms":
-		return "timeout_ms"
-	case "url-contains":
-		return "url_contains"
-	case "load-state":
-		return "load_state"
 	default:
 		return strings.ReplaceAll(key, "-", "_")
 	}
