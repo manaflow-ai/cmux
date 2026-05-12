@@ -161,6 +161,7 @@ private struct FeedListView: View {
     @State private var focusSnapshot = FeedFocusSnapshot()
     @State private var scrollRequest: FeedScrollRequest?
     @State private var scrollRequestSequence = 0
+    @State private var stopDrafts: [UUID: FeedStopDraft] = [:]
 
     var body: some View {
         let snapshots = visibleSnapshots(items)
@@ -340,6 +341,7 @@ private struct FeedListView: View {
             isSelected: focusSnapshot.selectedItemId == snapshot.id,
             isFocusActive: focusSnapshot.isKeyboardActive && focusSnapshot.selectedItemId == snapshot.id,
             showsDivider: showsDivider,
+            stopDraft: stopDraftBinding(for: snapshot.id),
             onPressSelect: {
                 selectRow(snapshot.id, focusFeed: false)
             },
@@ -358,6 +360,19 @@ private struct FeedListView: View {
             }
         )
         .id(snapshot.id)
+    }
+
+    private func stopDraftBinding(for id: UUID) -> Binding<FeedStopDraft> {
+        Binding(
+            get: { stopDrafts[id] ?? FeedStopDraft() },
+            set: { draft in
+                if draft.isPristine {
+                    stopDrafts.removeValue(forKey: id)
+                } else {
+                    stopDrafts[id] = draft
+                }
+            }
+        )
     }
 
     /// Walks the full items list (not just the filtered visible set),
@@ -582,12 +597,22 @@ private struct FeedScrollRequest: Equatable {
     let sequence: Int
 }
 
+struct FeedStopDraft: Equatable {
+    var reply = ""
+    var focusRequest = 0
+
+    var isPristine: Bool {
+        reply.isEmpty && focusRequest == 0
+    }
+}
+
 private struct FeedRowSurface: View {
     let snapshot: FeedItemSnapshot
     let actions: FeedRowActions
     let isSelected: Bool
     let isFocusActive: Bool
     let showsDivider: Bool
+    @Binding var stopDraft: FeedStopDraft
     let onPressSelect: () -> Void
     let onControlFocus: () -> Void
     let onControlAction: () -> Void
@@ -606,7 +631,9 @@ private struct FeedRowSurface: View {
                 onControlFocus: onControlFocus,
                 onControlAction: onControlAction,
                 onControlBlur: onControlBlur,
-                onActivate: onActivate
+                onActivate: onActivate,
+                stopDraft: $stopDraft,
+                stopDraftValue: stopDraft
             )
             .equatable()
             if showsDivider {
@@ -963,12 +990,15 @@ struct FeedItemRow: View, Equatable {
     let onControlAction: () -> Void
     let onControlBlur: () -> Void
     let onActivate: () -> Void
+    @Binding var stopDraft: FeedStopDraft
+    let stopDraftValue: FeedStopDraft
 
     @State private var didHandlePressSelection = false
 
     static func == (lhs: FeedItemRow, rhs: FeedItemRow) -> Bool {
         lhs.snapshot == rhs.snapshot
             && lhs.isSelected == rhs.isSelected
+            && lhs.stopDraftValue == rhs.stopDraftValue
     }
 
     var body: some View {
@@ -1225,6 +1255,7 @@ struct FeedItemRow: View, Equatable {
             )
         case .stop:
             StopActionArea(
+                draft: $stopDraft,
                 onFocusRow: onControlFocus,
                 onActionRow: onControlAction,
                 onBlurRow: onControlBlur,
@@ -3585,19 +3616,24 @@ private struct FlowLayout: Layout {
 /// types the reply into the agent's terminal surface and presses
 /// Return — so the user can reply without switching focus.
 private struct StopActionArea: View {
+    @Binding var draft: FeedStopDraft
+
     let onFocusRow: () -> Void
     let onActionRow: () -> Void
     let onBlurRow: () -> Void
     let onSend: (String) -> Void
 
-    @State private var reply: String = ""
-    @State private var replyFocusRequest = 0
-
     private var trimmed: String {
-        reply.trimmingCharacters(in: .whitespacesAndNewlines)
+        draft.reply.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     private var canSend: Bool { !trimmed.isEmpty }
     private var replyFont: NSFont { NSFont.systemFont(ofSize: 12) }
+    private var replyBinding: Binding<String> {
+        Binding(
+            get: { draft.reply },
+            set: { draft.reply = $0 }
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -3610,8 +3646,8 @@ private struct StopActionArea: View {
                     .foregroundColor(.secondary)
             }
             FeedInlineTextField(
-                text: $reply,
-                focusRequest: replyFocusRequest == 0 ? nil : replyFocusRequest,
+                text: replyBinding,
+                focusRequest: draft.focusRequest == 0 ? nil : draft.focusRequest,
                 placeholder: String(localized: "feed.stop.placeholder", defaultValue: "Reply to Claude…"),
                 isEnabled: true,
                 font: replyFont,
@@ -3656,13 +3692,13 @@ private struct StopActionArea: View {
     }
 
     private func requestReplyFocus() {
-        replyFocusRequest += 1
+        draft.focusRequest += 1
     }
 
     private func sendReply() {
         guard canSend else { return }
         onSend(trimmed)
-        reply = ""
+        draft = FeedStopDraft()
     }
 }
 
