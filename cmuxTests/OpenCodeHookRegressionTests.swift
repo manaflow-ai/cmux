@@ -65,6 +65,67 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertFalse(result.stdout.contains("uninstall-hooks"), result.stdout)
     }
 
+    func testOMOModelArgumentConfiguresOhMyOpenCodeAgents() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-omo-model-\(UUID().uuidString)", isDirectory: true)
+        let configDir = root.appendingPathComponent(".config/opencode", isDirectory: true)
+        let nodeModulesDir = configDir.appendingPathComponent("node_modules/oh-my-opencode", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let capturedArgvURL = root.appendingPathComponent("opencode-argv.txt", isDirectory: false)
+        let requestedModel = "deepinfra/zai-org/GLM-4.7-Flash"
+
+        try FileManager.default.createDirectory(at: nodeModulesDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try #"{"plugin":[]}"#.write(
+            to: configDir.appendingPathComponent("opencode.json", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        let fakeOpenCodeURL = binDir.appendingPathComponent("opencode", isDirectory: false)
+        try """
+        #!/bin/sh
+        printf '%s\\n' "$@" > "$HOME/opencode-argv.txt"
+        exit 0
+        """.write(to: fakeOpenCodeURL, atomically: true, encoding: .utf8)
+        chmod(fakeOpenCodeURL.path, 0o755)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = root.path
+        environment["PATH"] = "\(binDir.path):\(environment["PATH"] ?? "/usr/bin")"
+        environment["PWD"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["omo", "--model", requestedModel, "run", "hello"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let capturedArgv = try String(contentsOf: capturedArgvURL, encoding: .utf8)
+        XCTAssertTrue(capturedArgv.contains("--model\n\(requestedModel)\n"), capturedArgv)
+
+        let omoConfigURL = root
+            .appendingPathComponent(".cmuxterm/omo-config", isDirectory: true)
+            .appendingPathComponent("oh-my-opencode.json", isDirectory: false)
+        let omoConfig = try XCTUnwrap(JSONSerialization.jsonObject(with: try Data(contentsOf: omoConfigURL), options: []) as? [String: Any])
+
+        let agents = try XCTUnwrap(omoConfig["agents"] as? [String: Any])
+        for agent in ["explore", "librarian", "oracle", "hephaestus", "metis", "momus", "multimodal-looker"] {
+            let config = try XCTUnwrap(agents[agent] as? [String: Any], "missing agent override for \(agent)")
+            XCTAssertEqual(config["model"] as? String, requestedModel, "agent \(agent)")
+        }
+
+        let categories = try XCTUnwrap(omoConfig["categories"] as? [String: Any])
+        for category in ["quick", "deep", "ultrabrain", "unspecified-low", "unspecified-high", "visual-engineering", "artistry", "writing"] {
+            let config = try XCTUnwrap(categories[category] as? [String: Any], "missing category override for \(category)")
+            XCTAssertEqual(config["model"] as? String, requestedModel, "category \(category)")
+        }
+    }
+
     private func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: Self.self).bundleURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
