@@ -79,12 +79,16 @@ extension CmuxUseSupport {
 
         let readmeURL = checkoutURL.appendingPathComponent("README.md", isDirectory: false)
         guard let readme = try? String(contentsOf: readmeURL, encoding: .utf8) else { return nil }
-        for pattern in [
-            #"(?m)git\s+clone\s+\S+\s+((?:\$HOME|~)/[^\s`"']+)"#,
-            #"(?i)(?:clone|install).{0,120}\s+to\s+[`"']?((?:\$HOME|~)/[^`"'\s]+)"#,
-        ] {
-            if let value = firstRegexCapture(pattern: pattern, in: readme) {
-                return normalizedManifestPath(value)
+        let readmeLinePatterns = [
+            #"git[ \t]+clone[ \t]+\S+[ \t]+((?:\$HOME|~)/[^\s`"']+)"#,
+            #"(?i)(?:clone|install).{0,120}[ \t]+to[ \t]+[`"']?((?:\$HOME|~)/[^`"'\s]+)"#,
+        ]
+        for rawLine in readme.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = String(rawLine)
+            for pattern in readmeLinePatterns {
+                if let value = firstRegexCapture(pattern: pattern, in: line) {
+                    return normalizedManifestPath(value)
+                }
             }
         }
         return nil
