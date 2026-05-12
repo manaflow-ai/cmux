@@ -406,6 +406,9 @@ enum KeyboardShortcutSettings {
             proposedAction: Action,
             configuredShortcut: StoredShortcut
         ) -> Bool {
+            if Self.allowsSharedShortcut(self, proposedAction) {
+                return false
+            }
             guard shortcutContext.overlaps(proposedAction.shortcutContext) else {
                 return false
             }
@@ -415,6 +418,11 @@ enum KeyboardShortcutSettings {
                 configuredShortcut,
                 configuredUsesNumberedDigitMatching: usesNumberedDigitMatching
             )
+        }
+
+        private static func allowsSharedShortcut(_ lhs: Action, _ rhs: Action) -> Bool {
+            (lhs == .toggleTerminalSidekick && rhs == .toggleRightSidebar) ||
+                (lhs == .toggleRightSidebar && rhs == .toggleTerminalSidekick)
         }
 
         func normalizedRecordedShortcutResult(_ shortcut: StoredShortcut) -> RecordedShortcutResolution {

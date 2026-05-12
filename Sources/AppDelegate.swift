@@ -5484,10 +5484,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
         }
 
-        guard BrowserAvailabilitySettings.isEnabled() else {
-            NSSound.beep()
-            return true
-        }
+        guard BrowserAvailabilitySettings.isEnabled() else { return false }
 
         return terminalPanel.toggleSidekick()
     }

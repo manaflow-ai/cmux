@@ -36,6 +36,34 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
+    func testTerminalSidekickAndRightSidebarCanShareFallbackShortcut() {
+        let shortcut = KeyboardShortcutSettings.Action.toggleTerminalSidekick.defaultShortcut
+
+        XCTAssertEqual(shortcut, KeyboardShortcutSettings.Action.toggleRightSidebar.defaultShortcut)
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.toggleTerminalSidekick.conflicts(
+                with: shortcut,
+                proposedAction: .toggleRightSidebar,
+                configuredShortcut: shortcut
+            )
+        )
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.toggleRightSidebar.conflicts(
+                with: shortcut,
+                proposedAction: .toggleTerminalSidekick,
+                configuredShortcut: shortcut
+            )
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.toggleTerminalSidekick.normalizedRecordedShortcutResult(shortcut),
+            .accepted(shortcut)
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.toggleRightSidebar.normalizedRecordedShortcutResult(shortcut),
+            .accepted(shortcut)
+        )
+    }
+
     func testRenameTabCanReassignCommandRAfterUnbindingWithoutBrowserReloadConflict() throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         let directoryURL = try makeTemporaryDirectory()

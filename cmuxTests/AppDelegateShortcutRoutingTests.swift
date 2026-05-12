@@ -970,6 +970,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: leftSidebarEvent))
         XCTAssertFalse(sidebarState.isVisible, "Cmd+B should toggle the Welcome window left sidebar")
 
+        BrowserAvailabilitySettings.setDisabled(true)
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: rightSidebarEvent))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertFalse(
+            tabManager.selectedWorkspace?.focusedTerminalPanel?.sidekickState.isOpen == true,
+            "Cmd+Option+B should not open a terminal sidekick when browser surfaces are disabled"
+        )
+        XCTAssertTrue(fileExplorerState.isVisible, "Cmd+Option+B should fall through to the right sidebar when browser surfaces are disabled")
+        fileExplorerState.setVisible(false)
+        BrowserAvailabilitySettings.setDisabled(false)
+
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: rightSidebarEvent))
         XCTAssertTrue(
             tabManager.selectedWorkspace?.focusedTerminalPanel?.sidekickState.isOpen == true,
