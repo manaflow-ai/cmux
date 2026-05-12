@@ -218,6 +218,34 @@ extension CmuxEventBus {
         )
     }
 
+    func publishSurfaceFrameChanged(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        paneId: UUID?,
+        kind: String?,
+        snapshot: CmuxSurfaceFrameSnapshot,
+        origin: String
+    ) {
+        publish(
+            name: "surface.frame_changed",
+            category: "surface",
+            source: "workspace.geometry",
+            workspaceId: workspaceId.uuidString,
+            surfaceId: surfaceId.uuidString,
+            paneId: paneId?.uuidString,
+            payload: [
+                "surface_id": surfaceId.uuidString,
+                "pane_id": paneId?.uuidString ?? NSNull(),
+                "kind": kind ?? NSNull(),
+                "frame": snapshot.framePayload,
+                "bounds": snapshot.boundsPayload,
+                "screen": snapshot.screenPayload,
+                "in_window": snapshot.inWindow,
+                "origin": origin
+            ]
+        )
+    }
+
     func publishPaneClosed(workspaceId: UUID, paneId: UUID, closedSurfaceIds: [UUID], origin: String) {
         publish(
             name: "pane.closed",

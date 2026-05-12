@@ -3530,6 +3530,7 @@ class TerminalController {
 
         var surfacesByPane: [UUID: [[String: Any]]] = [:]
         let focusedSurfaceId = workspace.focusedPanelId
+        let frameSnapshots = CmuxSurfaceFrameSnapshotResolver.snapshotsBySurfaceId(in: workspace)
         for (surfaceIndex, panel) in orderedPanels(in: workspace).enumerated() {
             let paneUUID = paneByPanelId[panel.id]
             let selectedInPane = selectedInPaneByPanelId[panel.id] ?? false
@@ -3573,6 +3574,10 @@ class TerminalController {
                 item["url"] = NSNull()
                 item["browser_web_content_pid"] = NSNull()
             }
+            CmuxSurfaceFrameSnapshot.appendPayloadFields(
+                to: &item,
+                snapshot: frameSnapshots[panel.id]
+            )
             if let paneUUID {
                 surfacesByPane[paneUUID, default: []].append(item)
             }
@@ -3709,6 +3714,7 @@ class TerminalController {
 
         var surfacesByPane: [UUID: [[String: Any]]] = [:]
         let focusedSurfaceId = workspace.focusedPanelId
+        let frameSnapshots = CmuxSurfaceFrameSnapshotResolver.snapshotsBySurfaceId(in: workspace)
         for (surfaceIndex, panel) in orderedPanels(in: workspace).enumerated() {
             let paneUUID = paneByPanelId[panel.id]
             let selectedInPane = selectedInPaneByPanelId[panel.id] ?? false
@@ -3733,6 +3739,10 @@ class TerminalController {
             } else {
                 item["url"] = NSNull()
             }
+            CmuxSurfaceFrameSnapshot.appendPayloadFields(
+                to: &item,
+                snapshot: frameSnapshots[panel.id]
+            )
             if let paneUUID {
                 surfacesByPane[paneUUID, default: []].append(item)
             }
@@ -5878,6 +5888,7 @@ class TerminalController {
 
             let focusedSurfaceId = ws.focusedPanelId
             let panels = orderedPanels(in: ws)
+            let frameSnapshots = CmuxSurfaceFrameSnapshotResolver.snapshotsBySurfaceId(in: ws)
             let surfaces: [[String: Any]] = panels.enumerated().map { index, panel in
                 let paneUUID = paneByPanelId[panel.id]
                 var item: [String: Any] = [
@@ -5900,6 +5911,10 @@ class TerminalController {
                     item["initial_command"] = v2OrNull(v2NonEmptyString(terminalPanel.surface.debugInitialCommand()))
                     item["tmux_start_command"] = v2OrNull(v2NonEmptyString(terminalPanel.surface.debugTmuxStartCommand()))
                 }
+                CmuxSurfaceFrameSnapshot.appendPayloadFields(
+                    to: &item,
+                    snapshot: frameSnapshots[panel.id]
+                )
                 return item
             }
 

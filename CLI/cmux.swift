@@ -3064,7 +3064,7 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "surface.trigger_flash", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
-        case "list-panels":
+        case "list-panels", "list-surfaces":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
@@ -9542,9 +9542,10 @@ struct CMUXCLI {
               cmux trigger-flash
               cmux trigger-flash --workspace workspace:2 --surface surface:3
             """
-        case "list-panels":
+        case "list-panels", "list-surfaces":
+            let commandName = command == "list-surfaces" ? "list-surfaces" : "list-panels"
             return """
-            Usage: cmux list-panels [--workspace <id|ref>]
+            Usage: cmux \(commandName) [--workspace <id|ref>]
 
             List surfaces (panels) in a workspace.
 
@@ -9552,8 +9553,8 @@ struct CMUXCLI {
               --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
 
             Example:
-              cmux list-panels
-              cmux list-panels --workspace workspace:2
+              cmux \(commandName)
+              cmux \(commandName) --workspace workspace:2
             """
         case "focus-panel":
             return """
@@ -20623,6 +20624,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           surface-health [--workspace <id|ref>]
           debug-terminals
           trigger-flash [--workspace <id|ref>] [--surface <id|ref>]
+          list-surfaces [--workspace <id|ref>]
           list-panels [--workspace <id|ref>]
           focus-panel --panel <id|ref> [--workspace <id|ref>]
           close-workspace --workspace <id|ref>

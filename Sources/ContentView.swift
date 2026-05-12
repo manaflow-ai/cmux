@@ -2352,6 +2352,10 @@ struct ContentView: View {
         }
     }
 
+    private func publishVisibleSurfaceFrameChanges(origin: String) {
+        tabManager.selectedWorkspace?.publishCmuxSurfaceFrameChanges(origin: origin)
+    }
+
     private func refreshWindowChromeMetrics(for window: NSWindow) {
         // Keep native measurements around for minimal WindowGroup safe-area cancellation.
         // Standard mode uses cmux's visual chrome height for layout.
@@ -3118,6 +3122,13 @@ struct ContentView: View {
             clampSidebarWidthIfNeeded(availableWidth: availableWidth)
             clampRightSidebarWidthIfNeeded(availableWidth: availableWidth)
             updateSidebarResizerBandState()
+            publishVisibleSurfaceFrameChanges(origin: "window_resize")
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSWindow.didMoveNotification)) { notification in
+            guard let window = notification.object as? NSWindow,
+                  window === observedWindow else { return }
+            publishVisibleSurfaceFrameChanges(origin: "window_move")
         })
 
         view = AnyView(view.onChange(of: sidebarWidth) { _ in

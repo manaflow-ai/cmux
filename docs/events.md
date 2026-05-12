@@ -243,6 +243,7 @@ Surface and pane:
 | `surface.selected` | Selected surface changed inside a pane. Fires for horizontal tab selection and programmatic selection convergence. |
 | `surface.focused` | Focused surface changed for a workspace. This is the surface that should receive keyboard/input commands. |
 | `surface.closed` | Surface closed. |
+| `surface.frame_changed` | Screen-space frame for a visible surface changed after pane, window, or surface geometry updates. Payload includes `frame`, `bounds`, `screen`, and `in_window`. |
 | `surface.moved` | Surface moved to another pane, workspace, or window. |
 | `surface.reordered` | Surface order changed inside a pane. |
 | `surface.action` | Surface or tab action command completed. |
