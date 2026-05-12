@@ -20753,8 +20753,8 @@ private enum CMUXCLIOutput {
 @main
 struct CMUXTermMain {
     static func main() {
-        _ = signal(SIGPIPE, SIG_DFL)
         let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
+        _ = signal(SIGPIPE, SIG_DFL)
         configureCLIStdioNoSIGPIPE()
         let cli = CMUXCLI(
             args: CommandLine.arguments,
