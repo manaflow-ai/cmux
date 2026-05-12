@@ -280,7 +280,7 @@ func hasArg(args []string, needle string) bool {
 }
 
 func removeArg(args []string, needle string) []string {
-	filtered := args[:0]
+	filtered := make([]string, 0, len(args))
 	for _, arg := range args {
 		if arg != needle {
 			filtered = append(filtered, arg)
