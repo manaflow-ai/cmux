@@ -5,7 +5,6 @@ extension CMUXCLI {
     private func agentFastPathUsage() -> String {
         "Usage: cmux agent <capture|send|send-key|list-panes|list-surfaces|batch> [flags]"
     }
-
     private func removeAgentFastPathFlags(_ flags: Set<String>, from args: [String]) -> [String] {
         var remaining: [String] = []
         var pastTerminator = false
@@ -22,7 +21,6 @@ extension CMUXCLI {
         }
         return remaining
     }
-
     private func hasAgentFastPathFlag(_ flag: String, in args: [String]) -> Bool {
         for arg in args {
             if arg == "--" {
@@ -447,6 +445,9 @@ extension CMUXCLI {
             let keyArgs = rem1.first == "--" ? Array(rem1.dropFirst()) : rem1
             guard let key = keyArgs.first, !key.isEmpty else {
                 throw CLIError(message: "agent send-key requires a key")
+            }
+            guard keyArgs.count == 1 else {
+                throw CLIError(message: "agent send-key: unexpected arguments: \(keyArgs.dropFirst().joined(separator: " "))")
             }
             let payload = try agentFastPathSendKeyPayload(
                 workspaceRaw: workspaceArg,

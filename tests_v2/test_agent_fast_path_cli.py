@@ -163,6 +163,8 @@ def main() -> int:
         _must(bool(panes), f"agent list-panes returned no panes: {panes_payload}")
         panes_with_terminator = json.loads(_run_agent(cli, ["list-panes", "--workspace", workspace_id, "--"]) or "{}")
         _must(bool(panes_with_terminator.get("panes") or []), f"agent list-panes with -- returned no panes: {panes_with_terminator}")
+        bad_key_proc = _run_agent_process(cli, ["send-key", "--workspace", workspace_id, "--surface", surface_id, "--", "a", "b"])
+        _must(bad_key_proc.returncode != 0, "agent send-key should reject extra positional args")
 
         list_surfaces_payload = json.loads(_run_agent(cli, ["list-surfaces", "--workspace", workspace_id]) or "{}")
         listed_surfaces = list_surfaces_payload.get("surfaces") or []
