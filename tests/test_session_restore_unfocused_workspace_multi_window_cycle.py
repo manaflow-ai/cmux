@@ -46,6 +46,7 @@ def _socket_candidates(app_path: Path, preferred: Path) -> list[Path]:
     if app_name.startswith(prefix):
         tag = app_name[len(prefix):]
         slug = _sanitize_tag_slug(tag)
+        candidates.append(Path.home() / "Library/Application Support/cmux" / f"com.cmuxterm.app.dev.{slug}.sock")
         candidates.append(Path(f"/tmp/cmux-debug-{slug}.sock"))
     deduped: list[Path] = []
     seen: set[str] = set()

@@ -295,12 +295,19 @@ struct SocketControlSettings {
     static let allowSocketPathOverrideKey = "CMUX_ALLOW_SOCKET_OVERRIDE"
     static let socketPasswordEnvKey = "CMUX_SOCKET_PASSWORD"
     static let launchTagEnvKey = "CMUX_TAG"
+    static let releaseBundleIdentifier = "com.cmuxterm.app"
+    static let nightlyBundleIdentifier = "com.cmuxterm.app.nightly"
+    static let stagingBundleIdentifier = "com.cmuxterm.app.staging"
     static let baseDebugBundleIdentifier = "com.cmuxterm.app.debug"
     private static let socketDirectoryName = "cmux"
-    private static let stableSocketFileName = "cmux.sock"
+    private static let stableSocketFileName = "\(releaseBundleIdentifier).sock"
     private static let lastSocketPathFileName = "last-socket-path"
     static let legacyStableDefaultSocketPath = "/tmp/cmux.sock"
     static let legacyLastSocketPathFile = "/tmp/cmux-last-socket-path"
+    private static let unixSocketPathMaxLength: Int = {
+        var addr = sockaddr_un()
+        return MemoryLayout.size(ofValue: addr.sun_path) - 1
+    }()
 
     static var stableDefaultSocketPath: String {
         stableSocketFileURL()?.path ?? legacyStableDefaultSocketPath
@@ -473,14 +480,14 @@ struct SocketControlSettings {
         if let taggedDebugPath = taggedDebugSocketPath(bundleIdentifier: bundleIdentifier, environment: [:]) {
             return taggedDebugPath
         }
-        if bundleIdentifier == "com.cmuxterm.app.nightly" {
-            return "/tmp/cmux-nightly.sock"
+        if bundleIdentifier == nightlyBundleIdentifier {
+            return socketPath(fileName: "\(nightlyBundleIdentifier).sock")
         }
         if isDebugLikeBundleIdentifier(bundleIdentifier) || isDebugBuild {
-            return "/tmp/cmux-debug.sock"
+            return socketPath(fileName: "com.cmuxterm.app.dev.sock")
         }
         if isStagingBundleIdentifier(bundleIdentifier) {
-            return "/tmp/cmux-staging.sock"
+            return socketPath(fileName: "\(stagingBundleIdentifier).sock")
         }
         return resolvedStableDefaultSocketPath(
             currentUserID: currentUserID,
@@ -489,9 +496,45 @@ struct SocketControlSettings {
     }
 
     static func userScopedStableSocketPath(currentUserID: uid_t = getuid()) -> String {
-        stableSocketDirectoryURL()?
-            .appendingPathComponent("cmux-\(currentUserID).sock", isDirectory: false)
-            .path ?? "/tmp/cmux-\(currentUserID).sock"
+        socketPath(fileName: "\(releaseBundleIdentifier).\(currentUserID).sock")
+    }
+
+    private static func socketPath(fileName: String) -> String {
+        guard let directoryURL = stableSocketDirectoryURL() else {
+            return "/tmp/\(shortenedSocketFileName(fileName, directoryPath: "/tmp"))"
+        }
+        let candidate = directoryURL.appendingPathComponent(fileName, isDirectory: false).path
+        guard candidate.utf8.count > unixSocketPathMaxLength else {
+            return candidate
+        }
+        return directoryURL
+            .appendingPathComponent(shortenedSocketFileName(fileName, directoryPath: directoryURL.path), isDirectory: false)
+            .path
+    }
+
+    private static func shortenedSocketFileName(_ fileName: String, directoryPath: String) -> String {
+        let separatorLength = 1
+        let budget = unixSocketPathMaxLength - directoryPath.utf8.count - separatorLength
+        guard fileName.utf8.count > budget, budget > ".sock".count + 10 else {
+            return fileName
+        }
+
+        let suffix = ".sock"
+        let stem = fileName.hasSuffix(suffix) ? String(fileName.dropLast(suffix.count)) : fileName
+        let hashSuffix = "-\(fnv1a32Hex(fileName))"
+        let stemBudget = max(1, budget - hashSuffix.utf8.count - suffix.utf8.count)
+        let shortenedStem = String(stem.prefix(stemBudget)).trimmingCharacters(in: CharacterSet(charactersIn: ".-"))
+        let safeStem = shortenedStem.isEmpty ? "cmux" : shortenedStem
+        return "\(safeStem)\(hashSuffix)\(suffix)"
+    }
+
+    private static func fnv1a32Hex(_ value: String) -> String {
+        var hash: UInt32 = 2_166_136_261
+        for byte in value.utf8 {
+            hash ^= UInt32(byte)
+            hash = hash &* 16_777_619
+        }
+        return String(format: "%08x", hash)
     }
 
     static func resolvedStableDefaultSocketPath(
@@ -550,33 +593,33 @@ struct SocketControlSettings {
         if bundleId.hasPrefix("\(baseDebugBundleIdentifier).") {
             let suffix = String(bundleId.dropFirst(baseDebugBundleIdentifier.count + 1))
             let slug = suffix
-                .replacingOccurrences(of: ".", with: "-")
+                .lowercased()
+                .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+                .replacingOccurrences(of: "-+", with: "-", options: .regularExpression)
                 .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
             if !slug.isEmpty {
-                return "/tmp/cmux-debug-\(slug).sock"
+                return socketPath(fileName: "com.cmuxterm.app.dev.\(slug).sock")
             }
         }
 
         let tag = launchTag(environment: environment)?
             .lowercased()
-            .replacingOccurrences(of: ".", with: "-")
-            .replacingOccurrences(of: "_", with: "-")
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-            .joined(separator: "-")
+            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+            .replacingOccurrences(of: "-+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
 
         guard bundleId == baseDebugBundleIdentifier,
               let tag,
               !tag.isEmpty else {
             return nil
         }
-        return "/tmp/cmux-debug-\(tag).sock"
+        return socketPath(fileName: "com.cmuxterm.app.dev.\(tag).sock")
     }
 
     static func isStagingBundleIdentifier(_ bundleIdentifier: String?) -> Bool {
         guard let bundleIdentifier else { return false }
-        return bundleIdentifier == "com.cmuxterm.app.staging"
-            || bundleIdentifier.hasPrefix("com.cmuxterm.app.staging.")
+        return bundleIdentifier == stagingBundleIdentifier
+            || bundleIdentifier.hasPrefix("\(stagingBundleIdentifier).")
     }
 
     static func stableSocketDirectoryURL(fileManager: FileManager = .default) -> URL? {

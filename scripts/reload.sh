@@ -153,6 +153,46 @@ sanitize_path() {
   echo "$cleaned"
 }
 
+fnv1a32_hex() {
+  local value="$1"
+  local hash=2166136261
+  local i char code
+  local LC_ALL=C
+  for ((i = 0; i < ${#value}; i++)); do
+    char="${value:i:1}"
+    printf -v code '%d' "'$char"
+    hash=$(( ((hash ^ code) * 16777619) & 0xffffffff ))
+  done
+  printf '%08x' "$hash"
+}
+
+socket_path_for_file_name() {
+  local directory="$HOME/Library/Application Support/cmux"
+  local file_name="$1"
+  local max_path_length=103
+  local candidate="${directory}/${file_name}"
+  if (( ${#candidate} <= max_path_length )); then
+    echo "$candidate"
+    return 0
+  fi
+
+  local budget=$((max_path_length - ${#directory} - 1))
+  local suffix=".sock"
+  local stem="${file_name%.sock}"
+  local hash_suffix="-$(fnv1a32_hex "$file_name")"
+  local stem_budget=$((budget - ${#hash_suffix} - ${#suffix}))
+  if (( stem_budget < 1 )); then
+    echo "$candidate"
+    return 0
+  fi
+  local shortened_stem="${stem:0:stem_budget}"
+  shortened_stem="$(echo "$shortened_stem" | sed -E 's/[.-]+$//')"
+  if [[ -z "$shortened_stem" ]]; then
+    shortened_stem="cmux"
+  fi
+  echo "${directory}/${shortened_stem}${hash_suffix}${suffix}"
+}
+
 is_valid_port() {
   local port="${1:-}"
   [[ "$port" =~ ^[0-9]+$ ]] || return 1
@@ -262,14 +302,16 @@ print_tag_cleanup_reminder() {
     echo "Cleanup stale tags only:"
     for tag in "${stale_tags[@]}"; do
       echo "  pkill -f \"cmux DEV ${tag}.app/Contents/MacOS/cmux DEV\""
-      echo "  rm -rf \"$(tagged_derived_data_path "$tag")\" \"/tmp/cmux-${tag}\" \"/tmp/cmux-debug-${tag}.sock\""
+      echo "  rm -rf \"$(tagged_derived_data_path "$tag")\" \"/tmp/cmux-${tag}\""
+      echo "  rm -f \"$(socket_path_for_file_name "com.cmuxterm.app.dev.${tag}.sock")\" \"/tmp/cmux-debug-${tag}.sock\""
       echo "  rm -f \"/tmp/cmux-debug-${tag}.log\""
       echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock\""
     done
   fi
   echo "After you verify current tag, cleanup command:"
   echo "  pkill -f \"cmux DEV ${current_slug}.app/Contents/MacOS/cmux DEV\""
-  echo "  rm -rf \"$(tagged_derived_data_path "$current_slug")\" \"/tmp/cmux-${current_slug}\" \"/tmp/cmux-debug-${current_slug}.sock\""
+  echo "  rm -rf \"$(tagged_derived_data_path "$current_slug")\" \"/tmp/cmux-${current_slug}\""
+  echo "  rm -f \"$(socket_path_for_file_name "com.cmuxterm.app.dev.${current_slug}.sock")\" \"/tmp/cmux-debug-${current_slug}.sock\""
   echo "  rm -f \"/tmp/cmux-debug-${current_slug}.log\""
   echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${current_slug}.sock\""
 }
@@ -554,7 +596,7 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
     if [[ -n "${TAG_SLUG:-}" ]]; then
       APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
       CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${TAG_SLUG}.sock"
-      CMUX_SOCKET_PATH_VALUE="/tmp/cmux-debug-${TAG_SLUG}.sock"
+      CMUX_SOCKET_PATH_VALUE="$(socket_path_for_file_name "com.cmuxterm.app.dev.${TAG_SLUG}.sock")"
       CMUX_DEBUG_LOG="/tmp/cmux-debug-${TAG_SLUG}.log"
       write_last_socket_path "$CMUX_SOCKET_PATH_VALUE"
       echo "$CMUX_DEBUG_LOG" > /tmp/cmux-last-debug-log-path || true

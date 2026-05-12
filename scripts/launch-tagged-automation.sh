@@ -34,6 +34,46 @@ sanitize_path() {
   echo "$cleaned"
 }
 
+fnv1a32_hex() {
+  local value="$1"
+  local hash=2166136261
+  local i char code
+  local LC_ALL=C
+  for ((i = 0; i < ${#value}; i++)); do
+    char="${value:i:1}"
+    printf -v code '%d' "'$char"
+    hash=$(( ((hash ^ code) * 16777619) & 0xffffffff ))
+  done
+  printf '%08x' "$hash"
+}
+
+socket_path_for_file_name() {
+  local directory="$HOME/Library/Application Support/cmux"
+  local file_name="$1"
+  local max_path_length=103
+  local candidate="${directory}/${file_name}"
+  if (( ${#candidate} <= max_path_length )); then
+    echo "$candidate"
+    return 0
+  fi
+
+  local budget=$((max_path_length - ${#directory} - 1))
+  local suffix=".sock"
+  local stem="${file_name%.sock}"
+  local hash_suffix="-$(fnv1a32_hex "$file_name")"
+  local stem_budget=$((budget - ${#hash_suffix} - ${#suffix}))
+  if (( stem_budget < 1 )); then
+    echo "$candidate"
+    return 0
+  fi
+  local shortened_stem="${stem:0:stem_budget}"
+  shortened_stem="$(echo "$shortened_stem" | sed -E 's/[.-]+$//')"
+  if [[ -z "$shortened_stem" ]]; then
+    shortened_stem="cmux"
+  fi
+  echo "${directory}/${shortened_stem}${hash_suffix}${suffix}"
+}
+
 if [[ $# -lt 1 ]]; then
   usage
   exit 1
@@ -106,7 +146,7 @@ TAG_ID="$(sanitize_bundle "$TAG")"
 TAG_SLUG="$(sanitize_path "$TAG")"
 APP="$HOME/Library/Developer/Xcode/DerivedData/cmux-${TAG_SLUG}/Build/Products/Debug/cmux DEV ${TAG}.app"
 BID="com.cmuxterm.app.debug.${TAG_ID}"
-SOCK="/tmp/cmux-debug-${TAG_SLUG}.sock"
+SOCK="$(socket_path_for_file_name "com.cmuxterm.app.dev.${TAG_SLUG}.sock")"
 DSOCK="$HOME/Library/Application Support/cmux/cmuxd-dev-${TAG_SLUG}.sock"
 LOG="/tmp/cmux-debug-${TAG_SLUG}.log"
 

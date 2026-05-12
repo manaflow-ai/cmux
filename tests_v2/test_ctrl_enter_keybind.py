@@ -31,10 +31,15 @@ def infer_app_name_for_osascript(socket_path: str) -> str:
     Examples:
       - /tmp/cmux-debug.sock          -> "cmux DEV"
       - /tmp/cmux-debug-foo.sock      -> "cmux DEV foo"
-      - ~/Library/Application Support/cmux/cmux.sock -> "cmux"
+      - ~/Library/Application Support/cmux/com.cmuxterm.app.sock -> "cmux"
       - /tmp/cmux-foo.sock            -> "cmux foo"
     """
     base = Path(socket_path).name
+    if base == "com.cmuxterm.app.sock":
+        return "cmux"
+    if base.startswith("com.cmuxterm.app.dev.") and base.endswith(".sock"):
+        tag = os.environ.get("CMUX_TAG", "").strip()
+        return f"cmux DEV {tag}" if tag else "cmux DEV"
     if base.startswith("cmux-debug") and base.endswith(".sock"):
         suffix = base[len("cmux-debug") : -len(".sock")]
         if suffix.startswith("-") and suffix[1:]:

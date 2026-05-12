@@ -756,7 +756,8 @@ private enum CLISocketPathSource {
 
 private enum CLISocketPathResolver {
     private static let appSupportDirectoryName = "cmux"
-    private static let stableSocketFileName = "cmux.sock"
+    private static let stableSocketFileName = "com.cmuxterm.app.sock"
+    private static let legacyStableSocketFileName = "cmux.sock"
     private static let lastSocketPathFileName = "last-socket-path"
     static let legacyDefaultSocketPath = "/tmp/cmux.sock"
     private static let fallbackSocketPath = "/tmp/cmux-debug.sock"
@@ -771,7 +772,9 @@ private enum CLISocketPathResolver {
     }
 
     static func isImplicitDefaultPath(_ path: String) -> Bool {
-        path == defaultSocketPath || path == legacyDefaultSocketPath
+        path == defaultSocketPath ||
+            path == legacyDefaultSocketPath ||
+            path == legacyStableSocketPath
     }
 
     static func resolve(
@@ -809,6 +812,7 @@ private enum CLISocketPathResolver {
 
         candidates.append(requestedPath)
         candidates.append(defaultSocketPath)
+        candidates.append(legacyStableSocketPath)
         candidates.append(legacyDefaultSocketPath)
         candidates.append(fallbackSocketPath)
         candidates.append(stagingSocketPath)
@@ -843,14 +847,14 @@ private enum CLISocketPathResolver {
                 continue
             }
             discovered.reserveCapacity(min(limit, discovered.count + entries.count))
-            for name in entries where name.hasPrefix("cmux") && name.hasSuffix(".sock") {
+            for name in entries where isDiscoverableSocketName(name) {
                 let path = URL(fileURLWithPath: directory)
                     .appendingPathComponent(name, isDirectory: false)
                     .path
                 var st = stat()
                 guard lstat(path, &st) == 0 else { continue }
                 guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { continue }
-                if path == defaultSocketPath || path == legacyDefaultSocketPath || path == fallbackSocketPath || path == stagingSocketPath {
+                if path == defaultSocketPath || path == legacyStableSocketPath || path == legacyDefaultSocketPath || path == fallbackSocketPath || path == stagingSocketPath {
                     continue
                 }
                 let modified = TimeInterval(st.st_mtimespec.tv_sec) + TimeInterval(st.st_mtimespec.tv_nsec) / 1_000_000_000
@@ -860,6 +864,11 @@ private enum CLISocketPathResolver {
 
         discovered.sort { $0.mtime > $1.mtime }
         return dedupe(discovered.prefix(limit).map(\.path))
+    }
+
+    private static func isDiscoverableSocketName(_ name: String) -> Bool {
+        guard name.hasSuffix(".sock") else { return false }
+        return name.hasPrefix("cmux") || name.hasPrefix("com.cmuxterm.app.")
     }
 
     private static func isSocketFile(_ path: String) -> Bool {
@@ -911,6 +920,13 @@ private enum CLISocketPathResolver {
             return nil
         }
         return appSupportDirectory.appendingPathComponent(appSupportDirectoryName, isDirectory: true)
+    }
+
+    private static var legacyStableSocketPath: String {
+        let stablePath: String? = stableSocketDirectoryURL()?
+            .appendingPathComponent(legacyStableSocketFileName, isDirectory: false)
+            .path
+        return stablePath ?? legacyDefaultSocketPath
     }
 
     private static func socketDiscoveryDirectories() -> [String] {

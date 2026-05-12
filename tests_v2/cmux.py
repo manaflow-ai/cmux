@@ -34,7 +34,8 @@ class cmuxError(Exception):
 
 
 _APP_SUPPORT_DIR = os.path.expanduser("~/Library/Application Support/cmux")
-_STABLE_SOCKET_PATH = os.path.join(_APP_SUPPORT_DIR, "cmux.sock")
+_STABLE_SOCKET_PATH = os.path.join(_APP_SUPPORT_DIR, "com.cmuxterm.app.sock")
+_LEGACY_APP_SUPPORT_SOCKET_PATH = os.path.join(_APP_SUPPORT_DIR, "cmux.sock")
 _LEGACY_STABLE_SOCKET_PATH = "/tmp/cmux.sock"
 _LAST_SOCKET_PATH_FILES = [
     os.path.join(_APP_SUPPORT_DIR, "last-socket-path"),
@@ -59,20 +60,30 @@ def _default_socket_path() -> str:
     if override:
         if os.path.exists(override):
             return override
-        if override not in {_STABLE_SOCKET_PATH, _LEGACY_STABLE_SOCKET_PATH}:
+        if override not in {
+            _STABLE_SOCKET_PATH,
+            _LEGACY_APP_SUPPORT_SOCKET_PATH,
+            _LEGACY_STABLE_SOCKET_PATH,
+        }:
             return override
 
     last_socket = _read_last_socket_path()
     if last_socket and os.path.exists(last_socket):
         return last_socket
 
-    candidates = ["/tmp/cmux-debug.sock", _STABLE_SOCKET_PATH, _LEGACY_STABLE_SOCKET_PATH]
+    candidates = [
+        "/tmp/cmux-debug.sock",
+        _STABLE_SOCKET_PATH,
+        _LEGACY_APP_SUPPORT_SOCKET_PATH,
+        _LEGACY_STABLE_SOCKET_PATH,
+    ]
     for path in candidates:
         if os.path.exists(path):
             return path
 
     discovered = glob.glob("/tmp/cmux-debug-*.sock")
     discovered.extend(glob.glob(os.path.join(_APP_SUPPORT_DIR, "cmux*.sock")))
+    discovered.extend(glob.glob(os.path.join(_APP_SUPPORT_DIR, "com.cmuxterm.app*.sock")))
     discovered = [path for path in discovered if os.path.exists(path)]
     if discovered:
         discovered.sort(key=os.path.getmtime, reverse=True)

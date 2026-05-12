@@ -26,6 +26,32 @@ def sanitize_path(raw: str) -> str:
     return cleaned or "perf"
 
 
+def fnv1a32_hex(value: str) -> str:
+    hash_value = 2_166_136_261
+    for byte in value.encode("utf-8"):
+        hash_value ^= byte
+        hash_value = (hash_value * 16_777_619) & 0xFFFFFFFF
+    return f"{hash_value:08x}"
+
+
+def socket_path_for_file_name(file_name: str) -> pathlib.Path:
+    directory = pathlib.Path(os.path.expanduser("~/Library/Application Support/cmux"))
+    candidate = directory / file_name
+    max_path_length = 103
+    if len(str(candidate).encode("utf-8")) <= max_path_length:
+        return candidate
+
+    budget = max_path_length - len(str(directory).encode("utf-8")) - 1
+    suffix = ".sock"
+    stem = file_name[:-len(suffix)] if file_name.endswith(suffix) else file_name
+    hash_suffix = f"-{fnv1a32_hex(file_name)}"
+    stem_budget = budget - len(hash_suffix.encode("utf-8")) - len(suffix)
+    if stem_budget < 1:
+        return candidate
+    shortened_stem = stem[:stem_budget].rstrip(".-") or "cmux"
+    return directory / f"{shortened_stem}{hash_suffix}{suffix}"
+
+
 def now_ms() -> float:
     return time.perf_counter() * 1000.0
 
@@ -44,7 +70,7 @@ class CmuxPerfRunner:
         self.tag = args.tag
         self.tag_slug = sanitize_path(args.tag)
         self.tag_id = sanitize_bundle(args.tag)
-        self.socket_path = pathlib.Path(f"/tmp/cmux-debug-{self.tag_slug}.sock")
+        self.socket_path = socket_path_for_file_name(f"com.cmuxterm.app.dev.{self.tag_slug}.sock")
         self.cmuxd_socket_path = pathlib.Path(
             os.path.expanduser(f"~/Library/Application Support/cmux/cmuxd-dev-{self.tag_slug}.sock")
         )
