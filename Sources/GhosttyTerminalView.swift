@@ -20,6 +20,9 @@ private func ghostty_surface_clear_selection_compat(_ surface: ghostty_surface_t
 @_silgen_name("ghostty_surface_select_cursor_cell")
 private func ghostty_surface_select_cursor_cell_compat(_ surface: ghostty_surface_t) -> Bool
 
+@_silgen_name("ghostty_surface_select_cursor_line")
+private func ghostty_surface_select_cursor_line_compat(_ surface: ghostty_surface_t) -> Bool
+
 enum GhosttyStartupAppearancePreviewProfile: String, CaseIterable, Identifiable {
     case realUserConfig
     case freshInstall
@@ -1429,33 +1432,6 @@ func terminalKeyboardCopyModeInitialViewportRow(
     // cursor baseline plus one cell-height. Convert that to a zero-based row.
     let estimatedRow = Int(floor(((imePointY - topPadding) / imeCellHeight) - 1))
     return max(0, min(clampedRows - 1, estimatedRow))
-}
-
-func terminalCursorCellClickPoint(
-    imePointX: Double,
-    imePointY: Double,
-    imeCellWidth: Double,
-    imeCellHeight: Double,
-    fallbackCellSize: CGSize,
-    boundsSize: CGSize
-) -> CGPoint {
-    let cellWidth = max(imeCellWidth, Double(fallbackCellSize.width), 1)
-    let cellHeight = max(imeCellHeight, Double(fallbackCellSize.height), 1)
-    return CGPoint(
-        x: terminalClampSurfaceClickCoordinate(
-            imePointX + cellWidth * 0.5,
-            upperBound: Double(boundsSize.width)
-        ),
-        y: terminalClampSurfaceClickCoordinate(
-            imePointY - cellHeight * 0.5,
-            upperBound: Double(boundsSize.height)
-        )
-    )
-}
-
-func terminalClampSurfaceClickCoordinate(_ value: Double, upperBound: Double) -> Double {
-    guard upperBound > 0 else { return 0 }
-    return min(max(value, 0), max(upperBound - 1, 0))
 }
 
 private func terminalKeyboardCopyModeNormalizedModifiers(
@@ -7074,60 +7050,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func selectCommandLineAtCursor(surface: ghostty_surface_t) -> Bool {
-        // Ghostty reports active xterm mouse reporting as captured; do not send
-        // synthetic selection clicks while a TUI owns mouse events.
-        guard !ghostty_surface_mouse_captured(surface) else { return false }
-        guard bounds.width > 0, bounds.height > 0 else { return false }
-
-        var x: Double = 0
-        var y: Double = 0
-        var width: Double = cellSize.width
-        var height: Double = cellSize.height
-        ghostty_surface_ime_point(surface, &x, &y, &width, &height)
-
-        let clickPoint = terminalCursorCellClickPoint(
-            imePointX: x,
-            imePointY: y,
-            imeCellWidth: width,
-            imeCellHeight: height,
-            fallbackCellSize: cellSize,
-            boundsSize: bounds.size
-        )
-        let clickX = Double(clickPoint.x)
-        let clickY = Double(clickPoint.y)
-        let resetX = clickX > max(cellSize.width * 2, 2) ? 0 : max(bounds.width - 1, 0)
-        let resetY = clickY > max(cellSize.height * 2, 2) ? 0 : max(bounds.height - 1, 0)
-
-        let mods = GHOSTTY_MODS_NONE
-        _ = ghostty_surface_clear_selection_compat(surface)
-
-        // Force Ghostty's multi-click state to restart before issuing the triple
-        // click that reaches Screen.selectLine and its OSC 133 input boundaries.
-        guard sendSurfaceLeftClick(surface: surface, x: resetX, y: resetY, mods: mods) else {
-            return false
-        }
-
-        for _ in 0 ..< 3 {
-            guard sendSurfaceLeftClick(surface: surface, x: clickX, y: clickY, mods: mods) else {
-                return false
-            }
-        }
-
-        return ghostty_surface_has_selection(surface)
-    }
-
-    private func sendSurfaceLeftClick(
-        surface: ghostty_surface_t,
-        x: Double,
-        y: Double,
-        mods: ghostty_input_mods_e
-    ) -> Bool {
-        ghostty_surface_mouse_pos(surface, x, y, mods)
-        guard ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods) else {
-            return false
-        }
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
-        return true
+        ghostty_surface_select_cursor_line_compat(surface)
     }
 
     @IBAction func copy(_ sender: Any?) {
