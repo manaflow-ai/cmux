@@ -187,6 +187,14 @@ final class AuthManager: ObservableObject {
     private var nextBrowserSignInAttemptID: UInt64 = 0
     private var activeBrowserSignInAttemptID: UInt64?
     private var signOutCancelledBrowserSignInAttemptID: UInt64?
+    private var authMutationGeneration: UInt64 = 0
+    private var currentAuthMutationKind: AuthMutationKind?
+
+    private enum AuthMutationKind {
+        case restore
+        case signIn
+        case signOut
+    }
 
     #if DEBUG
     func markBrowserSignInLoadingForTesting() {
@@ -412,6 +420,7 @@ final class AuthManager: ObservableObject {
         guard let payload = AuthCallbackRouter.callbackPayload(from: url) else {
             throw AuthManagerError.invalidCallback
         }
+        let mutationGeneration = beginAuthMutation(.signIn)
 
         isLoading = true
         defer { isLoading = false }
@@ -420,8 +429,28 @@ final class AuthManager: ObservableObject {
             accessToken: payload.accessToken,
             refreshToken: payload.refreshToken
         )
+        guard await keepAuthMutationIfCurrent(
+            mutationGeneration,
+            accessToken: payload.accessToken
+        ) else {
+            return
+        }
         lastKnownAccessToken = payload.accessToken
-        try await refreshSession()
+        do {
+            try await refreshSession(expectedAuthMutation: mutationGeneration)
+        } catch AuthManagerError.invalidCallback where !isCurrentAuthMutation(mutationGeneration) {
+            _ = await keepAuthMutationIfCurrent(
+                mutationGeneration,
+                accessToken: payload.accessToken
+            )
+            return
+        }
+        guard await keepAuthMutationIfCurrent(
+            mutationGeneration,
+            accessToken: payload.accessToken
+        ) else {
+            return
+        }
         didCompleteBrowserSignIn = true
     }
 
@@ -591,9 +620,11 @@ final class AuthManager: ObservableObject {
     }
 
     func signOut() async {
+        _ = beginAuthMutation(.signOut)
         cancelBrowserSignInForSignOut()
         try? await client.signOut()
         await tokenStore.clear()
+        _ = beginAuthMutation(.signOut)
         clearSessionState(clearSelectedTeam: true)
     }
 
@@ -602,6 +633,9 @@ final class AuthManager: ObservableObject {
 
     func getAccessToken() async throws -> String {
         await awaitBootstrapped()
+        guard isAuthenticated else {
+            throw AuthManagerError.missingAccessToken
+        }
         if let cached = lastKnownAccessToken, !cached.isEmpty {
             return cached
         }
@@ -634,6 +668,7 @@ final class AuthManager: ObservableObject {
     }
 
     private func restoreStoredSessionIfNeeded() async {
+        let mutationGeneration = beginAuthMutation(.restore)
         let accessToken = await tokenStore.currentAccessToken()
         let refreshToken = await tokenStore.currentRefreshToken()
         let hasAccessToken = accessToken != nil && !(accessToken?.isEmpty ?? true)
@@ -650,7 +685,7 @@ final class AuthManager: ObservableObject {
         defer { isRestoringSession = false }
 
         do {
-            try await refreshSession()
+            try await refreshSession(expectedAuthMutation: mutationGeneration)
             authLog("restore: success user=\(currentUser?.primaryEmail ?? "nil") auth=\(isAuthenticated)")
         } catch {
             authLog("restore: failed error=\(error)")
@@ -691,7 +726,7 @@ final class AuthManager: ObservableObject {
         Self.authLog(message)
     }
 
-    private func refreshSession() async throws {
+    private func refreshSession(expectedAuthMutation: UInt64? = nil) async throws {
         let user: CMUXAuthUser?
         do {
             user = try await client.currentUser()
@@ -707,10 +742,13 @@ final class AuthManager: ObservableObject {
             throw error
         }
         let hasRefreshToken = await tokenStore.currentRefreshToken() != nil
+        try requireCurrentAuthMutation(expectedAuthMutation)
         authLog("refreshSession: user=\(user?.primaryEmail ?? "nil") teams=\(teams.count) hasRefresh=\(hasRefreshToken)")
         if let accessToken = await tokenStore.currentAccessToken(), !accessToken.isEmpty {
+            try requireCurrentAuthMutation(expectedAuthMutation)
             lastKnownAccessToken = accessToken
         }
+        try requireCurrentAuthMutation(expectedAuthMutation)
         currentUser = user
         settingsStore.saveCachedUser(user)
         availableTeams = teams
@@ -728,6 +766,42 @@ final class AuthManager: ObservableObject {
             selectedTeamID = nil
         }
         settingsStore.saveCachedUser(nil)
+    }
+
+    @discardableResult
+    private func beginAuthMutation(_ kind: AuthMutationKind) -> UInt64 {
+        authMutationGeneration &+= 1
+        currentAuthMutationKind = kind
+        return authMutationGeneration
+    }
+
+    private func isCurrentAuthMutation(_ generation: UInt64) -> Bool {
+        authMutationGeneration == generation
+    }
+
+    private func requireCurrentAuthMutation(_ generation: UInt64?) throws {
+        guard let generation else { return }
+        guard isCurrentAuthMutation(generation) else {
+            throw AuthManagerError.invalidCallback
+        }
+    }
+
+    private func keepAuthMutationIfCurrent(
+        _ generation: UInt64,
+        accessToken: String
+    ) async -> Bool {
+        guard !isCurrentAuthMutation(generation) else {
+            return true
+        }
+        let cachedMatches = lastKnownAccessToken == accessToken
+        let storedMatches = await tokenStore.currentAccessToken() == accessToken
+        if storedMatches {
+            await tokenStore.clear()
+        }
+        if cachedMatches || storedMatches || currentAuthMutationKind == .signOut {
+            clearSessionState(clearSelectedTeam: true)
+        }
+        return false
     }
 
     private func startBrowserSignInAttempt() -> UInt64 {
