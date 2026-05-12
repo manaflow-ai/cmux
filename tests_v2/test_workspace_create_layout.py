@@ -7,6 +7,7 @@ import os
 import sys
 import time
 import base64
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -212,6 +213,85 @@ def test_multi_surface_pane(c: cmux) -> None:
     print("  PASS: multi-surface pane creates tabs within one pane")
 
 
+def test_markdown_surfaces_resolve_paths(c: cmux) -> None:
+    """Markdown surfaces are created as tabs with resolved file paths."""
+    baseline = c.current_workspace()
+    ws = ""
+    with tempfile.TemporaryDirectory(prefix="cmux-layout-markdown-") as root:
+        root_path = Path(root)
+        docs_path = root_path / "docs"
+        docs_path.mkdir(parents=True)
+        readme_path = root_path / "README.md"
+        plan_path = docs_path / "plan.md"
+        readme_path.write_text("# Readme\n", encoding="utf-8")
+        plan_path.write_text("# Plan\n", encoding="utf-8")
+
+        try:
+            ws = _create_and_get_id(c, {
+                "title": "test_markdown_layout",
+                "cwd": str(root_path),
+                "layout": {
+                    "pane": {
+                        "surfaces": [
+                            {"type": "terminal", "name": "Shell"},
+                            {"type": "markdown", "path": "README.md"},
+                            {"type": "markdown", "path": "docs/plan.md", "focus": True},
+                        ],
+                    },
+                },
+            })
+            c.select_workspace(ws)
+            _must(_pane_count(c, ws) == 1, f"expected 1 pane, got {_pane_count(c, ws)}")
+            surfaces = _surface_list(c, ws)
+            markdown_surfaces = [s for s in surfaces if s.get("type") == "markdown"]
+            _must(len(markdown_surfaces) == 2, f"expected 2 markdown surfaces, got {markdown_surfaces!r}")
+            _must(
+                {str(s.get("path")) for s in markdown_surfaces} == {str(readme_path), str(plan_path)},
+                f"markdown paths were not resolved: {markdown_surfaces!r}",
+            )
+            pane_ids = {str(s.get("pane_id")) for s in markdown_surfaces}
+            _must(len(pane_ids) == 1, f"markdown surfaces should share one pane: {markdown_surfaces!r}")
+            focused_paths = {str(s.get("path")) for s in markdown_surfaces if s.get("focused") is True}
+            _must(focused_paths == {str(plan_path)}, f"focused markdown surface mismatch: {markdown_surfaces!r}")
+            c.select_workspace(baseline)
+        finally:
+            if ws:
+                _close_workspace_quietly(c, ws)
+    print("  PASS: markdown layout surfaces resolve paths and stay in one pane")
+
+
+def test_missing_markdown_path_rejected(c: cmux) -> None:
+    """Invalid markdown paths fail before workspace creation commits."""
+    baseline_workspaces = c._call("workspace.list") or {}
+    baseline_count = len((baseline_workspaces.get("workspaces") or []))
+
+    with tempfile.TemporaryDirectory(prefix="cmux-layout-markdown-missing-") as root:
+        try:
+            c._call("workspace.create", {
+                "title": "test_missing_markdown",
+                "cwd": root,
+                "layout": {
+                    "pane": {
+                        "surfaces": [
+                            {"type": "terminal", "name": "Shell"},
+                            {"type": "markdown", "path": "missing.md"},
+                        ],
+                    },
+                },
+            })
+            raise cmuxError("Expected error for missing markdown path, but call succeeded")
+        except cmuxError as e:
+            if "not_found" in str(e) or "Invalid layout" in str(e):
+                pass  # expected
+            else:
+                raise
+
+    after_workspaces = c._call("workspace.list") or {}
+    after_count = len((after_workspaces.get("workspaces") or []))
+    _must(after_count == baseline_count, f"missing markdown path created a workspace: {baseline_count} -> {after_count}")
+    print("  PASS: missing markdown paths are rejected without creating a workspace")
+
+
 def test_malformed_layout_rejected(c: cmux) -> None:
     """Malformed layout returns an error and does not create a workspace."""
     baseline_workspaces = c._call("workspace.list") or {}
@@ -316,6 +396,8 @@ def main() -> int:
         test_env_vars(c)
         test_surface_commands(c)
         test_multi_surface_pane(c)
+        test_markdown_surfaces_resolve_paths(c)
+        test_missing_markdown_path_rejected(c)
         test_layout_overrides_initial_command_and_env(c)
         test_malformed_layout_rejected(c)
         test_empty_surfaces_rejected(c)
