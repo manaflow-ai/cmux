@@ -461,7 +461,7 @@ nonisolated enum MarkdownMermaidHTMLDocument {
     }
 
     static func javaScriptStringLiteral(_ value: String) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: [value], options: []),
+        guard let data = try? JSONSerialization.data(withJSONObject: [value], options: [.withoutEscapingSlashes]),
               var encoded = String(data: data, encoding: .utf8) else {
             assertionFailure("JSONSerialization unexpectedly failed for string literal encoding")
             return "\"\""
