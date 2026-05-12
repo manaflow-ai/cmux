@@ -7109,6 +7109,7 @@ class TerminalController {
 
     private func readTerminalTextFromVTExportForSnapshot(
         terminalPanel: TerminalPanel,
+        bindingAction: String = "write_screen_file:copy,vt",
         lineLimit: Int?
     ) -> String? {
         let pasteboard = NSPasteboard.general
@@ -7118,7 +7119,7 @@ class TerminalController {
         }
 
         let initialChangeCount = pasteboard.changeCount
-        guard terminalPanel.performBindingAction("write_screen_file:copy,vt") else {
+        guard terminalPanel.performBindingAction(bindingAction) else {
             return nil
         }
         guard pasteboard.changeCount != initialChangeCount else {
@@ -7148,19 +7149,38 @@ class TerminalController {
         return output
     }
 
-    func readTerminalTextForSnapshot(
+    private struct MobileTerminalSnapshotText {
+        var text: String
+        var fidelity: String
+    }
+
+    private func readMobileTerminalViewportTextForSnapshot(
+        terminalPanel: TerminalPanel,
+        lineLimit: Int
+    ) -> MobileTerminalSnapshotText? {
+        if let vtOutput = readTerminalTextFromVTExportForSnapshot(
+            terminalPanel: terminalPanel,
+            bindingAction: "write_screen_file:copy,vt",
+            lineLimit: lineLimit
+        ) {
+            return MobileTerminalSnapshotText(text: vtOutput, fidelity: "ansi_vt")
+        }
+
+        guard let plainText = readPlainTerminalTextForSnapshot(
+            terminalPanel: terminalPanel,
+            includeScrollback: false,
+            lineLimit: lineLimit
+        ) else {
+            return nil
+        }
+        return MobileTerminalSnapshotText(text: plainText, fidelity: "plain_text")
+    }
+
+    private func readPlainTerminalTextForSnapshot(
         terminalPanel: TerminalPanel,
         includeScrollback: Bool = false,
         lineLimit: Int? = nil
     ) -> String? {
-        if includeScrollback,
-           let vtOutput = readTerminalTextFromVTExportForSnapshot(
-               terminalPanel: terminalPanel,
-               lineLimit: lineLimit
-           ) {
-            return vtOutput
-        }
-
         let response = readTerminalTextBase64(
             terminalPanel: terminalPanel,
             includeScrollback: includeScrollback,
@@ -7176,6 +7196,26 @@ class TerminalController {
             return nil
         }
         return decoded
+    }
+
+    func readTerminalTextForSnapshot(
+        terminalPanel: TerminalPanel,
+        includeScrollback: Bool = false,
+        lineLimit: Int? = nil
+    ) -> String? {
+        if includeScrollback,
+           let vtOutput = readTerminalTextFromVTExportForSnapshot(
+               terminalPanel: terminalPanel,
+               lineLimit: lineLimit
+           ) {
+            return vtOutput
+        }
+
+        return readPlainTerminalTextForSnapshot(
+            terminalPanel: terminalPanel,
+            includeScrollback: includeScrollback,
+            lineLimit: lineLimit
+        )
     }
 
     func readTerminalTextForSessionSnapshot(
@@ -17524,7 +17564,7 @@ class TerminalController {
             "workspace_count": tabManager?.tabs.count ?? 0,
             "selected_workspace_id": selectedWorkspaceID?.uuidString ?? NSNull(),
             "selected_terminal_id": selectedWorkspace?.focusedPanelId?.uuidString ?? NSNull(),
-            "snapshot_fidelity": "ansi_vt"
+            "snapshot_fidelity": "ansi_vt_or_plain_text_fallback"
         ])
     }
 
@@ -17683,32 +17723,38 @@ class TerminalController {
         let columns = max(Int(size.columns), 1)
         let rows = max(Int(size.rows), 1)
 
-        guard let viewportText = readTerminalTextForSnapshot(
+        guard let viewportText = readMobileTerminalViewportTextForSnapshot(
             terminalPanel: terminalPanel,
-            includeScrollback: true,
-            lineLimit: rows
-        ) ?? readTerminalTextForSnapshot(
-            terminalPanel: terminalPanel,
-            includeScrollback: false,
             lineLimit: rows
         ) else {
             return .err(code: "internal_error", message: "Failed to read terminal viewport", data: nil)
         }
 
         let scrollbackText: String?
+        let scrollbackFidelity: String?
         if let maxScrollbackRows, maxScrollbackRows > 0,
-           let combinedText = readTerminalTextForSnapshot(
+           let vtScrollbackText = readTerminalTextFromVTExportForSnapshot(
                terminalPanel: terminalPanel,
-               includeScrollback: true,
-               lineLimit: maxScrollbackRows + rows
+               bindingAction: "write_scrollback_file:copy,vt",
+               lineLimit: maxScrollbackRows
            ) {
+            scrollbackText = vtScrollbackText
+            scrollbackFidelity = "ansi_vt"
+        } else if let maxScrollbackRows, maxScrollbackRows > 0,
+                  let combinedText = readPlainTerminalTextForSnapshot(
+                      terminalPanel: terminalPanel,
+                      includeScrollback: true,
+                      lineLimit: maxScrollbackRows + rows
+                  ) {
             scrollbackText = Self.mobileScrollbackText(
                 combinedText: combinedText,
-                viewportText: viewportText,
+                viewportText: viewportText.text,
                 maxRows: maxScrollbackRows
             )
+            scrollbackFidelity = "plain_text"
         } else {
             scrollbackText = nil
+            scrollbackFidelity = nil
         }
 
         do {
@@ -17717,7 +17763,7 @@ class TerminalController {
                 columns: columns,
                 rows: rows,
                 scrollbackText: scrollbackText,
-                viewportText: viewportText,
+                viewportText: viewportText.text,
                 maxScrollbackRows: maxScrollbackRows,
                 activeScreen: .primary,
                 streamOffset: 0,
@@ -17728,18 +17774,40 @@ class TerminalController {
                 "workspace_id": workspace.id.uuidString,
                 "surface_id": terminalPanel.id.uuidString,
                 "snapshot": try mobileJSONObject(snapshot),
-                "fidelity": "ansi_vt",
-                "limitations": [
-                    "ghostty_grid_metadata_unavailable",
-                    "active_screen_unavailable",
-                    "stream_offset_unavailable"
-                ]
+                "fidelity": viewportText.fidelity,
+                "scrollback_fidelity": scrollbackFidelity ?? NSNull(),
+                "limitations": mobileTerminalSnapshotLimitations(
+                    viewportFidelity: viewportText.fidelity,
+                    scrollbackFidelity: scrollbackFidelity
+                )
             ])
         } catch {
             return .err(code: "internal_error", message: "Failed to build terminal snapshot", data: [
                 "error": String(describing: error)
             ])
         }
+    }
+
+    private func mobileTerminalSnapshotLimitations(
+        viewportFidelity: String,
+        scrollbackFidelity: String?
+    ) -> [String] {
+        var limitations = [
+            "ghostty_grid_metadata_unavailable",
+            "active_screen_unavailable",
+            "stream_offset_unavailable",
+            "hyperlinks_unavailable_from_vt_export"
+        ]
+        if viewportFidelity == "ansi_vt" || scrollbackFidelity == "ansi_vt" {
+            limitations.append("styled_cells_rehydrated_from_sgr_not_ghostty_grid")
+        }
+        if viewportFidelity == "plain_text" {
+            limitations.append("visible_style_metadata_unavailable_from_read_text")
+        }
+        if scrollbackFidelity == "plain_text" {
+            limitations.append("scrollback_style_metadata_unavailable_from_read_text")
+        }
+        return limitations
     }
 
     private func mobileResolveWorkspaceAndSurface(

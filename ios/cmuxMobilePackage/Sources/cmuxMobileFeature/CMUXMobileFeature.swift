@@ -716,7 +716,7 @@ struct PairingView: View {
 
                         AddDeviceInputRow(
                             title: L10n.string("mobile.addDevice.hostLabel", defaultValue: "HOST"),
-                            placeholder: L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "192.168.1.10, devbox.local, or 100.x.y.z"),
+                            placeholder: L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "100.x.y.z or your-mac.local"),
                             text: $host,
                             focusedField: $focusedField,
                             field: .host,
@@ -746,7 +746,7 @@ struct PairingView: View {
                     Button {
                         pair()
                     } label: {
-                        Text(L10n.string("mobile.addDevice.pair", defaultValue: "Connect"))
+                        Text(L10n.string("mobile.addDevice.pair", defaultValue: "Pair"))
                             .font(.system(size: 20, weight: .bold))
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
@@ -759,7 +759,7 @@ struct PairingView: View {
                     .accessibilityIdentifier("MobilePairButton")
 
                     VStack(spacing: 14) {
-                        Text(L10n.string("mobile.addDevice.help", defaultValue: "Enter any reachable host or IP, including LAN IPs, DNS names, and Tailscale 100.x addresses. On your Mac, enable Mobile sync in cmux."))
+                        Text(L10n.string("mobile.addDevice.help", defaultValue: "Enter any reachable host, including a Tailscale 100.x IP, LAN IP, or local device name. On your Mac, enable Mobile sync in cmux."))
                             .font(.system(size: 17, weight: .medium))
                             .foregroundStyle(AddDevicePalette.secondaryText)
                             .multilineTextAlignment(.center)
@@ -883,7 +883,13 @@ private struct AddDeviceInputRow: View {
                 .tracking(2.5)
                 .foregroundStyle(AddDevicePalette.labelText)
 
-            TextField(placeholder, text: $text)
+            TextField(
+                text: $text,
+                prompt: Text(placeholder)
+                    .foregroundStyle(AddDevicePalette.placeholderText)
+            ) {
+                Text(placeholder)
+            }
                 .font(.system(size: 23, weight: .regular))
                 .foregroundStyle(.white)
                 .tint(.white)
@@ -928,6 +934,7 @@ private enum AddDevicePalette {
     static let closeBackground = Color(red: 0.095, green: 0.095, blue: 0.12)
     static let stroke = Color.white.opacity(0.055)
     static let labelText = Color.white.opacity(0.52)
+    static let placeholderText = Color.white.opacity(0.58)
     static let secondaryText = Color.white.opacity(0.48)
     static let pairGradient = LinearGradient(
         colors: [
@@ -1666,11 +1673,8 @@ struct TerminalPreviewSurface: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
-                    .frame(
-                        minWidth: proxy.size.width,
-                        minHeight: proxy.size.height,
-                        alignment: .topLeading
-                    )
+                    .containerRelativeFrame(.horizontal)
+                    .frame(minHeight: proxy.size.height, alignment: .topLeading)
                 }
             }
         }

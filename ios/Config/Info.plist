@@ -47,6 +47,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan cmux pairing QR codes from your Mac terminal.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Connect to your Mac on the local network for cmux mobile pairing and terminal sync.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

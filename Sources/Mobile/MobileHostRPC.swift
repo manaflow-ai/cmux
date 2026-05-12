@@ -4,6 +4,13 @@ struct MobileHostRPCRequest: @unchecked Sendable {
     let id: Any?
     let method: String
     let params: [String: Any]
+    let auth: MobileHostRPCAuth?
+}
+
+struct MobileHostRPCAuth: @unchecked Sendable {
+    let attachToken: String?
+    let stackAccessToken: String?
+    let stackRefreshToken: String?
 }
 
 struct MobileHostRPCError: Error, @unchecked Sendable {
@@ -45,7 +52,8 @@ enum MobileHostRPCEnvelope {
             MobileHostRPCRequest(
                 id: dict["id"],
                 method: method,
-                params: dict["params"] as? [String: Any] ?? [:]
+                params: dict["params"] as? [String: Any] ?? [:],
+                auth: decodeAuth(dict["auth"] as? [String: Any])
             )
         )
     }
@@ -103,5 +111,27 @@ enum MobileHostRPCEnvelope {
             )
         }
         return data
+    }
+
+    private static func decodeAuth(_ auth: [String: Any]?) -> MobileHostRPCAuth? {
+        guard let auth else {
+            return nil
+        }
+        let attachToken = nonEmptyString(auth["attach_token"])
+        let accessToken = nonEmptyString(auth["stack_access_token"])
+        let refreshToken = nonEmptyString(auth["stack_refresh_token"])
+        guard attachToken != nil || accessToken != nil || refreshToken != nil else {
+            return nil
+        }
+        return MobileHostRPCAuth(
+            attachToken: attachToken,
+            stackAccessToken: accessToken,
+            stackRefreshToken: refreshToken
+        )
+    }
+
+    private static func nonEmptyString(_ value: Any?) -> String? {
+        let trimmed = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 }

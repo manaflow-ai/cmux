@@ -380,6 +380,15 @@ final class AuthManager {
 
         throw AuthError.unauthorized
     }
+
+    func currentTokens() async throws -> (accessToken: String, refreshToken: String) {
+        let accessToken = try await getAccessToken()
+        guard let refreshToken = await stack.getRefreshToken(),
+              !refreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw AuthError.unauthorized
+        }
+        return (accessToken, refreshToken)
+    }
 }
 
 private extension AuthManager {

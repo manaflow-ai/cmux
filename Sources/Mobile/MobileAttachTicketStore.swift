@@ -1,5 +1,8 @@
 import CMUXMobileCore
 import Foundation
+#if canImport(Security)
+import Security
+#endif
 
 enum MobileAttachTicketStoreError: Error {
     case noRoutes
@@ -32,7 +35,8 @@ final class MobileAttachTicketStore {
             macDeviceID: MobileHostIdentity.deviceID(),
             macDisplayName: MobileHostIdentity.displayName(),
             routes: routes,
-            expiresAt: now.addingTimeInterval(max(30, ttl))
+            expiresAt: now.addingTimeInterval(max(30, ttl)),
+            authToken: Self.randomBearerToken()
         )
         records[key(workspaceID: workspaceID, terminalID: terminalID)] = Record(
             ticket: ticket,
@@ -48,6 +52,17 @@ final class MobileAttachTicketStore {
             "expires_at": ISO8601DateFormatter().string(from: ticket.expiresAt),
             "routes": ticket.routes.map(\.mobileHostJSONObject)
         ]
+    }
+
+    func containsValidTicket(authToken: String?, now: Date = Date()) -> Bool {
+        pruneExpired(now: now)
+        guard let authToken = authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !authToken.isEmpty else {
+            return false
+        }
+        return records.values.contains { record in
+            record.ticket.authToken == authToken && record.ticket.expiresAt > now
+        }
     }
 
     private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
@@ -81,6 +96,19 @@ final class MobileAttachTicketStore {
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
+    }
+
+    private static func randomBearerToken(byteCount: Int = 32) -> String {
+        #if canImport(Security)
+        var bytes = [UInt8](repeating: 0, count: byteCount)
+        let status = bytes.withUnsafeMutableBytes { buffer in
+            SecRandomCopyBytes(kSecRandomDefault, byteCount, buffer.baseAddress!)
+        }
+        if status == errSecSuccess {
+            return base64URLEncode(Data(bytes))
+        }
+        #endif
+        return UUID().uuidString + UUID().uuidString
     }
 }
 

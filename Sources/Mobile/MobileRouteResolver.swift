@@ -98,12 +98,18 @@ extension CmxAttachRoute {
                 "host": host,
                 "port": port
             ]
-        case let .peer(id, relayHint):
+        case let .peer(id, relayHint, directAddrs, relayURL):
             endpointPayload = [
                 "type": "peer",
                 "id": id,
-                "relay_hint": relayHint ?? NSNull()
+                "relay_hint": relayHint ?? NSNull(),
             ]
+            if !directAddrs.isEmpty {
+                endpointPayload["direct_addrs"] = directAddrs
+            }
+            if let relayURL {
+                endpointPayload["relay_url"] = relayURL
+            }
         case let .url(url):
             endpointPayload = [
                 "type": "url",

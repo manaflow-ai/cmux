@@ -304,6 +304,9 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
         streamOffset: UInt64 = 0,
         generatedAt: Date = Date()
     ) throws -> MobileTerminalGhosttySnapshot {
+        // This rehydrates styles from Ghostty VT/ANSI exports. It is not a
+        // true Ghostty grid exporter: plain text snapshots have already lost
+        // cell colors, width metadata, hyperlinks, and unsupported attributes.
         let visibleRows = styledRows(from: viewportText, columns: columns)
         var scrollbackRows = styledRows(from: scrollbackText ?? "", columns: columns)
         if let maxScrollbackRows {
@@ -524,14 +527,11 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
         _ rawParameters: String,
         to style: inout MobileTerminalGhosttyCellStyle
     ) {
-        let parameters = rawParameters.isEmpty
-            ? [0]
-            : rawParameters.split(whereSeparator: { $0 == ";" || $0 == ":" })
-                .map { Int($0) ?? 0 }
+        let parameters = sgrParameters(rawParameters)
 
         var index = 0
         while index < parameters.count {
-            let parameter = parameters[index]
+            let parameter = parameters[index].value
             switch parameter {
             case 0:
                 style = MobileTerminalGhosttyCellStyle()
@@ -542,7 +542,7 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
             case 3:
                 style.italic = true
             case 4:
-                style.underline = .single
+                style.underline = underlineStyle(from: parameters[index].subparameters.dropFirst()) ?? .single
             case 21:
                 style.underline = .double
             case 22:
@@ -568,12 +568,12 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
                 style.foreground = xtermColor(index: parameter - 90 + 8)
             case 100...107:
                 style.background = xtermColor(index: parameter - 100 + 8)
-            case 38, 48:
+            case 38, 48, 58:
                 let parsed = parseExtendedColor(parameters: parameters, start: index + 1)
                 if let color = parsed.color {
                     if parameter == 38 {
                         style.foreground = color
-                    } else {
+                    } else if parameter == 48 {
                         style.background = color
                     }
                 }
@@ -585,24 +585,80 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
         }
     }
 
+    private struct SGRParameter {
+        var value: Int
+        var subparameters: [Int]
+    }
+
+    private static func sgrParameters(_ rawParameters: String) -> [SGRParameter] {
+        if rawParameters.isEmpty {
+            return [SGRParameter(value: 0, subparameters: [0])]
+        }
+
+        return rawParameters.split(separator: ";", omittingEmptySubsequences: false).map { group in
+            let subparameters = group.split(separator: ":", omittingEmptySubsequences: false)
+                .map { Int($0) ?? 0 }
+            return SGRParameter(
+                value: subparameters.first ?? 0,
+                subparameters: subparameters
+            )
+        }
+    }
+
+    private static func underlineStyle(
+        from rawSubparameters: ArraySlice<Int>
+    ) -> MobileTerminalGhosttyUnderline? {
+        guard let value = rawSubparameters.first else {
+            return nil
+        }
+        switch value {
+        case 0:
+            return MobileTerminalGhosttyUnderline.none
+        case 1:
+            return .single
+        case 2:
+            return .double
+        case 3:
+            return .curly
+        case 4:
+            return .dotted
+        case 5:
+            return .dashed
+        default:
+            return nil
+        }
+    }
+
     private static func parseExtendedColor(
-        parameters: [Int],
+        parameters: [SGRParameter],
         start: Int
     ) -> (color: MobileTerminalGhosttyColor?, nextIndex: Int) {
+        guard parameters.indices.contains(start - 1) else {
+            return (nil, start)
+        }
+
+        let introducingParameter = parameters[start - 1]
+        if introducingParameter.subparameters.count > 1 {
+            return parseExtendedColorSubparameters(
+                Array(introducingParameter.subparameters.dropFirst()),
+                nextIndex: start
+            )
+        }
+
         guard parameters.indices.contains(start) else {
             return (nil, start)
         }
 
-        switch parameters[start] {
+        switch parameters[start].value {
         case 2:
             guard parameters.indices.contains(start + 3) else {
                 return (nil, start + 1)
             }
             return (
                 MobileTerminalGhosttyColor(
-                    red: UInt8(clamping: parameters[start + 1]),
-                    green: UInt8(clamping: parameters[start + 2]),
-                    blue: UInt8(clamping: parameters[start + 3])
+                    red: UInt8(clamping: parameters[start + 1].value),
+                    green: UInt8(clamping: parameters[start + 2].value),
+                    blue: UInt8(clamping: parameters[start + 3].value)
                 ),
                 start + 4
             )
@@ -610,9 +666,43 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
             guard parameters.indices.contains(start + 1) else {
                 return (nil, start + 1)
             }
-            return (xtermColor(index: parameters[start + 1]), start + 2)
+            return (xtermColor(index: parameters[start + 1].value), start + 2)
         default:
             return (nil, start + 1)
+        }
+    }
+
+    private static func parseExtendedColorSubparameters(
+        _ subparameters: [Int],
+        nextIndex: Int
+    ) -> (color: MobileTerminalGhosttyColor?, nextIndex: Int) {
+        guard let mode = subparameters.first else {
+            return (nil, nextIndex)
+        }
+        switch mode {
+        case 2:
+            guard subparameters.count >= 4 else {
+                return (nil, nextIndex)
+            }
+            let redGreenBlue = Array(subparameters.suffix(3))
+            guard redGreenBlue.count == 3 else {
+                return (nil, nextIndex)
+            }
+            return (
+                MobileTerminalGhosttyColor(
+                    red: UInt8(clamping: redGreenBlue[0]),
+                    green: UInt8(clamping: redGreenBlue[1]),
+                    blue: UInt8(clamping: redGreenBlue[2])
+                ),
+                nextIndex
+            )
+        case 5:
+            guard subparameters.indices.contains(1) else {
+                return (nil, nextIndex)
+            }
+            return (xtermColor(index: subparameters[1]), nextIndex)
+        default:
+            return (nil, nextIndex)
         }
     }
 

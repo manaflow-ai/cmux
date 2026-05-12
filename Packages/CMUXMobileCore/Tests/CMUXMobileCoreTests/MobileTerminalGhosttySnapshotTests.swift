@@ -112,6 +112,54 @@ import Testing
     #expect(snapshot.visibleRows[1].cells[0].style.background == MobileTerminalGhosttyColor(red: 1, green: 2, blue: 3))
 }
 
+@Test func ghosttyTextBuilderParsesGhosttyVTFormatterColorSequences() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-ghostty-vt",
+        columns: 24,
+        rows: 2,
+        scrollbackText: nil,
+        viewportText: "\u{001B}]10;rgb:fd/ff/f1\u{001B}\\\u{001B}]11;rgb:27/28/22\u{001B}\\\u{001B}[0m\u{001B}[38;2;204;102;102mred\u{001B}[0m plain\r\n\u{001B}[0m\u{001B}[48;5;4m  \u{001B}[0m"
+    )
+
+    #expect(snapshot.renderedVisibleLines == ["red plain", ""])
+    #expect(snapshot.visibleRows[0].cells[0].style.foreground == MobileTerminalGhosttyColor(red: 204, green: 102, blue: 102))
+    #expect(snapshot.visibleRows[0].cells[4].style.foreground == nil)
+    #expect(snapshot.visibleRows[1].cells[0].style.background == MobileTerminalGhosttyColor(red: 36, green: 114, blue: 200))
+}
+
+@Test func ghosttyTextBuilderParsesSGRUnderlineSubparameters() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-underlines",
+        columns: 32,
+        rows: 1,
+        scrollbackText: nil,
+        viewportText: "\u{001B}[4:2mdouble\u{001B}[0m \u{001B}[4:3mcurly\u{001B}[0m \u{001B}[4:4mdotted\u{001B}[0m \u{001B}[4:5mdashed"
+    )
+
+    #expect(snapshot.visibleRows[0].cells[0].style.underline == .double)
+    #expect(snapshot.visibleRows[0].cells[0].style.dim == false)
+    #expect(snapshot.visibleRows[0].cells[7].style.underline == .curly)
+    #expect(snapshot.visibleRows[0].cells[13].style.underline == .dotted)
+    #expect(snapshot.visibleRows[0].cells[20].style.underline == .dashed)
+}
+
+@Test func ghosttyTextBuilderConsumesUnsupportedUnderlineColorWithoutLeakingStyle() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-underline-color",
+        columns: 16,
+        rows: 1,
+        scrollbackText: nil,
+        viewportText: "\u{001B}[58;2;1;2;3mplain \u{001B}[31mred"
+    )
+
+    #expect(snapshot.visibleRows[0].cells[0].style.foreground == nil)
+    #expect(snapshot.visibleRows[0].cells[0].style.dim == false)
+    #expect(snapshot.visibleRows[0].cells[0].style.italic == false)
+    #expect(snapshot.visibleRows[0].cells[6].style.foreground == MobileTerminalGhosttyColor(red: 205, green: 49, blue: 49))
+    #expect(snapshot.visibleRows[0].cells[6].style.dim == false)
+    #expect(snapshot.visibleRows[0].cells[6].style.italic == false)
+}
+
 @Test func ghosttyTextBuilderDropsOSCControlSequences() throws {
     let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
         terminalID: "terminal-osc",

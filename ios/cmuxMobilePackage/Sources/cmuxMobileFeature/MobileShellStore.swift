@@ -412,7 +412,7 @@ public final class CMUXMobileShellStore {
             return
         }
 
-        let client = MobileCoreRPCClient(runtime: runtime, route: route)
+        let client = MobileCoreRPCClient(runtime: runtime, route: route, ticket: ticket)
         let resultData = try await client.sendRequest(
             MobileCoreRPCClient.requestData(method: "workspace.list")
         )
@@ -501,6 +501,10 @@ public final class CMUXMobileShellStore {
         } catch {
             mobileShellLog.error("terminal snapshot refresh failed: \(String(describing: error), privacy: .public)")
             if Self.isTerminalSurfaceNotReady(error) {
+                if await refreshReadyFallbackTerminalSnapshot(in: workspace, excluding: terminalID) {
+                    connectionError = nil
+                    return
+                }
                 replaceTerminalSnapshot(
                     workspaceID: workspace.id,
                     terminalID: MobileTerminalPreview.ID(rawValue: terminalID),
@@ -516,6 +520,44 @@ public final class CMUXMobileShellStore {
             }
             connectionError = L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to the Mac runtime.")
         }
+    }
+
+    private func refreshReadyFallbackTerminalSnapshot(
+        in workspace: MobileWorkspacePreview,
+        excluding terminalID: String
+    ) async -> Bool {
+        guard let client = remoteClient else { return false }
+        for terminal in workspace.terminals where terminal.id.rawValue != terminalID {
+            do {
+                let resultData = try await client.sendRequest(
+                    MobileCoreRPCClient.requestData(
+                        method: "terminal.snapshot",
+                        params: [
+                            "workspace_id": workspace.id.rawValue,
+                            "surface_id": terminal.id.rawValue,
+                            "max_scrollback_rows": 500,
+                        ]
+                    )
+                )
+                let response = try MobileSyncTerminalSnapshotResponse.decode(resultData)
+                let resolvedTerminalID = MobileTerminalPreview.ID(rawValue: response.surfaceID ?? terminal.id.rawValue)
+                replaceTerminalSnapshot(
+                    workspaceID: workspace.id,
+                    terminalID: resolvedTerminalID,
+                    snapshot: response.snapshot
+                )
+                selectedTerminalID = resolvedTerminalID
+                mobileShellLog.info("selected fallback ready terminal workspace=\(workspace.id.rawValue, privacy: .public) terminal=\(resolvedTerminalID.rawValue, privacy: .public)")
+                return true
+            } catch {
+                if Self.isTerminalSurfaceNotReady(error) {
+                    continue
+                }
+                mobileShellLog.error("fallback terminal snapshot failed: \(String(describing: error), privacy: .public)")
+                return false
+            }
+        }
+        return false
     }
 
     private func sendRemoteTerminalInput(_ text: String) async {
@@ -687,10 +729,12 @@ private enum CmxAttachTicketInput {
 private final class MobileCoreRPCClient: @unchecked Sendable {
     private let runtime: CMUXMobileRuntime
     private let route: CmxAttachRoute
+    private let ticket: CmxAttachTicket
 
-    init(runtime: CMUXMobileRuntime, route: CmxAttachRoute) {
+    init(runtime: CMUXMobileRuntime, route: CmxAttachRoute, ticket: CmxAttachTicket) {
         self.runtime = runtime
         self.route = route
+        self.ticket = ticket
     }
 
     static func requestData(
@@ -710,7 +754,8 @@ private final class MobileCoreRPCClient: @unchecked Sendable {
         let transport = try runtime.transportFactory.makeTransport(for: route)
         do {
             try await transport.connect()
-            let frame = try MobileSyncFrameCodec.encodeFrame(requestData)
+            let authenticatedRequestData = try await requestDataWithAuth(requestData)
+            let frame = try MobileSyncFrameCodec.encodeFrame(authenticatedRequestData)
             try await transport.send(frame)
             let responseFrame = try await receiveFrame(from: transport)
             await transport.close()
@@ -719,6 +764,25 @@ private final class MobileCoreRPCClient: @unchecked Sendable {
             await transport.close()
             throw error
         }
+    }
+
+    private func requestDataWithAuth(_ requestData: Data) async throws -> Data {
+        guard var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
+            return requestData
+        }
+        var auth: [String: Any] = [:]
+        if let authToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !authToken.isEmpty {
+            auth["attach_token"] = authToken
+        }
+        if let tokens = try? await AuthManager.shared.currentTokens() {
+            auth["stack_access_token"] = tokens.accessToken
+            auth["stack_refresh_token"] = tokens.refreshToken
+        }
+        if !auth.isEmpty {
+            request["auth"] = auth
+        }
+        return try JSONSerialization.data(withJSONObject: request)
     }
 
     private func receiveFrame(from transport: any CmxByteTransport) async throws -> Data {
@@ -759,11 +823,12 @@ private extension CmxAttachEndpoint {
     var logDescription: String {
         switch self {
         case let .hostPort(host, port):
-            "\(host):\(port)"
-        case let .peer(id, relayHint):
-            "peer:\(id):\(relayHint ?? "no-relay")"
+            return "\(host):\(port)"
+        case let .peer(id, relayHint, directAddrs, relayURL):
+            let addressSummary = directAddrs.isEmpty ? "no-direct-addrs" : "\(directAddrs.count)-direct-addrs"
+            return "peer:\(id):\(relayHint ?? relayURL ?? "no-relay"):\(addressSummary)"
         case let .url(url):
-            url
+            return url
         }
     }
 }

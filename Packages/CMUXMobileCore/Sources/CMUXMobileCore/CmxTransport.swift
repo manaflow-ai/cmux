@@ -2,7 +2,7 @@ import Foundation
 
 public enum CmxAttachEndpoint: Equatable, Sendable {
     case hostPort(host: String, port: Int)
-    case peer(id: String, relayHint: String?)
+    case peer(id: String, relayHint: String?, directAddrs: [String], relayURL: String?)
     case url(String)
 }
 
@@ -13,6 +13,8 @@ extension CmxAttachEndpoint: Codable {
         case port
         case id
         case relayHint = "relay_hint"
+        case directAddrs = "direct_addrs"
+        case relayURL = "relay_url"
         case url
     }
 
@@ -34,7 +36,9 @@ extension CmxAttachEndpoint: Codable {
         case .peer:
             self = try .peer(
                 id: container.decode(String.self, forKey: .id),
-                relayHint: container.decodeIfPresent(String.self, forKey: .relayHint)
+                relayHint: container.decodeIfPresent(String.self, forKey: .relayHint),
+                directAddrs: container.decodeIfPresent([String].self, forKey: .directAddrs) ?? [],
+                relayURL: container.decodeIfPresent(String.self, forKey: .relayURL)
             )
         case .url:
             self = try .url(container.decode(String.self, forKey: .url))
@@ -48,10 +52,14 @@ extension CmxAttachEndpoint: Codable {
             try container.encode(EndpointType.hostPort, forKey: .type)
             try container.encode(host, forKey: .host)
             try container.encode(port, forKey: .port)
-        case let .peer(id, relayHint):
+        case let .peer(id, relayHint, directAddrs, relayURL):
             try container.encode(EndpointType.peer, forKey: .type)
             try container.encode(id, forKey: .id)
             try container.encodeIfPresent(relayHint, forKey: .relayHint)
+            if !directAddrs.isEmpty {
+                try container.encode(directAddrs, forKey: .directAddrs)
+            }
+            try container.encodeIfPresent(relayURL, forKey: .relayURL)
         case let .url(url):
             try container.encode(EndpointType.url, forKey: .type)
             try container.encode(url, forKey: .url)
@@ -62,6 +70,7 @@ extension CmxAttachEndpoint: Codable {
 public enum CmxAttachRouteError: Error, Equatable, Sendable {
     case emptyHost
     case emptyPeerID
+    case emptyPeerAddress
     case emptyURL
     case invalidPort(Int)
     case endpointMismatch(kind: CmxAttachTransportKind, endpoint: CmxAttachEndpoint)
@@ -95,9 +104,19 @@ public struct CmxAttachRoute: Codable, Equatable, Sendable {
             guard (1...65535).contains(port) else {
                 throw CmxAttachRouteError.invalidPort(port)
             }
-        case let .peer(id, _):
+        case let .peer(id, _, directAddrs, relayURL):
             guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw CmxAttachRouteError.emptyPeerID
+            }
+            for address in directAddrs {
+                guard !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw CmxAttachRouteError.emptyPeerAddress
+                }
+            }
+            if let relayURL {
+                guard !relayURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw CmxAttachRouteError.emptyURL
+                }
             }
         case let .url(url):
             guard !url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -118,10 +137,22 @@ public enum CmxAttachTicketError: Error, Equatable, Sendable {
     case unsupportedVersion(Int)
     case expired
     case noRoutes
+    case emptyAuthToken
 }
 
 public struct CmxAttachTicket: Codable, Equatable, Sendable {
     public static let currentVersion = 1
+
+    private enum CodingKeys: String, CodingKey {
+        case version
+        case workspaceID = "workspaceID"
+        case terminalID = "terminalID"
+        case macDeviceID = "macDeviceID"
+        case macDisplayName = "macDisplayName"
+        case routes
+        case expiresAt = "expiresAt"
+        case authToken = "auth_token"
+    }
 
     public var version: Int
     public var workspaceID: String
@@ -130,6 +161,7 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
     public var macDisplayName: String?
     public var routes: [CmxAttachRoute]
     public var expiresAt: Date
+    public var authToken: String?
 
     public init(
         version: Int = Self.currentVersion,
@@ -138,7 +170,8 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         macDeviceID: String,
         macDisplayName: String?,
         routes: [CmxAttachRoute],
-        expiresAt: Date
+        expiresAt: Date,
+        authToken: String? = nil
     ) throws {
         self.version = version
         self.workspaceID = workspaceID
@@ -147,6 +180,7 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         self.macDisplayName = macDisplayName
         self.routes = routes
         self.expiresAt = expiresAt
+        self.authToken = authToken
         try validate(now: .distantPast)
     }
 
@@ -156,6 +190,11 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         }
         guard expiresAt > now else {
             throw CmxAttachTicketError.expired
+        }
+        if let authToken {
+            guard !authToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw CmxAttachTicketError.emptyAuthToken
+            }
         }
         guard !routes.isEmpty else {
             throw CmxAttachTicketError.noRoutes

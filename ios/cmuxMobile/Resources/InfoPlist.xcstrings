@@ -17,6 +17,23 @@
           }
         }
       }
+    },
+    "NSLocalNetworkUsageDescription" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connect to your Mac on the local network for cmux mobile pairing and terminal sync."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux モバイルのペアリングとターミナル同期のため、ローカルネットワーク上の Mac に接続します。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

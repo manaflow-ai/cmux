@@ -2,6 +2,7 @@ import CMUXMobileCore
 import Foundation
 @preconcurrency import Network
 import OSLog
+import StackAuth
 
 private let mobileHostLog = Logger(subsystem: "dev.cmux", category: "mobile-host")
 
@@ -116,6 +117,9 @@ final class MobileHostService {
         let session = MobileHostConnection(
             id: id,
             connection: connection,
+            authorizeRequest: { request in
+                await MobileHostService.shared.authorizationError(for: request)
+            },
             handleRequest: { request in
                 await TerminalController.shared.mobileHostHandleRPC(request)
             },
@@ -129,6 +133,38 @@ final class MobileHostService {
 
     private func removeConnection(id: UUID) {
         activeConnections.removeValue(forKey: id)
+    }
+
+    func debugAuthorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
+        await authorizationError(for: request)
+    }
+
+    private func authorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
+        guard Self.requiresAuthorization(method: request.method) else {
+            return nil
+        }
+        if ticketStore.containsValidTicket(authToken: request.auth?.attachToken) {
+            return nil
+        }
+        do {
+            try await MobileHostStackAuthVerifier.shared.verify(auth: request.auth)
+            return nil
+        } catch {
+            mobileHostLog.error("mobile host authorization failed method=\(request.method, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            return .failure(MobileHostRPCError(
+                code: "unauthorized",
+                message: "Mobile sync authorization failed."
+            ))
+        }
+    }
+
+    private static func requiresAuthorization(method: String) -> Bool {
+        switch method {
+        case "mobile.host.status":
+            return false
+        default:
+            return true
+        }
     }
 
     private func handleListenerState(_ state: NWListener.State) {
@@ -154,10 +190,63 @@ final class MobileHostService {
     }
 }
 
+private enum MobileHostAuthorizationError: Error {
+    case missingStackTokens
+    case invalidStackUser
+    case accountMismatch
+}
+
+private actor MobileHostStackAuthVerifier {
+    static let shared = MobileHostStackAuthVerifier()
+
+    private struct CacheEntry {
+        let userID: String
+        let expiresAt: Date
+    }
+
+    private var cache: [String: CacheEntry] = [:]
+
+    func verify(auth: MobileHostRPCAuth?) async throws {
+        guard let accessToken = auth?.stackAccessToken,
+              let refreshToken = auth?.stackRefreshToken else {
+            throw MobileHostAuthorizationError.missingStackTokens
+        }
+
+        let cacheKey = accessToken + "\n" + refreshToken
+        let now = Date()
+        let remoteUserID: String
+        if let cached = cache[cacheKey], cached.expiresAt > now {
+            remoteUserID = cached.userID
+        } else {
+            let stack = StackClientApp(
+                projectId: AuthEnvironment.stackProjectID,
+                publishableClientKey: AuthEnvironment.stackPublishableClientKey,
+                baseUrl: AuthEnvironment.stackBaseURL.absoluteString,
+                tokenStore: .explicit(accessToken: accessToken, refreshToken: refreshToken),
+                noAutomaticPrefetch: true
+            )
+            guard let user = try await stack.getUser(or: .throw) else {
+                throw MobileHostAuthorizationError.invalidStackUser
+            }
+            remoteUserID = await user.id
+            cache[cacheKey] = CacheEntry(
+                userID: remoteUserID,
+                expiresAt: now.addingTimeInterval(60)
+            )
+        }
+
+        let localUserID = await MainActor.run { AuthManager.shared.currentUser?.id }
+        if let localUserID, localUserID != remoteUserID {
+            throw MobileHostAuthorizationError.accountMismatch
+        }
+    }
+}
+
 private actor MobileHostConnection {
     private let id: UUID
     private let connection: NWConnection
     private let callbackQueue: DispatchQueue
+    private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     private let onClose: @Sendable (UUID) async -> Void
     private var receiveBuffer = Data()
@@ -166,12 +255,14 @@ private actor MobileHostConnection {
     init(
         id: UUID,
         connection: NWConnection,
+        authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
         onClose: @escaping @Sendable (UUID) async -> Void
     ) {
         self.id = id
         self.connection = connection
         self.callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-connection.\(id.uuidString)")
+        self.authorizeRequest = authorizeRequest
         self.handleRequest = handleRequest
         self.onClose = onClose
     }
@@ -253,6 +344,10 @@ private actor MobileHostConnection {
     private func respond(to frame: Data) async {
         switch MobileHostRPCEnvelope.decodeRequest(frame) {
         case let .success(request):
+            if let error = await authorizeRequest(request) {
+                await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: error))
+                return
+            }
             let result = await handleRequest(request)
             await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: result))
         case let .failure(error):
