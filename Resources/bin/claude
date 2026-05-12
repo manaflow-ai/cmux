@@ -6,13 +6,23 @@
 # so that Claude Code hooks fire back into cmux for notifications/status.
 # Outside cmux, it passes through to the real claude binary unchanged.
 
+trim_claude_path() {
+    local value="${1:-}"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s' "$value"
+}
+
+claude_wrapper_dir() {
+    cd "$(dirname "$0")" && pwd
+}
+
 # Find the real claude binary, skipping our own directory.
 find_real_claude() {
     # Honor custom path from Settings > Automation > Claude Code > Claude Binary Path.
     # Guard against self-reference (user pointing back to this wrapper).
-    local custom="${CMUX_CUSTOM_CLAUDE_PATH:-}"
-    custom="${custom#"${custom%%[![:space:]]*}"}"  # trim leading whitespace
-    custom="${custom%"${custom##*[![:space:]]}"}"  # trim trailing whitespace
+    local custom
+    custom="$(trim_claude_path "${CMUX_CUSTOM_CLAUDE_PATH:-}")"
     if [[ -n "$custom" && -f "$custom" && -x "$custom" ]]; then
         # Use -ef to detect same underlying file even through symlinks
         if [[ ! "$custom" -ef "$0" ]]; then
@@ -28,6 +38,75 @@ find_real_claude() {
         [[ -x "$d/claude" ]] && printf '%s' "$d/claude" && return 0
     done
     return 1
+}
+
+describe_claude_candidate() {
+    local path="$1"
+    if [[ -e "$path" || -L "$path" ]]; then
+        if [[ "$path" -ef "$0" ]]; then
+            printf 'cmux wrapper (skipped)'
+        elif [[ -f "$path" && -x "$path" ]]; then
+            printf 'executable'
+        elif [[ -L "$path" && ! -e "$path" ]]; then
+            printf 'broken symlink'
+        elif [[ ! -f "$path" ]]; then
+            printf 'exists but is not a regular file'
+        else
+            printf 'exists but is not executable'
+        fi
+    else
+        printf 'missing'
+    fi
+}
+
+print_claude_not_found_diagnostics() {
+    local self_dir self_path custom
+    self_dir="$(claude_wrapper_dir)"
+    self_path="$self_dir/claude"
+    custom="$(trim_claude_path "${CMUX_CUSTOM_CLAUDE_PATH:-}")"
+
+    {
+        echo "Error: cmux claude wrapper could not find the real Claude Code executable."
+        echo "The cmux wrapper is installed, but no non-wrapper 'claude' executable was found later in PATH."
+        echo
+
+        echo "Wrapper path skipped:"
+        echo "  - $self_path: $(describe_claude_candidate "$self_path")"
+        echo
+
+        echo "CMUX_CUSTOM_CLAUDE_PATH:"
+        if [[ -n "$custom" ]]; then
+            echo "  - $custom: $(describe_claude_candidate "$custom")"
+        else
+            echo "  - not set"
+        fi
+        echo
+
+        echo "PATH entries searched:"
+        local IFS=:
+        local d candidate
+        for d in $PATH; do
+            [[ "$d" == "$self_dir" ]] && continue
+            candidate="$d/claude"
+            echo "  - $candidate: $(describe_claude_candidate "$candidate")"
+        done
+        echo
+
+        echo "Common Claude Code install paths:"
+        for candidate in /opt/homebrew/bin/claude /usr/local/bin/claude; do
+            echo "  - $candidate: $(describe_claude_candidate "$candidate")"
+        done
+        echo
+
+        echo "Repair the underlying Claude Code install, for example:"
+        echo "  npm install --global @anthropic-ai/claude-code"
+        echo "Or set CMUX_CUSTOM_CLAUDE_PATH to the real Claude executable."
+    } >&2
+}
+
+claude_not_found() {
+    print_claude_not_found_diagnostics
+    exit 127
 }
 
 # Return 0 only when CMUX_SOCKET_PATH points to a live cmux socket.
@@ -146,12 +225,12 @@ if [[ "$IN_CMUX" == "0" || "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]] || ! cmux_soc
         unset CLAUDECODE
     fi
     clear_inherited_claude_auth_selection_env
-    REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+    REAL_CLAUDE="$(find_real_claude)" || claude_not_found
     exec "$REAL_CLAUDE" "$@"
 fi
 
 # Find real claude.
-REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+REAL_CLAUDE="$(find_real_claude)" || claude_not_found
 
 ensure_node_options_restore_module() {
     local guard_dir="${TMPDIR:-/tmp}"
