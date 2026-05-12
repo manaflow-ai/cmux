@@ -30,7 +30,8 @@ cmux close-surface --surface surface:7
 ```bash
 cmux move-surface --surface surface:7 --pane pane:2 --focus true
 cmux move-surface --surface surface:7 --workspace workspace:2 --window window:1 --after surface:4
+cmux split-off --surface surface:7 right
 cmux reorder-surface --surface surface:7 --before surface:3
 ```
 
-Surface identity is stable across move/reorder operations.
+Surface identity is stable across move/reorder/split-off operations. Layout commands are focus-neutral by default; pass `--focus true` only when you want the moved or created surface selected.

@@ -11,6 +11,7 @@ struct WorkstreamEventTests {
           "session_id": "claude-abc",
           "hook_event_name": "PermissionRequest",
           "_source": "claude",
+          "workspace_id": "11111111-1111-1111-1111-111111111111",
           "cwd": "/tmp/proj",
           "tool_name": "Write",
           "tool_input": {"file_path": "/etc/passwd", "content": "x"},
@@ -23,6 +24,7 @@ struct WorkstreamEventTests {
         #expect(event.sessionId == "claude-abc")
         #expect(event.hookEventName == .permissionRequest)
         #expect(event.source == "claude")
+        #expect(event.workspaceId == "11111111-1111-1111-1111-111111111111")
         #expect(event.toolName == "Write")
         #expect(event.context?.lastUserMessage == "write a file")
         #expect(event.context?.permissionMode == "plan")
@@ -44,6 +46,7 @@ struct WorkstreamEventTests {
             sessionId: "opencode-xyz",
             hookEventName: .exitPlanMode,
             source: "opencode",
+            workspaceId: "22222222-2222-2222-2222-222222222222",
             cwd: "/work",
             toolName: "ExitPlanMode",
             toolInputJSON: "{\"plan\":\"step1\\nstep2\"}",
@@ -62,6 +65,7 @@ struct WorkstreamEventTests {
         let back = try JSONDecoder().decode(WorkstreamEvent.self, from: data)
         #expect(back.sessionId == event.sessionId)
         #expect(back.hookEventName == event.hookEventName)
+        #expect(back.workspaceId == event.workspaceId)
         #expect(back.requestId == event.requestId)
         let rawPlan = try #require(back.toolInputJSON?.data(using: .utf8))
         let planDict = try #require(
@@ -84,6 +88,7 @@ struct WorkstreamEventTests {
         #expect(event.toolName == nil)
         #expect(event.toolInputJSON == nil)
         #expect(event.context == nil)
+        #expect(event.workspaceId == nil)
         #expect(event.requestId == nil)
         #expect(event.ppid == nil)
     }

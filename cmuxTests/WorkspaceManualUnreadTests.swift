@@ -9,6 +9,46 @@ import AppKit
 
 @MainActor
 final class WorkspaceManualUnreadTests: XCTestCase {
+    override func tearDown() {
+        TerminalNotificationStore.shared.replaceNotificationsForTesting([])
+        super.tearDown()
+    }
+
+    func testMarkWorkspaceUnreadCreatesUnreadStateForReadWorkspaceWithoutRetainedNotification() {
+        let store = TerminalNotificationStore.shared
+        let workspaceId = UUID()
+
+        store.replaceNotificationsForTesting([])
+
+        XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 0)
+        XCTAssertTrue(store.canMarkWorkspaceUnread(forTabIds: [workspaceId]))
+        XCTAssertFalse(store.canMarkWorkspaceRead(forTabIds: [workspaceId]))
+
+        store.markUnread(forTabId: workspaceId)
+
+        XCTAssertGreaterThan(store.unreadCount(forTabId: workspaceId), 0)
+        XCTAssertTrue(store.canMarkWorkspaceRead(forTabIds: [workspaceId]))
+        XCTAssertFalse(store.canMarkWorkspaceUnread(forTabIds: [workspaceId]))
+
+        store.markRead(forTabId: workspaceId, surfaceId: UUID())
+
+        XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 0)
+        XCTAssertTrue(store.canMarkWorkspaceUnread(forTabIds: [workspaceId]))
+        XCTAssertFalse(store.canMarkWorkspaceRead(forTabIds: [workspaceId]))
+
+        store.markUnread(forTabId: workspaceId)
+
+        XCTAssertGreaterThan(store.unreadCount(forTabId: workspaceId), 0)
+        XCTAssertTrue(store.canMarkWorkspaceRead(forTabIds: [workspaceId]))
+        XCTAssertFalse(store.canMarkWorkspaceUnread(forTabIds: [workspaceId]))
+
+        store.markRead(forTabId: workspaceId)
+
+        XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 0)
+        XCTAssertTrue(store.canMarkWorkspaceUnread(forTabIds: [workspaceId]))
+        XCTAssertFalse(store.canMarkWorkspaceRead(forTabIds: [workspaceId]))
+    }
+
     func testShouldClearManualUnreadWhenFocusMovesToDifferentPanel() {
         let previousFocusedPanelId = UUID()
         let nextFocusedPanelId = UUID()

@@ -8,6 +8,8 @@ import Glibc
 
 /// Size of the in-memory ring buffer. Older items are evicted to disk-only.
 public let WorkstreamDefaultRingCapacity = 2_000
+public let WorkstreamDefaultInitialLoadLimit = 300
+public let WorkstreamDefaultHistoryPageSize = 300
 
 /// Main-actor `@Observable` store that holds the Feed state.
 ///
@@ -20,6 +22,8 @@ public let WorkstreamDefaultRingCapacity = 2_000
 @Observable
 public final class WorkstreamStore {
     public private(set) var items: [WorkstreamItem] = []
+    public private(set) var hasMorePersistedItems = false
+    public private(set) var isLoadingOlderItems = false
 
     public var pending: [WorkstreamItem] {
         items.filter { $0.status.isPending }
@@ -32,7 +36,10 @@ public final class WorkstreamStore {
     private let transport: any WorkstreamTransport
     private let persistence: WorkstreamPersistence?
     private let ringCapacity: Int
+    private let initialLoadLimit: Int
+    private let historyPageSize: Int
     private let clock: @Sendable () -> Date
+    private var oldestLoadedPersistenceOffset: UInt64?
 
     /// Last known conversational context for each workstream. Tool hooks
     /// usually arrive without the surrounding user prompt, so the store
@@ -43,21 +50,24 @@ public final class WorkstreamStore {
         transport: any WorkstreamTransport = NullWorkstreamTransport(),
         persistence: WorkstreamPersistence? = nil,
         ringCapacity: Int = WorkstreamDefaultRingCapacity,
+        initialLoadLimit: Int = WorkstreamDefaultInitialLoadLimit,
+        historyPageSize: Int = WorkstreamDefaultHistoryPageSize,
         clock: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.transport = transport
         self.persistence = persistence
         self.ringCapacity = ringCapacity
+        self.initialLoadLimit = initialLoadLimit
+        self.historyPageSize = historyPageSize
         self.clock = clock
     }
 
-    // MARK: - Lifecycle
-
-    /// Replays recent items from disk, then connects the transport.
     public func start() async {
         if let persistence {
-            if let recent = try? await persistence.loadRecent(limit: ringCapacity) {
-                items = recent
+            if let page = try? await persistence.loadPage(limit: min(initialLoadLimit, ringCapacity)) {
+                items = page.items
+                hasMorePersistedItems = page.hasMoreBefore
+                oldestLoadedPersistenceOffset = page.startOffset
                 rebuildContextIndex()
             }
         }
@@ -72,6 +82,34 @@ public final class WorkstreamStore {
             // Transport failures are non-fatal; the store stays usable for
             // locally-injected items and tests.
         }
+    }
+
+    public func loadOlderItems() async {
+        guard !isLoadingOlderItems, hasMorePersistedItems else { return }
+        guard let persistence, let oldestLoadedPersistenceOffset else {
+            hasMorePersistedItems = false
+            return
+        }
+
+        isLoadingOlderItems = true
+        defer { isLoadingOlderItems = false }
+
+        guard let page = try? await persistence.loadPage(
+            endingBefore: oldestLoadedPersistenceOffset,
+            limit: historyPageSize
+        ), !page.items.isEmpty else {
+            hasMorePersistedItems = false
+            return
+        }
+
+        let existingIds = Set(items.map(\.id))
+        let olderItems = page.items.filter { !existingIds.contains($0.id) }
+        if !olderItems.isEmpty {
+            items.insert(contentsOf: olderItems, at: 0)
+        }
+        self.oldestLoadedPersistenceOffset = page.startOffset ?? oldestLoadedPersistenceOffset
+        hasMorePersistedItems = page.hasMoreBefore
+        rebuildContextIndex()
     }
 
     // MARK: - Ingest

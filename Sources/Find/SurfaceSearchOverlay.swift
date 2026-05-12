@@ -20,7 +20,6 @@ struct SurfaceSearchOverlay: View {
     let surfaceId: UUID
     @ObservedObject var searchState: TerminalSurface.SearchState
     let canApplyFocusRequest: () -> Bool
-    let onMoveFocusToTerminal: () -> Void
     let onNavigateSearch: (_ action: String) -> Void
     let onFieldDidFocus: () -> Void
     let onClose: () -> Void
@@ -38,17 +37,14 @@ struct SurfaceSearchOverlay: View {
                     text: $searchState.needle,
                     isFocused: $isSearchFieldFocused,
                     surfaceId: surfaceId,
+                    selectionOwner: searchState,
                     canApplyFocusRequest: canApplyFocusRequest,
                     onFieldDidFocus: onFieldDidFocus,
                     onEscape: {
                         #if DEBUG
                         cmuxDebugLog("find.nativeField.escape surface=\(surfaceId.uuidString.prefix(5)) needleEmpty=\(searchState.needle.isEmpty)")
                         #endif
-                        if searchState.needle.isEmpty {
-                            onClose()
-                        } else {
-                            onMoveFocusToTerminal()
-                        }
+                        onClose()
                     },
                     onReturn: { isShift in
                         let action = isShift
@@ -206,7 +202,7 @@ struct SurfaceSearchOverlay: View {
 
 /// NSTextField subclass for the terminal find bar.
 /// Strips visual chrome so SwiftUI handles the background/border appearance.
-private final class SearchNativeTextField: NSTextField {
+private final class SearchNativeTextField: FindSelectionTrackingTextField {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         isBordered = false
@@ -219,6 +215,7 @@ private final class SearchNativeTextField: NSTextField {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
 }
 
 /// NSViewRepresentable wrapping SearchNativeTextField.
@@ -229,6 +226,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
     let surfaceId: UUID
+    let selectionOwner: AnyObject
     let canApplyFocusRequest: () -> Bool
     let onFieldDidFocus: () -> Void
     let onEscape: () -> Void
@@ -240,6 +238,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
         weak var parentField: SearchNativeTextField?
         var pendingFocusRequest: Bool?
         var searchFocusObserver: NSObjectProtocol?
+        var lastSelectedRange: NSRange?
 
         init(parent: SearchTextFieldRepresentable) {
             self.parent = parent
@@ -251,10 +250,23 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
             }
         }
 
+        func focusField(_ field: SearchNativeTextField, in window: NSWindow, selectAll: Bool) {
+            let alreadyFocused = cmuxTextFieldIsFirstResponder(field, in: window)
+            guard alreadyFocused || window.makeFirstResponder(field) else { return }
+            let rememberedRange = field.cmuxLastSelectedRange ?? cmuxStoredFindSelection(for: self.parent.selectionOwner) ?? self.lastSelectedRange
+            if let selection = cmuxApplyFindFocusSelection(field: field, selectAll: selectAll, alreadyFocused: alreadyFocused, rememberedRange: rememberedRange) { self.lastSelectedRange = selection; return }
+            DispatchQueue.main.async { [weak field, weak self] in
+                guard let field, let self,
+                      let selection = cmuxApplyFindFocusSelection(field: field, selectAll: selectAll, alreadyFocused: alreadyFocused, rememberedRange: rememberedRange) else { return }
+                self.lastSelectedRange = selection
+            }
+        }
+
         func controlTextDidChange(_ obj: Notification) {
             guard !isProgrammaticMutation else { return }
             guard let field = obj.object as? NSTextField else { return }
             parent.text = field.stringValue
+            rememberSelection(from: field)
         }
 
         func controlTextDidBeginEditing(_ obj: Notification) {
@@ -273,6 +285,9 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
             #if DEBUG
             cmuxDebugLog("find.nativeField.endEditing surface=\(parent.surfaceId.uuidString.prefix(5))")
             #endif
+            if let field = obj.object as? NSTextField {
+                rememberSelection(from: field)
+            }
             if parent.isFocused {
                 DispatchQueue.main.async {
                     self.parent.isFocused = false
@@ -283,19 +298,48 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             switch commandSelector {
             case #selector(NSResponder.cancelOperation(_:)):
-                // Don't intercept Escape during CJK IME composition (issue #118)
-                if textView.hasMarkedText() { return false }
-                control.cmuxAncestor(of: GhosttySurfaceScrollView.self)?.beginFindEscapeSuppression()
-                parent.onEscape()
-                return true
+                return handleEscape(from: textView, control: control)
             case #selector(NSResponder.insertNewline(_:)):
                 if textView.hasMarkedText() { return false }
+                rememberSelection(from: textView)
                 let isShift = NSApp.currentEvent?.modifierFlags.contains(.shift) ?? false
                 parent.onReturn(isShift)
                 return true
             default:
+                if cmuxFindCommandMayChangeSelection(commandSelector) {
+                    DispatchQueue.main.async { [weak self, weak textView] in
+                        guard let textView else { return }
+                        self?.rememberSelection(from: textView)
+                    }
+                }
                 return false
             }
+        }
+
+        func handleEscape(from textView: NSTextView, control: NSControl? = nil) -> Bool {
+            // Don't intercept Escape during CJK IME composition (issue #118)
+            if textView.hasMarkedText() { return false }
+            rememberSelection(from: textView)
+            (control ?? parentField)?.cmuxAncestor(of: GhosttySurfaceScrollView.self)?.beginFindEscapeSuppression()
+            parent.onEscape()
+            return true
+        }
+
+        private func rememberSelection(from field: NSTextField) {
+            if let field = field as? SearchNativeTextField,
+               let selection = field.cmuxRememberSelectionFromCurrentEditor() {
+                lastSelectedRange = selection
+                return
+            }
+            guard let editor = field.currentEditor() as? NSTextView else { return }
+            rememberSelection(from: editor)
+        }
+
+        private func rememberSelection(from textView: NSTextView) {
+            let selection = cmuxClampedFindSelection(textView.selectedRange(), in: textView.string)
+            lastSelectedRange = selection
+            parentField?.cmuxLastSelectedRange = selection
+            cmuxStoreFindSelection(selection, for: parent.selectionOwner)
         }
     }
 
@@ -309,6 +353,8 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
         field.placeholderString = String(localized: "search.placeholder", defaultValue: "Search")
         field.setAccessibilityIdentifier("TerminalFindSearchTextField")
         field.delegate = context.coordinator
+        field.cmuxSelectionOwner = selectionOwner
+        field.cmuxOnEscape = { [weak coordinator = context.coordinator] textView in coordinator?.handleEscape(from: textView) ?? false }
         field.stringValue = text
         context.coordinator.parentField = field
 
@@ -324,25 +370,23 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
                   surface.id == coordinator.parent.surfaceId else { return }
             guard coordinator.parent.canApplyFocusRequest() else { return }
             guard let window = field.window else { return }
+            let selectAll = notification.userInfo?[FindFocusNotificationKey.selectAll] as? Bool == true
             // Don't re-focus if already first responder. makeFirstResponder on an
             // already-editing NSTextField ends the editing session and restarts it
             // with all text selected, causing typed characters to replace each other.
-            let fr = window.firstResponder
-            let alreadyFocused = fr === field ||
-                field.currentEditor() != nil ||
-                ((fr as? NSTextView)?.delegate as? NSTextField) === field
+            let alreadyFocused = cmuxTextFieldIsFirstResponder(field, in: window)
             #if DEBUG
             cmuxDebugLog(
                 "find.nativeField.searchFocusNotification surface=\(coordinator.parent.surfaceId.uuidString.prefix(5)) " +
-                "alreadyFocused=\(alreadyFocused) firstResponder=\(String(describing: fr))"
+                "alreadyFocused=\(alreadyFocused) firstResponder=\(String(describing: window.firstResponder))"
             )
             #endif
             guard !alreadyFocused else { return }
-            let result = window.makeFirstResponder(field)
+            coordinator.focusField(field, in: window, selectAll: selectAll)
 #if DEBUG
             cmuxDebugLog(
                 "find.nativeField.searchFocusApply surface=\(coordinator.parent.surfaceId.uuidString.prefix(5)) " +
-                "result=\(result ? 1 : 0) firstResponder=\(String(describing: window.firstResponder))"
+                "selectAll=\(selectAll ? 1 : 0) firstResponder=\(String(describing: window.firstResponder))"
             )
 #endif
         }
@@ -353,13 +397,20 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
     func updateNSView(_ nsView: SearchNativeTextField, context: Context) {
         context.coordinator.parent = self
         context.coordinator.parentField = nsView
+        nsView.delegate = context.coordinator
+        nsView.cmuxSelectionOwner = selectionOwner
+        nsView.cmuxOnEscape = { [weak coordinator = context.coordinator] textView in coordinator?.handleEscape(from: textView) ?? false }
 
         // Sync text from binding to field (skip during active IME composition)
         if let editor = nsView.currentEditor() as? NSTextView {
             if editor.string != text, !editor.hasMarkedText() {
+                let selectedRange = nsView.cmuxRememberSelection(editor.selectedRange(), in: text)
                 context.coordinator.isProgrammaticMutation = true
                 editor.string = text
                 nsView.stringValue = text
+                editor.setSelectedRange(selectedRange)
+                context.coordinator.lastSelectedRange = selectedRange
+                cmuxStoreFindSelection(selectedRange, for: selectionOwner)
                 context.coordinator.isProgrammaticMutation = false
             }
         } else if nsView.stringValue != text {
@@ -368,11 +419,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
 
         // Sync focus from binding to AppKit
         if let window = nsView.window {
-            let fr = window.firstResponder
-            let isFirstResponder =
-                fr === nsView ||
-                nsView.currentEditor() != nil ||
-                ((fr as? NSTextView)?.delegate as? NSTextField) === nsView
+            let isFirstResponder = cmuxTextFieldIsFirstResponder(nsView, in: window)
 
             if isFocused,
                canApplyFocusRequest(),
@@ -385,12 +432,9 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
                           coordinator.parent.isFocused,
                           coordinator.parent.canApplyFocusRequest() else { return }
                     guard let nsView, let window = nsView.window else { return }
-                    let fr = window.firstResponder
-                    let alreadyFocused = fr === nsView ||
-                        nsView.currentEditor() != nil ||
-                        ((fr as? NSTextView)?.delegate as? NSTextField) === nsView
+                    let alreadyFocused = cmuxTextFieldIsFirstResponder(nsView, in: window)
                     guard !alreadyFocused else { return }
-                    window.makeFirstResponder(nsView)
+                    coordinator.focusField(nsView, in: window, selectAll: false)
                 }
             }
         }
@@ -402,6 +446,8 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
             coordinator.searchFocusObserver = nil
         }
         nsView.delegate = nil
+        nsView.cmuxSelectionOwner = nil
+        nsView.cmuxOnEscape = nil
         coordinator.parentField = nil
     }
 }

@@ -706,6 +706,16 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(NotificationAuthorizationState.ephemeral.allowsDelivery)
     }
 
+    func testNotificationDeliveryAuthorizationUsesCachedTerminalStates() {
+        XCTAssertNil(TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: .unknown, isAppActive: false))
+        XCTAssertNil(TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: .notDetermined, isAppActive: true))
+        XCTAssertEqual(TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: .notDetermined, isAppActive: false), false)
+        XCTAssertEqual(TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: .denied, isAppActive: false), false)
+        XCTAssertNil(TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: .authorized, isAppActive: false))
+        XCTAssertNil(TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: .provisional, isAppActive: false))
+        XCTAssertNil(TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: .ephemeral, isAppActive: false))
+    }
+
     func testNotificationAuthorizationDefersFirstPromptWhileAppIsInactive() {
         XCTAssertTrue(
             TerminalNotificationStore.shouldDeferAutomaticAuthorizationRequest(
