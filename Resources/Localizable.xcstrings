@@ -20813,13 +20813,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ ignored duplicate generated prompt snippet ID '%@'"
+            "value": "%@ ignored duplicate prompt snippet ID '%@'"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ は重複する自動生成プロンプトスニペット ID '%@' を無視しました"
+            "value": "%@ は重複するプロンプトスニペット ID '%@' を無視しました"
           }
         }
       }

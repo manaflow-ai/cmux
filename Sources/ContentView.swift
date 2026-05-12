@@ -7125,7 +7125,7 @@ struct ContentView: View {
         case .promptSnippetDuplicateID:
             let format = String(
                 localized: "command.cmuxConfig.issue.promptSnippetDuplicateID.detail",
-                defaultValue: "%@ ignored duplicate generated prompt snippet ID '%@'"
+                defaultValue: "%@ ignored duplicate prompt snippet ID '%@'"
             )
             return String(format: format, issue.settingName, issue.commandName ?? "")
         }

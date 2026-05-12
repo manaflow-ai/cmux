@@ -2313,6 +2313,7 @@ final class CmuxConfigStore: ObservableObject {
 
         struct SeenSnippet {
             let idWasGenerated: Bool
+            let sourcePath: String?
         }
 
         var seenByID: [String: SeenSnippet] = [:]
@@ -2320,7 +2321,7 @@ final class CmuxConfigStore: ObservableObject {
         func append(_ definitions: [CmuxPromptSnippetDefinition], sourcePath: String?) {
             for (index, definition) in definitions.enumerated() {
                 if let existing = seenByID[definition.id] {
-                    if existing.idWasGenerated || definition.idWasGenerated {
+                    if existing.sourcePath == sourcePath || existing.idWasGenerated || definition.idWasGenerated {
                         issues.append(CmuxConfigIssue(
                             kind: .promptSnippetDuplicateID,
                             settingName: "promptSnippets[\(index)]",
@@ -2330,7 +2331,10 @@ final class CmuxConfigStore: ObservableObject {
                     }
                     continue
                 }
-                seenByID[definition.id] = SeenSnippet(idWasGenerated: definition.idWasGenerated)
+                seenByID[definition.id] = SeenSnippet(
+                    idWasGenerated: definition.idWasGenerated,
+                    sourcePath: sourcePath
+                )
                 snippets.append(CmuxResolvedPromptSnippet(definition: definition, sourcePath: sourcePath))
             }
         }
