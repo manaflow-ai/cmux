@@ -2,7 +2,9 @@ mod agent;
 mod openai_ws;
 mod output_store;
 mod server;
+mod storage;
 mod tools;
+mod tui;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -25,6 +27,7 @@ struct Cli {
 #[derive(Debug, clap::Subcommand)]
 enum Command {
     Serve(ServeArgs),
+    Tui(TuiArgs),
 }
 
 #[derive(Debug, Parser, Clone)]
@@ -60,6 +63,15 @@ struct ServeArgs {
     openai_beta: String,
 }
 
+#[derive(Debug, Parser, Clone)]
+struct TuiArgs {
+    #[arg(long, default_value = "http://127.0.0.1:17680")]
+    server: String,
+
+    #[arg(long)]
+    cwd: Option<PathBuf>,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -69,6 +81,13 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Serve(args) => serve(args).await,
+        Command::Tui(args) => {
+            tui::run(tui::TuiConfig {
+                server: args.server,
+                cwd: args.cwd,
+            })
+            .await
+        }
     }
 }
 
@@ -91,11 +110,11 @@ async fn serve(args: ServeArgs) -> Result<()> {
         idle_timeout: Duration::from_millis(args.stream_idle_timeout_ms),
     })?;
 
-    let runtime = Arc::new(agent::AgentRuntime::new(
-        args.model,
-        output_store,
-        Arc::new(openai),
-    ));
+    let session_store = storage::SessionStore::new(args.state_dir.join("sessions")).await?;
+
+    let runtime = Arc::new(
+        agent::AgentRuntime::new(args.model, output_store, session_store, Arc::new(openai)).await?,
+    );
 
     server::serve(args.listen, runtime)
         .await

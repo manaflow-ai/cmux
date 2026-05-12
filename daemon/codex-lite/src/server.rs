@@ -39,7 +39,13 @@ struct ErrorBody {
 pub async fn serve(listen: SocketAddr, runtime: Arc<AgentRuntime>) -> Result<()> {
     let app = Router::new()
         .route("/healthz", get(healthz))
-        .route("/v1/sessions", post(create_session))
+        .route("/v1/sessions", get(list_sessions).post(create_session))
+        .route("/v1/sessions/{session_id}/handoff", get(read_handoff))
+        .route(
+            "/v1/sessions/{session_id}/open-trajectory",
+            post(open_trajectory),
+        )
+        .route("/v1/sessions/{session_id}/open-handoff", post(open_handoff))
         .route("/v1/sessions/{session_id}/turns", post(run_turn))
         .route("/v1/sessions/{session_id}/turns/stream", post(stream_turn))
         .with_state(runtime);
@@ -64,6 +70,67 @@ async fn create_session(
     Json(request): Json<CreateSessionRequest>,
 ) -> impl IntoResponse {
     match runtime.create_session(request).await {
+        Ok(response) => Json(response).into_response(),
+        Err(err) => (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(ErrorBody {
+                error: err.to_string(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+async fn list_sessions(State(runtime): State<Arc<AgentRuntime>>) -> impl IntoResponse {
+    match runtime.list_sessions().await {
+        Ok(response) => Json(response).into_response(),
+        Err(err) => (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(ErrorBody {
+                error: err.to_string(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+async fn read_handoff(
+    State(runtime): State<Arc<AgentRuntime>>,
+    Path(session_id): Path<Uuid>,
+) -> impl IntoResponse {
+    match runtime.read_handoff(session_id).await {
+        Ok(response) => Json(response).into_response(),
+        Err(err) => (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(ErrorBody {
+                error: err.to_string(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+async fn open_trajectory(
+    State(runtime): State<Arc<AgentRuntime>>,
+    Path(session_id): Path<Uuid>,
+) -> impl IntoResponse {
+    match runtime.open_trajectory(session_id).await {
+        Ok(response) => Json(response).into_response(),
+        Err(err) => (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(ErrorBody {
+                error: err.to_string(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+async fn open_handoff(
+    State(runtime): State<Arc<AgentRuntime>>,
+    Path(session_id): Path<Uuid>,
+) -> impl IntoResponse {
+    match runtime.open_handoff(session_id).await {
         Ok(response) => Json(response).into_response(),
         Err(err) => (
             axum::http::StatusCode::BAD_REQUEST,
@@ -127,6 +194,7 @@ async fn stream_turn(
 
 fn event_name(event: &AgentEvent) -> &'static str {
     match event {
+        AgentEvent::UserInput { .. } => "user_input",
         AgentEvent::TurnStarted { .. } => "turn_started",
         AgentEvent::Upstream { .. } => "upstream",
         AgentEvent::ToolStarted { .. } => "tool_started",

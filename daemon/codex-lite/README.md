@@ -8,6 +8,7 @@ Design goals:
 2. One upstream OpenAI Responses WebSocket by default, serialized by the daemon.
 3. No persistent shell per agent. Commands run as structured `argv`.
 4. Every tool output is stored losslessly on disk. The model receives compact manifests and can read or search exact slices by ref.
+5. Session monitoring is disk-first: `meta.json`, `trajectory.jsonl`, and `handoff.md` live under the state dir.
 
 Run:
 
@@ -34,6 +35,20 @@ curl -N http://127.0.0.1:17680/v1/sessions/<session-id>/turns/stream \
   -H 'content-type: application/json' \
   -d '{"input":"Find the app entrypoint and summarize it"}'
 ```
+
+Minimal TUI:
+
+```bash
+cargo run --manifest-path daemon/codex-lite/Cargo.toml -- tui \
+  --server http://127.0.0.1:17680 \
+  --cwd .
+```
+
+The TUI uses the terminal alternate screen, lists tasks at the top, starts a new
+task from the `task>` prompt, shows the selected task's last handoff, and keeps
+only a small recent-event tail in memory. Press `ctrl-o` to open the selected
+task's `trajectory.jsonl` in Zed or the configured editor, and `ctrl-h` to open
+`handoff.md`.
 
 Protocol notes from OpenAI Codex:
 
