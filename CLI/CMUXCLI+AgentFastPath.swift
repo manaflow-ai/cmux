@@ -179,13 +179,17 @@ extension CMUXCLI {
     }
 
     private func agentFastPathBatchInput(commandArgs: [String]) throws -> String {
-        let (fileArg, remaining) = parseOption(commandArgs, name: "--file")
+        let parsed = try agentFastPathParseArgs(
+            commandArgs,
+            commandName: "agent batch",
+            valueOptions: ["--file"]
+        )
+        let fileArg = parsed.options["--file"]
         if let fileArg {
             return try String(contentsOfFile: resolvePath(fileArg), encoding: .utf8)
         }
 
-        let inline = remaining
-            .dropFirst(remaining.first == "--" ? 1 : 0)
+        let inline = parsed.positionals
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if !inline.isEmpty {
@@ -360,25 +364,21 @@ extension CMUXCLI {
             print(agentFastPathUsage())
 
         case "capture", "read", "read-screen":
-            let parsedFlags = agentFastPathExtractFlags(
-                ["--raw", "--scrollback"],
-                from: rawArgs,
+            let parsed = try agentFastPathParseArgs(
+                rawArgs,
+                commandName: "agent capture",
+                flags: ["--raw", "--scrollback"],
                 valueOptions: ["--workspace", "--surface", "--lines"]
             )
-            let rawOutput = parsedFlags.present.contains("--raw")
-            let includeScrollback = parsedFlags.present.contains("--scrollback")
-            let args = parsedFlags.remaining
-            let (workspaceArg, rem0) = parseOption(args, name: "--workspace")
-            let (surfaceArg, rem1) = parseOption(rem0, name: "--surface")
-            let (linesArg, rem2) = parseOption(rem1, name: "--lines")
-            let trailing = rem2.filter { $0 != "--" }
-            if !trailing.isEmpty {
-                throw CLIError(message: "agent capture: unexpected arguments: \(trailing.joined(separator: " "))")
+            let rawOutput = parsed.flags.contains("--raw")
+            let includeScrollback = parsed.flags.contains("--scrollback")
+            if !parsed.positionals.isEmpty {
+                throw CLIError(message: "agent capture: unexpected arguments: \(parsed.positionals.joined(separator: " "))")
             }
-            let lines = try agentFastPathPositiveInt(linesArg, label: "--lines")
+            let lines = try agentFastPathPositiveInt(parsed.options["--lines"], label: "--lines")
             let payload = try agentFastPathCapturePayload(
-                workspaceRaw: workspaceArg,
-                surfaceRaw: surfaceArg,
+                workspaceRaw: parsed.options["--workspace"],
+                surfaceRaw: parsed.options["--surface"],
                 scrollback: includeScrollback,
                 lines: lines,
                 client: client,
@@ -391,24 +391,20 @@ extension CMUXCLI {
             }
 
         case "send":
-            let parsedFlags = agentFastPathExtractFlags(
-                ["--enter"],
-                from: rawArgs,
+            let parsed = try agentFastPathParseArgs(
+                rawArgs,
+                commandName: "agent send",
+                flags: ["--enter"],
                 valueOptions: ["--workspace", "--surface"]
             )
-            let appendEnter = parsedFlags.present.contains("--enter")
-            let args = parsedFlags.remaining
-            let (workspaceArg, rem0) = parseOption(args, name: "--workspace")
-            let (surfaceArg, rem1) = parseOption(rem0, name: "--surface")
-            let rawText = rem1
-                .dropFirst(rem1.first == "--" ? 1 : 0)
-                .joined(separator: " ")
+            let appendEnter = parsed.flags.contains("--enter")
+            let rawText = parsed.positionals.joined(separator: " ")
             guard !rawText.isEmpty else {
                 throw CLIError(message: "agent send requires text")
             }
             let payload = try agentFastPathSendPayload(
-                workspaceRaw: workspaceArg,
-                surfaceRaw: surfaceArg,
+                workspaceRaw: parsed.options["--workspace"],
+                surfaceRaw: parsed.options["--surface"],
                 text: agentFastPathUnescapeSendText(rawText),
                 appendEnter: appendEnter,
                 client: client,
@@ -417,18 +413,20 @@ extension CMUXCLI {
             printAgentFastPathPayload(payload, idFormat: idFormat)
 
         case "send-key", "key":
-            let (workspaceArg, rem0) = parseOption(rawArgs, name: "--workspace")
-            let (surfaceArg, rem1) = parseOption(rem0, name: "--surface")
-            let keyArgs = rem1.first == "--" ? Array(rem1.dropFirst()) : rem1
-            guard let key = keyArgs.first, !key.isEmpty else {
+            let parsed = try agentFastPathParseArgs(
+                rawArgs,
+                commandName: "agent send-key",
+                valueOptions: ["--workspace", "--surface"]
+            )
+            guard let key = parsed.positionals.first, !key.isEmpty else {
                 throw CLIError(message: "agent send-key requires a key")
             }
-            guard keyArgs.count == 1 else {
-                throw CLIError(message: "agent send-key: unexpected arguments: \(keyArgs.dropFirst().joined(separator: " "))")
+            guard parsed.positionals.count == 1 else {
+                throw CLIError(message: "agent send-key: unexpected arguments: \(parsed.positionals.dropFirst().joined(separator: " "))")
             }
             let payload = try agentFastPathSendKeyPayload(
-                workspaceRaw: workspaceArg,
-                surfaceRaw: surfaceArg,
+                workspaceRaw: parsed.options["--workspace"],
+                surfaceRaw: parsed.options["--surface"],
                 key: key,
                 client: client,
                 windowOverride: windowOverride
@@ -436,26 +434,32 @@ extension CMUXCLI {
             printAgentFastPathPayload(payload, idFormat: idFormat)
 
         case "list-panes", "panes":
-            let (workspaceArg, trailing) = parseOption(rawArgs, name: "--workspace")
-            let unexpected = trailing.filter { $0 != "--" }
-            if !unexpected.isEmpty {
-                throw CLIError(message: "agent list-panes: unexpected arguments: \(unexpected.joined(separator: " "))")
+            let parsed = try agentFastPathParseArgs(
+                rawArgs,
+                commandName: "agent list-panes",
+                valueOptions: ["--workspace"]
+            )
+            if !parsed.positionals.isEmpty {
+                throw CLIError(message: "agent list-panes: unexpected arguments: \(parsed.positionals.joined(separator: " "))")
             }
             let payload = try agentFastPathListPanesPayload(
-                workspaceRaw: workspaceArg,
+                workspaceRaw: parsed.options["--workspace"],
                 client: client,
                 windowOverride: windowOverride
             )
             printAgentFastPathPayload(payload, idFormat: idFormat)
 
         case "list-surfaces", "surfaces", "list-panels", "panels":
-            let (workspaceArg, trailing) = parseOption(rawArgs, name: "--workspace")
-            let unexpected = trailing.filter { $0 != "--" }
-            if !unexpected.isEmpty {
-                throw CLIError(message: "agent list-surfaces: unexpected arguments: \(unexpected.joined(separator: " "))")
+            let parsed = try agentFastPathParseArgs(
+                rawArgs,
+                commandName: "agent list-surfaces",
+                valueOptions: ["--workspace"]
+            )
+            if !parsed.positionals.isEmpty {
+                throw CLIError(message: "agent list-surfaces: unexpected arguments: \(parsed.positionals.joined(separator: " "))")
             }
             let payload = try agentFastPathListSurfacesPayload(
-                workspaceRaw: workspaceArg,
+                workspaceRaw: parsed.options["--workspace"],
                 client: client,
                 windowOverride: windowOverride
             )
