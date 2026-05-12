@@ -5359,6 +5359,11 @@ class TerminalController {
         validSurfaceIds: Set<UUID>,
         clientTTYName: String? = nil
     ) -> UUID? {
+        if let requestedSurfaceId {
+            guard validSurfaceIds.contains(requestedSurfaceId) else { return nil }
+            return requestedSurfaceId
+        }
+
         if let clientTTYName {
             for (surfaceId, ttyName) in workspace.surfaceTmuxClientTTYNames
                 where validSurfaceIds.contains(surfaceId)
@@ -5367,14 +5372,10 @@ class TerminalController {
             }
             for (surfaceId, ttyName) in workspace.surfaceTTYNames
                 where validSurfaceIds.contains(surfaceId)
+                    && workspace.surfaceTmuxClientTTYNames[surfaceId] == nil
                     && normalizedReportedTTYName(ttyName) == clientTTYName {
                 return surfaceId
             }
-        }
-
-        if let requestedSurfaceId {
-            guard validSurfaceIds.contains(requestedSurfaceId) else { return nil }
-            return requestedSurfaceId
         }
 
         if let focusedSurfaceId = workspace.focusedPanelId,

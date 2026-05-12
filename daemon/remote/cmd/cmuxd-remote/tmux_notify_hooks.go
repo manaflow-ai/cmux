@@ -245,9 +245,11 @@ func currentTTYNameGo() string {
 }
 
 func ttyNameForFile(file *os.File) (string, error) {
-	fdPath := fmt.Sprintf("/proc/self/fd/%d", file.Fd())
-	if target, err := os.Readlink(fdPath); err == nil && strings.HasPrefix(target, "/dev/") {
-		return target, nil
+	for _, fdRoot := range []string{"/proc/self/fd", "/dev/fd"} {
+		fdPath := filepath.Join(fdRoot, fmt.Sprintf("%d", file.Fd()))
+		if target, err := os.Readlink(fdPath); err == nil && strings.HasPrefix(target, "/dev/") {
+			return target, nil
+		}
 	}
 	if conn, err := net.FileConn(file); err == nil {
 		_ = conn.Close()
