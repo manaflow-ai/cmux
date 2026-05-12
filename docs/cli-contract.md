@@ -53,6 +53,20 @@ Environment:
 | `CMUX_SURFACE_ID` | Default surface context inside cmux terminals. |
 | `CMUX_TAB_ID` | Default tab context for tab commands. |
 
+## Socket API
+
+The socket accepts newline-delimited JSON requests for v2 methods. New external
+integrations should send JSON-RPC 2.0 envelopes:
+
+```json
+{"jsonrpc":"2.0","id":"1","method":"workspace.list","params":{}}
+```
+
+Existing clients that omit `jsonrpc` keep receiving the legacy v2 `ok/result`
+envelope. The public JSON-RPC contract, error mapping, method families, handle
+model, and event-subscription envelope are documented in `docs/json-rpc-api.md`.
+`system.capabilities` is the authoritative method list for a running app.
+
 ## Top-Level Commands
 
 | Command | Contract |
@@ -80,7 +94,7 @@ Environment:
 | `events` | Stream reconnectable cmux events as newline-delimited JSON. |
 | `auth` | Manage auth status, login, and logout through the app. |
 | `vm`, `cloud` | Manage cloud VMs. `cloud` is an alias for `vm`. |
-| `rpc` | Call a raw v2 socket method with optional JSON params. |
+| `rpc` | Call a raw v2/JSON-RPC socket method with optional JSON params. |
 | `identify` | Print server identity and caller context. |
 | `list-windows` | List windows. |
 | `current-window` | Print the selected window ID. |

@@ -1404,7 +1404,10 @@ class TerminalController {
             return "ERROR: Authentication required — send auth <password> first"
         }
         let id = dict["id"]
-        return v2Error(id: id, code: "auth_required", message: message)
+        let usesJSONRPC = (dict["jsonrpc"] as? String) == "2.0"
+        return withV2ResponseEnvelope(jsonRPC: usesJSONRPC) {
+            v2Error(id: id, code: "auth_required", message: message)
+        }
     }
 
     private nonisolated func passwordLoginV1ResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
@@ -1439,6 +1442,7 @@ class TerminalController {
             return nil
         }
         let id = dict["id"]
+        let usesJSONRPC = (dict["jsonrpc"] as? String) == "2.0"
         let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard method == "auth.login" else {
             return nil
@@ -1446,22 +1450,30 @@ class TerminalController {
 
         guard let params = dict["params"] as? [String: Any],
               let provided = params["password"] as? String else {
-            return v2Error(id: id, code: "invalid_params", message: "auth.login requires params.password")
+            return withV2ResponseEnvelope(jsonRPC: usesJSONRPC) {
+                v2Error(id: id, code: "invalid_params", message: "auth.login requires params.password")
+            }
         }
 
         guard SocketControlPasswordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
-            return v2Error(
-                id: id,
-                code: "auth_unconfigured",
-                message: "Password mode is enabled but no socket password is configured in Settings."
-            )
+            return withV2ResponseEnvelope(jsonRPC: usesJSONRPC) {
+                v2Error(
+                    id: id,
+                    code: "auth_unconfigured",
+                    message: "Password mode is enabled but no socket password is configured in Settings."
+                )
+            }
         }
 
         guard SocketControlPasswordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
-            return v2Error(id: id, code: "auth_failed", message: "Invalid password")
+            return withV2ResponseEnvelope(jsonRPC: usesJSONRPC) {
+                v2Error(id: id, code: "auth_failed", message: "Invalid password")
+            }
         }
         authenticated = true
-        return v2Ok(id: id, result: ["authenticated": true])
+        return withV2ResponseEnvelope(jsonRPC: usesJSONRPC) {
+            v2Ok(id: id, result: ["authenticated": true])
+        }
     }
 
     private nonisolated func authResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
@@ -1489,6 +1501,7 @@ class TerminalController {
         let id: Any?
         let method: String
         let params: [String: Any]
+        let usesJSONRPC: Bool
     }
 
     private nonisolated static let socketWorkerV2Methods: Set<String> = [
@@ -1532,7 +1545,8 @@ class TerminalController {
         return V2SocketRequest(
             id: dict["id"],
             method: method,
-            params: dict["params"] as? [String: Any] ?? [:]
+            params: dict["params"] as? [String: Any] ?? [:],
+            usesJSONRPC: (dict["jsonrpc"] as? String) == "2.0"
         )
     }
 
@@ -1542,8 +1556,10 @@ class TerminalController {
             return nil
         }
 
-        return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
-            socketWorkerV2Response(request)
+        return withV2ResponseEnvelope(jsonRPC: request.usesJSONRPC) {
+            withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
+                socketWorkerV2Response(request)
+            }
         }
     }
 
@@ -1995,11 +2011,13 @@ class TerminalController {
         if Thread.isMainThread,
            let request = parseV2SocketRequest(command),
            Self.executionPolicy(forV2Method: request.method) == .socketWorker {
-            return v2Error(
-                id: request.id,
-                code: "invalid_dispatch",
-                message: "\(request.method) must run off the main thread"
-            )
+            return withV2ResponseEnvelope(jsonRPC: request.usesJSONRPC) {
+                v2Error(
+                    id: request.id,
+                    code: "invalid_dispatch",
+                    message: "\(request.method) must run off the main thread"
+                )
+            }
         }
 
         if let response = socketWorkerV2ResponseIfNeeded(for: command) {
@@ -2410,23 +2428,30 @@ class TerminalController {
         }
 
         let id: Any? = dict["id"]
+        let usesJSONRPC = (dict["jsonrpc"] as? String) == "2.0"
         let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let params = dict["params"] as? [String: Any] ?? [:]
 
         guard !method.isEmpty else {
-            return v2Error(id: id, code: "invalid_request", message: "Missing method")
+            return withV2ResponseEnvelope(jsonRPC: usesJSONRPC) {
+                v2Error(id: id, code: "invalid_request", message: "Missing method")
+            }
         }
 
         guard Self.executionPolicy(forV2Method: method) == .mainActor else {
-            return v2Error(
-                id: id,
-                code: "invalid_dispatch",
-                message: "\(method) must run on the socket worker"
-            )
+            return withV2ResponseEnvelope(jsonRPC: usesJSONRPC) {
+                v2Error(
+                    id: id,
+                    code: "invalid_dispatch",
+                    message: "\(method) must run on the socket worker"
+                )
+            }
         }
 
         v2MainSync { self.v2RefreshKnownRefs() }
 
+        let previousEnvelope = pushV2ResponseEnvelope(jsonRPC: usesJSONRPC)
+        defer { restoreV2ResponseEnvelope(previousEnvelope) }
 
         return withSocketCommandPolicy(commandKey: method, isV2: true, params: params) {
             switch method {
@@ -3096,6 +3121,7 @@ class TerminalController {
         return [
             "protocol": "cmux-socket",
             "version": 2,
+            "jsonrpc": "2.0",
             "socket_path": socketPath,
             "access_mode": accessMode.rawValue,
             "methods": methods.sorted()
@@ -3848,7 +3874,42 @@ class TerminalController {
         }
     }
 
+    private nonisolated static let v2ResponseEnvelopeThreadKey = "com.cmux.socket.v2.response-envelope"
+
+    private nonisolated func withV2ResponseEnvelope<T>(jsonRPC: Bool, _ body: () -> T) -> T {
+        let previous = pushV2ResponseEnvelope(jsonRPC: jsonRPC)
+        defer { restoreV2ResponseEnvelope(previous) }
+        return body()
+    }
+
+    private nonisolated func pushV2ResponseEnvelope(jsonRPC: Bool) -> Any? {
+        let dictionary = Thread.current.threadDictionary
+        let previous = dictionary[Self.v2ResponseEnvelopeThreadKey]
+        dictionary[Self.v2ResponseEnvelopeThreadKey] = jsonRPC ? "jsonrpc" : "legacy"
+        return previous
+    }
+
+    private nonisolated func restoreV2ResponseEnvelope(_ previous: Any?) {
+        let dictionary = Thread.current.threadDictionary
+        if let previous {
+            dictionary[Self.v2ResponseEnvelopeThreadKey] = previous
+        } else {
+            dictionary.removeObject(forKey: Self.v2ResponseEnvelopeThreadKey)
+        }
+    }
+
+    private nonisolated func v2UsesJSONRPCEnvelope() -> Bool {
+        Thread.current.threadDictionary[Self.v2ResponseEnvelopeThreadKey] as? String == "jsonrpc"
+    }
+
     private nonisolated func v2Ok(id: Any?, result: Any) -> String {
+        if v2UsesJSONRPCEnvelope() {
+            return v2Encode([
+                "jsonrpc": "2.0",
+                "id": v2OrNull(id),
+                "result": result
+            ])
+        }
         return v2Encode([
             "id": v2OrNull(id),
             "ok": true,
@@ -3905,11 +3966,41 @@ class TerminalController {
         if let data {
             err["data"] = data
         }
+        if v2UsesJSONRPCEnvelope() {
+            var jsonRPCErrorData: [String: Any] = ["cmux_code": code]
+            if let data {
+                jsonRPCErrorData["details"] = data
+            }
+            return v2Encode([
+                "jsonrpc": "2.0",
+                "id": v2OrNull(id),
+                "error": [
+                    "code": Self.jsonRPCErrorCode(for: code),
+                    "message": message,
+                    "data": jsonRPCErrorData
+                ]
+            ])
+        }
         return v2Encode([
             "id": v2OrNull(id),
             "ok": false,
             "error": err
         ])
+    }
+
+    private nonisolated static func jsonRPCErrorCode(for code: String) -> Int {
+        switch code {
+        case "parse_error":
+            return -32700
+        case "invalid_request", "invalid_dispatch":
+            return -32600
+        case "method_not_found":
+            return -32601
+        case "invalid_params":
+            return -32602
+        default:
+            return -32000
+        }
     }
 
     enum V2CallResult {

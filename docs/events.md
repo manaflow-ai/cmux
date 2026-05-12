@@ -8,6 +8,12 @@ JSON. The live stream is delivered over the existing cmux socket. Clients call
 the v2 method `events.stream`, then keep reading newline-delimited JSON frames
 from the same connection.
 
+Clients that send the subscription request with `"jsonrpc": "2.0"` receive a
+JSON-RPC response for the initial ack and JSON-RPC notifications for replay,
+live events, heartbeats, and stream errors. See `docs/json-rpc-api.md` for that
+envelope. The event payloads, sequence numbers, filters, replay buffer, and
+slow-consumer policy are shared by both forms.
+
 ## Quick start
 
 ```bash

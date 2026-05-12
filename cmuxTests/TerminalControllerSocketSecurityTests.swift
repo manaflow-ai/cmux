@@ -228,8 +228,8 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             }
         }
 
-        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
-        let result = try XCTUnwrap(response["result"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected v2 response: \(response)")
+        let result = try XCTUnwrap(response["result"] as? [String: Any], "Unexpected v2 response: \(response)")
         XCTAssertEqual(result["surface_id"] as? String, targetPanel.id.uuidString)
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: targetPanel.id))
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
@@ -267,8 +267,8 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             to: socketPath
         )
 
-        XCTAssertEqual(reportTTYResponse["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(reportTTYResponse)")
-        let reportTTYResult = try XCTUnwrap(reportTTYResponse["result"] as? [String: Any], "Unexpected JSON-RPC response: \(reportTTYResponse)")
+        XCTAssertEqual(reportTTYResponse["ok"] as? Bool, true, "Unexpected v2 response: \(reportTTYResponse)")
+        let reportTTYResult = try XCTUnwrap(reportTTYResponse["result"] as? [String: Any], "Unexpected v2 response: \(reportTTYResponse)")
         XCTAssertEqual(reportTTYResult["surface_id"] as? String, focusedPanelId.uuidString)
         XCTAssertEqual(workspace.surfaceTTYNames[focusedPanelId], "ttys999")
 
@@ -278,8 +278,8 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             to: socketPath
         )
 
-        XCTAssertEqual(portsKickResponse["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(portsKickResponse)")
-        let portsKickResult = try XCTUnwrap(portsKickResponse["result"] as? [String: Any], "Unexpected JSON-RPC response: \(portsKickResponse)")
+        XCTAssertEqual(portsKickResponse["ok"] as? Bool, true, "Unexpected v2 response: \(portsKickResponse)")
+        let portsKickResult = try XCTUnwrap(portsKickResponse["result"] as? [String: Any], "Unexpected v2 response: \(portsKickResponse)")
         XCTAssertEqual(portsKickResult["surface_id"] as? String, focusedPanelId.uuidString)
     }
 
@@ -313,8 +313,8 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             to: socketPath
         )
 
-        XCTAssertEqual(reportTTYResponse["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(reportTTYResponse)")
-        let reportTTYError = try XCTUnwrap(reportTTYResponse["error"] as? [String: Any], "Unexpected JSON-RPC response: \(reportTTYResponse)")
+        XCTAssertEqual(reportTTYResponse["ok"] as? Bool, false, "Unexpected v2 response: \(reportTTYResponse)")
+        let reportTTYError = try XCTUnwrap(reportTTYResponse["error"] as? [String: Any], "Unexpected v2 response: \(reportTTYResponse)")
         XCTAssertEqual(reportTTYError["code"] as? String, "not_found")
         let reportTTYData = try XCTUnwrap(reportTTYError["data"] as? [String: Any], "Expected error data payload")
         XCTAssertEqual(reportTTYData["surface_id"] as? String, unknownSurfaceId.uuidString)
@@ -329,8 +329,8 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             to: socketPath
         )
 
-        XCTAssertEqual(portsKickResponse["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(portsKickResponse)")
-        let portsKickError = try XCTUnwrap(portsKickResponse["error"] as? [String: Any], "Unexpected JSON-RPC response: \(portsKickResponse)")
+        XCTAssertEqual(portsKickResponse["ok"] as? Bool, false, "Unexpected v2 response: \(portsKickResponse)")
+        let portsKickError = try XCTUnwrap(portsKickResponse["error"] as? [String: Any], "Unexpected v2 response: \(portsKickResponse)")
         XCTAssertEqual(portsKickError["code"] as? String, "not_found")
         let portsKickData = try XCTUnwrap(portsKickError["data"] as? [String: Any], "Expected error data payload")
         XCTAssertEqual(portsKickData["surface_id"] as? String, unknownSurfaceId.uuidString)
@@ -364,8 +364,8 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             }
         }
 
-        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
-        let error = try XCTUnwrap(response["error"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected v2 response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any], "Unexpected v2 response: \(response)")
         XCTAssertEqual(error["code"] as? String, "protected")
 
         let data = try XCTUnwrap(error["data"] as? [String: Any], "Expected error data payload")
@@ -447,7 +447,6 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         defer { Darwin.close(fd) }
 
         let payload: [String: Any] = [
-            "jsonrpc": "2.0",
             "id": 1,
             "method": method,
             "params": params
@@ -455,7 +454,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         let data = try JSONSerialization.data(withJSONObject: payload)
         guard let line = String(data: data, encoding: .utf8) else {
             throw NSError(domain: NSCocoaErrorDomain, code: 0, userInfo: [
-                NSLocalizedDescriptionKey: "Failed to encode JSON-RPC request"
+                NSLocalizedDescriptionKey: "Failed to encode v2 request"
             ])
         }
         try writeLine(line, to: fd)
@@ -464,7 +463,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         let responseData = Data(responseLine.utf8)
         return try XCTUnwrap(
             try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
-            "Expected JSON-RPC response object"
+            "Expected v2 response object"
         )
     }
 

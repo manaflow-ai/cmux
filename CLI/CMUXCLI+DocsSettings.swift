@@ -59,12 +59,16 @@ extension CMUXCLI {
             summary: "CLI/socket API, handle model, windows, workspaces, panes, and surfaces.",
             webURL: "https://cmux.com/docs/api",
             rawResources: [
+                DocsResource(label: "JSON-RPC API", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/json-rpc-api.md"),
                 DocsResource(label: "CLI contract", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/cli-contract.md"),
+                DocsResource(label: "event stream", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/events.md"),
                 DocsResource(label: "cmux skill", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills/cmux/SKILL.md"),
             ],
             commands: [
                 "cmux identify --json",
                 "cmux tree --all",
+                "cmux capabilities",
+                "cmux events --category workspace",
             ]
         ),
         DocsReference(
