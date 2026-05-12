@@ -20693,7 +20693,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           close-workspace --workspace <id|ref>
           select-workspace --workspace <id|ref>
           rename-workspace [--workspace <id|ref>] [--icon <json>] <title>
-          rename-window [--workspace <id|ref>] <title>
+          rename-window [--workspace <id|ref>] [--icon <json>] <title>
           current-workspace
           read-screen [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]
           send [--workspace <id|ref>] [--surface <id|ref>] <text>

@@ -145,7 +145,7 @@ private final class SidebarWorkspaceIconImageLoader: ObservableObject {
 
     func load(path: String) {
         let expandedPath = (path as NSString).expandingTildeInPath
-        guard requestedPath != expandedPath || (!didLoad && !isLoading) else { return }
+        guard requestedPath != expandedPath || !isLoading else { return }
         requestedPath = expandedPath
         image = nil
         didLoad = false
