@@ -90,39 +90,34 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
     func testSettingsFileStoreParsesWorkspaceSidebarPosition() throws {
         let defaults = UserDefaults.standard
         let key = WorkspaceSidebarPositionSettings.key
-        let previousValue = defaults.object(forKey: key)
-        defer {
-            if let previousValue {
-                defaults.set(previousValue, forKey: key)
-            } else {
-                defaults.removeObject(forKey: key)
-            }
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("sidebar-position.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "sidebar": {
+                    "position": "right"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.string(forKey: key), WorkspaceSidebarPosition.right.rawValue)
         }
-
-        defaults.removeObject(forKey: key)
-
-        let directoryURL = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-        let settingsFileURL = directoryURL.appendingPathComponent("sidebar-position.json", isDirectory: false)
-        try writeSettingsFile(
-            """
-            {
-              "sidebar": {
-                "position": "right"
-              }
-            }
-            """,
-            to: settingsFileURL
-        )
-
-        _ = KeyboardShortcutSettingsFileStore(
-            primaryPath: settingsFileURL.path,
-            fallbackPath: nil,
-            startWatching: false
-        )
-
-        XCTAssertEqual(defaults.string(forKey: key), WorkspaceSidebarPosition.right.rawValue)
     }
 
     func testSettingsFileStoreRestoresAbsentAppIconBackupDuringStartupWithoutTouchingAppKit() throws {
