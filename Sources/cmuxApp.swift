@@ -5045,8 +5045,6 @@ struct SettingsView: View {
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
     @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
-    @AppStorage(RightSidebarBetaFeatureSettings.feedEnabledKey)
-    private var rightSidebarFeedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
     private var rightSidebarDockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
 
@@ -6346,7 +6344,6 @@ struct SettingsView: View {
                     }
 
                     BetaFeaturesSettingsView(
-                        feedEnabled: $rightSidebarFeedEnabled,
                         dockEnabled: $rightSidebarDockEnabled
                     )
 
@@ -7229,7 +7226,6 @@ struct SettingsView: View {
         browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
         showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
         isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
-        rightSidebarFeedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
         rightSidebarDockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
         openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
         interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser
