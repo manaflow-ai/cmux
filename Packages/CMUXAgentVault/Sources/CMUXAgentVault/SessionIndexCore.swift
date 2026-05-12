@@ -1,6 +1,8 @@
 import Foundation
 
-public final class SessionIndexErrorBag: @unchecked Sendable {
+/// Thread-safe collector for session index scan errors.
+/// Safety: all mutable state is guarded by `lock`, so instances can cross tasks.
+public nonisolated final class SessionIndexErrorBag: @unchecked Sendable {
     private let lock = NSLock()
     private var messages: [String] = []
 
@@ -20,15 +22,15 @@ public final class SessionIndexErrorBag: @unchecked Sendable {
 }
 
 public enum SessionIndexCore {
-    public static let headByteCap = 64 * 1024
-    public static let tailByteCap = 32 * 1024
+    public nonisolated static let headByteCap = 64 * 1024
+    public nonisolated static let tailByteCap = 32 * 1024
     /// Hard cap on candidate files inspected per call to keep deep-page searches bounded.
-    public static let searchMaxFiles = 1500
+    public nonisolated static let searchMaxFiles = 1500
     // CMUXAgentVault targets macOS 13+, so `FileHandle.read(upToCount:)` does not need an older 10.15.4 fallback.
 
     /// Stream JSON-lines from the start of `url`. `body` returns true to stop early.
     /// Caps total bytes read at `maxBytes`.
-    public static func forEachJSONLine(
+    public nonisolated static func forEachJSONLine(
         url: URL,
         maxBytes: Int,
         body: ([String: Any]) -> Bool
@@ -62,7 +64,7 @@ public enum SessionIndexCore {
     }
 
     /// Read up to `byteCap` bytes from the start of the file as UTF-8.
-    public static func readFileHead(url: URL, byteCap: Int) -> String {
+    public nonisolated static func readFileHead(url: URL, byteCap: Int) -> String {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
         defer { try? handle.close() }
         let data = (try? handle.read(upToCount: byteCap)) ?? Data()
@@ -71,7 +73,7 @@ public enum SessionIndexCore {
 
     /// Read up to `byteCap` bytes from the end of the file as UTF-8.
     /// Used to find late-arriving events like pr-link without scanning the whole file.
-    public static func readFileTail(url: URL, byteCap: Int) -> String {
+    public nonisolated static func readFileTail(url: URL, byteCap: Int) -> String {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
         defer { try? handle.close() }
         let size: UInt64
@@ -97,7 +99,8 @@ public enum SessionIndexCore {
         return String(data: data, encoding: .utf8) ?? ""
     }
 
-    public static func fileContainsNeedle(url: URL, needle: String) -> Bool {
+    /// Return true when `needle` appears in `url`, scanning in chunks with overlap.
+    public nonisolated static func fileContainsNeedle(url: URL, needle: String) -> Bool {
         guard !needle.isEmpty,
               let handle = try? FileHandle(forReadingFrom: url) else {
             return false
@@ -183,7 +186,7 @@ public enum SessionIndexCore {
         }
     }
 
-    private static let cachedRipgrepPath: String? = {
+    private nonisolated static let cachedRipgrepPath: String? = {
         let fileManager = FileManager.default
         let commonPaths = [
             "/opt/homebrew/bin/rg",
@@ -206,7 +209,8 @@ public enum SessionIndexCore {
     }()
 }
 
-private final class CancellableProcessBox: @unchecked Sendable {
+// Safety: all access to `process` is guarded by `lock`; terminate snapshots under the same lock.
+private nonisolated final class CancellableProcessBox: @unchecked Sendable {
     private let lock = NSLock()
     private var process: Process?
 
