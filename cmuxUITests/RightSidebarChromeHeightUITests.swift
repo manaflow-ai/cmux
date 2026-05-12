@@ -181,8 +181,6 @@ final class TerminalViewportUITests: XCTestCase {
         }
         assertTerminalViewportFillsAvailableSpace(small)
 
-        writeViewportResizeRequest("1180x780", atPath: commandPath)
-
         guard let large = waitForViewportGeometry(atPath: dataPath, timeout: 10, matching: { geometry in
             geometry.requestedWindowSize == "1180x780" &&
                 geometry.windowWidth > small.windowWidth + 180 &&
@@ -190,6 +188,9 @@ final class TerminalViewportUITests: XCTestCase {
                 geometry.panelWidth > small.panelWidth + 180 &&
                 geometry.panelHeight > small.panelHeight + 120 &&
                 geometry.fillsAvailableViewport
+        }, beforeEachPoll: {
+            writeViewportResizeRequest("1180x780", atPath: commandPath)
+            writeViewportResizeRequest("1180x780", atPath: dataPath)
         }) else {
             XCTFail("Timed out waiting for resized terminal viewport geometry. data=\(loadJSON(atPath: dataPath) ?? [:])")
             return
@@ -286,10 +287,12 @@ final class TerminalViewportUITests: XCTestCase {
     private func waitForViewportGeometry(
         atPath path: String,
         timeout: TimeInterval,
-        matching predicate: (ViewportGeometry) -> Bool
+        matching predicate: (ViewportGeometry) -> Bool,
+        beforeEachPoll: (() -> Void)? = nil
     ) -> ViewportGeometry? {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
+            beforeEachPoll?()
             if let data = loadJSON(atPath: path),
                let geometry = ViewportGeometry(data: data),
                predicate(geometry) {

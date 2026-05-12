@@ -8869,9 +8869,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
+            let testData = self.loadTerminalViewportUITestData()
             let commandData = self.loadTerminalViewportUITestCommandData()
-            let requestedWindowSizeText = commandData["terminalViewportRequestedWindowSize"]?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let requestedWindowSizeText = self.terminalViewportRequestedWindowSizeText(
+                commandData["terminalViewportRequestedWindowSize"]
+            ) ?? self.terminalViewportRequestedWindowSizeText(
+                testData["terminalViewportRequestedWindowSize"]
+            )
             let requestedWindowSize = self.parseTerminalViewportUITestWindowSize(
                 requestedWindowSizeText
             ) ?? initialWindowSize
@@ -8903,10 +8907,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "terminalViewportRightSidebarVisible": context.fileExplorerState?.isVisible == true ? "1" : "0",
                 "terminalViewportWorkspaceId": terminalPanel.workspaceId.uuidString,
             ]
-            if let requestedWindowSize {
-                recorderData["terminalViewportRequestedWindowSize"] = requestedWindowSizeText?.isEmpty == false
-                    ? requestedWindowSizeText!
-                    : "\(Int(requestedWindowSize.width))x\(Int(requestedWindowSize.height))"
+            if let requestedWindowSizeText {
+                recorderData["terminalViewportRequestedWindowSize"] = requestedWindowSizeText
             }
             viewportData.merge(recorderData) { _, newValue in newValue }
             self.writeTerminalViewportUITestData(viewportData)
@@ -8941,6 +8943,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .compactMap { Double(String($0).trimmingCharacters(in: .whitespacesAndNewlines)) }
         guard parts.count == 2 else { return nil }
         return NSSize(width: max(320, parts[0]), height: max(240, parts[1]))
+    }
+
+    private func terminalViewportRequestedWindowSizeText(_ rawValue: String?) -> String? {
+        guard let value = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 
     private func setTerminalViewportUITestWindowSize(_ requestedSize: NSSize, on window: NSWindow) {
