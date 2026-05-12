@@ -88,7 +88,7 @@ struct SessionIndexView: View {
                     .font(.system(size: 10, weight: .medium))
             }
             .buttonStyle(.borderless)
-            .help(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload Vault"))
+            .safeHelp(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload Vault"))
             .disabled(store.isLoading)
         }
         .rightSidebarChromeBar()
@@ -248,7 +248,7 @@ private struct GroupingButton: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .help(mode.label)
+        .safeHelp(mode.label)
         .accessibilityIdentifier("SessionGroupingButton.\(mode.rawValue)")
     }
 }
@@ -534,7 +534,7 @@ private struct SessionRow: View, Equatable {
         .background(rowBackground)
         .background(previewPopoverHost)
         .onHover { isHovered = $0 }
-        .help(helpText)
+        .safeHelp(helpText)
         .onTapGesture(count: 2) {
             onPreviewPresentationChange(true)
         }
@@ -731,7 +731,7 @@ private struct SessionTranscriptPreviewView: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text(String(localized: "common.close", defaultValue: "Close")))
                 .accessibilityAddTraits(.isButton)
-                .help(String(localized: "common.close", defaultValue: "Close"))
+                .safeHelp(String(localized: "common.close", defaultValue: "Close"))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -863,7 +863,7 @@ private struct SessionTranscriptResizeHandle: View {
                     dragStartSize = nil
                 }
         )
-        .help(String(localized: "sessionIndex.preview.resize", defaultValue: "Resize preview"))
+        .safeHelp(String(localized: "sessionIndex.preview.resize", defaultValue: "Resize preview"))
     }
 }
 
@@ -2234,7 +2234,7 @@ private struct PopoverRow: View, Equatable {
         .onDrag {
             sessionDragItemProvider(for: entry)
         }
-        .help(entry.cwdLabel ?? entry.displayTitle)
+        .safeHelp(entry.cwdLabel ?? entry.displayTitle)
         .contextMenu {
             sessionRowMenuItems(entry: entry, onResume: { _ in onActivate() })
         }

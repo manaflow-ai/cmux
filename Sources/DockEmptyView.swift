@@ -29,7 +29,7 @@ struct DockEmptyView: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .help(String(localized: "dock.empty.copyPrompt.help", defaultValue: "Copy a prompt you can paste into an AI coding agent"))
+                    .safeHelp(String(localized: "dock.empty.copyPrompt.help", defaultValue: "Copy a prompt you can paste into an AI coding agent"))
 
                     Button {
                         isPromptPopoverPresented.toggle()
@@ -39,7 +39,7 @@ struct DockEmptyView: View {
                     .buttonStyle(.borderless)
                     .controlSize(.small)
                     .accessibilityLabel(String(localized: "dock.empty.promptInfo", defaultValue: "Show Agent Prompt"))
-                    .help(String(localized: "dock.empty.promptInfo.help", defaultValue: "Show the prompt that will be copied"))
+                    .safeHelp(String(localized: "dock.empty.promptInfo.help", defaultValue: "Show the prompt that will be copied"))
                     .popover(isPresented: $isPromptPopoverPresented, arrowEdge: .bottom) {
                         agentPromptPopover
                     }
@@ -55,7 +55,7 @@ struct DockEmptyView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .help(String(localized: "dock.empty.openDocs.help", defaultValue: "Open the Dock documentation"))
+                .safeHelp(String(localized: "dock.empty.openDocs.help", defaultValue: "Open the Dock documentation"))
             }
             .padding(.top, 4)
         }

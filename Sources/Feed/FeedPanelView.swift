@@ -143,7 +143,7 @@ private struct FeedSecondaryFilterButton: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .help(filter.label)
+        .safeHelp(filter.label)
     }
 }
 
@@ -979,7 +979,7 @@ struct FeedItemRow: View, Equatable {
         .frame(maxWidth: .infinity, alignment: .leading)
         .opacity(isResolvedOrExpired ? 0.6 : 1.0)
         .contentShape(Rectangle())
-        .help(helpText)
+        .safeHelp(helpText)
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in
@@ -1595,7 +1595,7 @@ struct FeedButton: View {
         .onHover { hovering in
             handleHover(hovering)
         }
-        .help(label)
+        .safeHelp(label)
     }
 
     private var labelContent: some View {
@@ -1692,7 +1692,7 @@ struct FeedButton: View {
             .onHover { hovering in
                 handleHover(hovering)
             }
-            .help(label)
+            .safeHelp(label)
         }
 
         @available(macOS 26.0, *)
@@ -1717,7 +1717,7 @@ struct FeedButton: View {
             .onHover { hovering in
                 handleHover(hovering)
             }
-            .help(label)
+            .safeHelp(label)
         }
     #endif
 
@@ -2325,7 +2325,7 @@ private struct ExitPlanPlanFileView: View {
                 .foregroundColor(.secondary.opacity(0.85))
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .help(path)
+                .safeHelp(path)
         }
     }
 }

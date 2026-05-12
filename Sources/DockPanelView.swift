@@ -594,7 +594,7 @@ struct DockPanelView: View {
                     .font(.system(size: 11, weight: .medium))
             }
             .buttonStyle(.plain)
-            .help(String(localized: "dock.action.openConfig", defaultValue: "Open Dock Config"))
+            .safeHelp(String(localized: "dock.action.openConfig", defaultValue: "Open Dock Config"))
             .accessibilityLabel(String(localized: "dock.action.openConfig", defaultValue: "Open Dock Config"))
 
             Button {
@@ -604,7 +604,7 @@ struct DockPanelView: View {
                     .font(.system(size: 11, weight: .medium))
             }
             .buttonStyle(.plain)
-            .help(String(localized: "dock.action.reload", defaultValue: "Reload Dock"))
+            .safeHelp(String(localized: "dock.action.reload", defaultValue: "Reload Dock"))
             .accessibilityLabel(String(localized: "dock.action.reload", defaultValue: "Reload Dock"))
         }
         .padding(.horizontal, 8)
@@ -761,7 +761,7 @@ private struct DockControlSectionView<TerminalContent: View>: View {
                     .font(.system(size: 10, weight: .medium))
             }
             .buttonStyle(.plain)
-            .help(String(localized: "dock.action.focusControl", defaultValue: "Focus Control"))
+            .safeHelp(String(localized: "dock.action.focusControl", defaultValue: "Focus Control"))
             .accessibilityLabel(String(localized: "dock.action.focusControl", defaultValue: "Focus Control"))
 
             Button {
@@ -771,7 +771,7 @@ private struct DockControlSectionView<TerminalContent: View>: View {
                     .font(.system(size: 10, weight: .medium))
             }
             .buttonStyle(.plain)
-            .help(String(localized: "dock.action.restartControl", defaultValue: "Restart Control"))
+            .safeHelp(String(localized: "dock.action.restartControl", defaultValue: "Restart Control"))
             .accessibilityLabel(String(localized: "dock.action.restartControl", defaultValue: "Restart Control"))
         }
         .padding(.horizontal, 8)

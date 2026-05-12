@@ -851,7 +851,7 @@ struct FilePreviewPanelView: View {
                 }
                 .buttonStyle(.borderless)
                 .disabled(!panel.isDirty)
-                .help(String(localized: "filePreview.revert", defaultValue: "Revert"))
+                .safeHelp(String(localized: "filePreview.revert", defaultValue: "Revert"))
                 .accessibilityLabel(String(localized: "filePreview.revert", defaultValue: "Revert"))
 
                 Button {
@@ -861,7 +861,7 @@ struct FilePreviewPanelView: View {
                 }
                 .buttonStyle(.borderless)
                 .disabled(!panel.isDirty || panel.isSaving)
-                .help(String(localized: "filePreview.save", defaultValue: "Save"))
+                .safeHelp(String(localized: "filePreview.save", defaultValue: "Save"))
                 .accessibilityLabel(String(localized: "filePreview.save", defaultValue: "Save"))
             }
         }
@@ -1268,7 +1268,7 @@ struct FilePreviewPDFZoomChromeView: View {
                     .contentShape(Rectangle())
             }
             .accessibilityLabel(label)
-            .help(label)
+            .safeHelp(label)
         }
     }
 
@@ -1302,7 +1302,7 @@ private struct FilePreviewChromeIconButton: View {
             isHovered = hovering
         }
         .accessibilityLabel(label)
-        .help(label)
+        .safeHelp(label)
     }
 }
 

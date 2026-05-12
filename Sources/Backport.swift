@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 // Centralized backports for newer SwiftUI APIs we want to use when available.
@@ -10,11 +11,20 @@ extension View {
 
     @ViewBuilder
     func safeHelp(_ text: String) -> some View {
-        if text.isEmpty {
+        if text.isEmpty || SwiftUITooltipSafety.shouldSuppressSwiftUIHelp {
             self
         } else {
             self.help(text)
         }
+    }
+}
+
+private enum SwiftUITooltipSafety {
+    static var shouldSuppressSwiftUIHelp: Bool {
+        // Public crash reports on Tahoe point at stale SwiftUI/AppKit tooltip tracking
+        // areas after long-running window churn. Tooltips are nonessential; suppressing
+        // SwiftUI help registration there avoids that AppKit crash path.
+        ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26
     }
 }
 
