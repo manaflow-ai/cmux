@@ -154,7 +154,7 @@ Environment:
 | `vm-pty-connect` | Internal helper that connects to a VM PTY from a config file. |
 | `ssh-session-end` | Internal helper that clears remote SSH session state. |
 | `ssh-session-reconnecting` | Internal helper that marks an SSH-backed workspace as reconnecting. |
-| `ssh-session-connected` | Internal helper that marks an SSH-backed workspace as connected after retry. |
+| `ssh-session-connected` | Internal helper that marks an SSH-backed workspace as connected after OpenSSH reports a connection. |
 | `__tmux-compat` | Internal tmux compatibility dispatcher. |
 
 ## Command Families

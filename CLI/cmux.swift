@@ -4811,6 +4811,7 @@ struct CMUXCLI {
             remoteRelayPort: sshOptions.remoteRelayPort
         )
         let canInstallLocalCommand = canInstallSSHLocalCommand(in: remoteSSHOptions)
+        let canReportConnectionLifecycle = canInstallLocalCommand && sshOptions.remoteRelayPort > 0
         let initialSSHCommand = buildSSHCommandText(sshOptions)
         // For VM workspaces (Freestyle), skip the interactive bootstrap script: the russh
         // gateway forwards shell-request PTYs but stalls on exec-channel I/O, and the bootstrap
@@ -4873,36 +4874,41 @@ struct CMUXCLI {
                 remoteBootstrapScript: remoteTerminalBootstrapScript,
                 shellFeatures: shellFeaturesValue,
                 remoteRelayPort: sshOptions.remoteRelayPort,
-                localCommandScript: combinedLocalCommandScript
+                localCommandScript: combinedLocalCommandScript,
+                reportsConnectionLifecycle: canReportConnectionLifecycle
             )
             remoteTerminalSSHStartupCommand = buildReusableBootstrapSSHStartupCommand(
                 options: sshOptions,
                 remoteBootstrapScript: remoteTerminalBootstrapScript,
                 shellFeatures: shellFeaturesValue,
                 remoteRelayPort: sshOptions.remoteRelayPort,
-                localCommandScript: combinedLocalCommandScript
+                localCommandScript: combinedLocalCommandScript,
+                reportsConnectionLifecycle: canReportConnectionLifecycle
             )
         } else {
             initialSSHStartupCommand = try buildSSHStartupCommand(
                 sshCommand: startupInitialSSHCommand,
                 shellFeatures: "",
-                remoteRelayPort: sshOptions.remoteRelayPort
+                remoteRelayPort: sshOptions.remoteRelayPort,
+                reportsConnectionLifecycle: canReportConnectionLifecycle
             )
             remoteTerminalSSHStartupCommand = buildReusableSSHStartupCommand(
                 sshCommand: startupRemoteTerminalSSHCommand,
                 shellFeatures: shellFeaturesValue,
-                remoteRelayPort: sshOptions.remoteRelayPort
+                remoteRelayPort: sshOptions.remoteRelayPort,
+                reportsConnectionLifecycle: canReportConnectionLifecycle
             )
         }
         let reusableTerminalStartupCommand: String
         if let vmIDForSplitAttach,
            sshOptions.skipDaemonBootstrap {
             let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-            let splitAttachCommand = "\(shellQuote(executablePath)) vm ssh-attach --id \(shellQuote(vmIDForSplitAttach))"
+            let splitAttachCommand = "\(shellQuote(executablePath)) vm ssh-attach --id \(shellQuote(vmIDForSplitAttach)) --relay-port \(sshOptions.remoteRelayPort)"
             reusableTerminalStartupCommand = buildReusableSSHStartupCommand(
                 sshCommand: splitAttachCommand,
                 shellFeatures: shellFeaturesValue,
-                remoteRelayPort: 0
+                remoteRelayPort: sshOptions.remoteRelayPort,
+                reportsConnectionLifecycle: canReportConnectionLifecycle
             )
         } else {
             reusableTerminalStartupCommand = remoteTerminalSSHStartupCommand
@@ -5185,7 +5191,8 @@ struct CMUXCLI {
         remoteBootstrapScript: String,
         shellFeatures: String,
         remoteRelayPort: Int,
-        localCommandScript: String? = nil
+        localCommandScript: String? = nil,
+        reportsConnectionLifecycle: Bool = true
     ) throws -> String {
         let commandSnippet = buildSSHBootstrapCommandSnippet(
             options: options,
@@ -5196,7 +5203,8 @@ struct CMUXCLI {
             sshCommand: commandSnippet,
             shellFeatures: shellFeatures,
             remoteRelayPort: remoteRelayPort,
-            isShellSnippet: true
+            isShellSnippet: true,
+            reportsConnectionLifecycle: reportsConnectionLifecycle
         )
     }
 
@@ -5205,7 +5213,8 @@ struct CMUXCLI {
         remoteBootstrapScript: String,
         shellFeatures: String,
         remoteRelayPort: Int,
-        localCommandScript: String? = nil
+        localCommandScript: String? = nil,
+        reportsConnectionLifecycle: Bool = true
     ) -> String {
         let commandSnippet = buildSSHBootstrapCommandSnippet(
             options: options,
@@ -5216,7 +5225,8 @@ struct CMUXCLI {
             sshCommand: commandSnippet,
             shellFeatures: shellFeatures,
             remoteRelayPort: remoteRelayPort,
-            isShellSnippet: true
+            isShellSnippet: true,
+            reportsConnectionLifecycle: reportsConnectionLifecycle
         )
     }
 
@@ -5644,7 +5654,8 @@ struct CMUXCLI {
         for option in effectiveSSHOptions {
             parts += ["-o", option]
         }
-        if let escapedLocalCommand = openSSHLocalCommandValue(shellScript: localCommandScript) {
+        if canInstallSSHLocalCommand(in: effectiveSSHOptions),
+           let escapedLocalCommand = openSSHLocalCommandValue(shellScript: localCommandScript) {
             parts += ["-o", "PermitLocalCommand=yes"]
             parts += ["-o", "LocalCommand=\(escapedLocalCommand)"]
         }
@@ -5734,13 +5745,15 @@ struct CMUXCLI {
         sshCommand: String,
         shellFeatures: String,
         remoteRelayPort: Int,
-        isShellSnippet: Bool = false
+        isShellSnippet: Bool = false,
+        reportsConnectionLifecycle: Bool = true
     ) throws -> String {
         let script = buildSSHStartupScriptBody(
             sshCommand: sshCommand,
             shellFeatures: shellFeatures,
             remoteRelayPort: remoteRelayPort,
-            isShellSnippet: isShellSnippet
+            isShellSnippet: isShellSnippet,
+            reportsConnectionLifecycle: reportsConnectionLifecycle
         )
         return try writeSSHStartupScript(script, remoteRelayPort: remoteRelayPort)
     }
@@ -5749,13 +5762,15 @@ struct CMUXCLI {
         sshCommand: String,
         shellFeatures: String,
         remoteRelayPort: Int,
-        isShellSnippet: Bool = false
+        isShellSnippet: Bool = false,
+        reportsConnectionLifecycle: Bool = true
     ) -> String {
         let script = buildSSHStartupScriptBody(
             sshCommand: sshCommand,
             shellFeatures: shellFeatures,
             remoteRelayPort: remoteRelayPort,
-            isShellSnippet: isShellSnippet
+            isShellSnippet: isShellSnippet,
+            reportsConnectionLifecycle: reportsConnectionLifecycle
         )
         return reusableShellStartupCommand(
             scriptBody: script,
@@ -5767,14 +5782,17 @@ struct CMUXCLI {
         sshCommand: String,
         shellFeatures: String,
         remoteRelayPort: Int,
-        isShellSnippet: Bool
+        isShellSnippet: Bool,
+        reportsConnectionLifecycle: Bool
     ) -> String {
         let trimmedFeatures = shellFeatures.trimmingCharacters(in: .whitespacesAndNewlines)
         let shellFeaturesBootstrap: String = trimmedFeatures.isEmpty
             ? ""
             : "export GHOSTTY_SHELL_FEATURES=\(shellQuote(trimmedFeatures))"
         let lifecycleCleanup = buildSSHSessionEndShellCommand(remoteRelayPort: remoteRelayPort)
-        let lifecycleReconnecting = buildSSHSessionReconnectingShellCommand(remoteRelayPort: remoteRelayPort)
+        let lifecycleReconnecting = reportsConnectionLifecycle
+            ? buildSSHSessionReconnectingShellCommand(remoteRelayPort: remoteRelayPort)
+            : ":"
         var scriptLines: [String] = []
         if !shellFeaturesBootstrap.isEmpty {
             scriptLines.append(shellFeaturesBootstrap)
@@ -6079,7 +6097,8 @@ struct CMUXCLI {
     }
 
     private func runVMSSHAttach(commandArgs: [String], client: SocketClient) throws {
-        let (vmIDOpt, remaining) = parseOption(commandArgs, name: "--id")
+        let (vmIDOpt, rem0) = parseOption(commandArgs, name: "--id")
+        let (relayPortOpt, remaining) = parseOption(rem0, name: "--relay-port")
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
             throw CLIError(message: "vm ssh-attach: unknown flag '\(unknown)'")
         }
@@ -6090,6 +6109,17 @@ struct CMUXCLI {
               !vmID.isEmpty else {
             throw CLIError(message: "Usage: cmux vm ssh-attach --id <vm-id>")
         }
+        let remoteRelayPort: Int
+        if let relayPortOpt {
+            guard let parsedRelayPort = Int(relayPortOpt),
+                  parsedRelayPort > 0,
+                  parsedRelayPort <= 65535 else {
+                throw CLIError(message: "vm ssh-attach: --relay-port must be 1-65535")
+            }
+            remoteRelayPort = parsedRelayPort
+        } else {
+            remoteRelayPort = 0
+        }
 
         let attachInfoStartedAt = Date()
         let response = try client.sendV2(method: "vm.attach_info", params: ["id": vmID], responseTimeout: Self.vmAttachResponseTimeoutSeconds)
@@ -6098,9 +6128,25 @@ struct CMUXCLI {
             fromAttachInfo: response,
             workspaceName: nil,
             client: client,
-            remoteRelayPort: 0
+            remoteRelayPort: remoteRelayPort
         )
-        let sshArguments = buildSSHCommandArguments(options)
+        let remoteSSHOptions = effectiveSSHOptions(
+            options.sshOptions,
+            remoteRelayPort: options.remoteRelayPort
+        )
+        let localCommandScript = remoteRelayPort > 0 && canInstallSSHLocalCommand(in: remoteSSHOptions)
+            ? combinedLocalShellScript([
+                sshSessionConnectedLocalCommandScript(
+                    remoteRelayPort: remoteRelayPort,
+                    localCLIPath: resolvedExecutableURL()?.path
+                ),
+                sshConnectionTimingLocalCommandScript(
+                    target: options.displayDestination,
+                    relayPort: remoteRelayPort
+                ),
+            ])
+            : nil
+        let sshArguments = buildSSHCommandArguments(options, localCommandScript: localCommandScript)
         guard let launchPath = sshArguments.first else {
             throw CLIError(message: "vm ssh-attach: failed to construct ssh command")
         }
@@ -6628,7 +6674,7 @@ struct CMUXCLI {
         guard let limit = positiveIntOption(commandArgs, name: "--limit") else {
             throw CLIError(message: "ssh-session-reconnecting requires --limit <n>")
         }
-        guard let exitStatus = nonNegativeIntOption(commandArgs, name: "--exit-status") else {
+        guard let exitStatus = byteIntOption(commandArgs, name: "--exit-status") else {
             throw CLIError(message: "ssh-session-reconnecting requires --exit-status <status>")
         }
         _ = try client.sendV2(method: "workspace.remote.terminal_reconnecting", params: [
@@ -6694,10 +6740,11 @@ struct CMUXCLI {
         return value
     }
 
-    private func nonNegativeIntOption(_ commandArgs: [String], name: String) -> Int? {
+    private func byteIntOption(_ commandArgs: [String], name: String) -> Int? {
         guard let raw = optionValue(commandArgs, name: name),
               let value = Int(raw),
-              value >= 0 else {
+              value >= 0,
+              value <= 255 else {
             return nil
         }
         return value
@@ -6963,8 +7010,18 @@ struct CMUXCLI {
     }
 
     private func canInstallSSHLocalCommand(in options: [String]) -> Bool {
-        !hasSSHOptionKey(options, key: "LocalCommand") &&
-            !hasSSHOptionKey(options, key: "PermitLocalCommand")
+        guard !hasSSHOptionKey(options, key: "LocalCommand") else {
+            return false
+        }
+
+        guard hasSSHOptionKey(options, key: "PermitLocalCommand") else {
+            return true
+        }
+
+        let permitLocalCommand = sshOptionValue(named: "PermitLocalCommand", in: options)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return ["yes", "true", "on"].contains(permitLocalCommand ?? "")
     }
 
     private func defaultSSHControlPathTemplate(remoteRelayPort: Int? = nil) -> String {
