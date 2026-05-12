@@ -10038,7 +10038,7 @@ final class Workspace: Identifiable, ObservableObject {
         // Create the split with the new tab already present in the new pane.
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
-        guard let newPaneId = commitNewTerminalSplitPane(
+        guard commitNewTerminalSplitPane(
             sourcePaneId: paneId,
             orientation: orientation,
             newTab: newTab,
@@ -10049,7 +10049,7 @@ final class Workspace: Identifiable, ObservableObject {
             focused: focus,
             layoutReason: "terminal.split",
             terminalFocusPanelId: focus ? newPanel.id : nil
-        ) else {
+        ) != nil else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
