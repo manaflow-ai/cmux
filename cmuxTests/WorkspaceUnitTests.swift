@@ -2334,7 +2334,7 @@ final class WorkspaceSurfaceCreationPlacementTests: XCTestCase {
         let raw = TerminalController.shared.handleSocketLine(requestLine)
         let responseData = try XCTUnwrap(raw.data(using: .utf8), file: file, line: line)
         let envelope = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+            try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
             raw,
             file: file,
             line: line
