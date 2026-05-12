@@ -74,6 +74,35 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(wrongAuthThenPing[1].hasPrefix("ERROR:"))
     }
 
+    func testJSONRPCEnvelopeSurvivesSocketWorkerDispatch() async throws {
+        let socketPath = makeSocketPath("jsonrpc-worker")
+        let tabManager = TabManager()
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try await sendV2RequestAsync(
+            method: "feedback.submit",
+            params: [:],
+            to: socketPath,
+            jsonRPC: true,
+            id: "feedback-missing-email"
+        )
+
+        XCTAssertEqual(response["jsonrpc"] as? String, "2.0", "Unexpected v2 response: \(response)")
+        XCTAssertEqual(response["id"] as? String, "feedback-missing-email", "Unexpected v2 response: \(response)")
+        XCTAssertNil(response["ok"], "JSON-RPC responses should not include legacy ok: \(response)")
+
+        let error = try XCTUnwrap(response["error"] as? [String: Any], "Unexpected v2 response: \(response)")
+        XCTAssertEqual(error["code"] as? Int, -32602)
+        let data = try XCTUnwrap(error["data"] as? [String: Any], "Expected JSON-RPC error data")
+        XCTAssertEqual(data["cmux_code"] as? String, "invalid_params")
+    }
+
     func testSocketCommandPolicyDistinguishesFocusIntent() throws {
 #if DEBUG
         let nonFocus = TerminalController.debugSocketCommandPolicySnapshot(
@@ -725,16 +754,21 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
     private nonisolated func sendV2Request(
         method: String,
         params: [String: Any],
-        to socketPath: String
+        to socketPath: String,
+        jsonRPC: Bool = false,
+        id: Any = 1
     ) throws -> [String: Any] {
         let fd = try connect(to: socketPath)
         defer { Darwin.close(fd) }
 
-        let payload: [String: Any] = [
-            "id": 1,
+        var payload: [String: Any] = [
+            "id": id,
             "method": method,
             "params": params
         ]
+        if jsonRPC {
+            payload["jsonrpc"] = "2.0"
+        }
         let data = try JSONSerialization.data(withJSONObject: payload)
         guard let line = String(data: data, encoding: .utf8) else {
             throw NSError(domain: NSCocoaErrorDomain, code: 0, userInfo: [
@@ -754,7 +788,9 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
     private func sendV2RequestAsync(
         method: String,
         params: [String: Any],
-        to socketPath: String
+        to socketPath: String,
+        jsonRPC: Bool = false,
+        id: Any = 1
     ) async throws -> [String: Any] {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
@@ -762,7 +798,9 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
                     let response = try self.sendV2Request(
                         method: method,
                         params: params,
-                        to: socketPath
+                        to: socketPath,
+                        jsonRPC: jsonRPC,
+                        id: id
                     )
                     continuation.resume(returning: response)
                 } catch {
