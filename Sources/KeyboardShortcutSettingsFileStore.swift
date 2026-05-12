@@ -239,7 +239,9 @@ final class CmuxSettingsFileStore {
                 managedCustomSettings: activeManagedCustomSettings,
                 managedCustomSettingSources: activeManagedCustomSettingSources
             )
-            snapshot.assignEditableWriteBackSources(Self.userDefaultWriteBackTargets, sourcePath: primaryPath, captureStoredValues: false)
+            if fileManager.fileExists(atPath: primaryPath) {
+                snapshot.assignEditableWriteBackSources(Self.userDefaultWriteBackTargets, sourcePath: primaryPath, captureStoredValues: false)
+            }
             guard !snapshot.managedUserDefaults.isEmpty ||
                 !snapshot.editableUserDefaults.isEmpty ||
                 !snapshot.managedCustomSettings.isEmpty else {
@@ -321,7 +323,6 @@ final class CmuxSettingsFileStore {
 
         var fallbackSnapshot = ResolvedSettingsSnapshot(path: nil)
         mergeFallbackSettings(into: &fallbackSnapshot)
-        fallbackSnapshot.assignEditableWriteBackSources(Self.userDefaultWriteBackTargets, sourcePath: primaryPath)
         return fallbackSnapshot
     }
 
