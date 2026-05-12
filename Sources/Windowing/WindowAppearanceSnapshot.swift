@@ -145,7 +145,9 @@ struct TerminalSurfaceBackgroundFillPlan {
         let resolvedColor = (surfaceBackgroundColor ?? defaultBackgroundColor)
             .withAlphaComponent(WindowAppearanceSnapshot.clampedOpacity(backgroundOpacity))
         let owner: TerminalSurfaceBackgroundFillOwner
-        if renderingMode.usesWindowHostBackdrop && !sharesWindowBackdrop && !usesBonsplitPaneBackdrop {
+        if surfaceBackgroundColor != nil && renderingMode.usesWindowHostBackdrop {
+            owner = .surfaceHostLayer
+        } else if renderingMode.usesWindowHostBackdrop && !sharesWindowBackdrop && !usesBonsplitPaneBackdrop {
             owner = .surfaceHostLayer
         } else if sharesWindowBackdrop {
             owner = .sharedWindowBackdrop
@@ -162,10 +164,12 @@ struct TerminalSurfaceBackgroundFillPlan {
 
     static func windowRootSnapshot(
         from snapshot: WindowAppearanceSnapshot,
-        surfaceBackgroundColor: NSColor?
+        surfaceBackgroundColor _: NSColor?
     ) -> WindowAppearanceSnapshot {
-        guard let surfaceBackgroundColor else { return snapshot }
-        return snapshot.replacingTerminalBackgroundColor(surfaceBackgroundColor)
+        // OSC 11 is pane-local state. The shared root remains the default
+        // workspace backdrop so focusing a tinted pane does not repaint every
+        // other pane's translucent backing layer with the active pane's color.
+        return snapshot
     }
 }
 
