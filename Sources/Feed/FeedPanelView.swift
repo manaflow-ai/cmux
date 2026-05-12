@@ -602,7 +602,7 @@ struct FeedStopDraft: Equatable {
     var focusRequest = 0
 
     var isPristine: Bool {
-        reply.isEmpty && focusRequest == 0
+        reply.isEmpty
     }
 }
 
@@ -3475,6 +3475,11 @@ private struct FeedInlineTextField: NSViewRepresentable {
             } else if isFirstResponder {
                 moveFocusToFeedHost(in: window)
             }
+        } else if focusRequest == nil {
+            context.coordinator.lastAppliedFocusRequest = nil
+            if !isEnabled, isFirstResponder {
+                moveFocusToFeedHost(in: window)
+            }
         } else if !isEnabled, isFirstResponder {
             moveFocusToFeedHost(in: window)
         }
@@ -3698,7 +3703,7 @@ private struct StopActionArea: View {
     private func sendReply() {
         guard canSend else { return }
         onSend(trimmed)
-        draft = FeedStopDraft()
+        draft.reply = ""
     }
 }
 
