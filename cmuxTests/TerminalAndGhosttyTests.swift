@@ -2207,13 +2207,25 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         let hostedView = surface.hostedView
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
+
+        let surfaceReady = expectation(description: "runtime surface ready")
+        let readyObserver = NotificationCenter.default.addObserver(
+            forName: .terminalSurfaceDidBecomeReady,
+            object: surface,
+            queue: .main
+        ) { notification in
+            guard let readySurfaceId = notification.userInfo?["surfaceId"] as? UUID,
+                  readySurfaceId == surface.id else { return }
+            surfaceReady.fulfill()
+        }
         contentView.addSubview(hostedView)
+        defer { NotificationCenter.default.removeObserver(readyObserver) }
 
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
         hostedView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        wait(for: [surfaceReady], timeout: 1.0)
 
         XCTAssertNotNil(
             surface.surface,

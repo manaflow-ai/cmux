@@ -9804,7 +9804,7 @@ final class GhosttySurfaceScrollView: NSView {
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
-    private var lastFocusRefreshAt: CFTimeInterval = 0
+    private var lastVisibleSurfaceRefreshAt: CFTimeInterval = 0
     private var lastRequestedPortalOcclusionVisible: Bool?
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
@@ -10263,12 +10263,11 @@ final class GhosttySurfaceScrollView: NSView {
                   readySurfaceId == self.surfaceView.terminalSurface?.id else {
                 return
             }
-            if self.surfaceView.isVisibleInUI && self.window != nil && !self.isHidden {
-                // Some visible terminals start in the visible state and never pass through the
-                // visibility-restore refresh path. Nudge the first Metal frame when Ghostty
-                // reports the runtime surface is ready so it does not wait for resize/focus churn.
-                self.refreshSurfaceNow(reason: "surfaceDidBecomeReady")
-            }
+            self.refreshVisibleSurfaceIfNeeded(
+                reason: "surfaceDidBecomeReady",
+                requiresActiveKeyWindow: false,
+                flushPortalLayout: true
+            )
             // Session restore can request focus before the runtime surface exists.
             // Re-run the normal first-responder/focus path once the surface is live.
             guard self.isActive || self.surfaceView.desiredFocus || self.isSurfaceViewFirstResponder() else {
@@ -11917,21 +11916,41 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func refreshSurfaceAfterFocusIfNeeded(reason: String) {
+        refreshVisibleSurfaceIfNeeded(
+            reason: "focus.surface.\(reason)",
+            requiresActiveKeyWindow: true,
+            flushPortalLayout: false
+        )
+    }
+
+    @discardableResult
+    private func refreshVisibleSurfaceIfNeeded(
+        reason: String,
+        requiresActiveKeyWindow: Bool,
+        flushPortalLayout: Bool
+    ) -> Bool {
         guard let terminalSurface = surfaceView.terminalSurface,
-              isActive,
+              surfaceView.isVisibleInUI,
               let window,
-              window.isKeyWindow,
-              surfaceView.isVisibleInUI else { return }
+              !isHidden else { return false }
+        if requiresActiveKeyWindow {
+            guard isActive, window.isKeyWindow else { return false }
+        }
 
         let now = CACurrentMediaTime()
-        if now - lastFocusRefreshAt < 0.05 {
-            return
+        if now - lastVisibleSurfaceRefreshAt < 0.05 {
+            return false
         }
-        lastFocusRefreshAt = now
+        lastVisibleSurfaceRefreshAt = now
 #if DEBUG
-        cmuxDebugLog("focus.surface.refresh surface=\(terminalSurface.id.uuidString.prefix(5)) reason=\(reason)")
+        cmuxDebugLog("visible.surface.refresh surface=\(terminalSurface.id.uuidString.prefix(5)) reason=\(reason)")
 #endif
-        terminalSurface.forceRefresh(reason: "focus.surface.\(reason)")
+        if flushPortalLayout {
+            refreshSurfaceNow(reason: reason)
+        } else {
+            terminalSurface.forceRefresh(reason: reason)
+        }
+        return true
     }
 
     private func applyFirstResponderIfNeeded() {
