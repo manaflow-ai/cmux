@@ -82,6 +82,19 @@ printf '%s\\n' "${CMUX_CLAUDE_HOOK_CMUX_BIN-__UNSET__}" > "$FAKE_HOOK_CMUX_BIN_L
 for arg in "$@"; do
   printf '%s\\n' "$arg" >> "$FAKE_REAL_ARGS_LOG"
 done
+if [[ "${1:-}" == "--help" ]]; then
+  cat <<'HELP'
+Usage: claude [options] [command] [prompt]
+
+Commands:
+  agents             Manage agents
+  doctor             Check Claude health
+  experimental-next  Future command exposed by the real CLI help
+  plugin|plugins     Manage plugins
+  update|upgrade     Update Claude
+HELP
+  exit 0
+fi
 exec node "$FAKE_REAL_NODE_SCRIPT" "$@"
 """,
         )
@@ -456,6 +469,57 @@ def test_plain_claude_launch_argv_has_no_empty_argument(failures: list[str]) -> 
     argv = decode_nul_argv(launch_argv_b64)
     expect(len(argv) == 1, f"plain claude: expected only executable in encoded launch argv, got {argv}", failures)
     expect(argv[0].endswith("/real-bin/claude"), f"plain claude: expected real claude executable, got {argv}", failures)
+
+
+def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> None:
+    subcommands = [
+        "mcp",
+        "config",
+        "api-key",
+        "rc",
+        "remote-control",
+        "agents",
+        "doctor",
+        "update",
+        "upgrade",
+        "auth",
+        "project",
+        "setup-token",
+        "install",
+        "daemon",
+        "experimental-next",
+    ]
+    for subcommand in subcommands:
+        code, real_argv, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
+            socket_state="live",
+            argv=[subcommand],
+        )
+        expect(code == 0, f"{subcommand} passthrough: wrapper exited {code}: {stderr}", failures)
+        expect(real_argv == [subcommand], f"{subcommand} passthrough: expected raw argv, got {real_argv}", failures)
+        expect("--settings" not in real_argv, f"{subcommand} passthrough: expected no --settings injection, got {real_argv}", failures)
+        expect("--session-id" not in real_argv, f"{subcommand} passthrough: expected no --session-id injection, got {real_argv}", failures)
+        expect(node_options == "__UNSET__", f"{subcommand} passthrough: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
+
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["--model", "sonnet", "agents"],
+    )
+    expect(code == 0, f"agents after global option passthrough: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv == ["--model", "sonnet", "agents"], f"agents after global option passthrough: expected raw argv, got {real_argv}", failures)
+    expect("--settings" not in real_argv, f"agents after global option passthrough: expected no --settings injection, got {real_argv}", failures)
+    expect("--session-id" not in real_argv, f"agents after global option passthrough: expected no --session-id injection, got {real_argv}", failures)
+
+
+def test_help_invocation_bypasses_hook_injection(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["--help"],
+    )
+    expect(code == 0, f"help passthrough: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv == ["--help"], f"help passthrough: expected raw argv, got {real_argv}", failures)
+    expect("--settings" not in real_argv, f"help passthrough: expected no --settings injection, got {real_argv}", failures)
+    expect("--session-id" not in real_argv, f"help passthrough: expected no --session-id injection, got {real_argv}", failures)
+    expect(node_options == "__UNSET__", f"help passthrough: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
 
 
 def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures: list[str]) -> None:
@@ -904,6 +968,8 @@ def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
+    test_command_like_invocations_bypass_hook_injection(failures)
+    test_help_invocation_bypasses_hook_injection(failures)
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)

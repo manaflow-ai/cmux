@@ -222,7 +222,7 @@ final class AuthManager: ObservableObject {
                     self.finishBrowserSignInAttempt(attemptID)
                 }
                 if let error {
-                    NSLog("auth.webauth failed: %@", "\(error)")
+                    self.authLog("auth.webauth failed: \(error)")
                     return
                 }
                 guard let callbackURL else { return }
@@ -235,7 +235,7 @@ final class AuthManager: ObservableObject {
                         self.signOutCancelledBrowserSignInAttemptID = nil
                     }
                 } catch {
-                    NSLog("auth.webauth callback failed: %@", "\(error)")
+                    self.authLog("auth.webauth callback failed: \(error)")
                 }
             }
         }
@@ -245,7 +245,7 @@ final class AuthManager: ObservableObject {
         if session.start() {
             webAuthSession = session
         } else {
-            NSLog("auth.webauth: session.start() returned false")
+            authLog("auth.webauth: session.start() returned false")
             finishBrowserSignInAttempt(attemptID)
         }
     }
