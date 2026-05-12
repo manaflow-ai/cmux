@@ -10250,6 +10250,12 @@ final class GhosttySurfaceScrollView: NSView {
                   readySurfaceId == self.surfaceView.terminalSurface?.id else {
                 return
             }
+            if self.surfaceView.isVisibleInUI && self.window != nil && !self.isHidden {
+                // Some visible terminals start in the visible state and never pass through the
+                // visibility-restore refresh path. Nudge the first Metal frame when Ghostty
+                // reports the runtime surface is ready so it does not wait for resize/focus churn.
+                self.refreshSurfaceNow(reason: "surfaceDidBecomeReady")
+            }
             // Session restore can request focus before the runtime surface exists.
             // Re-run the normal first-responder/focus path once the surface is live.
             guard self.isActive || self.surfaceView.desiredFocus || self.isSurfaceViewFirstResponder() else {
