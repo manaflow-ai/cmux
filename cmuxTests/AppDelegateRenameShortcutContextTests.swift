@@ -21,6 +21,7 @@ private final class ShortcutContextGhosttyCommandEquivalentProbeView: GhosttyNSV
     var lastKeyDownCharactersIgnoringModifiers: String?
     var performAfterMenuMissResult = true
 
+    @MainActor
     override func performKeyEquivalentAfterMenuMiss(with event: NSEvent) -> Bool {
         afterMenuMissCallCount += 1
         lastAfterMenuMissCharactersIgnoringModifiers = event.charactersIgnoringModifiers

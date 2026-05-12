@@ -24,6 +24,7 @@ private final class GhosttyCommandEquivalentProbeView: GhosttyNSView {
     var pasteAsPlainTextCallCount = 0
     var performAfterMenuMissResult = true
 
+    @MainActor
     override func performKeyEquivalentAfterMenuMiss(with event: NSEvent) -> Bool {
         afterMenuMissCallCount += 1
         return performAfterMenuMissResult
