@@ -210,9 +210,48 @@ public final class WorkstreamStore {
             status: status,
             payload: payload,
             context: context(for: event, payload: payload),
-            extraFieldsJSON: event.extraFieldsJSON,
+            extraFieldsJSON: Self.sanitizedExtraFieldsJSON(event.extraFieldsJSON),
             ppid: event.ppid
         )
+    }
+
+    private static let allowedExtraFieldKeys: Set<String> = [
+        "parent_workstream_id", "parentWorkstreamId", "parent_workstream", "parentWorkstream",
+        "parent_session_id", "parentSessionId", "parentSessionID",
+        "child_workstream_id", "childWorkstreamId", "subagent_workstream_id", "subagentWorkstreamId",
+        "child_session_id", "childSessionId", "childSessionID", "subagent_session_id", "subagentSessionId",
+        "parent_source", "parentSource", "parent_agent_source", "parentAgentSource",
+        "child_source", "childSource", "subagent_source", "subagentSource",
+        "subagent_type", "subagentType", "agent_type", "agentType",
+        "model", "subagent_model", "subagentModel",
+        "task_description", "taskDescription", "description", "title", "name",
+    ]
+
+    private static func sanitizedExtraFieldsJSON(_ rawJSON: String?) -> String? {
+        guard let rawJSON,
+              let data = rawJSON.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let extraFields = object as? [String: Any]
+        else { return nil }
+
+        var sanitized: [String: Any] = [:]
+        for key in allowedExtraFieldKeys {
+            guard let value = extraFields[key] else { continue }
+            if let string = value as? String {
+                let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    sanitized[key] = trimmed
+                }
+            } else if let number = value as? NSNumber {
+                sanitized[key] = number
+            }
+        }
+
+        guard !sanitized.isEmpty,
+              JSONSerialization.isValidJSONObject(sanitized),
+              let encoded = try? JSONSerialization.data(withJSONObject: sanitized, options: [.sortedKeys])
+        else { return nil }
+        return String(data: encoded, encoding: .utf8)
     }
 
     /// Marks every pending item with `ppid` as `.expired`. Meant to

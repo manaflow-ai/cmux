@@ -564,7 +564,7 @@ enum FeedSocketEncoding {
         if let title = item.title { dict["title"] = title }
         if let extraFieldsJSON = item.extraFieldsJSON,
            let data = extraFieldsJSON.data(using: .utf8),
-           let extra = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) {
+           let extra = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             dict["extra_fields"] = extra
         }
         switch item.status {

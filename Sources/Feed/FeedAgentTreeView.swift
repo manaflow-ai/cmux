@@ -4,33 +4,46 @@ import SwiftUI
 struct FeedAgentTreeView: View {
     let graph: WorkstreamAgentGraphSnapshot
     let actions: FeedRowActions
-
-    @State private var collapsedNodeIds: Set<String> = []
+    @Binding var collapsedNodeIds: Set<String>
+    let selectedNodeId: String?
+    let isKeyboardActive: Bool
+    let scrollRequest: FeedAgentTreeScrollRequest?
+    let onSelect: (WorkstreamAgentTreeNode) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             summaryBar
-            ScrollView(.vertical) {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(flattenedRows) { row in
-                        FeedAgentTreeRowView(
-                            row: row,
-                            isCollapsed: collapsedNodeIds.contains(row.node.id),
-                            onToggle: {
-                                toggle(row.node.id)
-                            },
-                            onFocus: {
-                                if let workstreamId = row.node.focusWorkstreamId {
-                                    actions.jump(workstreamId)
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(flattenedRows) { row in
+                            FeedAgentTreeRowView(
+                                row: row,
+                                isCollapsed: collapsedNodeIds.contains(row.node.id),
+                                isSelected: selectedNodeId == row.node.id,
+                                isFocusActive: isKeyboardActive && selectedNodeId == row.node.id,
+                                onToggle: {
+                                    toggle(row.node.id)
+                                },
+                                onFocus: {
+                                    onSelect(row.node)
+                                    if let workstreamId = row.node.focusWorkstreamId {
+                                        actions.jump(workstreamId)
+                                    }
                                 }
-                            }
-                        )
-                        .equatable()
+                            )
+                            .id(row.node.id)
+                            .equatable()
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .feedZeroScrollContentMargins()
+                .onChange(of: scrollRequest) { request in
+                    guard let request else { return }
+                    proxy.scrollTo(request.nodeId, anchor: .center)
+                }
             }
-            .feedZeroScrollContentMargins()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
@@ -101,11 +114,16 @@ private struct FeedAgentTreeRow: Identifiable, Equatable {
 private struct FeedAgentTreeRowView: View, Equatable {
     let row: FeedAgentTreeRow
     let isCollapsed: Bool
+    let isSelected: Bool
+    let isFocusActive: Bool
     let onToggle: () -> Void
     let onFocus: () -> Void
 
     static func == (lhs: FeedAgentTreeRowView, rhs: FeedAgentTreeRowView) -> Bool {
-        lhs.row == rhs.row && lhs.isCollapsed == rhs.isCollapsed
+        lhs.row == rhs.row
+            && lhs.isCollapsed == rhs.isCollapsed
+            && lhs.isSelected == rhs.isSelected
+            && lhs.isFocusActive == rhs.isFocusActive
     }
 
     var body: some View {
@@ -136,6 +154,7 @@ private struct FeedAgentTreeRowView: View, Equatable {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+            .background(rowBackgroundFill)
             .contentShape(Rectangle())
             .onTapGesture(perform: onFocus)
             Rectangle()
@@ -144,6 +163,14 @@ private struct FeedAgentTreeRowView: View, Equatable {
                 .frame(height: 1)
         }
         .help(helpText)
+    }
+
+    private var rowBackgroundFill: Color {
+        guard isSelected else { return .clear }
+        if isFocusActive {
+            return tint.opacity(0.14)
+        }
+        return Color.primary.opacity(0.07)
     }
 
     private var indentGuides: some View {
