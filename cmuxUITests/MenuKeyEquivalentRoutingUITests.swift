@@ -89,7 +89,7 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         )
     }
 
-    func testCmdFFirstLetsWebContentHandleFindShortcut() {
+    func testCmdFOpensRightSidebarFindInsteadOfWebContentFindShortcut() {
         let app = launchWithBrowserSetup(browserURL: makeBrowserHandledCmdFPageURL())
 
         XCTAssertTrue(
@@ -101,12 +101,20 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
 
         app.typeKey("f", modifierFlags: [.command])
 
+        let findField = app.textFields["FileExplorerSearchField"].firstMatch
+        XCTAssertTrue(findField.waitForExistence(timeout: 6.0), "Expected right sidebar file search after Cmd+F")
+
+        app.typeText("needle")
         XCTAssertTrue(
-            waitForGotoSplitMatch(timeout: 5.0) { data in
-                data["browserPageTitle"] == "cmdf-handled" &&
-                    data["browserFindVisible"] == "false"
+            waitForCondition(timeout: 4.0) {
+                ((findField.value as? String) ?? "") == "needle"
             },
-            "Expected Cmd+F to reach browser content before cmux find overlay. data=\(loadGotoSplit() ?? [:])"
+            "Expected Cmd+F to focus right sidebar file search. value=\(String(describing: findField.value))"
+        )
+        XCTAssertNotEqual(
+            loadGotoSplit()?["browserPageTitle"],
+            "cmdf-handled",
+            "Expected Cmd+F to stay out of browser page content. data=\(loadGotoSplit() ?? [:])"
         )
     }
 
@@ -137,7 +145,7 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         )
     }
 
-    func testVisibleBrowserFindBarKeepsCmdGAndCmdShiftFOwnedByCmux() {
+    func testBrowserLocalFindShortcutsStillReachWebContentWhenBrowserFindBarIsHidden() {
         let app = launchWithBrowserSetup(browserURL: makeVisibleBrowserFindOwnershipPageURL())
 
         XCTAssertTrue(
@@ -145,22 +153,6 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
                 data["browserPageTitle"] == "find-owner-idle"
             },
             "Expected the browser find ownership page to finish loading before opening find. data=\(loadGotoSplit() ?? [:])"
-        )
-
-        app.typeKey("f", modifierFlags: [.command])
-
-        let findField = app.textFields["BrowserFindSearchTextField"].firstMatch
-        XCTAssertTrue(findField.waitForExistence(timeout: 6.0), "Expected browser find field after Cmd+F")
-
-        app.typeText("needle")
-        XCTAssertTrue(
-            waitForGotoSplitMatch(timeout: 6.0) { data in
-                data["browserFindVisible"] == "true" &&
-                    data["browserFindNeedle"] == "needle" &&
-                    data["browserFindSelected"] == "1" &&
-                    data["browserFindTotal"] == "3"
-            },
-            "Expected cmux browser find bar to open and capture the query before page-focus checks. data=\(loadGotoSplit() ?? [:])"
         )
 
         guard let browserPanelId = loadGotoSplit()?["browserPanelId"], !browserPanelId.isEmpty else {
@@ -173,12 +165,10 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         app.typeKey("g", modifierFlags: [.command])
         XCTAssertTrue(
             waitForGotoSplitMatch(timeout: 6.0) { data in
-                data["browserPageTitle"] == "find-owner-idle" &&
-                    data["browserFindVisible"] == "true" &&
-                    data["browserFindSelected"] == "2" &&
-                    data["browserFindTotal"] == "3"
+                data["browserPageTitle"] == "page-handled-cmdg" &&
+                    data["browserFindVisible"] == "false"
             },
-            "Expected visible cmux browser find bar to keep Cmd+G ownership after page refocus. data=\(loadGotoSplit() ?? [:])"
+            "Expected Cmd+G to stay browser-local when browser find is hidden. data=\(loadGotoSplit() ?? [:])"
         )
 
         clickBrowserPane(app: app, browserPanelId: browserPanelId)
@@ -186,10 +176,10 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         app.typeKey("f", modifierFlags: [.command, .shift])
         XCTAssertTrue(
             waitForGotoSplitMatch(timeout: 6.0) { data in
-                data["browserPageTitle"] == "find-owner-idle" &&
+                data["browserPageTitle"] == "page-handled-cmdshiftf" &&
                     data["browserFindVisible"] == "false"
             },
-            "Expected visible cmux browser find bar to keep Cmd+Shift+F ownership after page refocus. data=\(loadGotoSplit() ?? [:])"
+            "Expected Cmd+Shift+F to stay browser-local when browser find is hidden. data=\(loadGotoSplit() ?? [:])"
         )
     }
 

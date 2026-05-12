@@ -11,7 +11,10 @@ const shortcutChordExample = `{
     "bindings": {
       "newSurface": ["ctrl+b", "c"],
       "showNotifications": ["ctrl+b", "i"],
-      "toggleSidebar": "cmd+b"
+      "toggleSidebar": "cmd+b",
+      "toggleFileExplorer": "cmd+opt+b",
+      "splitRight": "",
+      "commandPalettePrevious": null
     }
   }
 }`;
@@ -42,7 +45,7 @@ export default function KeyboardShortcutsPage() {
         })}
       </p>
       <Callout type="info">{t("chordsCallout")}</Callout>
-      <CodeBlock title="settings.json" lang="json">{shortcutChordExample}</CodeBlock>
+      <CodeBlock title="cmux.json" lang="json">{shortcutChordExample}</CodeBlock>
       <ul>
         <li>{t("chordsRuleSingle")}</li>
         <li>{t("chordsRuleArray")}</li>

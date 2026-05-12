@@ -34,6 +34,32 @@ func browserPopupContentRect(
     return NSRect(x: x, y: y, width: clampedWidth, height: clampedHeight)
 }
 
+private func browserPopupPanelShouldSuppressStaleCloseTabShortcut(_ event: NSEvent) -> Bool {
+    let closeTabShortcut = KeyboardShortcutSettings.shortcut(for: .closeTab)
+    guard closeTabShortcut.isUnbound || closeTabShortcut != KeyboardShortcutSettings.Action.closeTab.defaultShortcut else {
+        return false
+    }
+    return KeyboardShortcutSettings.Action.closeTab.defaultShortcut.matches(event: event)
+}
+
+/// NSPanel subclass that intercepts the configured Close Tab shortcut before the swizzled
+/// `cmux_performKeyEquivalent` can dispatch it to the main menu's
+/// "Close Tab" action (which would close the parent browser tab).
+final class BrowserPopupPanel: NSPanel {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if AppDelegate.shared?.handleBrowserPopupCloseShortcutKeyEquivalent(event: event, popupWindow: self) == true {
+            return true
+        }
+        if browserPopupPanelShouldSuppressStaleCloseTabShortcut(event) {
+            #if DEBUG
+            cmuxDebugLog("popup.panel.closeShortcut suppressStaleDefault")
+            #endif
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+
 /// Hosts a popup `CmuxWebView` in a standalone `NSPanel`, created when a page
 /// calls `window.open()` (scripted new-window requests).
 ///
@@ -42,25 +68,6 @@ func browserPopupContentRect(
 /// - Released in `windowWillClose(_:)` when the panel closes.
 /// - The opener `BrowserPanel` also keeps a strong reference for deterministic
 ///   cleanup when the opener tab or workspace is closed.
-/// NSPanel subclass that intercepts Cmd+W before the swizzled
-/// `cmux_performKeyEquivalent` can dispatch it to the main menu's
-/// "Close Tab" action (which would close the parent browser tab).
-private class BrowserPopupPanel: NSPanel {
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        // Cmd+W: close this popup panel only
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags == .command,
-           KeyboardLayout.normalizedCharacters(for: event) == "w" {
-            #if DEBUG
-            dlog("popup.panel.cmdW close")
-            #endif
-            performClose(nil)
-            return true
-        }
-        return super.performKeyEquivalent(with: event)
-    }
-}
-
 @MainActor
 final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
@@ -239,7 +246,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         panel.delegate = self
 
         #if DEBUG
-        dlog("popup.init depth=\(nestingDepth) size=\(Int(contentRect.width))x\(Int(contentRect.height)) opener=\(openerPanel?.id.uuidString.prefix(5) ?? "nil")")
+        cmuxDebugLog("popup.init depth=\(nestingDepth) size=\(Int(contentRect.width))x\(Int(contentRect.height)) opener=\(openerPanel?.id.uuidString.prefix(5) ?? "nil")")
         #endif
 
         panel.makeKeyAndOrderFront(self)
@@ -265,6 +272,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     // MARK: - Popup lifecycle
 
     func closePopup() {
+        WebViewInspectorTeardown.closeAllInspectors(in: panel)
         panel.close() // triggers windowWillClose
     }
 
@@ -279,11 +287,17 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
     // MARK: - NSWindowDelegate
 
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        WebViewInspectorTeardown.closeAllInspectors(in: sender)
+        return true
+    }
+
     func windowWillClose(_ notification: Notification) {
         #if DEBUG
-        dlog("popup.close depth=\(nestingDepth)")
+        cmuxDebugLog("popup.close depth=\(nestingDepth)")
         #endif
 
+        WebViewInspectorTeardown.closeInspector(for: webView)
         closeAllChildPopups()
 
         // Invalidate observations
@@ -315,7 +329,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         let nextDepth = nestingDepth + 1
         if nextDepth > Self.maxNestingDepth {
             #if DEBUG
-            dlog("popup.nested.blocked depth=\(nextDepth) max=\(Self.maxNestingDepth)")
+            cmuxDebugLog("popup.nested.blocked depth=\(nextDepth) max=\(Self.maxNestingDepth)")
             #endif
             return nil
         }
@@ -398,7 +412,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
 
     func webViewDidClose(_ webView: WKWebView) {
         #if DEBUG
-        dlog("popup.webViewDidClose")
+        cmuxDebugLog("popup.webViewDidClose")
         #endif
         controller?.closePopup()
     }
@@ -409,7 +423,6 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        // External URL check
         if let url = navigationAction.request.url,
            browserShouldOpenURLExternally(url) {
             NSWorkspace.shared.open(url)
@@ -420,6 +433,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             navigationType: navigationAction.navigationType,
             modifierFlags: navigationAction.modifierFlags,
             buttonNumber: navigationAction.buttonNumber,
+            popupFeaturesWereSpecified: browserNavigationPopupFeaturesWereSpecified(windowFeatures: windowFeatures),
             hasRecentMiddleClickIntent: CmuxWebView.hasRecentMiddleClickIntent(for: webView)
         )
 
@@ -567,7 +581,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         if browserShouldOpenURLExternally(url) {
             NSWorkspace.shared.open(url)
             #if DEBUG
-            dlog("popup.nav.external url=\(url.absoluteString)")
+            cmuxDebugLog("popup.nav.external url=\(url.absoluteString)")
             #endif
             decisionHandler(.cancel)
             return
@@ -576,7 +590,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         // Insecure HTTP → show same prompt as main browser
         if browserShouldBlockInsecureHTTPURL(url) {
             #if DEBUG
-            dlog("popup.nav.insecureHTTP url=\(url.absoluteString)")
+            cmuxDebugLog("popup.nav.insecureHTTP url=\(url.absoluteString)")
             #endif
             controller?.presentInsecureHTTPAlert(for: url, in: webView, decisionHandler: decisionHandler)
             return
@@ -629,14 +643,14 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
         #if DEBUG
-        dlog("popup.download.didBecome source=navigationAction")
+        cmuxDebugLog("popup.download.didBecome source=navigationAction")
         #endif
         download.delegate = downloadDelegate
     }
 
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
         #if DEBUG
-        dlog("popup.download.didBecome source=navigationResponse")
+        cmuxDebugLog("popup.download.didBecome source=navigationResponse")
         #endif
         download.delegate = downloadDelegate
     }

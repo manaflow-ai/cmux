@@ -65,6 +65,23 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
 }
 
 
+@MainActor
+final class BrowserPanelInitialNavigationTests: XCTestCase {
+    func testInitialURLCanBePreservedWithoutRenderingWebView() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/custom-layout"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: url,
+            renderInitialNavigation: false
+        )
+
+        XCTAssertEqual(panel.currentURL, url)
+        XCTAssertFalse(panel.shouldRenderWebView)
+        XCTAssertFalse(panel.shouldRenderWebViewForSessionSnapshot())
+    }
+}
+
+
 final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
     func testLightModeSlightlyDarkensThemeBackground() {
         assertResolvedColorMatchesExpectedBlend(for: .light, darkenMix: 0.04)
@@ -399,6 +416,12 @@ final class WindowBrowserHostViewTests: XCTestCase {
         }
     }
 
+    private final class FakeTabBarBackgroundNSView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            bounds.contains(point) ? self : nil
+        }
+    }
+
     private final class PrimaryPageProbeView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
             bounds.contains(point) ? self : nil
@@ -455,6 +478,84 @@ final class WindowBrowserHostViewTests: XCTestCase {
             return true
         }
         return inspectorView.isDescendant(of: hit) && !(pageView === hit || pageView.isDescendant(of: hit))
+    }
+
+    private struct TabStripPassThroughFixture {
+        let host: WindowBrowserHostView
+        let pointInHost: NSPoint
+    }
+
+    private func installTabStripPassThroughFixture(in window: NSWindow) -> TabStripPassThroughFixture? {
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected window content container")
+            return nil
+        }
+
+        let tabStripHeight: CGFloat = 44
+        let tabStrip = FakeTabBarBackgroundNSView(
+            frame: NSRect(
+                x: 0,
+                y: contentView.bounds.maxY - tabStripHeight,
+                width: contentView.bounds.width,
+                height: tabStripHeight
+            )
+        )
+        tabStrip.autoresizingMask = [.width, .minYMargin]
+        contentView.addSubview(tabStrip)
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        let child = CapturingView(frame: host.bounds)
+        child.autoresizingMask = [.width, .height]
+        host.addSubview(child)
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let titlebarBandHeight = max(28, min(72, window.frame.height - window.contentLayoutRect.height))
+        let pointInContent = NSPoint(
+            x: contentView.bounds.midX,
+            y: contentView.bounds.maxY - titlebarBandHeight - 8
+        )
+        let pointInWindow = contentView.convert(pointInContent, to: nil)
+        let pointInHost = host.convert(pointInWindow, from: nil)
+        return TabStripPassThroughFixture(host: host, pointInHost: pointInHost)
+    }
+
+    func testHostViewPassesThroughUnderlyingTabStripInSecondWindowBelowTitlebarBand() {
+        // The reported regression (#3193) was that the original window kept
+        // working but later-created windows did not. Set up two windows and
+        // assert the pass-through holds in BOTH to lock in per-instance wiring.
+        let firstWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let secondWindow = NSWindow(
+            contentRect: NSRect(x: 32, y: 32, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            secondWindow.orderOut(nil)
+            firstWindow.orderOut(nil)
+        }
+
+        guard let firstFixture = installTabStripPassThroughFixture(in: firstWindow),
+              let secondFixture = installTabStripPassThroughFixture(in: secondWindow) else {
+            return
+        }
+
+        XCTAssertNil(
+            firstFixture.host.hitTest(firstFixture.pointInHost),
+            "Browser portal should defer to the minimal tab strip in the original window just below the titlebar interaction band"
+        )
+        XCTAssertNil(
+            secondFixture.host.hitTest(secondFixture.pointInHost),
+            "Browser portal should defer to the minimal tab strip in later-created windows just below the titlebar interaction band"
+        )
     }
 
     func testHostViewPassesThroughDividerWhenAdjacentPaneIsCollapsed() {
@@ -595,10 +696,47 @@ final class WindowBrowserHostViewTests: XCTestCase {
     }
 
     func testDragHoverEventsDoNotPassThroughForUnrelatedPasteboardTypes() {
+        let externalPayloads: [[NSPasteboard.PasteboardType]] = [
+            [.fileURL],
+            [.URL],
+            [.png],
+            [.tiff],
+            [.html],
+            [.string],
+            [.fileURL, .png],
+        ]
+
+        for pasteboardTypes in externalPayloads {
+            XCTAssertFalse(
+                WindowBrowserHostView.shouldPassThroughToDragTargets(
+                    pasteboardTypes: pasteboardTypes,
+                    eventType: .cursorUpdate
+                ),
+                "Browser host should keep external drag payload in WebKit: \(pasteboardTypes)"
+            )
+        }
         XCTAssertFalse(
             WindowBrowserHostView.shouldPassThroughToDragTargets(
                 pasteboardTypes: [.fileURL],
-                eventType: .cursorUpdate
+                eventType: .leftMouseDragged
+            )
+        )
+        XCTAssertFalse(
+            DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
+                pasteboardTypes: [.fileURL],
+                eventType: .leftMouseDragged
+            )
+        )
+        XCTAssertTrue(
+            DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+                pasteboardTypes: [.fileURL],
+                eventType: .leftMouseDragged
+            )
+        )
+        XCTAssertFalse(
+            DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+                pasteboardTypes: [.fileURL],
+                eventType: .mouseMoved
             )
         )
     }
@@ -1853,127 +1991,6 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             slot.bounds,
             "Reattaching a plain web view should restore full-bounds hosting instead of preserving a stale inset frame from a hidden host"
         )
-    }
-}
-
-
-@MainActor
-final class BrowserPaneDropRoutingTests: XCTestCase {
-    func testVerticalZonesFollowAppKitCoordinates() {
-        let size = CGSize(width: 240, height: 180)
-
-        XCTAssertEqual(
-            BrowserPaneDropRouting.zone(for: CGPoint(x: size.width * 0.5, y: size.height - 8), in: size),
-            .top
-        )
-        XCTAssertEqual(
-            BrowserPaneDropRouting.zone(for: CGPoint(x: size.width * 0.5, y: 8), in: size),
-            .bottom
-        )
-    }
-
-    func testTopChromeHeightPushesTopSplitThresholdIntoWebView() {
-        let size = CGSize(width: 240, height: 180)
-
-        XCTAssertEqual(
-            BrowserPaneDropRouting.zone(
-                for: CGPoint(x: size.width * 0.5, y: 110),
-                in: size,
-                topChromeHeight: 36
-            ),
-            .center
-        )
-        XCTAssertEqual(
-            BrowserPaneDropRouting.zone(
-                for: CGPoint(x: size.width * 0.5, y: 150),
-                in: size,
-                topChromeHeight: 36
-            ),
-            .top
-        )
-    }
-
-    func testHitTestingCapturesOnlyForRelevantDragEvents() {
-        XCTAssertTrue(
-            BrowserPaneDropTargetView.shouldCaptureHitTesting(
-                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
-                eventType: .cursorUpdate
-            )
-        )
-        XCTAssertFalse(
-            BrowserPaneDropTargetView.shouldCaptureHitTesting(
-                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
-                eventType: .leftMouseDown
-            )
-        )
-        XCTAssertFalse(
-            BrowserPaneDropTargetView.shouldCaptureHitTesting(
-                pasteboardTypes: [.fileURL],
-                eventType: .cursorUpdate
-            )
-        )
-    }
-
-    func testCenterDropOnSamePaneIsNoOp() {
-        let paneId = PaneID(id: UUID())
-        let target = BrowserPaneDropContext(
-            workspaceId: UUID(),
-            panelId: UUID(),
-            paneId: paneId
-        )
-        let transfer = BrowserPaneDragTransfer(
-            tabId: UUID(),
-            sourcePaneId: paneId.id,
-            sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
-        )
-
-        XCTAssertEqual(
-            BrowserPaneDropRouting.action(for: transfer, target: target, zone: .center),
-            .noOp
-        )
-    }
-
-    func testRightEdgeDropBuildsSplitMoveAction() {
-        let paneId = PaneID(id: UUID())
-        let target = BrowserPaneDropContext(
-            workspaceId: UUID(),
-            panelId: UUID(),
-            paneId: paneId
-        )
-        let tabId = UUID()
-        let transfer = BrowserPaneDragTransfer(
-            tabId: tabId,
-            sourcePaneId: UUID(),
-            sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
-        )
-
-        XCTAssertEqual(
-            BrowserPaneDropRouting.action(for: transfer, target: target, zone: .right),
-            .move(
-                tabId: tabId,
-                targetWorkspaceId: target.workspaceId,
-                targetPane: paneId,
-                splitTarget: BrowserPaneSplitTarget(orientation: .horizontal, insertFirst: false)
-            )
-        )
-    }
-
-    func testDecodeTransferPayloadReadsTabAndSourcePane() {
-        let tabId = UUID()
-        let sourcePaneId = UUID()
-        let payload = try! JSONSerialization.data(
-            withJSONObject: [
-                "tab": ["id": tabId.uuidString],
-                "sourcePaneId": sourcePaneId.uuidString,
-                "sourceProcessId": ProcessInfo.processInfo.processIdentifier,
-            ]
-        )
-
-        let transfer = BrowserPaneDragTransfer.decode(from: payload)
-
-        XCTAssertEqual(transfer?.tabId, tabId)
-        XCTAssertEqual(transfer?.sourcePaneId, sourcePaneId)
-        XCTAssertTrue(transfer?.isFromCurrentProcess == true)
     }
 }
 
