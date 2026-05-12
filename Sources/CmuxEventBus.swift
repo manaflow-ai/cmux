@@ -347,9 +347,9 @@ final class CmuxEventBus: @unchecked Sendable {
                 "enabled": false,
                 "current_path": NSNull(),
                 "rotated_path": NSNull(),
-                "current_size_bytes": 0,
-                "rotated_size_bytes": 0,
-                "max_file_size_bytes": 0,
+                "current_size_bytes": NSNumber(value: UInt64(0)),
+                "rotated_size_bytes": NSNumber(value: UInt64(0)),
+                "max_file_size_bytes": NSNumber(value: UInt64(0)),
                 "pending_queue_depth": 0,
                 "max_pending_queue_depth": 0,
                 "dropped_disk_only_line_count": 0

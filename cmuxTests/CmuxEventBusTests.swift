@@ -487,6 +487,12 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertTrue(diagnostics["latest_seq"] is NSNull)
         XCTAssertEqual((diagnostics["next_seq"] as? NSNumber)?.int64Value, 1)
         XCTAssertEqual(diagnostics["retained_count"] as? Int, 0)
+
+        let durableLog = try XCTUnwrap(diagnostics["durable_log"] as? [String: Any])
+        XCTAssertEqual(durableLog["enabled"] as? Bool, false)
+        XCTAssertEqual((durableLog["current_size_bytes"] as? NSNumber)?.uint64Value, 0)
+        XCTAssertEqual((durableLog["rotated_size_bytes"] as? NSNumber)?.uint64Value, 0)
+        XCTAssertEqual((durableLog["max_file_size_bytes"] as? NSNumber)?.uint64Value, 0)
     }
 
     func testDiagnosticsCanResetDiskOnlyDropCounterWithoutClearingPendingDepth() throws {
