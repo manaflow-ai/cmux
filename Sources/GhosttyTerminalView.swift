@@ -8237,7 +8237,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return sourceId.range(of: "korean", options: .caseInsensitive) != nil
     }
 
-    private func zhuyinCandidateExpansionEvent(from event: NSEvent) -> NSEvent {
+    private func zhuyinCandidateExpansionEvent(from event: NSEvent) -> NSEvent? {
         NSEvent.keyEvent(
             with: event.type,
             location: event.locationInWindow,
@@ -8249,12 +8249,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             charactersIgnoringModifiers: " ",
             isARepeat: event.isARepeat,
             keyCode: UInt16(kVK_Space)
-        ) ?? event
+        )
     }
 
     @discardableResult
     private func requestZhuyinCandidateExpansion(from event: NSEvent) -> Bool {
-        let expansionEvent = zhuyinCandidateExpansionEvent(from: event)
+        guard let expansionEvent = zhuyinCandidateExpansionEvent(from: event) else { return false }
 #if DEBUG
         if let debugZhuyinCandidateExpansionEventHandler = Self.debugZhuyinCandidateExpansionEventHandler {
             return debugZhuyinCandidateExpansionEventHandler(self, expansionEvent)
