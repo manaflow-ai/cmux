@@ -189,12 +189,11 @@ enum TerminalRegexHighlightSettings {
                     let color = String(text[..<tabIndex]).trimmingCharacters(in: .whitespaces)
                     let pattern = String(text[text.index(after: tabIndex)...])
                         .trimmingCharacters(in: .whitespaces)
-                    if isSupportedHexColor(color), !pattern.isEmpty {
-                        return TerminalRegexHighlightRule(
-                            pattern: pattern,
-                            backgroundHex: normalizedHexColor(color)
-                        )
-                    }
+                    guard isSupportedHexColor(color), !pattern.isEmpty else { return nil }
+                    return TerminalRegexHighlightRule(
+                        pattern: pattern,
+                        backgroundHex: normalizedHexColor(color)
+                    )
                 }
                 return TerminalRegexHighlightRule(
                     pattern: text,

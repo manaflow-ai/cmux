@@ -220,4 +220,24 @@ final class TerminalRegexHighlightSettingsTests: XCTestCase {
             ]
         )
     }
+
+    func testParserSkipsInvalidColorPrefixedRules() {
+        let rules = TerminalRegexHighlightSettings.rules(
+            from: """
+            red\tERROR
+            #BAD\tWARN
+            #FFE06680\tpanic
+            """
+        )
+
+        XCTAssertEqual(
+            rules,
+            [
+                TerminalRegexHighlightRule(
+                    pattern: "panic",
+                    backgroundHex: "#FFE06680"
+                ),
+            ]
+        )
+    }
 }

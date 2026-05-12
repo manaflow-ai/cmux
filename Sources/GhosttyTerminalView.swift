@@ -12710,6 +12710,11 @@ final class GhosttySurfaceScrollView: NSView {
             }
             return
         }
+        guard !regexHighlightRules.isEmpty else {
+            regexHighlightRefreshWorkItem?.cancel()
+            regexHighlightRefreshWorkItem = nil
+            return
+        }
 
         regexHighlightRefreshWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
