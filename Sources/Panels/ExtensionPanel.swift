@@ -174,14 +174,26 @@ final class ExtensionPanel: NSObject, Panel, ObservableObject {
             return
         }
 
-        let response = TerminalController.shared.performExtensionBridgeRPC(
-            method: message.method,
-            params: message.params,
-            workspaceId: workspaceId,
-            surfaceId: id,
-            paneId: paneId
-        )
-        completeBridgeMessage(id: message.id, response: response)
+        let method = message.method
+        let params = message.params
+        let messageId = message.id
+        let workspaceId = workspaceId
+        let surfaceId = id
+        let paneId = paneId
+        DispatchQueue.global(qos: .userInitiated).async {
+            let response = TerminalController.shared.performExtensionBridgeRPC(
+                method: method,
+                params: params,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                paneId: paneId
+            )
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.completeBridgeMessage(id: messageId, response: response)
+                }
+            }
+        }
     }
 
     private func subscribeToEvents(params: [String: Any]) -> [String: Any] {

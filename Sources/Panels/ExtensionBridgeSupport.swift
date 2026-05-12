@@ -55,14 +55,7 @@ enum ExtensionBridgeCodec {
            let string = String(data: data, encoding: .utf8) {
             return string
         }
-        let wrapped = [object]
-        guard JSONSerialization.isValidJSONObject(wrapped),
-              let data = try? JSONSerialization.data(withJSONObject: wrapped, options: []),
-              let string = String(data: data, encoding: .utf8),
-              string.count >= 2 else {
-            return "null"
-        }
-        return String(string.dropFirst().dropLast())
+        return encodeJSONFragment(object) ?? "null"
     }
 
     static func bridgeOK(_ result: Any) -> [String: Any] {

@@ -3300,11 +3300,7 @@ class TerminalController {
         }
 
         switch method {
-        case "pane.create", "surface.split", "surface.close", "surface.focus":
-            if scopedParams["surface_id"] == nil {
-                scopedParams["surface_id"] = surfaceId.uuidString
-            }
-        case "pane.surfaces", "surface.create":
+        case "pane.surfaces":
             if scopedParams["pane_id"] == nil, let paneId {
                 scopedParams["pane_id"] = paneId.uuidString
             }
