@@ -95,7 +95,7 @@ private enum MarkdownCodeBlockPalette {
     }
 }
 
-enum MarkdownMermaidTheme: String, Equatable, Sendable {
+nonisolated enum MarkdownMermaidTheme: String, Equatable, Sendable {
     case `default`
     case dark
 
@@ -141,11 +141,11 @@ private struct MarkdownMermaidDiagramBlock: View {
             }
         }
         .markdownMargin(top: 8, bottom: 8)
-        .onChange(of: source) { _ in
-            renderedHeight = 160
+        .onChange(of: source) { _, _ in
+            errorState = nil
         }
-        .onChange(of: theme) { _ in
-            renderedHeight = 160
+        .onChange(of: theme) { _, _ in
+            errorState = nil
         }
     }
 }
@@ -239,9 +239,6 @@ private struct MarkdownMermaidWebView: NSViewRepresentable {
         webView.navigationDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = false
         webView.setValue(false, forKey: "drawsBackground")
-        webView.scrollView.drawsBackground = false
-        webView.scrollView.hasVerticalScroller = false
-        webView.scrollView.hasHorizontalScroller = false
         context.coordinator.load(source: source, theme: theme, in: webView)
         return webView
     }
@@ -260,10 +257,12 @@ private struct MarkdownMermaidWebView: NSViewRepresentable {
         )
     }
 
-    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+    @MainActor
+    final class Coordinator: NSObject, @preconcurrency WKScriptMessageHandler, @preconcurrency WKNavigationDelegate {
         var renderedHeight: Binding<CGFloat>
         var onError: @MainActor (String) -> Void
         private var currentRequest: MarkdownMermaidRenderRequest?
+        private var currentRequestID = UUID().uuidString
 
         init(
             renderedHeight: Binding<CGFloat>,
@@ -277,9 +276,10 @@ private struct MarkdownMermaidWebView: NSViewRepresentable {
             let request = MarkdownMermaidRenderRequest(source: source, theme: theme)
             guard currentRequest != request else { return }
             currentRequest = request
+            currentRequestID = UUID().uuidString
             renderedHeight.wrappedValue = 160
             webView.loadHTMLString(
-                MarkdownMermaidHTMLDocument.html(source: source, theme: theme),
+                MarkdownMermaidHTMLDocument.html(source: source, theme: theme, requestID: currentRequestID),
                 baseURL: Bundle.main.resourceURL
             )
         }
@@ -288,14 +288,15 @@ private struct MarkdownMermaidWebView: NSViewRepresentable {
             _ userContentController: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
-            guard let event = MarkdownMermaidScriptEvent(body: message.body) else { return }
-            Task { @MainActor in
-                switch event {
-                case .height(let height):
-                    renderedHeight.wrappedValue = min(max(CGFloat(height), 80), 4000)
-                case .error(let message):
-                    onError(message)
-                }
+            guard let event = MarkdownMermaidScriptEvent(body: message.body),
+                  event.requestID == currentRequestID else {
+                return
+            }
+            switch event {
+            case .height(let height, _):
+                renderedHeight.wrappedValue = min(max(CGFloat(height), 80), 4000)
+            case .error(let message, _):
+                onError(message)
             }
         }
 
@@ -309,27 +310,35 @@ private struct MarkdownMermaidWebView: NSViewRepresentable {
     }
 }
 
-struct MarkdownMermaidRenderRequest: Equatable, Sendable {
+nonisolated struct MarkdownMermaidRenderRequest: Equatable, Sendable {
     let source: String
     let theme: MarkdownMermaidTheme
 }
 
-enum MarkdownMermaidScriptEvent: Equatable, Sendable {
-    case height(Double)
-    case error(String)
+nonisolated enum MarkdownMermaidScriptEvent: Equatable, Sendable {
+    case height(Double, requestID: String)
+    case error(String, requestID: String)
+
+    var requestID: String {
+        switch self {
+        case .height(_, let requestID), .error(_, let requestID):
+            requestID
+        }
+    }
 
     init?(body: Any) {
         guard let dictionary = body as? [String: Any],
-              let type = dictionary["type"] as? String else {
+              let type = dictionary["type"] as? String,
+              let requestID = dictionary["requestID"] as? String else {
             return nil
         }
         switch type {
         case "height":
             guard let height = dictionary["height"] as? Double else { return nil }
-            self = .height(height)
+            self = .height(height, requestID: requestID)
         case "error":
             guard let message = dictionary["message"] as? String else { return nil }
-            self = .error(message)
+            self = .error(message, requestID: requestID)
         default:
             return nil
         }
@@ -340,10 +349,15 @@ enum MarkdownMermaidHTMLDocument {
     static let handlerName = "cmuxMermaid"
     static let scriptFileName = "mermaid.min.js"
 
-    static func html(source: String, theme: MarkdownMermaidTheme) -> String {
+    static func html(
+        source: String,
+        theme: MarkdownMermaidTheme,
+        requestID: String = "cmux-mermaid-render"
+    ) -> String {
         let sourceLiteral = javaScriptStringLiteral(source)
         let themeLiteral = javaScriptStringLiteral(theme.mermaidName)
         let handlerLiteral = javaScriptStringLiteral(handlerName)
+        let requestIDLiteral = javaScriptStringLiteral(requestID)
         let diagramLabel = htmlAttribute(
             String(localized: "markdown.mermaid.diagramLabel", defaultValue: "Mermaid diagram")
         )
@@ -390,11 +404,13 @@ enum MarkdownMermaidHTMLDocument {
             const source = \(sourceLiteral);
             const theme = \(themeLiteral);
             const handler = \(handlerLiteral);
+            const requestID = \(requestIDLiteral);
             const runtimeUnavailableMessage = \(runtimeUnavailableLiteral);
             const unknownErrorMessage = \(unknownErrorLiteral);
             const container = document.getElementById('diagram');
 
             function post(payload) {
+              payload.requestID = requestID;
               window.webkit.messageHandlers[handler].postMessage(payload);
             }
 
@@ -447,6 +463,7 @@ enum MarkdownMermaidHTMLDocument {
     static func javaScriptStringLiteral(_ value: String) -> String {
         guard let data = try? JSONSerialization.data(withJSONObject: [value], options: []),
               var encoded = String(data: data, encoding: .utf8) else {
+            assertionFailure("JSONSerialization unexpectedly failed for string literal encoding")
             return "\"\""
         }
         encoded.removeFirst()

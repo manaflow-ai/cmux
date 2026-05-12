@@ -31,14 +31,15 @@ final class MarkdownMermaidRendererTests: XCTestCase {
 
     func testMermaidScriptEventParsesHeightAndErrorMessages() {
         XCTAssertEqual(
-            MarkdownMermaidScriptEvent(body: ["type": "height", "height": 240.0]),
-            .height(240.0)
+            MarkdownMermaidScriptEvent(body: ["type": "height", "height": 240.0, "requestID": "request-1"]),
+            .height(240.0, requestID: "request-1")
         )
         XCTAssertEqual(
-            MarkdownMermaidScriptEvent(body: ["type": "error", "message": "Parse error"]),
-            .error("Parse error")
+            MarkdownMermaidScriptEvent(body: ["type": "error", "message": "Parse error", "requestID": "request-2"]),
+            .error("Parse error", requestID: "request-2")
         )
-        XCTAssertNil(MarkdownMermaidScriptEvent(body: ["type": "height", "height": "240"]))
-        XCTAssertNil(MarkdownMermaidScriptEvent(body: ["type": "unknown"]))
+        XCTAssertNil(MarkdownMermaidScriptEvent(body: ["type": "height", "height": "240", "requestID": "request-3"]))
+        XCTAssertNil(MarkdownMermaidScriptEvent(body: ["type": "height", "height": 240.0]))
+        XCTAssertNil(MarkdownMermaidScriptEvent(body: ["type": "unknown", "requestID": "request-4"]))
     }
 }
