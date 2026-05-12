@@ -10019,6 +10019,7 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
         startupEnvironment: [String: String] = [:],
+        targetIndex: Int? = nil,
         placementOverride: NewSurfacePlacement? = nil
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
@@ -10079,12 +10080,16 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         surfaceIdToPanelId[newTabId] = newPanel.id
-        applyNewSurfacePlacement(
-            to: newTabId,
-            inPane: paneId,
-            selectionBeforeCreation: selectionBeforeCreation,
-            placementOverride: placementOverride
-        )
+        if let targetIndex {
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        } else {
+            applyNewSurfacePlacement(
+                to: newTabId,
+                inPane: paneId,
+                selectionBeforeCreation: selectionBeforeCreation,
+                placementOverride: placementOverride
+            )
+        }
         publishCmuxSurfaceCreated(newPanel.id, paneId: paneId, kind: "terminal", origin: "terminal_tab", focused: shouldFocusNewTab)
 
         // bonsplit's createTab may not reliably emit didSelectTab, and its internal selection
@@ -10231,6 +10236,7 @@ final class Workspace: Identifiable, ObservableObject {
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
+        targetIndex: Int? = nil,
         placementOverride: NewSurfacePlacement? = nil
     ) -> BrowserPanel? {
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
@@ -10280,12 +10286,16 @@ final class Workspace: Identifiable, ObservableObject {
 
         surfaceIdToPanelId[newTabId] = browserPanel.id
         setPreferredBrowserProfileID(browserPanel.profileID)
-        applyNewSurfacePlacement(
-            to: newTabId,
-            inPane: paneId,
-            selectionBeforeCreation: selectionBeforeCreation,
-            placementOverride: insertAtEnd ? .end : placementOverride
-        )
+        if let targetIndex {
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        } else {
+            applyNewSurfacePlacement(
+                to: newTabId,
+                inPane: paneId,
+                selectionBeforeCreation: selectionBeforeCreation,
+                placementOverride: insertAtEnd ? .end : placementOverride
+            )
+        }
         publishCmuxSurfaceCreated(browserPanel.id, paneId: paneId, kind: "browser", origin: "browser_tab", focused: shouldFocusNewTab)
 
         // Match terminal behavior: enforce deterministic selection + focus.
@@ -12467,8 +12477,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func createTerminalToRight(of anchorTabId: TabID, inPane paneId: PaneID) {
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
-        guard let newPanel = newTerminalSurface(inPane: paneId, focus: true) else { return }
-        _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
+        _ = newTerminalSurface(inPane: paneId, focus: true, targetIndex: targetIndex)
     }
 
     private func createTerminalFromContextMenu(anchorTabId: TabID, inPane paneId: PaneID) {
@@ -12482,13 +12491,13 @@ final class Workspace: Identifiable, ObservableObject {
     private func createBrowserToRight(of anchorTabId: TabID, inPane paneId: PaneID, url: URL? = nil) {
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
         let preferredProfileID = panelIdFromSurfaceId(anchorTabId).flatMap { browserPanel(for: $0)?.profileID }
-        guard let newPanel = newBrowserSurface(
+        _ = newBrowserSurface(
             inPane: paneId,
             url: url,
             focus: true,
-            preferredProfileID: preferredProfileID
-        ) else { return }
-        _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
+            preferredProfileID: preferredProfileID,
+            targetIndex: targetIndex
+        )
     }
 
     private func createBrowserFromContextMenu(anchorTabId: TabID, inPane paneId: PaneID, url: URL? = nil) {
@@ -12503,13 +12512,13 @@ final class Workspace: Identifiable, ObservableObject {
         guard let panelId = panelIdFromSurfaceId(anchorTabId),
               let browser = browserPanel(for: panelId) else { return }
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
-        guard let newPanel = newBrowserSurface(
+        _ = newBrowserSurface(
             inPane: paneId,
             url: browser.currentURL,
             focus: true,
-            preferredProfileID: browser.profileID
-        ) else { return }
-        _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
+            preferredProfileID: browser.profileID,
+            targetIndex: targetIndex
+        )
     }
 
     private func promptRenamePanel(tabId: TabID) {

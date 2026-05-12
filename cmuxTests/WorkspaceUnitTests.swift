@@ -2383,18 +2383,14 @@ final class WorkspaceSurfaceCreationPlacementTests: XCTestCase {
     }
 
     func testTopPlacementInsertsUnpinnedSurfaceAfterPinnedSurfaces() throws {
-        try withSurfacePlacement(.end) {
+        try withSurfacePlacement(.top) {
             let workspace = Workspace()
             let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
             let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
-            let secondPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: true))
-            let thirdPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: true))
+            let secondPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: true, placementOverride: .end))
+            let thirdPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: true, placementOverride: .end))
 
             workspace.setPanelPinned(panelId: firstPanelId, pinned: true)
-            UserDefaults.standard.set(
-                NewSurfacePlacement.top.rawValue,
-                forKey: SurfacePlacementSettings.placementKey
-            )
             workspace.focusPanel(thirdPanel.id)
             let createdPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: true))
 
