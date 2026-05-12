@@ -16023,19 +16023,7 @@ struct CMUXCLI {
     }
 
     private static func normalizedClaudeNotificationTypes(_ values: [String]) -> Set<String> {
-        Set(values.compactMap { normalizedClaudeNotificationType($0) })
-    }
-
-    private static func normalizedClaudeNotificationType(_ raw: String) -> String? {
-        let collapsedWhitespace = raw
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: "_")
-        let normalized = collapsedWhitespace
-            .replacingOccurrences(of: "-", with: "_")
-            .lowercased()
-        return normalized.isEmpty ? nil : normalized
+        ClaudeNotificationTypeNormalization.normalizedSet(values)
     }
 
     private func firstString(in object: [String: Any], keys: [String]) -> String? {

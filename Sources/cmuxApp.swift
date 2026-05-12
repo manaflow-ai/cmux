@@ -4675,26 +4675,7 @@ enum ClaudeCodeIntegrationSettings {
     }
 
     static func normalizedIgnoredNotificationTypes(_ values: [String]) -> [String] {
-        var seen = Set<String>()
-        return values.compactMap { raw in
-            guard let normalized = normalizedNotificationType(raw),
-                  seen.insert(normalized).inserted else {
-                return nil
-            }
-            return normalized
-        }
-    }
-
-    static func normalizedNotificationType(_ raw: String) -> String? {
-        let collapsedWhitespace = raw
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: "_")
-        let normalized = collapsedWhitespace
-            .replacingOccurrences(of: "-", with: "_")
-            .lowercased()
-        return normalized.isEmpty ? nil : normalized
+        ClaudeNotificationTypeNormalization.normalizedUniqueList(values)
     }
 }
 
