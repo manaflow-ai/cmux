@@ -129,6 +129,90 @@ def test_same_pane_terminal_link_placement(client: cmux) -> tuple[bool, str]:
             pass
 
 
+def test_open_wrapper_uses_terminal_link_placement(client: cmux) -> tuple[bool, str]:
+    workspace_id = client.new_workspace()
+    client.select_workspace(workspace_id)
+    time.sleep(0.4)
+
+    try:
+        initial_surfaces = client.list_surfaces()
+        source_surface_id = next((surface for _, surface, _ in initial_surfaces), None)
+        if not source_surface_id:
+            return False, "Missing initial terminal surface"
+
+        source_pane_id = pane_for_surface(client, source_surface_id)
+        right_browser_id = client.new_pane(direction="right", panel_type="browser", url="https://example.com")
+        time.sleep(0.5)
+        right_pane_id = pane_for_surface(client, right_browser_id)
+
+        if right_pane_id == source_pane_id:
+            return False, "Setup did not create a distinct right browser pane"
+
+        panes_before = client.list_panes()
+        source_surfaces_before = surface_ids_in_pane(client, source_pane_id)
+        right_surfaces_before = surface_ids_in_pane(client, right_pane_id)
+
+        placement_state = v2_call(
+            client,
+            "debug.browser.terminal_link_placement",
+            {"placement": "samePane"},
+            request_id="set-placement-open-wrapper",
+        )
+        if placement_state.get("placement") != "samePane":
+            return False, f"Expected samePane setting, got {placement_state}"
+
+        opened = v2_call(
+            client,
+            "browser.open_split",
+            {
+                "workspace_id": workspace_id,
+                "surface_id": source_surface_id,
+                "url": "https://example.org/open-wrapper",
+                "focus": True,
+                "use_terminal_link_browser_placement": True,
+            },
+            request_id="open-terminal-link-wrapper-path",
+        )
+
+        target_surface_id = opened.get("surface_id")
+        if not isinstance(target_surface_id, str) or not target_surface_id:
+            return False, f"Missing created browser surface in response: {opened}"
+
+        panes_after = client.list_panes()
+        source_surfaces_after = surface_ids_in_pane(client, source_pane_id)
+        right_surfaces_after = surface_ids_in_pane(client, right_pane_id)
+
+        if len(panes_after) != len(panes_before):
+            return False, f"open wrapper placement should not create a split: before={panes_before} after={panes_after}"
+        if opened.get("placement") != "samePane":
+            return False, f"Expected response placement samePane, got {opened}"
+        if opened.get("created_split"):
+            return False, f"open wrapper samePane reported created_split=true: {opened}"
+        if opened.get("target_pane_id") != source_pane_id:
+            return False, f"Expected target pane {source_pane_id}, got {opened.get('target_pane_id')}"
+        if target_surface_id not in source_surfaces_after - source_surfaces_before:
+            return False, (
+                "Created browser surface was not added to the source pane: "
+                f"target={target_surface_id} before={source_surfaces_before} after={source_surfaces_after}"
+            )
+        if right_surfaces_after != right_surfaces_before:
+            return False, (
+                "open wrapper samePane should not reuse the existing right browser pane: "
+                f"before={right_surfaces_before} after={right_surfaces_after}"
+            )
+
+        return True, "open-wrapper browser open reused the terminal-link same-pane placement path"
+    finally:
+        try:
+            v2_call(client, "debug.browser.terminal_link_placement", {"reset": True}, request_id="reset-placement-open-wrapper")
+        except Exception:
+            pass
+        try:
+            client.close_workspace(workspace_id)
+        except Exception:
+            pass
+
+
 def run_tests() -> int:
     probe = cmux()
     socket_path = probe.socket_path
@@ -139,6 +223,7 @@ def run_tests() -> int:
 
     tests = [
         ("terminal link same-pane browser placement", test_same_pane_terminal_link_placement),
+        ("open wrapper same-pane browser placement", test_open_wrapper_uses_terminal_link_placement),
     ]
 
     passed = 0

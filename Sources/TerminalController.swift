@@ -8966,6 +8966,7 @@ class TerminalController {
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
         let respectExternalOpenRules = v2Bool(params, "respect_external_open_rules") ?? false
+        let useTerminalLinkBrowserPlacement = v2Bool(params, "use_terminal_link_browser_placement") ?? false
 
         if BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
@@ -9020,6 +9021,52 @@ class TerminalController {
 
             let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
+
+            if useTerminalLinkBrowserPlacement {
+                guard let url else {
+                    result = .err(
+                        code: "invalid_params",
+                        message: "Terminal link browser placement requires a valid url",
+                        data: nil
+                    )
+                    return
+                }
+
+                let placement = BrowserLinkOpenSettings.terminalLinkBrowserPlacement()
+                guard let openResult = ws.openTerminalLinkInBrowser(
+                    url: url,
+                    fromPanelId: sourceSurfaceId,
+                    placement: placement,
+                    focus: focus
+                ) else {
+                    result = .err(code: "internal_error", message: "Failed to create browser", data: nil)
+                    return
+                }
+
+                let targetPaneUUID = ws.paneId(forPanelId: openResult.panel.id)?.id
+                let windowId = v2ResolveWindowId(tabManager: tabManager)
+                result = .ok([
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: windowId),
+                    "workspace_id": ws.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                    "pane_id": v2OrNull(targetPaneUUID?.uuidString),
+                    "pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
+                    "surface_id": openResult.panel.id.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: openResult.panel.id),
+                    "source_surface_id": sourceSurfaceId.uuidString,
+                    "source_surface_ref": v2Ref(kind: .surface, uuid: sourceSurfaceId),
+                    "source_pane_id": v2OrNull(sourcePaneUUID?.uuidString),
+                    "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneUUID),
+                    "target_pane_id": v2OrNull(targetPaneUUID?.uuidString),
+                    "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
+                    "created_split": openResult.createdSplit,
+                    "placement": openResult.placement.rawValue,
+                    "placement_strategy": openResult.placementStrategy,
+                    "url": url.absoluteString
+                ])
+                return
+            }
 
             var createdSplit = true
             var placementStrategy = "split_right"

@@ -6556,7 +6556,7 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        if openTerminalLinksInCmuxBrowser {
+                        if openTerminalLinksInCmuxBrowser || interceptTerminalOpenCommandInCmuxBrowser {
                             SettingsPickerRow(
                                 configurationReview: .json("browser.terminalLinkBrowserPlacement"),
                                 String(localized: "settings.browser.terminalLinkPlacement", defaultValue: "Terminal Link Browser Placement"),
