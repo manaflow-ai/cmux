@@ -3923,7 +3923,14 @@ class TabManager: ObservableObject {
 
         var nextVisibleIds = currentVisibleIds
         nextVisibleIds.remove(at: currentVisibleIndex)
-        let insertionIndex = max(0, min(targetIndex, nextVisibleIds.count))
+        let pinnedCount = tabs.filter(\.isPinned).count
+        let clampedTargetIndex: Int
+        if workspace.isPinned {
+            clampedTargetIndex = min(max(0, targetIndex), max(0, pinnedCount - 1))
+        } else {
+            clampedTargetIndex = max(pinnedCount, min(targetIndex, tabs.count - 1))
+        }
+        let insertionIndex = max(0, min(clampedTargetIndex, nextVisibleIds.count))
         nextVisibleIds.insert(tabId, at: insertionIndex)
 
         let workspaceById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })

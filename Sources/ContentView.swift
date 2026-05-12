@@ -2653,7 +2653,7 @@ struct ContentView: View {
             }
             if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
                 selectedTabIds = [selectedId]
-                lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+                lastSidebarSelectionIndex = sidebarVisualIndex(of: selectedId, in: tabManager)
             }
             syncSidebarSelectedWorkspaceIds()
             applyUITestSidebarSelectionIfNeeded(tabs: tabManager.tabs)
@@ -2688,7 +2688,7 @@ struct ContentView: View {
                 // Ensure sidebar selection is valid.
                 if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
                     selectedTabIds = [selectedId]
-                    lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+                    lastSidebarSelectionIndex = sidebarVisualIndex(of: selectedId, in: tabManager)
                     didRecover = true
                 }
 
@@ -2726,7 +2726,7 @@ struct ContentView: View {
             guard let newValue else { return }
             if selectedTabIds.count <= 1 {
                 selectedTabIds = [newValue]
-                lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == newValue }
+                lastSidebarSelectionIndex = sidebarVisualIndex(of: newValue, in: tabManager)
             }
             updateTitlebarText()
         })
@@ -9608,6 +9608,7 @@ struct VerticalTabsSidebar: View {
             notificationStore: notificationStore,
             tab: tab,
             index: index,
+            visualWorkspaceIds: renderContext.workspaceIds,
             isActive: tabManager.selectedTabId == tab.id,
             workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
                 at: index,
@@ -11983,7 +11984,7 @@ private struct SidebarEmptyArea: View {
                 tabManager.addWorkspace(placementOverride: .end)
                 if let selectedId = tabManager.selectedTabId {
                     selectedTabIds = [selectedId]
-                    lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+                    lastSidebarSelectionIndex = sidebarVisualIndex(of: selectedId, in: tabManager)
                 }
                 selection = .tabs
             }
@@ -12164,6 +12165,7 @@ private struct TabItemView: View, Equatable {
     nonisolated static func == (lhs: TabItemView, rhs: TabItemView) -> Bool {
         lhs.tab === rhs.tab &&
         lhs.index == rhs.index &&
+        lhs.visualWorkspaceIds == rhs.visualWorkspaceIds &&
         lhs.isActive == rhs.isActive &&
         lhs.workspaceShortcutDigit == rhs.workspaceShortcutDigit &&
         lhs.workspaceShortcutModifierSymbol == rhs.workspaceShortcutModifierSymbol &&
@@ -12190,6 +12192,7 @@ private struct TabItemView: View, Equatable {
     @Environment(\.colorScheme) private var colorScheme
     let tab: Tab
     let index: Int
+    let visualWorkspaceIds: [UUID]
     let isActive: Bool
     let workspaceShortcutDigit: Int?
     let workspaceShortcutModifierSymbol: String
@@ -13241,12 +13244,12 @@ private struct TabItemView: View, Equatable {
         }
 
         guard indicator.edge == .bottom,
-              let currentIndex = tabManager.tabs.firstIndex(where: { $0.id == tab.id }),
+              let currentIndex = visualWorkspaceIds.firstIndex(of: tab.id),
               currentIndex > 0
         else {
             return false
         }
-        return tabManager.tabs[currentIndex - 1].id == indicator.tabId
+        return visualWorkspaceIds[currentIndex - 1] == indicator.tabId
     }
 
     private var accessibilityTitle: String {
@@ -13255,10 +13258,14 @@ private struct TabItemView: View, Equatable {
 
     private func moveBy(_ delta: Int) {
         let targetIndex = index + delta
-        guard targetIndex >= 0, targetIndex < tabManager.tabs.count else { return }
-        guard tabManager.reorderWorkspace(tabId: tab.id, toIndex: targetIndex) else { return }
+        guard targetIndex >= 0, targetIndex < visualWorkspaceIds.count else { return }
+        guard tabManager.moveWorkspaceInSidebarVisualOrder(
+            tabId: tab.id,
+            toVisibleIndex: targetIndex,
+            initialDirectory: nil
+        ) else { return }
         selectedTabIds = [tab.id]
-        lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == tab.id }
+        lastSidebarSelectionIndex = targetIndex
         tabManager.selectTab(tab)
         setSelectionToTabs()
     }
@@ -13278,10 +13285,13 @@ private struct TabItemView: View, Equatable {
         let isShift = modifiers.contains(.shift)
         let wasSelected = tabManager.selectedTabId == tab.id
 
-        if isShift, let lastIndex = lastSidebarSelectionIndex {
+        if isShift,
+           let lastIndex = lastSidebarSelectionIndex,
+           visualWorkspaceIds.indices.contains(lastIndex),
+           visualWorkspaceIds.indices.contains(index) {
             let lower = min(lastIndex, index)
             let upper = max(lastIndex, index)
-            let rangeIds = tabManager.tabs[lower...upper].map { $0.id }
+            let rangeIds = Array(visualWorkspaceIds[lower...upper])
             if isCommand {
                 selectedTabIds.formUnion(rangeIds)
             } else {
@@ -13360,7 +13370,7 @@ private struct TabItemView: View, Equatable {
             selectedTabIds = [selectedId]
         }
         if let selectedId = tabManager.selectedTabId {
-            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+            lastSidebarSelectionIndex = sidebarVisualIndex(of: selectedId, in: tabManager)
         }
     }
 
@@ -14491,7 +14501,7 @@ private struct SidebarBonsplitTabDropDelegate: DropDelegate {
 
     private func syncSidebarSelection() {
         if let selectedId = tabManager.selectedTabId {
-            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+            lastSidebarSelectionIndex = sidebarVisualIndex(of: selectedId, in: tabManager)
         } else {
             lastSidebarSelectionIndex = nil
         }
@@ -14541,7 +14551,7 @@ private struct SidebarGroupHeaderDropDelegate: DropDelegate {
     private func syncSidebarSelection(preferredSelectedTabId: UUID? = nil) {
         let selectedId = preferredSelectedTabId ?? tabManager.selectedTabId
         if let selectedId {
-            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+            lastSidebarSelectionIndex = sidebarVisualIndex(of: selectedId, in: tabManager)
         } else {
             lastSidebarSelectionIndex = nil
         }
@@ -14585,7 +14595,7 @@ private struct SidebarBookmarkHeaderDropDelegate: DropDelegate {
     private func syncSidebarSelection(preferredSelectedTabId: UUID? = nil) {
         let selectedId = preferredSelectedTabId ?? tabManager.selectedTabId
         if let selectedId {
-            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+            lastSidebarSelectionIndex = sidebarVisualIndex(of: selectedId, in: tabManager)
         } else {
             lastSidebarSelectionIndex = nil
         }
@@ -14732,15 +14742,7 @@ private struct SidebarTabDropDelegate: DropDelegate {
     }
 
     private func planningTabIds() -> [UUID] {
-        SidebarWorkspaceGroupingPlanner.plan(
-            for: tabManager.tabs.map {
-                SidebarWorkspaceGroupingInput(
-                    id: $0.id,
-                    initialDirectory: $0.initialDirectory,
-                    isPinned: $0.isPinned
-                )
-            }
-        ).visibleWorkspaceIds
+        sidebarVisibleWorkspaceIds(in: tabManager)
     }
 
     private func syncSidebarSelection(preferredSelectedTabId: UUID? = nil) {
@@ -14757,6 +14759,22 @@ private struct SidebarTabDropDelegate: DropDelegate {
         let tabText = indicator.tabId.map { String($0.uuidString.prefix(5)) } ?? "end"
         return "\(tabText):\(indicator.edge == .top ? "top" : "bottom")"
     }
+}
+
+private func sidebarVisualIndex(of workspaceId: UUID, in tabManager: TabManager) -> Int? {
+    sidebarVisibleWorkspaceIds(in: tabManager).firstIndex(of: workspaceId)
+}
+
+private func sidebarVisibleWorkspaceIds(in tabManager: TabManager) -> [UUID] {
+    SidebarWorkspaceGroupingPlanner.plan(
+        for: tabManager.tabs.map {
+            SidebarWorkspaceGroupingInput(
+                id: $0.id,
+                initialDirectory: $0.initialDirectory,
+                isPinned: $0.isPinned
+            )
+        }
+    ).visibleWorkspaceIds
 }
 
 private struct MiddleClickCapture: NSViewRepresentable {
