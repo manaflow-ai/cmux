@@ -2504,12 +2504,19 @@ struct CMUXCLI {
             if sharedClient == nil {
                 let client = SocketClient(path: socketPath, keepRelayConnectionOpen: true)
                 try client.connect()
+                var didShareClient = false
+                defer {
+                    if !didShareClient {
+                        client.close()
+                    }
+                }
                 try authenticateClientIfNeeded(
                     client,
                     explicitPassword: explicitPassword,
                     socketPath: socketPath
                 )
                 sharedClient = client
+                didShareClient = true
             }
             do {
                 return try body(sharedClient!)

@@ -3,13 +3,24 @@ import Foundation
 
 let cliStdioDispositionLock = NSLock()
 
+enum CLIWriteResult {
+    case complete
+    case brokenPipe
+    case timedOut
+}
+
 @discardableResult
 func cliWriteIgnoringBrokenPipe(_ data: Data, to fd: Int32, timeout: TimeInterval? = nil) -> Bool {
-    guard !data.isEmpty else { return true }
+    cliWriteIgnoringBrokenPipeResult(data, to: fd, timeout: timeout) == .complete
+}
+
+@discardableResult
+func cliWriteIgnoringBrokenPipeResult(_ data: Data, to fd: Int32, timeout: TimeInterval? = nil) -> CLIWriteResult {
+    guard !data.isEmpty else { return .complete }
     let deadline = timeout.map { Date().addingTimeInterval(max(0, $0)) }
 
     return data.withUnsafeBytes { rawBuffer in
-        guard let baseAddress = rawBuffer.baseAddress else { return true }
+        guard let baseAddress = rawBuffer.baseAddress else { return .complete }
         var offset = 0
         while offset < rawBuffer.count {
             cliStdioDispositionLock.lock()
@@ -38,7 +49,7 @@ func cliWriteIgnoringBrokenPipe(_ data: Data, to fd: Int32, timeout: TimeInterva
                 var pollFD = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
                 while true {
                     if let deadline, Date() >= deadline {
-                        return false
+                        return .timedOut
                     }
                     let ready = poll(&pollFD, 1, 250)
                     if ready > 0 {
@@ -50,20 +61,25 @@ func cliWriteIgnoringBrokenPipe(_ data: Data, to fd: Int32, timeout: TimeInterva
                     if ready == 0 {
                         continue
                     }
-                    return false
+                    return .brokenPipe
                 }
                 continue
             } else {
-                return false
+                return .brokenPipe
             }
         }
-        return true
+        return .complete
     }
 }
 
 @discardableResult
 func cliWriteIgnoringBrokenPipe(_ data: Data, to handle: FileHandle, timeout: TimeInterval? = nil) -> Bool {
     cliWriteIgnoringBrokenPipe(data, to: handle.fileDescriptor, timeout: timeout)
+}
+
+@discardableResult
+func cliWriteIgnoringBrokenPipeResult(_ data: Data, to handle: FileHandle, timeout: TimeInterval? = nil) -> CLIWriteResult {
+    cliWriteIgnoringBrokenPipeResult(data, to: handle.fileDescriptor, timeout: timeout)
 }
 
 func cliRunProcess(_ process: Process) throws {
@@ -115,16 +131,23 @@ enum CLIProcessRunner {
             return CLIProcessResult(status: 1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
 
+        let deadline = timeout.map { Date().addingTimeInterval(max(0, $0)) }
+        var stdinWriteTimedOut = false
         if let stdinText, let stdinPipe {
             if let data = stdinText.data(using: .utf8) {
-                cliWriteIgnoringBrokenPipe(data, to: stdinPipe.fileHandleForWriting, timeout: timeout)
+                let remaining = deadline.map { max(0, $0.timeIntervalSinceNow) }
+                let writeResult = cliWriteIgnoringBrokenPipeResult(data, to: stdinPipe.fileHandleForWriting, timeout: remaining)
+                stdinWriteTimedOut = writeResult == .timedOut
             }
             stdinPipe.fileHandleForWriting.closeFile()
         }
 
         let timedOut: Bool
-        if let timeout {
-            switch finished.wait(timeout: .now() + timeout) {
+        if stdinWriteTimedOut {
+            timedOut = true
+            terminate(process: process, finished: finished)
+        } else if let deadline {
+            switch finished.wait(timeout: .now() + max(0, deadline.timeIntervalSinceNow)) {
             case .success:
                 timedOut = false
             case .timedOut:
