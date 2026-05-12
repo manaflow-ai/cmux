@@ -56,13 +56,15 @@ final class GoalSupervisionStore {
     @ObservationIgnored private let persistence: GoalSupervisionPersistence
     @ObservationIgnored private var persistTask: Task<Void, Never>?
     @ObservationIgnored private var mutationRevision: UInt64 = 0
+    @ObservationIgnored private var deletedGoalIDs: Set<UUID> = []
+    @ObservationIgnored private var hasLoaded = false
 
     init(persistence: GoalSupervisionPersistence = .live) {
         self.persistence = persistence
         Task { await load() }
     }
 
-    func snapshots(at date: Date = .now) -> [GoalSupervisionSnapshot] {
+    func snapshots() -> [GoalSupervisionSnapshot] {
         goals.map { goal in
             GoalSupervisionSnapshot(
                 id: goal.id,
@@ -128,6 +130,7 @@ final class GoalSupervisionStore {
     func deleteGoal(id: UUID) {
         guard goals.contains(where: { $0.id == id }) else { return }
         goals.removeAll { $0.id == id }
+        deletedGoalIDs.insert(id)
         recordMutation()
         persistCurrentGoals()
     }
@@ -139,14 +142,20 @@ final class GoalSupervisionStore {
             if mutationRevision == revisionAtStart {
                 goals = loadedGoals
             } else {
-                goals = Self.mergedGoals(loadedGoals, preservingLocalGoals: goals)
+                goals = Self.mergedGoals(
+                    loadedGoals,
+                    preservingLocalGoals: goals,
+                    excluding: deletedGoalIDs
+                )
                 persistCurrentGoals()
             }
+            hasLoaded = true
             lastError = nil
         } catch {
             if mutationRevision == revisionAtStart {
                 goals = []
             }
+            hasLoaded = true
             lastError = error.localizedDescription
         }
     }
@@ -177,10 +186,11 @@ final class GoalSupervisionStore {
 
     private static func mergedGoals(
         _ loadedGoals: [GoalSupervisionRecord],
-        preservingLocalGoals localGoals: [GoalSupervisionRecord]
+        preservingLocalGoals localGoals: [GoalSupervisionRecord],
+        excluding deletedGoalIDs: Set<UUID>
     ) -> [GoalSupervisionRecord] {
         var goalsByID: [UUID: GoalSupervisionRecord] = [:]
-        for goal in loadedGoals {
+        for goal in loadedGoals where !deletedGoalIDs.contains(goal.id) {
             goalsByID[goal.id] = goal
         }
         for goal in localGoals {
@@ -205,7 +215,12 @@ final class GoalSupervisionStore {
                 try Task.checkCancellation()
                 try await persistence.save(snapshot)
                 try Task.checkCancellation()
-                await MainActor.run { self.lastError = nil }
+                await MainActor.run {
+                    if self.hasLoaded {
+                        self.deletedGoalIDs.removeAll()
+                    }
+                    self.lastError = nil
+                }
             } catch is CancellationError {
                 return
             } catch {
