@@ -486,6 +486,9 @@ enum SessionScrollbackReplayStore {
     private static let ansiReset = "\u{001B}[0m"
     private static let zshPromptSpMarkerPattern =
         #"(?:\x1B\[[0-9;]*m)*\x1B\[(?:1;)?7m%\x1B\[[0-9;]*m[ \t]*"#
+    private static let zshPromptSpRegex = try! NSRegularExpression(
+        pattern: zshPromptSpMarkerPattern
+    )
 
     static func replayEnvironment(
         for scrollback: String?,
@@ -529,10 +532,7 @@ enum SessionScrollbackReplayStore {
         guard text.contains("\(ansiEscape)[7m%") || text.contains("\(ansiEscape)[1;7m%") else {
             return text
         }
-        guard let regex = try? NSRegularExpression(pattern: zshPromptSpMarkerPattern) else {
-            return text
-        }
-        return regex.stringByReplacingMatches(
+        return zshPromptSpRegex.stringByReplacingMatches(
             in: text,
             range: NSRange(text.startIndex..<text.endIndex, in: text),
             withTemplate: "\n"
