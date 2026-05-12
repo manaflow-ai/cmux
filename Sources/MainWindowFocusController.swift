@@ -489,6 +489,7 @@ final class MainWindowFocusController {
             _ = restoreTerminalFocusAfterRightSidebarHiddenIfNeeded()
             return true
         case .focus, .showAndFocus:
+            // focusRightSidebar reveals the sidebar before focusing, so both non-hidden outcomes share one path.
             return focusRightSidebar()
         }
     }

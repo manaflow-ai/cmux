@@ -30,7 +30,7 @@ extension ContentView {
         case "palette.toggleSidebar":
             return .toggleSidebar
         case Self.commandPaletteToggleRightSidebarCommandID:
-            return .toggleRightSidebar
+            return .focusRightSidebar
         case "palette.showNotifications":
             return .showNotifications
         case "palette.jumpUnread":

@@ -7169,7 +7169,7 @@ struct ContentView: View {
             sidebarState.toggle()
         }
         registry.register(commandId: Self.commandPaletteToggleRightSidebarCommandID) {
-            if AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(
+            if AppDelegate.shared?.toggleRightSidebarKeyboardFocusInActiveMainWindow(
                 preferredWindow: observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
             ) != true {
                 NSSound.beep()
