@@ -496,7 +496,7 @@ private struct SpawnRecord {
             title: title,
             model: model,
             subagentType: subagentType,
-            status: .running,
+            status: .waiting,
             taskDescription: taskDescription,
             childCount: 0,
             children: []

@@ -882,6 +882,7 @@ private struct FeedRowSurface: View {
     }
 }
 
+// Shared by the feed list and the agent tree view.
 extension View {
     @ViewBuilder
     func feedZeroScrollContentMargins() -> some View {
