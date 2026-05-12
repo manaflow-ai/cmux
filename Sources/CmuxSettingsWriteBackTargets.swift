@@ -86,6 +86,5 @@ extension CmuxSettingsFileStore {
         ),
         BrowserImportHintSettings.showOnBlankTabsKey: .bool("browser.showImportHintOnBlankTabs"),
         ReactGrabSettings.versionKey: .string("browser.reactGrabVersion"),
-        ShortcutHintDebugSettings.showHintsOnCommandHoldKey: .bool("shortcuts.showModifierHoldHints"),
     ]
 }
