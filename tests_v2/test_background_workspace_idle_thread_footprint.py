@@ -227,7 +227,16 @@ def main() -> int:
                 _, teardown_exc, teardown_tb = teardown_exc_info
                 raise teardown_exc.with_traceback(teardown_tb)
 
-    print("PASS: background workspace priming keeps idle thread and footprint growth bounded")
+    print(
+        "PASS: background workspace priming keeps idle thread and footprint growth bounded "
+        f"(workspaces={WORKSPACE_COUNT}, surfaces_per_workspace={SURFACES_PER_WORKSPACE}, "
+        f"thread_delta={absolute_thread_growth}, thread_budget={thread_budget}, "
+        f"idle_thread_delta={idle_thread_growth}, idle_thread_budget={IDLE_THREAD_GROWTH_BUDGET}, "
+        f"footprint_delta_mb={_mb(absolute_footprint_growth):.1f}, "
+        f"footprint_budget_mb={_mb(footprint_budget_bytes):.1f}, "
+        f"idle_footprint_delta_mb={_mb(idle_footprint_growth):.1f}, "
+        f"idle_footprint_budget_mb={_mb(idle_footprint_budget_bytes):.1f})"
+    )
     return 0
 
 

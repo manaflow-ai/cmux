@@ -199,7 +199,13 @@ def main() -> int:
             print(f"FAIL: {failure}")
         return 1
 
-    print("PASS: hot-path broker bounds app socket fan-out under 100 parallel calls")
+    reduction = 100 / max(server.total_connections, 1)
+    print(
+        "PASS: hot-path broker bounds app socket fan-out under 100 parallel calls "
+        f"(app_socket_connections={server.total_connections}, "
+        f"max_concurrent={server.max_active_connections}, "
+        f"fanout_reduction_vs_one_socket_per_call={reduction:.1f}x)"
+    )
     return 0
 
 
