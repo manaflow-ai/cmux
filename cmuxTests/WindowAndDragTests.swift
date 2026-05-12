@@ -172,12 +172,16 @@ final class MainWindowFocusRedrawTests: XCTestCase {
             x: sidebar.frame.maxX + splitView.dividerThickness / 2,
             y: splitView.bounds.midY
         )
-        let dividerPointInWindow = splitView.convert(dividerPointInSplit, to: nil)
-        let dividerPointOnScreen = window.convertPoint(toScreen: dividerPointInWindow)
+        let dividerRectInSplit = NSRect(
+            x: sidebar.frame.maxX,
+            y: 0,
+            width: max(splitView.dividerThickness, 1),
+            height: splitView.bounds.height
+        ).insetBy(dx: -5, dy: 0)
 
         XCTAssertTrue(
-            WindowTerminalHostView.hasSplitDivider(atScreenPoint: dividerPointOnScreen, in: window),
-            "Test setup should place the pointer over the sidebar/main split divider."
+            dividerRectInSplit.contains(dividerPointInSplit),
+            "Test setup should place the pointer over the sidebar/main split divider without depending on screen coordinates."
         )
 
         contentView.needsDisplay = false

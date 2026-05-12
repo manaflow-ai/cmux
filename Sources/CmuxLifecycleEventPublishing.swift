@@ -217,8 +217,15 @@ extension Workspace {
 }
 
 @MainActor
-private enum MainWindowRedrawInvalidator {
-    static func invalidateAfterKeyRegain(window: NSWindow) {
+private enum MainWindowKeyRegainRefresh {
+    static func refresh(window: NSWindow, context: AppDelegate.MainWindowContext) {
+        // Window focus regain owns the redraw invariant. Cursor tracking and
+        // focused subviews can update themselves only after this invalidation.
+        invalidateContentDisplayTree(window: window)
+        _ = context.keyboardFocusCoordinator.restoreTargetAfterWindowBecameKey()
+    }
+
+    private static func invalidateContentDisplayTree(window: NSWindow) {
         guard let contentView = window.contentView else { return }
         invalidateDisplayTree(rootedAt: contentView)
         window.invalidateCursorRects(for: contentView)
@@ -226,7 +233,6 @@ private enum MainWindowRedrawInvalidator {
 
     private static func invalidateDisplayTree(rootedAt view: NSView) {
         guard !view.isHidden else { return }
-        view.setNeedsDisplay(view.bounds)
         view.needsDisplay = true
         view.layer?.setNeedsDisplay()
         for subview in view.subviews {
@@ -241,13 +247,12 @@ extension AppDelegate {
         MainActor.assumeIsolated {
             let context = contextForMainTerminalWindow(window)
             setActiveMainWindow(window)
-            if context != nil {
-                MainWindowRedrawInvalidator.invalidateAfterKeyRegain(window: window)
-            }
             if let windowId = mainWindowId(from: window) {
                 publishCmuxWindowLifecycle(name: "window.keyed", windowId: windowId, origin: "appkit_key")
             }
-            _ = context?.keyboardFocusCoordinator.restoreTargetAfterWindowBecameKey()
+            if let context {
+                MainWindowKeyRegainRefresh.refresh(window: window, context: context)
+            }
         }
     }
 
