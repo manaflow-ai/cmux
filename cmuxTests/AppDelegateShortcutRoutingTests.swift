@@ -5153,7 +5153,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(workspace.panels.count, surfaceCountBefore + 1, "Cmd+T keyCode fallback should create a new surface")
     }
 
-    func testPrintableOptionTextBypassesConfiguredShortcutRouting() {
+    func testPrintableOptionTextBypassesConfiguredShortcutRouting() throws {
+#if DEBUG
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -5194,14 +5195,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 return
             }
 
-#if DEBUG
             XCTAssertFalse(
                 appDelegate.debugHandleCustomShortcut(event: event),
                 "Option+Q that produces @ on Turkish Q should pass through as text input"
             )
-#else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
             XCTAssertEqual(
@@ -5210,6 +5207,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 "Printable Option text should not trigger the remapped New Workspace shortcut"
             )
         }
+#else
+        throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
+#endif
     }
 
     func testWindowSendEventRepairsLostFirstResponderForFocusedTerminalTyping() {
