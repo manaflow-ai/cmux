@@ -1,6 +1,19 @@
 import Foundation
+import Darwin
 
 extension CMUXCLI {
+    private static let tmuxNotifyHooksVersion = "1"
+    private static let tmuxNotifyHooksIndex = 458
+    private static let tmuxNotifyHookEvents = [
+        "client-attached",
+        "client-session-changed",
+        "session-created",
+        "window-linked",
+        "window-renamed",
+        "pane-focus-in",
+        "after-select-pane",
+    ]
+
     func tmuxEnrichContextWithGeometry(
         _ context: inout [String: String],
         pane: [String: Any],
@@ -357,5 +370,233 @@ extension CMUXCLI {
         let paneHandle: String
         let paneId: String?
         let surfaceId: String?
+    }
+
+    func runTmuxNotifyCommand(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?,
+        jsonOutput: Bool
+    ) throws {
+        let subcommand = commandArgs.first?.lowercased() ?? "help"
+        let subcommandArgs = Array(commandArgs.dropFirst())
+        let effectiveJSONOutput = jsonOutput || hasFlag(subcommandArgs, name: "--json")
+
+        switch subcommand {
+        case "init", "bootstrap":
+            try runTmuxNotifyHookInstaller(commandArgs: subcommandArgs, jsonOutput: effectiveJSONOutput)
+        case "refresh", "notify":
+            try runTmuxNotifyRefresh(
+                commandArgs: subcommandArgs,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                jsonOutput: effectiveJSONOutput
+            )
+        case "help", "--help", "-h":
+            print(tmuxNotifyUsage())
+        default:
+            throw CLIError(message: "Unknown tmux subcommand: \(subcommand)")
+        }
+    }
+
+    private func tmuxNotifyUsage() -> String {
+        """
+        Usage: cmux tmux init [--force] [--json]
+               cmux tmux refresh [--event <name>] [--pane-tty <tty>] [--client-tty <tty>]
+
+        Install and run cmux tmux notification/focus hooks.
+        """
+    }
+
+    private func runTmuxNotifyHookInstaller(commandArgs: [String], jsonOutput: Bool) throws {
+        let force = hasFlag(commandArgs, name: "--force")
+        guard let tmuxPath = findTmuxExecutable() else {
+            if jsonOutput { print(jsonString(["ok": true, "installed": false, "reason": "tmux_not_found"])) }
+            return
+        }
+
+        if !force {
+            let marker = runTmuxProcess(
+                executablePath: tmuxPath,
+                arguments: ["show-options", "-gqv", "@cmux_hooks_version"]
+            )
+            if marker.status == 0,
+               marker.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == Self.tmuxNotifyHooksVersion {
+                if jsonOutput { print(jsonString(["ok": true, "installed": false, "version": Self.tmuxNotifyHooksVersion])) }
+                return
+            }
+        }
+
+        var installedEvents: [String] = []
+        for event in Self.tmuxNotifyHookEvents {
+            let hookCommand = tmuxNotifyHookCommand(event: event)
+            let result = runTmuxProcess(
+                executablePath: tmuxPath,
+                arguments: ["set-hook", "-g", tmuxNotifyHookTarget(event: event), hookCommand]
+            )
+            guard result.status == 0 else {
+                if jsonOutput {
+                    print(jsonString([
+                        "ok": true,
+                        "installed": false,
+                        "reason": "tmux_hook_failed",
+                        "event": event,
+                    ]))
+                }
+                return
+            }
+            installedEvents.append(event)
+        }
+
+        let markerResult = runTmuxProcess(
+            executablePath: tmuxPath,
+            arguments: ["set-option", "-g", "@cmux_hooks_version", Self.tmuxNotifyHooksVersion]
+        )
+        guard markerResult.status == 0 else {
+            if jsonOutput { print(jsonString(["ok": true, "installed": false, "reason": "tmux_marker_failed"])) }
+            return
+        }
+
+        if jsonOutput {
+            print(jsonString([
+                "ok": true,
+                "installed": true,
+                "version": Self.tmuxNotifyHooksVersion,
+                "events": installedEvents,
+            ]))
+        }
+    }
+
+    private func runTmuxNotifyRefresh(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?,
+        jsonOutput: Bool
+    ) throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let workspaceId = tmuxFirstNonEmpty(env["CMUX_WORKSPACE_ID"], env["CMUX_TAB_ID"]) else {
+            if jsonOutput { print(jsonString(["ok": true, "updated": false, "reason": "missing_workspace"])) }
+            return
+        }
+        guard let paneTTY = tmuxFirstNonEmpty(optionValue(commandArgs, name: "--pane-tty"), currentTTYName()) else {
+            if jsonOutput { print(jsonString(["ok": true, "updated": false, "reason": "missing_tty"])) }
+            return
+        }
+
+        var params: [String: Any] = [
+            "workspace_id": workspaceId,
+            "tty_name": paneTTY,
+        ]
+        if let surfaceId = tmuxFirstNonEmpty(env["CMUX_PANEL_ID"], env["CMUX_SURFACE_ID"]) {
+            params["surface_id"] = surfaceId
+        }
+        if let clientTTY = optionValue(commandArgs, name: "--client-tty"), !clientTTY.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            params["client_tty_name"] = clientTTY
+        }
+        if let event = optionValue(commandArgs, name: "--event") { params["tmux_event"] = event }
+        if let session = optionValue(commandArgs, name: "--session") { params["tmux_session"] = session }
+        if let window = optionValue(commandArgs, name: "--window") { params["tmux_window"] = window }
+        if let pane = optionValue(commandArgs, name: "--pane") { params["tmux_pane"] = pane }
+
+        let client = SocketClient(path: socketPath)
+        do {
+            try client.connect()
+            defer { client.close() }
+            try authenticateClientIfNeeded(client, explicitPassword: explicitPassword, socketPath: socketPath)
+            let payload = try client.sendV2(method: "surface.report_tty", params: params, responseTimeout: 1.5)
+            if jsonOutput { print(jsonString(["ok": true, "updated": true, "result": payload])) }
+        } catch {
+            if jsonOutput { print(jsonString(["ok": true, "updated": false, "reason": "socket_unavailable"])) }
+            return
+        }
+    }
+
+    private func tmuxNotifyHookCommand(event: String) -> String {
+        let cmux = tmuxShellQuote(currentCmuxExecutablePathForHook())
+        let refreshCommand = [
+            cmux,
+            "tmux refresh",
+            "--event \(event)",
+            "--pane-tty \"#{pane_tty}\"",
+            "--client-tty \"#{client_tty}\"",
+            "--session \"#{session_name}\"",
+            "--window \"#{window_index}\"",
+            "--pane \"#{pane_id}\"",
+            ">/dev/null 2>&1 || true",
+        ].joined(separator: " ")
+        return "run-shell -b \(tmuxShellQuote(refreshCommand))"
+    }
+
+    private func tmuxNotifyHookTarget(event: String) -> String {
+        "\(event)[\(Self.tmuxNotifyHooksIndex)]"
+    }
+
+    private func findTmuxExecutable() -> String? {
+        if let explicit = tmuxExecutableCandidate(ProcessInfo.processInfo.environment["CMUX_TMUX_BIN"]) {
+            return explicit
+        }
+        let path = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin"
+        for directory in path.split(separator: ":").map(String.init) {
+            let candidate = URL(fileURLWithPath: directory).appendingPathComponent("tmux").path
+            if let executable = tmuxExecutableCandidate(candidate) {
+                return executable
+            }
+        }
+        return nil
+    }
+
+    private func tmuxExecutableCandidate(_ raw: String?) -> String? {
+        guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let path = URL(fileURLWithPath: raw).standardizedFileURL.path
+        guard access(path, X_OK) == 0 else { return nil }
+        return path
+    }
+
+    private func currentCmuxExecutablePathForHook() -> String {
+        let env = ProcessInfo.processInfo.environment
+        if let bundled = tmuxExecutableCandidate(env["CMUX_BUNDLED_CLI_PATH"]) {
+            return bundled
+        }
+        if let arg0 = CommandLine.arguments.first, arg0.contains("/") {
+            return URL(fileURLWithPath: arg0).standardizedFileURL.path
+        }
+        return "cmux"
+    }
+
+    private func runTmuxProcess(executablePath: String, arguments: [String]) -> (status: Int32, stdout: String, stderr: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return (1, "", "\(error)")
+        }
+        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return (process.terminationStatus, stdout, stderr)
+    }
+
+    private func tmuxFirstNonEmpty(_ values: String?...) -> String? {
+        for value in values {
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !trimmed.isEmpty { return trimmed }
+        }
+        return nil
+    }
+
+    private func currentTTYName() -> String? {
+        for fileDescriptor in [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO] {
+            if let rawTTYName = ttyname(fileDescriptor) {
+                let value = String(cString: rawTTYName).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty, value != "not a tty" { return value }
+            }
+        }
+        return nil
     }
 }

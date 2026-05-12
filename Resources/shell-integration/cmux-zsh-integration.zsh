@@ -231,6 +231,8 @@ typeset -g _CMUX_GHOSTTY_SEMANTIC_PATCHED=0
 typeset -g _CMUX_WINCH_GUARD_INSTALLED=0
 typeset -g _CMUX_TMUX_PUSH_SIGNATURE=""
 typeset -g _CMUX_TMUX_PULL_SIGNATURE=""
+typeset -g _CMUX_TMUX_HOOKS_INIT_SIGNATURE=""
+typeset -g _CMUX_TMUX_HOOKS_LAST_ATTEMPT=0
 typeset -g _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=${_CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT:-0}
 typeset -ga _CMUX_TMUX_SYNC_KEYS=(
     CMUX_BUNDLED_CLI_PATH
@@ -346,12 +348,44 @@ _cmux_tmux_refresh_cmux_environment() {
     fi
 }
 
+_cmux_tmux_bootstrap_hooks() {
+    [[ -n "${CMUX_SOCKET_PATH:-}" ]] || return 0
+    command -v tmux >/dev/null 2>&1 || return 0
+
+    local marker
+    marker="$(tmux show-options -gqv @cmux_hooks_version 2>/dev/null || true)"
+
+    local cli=""
+    if [[ -n "${CMUX_BUNDLED_CLI_PATH:-}" && -x "${CMUX_BUNDLED_CLI_PATH}" ]]; then
+        cli="$CMUX_BUNDLED_CLI_PATH"
+    else
+        cli="$(command -v cmux 2>/dev/null || true)"
+    fi
+    [[ -n "$cli" ]] || return 0
+
+    local signature
+    signature="${TMUX:-__outside__}"$'\x1f'"${CMUX_SOCKET_PATH:-}"$'\x1f'"${CMUX_WORKSPACE_ID:-${CMUX_TAB_ID:-}}"$'\x1f'"${CMUX_PANEL_ID:-${CMUX_SURFACE_ID:-}}"$'\x1f'"$cli"$'\x1f'"$marker"
+    [[ "$signature" == "$_CMUX_TMUX_HOOKS_INIT_SIGNATURE" ]] && return 0
+
+    local now
+    now="$(_cmux_now)"
+    if (( now - _CMUX_TMUX_HOOKS_LAST_ATTEMPT < 5 )); then
+        return 0
+    fi
+    _CMUX_TMUX_HOOKS_LAST_ATTEMPT="$now"
+
+    if "$cli" tmux init >/dev/null 2>&1; then
+        _CMUX_TMUX_HOOKS_INIT_SIGNATURE="$signature"
+    fi
+}
+
 _cmux_tmux_sync_cmux_environment() {
     if [[ -n "$TMUX" ]]; then
         _cmux_tmux_refresh_cmux_environment
     else
         _cmux_tmux_publish_cmux_environment
     fi
+    _cmux_tmux_bootstrap_hooks
 }
 
 _cmux_ensure_ghostty_preexec_strips_both_marks() {

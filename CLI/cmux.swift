@@ -2254,6 +2254,16 @@ struct CMUXCLI {
             return
         }
 
+        if command == "tmux" {
+            try runTmuxNotifyCommand(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
+
         if command == "codex" {
             // Backwards compatibility for old hook setup docs/scripts. Hidden from help.
             let sub = commandArgs.first?.lowercased() ?? "help"
@@ -9017,6 +9027,14 @@ struct CMUXCLI {
               cmux omc team 3:claude "implement feature"
               cmux omc --watch
             """)
+        case "tmux":
+            return """
+            Usage: cmux tmux init [--force] [--json]
+                   cmux tmux refresh [--event <name>] [--pane-tty <tty>] [--client-tty <tty>]
+
+            Install and run tmux hooks that keep cmux notification/focus metadata
+            current when tmux panes, windows, sessions, and clients change.
+            """
         case "identify":
             return """
             Usage: cmux identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
@@ -20879,6 +20897,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           notify --title <text> [--subtitle <text>] [--body <text>] [--workspace <id|ref>] [--surface <id|ref>]
           list-notifications
           clear-notifications
+          tmux init [--force] [--json]
+          tmux refresh [--event <name>] [--pane-tty <tty>] [--client-tty <tty>]
           right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
           set-status <key> <value> [--workspace <id|ref>] [--icon <name>] [--color <#hex>]
           clear-status <key> [--workspace <id|ref>]

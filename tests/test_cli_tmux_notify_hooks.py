@@ -139,13 +139,13 @@ sys.exit(0)
         failures.append(f"expected @cmux_hooks_version marker set to 1, got {set_option_calls!r}")
 
     hook_calls = [call for call in calls if len(call) >= 4 and call[0] == "set-hook" and call[1] == "-g"]
-    events = {call[2] for call in hook_calls}
+    events = {call[2].split("[", 1)[0] for call in hook_calls}
     missing = REQUIRED_EVENTS - events
     if missing:
         failures.append(f"missing tmux hooks: {sorted(missing)}")
 
     for event in REQUIRED_EVENTS:
-        command = next((call[-1] for call in hook_calls if call[2] == event), "")
+        command = next((call[-1] for call in hook_calls if call[2].split("[", 1)[0] == event), "")
         if "tmux refresh" not in command:
             failures.append(f"{event} hook does not call `cmux tmux refresh`: {command!r}")
         if f"--event {event}" not in command:
