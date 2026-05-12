@@ -86,3 +86,14 @@ enum CmuxSystemShortcutMatcher {
         return nil
     }
 }
+
+extension GhosttyNSView {
+    func performKeyEquivalentAfterMenuMissFallback(with event: NSEvent) -> Bool {
+        lastPerformKeyEvent = nil
+        if CmuxSystemShortcutMatcher.shouldYieldTerminalCommandEquivalentToSystem(event: event) {
+            return false
+        }
+        keyDown(with: event)
+        return true
+    }
+}
