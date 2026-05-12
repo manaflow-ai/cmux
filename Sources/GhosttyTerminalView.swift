@@ -10331,7 +10331,7 @@ final class GhosttySurfaceScrollView: NSView {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshStatusBarConfiguration()
+            self?.handleTerminalStatusBarPreferenceChange()
         })
 
     }
@@ -12836,6 +12836,17 @@ final class GhosttySurfaceScrollView: NSView {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in
                 self?.handleTerminalScrollBarPreferenceChange()
+            }
+            return
+        }
+
+        _ = synchronizeGeometryAndContent()
+    }
+
+    private func handleTerminalStatusBarPreferenceChange() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.handleTerminalStatusBarPreferenceChange()
             }
             return
         }
