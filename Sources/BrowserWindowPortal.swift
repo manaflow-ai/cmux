@@ -1716,7 +1716,6 @@ final class WindowBrowserSlotView: NSView {
             webView.autoresizingMask != [.width, .height]
         guard needsFrameHosting else {
             needsLayout = true
-            layoutSubtreeIfNeeded()
             return
         }
 
@@ -1732,7 +1731,6 @@ final class WindowBrowserSlotView: NSView {
             webView.frame = bounds
         }
         needsLayout = true
-        layoutSubtreeIfNeeded()
     }
 
     private static func frameDiffersFromBounds(_ frame: NSRect, bounds: NSRect, epsilon: CGFloat = 0.5) -> Bool {

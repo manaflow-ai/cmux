@@ -5015,7 +5015,6 @@ struct WebViewRepresentable: NSViewRepresentable {
                 webView.autoresizingMask != [.width, .height]
             guard needsFrameHosting else {
                 needsLayout = true
-                layoutSubtreeIfNeeded()
                 return
             }
 
@@ -5032,7 +5031,6 @@ struct WebViewRepresentable: NSViewRepresentable {
                 webView.frame = container.bounds
             }
             needsLayout = true
-            layoutSubtreeIfNeeded()
         }
 
         private static func frameDiffersFromBounds(_ frame: NSRect, bounds: NSRect, epsilon: CGFloat = 0.5) -> Bool {

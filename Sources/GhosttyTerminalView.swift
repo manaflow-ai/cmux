@@ -10584,7 +10584,6 @@ final class GhosttySurfaceScrollView: NSView {
         if didScrollbarAppearanceChange {
             scrollView.tile()
         }
-        scrollView.layoutSubtreeIfNeeded()
         updateNotificationRingPath()
         updateFlashPath(style: lastFlashStyle)
         updateFlashAppearance(style: lastFlashStyle)
