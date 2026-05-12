@@ -73,6 +73,7 @@ final class FeedCoordinatorTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testPermissionRequestNotificationSuppressesWhenFrontmostTerminalMatches() {
         let target = FeedNotificationDispatcher.ActiveTerminalTarget(
             workspaceId: UUID(),
@@ -112,6 +113,7 @@ final class FeedCoordinatorTests: XCTestCase {
         XCTAssertTrue(deliveredRequests.isEmpty)
     }
 
+    @MainActor
     func testPermissionRequestNotificationStillPostsWhenDifferentTerminalIsActive() {
         let eventTarget = FeedNotificationDispatcher.ActiveTerminalTarget(
             workspaceId: UUID(),
@@ -155,6 +157,7 @@ final class FeedCoordinatorTests: XCTestCase {
         XCTAssertEqual(deliveredRequests.first?.content.categoryIdentifier, "CMUXFeedPermission")
     }
 
+    @MainActor
     func testPermissionRequestNotificationStillPostsWhenAppIsNotFrontmost() {
         let target = FeedNotificationDispatcher.ActiveTerminalTarget(
             workspaceId: UUID(),
@@ -191,6 +194,48 @@ final class FeedCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(deliveredRequests.count, 1)
         XCTAssertEqual(deliveredRequests.first?.identifier, "feed.notif-background-request")
+    }
+
+    @MainActor
+    func testPermissionRequestNotificationResolvesTargetBeforeMainEnqueue() {
+        let target = FeedNotificationDispatcher.ActiveTerminalTarget(
+            workspaceId: UUID(),
+            surfaceId: UUID()
+        )
+        let event = WorkstreamEvent(
+            sessionId: "claude-notif-order",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            toolName: "Bash",
+            requestId: "notif-order-request"
+        )
+
+        var didLookupBeforeEnqueue = false
+
+        FeedNotificationDispatcher.post(
+            event: event,
+            requestId: "notif-order-request",
+            enqueue: { work in
+                XCTAssertTrue(didLookupBeforeEnqueue)
+                work()
+            },
+            frontmostContext: {
+                FeedNotificationDispatcher.FrontmostContext(
+                    isAppFrontmost: true,
+                    activeTerminalTarget: target
+                )
+            },
+            lookupTarget: { _, _ in
+                didLookupBeforeEnqueue = true
+                return FeedJumpResolver.Target(
+                    workspaceId: target.workspaceId.uuidString,
+                    surfaceId: target.surfaceId.uuidString
+                )
+            },
+            deliverRequest: { _ in
+                XCTFail("matching focused terminal should suppress delivery")
+            }
+        )
     }
 }
 

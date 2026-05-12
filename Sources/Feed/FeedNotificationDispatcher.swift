@@ -20,17 +20,17 @@ enum FeedNotificationDispatcher {
         event: WorkstreamEvent,
         requestId: String,
         enqueue: @escaping (@escaping () -> Void) -> Void = { work in
-            DispatchQueue.main.async(execute: work)
+            Task { @MainActor in work() }
         },
-        frontmostContext: @escaping () -> FrontmostContext = currentFrontmostContext,
+        frontmostContext: @MainActor @escaping () -> FrontmostContext = currentFrontmostContext,
         lookupTarget: @escaping (String, String) -> FeedJumpResolver.Target? = FeedJumpResolver.lookup,
         deliverRequest: @escaping (UNNotificationRequest) -> Void = deliver
     ) {
+        let notificationTarget = resolvedTarget(for: event, lookupTarget: lookupTarget)
         enqueue {
             guard !shouldSuppress(
-                event: event,
-                frontmostContext: frontmostContext(),
-                lookupTarget: lookupTarget
+                notificationTarget: notificationTarget,
+                frontmostContext: MainActor.assumeIsolated { frontmostContext() }
             ) else {
                 return
             }
@@ -40,13 +40,12 @@ enum FeedNotificationDispatcher {
     }
 
     static func shouldSuppress(
-        event: WorkstreamEvent,
-        frontmostContext: FrontmostContext,
-        lookupTarget: (String, String) -> FeedJumpResolver.Target? = FeedJumpResolver.lookup
+        notificationTarget: ActiveTerminalTarget?,
+        frontmostContext: FrontmostContext
     ) -> Bool {
         guard frontmostContext.isAppFrontmost,
               let activeTerminalTarget = frontmostContext.activeTerminalTarget,
-              let notificationTarget = resolvedTarget(for: event, lookupTarget: lookupTarget) else {
+              let notificationTarget else {
             return false
         }
         return activeTerminalTarget == notificationTarget
@@ -115,6 +114,7 @@ enum FeedNotificationDispatcher {
         )
     }
 
+    @MainActor
     static func currentFrontmostContext() -> FrontmostContext {
         FrontmostContext(
             isAppFrontmost: AppFocusState.isAppFocused(),
@@ -151,6 +151,7 @@ enum FeedNotificationDispatcher {
         return ActiveTerminalTarget(workspaceId: workspaceId, surfaceId: surfaceId)
     }
 
+    @MainActor
     private static func currentFocusedTerminalTarget() -> ActiveTerminalTarget? {
         let responder = NSApp.keyWindow?.firstResponder ?? NSApp.mainWindow?.firstResponder
         guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
