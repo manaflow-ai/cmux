@@ -85895,6 +85895,40 @@
         }
       }
     },
+    "fileExplorer.hiddenFiles.hide.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide hidden files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隠しファイルを非表示"
+          }
+        }
+      }
+    },
+    "fileExplorer.hiddenFiles.show.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show hidden files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隠しファイルを表示"
+          }
+        }
+      }
+    },
     "fileExplorer.contextMenu.copyPath": {
       "extractionState": "manual",
       "localizations": {

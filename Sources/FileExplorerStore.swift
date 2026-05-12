@@ -596,7 +596,7 @@ final class FileExplorerStore: ObservableObject {
     var provider: FileExplorerProvider?
 
     /// Whether hidden files are shown. Set from FileExplorerState externally.
-    var showHiddenFiles: Bool = false
+    private(set) var showHiddenFiles: Bool = false
 
     /// Watches the root directory for filesystem changes (local only).
     private var directoryWatcher: FileExplorerDirectoryWatcher?
@@ -693,6 +693,15 @@ final class FileExplorerStore: ObservableObject {
         reload()
         refreshGitStatus()
         updateDirectoryWatcher()
+    }
+
+    @discardableResult
+    func setShowHiddenFiles(_ showHidden: Bool) -> Bool {
+        guard showHiddenFiles != showHidden else { return false }
+        showHiddenFiles = showHidden
+        reload()
+        refreshGitStatus()
+        return true
     }
 
     func refreshGitStatus() {

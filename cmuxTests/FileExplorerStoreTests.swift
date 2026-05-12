@@ -14,6 +14,7 @@ private final class MockFileExplorerProvider: FileExplorerProvider {
     var listings: [String: Result<[FileExplorerEntry], Error>] = [:]
     var listCallCount = 0
     var listCallPaths: [String] = []
+    var listCallShowHidden: [Bool] = []
     /// Optional delay (seconds) before returning results
     var delay: TimeInterval = 0
 
@@ -25,6 +26,7 @@ private final class MockFileExplorerProvider: FileExplorerProvider {
     func listDirectory(path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
         listCallCount += 1
         listCallPaths.append(path)
+        listCallShowHidden.append(showHidden)
 
         if delay > 0 {
             try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
@@ -156,6 +158,24 @@ final class FileExplorerStoreTests: XCTestCase {
         XCTAssertTrue(store.rootNodes[0].isDirectory)
         XCTAssertEqual(store.rootNodes[1].name, "README.md")
         XCTAssertFalse(store.rootNodes[1].isDirectory)
+    }
+
+    func testHiddenFilesPreferenceReloadsCurrentRoot() async throws {
+        let provider = MockFileExplorerProvider()
+        provider.listings["/home/user/project"] = .success([
+            FileExplorerEntry(name: "src", path: "/home/user/project/src", isDirectory: true),
+        ])
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath("/home/user/project")
+
+        try await waitFor("initial root loaded") { provider.listCallShowHidden == [false] }
+
+        XCTAssertTrue(store.setShowHiddenFiles(true))
+        try await waitFor("root reloaded with hidden files") { provider.listCallShowHidden == [false, true] }
+        XCTAssertFalse(store.setShowHiddenFiles(true))
+        XCTAssertEqual(provider.listCallShowHidden, [false, true])
     }
 
     func testDisplayRootPathUsesTilde() {

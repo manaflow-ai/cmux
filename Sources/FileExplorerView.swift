@@ -46,7 +46,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
         context.coordinator.store = store
         context.coordinator.state = state
         context.coordinator.onOpenFilePreview = onOpenFilePreview
-        container.updateHeader(store: store)
+        store.setShowHiddenFiles(state.showHiddenFiles)
+        container.updateHeader(store: store, state: state)
         container.updatePresentation(presentation)
         context.coordinator.reloadIfNeeded()
         container.registerWithKeyboardFocusCoordinatorIfNeeded()
@@ -257,6 +258,13 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
             FileExplorerStyle.current.rowHeight
+        }
+
+        func toggleHiddenFiles() {
+            state.showHiddenFiles.toggle()
+            store.setShowHiddenFiles(state.showHiddenFiles)
+            containerView?.updateHeader(store: store, state: state)
+            reloadIfNeeded()
         }
 
         // MARK: - Path-Owned Navigation
@@ -648,6 +656,9 @@ final class FileExplorerContainerView: NSView {
         configureSearchDebounce()
 
         // Header
+        headerView.onToggleHiddenFiles = { [weak coordinator] in
+            coordinator?.toggleHiddenFiles()
+        }
         headerView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(headerView)
 
@@ -885,7 +896,7 @@ final class FileExplorerContainerView: NSView {
 #endif
     }
 
-    func updateHeader(store: FileExplorerStore) {
+    func updateHeader(store: FileExplorerStore, state: FileExplorerState) {
         let nextRootPath = store.rootPath
         let nextProviderIsLocal = store.provider is LocalFileExplorerProvider
         let nextContentRevision = store.contentRevision
@@ -896,7 +907,7 @@ final class FileExplorerContainerView: NSView {
         currentRootPath = nextRootPath
         currentProviderIsLocal = nextProviderIsLocal
         currentContentRevision = nextContentRevision
-        headerView.update(displayPath: store.displayRootPath)
+        headerView.update(displayPath: store.displayRootPath, showHiddenFiles: state.showHiddenFiles)
         if searchScopeChanged {
             pendingSearchRefreshAfterSettled = false
             refreshSearchIfNeeded()
@@ -1726,8 +1737,11 @@ private final class FileExplorerSearchResultCellView: NSTableCellView {
 final class FileExplorerHeaderView: NSView {
     private let iconView = NSImageView()
     private let pathLabel = NSTextField(labelWithString: "")
+    private let hiddenFilesButton = NSButton()
     private var displayPath = ""
     private var quickSearchQuery: String?
+    private var showHiddenFiles = true
+    var onToggleHiddenFiles: (() -> Void)?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -1749,8 +1763,17 @@ final class FileExplorerHeaderView: NSView {
         pathLabel.maximumNumberOfLines = 1
         pathLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
+        hiddenFilesButton.translatesAutoresizingMaskIntoConstraints = false
+        hiddenFilesButton.isBordered = false
+        hiddenFilesButton.imagePosition = .imageOnly
+        hiddenFilesButton.contentTintColor = .secondaryLabelColor
+        hiddenFilesButton.target = self
+        hiddenFilesButton.action = #selector(toggleHiddenFiles)
+        hiddenFilesButton.setButtonType(.momentaryChange)
+
         addSubview(iconView)
         addSubview(pathLabel)
+        addSubview(hiddenFilesButton)
 
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.secondaryBarHeight),
@@ -1762,13 +1785,19 @@ final class FileExplorerHeaderView: NSView {
 
             pathLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4),
             pathLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            pathLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            pathLabel.trailingAnchor.constraint(equalTo: hiddenFilesButton.leadingAnchor, constant: -4),
+
+            hiddenFilesButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            hiddenFilesButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            hiddenFilesButton.widthAnchor.constraint(equalToConstant: 22),
+            hiddenFilesButton.heightAnchor.constraint(equalToConstant: 22),
         ])
         applyHeaderState()
     }
 
-    func update(displayPath: String) {
+    func update(displayPath: String, showHiddenFiles: Bool) {
         self.displayPath = displayPath
+        self.showHiddenFiles = showHiddenFiles
         applyHeaderState()
     }
 
@@ -1791,6 +1820,18 @@ final class FileExplorerHeaderView: NSView {
             pathLabel.stringValue = displayPath
             pathLabel.toolTip = displayPath
         }
+        let buttonSymbol = showHiddenFiles ? "eye" : "eye.slash"
+        let buttonTooltip = showHiddenFiles
+            ? String(localized: "fileExplorer.hiddenFiles.hide.tooltip", defaultValue: "Hide hidden files")
+            : String(localized: "fileExplorer.hiddenFiles.show.tooltip", defaultValue: "Show hidden files")
+        hiddenFilesButton.image = NSImage(systemSymbolName: buttonSymbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(config)
+        hiddenFilesButton.toolTip = buttonTooltip
+        hiddenFilesButton.setAccessibilityLabel(buttonTooltip)
+    }
+
+    @objc private func toggleHiddenFiles() {
+        onToggleHiddenFiles?()
     }
 }
 
