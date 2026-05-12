@@ -16688,6 +16688,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 const CMUX_PLUGIN_INSTALLED_KEY = Symbol.for("cmux.session.restore.plugin.installed");
+const CMUX_FEED_PLUGIN_ACTIVE_KEY = Symbol.for("cmux.feed.plugin.active");
 
 function firstString(...values) {
   for (const value of values) {
@@ -16822,6 +16823,12 @@ function sendHook(subcommand, ctx, event, extra = {}) {
   } catch (_) {}
 }
 
+function stopHookExtra() {
+  return globalThis[CMUX_FEED_PLUGIN_ACTIVE_KEY] === true
+    ? { suppress_notification: true }
+    : {};
+}
+
 const CMUXSessionRestore = async (ctx) => {
   if (globalThis[CMUX_PLUGIN_INSTALLED_KEY]) return {};
   globalThis[CMUX_PLUGIN_INSTALLED_KEY] = true;
@@ -16841,11 +16848,11 @@ const CMUXSessionRestore = async (ctx) => {
           break;
         case "session.status":
           if (props.status && props.status.type === "idle") {
-            sendHook("stop", ctx, event, { suppress_notification: true });
+            sendHook("stop", ctx, event, stopHookExtra());
           }
           break;
         case "session.idle":
-          sendHook("stop", ctx, event, { suppress_notification: true });
+          sendHook("stop", ctx, event, stopHookExtra());
           break;
         case "session.deleted":
           sendHook("session-end", ctx, event);

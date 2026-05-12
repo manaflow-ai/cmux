@@ -32,6 +32,8 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let surfaceID = "22222222-2222-2222-2222-222222222222"
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_WORKSPACE_ID"] = workspaceID
+        environment["CMUX_SURFACE_ID"] = surfaceID
 
         let result = runProcess(
             executablePath: "/usr/bin/env",
@@ -54,9 +56,10 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let data = try XCTUnwrap(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8))
         let frames = try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [[String: Any]])
         let methods = frames.compactMap { $0["method"] as? String }
-        XCTAssertTrue(
-            methods.contains("notification.create_for_caller"),
-            "Expected OpenCode session.idle to create a notification frame; saw methods \(methods)"
+        XCTAssertEqual(
+            methods.filter { $0 == "notification.create_for_caller" }.count,
+            2,
+            "Expected session.idle and session.status:idle to create notification frames; saw methods \(methods)"
         )
         let notificationFrame = try XCTUnwrap(frames.first { $0["method"] as? String == "notification.create_for_caller" })
         let params = try XCTUnwrap(notificationFrame["params"] as? [String: Any])
@@ -145,6 +148,31 @@ const nodeFs = require("node:fs");
   } catch (_) {}
 
   const frames = [];
+  const waiters = [];
+  const noteFrame = (frame) => {
+    frames.push(frame);
+    for (let index = waiters.length - 1; index >= 0; index -= 1) {
+      const waiter = waiters[index];
+      if (!waiter.predicate(frame)) continue;
+      waiters.splice(index, 1);
+      clearTimeout(waiter.timeout);
+      waiter.resolve(frame);
+    }
+  };
+  const waitForFrame = (predicate, label) => {
+    const existing = frames.find(predicate);
+    if (existing) return Promise.resolve(existing);
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        const index = waiters.findIndex((waiter) => waiter.resolve === resolve);
+        if (index >= 0) waiters.splice(index, 1);
+        reject(new Error(`Timed out waiting for ${label}; saw ${JSON.stringify(frames)}`));
+      }, 2000);
+      waiters.push({ predicate, resolve, timeout });
+    });
+  };
+  const notificationCount = () =>
+    frames.filter((frame) => frame.method === "notification.create_for_caller").length;
   const sockets = new Set();
   const server = nodeNet.createServer((conn) => {
     sockets.add(conn);
@@ -158,7 +186,7 @@ const nodeFs = require("node:fs");
         buffered = buffered.slice(idx + 1);
         if (!line.trim()) continue;
         const frame = JSON.parse(line);
-        frames.push(frame);
+        noteFrame(frame);
         conn.write(JSON.stringify({
           id: frame.id,
           ok: true,
@@ -200,8 +228,29 @@ const nodeFs = require("node:fs");
       properties: { sessionID: "ses-opencode-complete" },
     },
   });
+  await waitForFrame(
+    (frame) => frame.method === "notification.create_for_caller",
+    "session.idle notification"
+  );
 
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await hooks.event({
+    event: {
+      type: "session.created",
+      properties: { info: { id: "ses-opencode-status-complete", directory: worktree } },
+    },
+  });
+  await hooks.event({
+    event: {
+      type: "session.status",
+      sessionID: "ses-opencode-status-complete",
+      properties: { status: { type: "idle" } },
+    },
+  });
+  await waitForFrame(
+    () => notificationCount() >= 2,
+    "session.status idle notification with top-level sessionID"
+  );
+
   for (const socket of sockets) socket.destroy();
   await new Promise((resolve) => server.close(resolve));
   try {

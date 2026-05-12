@@ -198,6 +198,19 @@ await hooks.event({
     }
   }
 });
+await hooks.event({
+  event: {
+    type: "session.idle",
+    properties: { sessionID: "opencode-session-test" }
+  }
+});
+globalThis[Symbol.for("cmux.feed.plugin.active")] = true;
+await hooks.event({
+  event: {
+    type: "session.idle",
+    id: "opencode-session-test-active"
+  }
+});
 """
         check = subprocess.run(
             [bun, "--eval", check_source],
@@ -226,6 +239,23 @@ await hooks.event({
             return 1
         if '"session_id":"opencode-session-test"' not in stdin_log or '"/tmp/opencode-project"' not in stdin_log:
             print(f"FAIL: plugin did not pass expected session payload, got {stdin_log!r}")
+            return 1
+        stop_payloads = [
+            payload.strip()
+            for payload in stdin_log.split("\n---\n")
+            if '"hook_event_name":"session.idle"' in payload
+        ]
+        if len(stop_payloads) != 2:
+            print(f"FAIL: expected two OpenCode idle hook payloads, got {stop_payloads!r} from {stdin_log!r}")
+            return 1
+        if '"suppress_notification":true' in stop_payloads[0]:
+            print(f"FAIL: legacy OpenCode stop suppressed notification without active feed plugin: {stop_payloads[0]!r}")
+            return 1
+        if '"suppress_notification":true' not in stop_payloads[1]:
+            print(f"FAIL: OpenCode stop did not suppress legacy notification with active feed plugin: {stop_payloads[1]!r}")
+            return 1
+        if '"session_id":"opencode-session-test-active"' not in stop_payloads[1]:
+            print(f"FAIL: OpenCode stop did not resolve top-level event id: {stop_payloads[1]!r}")
             return 1
         if "kind=opencode" not in env_log or "cwd=/tmp/opencode-project" not in env_log or "argv=" not in env_log:
             print(f"FAIL: plugin did not pass launch metadata environment, got {env_log!r}")

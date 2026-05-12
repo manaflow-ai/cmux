@@ -13,8 +13,10 @@ const SOCKET_PATH = process.env.CMUX_SOCKET_PATH || DEFAULT_SOCKET;
 const REPLY_TIMEOUT_MS = 120_000;
 const MAX_PLAN_BYTES = 128 * 1024;
 const COMPLETE_NOTIFICATION_DEDUPE_MS = 1000;
+const CMUX_FEED_PLUGIN_ACTIVE_KEY = Symbol.for("cmux.feed.plugin.active");
 
 export const CMUXFeed = async (ctx) => {
+  globalThis[CMUX_FEED_PLUGIN_ACTIVE_KEY] = true;
   let client = null;
   let buffered = "";
   const pending = new Map();
@@ -30,13 +32,21 @@ export const CMUXFeed = async (ctx) => {
     return null;
   };
 
-  const sessionIdFromProperties = (props = {}) => firstString(
-    props.info && props.info.id,
-    props.sessionID,
-    props.sessionId,
-    props.session_id,
-    props.session && props.session.id
-  );
+  const eventProperties = (event) => (event && typeof event === "object" && event.properties) || {};
+
+  const sessionIdFromEvent = (event = {}) => {
+    const props = eventProperties(event);
+    return firstString(
+      props.info && props.info.id,
+      props.sessionID,
+      props.sessionId,
+      props.session_id,
+      props.session && props.session.id,
+      event && event.sessionID,
+      event && event.sessionId,
+      event && event.id
+    );
+  };
 
   const normalizeText = (value, max = 1000) => {
     if (typeof value !== "string") return null;
@@ -522,12 +532,12 @@ export const CMUXFeed = async (ctx) => {
     const state = sessionState(sessionId);
     const now = Date.now();
     if (now - state.lastCompletionNotificationAt < COMPLETE_NOTIFICATION_DEDUPE_MS) return;
-    state.lastCompletionNotificationAt = now;
-    write({
+    const didWrite = write({
       id: `opencode-notification-${now}`,
       method: "notification.create_for_caller",
       params: completionNotificationParams(sessionId),
     });
+    if (didWrite) state.lastCompletionNotificationAt = now;
   };
 
   const pushStop = (sessionId) => {
@@ -548,7 +558,7 @@ export const CMUXFeed = async (ctx) => {
         case "session.created": {
           const props = event.properties || {};
           const info = props.info || {};
-          const sid = sessionIdFromProperties(props) || "unknown";
+          const sid = sessionIdFromEvent(event) || "unknown";
           const state = sessionState(sid);
           state.cwd = info.directory || ctx?.directory || state.cwd;
           state.lastCompletionNotificationAt = 0;
@@ -561,19 +571,19 @@ export const CMUXFeed = async (ctx) => {
         case "session.status": {
           const props = event.properties || {};
           if (props.status?.type !== "idle") break;
-          const sid = sessionIdFromProperties(props);
+          const sid = sessionIdFromEvent(event);
           if (!sid) break;
           pushStop(sid);
           break;
         }
         case "session.idle": {
-          const sid = sessionIdFromProperties(event.properties || {});
+          const sid = sessionIdFromEvent(event);
           if (!sid) break;
           pushStop(sid);
           break;
         }
         case "session.deleted": {
-          const sid = sessionIdFromProperties(event.properties || {});
+          const sid = sessionIdFromEvent(event);
           if (!sid) break;
           sessions.delete(sid);
           pushTelemetry(base(sid, {
