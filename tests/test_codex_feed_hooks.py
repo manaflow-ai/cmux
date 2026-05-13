@@ -1748,7 +1748,7 @@ def main() -> int:
         print(f"FAIL: {exc}")
         return 1
 
-    with tempfile.TemporaryDirectory(prefix="cmux-codex-feed-hooks-") as td:
+    with tempfile.TemporaryDirectory(prefix="cfh-", dir="/tmp") as td:
         root = Path(td)
         try:
             test_codex_stop_reaps_transcript_monitor(cli_path, root)
