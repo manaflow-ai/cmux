@@ -57,6 +57,16 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         }
     }
 
+    func testCommandPaletteRightSidebarToolPaneDescriptorsOnlyIncludePaneModes() {
+        let descriptors = ContentView.commandPaletteRightSidebarToolPaneCommandDescriptors()
+        let descriptorModes = descriptors.map(\.mode)
+
+        XCTAssertEqual(descriptorModes, RightSidebarMode.paneModes)
+        XCTAssertFalse(descriptorModes.contains(.goals))
+        XCTAssertFalse(descriptorModes.contains(.feed))
+        XCTAssertFalse(descriptorModes.contains(.dock))
+    }
+
     func testCommandPaletteUnreadDeferActionUsesConfigurableShortcutAction() {
         XCTAssertEqual(
             ContentView.commandPaletteShortcutAction(forCommandID: "palette.markOldestUnreadAndJumpNext"),
