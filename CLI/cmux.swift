@@ -12707,6 +12707,7 @@ struct CMUXCLI {
         private var parentByThreadId: [String: String] = [:]
         private var depthByThreadId: [String: Int] = [:]
         private var pendingByParentThreadId: [String: [CodexTeamsThread]] = [:]
+        private var pendingThreadIds = Set<String>()
         private var openedThreadIds = Set<String>()
         private var lastAgentSurfaceId: String?
 
@@ -12787,16 +12788,17 @@ struct CMUXCLI {
         }
 
         private func observeThread(_ thread: CodexTeamsThread) throws {
-            guard !knownThreadIds.contains(thread.id) else { return }
+            if knownThreadIds.contains(thread.id) {
+                if let spawn = thread.spawn,
+                   parentByThreadId[thread.id] == nil {
+                    try observeSpawn(thread, spawn: spawn)
+                }
+                return
+            }
 
             knownThreadIds.insert(thread.id)
             if let spawn = thread.spawn {
-                parentByThreadId[thread.id] = spawn.parentThreadId
-                guard knownThreadIds.contains(spawn.parentThreadId) else {
-                    pendingByParentThreadId[spawn.parentThreadId, default: []].append(thread)
-                    return
-                }
-                try openObservedSubagent(thread, spawn: spawn)
+                try observeSpawn(thread, spawn: spawn)
             } else {
                 depthByThreadId[thread.id] = 0
             }
@@ -12804,11 +12806,24 @@ struct CMUXCLI {
             try drainPendingChildren(parentThreadId: thread.id)
         }
 
+        private func observeSpawn(_ thread: CodexTeamsThread, spawn: CodexTeamsSpawn) throws {
+            parentByThreadId[thread.id] = spawn.parentThreadId
+            guard knownThreadIds.contains(spawn.parentThreadId) else {
+                if pendingThreadIds.insert(thread.id).inserted {
+                    pendingByParentThreadId[spawn.parentThreadId, default: []].append(thread)
+                }
+                return
+            }
+            pendingThreadIds.remove(thread.id)
+            try openObservedSubagent(thread, spawn: spawn)
+        }
+
         private func drainPendingChildren(parentThreadId: String) throws {
             guard let pending = pendingByParentThreadId.removeValue(forKey: parentThreadId) else {
                 return
             }
             for child in pending {
+                pendingThreadIds.remove(child.id)
                 guard let spawn = child.spawn else { continue }
                 try openObservedSubagent(child, spawn: spawn)
                 try drainPendingChildren(parentThreadId: child.id)
