@@ -262,6 +262,56 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
     }
 
+    func testRemoteShellSnippetCachesResolvedHostnameAcrossPromptReports() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-remote-shell-host-cache-\(UUID().uuidString)")
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let fakeHostname = bin.appendingPathComponent("hostname")
+        try writeShellFile(
+            at: fakeHostname,
+            lines: [
+                "#!/bin/sh",
+                "count=0",
+                "[ -f \"$CMUX_HOSTNAME_COUNT_FILE\" ] && count=\"$(cat \"$CMUX_HOSTNAME_COUNT_FILE\")\"",
+                "printf '%s\\n' \"$((count + 1))\" > \"$CMUX_HOSTNAME_COUNT_FILE\"",
+                "printf 'cached.example\\n'",
+            ]
+        )
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeHostname.path)
+
+        let countFile = root.appendingPathComponent("hostname-count")
+        let script = """
+        set -e
+        \(RemoteShellIntegrationSnippet.script())
+        __cmux_remote_report_prompt >/dev/null
+        __cmux_remote_report_prompt >/dev/null
+        printf 'count=%s\\n' "$(cat "$CMUX_HOSTNAME_COUNT_FILE")"
+        """
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "-i",
+                "HOME=\(root.path)",
+                "PATH=\(bin.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMPDIR=\(fileManager.temporaryDirectory.path)",
+                "CMUX_REMOTE_DISABLE_GIT=1",
+                "CMUX_HOSTNAME_COUNT_FILE=\(countFile.path)",
+                "/bin/bash",
+                "-c",
+                script,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("count=1"), result.stdout.debugDescription)
+    }
+
     func testRemoteShellSnippetPreservesBashPromptCommandArray() throws {
         let script = """
         set -e

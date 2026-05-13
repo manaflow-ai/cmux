@@ -55,6 +55,9 @@ enum RemoteShellIntegrationSnippet {
           hostname -f 2>/dev/null || hostname 2>/dev/null || printf 'remote'
         }
 
+        __cmux_remote_host_cached="$(__cmux_remote_hostname | __cmux_strip_control_chars)"
+        [ -n "$__cmux_remote_host_cached" ] || __cmux_remote_host_cached=remote
+
         __cmux_remote_git_branch_query() {
           [ "${CMUX_REMOTE_DISABLE_GIT:-}" = "1" ] && return 0
           command git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
@@ -71,7 +74,11 @@ enum RemoteShellIntegrationSnippet {
 
         __cmux_remote_report_prompt() {
           local host escaped_pwd query
-          host="$(__cmux_remote_hostname | __cmux_strip_control_chars)"
+          if [ -n "${CMUX_REMOTE_HOST:-}" ]; then
+            host="$(printf '%s' "$CMUX_REMOTE_HOST" | __cmux_strip_control_chars)"
+          else
+            host="${__cmux_remote_host_cached:-remote}"
+          fi
           [ -n "$host" ] || host=remote
           host="$(__cmux_remote_uri_escape "$host")"
           escaped_pwd="$(__cmux_remote_path_escape "$(printf '%s' "${PWD:-/}" | __cmux_strip_control_chars)")"

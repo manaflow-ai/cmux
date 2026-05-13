@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-struct TerminalLocation: Equatable, Sendable {
+nonisolated struct TerminalLocation: Equatable, Sendable {
     enum Source: String, Equatable, Sendable {
         case plainPath
         case osc7
@@ -126,12 +126,15 @@ struct TerminalLocation: Equatable, Sendable {
     }
 
     private static func normalizedHost(_ host: String?) -> String? {
-        let trimmed = host?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var trimmed = host?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        while trimmed.last == "." {
+            trimmed.removeLast()
+        }
         return trimmed.isEmpty ? nil : trimmed
     }
 
     private static func isLocalHost(_ host: String) -> Bool {
-        let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalized = normalizedHost(host)?.lowercased() ?? ""
         guard !normalized.isEmpty else { return true }
         if normalized == "localhost" || normalized == "::1" || isIPv4Loopback(normalized) {
             return true
@@ -161,7 +164,7 @@ struct TerminalLocation: Equatable, Sendable {
             names.append(String(cString: buffer))
         }
         return Set(names.flatMap { name -> [String] in
-            let lower = name.lowercased()
+            guard let lower = normalizedHost(name)?.lowercased() else { return [] }
             let short = lower.split(separator: ".").first.map(String.init)
             return [lower, short].compactMap { $0 }
         })

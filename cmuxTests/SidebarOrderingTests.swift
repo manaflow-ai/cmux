@@ -663,6 +663,27 @@ final class TerminalOSC7LocationTests: XCTestCase {
         XCTAssertNil(location.sessionSnapshot.host)
     }
 
+    func testLocalHostnameWithTrailingDotStaysLocal() throws {
+        var localHost = ProcessInfo.processInfo.hostName.trimmingCharacters(in: .whitespacesAndNewlines)
+        while localHost.last == "." {
+            localHost.removeLast()
+        }
+        try XCTSkipIf(localHost.isEmpty, "Local host name is unavailable")
+        let allowedHostCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-")
+        try XCTSkipIf(
+            localHost.rangeOfCharacter(from: allowedHostCharacters.inverted) != nil,
+            "Local host name contains characters that need URL authority escaping"
+        )
+
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("file://\(localHost)./Users/foo/work")
+        )
+
+        XCTAssertFalse(location.isRemote)
+        XCTAssertNil(location.remoteHost)
+        XCTAssertEqual(location.displayDirectory, "/Users/foo/work")
+    }
+
     func testKittyShellCwdSequenceCapturesRemoteHostAndPath() throws {
         let location = try XCTUnwrap(
             TerminalLocation.parseReportedDirectory(
