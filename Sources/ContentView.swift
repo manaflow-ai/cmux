@@ -12641,6 +12641,23 @@ private struct TabItemView: View, Equatable {
             refreshWorkspaceSnapshot()
         }
         .onReceive(
+            tab.sidebarAgentObservationPublisher
+                .receive(on: RunLoop.main)
+                .throttle(for: .milliseconds(80), scheduler: RunLoop.main, latest: true)
+        ) { _ in
+#if DEBUG
+            let description = tab.customDescription ?? ""
+            cmuxDebugLog(
+                "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
+                "source=agentThrottled " +
+                "title=\"\(debugCommandPaletteTextPreview(tab.title))\" " +
+                "descLen=\((description as NSString).length) " +
+                "desc=\"\(debugCommandPaletteTextPreview(description))\""
+            )
+#endif
+            refreshWorkspaceSnapshot()
+        }
+        .onReceive(
             tab.sidebarObservationPublisher
                 .receive(on: RunLoop.main)
                 // Prompt-time sidebar telemetry can arrive as a short burst

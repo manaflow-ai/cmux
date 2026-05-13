@@ -164,6 +164,7 @@ extension Workspace {
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil
     ) -> SessionWorkspaceSnapshot {
+        flushPendingSidebarLogEntries()
         let tree = bonsplitController.treeSnapshot()
         let layout = sessionLayoutSnapshot(from: tree)
 
@@ -289,14 +290,14 @@ extension Workspace {
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
         agentListeningPorts.removeAll()
-        logEntries = snapshot.logEntries.map { entry in
+        setSidebarLogEntries(snapshot.logEntries.map { entry in
             SidebarLogEntry(
                 message: entry.message,
                 level: SidebarLogLevel(rawValue: entry.level) ?? .info,
                 source: entry.source,
                 timestamp: Date(timeIntervalSince1970: entry.timestamp)
             )
-        }
+        })
         progress = snapshot.progress.map { SidebarProgressState(value: $0.value, label: $0.label) }
         gitBranch = snapshot.gitBranch.map { SidebarGitBranchState(branch: $0.branch, isDirty: $0.isDirty) }
 
@@ -6617,6 +6618,51 @@ struct SidebarLogEntry: Equatable {
     let timestamp: Date
 }
 
+private struct SidebarLogRingBuffer {
+    private var storage: [SidebarLogEntry?]
+    private var head = 0
+    private(set) var count = 0
+    private(set) var limit: Int
+
+    init(limit: Int) {
+        let normalizedLimit = max(1, min(500, limit))
+        self.limit = normalizedLimit
+        self.storage = Array(repeating: nil, count: normalizedLimit)
+    }
+
+    mutating func replaceAll(_ entries: [SidebarLogEntry], limit: Int) {
+        self = SidebarLogRingBuffer(limit: limit)
+        for entry in entries.suffix(self.limit) {
+            append(entry)
+        }
+    }
+
+    mutating func append(_ entry: SidebarLogEntry) {
+        guard !storage.isEmpty else { return }
+        let index = (head + count) % storage.count
+        if count == storage.count {
+            storage[head] = entry
+            head = (head + 1) % storage.count
+        } else {
+            storage[index] = entry
+            count += 1
+        }
+    }
+
+    mutating func removeAll() {
+        storage = Array(repeating: nil, count: limit)
+        head = 0
+        count = 0
+    }
+
+    func entries() -> [SidebarLogEntry] {
+        guard count > 0 else { return [] }
+        return (0..<count).compactMap { offset in
+            storage[(head + offset) % storage.count]
+        }
+    }
+}
+
 struct SidebarProgressState: Equatable {
     let value: Double
     let label: String?
@@ -7129,6 +7175,7 @@ final class Workspace: Identifiable, ObservableObject {
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
+    private static let sidebarLogFlushDelay: Duration = .milliseconds(50)
 
     let id: UUID
     @Published var title: String
@@ -7318,6 +7365,10 @@ final class Workspace: Identifiable, ObservableObject {
     var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] = [:]
     var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
+    private var sidebarLogEntryLimit = Workspace.cachedSidebarLogEntryLimit()
+    private lazy var sidebarLogBuffer = SidebarLogRingBuffer(limit: sidebarLogEntryLimit)
+    private var pendingSidebarLogEntries: [SidebarLogEntry] = []
+    private var sidebarLogFlushTask: Task<Void, Never>?
 
     private func sidebarObservationSignal<Value: Equatable>(
         _ publisher: Published<Value>.Publisher
@@ -7331,11 +7382,18 @@ final class Workspace: Identifiable, ObservableObject {
 
     lazy var sidebarImmediateObservationPublisher: AnyPublisher<Void, Never> = {
         let publishers: [AnyPublisher<Void, Never>] = [
-            sidebarObservationSignal($title),
-            sidebarObservationSignal($customDescription),
             sidebarObservationSignal($isPinned),
             sidebarObservationSignal($customColor),
             sidebarObservationSignal($terminalScrollBarHidden),
+        ]
+
+        return Publishers.MergeMany(publishers).eraseToAnyPublisher()
+    }()
+
+    lazy var sidebarAgentObservationPublisher: AnyPublisher<Void, Never> = {
+        let publishers: [AnyPublisher<Void, Never>] = [
+            sidebarObservationSignal($title),
+            sidebarObservationSignal($customDescription),
             sidebarObservationSignal($latestConversationMessage),
         ]
 
@@ -7872,6 +7930,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         activeRemoteSessionControllerID = nil
         remoteSessionController?.stop()
+        sidebarLogFlushTask?.cancel()
     }
 
     func refreshSplitButtonTooltips() {
@@ -8809,7 +8868,7 @@ final class Workspace: Identifiable, ObservableObject {
         agentPIDKeysByPanelId.removeAll()
         agentListeningPorts.removeAll()
         latestConversationMessage = nil
-        logEntries.removeAll()
+        clearSidebarLogEntries()
         progress = nil
         gitBranch = nil
         panelGitBranches.removeAll()
@@ -9680,7 +9739,7 @@ final class Workspace: Identifiable, ObservableObject {
             let fingerprint = "connection:\(trimmedDetail)"
             if remoteLastErrorFingerprint != fingerprint {
                 remoteLastErrorFingerprint = fingerprint
-                appendSidebarLog(
+                enqueueSidebarLog(
                     message: "\(statusPrefix) (\(target)): \(trimmedDetail)",
                     level: .error,
                     source: logSource
@@ -9715,7 +9774,7 @@ final class Workspace: Identifiable, ObservableObject {
         let fingerprint = "daemon:\(trimmedDetail)"
         guard remoteLastDaemonErrorFingerprint != fingerprint else { return }
         remoteLastDaemonErrorFingerprint = fingerprint
-        appendSidebarLog(
+        enqueueSidebarLog(
             message: "Remote daemon error (\(target)): \(trimmedDetail)",
             level: .error,
             source: "remote-daemon"
@@ -9781,7 +9840,7 @@ final class Workspace: Identifiable, ObservableObject {
         let fingerprint = conflicts.map(String.init).joined(separator: ",")
         guard remoteLastPortConflictFingerprint != fingerprint else { return }
         remoteLastPortConflictFingerprint = fingerprint
-        appendSidebarLog(
+        enqueueSidebarLog(
             message: "Port conflicts while forwarding \(target): \(conflictsList)",
             level: .warning,
             source: "remote-forward"
@@ -9795,15 +9854,57 @@ final class Workspace: Identifiable, ObservableObject {
         remoteDetectedSurfaceIds.removeAll()
     }
 
-    private func appendSidebarLog(message: String, level: SidebarLogLevel, source: String?) {
+    private static func cachedSidebarLogEntryLimit() -> Int {
+        let configuredLimit = UserDefaults.standard.object(forKey: "sidebarMaxLogEntries") as? Int ?? 50
+        return max(1, min(500, configuredLimit))
+    }
+
+    func enqueueSidebarLog(message: String, level: SidebarLogLevel, source: String?) {
         let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        logEntries.append(SidebarLogEntry(message: trimmed, level: level, source: source, timestamp: Date()))
-        let configuredLimit = UserDefaults.standard.object(forKey: "sidebarMaxLogEntries") as? Int ?? 50
-        let limit = max(1, min(500, configuredLimit))
-        if logEntries.count > limit {
-            logEntries.removeFirst(logEntries.count - limit)
+        pendingSidebarLogEntries.append(SidebarLogEntry(message: trimmed, level: level, source: source, timestamp: Date()))
+        scheduleSidebarLogFlush()
+    }
+
+    func clearSidebarLogEntries() {
+        sidebarLogFlushTask?.cancel()
+        sidebarLogFlushTask = nil
+        pendingSidebarLogEntries.removeAll(keepingCapacity: false)
+        sidebarLogBuffer.removeAll()
+        logEntries.removeAll()
+    }
+
+    private func setSidebarLogEntries(_ entries: [SidebarLogEntry]) {
+        sidebarLogFlushTask?.cancel()
+        sidebarLogFlushTask = nil
+        pendingSidebarLogEntries.removeAll(keepingCapacity: false)
+        sidebarLogBuffer.replaceAll(entries, limit: sidebarLogEntryLimit)
+        logEntries = sidebarLogBuffer.entries()
+    }
+
+    private func scheduleSidebarLogFlush() {
+        guard sidebarLogFlushTask == nil else { return }
+        sidebarLogFlushTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: Self.sidebarLogFlushDelay)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            self?.flushPendingSidebarLogEntries()
         }
+    }
+
+    func flushPendingSidebarLogEntries() {
+        sidebarLogFlushTask?.cancel()
+        sidebarLogFlushTask = nil
+        guard !pendingSidebarLogEntries.isEmpty else { return }
+        let entries = pendingSidebarLogEntries
+        pendingSidebarLogEntries.removeAll(keepingCapacity: true)
+        for entry in entries {
+            sidebarLogBuffer.append(entry)
+        }
+        logEntries = sidebarLogBuffer.entries()
     }
 
     // MARK: - Panel Operations

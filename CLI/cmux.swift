@@ -409,16 +409,6 @@ private struct AgentHookLaunchCommandRecord: Codable {
     var source: String?
 }
 
-private struct CodexMonitorLeaseRecord: Codable {
-    var leaseId: String
-    var sessionId: String
-    var turnId: String?
-    var workspaceId: String
-    var surfaceId: String?
-    var createdAt: TimeInterval
-    var retiredAt: TimeInterval?
-}
-
 private struct ClaudeHookSessionStoreFile: Codable {
     var version: Int = 1
     var sessions: [String: ClaudeHookSessionRecord] = [:]
@@ -17601,22 +17591,11 @@ struct CMUXCLI {
         let isStreamError: Bool
     }
 
-    private struct CodexHookUserInputCandidate {
-        let callId: String
-        let question: String?
-    }
-
     private enum CodexTranscriptFailureReadResult {
         case unavailable
         case pending
         case healthy
         case failure(CodexHookFailureCandidate)
-    }
-
-    private enum CodexMonitorOwnerState {
-        case alive
-        case gone
-        case unknown
     }
 
     private func summarizeCodexHookFailure(
@@ -17805,184 +17784,6 @@ struct CMUXCLI {
             return .pending
         }
         return .healthy
-    }
-
-    private func readCodexTranscriptUserInput(
-        path: String,
-        turnId: String?,
-        excluding publishedCallIds: Set<String>
-    ) -> CodexHookUserInputCandidate? {
-        guard let content = readTextFileTail(path: path, maxBytes: 512 * 1024) else {
-            return nil
-        }
-
-        var sawRelevantTurn = turnId == nil
-        var candidate: CodexHookUserInputCandidate?
-        for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty,
-                  let data = trimmed.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-                  let objectType = object["type"] as? String else {
-                continue
-            }
-
-            if objectType == "turn_context",
-               let payload = object["payload"] as? [String: Any] {
-                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
-                if let turnId {
-                    sawRelevantTurn = payloadTurnId == turnId
-                } else {
-                    sawRelevantTurn = true
-                }
-                continue
-            }
-
-            if objectType == "response_item",
-               let payload = object["payload"] as? [String: Any],
-               let userInput = codexUserInputFunctionCallCandidate(
-                   from: payload,
-                   turnId: turnId,
-                   sawRelevantTurn: sawRelevantTurn,
-                   excluding: publishedCallIds
-               ) {
-                candidate = userInput
-                continue
-            }
-
-            guard objectType == "event_msg",
-                  let payload = object["payload"] as? [String: Any],
-                  let eventType = payload["type"] as? String else {
-                continue
-            }
-
-            switch eventType {
-            case "task_started":
-                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
-                if let turnId {
-                    sawRelevantTurn = payloadTurnId == turnId
-                } else {
-                    sawRelevantTurn = true
-                }
-
-            case "request_user_input":
-                if let userInput = codexUserInputEventCandidate(
-                    from: payload,
-                    turnId: turnId,
-                    sawRelevantTurn: sawRelevantTurn,
-                    excluding: publishedCallIds
-                ) {
-                    candidate = userInput
-                }
-
-            case "task_complete", "turn_complete":
-                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
-                if let turnId {
-                    guard payloadTurnId == turnId else { continue }
-                }
-                sawRelevantTurn = true
-                candidate = nil
-
-            default:
-                break
-            }
-        }
-
-        return candidate
-    }
-
-    private func codexUserInputEventCandidate(
-        from payload: [String: Any],
-        turnId: String?,
-        sawRelevantTurn: Bool,
-        excluding publishedCallIds: Set<String>
-    ) -> CodexHookUserInputCandidate? {
-        let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
-        if let turnId {
-            if let payloadTurnId {
-                guard payloadTurnId == turnId else { return nil }
-            } else {
-                guard sawRelevantTurn else { return nil }
-            }
-        }
-        return codexUserInputCandidate(
-            from: payload,
-            payloadTurnId: payloadTurnId,
-            turnId: turnId,
-            excluding: publishedCallIds
-        )
-    }
-
-    private func codexUserInputFunctionCallCandidate(
-        from payload: [String: Any],
-        turnId: String?,
-        sawRelevantTurn: Bool,
-        excluding publishedCallIds: Set<String>
-    ) -> CodexHookUserInputCandidate? {
-        guard (payload["type"] as? String) == "function_call",
-              (payload["name"] as? String) == "request_user_input" else {
-            return nil
-        }
-
-        let arguments = codexFunctionCallArgumentsObject(from: payload)
-        let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
-            ?? arguments.flatMap { firstString(in: $0, keys: ["turn_id", "turnId"]) }
-        if let turnId {
-            if let payloadTurnId {
-                guard payloadTurnId == turnId else { return nil }
-            } else {
-                guard sawRelevantTurn else { return nil }
-            }
-        }
-
-        return codexUserInputCandidate(
-            from: arguments ?? payload,
-            payloadTurnId: payloadTurnId,
-            turnId: turnId,
-            fallbackCallId: firstString(in: payload, keys: ["call_id", "callId"]),
-            excluding: publishedCallIds
-        )
-    }
-
-    private func codexFunctionCallArgumentsObject(from payload: [String: Any]) -> [String: Any]? {
-        if let arguments = payload["arguments"] as? [String: Any] {
-            return arguments
-        }
-        guard let rawArguments = payload["arguments"] as? String,
-              let data = rawArguments.data(using: .utf8),
-              let arguments = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
-            return nil
-        }
-        return arguments
-    }
-
-    private func codexUserInputCandidate(
-        from payload: [String: Any],
-        payloadTurnId: String?,
-        turnId: String?,
-        fallbackCallId: String? = nil,
-        excluding publishedCallIds: Set<String>
-    ) -> CodexHookUserInputCandidate? {
-        let question = codexUserInputQuestionText(from: payload)
-        let rawCallId = firstString(in: payload, keys: ["call_id", "callId"]) ?? fallbackCallId
-        let callId = rawCallId?.trimmingCharacters(in: .whitespacesAndNewlines)
-            ?? "\(payloadTurnId ?? turnId ?? "session"):\(question ?? "request_user_input")"
-        guard !publishedCallIds.contains(callId) else { return nil }
-        return CodexHookUserInputCandidate(callId: callId, question: question)
-    }
-
-    private func codexUserInputQuestionText(from payload: [String: Any]) -> String? {
-        guard let questions = payload["questions"] as? [[String: Any]] else {
-            return nil
-        }
-        for question in questions {
-            let text = firstString(in: question, keys: ["question", "header", "id"])
-            let normalized = text.map(normalizedSingleLine)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let normalized, !normalized.isEmpty {
-                return truncate(normalized, maxLength: 220)
-            }
-        }
-        return nil
     }
 
     private func codexHookStopPayloadHasAssistantMessage(_ object: [String: Any]?) -> Bool {
@@ -18208,168 +18009,14 @@ struct CMUXCLI {
         return directories
     }
 
-    private static let codexMonitorLeaseDirectoryName = "codex-monitor-leases"
-    private static let codexMonitorLeaseMaxAgeSeconds: TimeInterval = 4 * 60 * 60
-    private static let codexMonitorRetiredLeaseMaxAgeSeconds: TimeInterval = 2 * 60
-    private static let codexMonitorOwnerCheckIntervalSeconds: TimeInterval = 60
-    private static let codexMonitorOwnerCheckTimeoutSeconds: TimeInterval = 1
-
-    private func codexMonitorLeaseDirectory(env: [String: String]) -> URL {
-        let statePath = NSString(
-            string: agentHookStatePath(sessionStoreSuffix: "codex", env: env)
-        ).expandingTildeInPath
-        return URL(fileURLWithPath: statePath, isDirectory: false)
-            .deletingLastPathComponent()
-            .appendingPathComponent(Self.codexMonitorLeaseDirectoryName, isDirectory: true)
-    }
-
-    private func codexMonitorLeasePath(leaseId: String, env: [String: String]) -> String {
-        return codexMonitorLeaseDirectory(env: env)
-            .appendingPathComponent("\(leaseId).json", isDirectory: false)
-            .path
-    }
-
-    private func writeCodexMonitorLease(_ record: CodexMonitorLeaseRecord, to path: String) throws {
-        let url = URL(fileURLWithPath: path, isDirectory: false)
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true,
-            attributes: nil
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(record)
-        try data.write(to: url, options: .atomic)
-    }
-
-    private func readCodexMonitorLease(path: String) -> CodexMonitorLeaseRecord? {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path, isDirectory: false)) else {
-            return nil
-        }
-        return try? JSONDecoder().decode(CodexMonitorLeaseRecord.self, from: data)
-    }
-
-    private func createCodexMonitorLease(
-        sessionId: String,
-        turnId: String?,
-        workspaceId: String,
-        surfaceId: String?,
-        env: [String: String]
-    ) -> String? {
-        let leaseId = UUID().uuidString.lowercased()
-        let path = codexMonitorLeasePath(leaseId: leaseId, env: env)
-        let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedTurnId = turnId?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedSessionId.isEmpty else { return nil }
-        let record = CodexMonitorLeaseRecord(
-            leaseId: leaseId,
-            sessionId: normalizedSessionId,
-            turnId: normalizedTurnId?.isEmpty == false ? normalizedTurnId : nil,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            createdAt: Date().timeIntervalSince1970,
-            retiredAt: nil
-        )
-        try? pruneExpiredCodexMonitorLeases(env: env)
-        do {
-            try writeCodexMonitorLease(record, to: path)
-            return path
-        } catch {
-            return nil
-        }
-    }
-
-    private func retireCodexMonitorLeases(sessionId: String, turnId: String?, env: [String: String]) {
-        let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedSessionId.isEmpty else { return }
-
-        let fileManager = FileManager.default
-        let now = Date().timeIntervalSince1970
-        let normalizedTurnId = turnId?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let shouldMatchTurn = normalizedTurnId?.isEmpty == false
-        let directory = codexMonitorLeaseDirectory(env: env)
-        let targetPaths = ((try? fileManager.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )) ?? []).map(\.path)
-
-        for path in targetPaths {
-            guard var record = readCodexMonitorLease(path: path),
-                  record.sessionId == normalizedSessionId,
-                  !shouldMatchTurn || record.turnId == normalizedTurnId,
-                  record.retiredAt == nil else {
-                continue
-            }
-            record.retiredAt = now
-            try? writeCodexMonitorLease(record, to: path)
-        }
-        try? pruneExpiredCodexMonitorLeases(env: env)
-    }
-
-    private func pruneExpiredCodexMonitorLeases(env: [String: String]) throws {
-        let fileManager = FileManager.default
-        let directory = codexMonitorLeaseDirectory(env: env)
-        guard fileManager.fileExists(atPath: directory.path) else { return }
-        let now = Date().timeIntervalSince1970
-        let activeLeaseCutoff = now - Self.codexMonitorLeaseMaxAgeSeconds
-        let retiredLeaseCutoff = now - Self.codexMonitorRetiredLeaseMaxAgeSeconds
-        let urls = try fileManager.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
-        for url in urls {
-            guard let record = readCodexMonitorLease(path: url.path) else {
-                continue
-            }
-            let activeLeaseExpired = record.createdAt < activeLeaseCutoff
-            let retiredLeaseExpired = record.retiredAt.map { $0 < retiredLeaseCutoff } ?? false
-            if activeLeaseExpired || retiredLeaseExpired {
-                try? fileManager.removeItem(at: url)
-            }
-        }
-    }
-
-    private func isCodexMonitorLeaseRetired(path: String?) -> Bool {
-        guard let path, !path.isEmpty else { return false }
-        guard let record = readCodexMonitorLease(path: path) else {
-            return !FileManager.default.fileExists(atPath: path)
-        }
-        return record.retiredAt != nil
-    }
-
-    private func removeCodexMonitorLease(path: String?) {
-        guard let path, !path.isEmpty else { return }
-        try? FileManager.default.removeItem(atPath: path)
-    }
-
-    private func codexMonitorOwnerState(workspaceId: String, surfaceId: String?, client: SocketClient) -> CodexMonitorOwnerState {
-        guard client.connectionAppearsOpen() else { return client.isRelayBacked ? .unknown : .gone }
-        guard let payload = try? client.sendV2(
-            method: "surface.list",
-            params: ["workspace_id": workspaceId],
-            responseTimeout: Self.codexMonitorOwnerCheckTimeoutSeconds
-        ) else {
-            return .unknown
-        }
-        let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
-        guard let surfaceId, !surfaceId.isEmpty else { return surfaces.isEmpty ? .gone : .alive }
-        let ownerFound = surfaces.contains { surface in
-            (surface["id"] as? String) == surfaceId || (surface["ref"] as? String) == surfaceId
-        }
-        return ownerFound ? .alive : .gone
-    }
-
-    private func startCodexTranscriptMonitor(
+    private func requestCodexTranscriptMonitorStart(
         sessionId: String,
         turnId: String?,
         transcriptPath: String?,
-        cwd: String?,
         workspaceId: String,
         surfaceId: String?,
-        leasePath: String?,
         env: [String: String],
+        client: SocketClient,
         telemetry: CLISocketSentryTelemetry
     ) {
         guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -18377,216 +18024,63 @@ struct CMUXCLI {
             return
         }
 
-        let monitorTelemetry: [String: Any] = [
-            "has_lease": normalizedHookValue(leasePath) != nil,
-            "has_turn_id": normalizedHookValue(turnId) != nil,
-            "has_transcript": normalizedHookValue(transcriptPath) != nil,
-            "has_surface_id": normalizedHookValue(surfaceId) != nil,
+        var params: [String: Any] = [
+            "workspace_id": workspaceId,
+            "session_id": sessionId,
         ]
-        telemetry.breadcrumb("codex-hook.monitor.start", data: monitorTelemetry)
+        if let surfaceId = normalizedHookValue(surfaceId) {
+            params["surface_id"] = surfaceId
+        }
+        if let turnId = normalizedHookValue(turnId) {
+            params["turn_id"] = turnId
+        }
+        if let transcriptPath = normalizedHookValue(transcriptPath) {
+            params["transcript_path"] = transcriptPath
+        }
+        if let codexHome = normalizedHookValue(env["CODEX_HOME"]) {
+            params["codex_home"] = codexHome
+        }
 
-        let executablePath = resolvedExecutableURL()?.path ?? args.first ?? "cmux"
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        var monitorArgs = [
-            "hooks", "codex",
-            "monitor",
-            "--workspace",
-            workspaceId,
-            "--session",
-            sessionId,
-        ]
-        if let surfaceId, !surfaceId.isEmpty {
-            monitorArgs += ["--surface", surfaceId]
-        }
-        if let turnId, !turnId.isEmpty {
-            monitorArgs += ["--turn", turnId]
-        }
-        if let transcriptPath, !transcriptPath.isEmpty {
-            monitorArgs += ["--transcript", transcriptPath]
-        }
-        if let cwd, !cwd.isEmpty {
-            monitorArgs += ["--cwd", cwd]
-        }
-        if let leasePath, !leasePath.isEmpty {
-            monitorArgs += ["--lease", leasePath]
-        }
-        process.arguments = monitorArgs
-        process.environment = env.merging(["CMUX_CLI_SENTRY_DISABLED": "1"], uniquingKeysWith: { _, new in new })
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
+        telemetry.breadcrumb(
+            "codex-hook.monitor.request-start",
+            data: [
+                "has_turn_id": params["turn_id"] != nil,
+                "has_transcript": params["transcript_path"] != nil,
+                "has_surface_id": params["surface_id"] != nil,
+            ]
+        )
         do {
-            try process.run()
-            telemetry.breadcrumb("codex-hook.monitor.started", data: monitorTelemetry)
-        } catch {
-            telemetry.captureError(stage: "codex-monitor-start", error: error, data: monitorTelemetry)
-        }
-    }
-
-    private func runCodexTranscriptMonitor(commandArgs: [String], client: SocketClient) throws {
-        let env = ProcessInfo.processInfo.environment
-        let workspaceId = optionValue(commandArgs, name: "--workspace") ?? env["CMUX_WORKSPACE_ID"] ?? ""
-        let surfaceId = optionValue(commandArgs, name: "--surface") ?? env["CMUX_SURFACE_ID"]
-        let sessionId = optionValue(commandArgs, name: "--session")
-            ?? env["CMUX_CODEX_SESSION_ID"]
-            ?? env["CODEX_SESSION_ID"]
-            ?? env["CMUX_AGENT_SESSION_ID"]
-            ?? ""
-        let turnId = optionValue(commandArgs, name: "--turn")
-        var transcriptPath = optionValue(commandArgs, name: "--transcript")
-        let leasePath = optionValue(commandArgs, name: "--lease")
-
-        guard !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return
-        }
-
-        defer { removeCodexMonitorLease(path: leasePath) }
-        let deadline = Date().addingTimeInterval(4 * 60 * 60)
-        var nextOwnerCheck = Date.distantPast
-        var publishedUserInputCallIds = Set<String>()
-        while Date() < deadline {
-            if isCodexMonitorLeaseRetired(path: leasePath) {
-                return
-            }
-            let now = Date()
-            if now >= nextOwnerCheck {
-                nextOwnerCheck = now.addingTimeInterval(Self.codexMonitorOwnerCheckIntervalSeconds)
-                if codexMonitorOwnerState(workspaceId: workspaceId, surfaceId: surfaceId, client: client) == .gone {
-                    return
-                }
-            }
-
-            if transcriptPath == nil {
-                transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
-            }
-
-            if let currentTranscriptPath = transcriptPath {
-                if let userInput = readCodexTranscriptUserInput(
-                    path: currentTranscriptPath,
-                    turnId: turnId,
-                    excluding: publishedUserInputCallIds
-                ) {
-                    publishedUserInputCallIds.insert(userInput.callId)
-                    publishCodexMonitorUserInput(
-                        userInput,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        client: client
-                    )
-                }
-
-                switch readCodexTranscriptFailure(
-                    path: currentTranscriptPath,
-                    turnId: turnId,
-                    requireTerminalCompletion: true
-                ) {
-                case .failure(let failure):
-                    publishCodexMonitorFailure(
-                        failure,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        client: client
-                    )
-                    return
-                case .healthy:
-                    return
-                case .pending:
-                    break
-                case .unavailable:
-                    let unavailableTranscriptPath = currentTranscriptPath
-                    transcriptPath = nil
-                    if let resolvedTranscriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env) {
-                        transcriptPath = resolvedTranscriptPath
-                        if resolvedTranscriptPath != unavailableTranscriptPath {
-                            continue
-                        }
-                    }
-                }
-            }
-
-            let remaining = deadline.timeIntervalSinceNow
-            guard remaining > 0 else { return }
-            waitForCodexTranscriptChange(path: transcriptPath, leasePath: leasePath, timeout: min(30, remaining))
-        }
-    }
-
-    private func publishCodexMonitorUserInput(
-        _ userInput: CodexHookUserInputCandidate,
-        workspaceId: String,
-        surfaceId: String?,
-        client: SocketClient
-    ) {
-        let subtitle = String(localized: "agent.codex.input.subtitle.waiting", defaultValue: "Waiting")
-        let body = userInput.question ?? String(
-            localized: "agent.codex.input.body.needsInput",
-            defaultValue: "Codex is asking a question"
-        )
-        if let surfaceId, !surfaceId.isEmpty {
-            let payload = "Codex|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
-            _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
-        }
-        let statusValue = String(localized: "agent.codex.input.status.needsInput", defaultValue: "Codex needs input")
-        _ = try? sendV1Command(
-            "set_status codex \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-            client: client
-        )
-    }
-
-    private func publishCodexMonitorFailure(
-        _ failure: CodexHookFailureCandidate,
-        workspaceId: String,
-        surfaceId: String?,
-        client: SocketClient
-    ) {
-        let summary = summarizeCodexHookFailureCandidate(failure)
-        if let surfaceId, !surfaceId.isEmpty {
-            let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
-            _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
-        }
-        _ = try? sendV1Command(
-            "set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-            client: client
-        )
-    }
-
-    private func waitForCodexTranscriptChange(path: String?, leasePath: String?, timeout: TimeInterval) {
-        guard timeout > 0 else { return }
-
-        let semaphore = DispatchSemaphore(value: 0)
-        var sources: [DispatchSourceFileSystemObject] = []
-
-        func addFileSource(path: String?, eventMask: DispatchSource.FileSystemEvent) {
-            guard let path, !path.isEmpty else { return }
-            let expandedPath = NSString(string: path).expandingTildeInPath
-            let fd = open(expandedPath, O_EVTONLY)
-            guard fd >= 0 else { return }
-            let source = DispatchSource.makeFileSystemObjectSource(
-                fileDescriptor: fd,
-                eventMask: eventMask,
-                queue: DispatchQueue.global(qos: .utility)
+            _ = try client.sendV2(
+                method: "agent.codex_transcript_monitor.start",
+                params: params,
+                responseTimeout: 2
             )
-            source.setEventHandler {
-                semaphore.signal()
-            }
-            source.setCancelHandler {
-                close(fd)
-            }
-            source.resume()
-            sources.append(source)
+        } catch {
+            telemetry.captureError(stage: "codex-monitor-start", error: error, data: params)
         }
+    }
 
-        addFileSource(path: path, eventMask: [.write, .extend, .delete, .rename])
-        addFileSource(path: leasePath, eventMask: [.write, .delete, .rename])
-
-        guard !sources.isEmpty else {
-            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
-            return
+    private func requestCodexTranscriptMonitorStop(
+        sessionId: String,
+        turnId: String?,
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry
+    ) {
+        let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionId.isEmpty else { return }
+        var params: [String: Any] = ["session_id": normalizedSessionId]
+        if let turnId = normalizedHookValue(turnId) {
+            params["turn_id"] = turnId
         }
-
-        _ = semaphore.wait(timeout: .now() + timeout)
-        sources.forEach { $0.cancel() }
+        do {
+            _ = try client.sendV2(
+                method: "agent.codex_transcript_monitor.stop",
+                params: params,
+                responseTimeout: 2
+            )
+        } catch {
+            telemetry.captureError(stage: "codex-monitor-stop", error: error, data: params)
+        }
     }
 
     private func extractMessageText(from message: [String: Any]) -> String? {
@@ -20512,11 +20006,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let hookArgs = Array(commandArgs.dropFirst())
         telemetry.breadcrumb("\(def.name)-hook.\(subcommand)")
 
-        if def.name == "codex", subcommand == "monitor" {
-            try runCodexTranscriptMonitor(commandArgs: hookArgs, client: client)
-            return
-        }
-
         // Workspace/surface resolution: prefer --workspace/--surface flags, then session store, then env
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let workspaceArg = hookWsFlag ?? env["CMUX_WORKSPACE_ID"]
@@ -20624,28 +20113,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 client: client
             )
             if def.name == "codex", !sessionId.isEmpty {
-                let leasePath = createCodexMonitorLease(
+                requestCodexTranscriptMonitorStart(
                     sessionId: sessionId,
                     turnId: input.turnId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    env: env
-                )
-                if leasePath == nil {
-                    telemetry.breadcrumb(
-                        "codex-hook.monitor.lease-unavailable",
-                        data: ["has_turn_id": normalizedHookValue(input.turnId) != nil]
-                    )
-                }
-                startCodexTranscriptMonitor(
-                    sessionId: sessionId,
-                    turnId: input.turnId,
                     transcriptPath: normalizedHookValue(input.transcriptPath),
-                    cwd: hookCwd ?? mapped?.cwd,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    leasePath: leasePath,
                     env: env,
+                    client: client,
                     telemetry: telemetry
                 )
             }
@@ -20654,7 +20129,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if def.name == "codex", !sessionId.isEmpty {
                 let stopTurnId = input.turnId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if !stopTurnId.isEmpty {
-                    retireCodexMonitorLeases(sessionId: sessionId, turnId: stopTurnId, env: env)
+                    requestCodexTranscriptMonitorStop(
+                        sessionId: sessionId,
+                        turnId: stopTurnId,
+                        client: client,
+                        telemetry: telemetry
+                    )
                 }
             }
             do {
@@ -20743,7 +20223,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         case .sessionEnd:
             if def.name == "codex", !sessionId.isEmpty {
-                retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
+                requestCodexTranscriptMonitorStop(
+                    sessionId: sessionId,
+                    turnId: nil,
+                    client: client,
+                    telemetry: telemetry
+                )
             }
             if let mapped = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
                 sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
