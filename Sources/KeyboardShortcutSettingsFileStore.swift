@@ -321,6 +321,7 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
 
     private func stageUserDefaultsSettingsJSONPersistenceIfNeeded() {
         synchronized {
+            guard !isApplyingManagedSettings else { return }
             let currentValues = CmuxSettingsJSONPersistence.currentSettingsJSONValuesFromUserDefaults(
                 defaults: userDefaults
             )
