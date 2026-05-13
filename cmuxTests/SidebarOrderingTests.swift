@@ -77,6 +77,92 @@ final class SidebarBranchLayoutSettingsTests: XCTestCase {
 }
 
 
+final class CmuxExtensionSidebarPrototypeTests: XCTestCase {
+    func testTreeSectionsPutPinnedWorkspacesFirstAndPreserveWorkspaceOrderInsideGroups() {
+        let pinned = workspaceSnapshot(title: "Pinned", isPinned: true, rootPath: "/Users/lawrence/project-a")
+        let projectA = workspaceSnapshot(title: "API", rootPath: "/Users/lawrence/project-a/api")
+        let projectB = workspaceSnapshot(title: "Web", rootPath: "/Users/lawrence/project-a/web")
+        let tools = workspaceSnapshot(title: "Tools", rootPath: "/Users/lawrence/tools/cmux")
+
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 10,
+            selectedWorkspaceId: projectB.id,
+            workspaces: [projectA, pinned, projectB, tools]
+        )
+
+        let sections = CmuxExtensionWorkspaceTreeBuilder.sections(for: snapshot)
+
+        XCTAssertEqual(sections.map(\.id), ["pinned", "folder:/Users/lawrence/project-a", "folder:/Users/lawrence/tools"])
+        XCTAssertEqual(sections[0].workspaceIds, [pinned.id])
+        XCTAssertEqual(sections[1].workspaceIds, [projectA.id, projectB.id])
+        XCTAssertEqual(sections[2].workspaceIds, [tools.id])
+    }
+
+    func testTreeSectionsGroupRemoteAndUnrootedWorkspacesSeparately() {
+        let remoteA = workspaceSnapshot(title: "Remote A", remoteDisplayTarget: "builder:22")
+        let remoteB = workspaceSnapshot(title: "Remote B", remoteDisplayTarget: "builder:22")
+        let other = workspaceSnapshot(title: "Scratch")
+
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 0,
+            selectedWorkspaceId: nil,
+            workspaces: [remoteA, other, remoteB]
+        )
+
+        let sections = CmuxExtensionWorkspaceTreeBuilder.sections(for: snapshot)
+
+        XCTAssertEqual(sections.map(\.id), ["remote:builder:22", "other"])
+        XCTAssertEqual(sections[0].workspaceIds, [remoteA.id, remoteB.id])
+        XCTAssertEqual(sections[1].workspaceIds, [other.id])
+    }
+
+    func testReducerAppliesWorkspaceSelectionRemovalAndReorderEvents() {
+        let first = workspaceSnapshot(title: "First")
+        let second = workspaceSnapshot(title: "Second")
+        let third = workspaceSnapshot(title: "Third")
+        var snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 4,
+            selectedWorkspaceId: first.id,
+            workspaces: [first, second, third]
+        )
+
+        snapshot = CmuxExtensionSidebarReducer.reduce(snapshot, event: .workspaceSelected(second.id))
+        XCTAssertEqual(snapshot.sequence, 5)
+        XCTAssertEqual(snapshot.selectedWorkspaceId, second.id)
+
+        snapshot = CmuxExtensionSidebarReducer.reduce(snapshot, event: .workspacesReordered([third.id, first.id, second.id]))
+        XCTAssertEqual(snapshot.sequence, 6)
+        XCTAssertEqual(snapshot.workspaceIds, [third.id, first.id, second.id])
+
+        snapshot = CmuxExtensionSidebarReducer.reduce(snapshot, event: .workspaceRemoved(second.id))
+        XCTAssertEqual(snapshot.sequence, 7)
+        XCTAssertNil(snapshot.selectedWorkspaceId)
+        XCTAssertEqual(snapshot.workspaceIds, [third.id, first.id])
+    }
+
+    private func workspaceSnapshot(
+        title: String,
+        isPinned: Bool = false,
+        rootPath: String? = nil,
+        remoteDisplayTarget: String? = nil
+    ) -> CmuxExtensionWorkspaceSnapshot {
+        CmuxExtensionWorkspaceSnapshot(
+            id: UUID(),
+            title: title,
+            customDescription: nil,
+            isPinned: isPinned,
+            rootPath: rootPath,
+            branchSummary: nil,
+            remoteDisplayTarget: remoteDisplayTarget,
+            remoteConnectionState: remoteDisplayTarget == nil ? nil : "connected",
+            unreadCount: 0,
+            latestNotificationText: nil,
+            listeningPorts: []
+        )
+    }
+}
+
+
 final class SidebarActiveTabIndicatorSettingsTests: XCTestCase {
     func testDefaultStyleWhenUnset() {
         let suiteName = "SidebarActiveTabIndicatorSettingsTests.Default.\(UUID().uuidString)"

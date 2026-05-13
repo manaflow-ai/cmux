@@ -9045,10 +9045,13 @@ struct VerticalTabsSidebar: View {
     @State private var terminalScrollBarVisibilityGeneration: UInt64 = 0
     @State private var laidOutWorkspaceRowIds: Set<UUID> = []
     @State private var pendingSelectedWorkspaceScrollId: UUID?
+    @State private var collapsedTreeSectionIds: Set<String> = []
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = false
+    @AppStorage(SidebarWorkspaceListStyleSettings.treePrototypeEnabledKey)
+    private var treeWorkspaceListPrototypeEnabled = SidebarWorkspaceListStyleSettings.defaultTreePrototypeEnabled
 
     private let tabRowSpacing: CGFloat = 2
     private var sidebarTitlebarInteractionHeight: CGFloat {
@@ -9112,11 +9115,13 @@ struct VerticalTabsSidebar: View {
 
     private struct WorkspaceListRenderContext {
         let tabs: [Workspace]
+        let extensionSnapshot: CmuxExtensionSidebarSnapshot
         let workspaceCount: Int
         let canCloseWorkspace: Bool
         let workspaceNumberShortcut: StoredShortcut
         let tabItemSettings: SidebarTabItemSettingsSnapshot
         let tabIndexById: [UUID: Int]
+        let tabById: [UUID: Workspace]
         let selectedContextTargetIds: [UUID]
         let selectedRemoteContextMenuWorkspaceIds: [UUID]
         let allSelectedRemoteContextMenuTargetsConnecting: Bool
@@ -9153,11 +9158,22 @@ struct VerticalTabsSidebar: View {
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
         let renderContext = WorkspaceListRenderContext(
             tabs: tabs,
+            extensionSnapshot: CmuxExtensionSidebarSnapshot(
+                sequence: 0,
+                selectedWorkspaceId: tabManager.selectedTabId,
+                workspaces: treeWorkspaceListPrototypeEnabled
+                    ? extensionWorkspaceSnapshots(
+                        tabs: tabs,
+                        showsSidebarNotificationMessage: showsSidebarNotificationMessage
+                    )
+                    : []
+            ),
             workspaceCount: workspaceCount,
             canCloseWorkspace: canCloseWorkspace,
             workspaceNumberShortcut: workspaceNumberShortcut,
             tabItemSettings: tabItemSettings,
             tabIndexById: tabIndexById,
+            tabById: Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) }),
             selectedContextTargetIds: selectedContextTargetIds,
             selectedRemoteContextMenuWorkspaceIds: selectedRemoteContextMenuWorkspaceIds,
             allSelectedRemoteContextMenuTargetsConnecting: allSelectedRemoteContextMenuTargetsConnecting,
@@ -9379,12 +9395,105 @@ struct VerticalTabsSidebar: View {
         .frame(minHeight: minHeight, alignment: .top)
     }
 
+    @ViewBuilder
     private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
+        if treeWorkspaceListPrototypeEnabled {
+            treeWorkspaceRows(renderContext: renderContext)
+        } else {
+            flatWorkspaceRows(renderContext: renderContext)
+        }
+    }
+
+    private func flatWorkspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
         // Workspaces are bounded, so prefer a non-lazy stack here.
         // LazyVStack + drag-state invalidations can recurse through layout.
         VStack(spacing: tabRowSpacing) {
             ForEach(renderContext.tabs, id: \.id) { tab in
                 workspaceRow(tab, renderContext: renderContext)
+            }
+        }
+        .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlayPreferenceValue(SidebarWorkspaceRowFramePreferenceKey.self) { anchors in
+            GeometryReader { proxy in
+                SidebarBonsplitTabWorkspaceDropOverlay(
+                    currentSelectedTabId: {
+                        tabManager.selectedTabId
+                    },
+                    sidebarIndexForTabId: { workspaceId in
+                        tabManager.tabs.firstIndex { $0.id == workspaceId }
+                    },
+                    moveToExistingWorkspace: { workspaceId in
+                        guard let transfer = BonsplitTabDragPayload.currentTransfer(),
+                              let app = AppDelegate.shared else {
+                            return false
+                        }
+                        if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
+                           source.workspaceId == workspaceId {
+                            return true
+                        }
+                        return app.moveBonsplitTab(
+                            tabId: transfer.tab.id,
+                            toWorkspace: workspaceId,
+                            focus: true,
+                            focusWindow: true
+                        )
+                    },
+                    moveToNewWorkspace: { insertionIndex in
+                        guard let transfer = BonsplitTabDragPayload.currentTransfer(),
+                              let app = AppDelegate.shared,
+                              let result = app.moveBonsplitTabToNewWorkspace(
+                                tabId: transfer.tab.id,
+                                destinationManager: tabManager,
+                                focus: true,
+                                focusWindow: true,
+                                insertionIndexOverride: insertionIndex
+                              ) else {
+                            return nil
+                        }
+                        return result.destinationWorkspaceId
+                    },
+                    selectedTabIds: $selectedTabIds,
+                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                    dropIndicator: $dropIndicator,
+                    updateAutoscroll: {
+                        dragAutoScrollController.updateFromDragLocation()
+                    },
+                    targets: renderContext.tabs.compactMap { tab in
+                        guard let anchor = anchors[tab.id] else { return nil }
+                        return SidebarDropPlanner.WorkspaceDropTarget(
+                            workspaceId: tab.id,
+                            isPinned: tab.isPinned,
+                            frame: proxy[anchor]
+                        )
+                    }
+                )
+            }
+        }
+    }
+
+    private func treeWorkspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
+        let sections = CmuxExtensionWorkspaceTreeBuilder.sections(for: renderContext.extensionSnapshot)
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(sections) { section in
+                let isCollapsed = collapsedTreeSectionIds.contains(section.id)
+                CmuxExtensionTreeSectionHeader(
+                    section: section,
+                    isCollapsed: isCollapsed,
+                    onToggle: { toggleTreeSection(section.id) }
+                )
+                .padding(.top, section.id == sections.first?.id ? 0 : 4)
+
+                if !isCollapsed {
+                    VStack(spacing: tabRowSpacing) {
+                        ForEach(section.workspaceIds, id: \.self) { workspaceId in
+                            if let tab = renderContext.tabById[workspaceId] {
+                                workspaceRow(tab, renderContext: renderContext)
+                                    .padding(.leading, 12)
+                            }
+                        }
+                    }
+                }
             }
         }
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
@@ -9546,6 +9655,119 @@ struct VerticalTabsSidebar: View {
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
         guard let id else { return "nil" }
         return String(id.uuidString.prefix(5))
+    }
+
+    private func toggleTreeSection(_ id: String) {
+        if collapsedTreeSectionIds.contains(id) {
+            collapsedTreeSectionIds.remove(id)
+        } else {
+            collapsedTreeSectionIds.insert(id)
+        }
+    }
+
+    private func extensionWorkspaceSnapshots(
+        tabs: [Workspace],
+        showsSidebarNotificationMessage: Bool
+    ) -> [CmuxExtensionWorkspaceSnapshot] {
+        tabs.map { tab in
+            let orderedPanelIds = tab.sidebarOrderedPanelIds()
+            let branchSummary = tab.sidebarGitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds)
+                .map { "\($0.branch)\($0.isDirty ? "*" : "")" }
+                .joined(separator: " | ")
+                .nilIfEmpty
+            let latestNotificationText: String? = {
+                guard showsSidebarNotificationMessage,
+                      let notification = notificationStore.latestNotification(forTabId: tab.id) else {
+                    return nil
+                }
+                let text = notification.body.isEmpty ? notification.title : notification.body
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }()
+            let remoteDisplayTarget = tab.isRemoteWorkspace
+                ? (tab.remoteDisplayTarget ?? tab.remoteConfiguration?.displayTarget)
+                : nil
+
+            return CmuxExtensionWorkspaceSnapshot(
+                id: tab.id,
+                title: tab.title,
+                customDescription: tab.customDescription,
+                isPinned: tab.isPinned,
+                rootPath: tab.sidebarDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds).first,
+                branchSummary: branchSummary,
+                remoteDisplayTarget: remoteDisplayTarget,
+                remoteConnectionState: tab.isRemoteWorkspace ? tab.remoteConnectionState.rawValue : nil,
+                unreadCount: notificationStore.unreadCount(forTabId: tab.id),
+                latestNotificationText: latestNotificationText,
+                listeningPorts: tab.listeningPorts
+            )
+        }
+    }
+}
+
+private struct CmuxExtensionTreeSectionHeader: View {
+    let section: CmuxExtensionWorkspaceTreeSection
+    let isCollapsed: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: 6) {
+                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.72))
+                    .frame(width: 10, height: 14)
+
+                Image(systemName: section.systemImageName)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.secondary.opacity(0.82))
+                    .frame(width: 13, height: 14)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(section.title)
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    if let subtitle = section.subtitle, subtitle != section.title {
+                        Text(subtitle)
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(.secondary.opacity(0.68))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                Text(String(section.workspaceIds.count))
+                    .font(.system(size: 9, weight: .semibold).monospacedDigit())
+                    .foregroundColor(.secondary.opacity(0.72))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(Color.secondary.opacity(0.12))
+                    )
+            }
+            .padding(.leading, 6)
+            .padding(.trailing, 8)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("CmuxExtensionTreeSection.\(section.id)")
+        .accessibilityLabel(
+            String(
+                format: String(
+                    localized: "sidebar.tree.section.accessibilityLabel",
+                    defaultValue: "%@, %lld workspaces"
+                ),
+                locale: .current,
+                section.title,
+                Int64(section.workspaceIds.count)
+            )
+        )
     }
 }
 
@@ -11802,6 +12024,190 @@ enum SidebarPathFormatter {
         }
         if trimmed.hasPrefix(homeDirectoryPath + "/") {
             return "~" + trimmed.dropFirst(homeDirectoryPath.count)
+        }
+        return trimmed
+    }
+}
+
+enum SidebarWorkspaceListStyleSettings {
+    static let treePrototypeEnabledKey = "sidebar.workspaceList.treePrototype.enabled"
+    static let defaultTreePrototypeEnabled = false
+}
+
+struct CmuxExtensionSidebarSnapshot: Equatable, Sendable {
+    let sequence: UInt64
+    let selectedWorkspaceId: UUID?
+    let workspaces: [CmuxExtensionWorkspaceSnapshot]
+
+    var workspaceIds: [UUID] {
+        workspaces.map(\.id)
+    }
+}
+
+struct CmuxExtensionWorkspaceSnapshot: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let title: String
+    let customDescription: String?
+    let isPinned: Bool
+    let rootPath: String?
+    let branchSummary: String?
+    let remoteDisplayTarget: String?
+    let remoteConnectionState: String?
+    let unreadCount: Int
+    let latestNotificationText: String?
+    let listeningPorts: [Int]
+}
+
+enum CmuxExtensionSidebarEvent: Equatable, Sendable {
+    case snapshotReplaced(CmuxExtensionSidebarSnapshot)
+    case workspaceUpserted(CmuxExtensionWorkspaceSnapshot)
+    case workspaceRemoved(UUID)
+    case workspacesReordered([UUID])
+    case workspaceSelected(UUID?)
+}
+
+struct CmuxExtensionSidebarReducer {
+    static func reduce(
+        _ snapshot: CmuxExtensionSidebarSnapshot,
+        event: CmuxExtensionSidebarEvent
+    ) -> CmuxExtensionSidebarSnapshot {
+        switch event {
+        case .snapshotReplaced(let replacement):
+            return replacement
+
+        case .workspaceUpserted(let workspace):
+            var workspaces = snapshot.workspaces
+            if let index = workspaces.firstIndex(where: { $0.id == workspace.id }) {
+                workspaces[index] = workspace
+            } else {
+                workspaces.append(workspace)
+            }
+            return CmuxExtensionSidebarSnapshot(
+                sequence: snapshot.sequence + 1,
+                selectedWorkspaceId: snapshot.selectedWorkspaceId,
+                workspaces: workspaces
+            )
+
+        case .workspaceRemoved(let id):
+            let workspaces = snapshot.workspaces.filter { $0.id != id }
+            return CmuxExtensionSidebarSnapshot(
+                sequence: snapshot.sequence + 1,
+                selectedWorkspaceId: snapshot.selectedWorkspaceId == id ? nil : snapshot.selectedWorkspaceId,
+                workspaces: workspaces
+            )
+
+        case .workspacesReordered(let ids):
+            let indexById = Dictionary(uniqueKeysWithValues: ids.enumerated().map { ($0.element, $0.offset) })
+            let known = snapshot.workspaces.sorted { lhs, rhs in
+                (indexById[lhs.id] ?? Int.max) < (indexById[rhs.id] ?? Int.max)
+            }
+            return CmuxExtensionSidebarSnapshot(
+                sequence: snapshot.sequence + 1,
+                selectedWorkspaceId: snapshot.selectedWorkspaceId,
+                workspaces: known
+            )
+
+        case .workspaceSelected(let id):
+            return CmuxExtensionSidebarSnapshot(
+                sequence: snapshot.sequence + 1,
+                selectedWorkspaceId: id,
+                workspaces: snapshot.workspaces
+            )
+        }
+    }
+}
+
+struct CmuxExtensionWorkspaceTreeSection: Identifiable, Equatable, Sendable {
+    let id: String
+    let title: String
+    let subtitle: String?
+    let systemImageName: String
+    let workspaceIds: [UUID]
+}
+
+enum CmuxExtensionWorkspaceTreeBuilder {
+    static func sections(for snapshot: CmuxExtensionSidebarSnapshot) -> [CmuxExtensionWorkspaceTreeSection] {
+        var sections: [CmuxExtensionWorkspaceTreeSection] = []
+
+        let pinned = snapshot.workspaces.filter(\.isPinned)
+        if !pinned.isEmpty {
+            sections.append(
+                CmuxExtensionWorkspaceTreeSection(
+                    id: "pinned",
+                    title: String(localized: "sidebar.tree.group.pinned", defaultValue: "Pinned"),
+                    subtitle: nil,
+                    systemImageName: "pin",
+                    workspaceIds: pinned.map(\.id)
+                )
+            )
+        }
+
+        var grouped: [String: CmuxExtensionWorkspaceTreeSection] = [:]
+        var orderedGroupIds: [String] = []
+
+        for workspace in snapshot.workspaces where !workspace.isPinned {
+            let group = groupSectionTemplate(for: workspace)
+            if grouped[group.id] == nil {
+                grouped[group.id] = group
+                orderedGroupIds.append(group.id)
+            }
+            guard var current = grouped[group.id] else { continue }
+            current = CmuxExtensionWorkspaceTreeSection(
+                id: current.id,
+                title: current.title,
+                subtitle: current.subtitle,
+                systemImageName: current.systemImageName,
+                workspaceIds: current.workspaceIds + [workspace.id]
+            )
+            grouped[group.id] = current
+        }
+
+        sections.append(contentsOf: orderedGroupIds.compactMap { grouped[$0] })
+        return sections
+    }
+
+    private static func groupSectionTemplate(
+        for workspace: CmuxExtensionWorkspaceSnapshot
+    ) -> CmuxExtensionWorkspaceTreeSection {
+        if let remoteTarget = trimmedNonEmpty(workspace.remoteDisplayTarget) {
+            return CmuxExtensionWorkspaceTreeSection(
+                id: "remote:\(remoteTarget)",
+                title: remoteTarget,
+                subtitle: String(localized: "sidebar.tree.group.remote.subtitle", defaultValue: "SSH"),
+                systemImageName: "network",
+                workspaceIds: []
+            )
+        }
+
+        guard let rootPath = trimmedNonEmpty(workspace.rootPath) else {
+            return CmuxExtensionWorkspaceTreeSection(
+                id: "other",
+                title: String(localized: "sidebar.tree.group.other", defaultValue: "Other"),
+                subtitle: String(localized: "sidebar.tree.group.other.subtitle", defaultValue: "No folder"),
+                systemImageName: "tray",
+                workspaceIds: []
+            )
+        }
+
+        let url = URL(fileURLWithPath: rootPath).standardizedFileURL
+        let groupURL = url.deletingLastPathComponent()
+        let groupPath = groupURL.path
+        let title = groupURL.lastPathComponent.isEmpty ? SidebarPathFormatter.shortenedPath(groupPath) : groupURL.lastPathComponent
+        let subtitle = SidebarPathFormatter.shortenedPath(groupPath)
+
+        return CmuxExtensionWorkspaceTreeSection(
+            id: "folder:\(groupPath)",
+            title: title.isEmpty ? "/" : title,
+            subtitle: subtitle,
+            systemImageName: "folder",
+            workspaceIds: []
+        )
+    }
+
+    private static func trimmedNonEmpty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
         }
         return trimmed
     }
