@@ -38,6 +38,7 @@ fileprivate struct CodexTranscriptFailureSummary: Sendable {
 fileprivate enum CodexTranscriptMonitorEvent: Sendable {
     case userInput(request: CodexTranscriptMonitorRequest, body: String)
     case failure(request: CodexTranscriptMonitorRequest, summary: CodexTranscriptFailureSummary)
+    case completion(request: CodexTranscriptMonitorRequest)
 }
 
 private final class CodexTranscriptMonitorRegistry: @unchecked Sendable {
@@ -170,8 +171,11 @@ private final class CodexTranscriptMonitorRegistry: @unchecked Sendable {
             deadlineTimer = nil
         }
 
-        private func finish() {
+        private func finish(publishCompletion: Bool = false) {
             guard !finished else { return }
+            if publishCompletion {
+                onEvent(.completion(request: request))
+            }
             cancel()
             onFinish(request.sessionId, self)
         }
@@ -366,7 +370,7 @@ private final class CodexTranscriptMonitorRegistry: @unchecked Sendable {
                 if let lastMessage = payload["last_agent_message"] as? String,
                    !lastMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     sawAssistantMessage = true
-                    finish()
+                    finish(publishCompletion: true)
                 } else if !sawAssistantMessage {
                     publishFailure(
                         FailureCandidate(
@@ -381,7 +385,7 @@ private final class CodexTranscriptMonitorRegistry: @unchecked Sendable {
                     )
                     finish()
                 } else {
-                    finish()
+                    finish(publishCompletion: true)
                 }
 
             default:
@@ -9315,10 +9319,14 @@ class TerminalController {
         return .ok(["stopped": true])
     }
 
+    func stopCodexTranscriptMonitors(forWorkspaceId workspaceId: UUID) {
+        CodexTranscriptMonitorRegistry.shared.stopWorkspace(workspaceId)
+    }
+
     fileprivate func handleCodexTranscriptMonitorEvent(_ event: CodexTranscriptMonitorEvent) {
         let request: CodexTranscriptMonitorRequest
         switch event {
-        case .userInput(let eventRequest, _), .failure(let eventRequest, _):
+        case .userInput(let eventRequest, _), .failure(let eventRequest, _), .completion(let eventRequest):
             request = eventRequest
         }
 
@@ -9371,6 +9379,11 @@ class TerminalController {
                 priority: 100,
                 timestamp: Date.now
             )
+
+        case .completion:
+            if tab.statusEntries["codex"]?.icon == "bell.fill" {
+                tab.statusEntries.removeValue(forKey: "codex")
+            }
         }
     }
 

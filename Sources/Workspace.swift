@@ -7175,7 +7175,7 @@ final class Workspace: Identifiable, ObservableObject {
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
-    private static let sidebarLogFlushDelay: Duration = .milliseconds(50)
+    private static let sidebarLogFlushDelay: DispatchTimeInterval = .milliseconds(50)
 
     let id: UUID
     @Published var title: String
@@ -7368,7 +7368,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var sidebarLogEntryLimit = Workspace.cachedSidebarLogEntryLimit()
     private lazy var sidebarLogBuffer = SidebarLogRingBuffer(limit: sidebarLogEntryLimit)
     private var pendingSidebarLogEntries: [SidebarLogEntry] = []
-    private var sidebarLogFlushTask: Task<Void, Never>?
+    private var sidebarLogFlushTimer: DispatchSourceTimer?
 
     private func sidebarObservationSignal<Value: Equatable>(
         _ publisher: Published<Value>.Publisher
@@ -7930,7 +7930,8 @@ final class Workspace: Identifiable, ObservableObject {
         }
         activeRemoteSessionControllerID = nil
         remoteSessionController?.stop()
-        sidebarLogFlushTask?.cancel()
+        sidebarLogFlushTimer?.cancel()
+        TerminalController.shared.stopCodexTranscriptMonitors(forWorkspaceId: id)
     }
 
     func refreshSplitButtonTooltips() {
@@ -9867,37 +9868,35 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func clearSidebarLogEntries() {
-        sidebarLogFlushTask?.cancel()
-        sidebarLogFlushTask = nil
+        sidebarLogFlushTimer?.cancel()
+        sidebarLogFlushTimer = nil
         pendingSidebarLogEntries.removeAll(keepingCapacity: false)
         sidebarLogBuffer.removeAll()
         logEntries.removeAll()
     }
 
     private func setSidebarLogEntries(_ entries: [SidebarLogEntry]) {
-        sidebarLogFlushTask?.cancel()
-        sidebarLogFlushTask = nil
+        sidebarLogFlushTimer?.cancel()
+        sidebarLogFlushTimer = nil
         pendingSidebarLogEntries.removeAll(keepingCapacity: false)
         sidebarLogBuffer.replaceAll(entries, limit: sidebarLogEntryLimit)
         logEntries = sidebarLogBuffer.entries()
     }
 
     private func scheduleSidebarLogFlush() {
-        guard sidebarLogFlushTask == nil else { return }
-        sidebarLogFlushTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: Self.sidebarLogFlushDelay)
-            } catch {
-                return
-            }
-            guard !Task.isCancelled else { return }
+        guard sidebarLogFlushTimer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + Self.sidebarLogFlushDelay)
+        timer.setEventHandler { [weak self] in
             self?.flushPendingSidebarLogEntries()
         }
+        sidebarLogFlushTimer = timer
+        timer.resume()
     }
 
     func flushPendingSidebarLogEntries() {
-        sidebarLogFlushTask?.cancel()
-        sidebarLogFlushTask = nil
+        sidebarLogFlushTimer?.cancel()
+        sidebarLogFlushTimer = nil
         guard !pendingSidebarLogEntries.isEmpty else { return }
         let entries = pendingSidebarLogEntries
         pendingSidebarLogEntries.removeAll(keepingCapacity: true)
