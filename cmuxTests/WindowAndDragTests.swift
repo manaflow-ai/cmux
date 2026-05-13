@@ -1680,6 +1680,54 @@ final class DraggableFolderHitTests: XCTestCase {
         XCTAssertEqual(movedFrame.minY, initialFrame.minY + 8, accuracy: 0.5)
     }
 
+    func testDetachedFolderPanelFollowsAncestorFrameChanges() {
+        _ = NSApplication.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 40, y: 40, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 180))
+        window.contentView = container
+
+        let titlebarHost = NSView(frame: NSRect(x: 24, y: 0, width: 180, height: 180))
+        container.addSubview(titlebarHost)
+        defer { titlebarHost.removeFromSuperview() }
+
+        let hostView = DetachedFolderDragIconHostView(directory: NSTemporaryDirectory())
+        hostView.frame = NSRect(
+            x: 12,
+            y: 120,
+            width: TitlebarFolderIconMetrics.iconSize,
+            height: TitlebarFolderIconMetrics.iconSize
+        )
+        titlebarHost.addSubview(hostView)
+        defer { hostView.removeFromSuperview() }
+
+        hostView.syncDetachedIcon()
+        guard let initialFrame = hostView.detachedIconFrameForTesting else {
+            XCTFail("Expected detached folder panel to be created")
+            return
+        }
+
+        titlebarHost.setFrameOrigin(NSPoint(x: 96, y: 0))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+
+        guard let movedFrame = hostView.detachedIconFrameForTesting else {
+            XCTFail("Expected detached folder panel to remain attached")
+            return
+        }
+        XCTAssertEqual(
+            movedFrame.minX,
+            initialFrame.minX + 72,
+            accuracy: 0.5,
+            "The detached panel must follow converted window coordinates when a sidebar toggle moves an ancestor view without changing the host view's local frame."
+        )
+        XCTAssertEqual(movedFrame.minY, initialFrame.minY, accuracy: 0.5)
+    }
+
     func testFolderHitTestReturnsContainerWhenInsideBounds() {
         let folderView = DraggableFolderNSView(directory: "/tmp")
         folderView.frame = NSRect(x: 0, y: 0, width: 16, height: 16)
