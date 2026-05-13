@@ -2835,13 +2835,8 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             Array(90 ..< 100)
         )
 
-        NotificationCenter.default.post(
-            name: .ghosttyDidUpdateScrollbar,
-            object: surfaceView,
-            userInfo: [
-                GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 40, len: 10),
-                GhosttyNotificationKey.scrollbarWasKeyboardInitiated: true,
-            ]
+        surfaceView.debugEnqueueScrollbarUpdateAfterKeyboardScrollIntent(
+            makeScrollbar(total: 100, offset: 40, len: 10)
         )
         RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         XCTAssertEqual(scrollView.contentView.bounds.origin.y, 500, accuracy: 0.01)
@@ -2853,13 +2848,8 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             "Keyboard backscroll should not stamp rows the user manually revealed"
         )
 
-        NotificationCenter.default.post(
-            name: .ghosttyDidUpdateScrollbar,
-            object: surfaceView,
-            userInfo: [
-                GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 30, len: 10),
-                GhosttyNotificationKey.scrollbarWasKeyboardInitiated: true,
-            ]
+        surfaceView.debugEnqueueScrollbarUpdateAfterKeyboardScrollIntent(
+            makeScrollbar(total: 100, offset: 30, len: 10)
         )
         RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         XCTAssertEqual(

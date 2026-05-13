@@ -3848,7 +3848,7 @@ class GhosttyApp {
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
             surfaceView.enqueueScrollbarUpdate(
                 scrollbar,
-                wasKeyboardInitiated: surfaceView.isHandlingKeyboardInitiatedScrollAction()
+                wasKeyboardInitiated: surfaceView.consumeKeyboardInitiatedScrollAction()
             )
             return true
         case GHOSTTY_ACTION_CELL_SIZE:
@@ -6111,7 +6111,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     weak var terminalSurface: TerminalSurface?
-    private static let keyboardInitiatedScrollActionDepthKey = "cmux.keyboardInitiatedScrollActionDepth"
     var scrollbar: GhosttyScrollbar?
     /// Pending scrollbar value written from the action callback thread;
     /// read and cleared on the main thread by `flushPendingScrollbar()`.
@@ -6120,6 +6119,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var _pendingScrollbar: GhosttyScrollbar?
     private var _pendingScrollbarWasKeyboardInitiated = false
     private var _scrollbarFlushScheduled = false
+    private var _pendingKeyboardInitiatedScrollAction = false
+    private var _keyboardInitiatedScrollActionDepth = 0
     private let _scrollbarLock = NSLock()
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
@@ -6167,23 +6168,27 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func beginKeyboardInitiatedScrollAction() {
-        let dictionary = Thread.current.threadDictionary
-        let currentDepth = dictionary[Self.keyboardInitiatedScrollActionDepthKey] as? Int ?? 0
-        dictionary[Self.keyboardInitiatedScrollActionDepthKey] = currentDepth + 1
+        _scrollbarLock.lock()
+        _keyboardInitiatedScrollActionDepth += 1
+        _pendingKeyboardInitiatedScrollAction = true
+        _scrollbarLock.unlock()
     }
 
     private func endKeyboardInitiatedScrollAction() {
-        let dictionary = Thread.current.threadDictionary
-        let currentDepth = dictionary[Self.keyboardInitiatedScrollActionDepthKey] as? Int ?? 0
-        if currentDepth <= 1 {
-            dictionary.removeObject(forKey: Self.keyboardInitiatedScrollActionDepthKey)
-        } else {
-            dictionary[Self.keyboardInitiatedScrollActionDepthKey] = currentDepth - 1
-        }
+        _scrollbarLock.lock()
+        _keyboardInitiatedScrollActionDepth = max(0, _keyboardInitiatedScrollActionDepth - 1)
+        _scrollbarLock.unlock()
     }
 
-    func isHandlingKeyboardInitiatedScrollAction() -> Bool {
-        (Thread.current.threadDictionary[Self.keyboardInitiatedScrollActionDepthKey] as? Int ?? 0) > 0
+    func consumeKeyboardInitiatedScrollAction() -> Bool {
+        _scrollbarLock.lock()
+        defer { _scrollbarLock.unlock() }
+        let wasKeyboardInitiated =
+            _keyboardInitiatedScrollActionDepth > 0 || _pendingKeyboardInitiatedScrollAction
+        if wasKeyboardInitiated {
+            _pendingKeyboardInitiatedScrollAction = false
+        }
+        return wasKeyboardInitiated
     }
 
     private func withKeyboardInitiatedScrollAction<T>(_ body: () -> T) -> T {
@@ -6191,6 +6196,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         defer { endKeyboardInitiatedScrollAction() }
         return body()
     }
+
+#if DEBUG
+    func debugEnqueueScrollbarUpdateAfterKeyboardScrollIntent(_ newValue: GhosttyScrollbar) {
+        beginKeyboardInitiatedScrollAction()
+        endKeyboardInitiatedScrollAction()
+        enqueueScrollbarUpdate(newValue, wasKeyboardInitiated: consumeKeyboardInitiatedScrollAction())
+    }
+#endif
 
     var desiredFocus: Bool = false
     var suppressingReparentFocus: Bool = false
@@ -7421,6 +7434,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         performKeyEquivalent(with: event, shouldRetryMainMenu: false)
     }
 
+    private func keyEventMayTriggerKeyboardScrollAction(_ event: NSEvent) -> Bool {
+        let flags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
+        guard !flags.contains(.command) else { return false }
+        switch Int(event.keyCode) {
+        case kVK_PageUp, kVK_PageDown:
+            return true
+        default:
+            return false
+        }
+    }
+
     private func performKeyEquivalent(with event: NSEvent, shouldRetryMainMenu: Bool) -> Bool {
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
@@ -7668,8 +7692,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
 #endif
 
-        beginKeyboardInitiatedScrollAction()
-        defer { endKeyboardInitiatedScrollAction() }
+        let shouldTrackKeyboardScrollAction = keyEventMayTriggerKeyboardScrollAction(event)
+        if shouldTrackKeyboardScrollAction {
+            beginKeyboardInitiatedScrollAction()
+        }
+        defer {
+            if shouldTrackKeyboardScrollAction {
+                endKeyboardInitiatedScrollAction()
+            }
+        }
 
         // Fast path for control-modified terminal input (for example Ctrl+D).
         //
