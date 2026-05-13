@@ -15397,6 +15397,7 @@ class TerminalController {
     }
 
     private struct RoutedTerminalInputResult {
+        let accepted: Bool
         let queued: Bool
         let shouldForceRefresh: Bool
     }
@@ -15405,6 +15406,7 @@ class TerminalController {
         let hasSurface = terminalPanel.surface.surface != nil
         let acceptedInput = terminalPanel.surface.sendInput(text)
         return RoutedTerminalInputResult(
+            accepted: acceptedInput,
             queued: !hasSurface && acceptedInput,
             shouldForceRefresh: hasSurface && acceptedInput
         )
@@ -15434,7 +15436,7 @@ class TerminalController {
             if routed.shouldForceRefresh {
                 terminalPanel.surface.forceRefresh(reason: "terminalController.sendInput")
             }
-            success = true
+            success = routed.accepted
         }
         if let error { return error }
         return success ? "OK" : "ERROR: Failed to send input"
@@ -15539,6 +15541,9 @@ class TerminalController {
         var success = false
         v2MainSync {
             guard let terminalPanel = resolveTerminalPanel(from: target, tabManager: tabManager) else { return }
+            if terminalPanel.surface.surface == nil {
+                _ = waitForTerminalSurface(terminalPanel, waitUpTo: 2.0)
+            }
 
             let unescaped = text
                 .replacingOccurrences(of: "\\n", with: "\r")
@@ -15549,7 +15554,7 @@ class TerminalController {
             if routed.shouldForceRefresh {
                 terminalPanel.surface.forceRefresh(reason: "terminalController.sendInputToSurface")
             }
-            success = true
+            success = routed.accepted
         }
 
         return success ? "OK" : "ERROR: Failed to send input"
