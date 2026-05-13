@@ -9887,8 +9887,9 @@ final class Workspace: Identifiable, ObservableObject {
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + Self.sidebarLogFlushDelay)
         timer.setEventHandler { [weak self] in
-            Task { @MainActor in
-                self?.flushPendingSidebarLogEntries()
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                self.flushPendingSidebarLogEntries()
             }
         }
         sidebarLogFlushTimer = timer
