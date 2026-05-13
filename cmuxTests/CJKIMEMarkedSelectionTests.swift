@@ -103,7 +103,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
     }
 
     private var pinyinNonCandidateCommandProbeNames: Set<String> {
-        ["Home", "End"]
+        ["Home", "End", "Space"]
     }
 
     private var zhuyinCandidateCommandProbeNames: Set<String> {
