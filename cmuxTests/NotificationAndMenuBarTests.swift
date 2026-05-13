@@ -118,6 +118,43 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
         XCTAssertEqual(envelope.stop, true)
     }
 
+    func testPartialEffectsPatchPreservesOmittedExistingFlags() async throws {
+        var effects = TerminalNotificationPolicyEffects()
+        effects.sound = false
+        effects.command = false
+        let envelope = TerminalNotificationPolicyEnvelope(
+            notification: TerminalNotificationPolicyPayload(
+                workspaceId: UUID().uuidString,
+                surfaceId: nil,
+                title: "Title",
+                subtitle: "Subtitle",
+                body: "Body"
+            ),
+            context: TerminalNotificationPolicyContext(
+                cwd: FileManager.default.temporaryDirectory.path,
+                configPath: nil,
+                hookId: nil,
+                appFocused: false,
+                focusedPanel: false
+            ),
+            effects: effects
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "partial",
+            command: #"printf '{"effects":{"desktop":false}}'"#,
+            timeoutSeconds: 5,
+            sourcePath: nil,
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+
+        let result = await TerminalNotificationPolicyEngine.evaluate(envelope: envelope, hooks: [hook])
+        let patched = try result.get()
+        XCTAssertFalse(patched.effects.desktop)
+        XCTAssertFalse(patched.effects.sound)
+        XCTAssertFalse(patched.effects.command)
+        XCTAssertTrue(patched.effects.record)
+    }
+
     func testHookFailureReturnsFailureForDefaultFallback() async throws {
         let request = TerminalNotificationPolicyRequest(
             tabId: UUID(),

@@ -51,6 +51,42 @@ struct TerminalNotificationPolicyEffects: Codable, Sendable, Equatable {
     }
 }
 
+private struct TerminalNotificationPolicyEffectsPatch: Decodable {
+    var record: Bool?
+    var markUnread: Bool?
+    var reorderWorkspace: Bool?
+    var desktop: Bool?
+    var sound: Bool?
+    var command: Bool?
+    var paneFlash: Bool?
+
+    func merged(into effects: TerminalNotificationPolicyEffects) -> TerminalNotificationPolicyEffects {
+        var merged = effects
+        if let record {
+            merged.record = record
+        }
+        if let markUnread {
+            merged.markUnread = markUnread
+        }
+        if let reorderWorkspace {
+            merged.reorderWorkspace = reorderWorkspace
+        }
+        if let desktop {
+            merged.desktop = desktop
+        }
+        if let sound {
+            merged.sound = sound
+        }
+        if let command {
+            merged.command = command
+        }
+        if let paneFlash {
+            merged.paneFlash = paneFlash
+        }
+        return merged
+    }
+}
+
 struct TerminalNotificationPolicyEnvelope: Codable, Sendable, Equatable {
     var version: Int = 1
     var notification: TerminalNotificationPolicyPayload
@@ -274,6 +310,10 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
     private let maxOutputBytes: Int
     private let queue = DispatchQueue(
         label: "com.cmuxterm.notification-hook.process.\(UUID().uuidString)",
+        qos: .utility
+    )
+    private let stdinWriteQueue = DispatchQueue(
+        label: "com.cmuxterm.notification-hook.stdin.\(UUID().uuidString)",
         qos: .utility
     )
     private let outputBuffer = NotificationHookPipeBuffer()
@@ -500,22 +540,27 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
 
     private func writeInputAndCloseStdin() {
         guard stdinWriteFD >= 0 else { return }
-        inputData.withUnsafeBytes { rawBuffer in
-            guard let baseAddress = rawBuffer.baseAddress else { return }
-            var offset = 0
-            while offset < inputData.count {
-                let written = write(stdinWriteFD, baseAddress.advanced(by: offset), inputData.count - offset)
-                if written > 0 {
-                    offset += Int(written)
-                    continue
+        let fileDescriptor = stdinWriteFD
+        let dataToWrite = inputData
+        stdinWriteFD = -1
+        stdinWriteQueue.async {
+            dataToWrite.withUnsafeBytes { rawBuffer in
+                guard let baseAddress = rawBuffer.baseAddress else { return }
+                var offset = 0
+                while offset < dataToWrite.count {
+                    let written = write(fileDescriptor, baseAddress.advanced(by: offset), dataToWrite.count - offset)
+                    if written > 0 {
+                        offset += Int(written)
+                        continue
+                    }
+                    if written == -1 && errno == EINTR {
+                        continue
+                    }
+                    break
                 }
-                if written == -1 && errno == EINTR {
-                    continue
-                }
-                break
             }
+            close(fileDescriptor)
         }
-        closeAndInvalidate(&stdinWriteFD)
     }
 
     private func timeoutReached() {
@@ -756,7 +801,7 @@ private struct TerminalNotificationPolicyEnvelopePatch: Decodable {
     var version: Int?
     var notification: TerminalNotificationPolicyPayload?
     var context: TerminalNotificationPolicyContext?
-    var effects: TerminalNotificationPolicyEffects?
+    var effects: TerminalNotificationPolicyEffectsPatch?
     var stop: Bool?
 
     func merged(into envelope: TerminalNotificationPolicyEnvelope) -> TerminalNotificationPolicyEnvelope {
@@ -764,7 +809,7 @@ private struct TerminalNotificationPolicyEnvelopePatch: Decodable {
             version: version ?? envelope.version,
             notification: notification ?? envelope.notification,
             context: context ?? envelope.context,
-            effects: effects ?? envelope.effects,
+            effects: effects?.merged(into: envelope.effects) ?? envelope.effects,
             stop: stop ?? envelope.stop
         )
     }

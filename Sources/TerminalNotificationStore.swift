@@ -750,8 +750,14 @@ final class TerminalNotificationStore: ObservableObject {
         effects in
         store.playSuppressedNotificationFeedback(for: notification, effects: effects)
     }
+    private struct NotificationHookFailureThrottleKey: Hashable {
+        let hookId: String
+        let sourcePath: String?
+    }
+
+    private static let notificationHookFailureThrottle: TimeInterval = 300
     private var lastNotificationDateByCooldownKey: [String: Date] = [:]
-    private var lastNotificationHookFailureDateByKey: [String: Date] = [:]
+    private var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
     private var indexes = NotificationIndexes()
 
     private init() {
@@ -1264,13 +1270,13 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func reportNotificationHookFailure(_ failure: TerminalNotificationPolicyFailure) {
-        let key = [
-            failure.hookId,
-            failure.sourcePath ?? ""
-        ].joined(separator: "|")
+        let key = NotificationHookFailureThrottleKey(
+            hookId: failure.hookId,
+            sourcePath: failure.sourcePath
+        )
         let now = Date()
         if let lastDate = lastNotificationHookFailureDateByKey[key],
-           now.timeIntervalSince(lastDate) < 300 {
+           now.timeIntervalSince(lastDate) < Self.notificationHookFailureThrottle {
             return
         }
         lastNotificationHookFailureDateByKey[key] = now
@@ -1300,7 +1306,9 @@ final class TerminalNotificationStore: ObservableObject {
             )
             self.center.add(request) { error in
                 if let error {
-                    NSLog("Failed to schedule notification hook failure alert: \(error)")
+                    terminalNotificationLogger.error(
+                        "Failed to schedule notification hook failure alert error=\(error.localizedDescription, privacy: .private)"
+                    )
                 }
             }
         }
@@ -1540,12 +1548,20 @@ final class TerminalNotificationStore: ObservableObject {
         }
 
         ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized in
-            guard let self, authorized else { return }
-
+            guard let self else { return }
             let content = UNMutableNotificationContent()
             content.title = self.resolvedNotificationTitle(for: notification)
             content.subtitle = notification.subtitle
             content.body = notification.body
+            guard authorized else {
+                self.playLocalNotificationFeedback(
+                    title: content.title,
+                    subtitle: content.subtitle,
+                    body: content.body,
+                    effects: effects
+                )
+                return
+            }
             content.sound = effects.sound ? NotificationSoundSettings.sound() : nil
             content.categoryIdentifier = Self.categoryIdentifier
             content.userInfo = [
@@ -1564,7 +1580,17 @@ final class TerminalNotificationStore: ObservableObject {
 
             self.center.add(request) { error in
                 if let error {
-                    NSLog("Failed to schedule notification: \(error)")
+                    terminalNotificationLogger.error(
+                        "Failed to schedule notification error=\(error.localizedDescription, privacy: .private)"
+                    )
+                    Task { @MainActor [weak self] in
+                        self?.playLocalNotificationFeedback(
+                            title: content.title,
+                            subtitle: content.subtitle,
+                            body: content.body,
+                            effects: effects
+                        )
+                    }
                 } else if effects.command {
                     NotificationSoundSettings.runCustomCommand(
                         title: content.title,

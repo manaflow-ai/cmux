@@ -1914,6 +1914,8 @@ final class CmuxConfigStore: ObservableObject {
     private var localFileWatchSource: DispatchSourceFileSystemObject?
     private var localFileDescriptor: Int32 = -1
     private var localConfigSearchDirectory: String?
+    private var localHookFileWatchSources: [String: DispatchSourceFileSystemObject] = [:]
+    private var localHookFileDescriptors: [String: Int32] = [:]
     private var localFallbackDirectoryWatchSource: DispatchSourceFileSystemObject?
     private var localFallbackDirectoryDescriptor: Int32 = -1
     private var globalFileWatchSource: DispatchSourceFileSystemObject?
@@ -1961,6 +1963,9 @@ final class CmuxConfigStore: ObservableObject {
 
     deinit {
         localFileWatchSource?.cancel()
+        for source in localHookFileWatchSources.values {
+            source.cancel()
+        }
         localFallbackDirectoryWatchSource?.cancel()
         globalFileWatchSource?.cancel()
     }
@@ -2253,6 +2258,12 @@ final class CmuxConfigStore: ObservableObject {
         }
         issues.append(contentsOf: resolvedNewWorkspaceContextMenuItems.issues)
         configurationIssues = issues
+        if fileWatchingEnabled {
+            updateLocalHookFileWatchers(
+                paths: localHookPaths,
+                primaryLocalPath: localPath
+            )
+        }
         applySurfaceTabBarButtonsToCurrentManager()
         configRevision &+= 1
     }
@@ -2966,6 +2977,60 @@ final class CmuxConfigStore: ObservableObject {
         localFileWatchSource = source
     }
 
+    private func updateLocalHookFileWatchers(
+        paths: [String],
+        primaryLocalPath: String?
+    ) {
+        let desiredPaths = Set(paths.filter { path in
+            path != primaryLocalPath && FileManager.default.fileExists(atPath: path)
+        })
+        for path in Array(localHookFileWatchSources.keys) where !desiredPaths.contains(path) {
+            stopLocalHookFileWatcher(at: path)
+        }
+        for path in desiredPaths where localHookFileWatchSources[path] == nil {
+            startLocalHookFileWatcher(at: path)
+        }
+    }
+
+    private func startLocalHookFileWatcher(at path: String) {
+        let fd = open(path, O_EVTONLY)
+        guard fd >= 0 else { return }
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .delete, .rename, .extend],
+            queue: watchQueue
+        )
+        source.setEventHandler { [weak self] in
+            guard let self else { return }
+            let flags = source.data
+            DispatchQueue.main.async {
+                if flags.contains(.delete) || flags.contains(.rename) {
+                    self.stopLocalHookFileWatcher(at: path)
+                }
+                self.loadAll()
+            }
+        }
+        source.setCancelHandler {
+            Darwin.close(fd)
+        }
+        source.resume()
+        localHookFileWatchSources[path] = source
+        localHookFileDescriptors[path] = fd
+    }
+
+    private func stopLocalHookFileWatcher(at path: String) {
+        localHookFileWatchSources.removeValue(forKey: path)?.cancel()
+        localHookFileDescriptors.removeValue(forKey: path)
+    }
+
+    private func stopLocalHookFileWatchers() {
+        for source in localHookFileWatchSources.values {
+            source.cancel()
+        }
+        localHookFileWatchSources.removeAll()
+        localHookFileDescriptors.removeAll()
+    }
+
     private func startLocalDirectoryWatcher() {
         guard let path = localConfigPath else { return }
         let configDirectory = (path as NSString).deletingLastPathComponent
@@ -3057,6 +3122,7 @@ final class CmuxConfigStore: ObservableObject {
             source.cancel()
             localFileWatchSource = nil
         }
+        stopLocalHookFileWatchers()
         if let source = localFallbackDirectoryWatchSource {
             source.cancel()
             localFallbackDirectoryWatchSource = nil
