@@ -589,11 +589,7 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
-        guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !rawValue.isEmpty else {
-            return nil
-        }
-        return rawValue
+        normalizedNonEmptyValue(rawValue)
     }
 
     private static func hookRecordStillBelongsToLiveAgent(
@@ -635,6 +631,10 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     private static func normalizedProcessValue(_ value: String?) -> String? {
+        normalizedNonEmptyValue(value)
+    }
+
+    private static func normalizedNonEmptyValue(_ value: String?) -> String? {
         guard let rawValue = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawValue.isEmpty else {
             return nil
