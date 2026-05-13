@@ -1274,6 +1274,24 @@ func TestCLIBrowserFixedArityRejectsExtraPositionals(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserRejectsJoinLastExtraPositionalsWhenFlagPrefillsKey(t *testing.T) {
+	t.Setenv("CMUX_SOCKET_PATH", "")
+	t.Setenv("HOME", t.TempDir())
+
+	var code int
+	output := captureStderr(t, func() {
+		code = runCLI([]string{
+			"browser", "surface:2", "addstyle", "--style", "body { color: red; }", "extra",
+		})
+	})
+	if code != 2 {
+		t.Fatalf("browser join-last command with prefilled key and extra positional should return 2, got %d", code)
+	}
+	if !strings.Contains(output, `cmux browser: unrecognized extra positional argument "extra"`) {
+		t.Fatalf("expected extra positional error, got %q", output)
+	}
+}
+
 func TestCLIBrowserTabBareSignTargetDoesNotBecomeIndex(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	code := runCLI([]string{
@@ -1301,6 +1319,36 @@ func TestCLIBrowserTabBareSignTargetDoesNotBecomeIndex(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for browser tab switch request")
+	}
+}
+
+func TestCLIBrowserMultiWordCommandIgnoresInterleavedShortFlag(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "surface:2", "get", "-y", "text", "#submit",
+	})
+	if code != 0 {
+		t.Fatalf("browser get text with interleaved short flag should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.get.text" {
+			t.Fatalf("expected browser.get.text, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "surface:2" {
+			t.Fatalf("expected surface_id surface:2, got %v", got)
+		}
+		if got := params["selector"]; got != "#submit" {
+			t.Fatalf("expected selector #submit, got %v", got)
+		}
+		if got := params["yes"]; got != true {
+			t.Fatalf("expected yes=true, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser get text request")
 	}
 }
 

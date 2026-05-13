@@ -515,7 +515,7 @@ func buildBrowserRelayRequest(args []string) (browserCommandSpec, map[string]any
 		break
 	}
 
-	commandKey, spec, consumed, ok := resolveBrowserCommand(args)
+	commandKey, spec, consumed, interleavedFlags, ok := resolveBrowserCommand(args)
 	if !ok {
 		if len(args) == 0 {
 			return browserCommandSpec{}, nil, browserParsedArgs{}, fmt.Errorf("requires a subcommand (%s)", browserSubcommandHint())
@@ -523,7 +523,11 @@ func buildBrowserRelayRequest(args []string) (browserCommandSpec, map[string]any
 		return browserCommandSpec{}, nil, browserParsedArgs{}, fmt.Errorf("unknown subcommand %q", args[0])
 	}
 
-	parsed, err := parseBrowserArgs(args[consumed:])
+	parseArgs := args[consumed:]
+	if len(interleavedFlags) > 0 {
+		parseArgs = append(append([]string{}, interleavedFlags...), parseArgs...)
+	}
+	parsed, err := parseBrowserArgs(parseArgs)
 	if err != nil {
 		return browserCommandSpec{}, nil, browserParsedArgs{}, err
 	}
@@ -562,32 +566,46 @@ func buildBrowserRelayRequest(args []string) (browserCommandSpec, map[string]any
 	return spec, params, parsed, nil
 }
 
-func resolveBrowserCommand(args []string) (string, browserCommandSpec, int, bool) {
+func resolveBrowserCommand(args []string) (string, browserCommandSpec, int, []string, bool) {
 	if len(args) == 0 {
-		return "", browserCommandSpec{}, 0, false
+		return "", browserCommandSpec{}, 0, nil, false
 	}
 	if normalizeBrowserToken(args[0]) == "tab" && len(args) > 1 {
 		second := normalizeBrowserToken(args[1])
 		if second != "new" && second != "list" && second != "switch" && second != "close" && (second == "-" || !strings.HasPrefix(second, "-")) {
 			spec := browserCommands["tab switch"]
-			return "tab switch", spec, 1, true
+			return "tab switch", spec, 1, nil, true
 		}
 	}
 
-	maxTokens := 0
-	for maxTokens < len(args) && maxTokens < 3 {
-		if strings.HasPrefix(args[maxTokens], "--") {
+	commandTokenIndices := make([]int, 0, 3)
+	for idx := 0; idx < len(args) && len(commandTokenIndices) < 3; idx++ {
+		if strings.HasPrefix(args[idx], "--") {
 			break
 		}
-		maxTokens++
+		if isBrowserShortBooleanFlag(args[idx]) {
+			continue
+		}
+		commandTokenIndices = append(commandTokenIndices, idx)
 	}
-	for count := maxTokens; count >= 1; count-- {
-		key := browserCommandKey(args[:count])
+	for count := len(commandTokenIndices); count >= 1; count-- {
+		tokens := make([]string, 0, count)
+		for _, idx := range commandTokenIndices[:count] {
+			tokens = append(tokens, args[idx])
+		}
+		key := browserCommandKey(tokens)
 		if spec, ok := browserCommands[key]; ok {
-			return key, spec, count, true
+			consumed := commandTokenIndices[count-1] + 1
+			interleavedFlags := make([]string, 0)
+			for _, arg := range args[:consumed] {
+				if isBrowserShortBooleanFlag(arg) {
+					interleavedFlags = append(interleavedFlags, arg)
+				}
+			}
+			return key, spec, consumed, interleavedFlags, true
 		}
 	}
-	return "", browserCommandSpec{}, 0, false
+	return "", browserCommandSpec{}, 0, nil, false
 }
 
 func browserCommandKey(tokens []string) string {
@@ -742,6 +760,7 @@ func applyBrowserPositionals(params map[string]any, positionals []string, spec b
 	}
 
 	positionalIndex := 0
+	joinedRemainingPositionals := false
 	for idx, key := range spec.positionalKeys {
 		if _, ok := params[key]; ok {
 			continue
@@ -752,11 +771,16 @@ func applyBrowserPositionals(params map[string]any, positionals []string, spec b
 		value := positionals[positionalIndex]
 		if spec.joinLast && idx == len(spec.positionalKeys)-1 {
 			value = strings.Join(positionals[positionalIndex:], " ")
+			joinedRemainingPositionals = true
 		}
 		params[key] = value
-		positionalIndex++
+		if joinedRemainingPositionals {
+			positionalIndex = len(positionals)
+		} else {
+			positionalIndex++
+		}
 	}
-	if !spec.joinLast && positionalIndex < len(positionals) {
+	if positionalIndex < len(positionals) && (!spec.joinLast || !joinedRemainingPositionals) {
 		return fmt.Errorf("unrecognized extra positional argument %q", positionals[positionalIndex])
 	}
 	return nil
