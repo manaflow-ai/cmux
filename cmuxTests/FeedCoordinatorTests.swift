@@ -83,6 +83,7 @@ final class FeedCoordinatorTests: XCTestCase {
                     decision: .permission(.once)
                 )
             }
+            FeedCoordinatorTestHooks.isAppActiveOverride = { false }
             FeedCoordinatorTestHooks.notificationPostObserver = { _, postedRequestId in
                 notifications.record(postedRequestId)
             }
@@ -138,6 +139,7 @@ final class FeedCoordinatorTests: XCTestCase {
         let reset: @Sendable () -> Void = {
             MainActor.assumeIsolated {
                 FeedCoordinatorTestHooks.afterBlockingEventIngested = nil
+                FeedCoordinatorTestHooks.isAppActiveOverride = nil
                 FeedCoordinatorTestHooks.notificationPostObserver = nil
             }
         }

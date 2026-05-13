@@ -249,6 +249,7 @@ private final class SnapshotSlot: @unchecked Sendable {
 @MainActor
 enum FeedCoordinatorTestHooks {
     static var afterBlockingEventIngested: (@Sendable (WorkstreamEvent, String) -> Void)?
+    static var isAppActiveOverride: (@Sendable () -> Bool)?
     static var notificationPostObserver: (@Sendable (WorkstreamEvent, String) -> Void)?
 }
 #endif
@@ -418,8 +419,14 @@ private extension FeedCoordinator {
                 return
             }
 
+            #if DEBUG
+            let isAppActive = FeedCoordinatorTestHooks.isAppActiveOverride?() ?? NSApp.isActive
+            #else
+            let isAppActive = NSApp.isActive
+            #endif
+
             // Don't pester users while the app is already up front.
-            if NSApp.isActive {
+            if isAppActive {
                 return
             }
 
@@ -580,39 +587,43 @@ private extension FeedCoordinator {
         )
 
         let center = UNUserNotificationCenter.current()
-        center.getNotificationSettings { [weak self] settings in
-            guard let self, self.isAwaitingDecision(requestId: requestId) else { return }
-            switch settings.authorizationStatus {
-            case .authorized, .provisional:
-                self.addNotificationIfStillAwaiting(
-                    center: center,
-                    request: request,
-                    requestId: requestId,
-                    effects: effects
-                )
-            case .notDetermined:
-                center.requestAuthorization(options: [.alert, .sound]) {
-                    [weak self] granted, _ in
-                    guard let self, self.isAwaitingDecision(requestId: requestId) else {
-                        return
+        center.getNotificationSettings { settings in
+            Task { @MainActor [weak self] in
+                guard let self, self.isAwaitingDecision(requestId: requestId) else { return }
+                switch settings.authorizationStatus {
+                case .authorized, .provisional:
+                    self.addNotificationIfStillAwaiting(
+                        center: center,
+                        request: request,
+                        requestId: requestId,
+                        effects: effects
+                    )
+                case .notDetermined:
+                    center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+                        Task { @MainActor [weak self] in
+                            guard let self, self.isAwaitingDecision(requestId: requestId) else {
+                                return
+                            }
+                            if granted {
+                                self.addNotificationIfStillAwaiting(
+                                    center: center,
+                                    request: request,
+                                    requestId: requestId,
+                                    effects: effects
+                                )
+                            } else {
+                                runFallbackEffectsIfStillAwaiting()
+                            }
+                        }
                     }
-                    if granted {
-                        self.addNotificationIfStillAwaiting(
-                            center: center,
-                            request: request,
-                            requestId: requestId,
-                            effects: effects
-                        )
-                    } else {
-                        runFallbackEffectsIfStillAwaiting()
-                    }
+                default:
+                    runFallbackEffectsIfStillAwaiting()
                 }
-            default:
-                runFallbackEffectsIfStillAwaiting()
             }
         }
     }
 
+    @MainActor
     func addNotificationIfStillAwaiting(
         center: UNUserNotificationCenter,
         request: UNNotificationRequest,
@@ -620,18 +631,20 @@ private extension FeedCoordinator {
         effects: TerminalNotificationPolicyEffects
     ) {
         guard isAwaitingDecision(requestId: requestId) else { return }
-        center.add(request) { [weak self] _ in
-            guard let self else { return }
-            if !self.isAwaitingDecision(requestId: requestId) {
-                self.cancelNotification(requestId: requestId)
-                return
-            }
-            if effects.command {
-                NotificationSoundSettings.runCustomCommand(
-                    title: request.content.title,
-                    subtitle: request.content.subtitle,
-                    body: request.content.body
-                )
+        center.add(request) { _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if !self.isAwaitingDecision(requestId: requestId) {
+                    self.cancelNotification(requestId: requestId)
+                    return
+                }
+                if effects.command {
+                    NotificationSoundSettings.runCustomCommand(
+                        title: request.content.title,
+                        subtitle: request.content.subtitle,
+                        body: request.content.body
+                    )
+                }
             }
         }
     }
