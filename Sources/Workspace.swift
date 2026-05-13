@@ -10084,8 +10084,7 @@ final class Workspace: Identifiable, ObservableObject {
         // pane's surface. The CEF path returns nil because callers of
         // ``newBrowserSplit`` expect a ``BrowserPanel`` (WKWebView) and
         // CEF-specific follow-up (extensions UI, devtools, etc.) is
-        // wired in later PRs. See
-        // ``Prototypes/cef-webview/notes/cmux-integration-plan.md``.
+        // wired in later PRs.
         if BrowserEngineKind.current == .cef && BrowserEngineKind.isCEFAvailable {
             _ = registerCEFBrowserSplit(
                 fromPaneId: paneId,

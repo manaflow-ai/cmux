@@ -384,6 +384,7 @@
 		E7E00000000000000000000D /* CmuxEventLogWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000E /* CmuxEventLogWriter.swift */; };
 		E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */; };
 		EEB483BBFDE329054E88832B /* CMUXCEF in Frameworks */ = {isa = PBXBuildFile; productRef = 8D3B18F693EFA3DAE0AE4484 /* CMUXCEF */; };
+		EEB483BCFDE329054E88832B /* cef.lock.json in Resources */ = {isa = PBXBuildFile; fileRef = EEB483BDFDE329054E88832B /* cef.lock.json */; };
 		F0F0A001A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F0A002A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift */; };
 		F17BFA55B144BA47B323AF58 /* CrApplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F54F562F65F5AFD65E23C2 /* CrApplication.swift */; };
 		F1A0C0DE0000000000000002 /* FindTextFieldSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A0C0DE0000000000000001 /* FindTextFieldSupport.swift */; };
@@ -637,6 +638,7 @@
 		A5001611 /* SessionPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistence.swift; sourceTree = "<group>"; };
 		A5001620 /* AppleScriptSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleScriptSupport.swift; sourceTree = "<group>"; };
 		A5001622 /* cmux.sdef */ = {isa = PBXFileReference; lastKnownFileType = text.sdef; path = cmux.sdef; sourceTree = "<group>"; };
+		EEB483BDFDE329054E88832B /* cef.lock.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = CEF/vendor/cef.lock.json; sourceTree = SOURCE_ROOT; };
 		A5001641 /* RemoteRelayZshBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteRelayZshBootstrap.swift; sourceTree = "<group>"; };
 		A5001651 /* CmuxConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfig.swift; sourceTree = "<group>"; };
 		A5001653 /* CmuxConfigExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigExecutor.swift; sourceTree = "<group>"; };
@@ -1691,6 +1693,7 @@
 				A5002000 /* THIRD_PARTY_LICENSES.md in Resources */,
 				DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */,
 				DA7A10CA710E000000000004 /* InfoPlist.xcstrings in Resources */,
+				EEB483BCFDE329054E88832B /* cef.lock.json in Resources */,
 				FEED0000000000000000F007 /* opencode-plugin.js in Resources */,
 				FEED0A00000000000000F007 /* feed-tui in Resources */,
 				A5001623 /* cmux.sdef in Resources */,
@@ -1735,7 +1738,6 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(BUILT_PRODUCTS_DIR)/$(EXECUTABLE_FOLDER_PATH)/../Frameworks/Chromium Embedded Framework.framework/Versions/A/Chromium Embedded Framework",
 				"$(BUILT_PRODUCTS_DIR)/$(EXECUTABLE_FOLDER_PATH)/../Frameworks/cmux Helper.app/Contents/MacOS/cmux Helper",
 				"$(BUILT_PRODUCTS_DIR)/$(EXECUTABLE_FOLDER_PATH)/../Frameworks/cmux Helper (GPU).app/Contents/MacOS/cmux Helper (GPU)",
 				"$(BUILT_PRODUCTS_DIR)/$(EXECUTABLE_FOLDER_PATH)/../Frameworks/cmux Helper (Renderer).app/Contents/MacOS/cmux Helper (Renderer)",

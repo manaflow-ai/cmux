@@ -11,7 +11,7 @@ Embedded Framework binary distribution lives here. **One place** decides
 | --- | --- |
 | `cef.lock.json` | Pinned CEF version + SHA1 + size + extracted directory name. The only authoritative source of "what CEF do we ship." |
 | `cef.lock.schema.json` | JSON Schema for the lockfile. Editors and CI should validate against this. |
-| `fetch_cef.sh` | Idempotent download + verify + extract + build wrapper. Safe to call from Xcode build phases and CI. |
+| `fetch_cef.sh` | Idempotent download + verify + extract + build wrapper. Called explicitly from `./scripts/setup.sh` and CI provisioning. |
 | `README.md` | This file. |
 
 ## Quick start
@@ -34,7 +34,7 @@ vendor/fetch_cef.sh --print-paths
 | Path | Notes |
 | --- | --- |
 | `~/Library/Caches/cmux-cef-vendor/<version>/<tarball>` | Per-developer cache. Survives `git clean`. CI uses `CEF_VENDOR_CACHE` to point at a cached artefact. |
-| `<DEST>/CEF/<extracted_dir>/` | The unpacked CEF distribution. `<DEST>` defaults to the prototype dir; the cmux build will point this at a per-build derived data path. |
+| `<DEST>/CEF/<extracted_dir>/` | The unpacked CEF distribution. `<DEST>` defaults to the repo's `CEF/` directory. |
 | `<DEST>/Frameworks/Chromium Embedded Framework.framework` | Re-laid-out, install-id-fixed, ad-hoc-sig-stripped framework. Ready to be re-signed by the cmux build with Developer ID. |
 | `<DEST>/Frameworks/libcef_dll_wrapper.a` | Static wrapper linked into the bridge. |
 | `<DEST>/Frameworks/include/` | CEF C++ headers. |
@@ -91,10 +91,8 @@ time. The lockfile is 0.5 KiB; that's what we version-control.
 | 4 | Network failure with no cache fallback. |
 | 5 | C++ wrapper build failed. |
 
-## Future moves
+## Source builds vs app runtime
 
-When this lands inside cmux proper, the layout is identical but the path
-changes from `Prototypes/cef-webview/vendor/` to `cef/` at the cmux repo
-root. The script reads `CEF_VENDOR_DEST` from the environment, which the
-cmux Xcode build phase sets to a per-configuration derived data path so
-the framework artefacts never pollute the source tree.
+Source checkouts need this SDK because SwiftPM compiles against the CEF headers
+and `libcef_dll_wrapper.a`. Installed cmux apps do not require users to run this
+script: the app downloads and verifies the pinned runtime on first CEF use.

@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://github.com/manaflow-ai/cmux/Prototypes/cef-webview/vendor/cef.lock.schema.json",
+  "$id": "https://github.com/manaflow-ai/cmux/CEF/vendor/cef.lock.schema.json",
   "title": "cmux CEF lockfile",
   "description": "Pinned CEF binary distribution metadata. Sole source of truth for which CEF cmux ships.",
   "type": "object",

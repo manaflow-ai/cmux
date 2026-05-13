@@ -277,6 +277,17 @@ Ways to get involved:
 - Create and participate in [GitHub issues](https://github.com/manaflow-ai/cmux/issues) and [discussions](https://github.com/manaflow-ai/cmux/discussions)
 - Let us know what you're building with cmux
 
+### Build from source
+
+```bash
+./scripts/setup.sh
+./scripts/reload.sh --tag local-dev
+```
+
+`setup.sh` initializes submodules, builds GhosttyKit, and provisions the CEF SDK
+needed for local source builds. The released app still downloads the optional
+Chromium runtime on first CEF use; end users do not need to run setup scripts.
+
 ## Community
 
 - [Discord](https://discord.gg/xsgFEVrWCZ)

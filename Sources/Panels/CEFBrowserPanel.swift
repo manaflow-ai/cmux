@@ -17,9 +17,7 @@ import CMUXCEF
 /// extensive WKWebView-specific behaviour (popups, find-in-page,
 /// `WKWebsiteDataStore`, telemetry hooks, etc.) is intentionally **not**
 /// duplicated here. WKWebView remains the default and the more
-/// feature-complete path. CEF parity work happens in follow-up PRs;
-/// see `Prototypes/cef-webview/notes/cmux-integration-plan.md`
-/// Steps 3–7.
+/// feature-complete path. CEF parity work happens in follow-up PRs.
 ///
 /// ## Compile-time behaviour
 ///
@@ -266,8 +264,10 @@ final class CEFBrowserPanel: BrowserEngineBackedPanel {
 
     func close() {
         #if canImport(CMUXCEF)
+        detachEmbeddableViewFromAppKit()
         browser?.close()
         browser = nil
+        activationRevision &+= 1
         #endif
     }
 
@@ -293,6 +293,20 @@ final class CEFBrowserPanel: BrowserEngineBackedPanel {
     }
 
     #if canImport(CMUXCEF)
+    private func detachEmbeddableViewFromAppKit() {
+        guard let view = browser?.embeddableView else { return }
+        if let window = view.window,
+           let firstResponderView = window.firstResponder as? NSView,
+           firstResponderView === view || firstResponderView.isDescendant(of: view)
+        {
+            window.makeFirstResponder(nil)
+        }
+        view.removeFromSuperview()
+        #if DEBUG
+        cmuxDebugLog("cef.panel.detachView panel=\(id.uuidString.prefix(5))")
+        #endif
+    }
+
     private func refreshNavigationState(
         from browser: CMUXCEF.CEFBrowser,
         fallbackURL: URL? = nil

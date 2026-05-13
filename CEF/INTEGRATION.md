@@ -1,150 +1,74 @@
-# Wiring CMUXCEF into the cmux Xcode project
+# CEF integration notes
 
-This is the manual checklist a human (or Xcode-aware agent) needs to run
-once to make cmux build with the bundled CEF browser engine. After this
-is done, `import CMUXCEF` works from any Swift file under `Sources/`,
-and the CEF helper apps + framework get embedded into the cmux.app
-bundle at build time.
+CEF is wired into `GhosttyTabs.xcodeproj` as a local Swift package named
+`CMUXCEF`. New browser panes can opt into it through the Debug menu browser
+engine selector; WKWebView remains the default.
 
-The CMUXCEF Swift package itself (this directory) is already self-
-contained. `swift build` succeeds from `CEF/` without touching the cmux
-Xcode project.
+## Source checkout setup
 
-## 1. Provision CEF binaries (one-off after a fresh checkout)
+Run the repo setup script from the root:
 
 ```bash
-cd CEF
-vendor/fetch_cef.sh
+./scripts/setup.sh
 ```
 
-This downloads `cef_binary_146.0.10+g8219561+chromium-146.0.7680.179_macosarm64.tar.bz2`
-(~270 MiB), verifies its SHA1 against `cef.lock.json`, extracts under
-`CEF/CEF/`, builds the C++ wrapper, and lays out
-`CEF/Frameworks/Chromium Embedded Framework.framework` + helpers.
+That script:
 
-The downloads are cached at `~/Library/Caches/cmux-cef-vendor/` so
-subsequent runs are fast / offline-safe.
+1. Initializes submodules.
+2. Builds GhosttyKit.
+3. Runs `CEF/vendor/fetch_cef.sh` to provision the CEF SDK used by SwiftPM and
+   the helper build.
 
-## 2. Add CMUXCEF as a local Swift Package dependency
+The CEF SDK step downloads the pinned tarball from `vendor/cef.lock.json`,
+verifies size and SHA1, extracts it under `CEF/CEF/`, builds
+`libcef_dll_wrapper.a`, and populates `CEF/Frameworks/`.
 
-In `GhosttyTabs.xcodeproj` → Project → Package Dependencies:
+## Xcode build behavior
 
-- Click **+** → **Add Local…**
-- Navigate to `cmux/cef` and add the package.
-- Add the **CMUXCEF** library to the `cmux` target's
-  "Frameworks, Libraries, and Embedded Content".
+The `Embed CEF` build phase runs `CEF/Scripts/embed_cef_into_cmux.sh`.
 
-`CMUXCEFHelper` and `CMUXCEFHelperRenderer` are exposed as executable
-products of the same package — they will be needed by Step 4.
+The build phase does not download the SDK. If `CEF/Frameworks/` is missing, it
+fails with an explicit setup message. This keeps large network downloads in
+`./scripts/setup.sh` instead of hiding them inside a regular Xcode build.
 
-## 3. "Fetch CEF" build phase
-
-On the `cmux` target → Build Phases, add a new **Run Script Phase**
-above the "Copy Bundle Resources" phase:
+By default the build phase embeds only the small helper apps. It removes any
+bundled `Chromium Embedded Framework.framework` so the app can start without a
+large local runtime. CI or release experiments can opt into bundling the
+framework with:
 
 ```bash
-"${SRCROOT}/CEF/vendor/fetch_cef.sh"
+CMUX_EMBED_CEF_FRAMEWORK=1 ./scripts/reload.sh --tag cef-bundled
 ```
 
-Input files: `$(SRCROOT)/CEF/vendor/cef.lock.json`
-Output files: `$(SRCROOT)/CEF/Frameworks/Chromium Embedded Framework.framework/Versions/A/Chromium Embedded Framework`
+## App runtime behavior
 
-This makes Xcode rerun the fetch only when the lockfile changes.
+When CEF is selected from `Debug > Browser Engine` and no runtime is installed,
+cmux asks the user for confirmation, downloads the pinned runtime, verifies the
+size and SHA1, installs it under Application Support, and starts CEF from that
+installed framework. If install or startup fails, cmux leaves WKWebView
+available.
 
-## 4. Embed the CEF framework + helper apps
+The installed runtime is keyed by the app bundle ID, so tagged debug builds are
+isolated from each other. A given app bundle ID reuses the runtime on subsequent
+launches.
 
-Add another Run Script Phase **after** "Compile Sources" and **before**
-"Embed Frameworks":
+## Signing and entitlements
+
+Debug builds use `Resources/cmux.debug.entitlements`. Helper apps get the JIT
+and executable-memory entitlements needed by Chromium; development-only helper
+entitlements such as `get-task-allow` are added only for Debug helper builds.
+
+Release builds use `Resources/cmux.entitlements`. Do not add debug-only
+entitlements to the release file.
+
+## Verification
+
+Use a tagged debug build:
 
 ```bash
-set -euo pipefail
-FRAMEWORKS_DIR="${BUILT_PRODUCTS_DIR}/${EXECUTABLE_FOLDER_PATH}/../Frameworks"
-mkdir -p "${FRAMEWORKS_DIR}"
-
-# 1. Framework
-rsync -a --delete \
-  "${SRCROOT}/CEF/Frameworks/Chromium Embedded Framework.framework" \
-  "${FRAMEWORKS_DIR}/"
-
-# 2. Build SPM helper executables for the cmux configuration.
-SWIFT_CFG=$(echo "${CONFIGURATION}" | tr '[:upper:]' '[:lower:]')
-case "${SWIFT_CFG}" in
-  debug|release) ;;
-  *) SWIFT_CFG="debug" ;;
-esac
-
-(cd "${SRCROOT}/CEF" && xcrun swift build -c "${SWIFT_CFG}" \
-  --product CMUXCEFHelper --product CMUXCEFHelperRenderer)
-
-ARCH="$(uname -m)"
-BUILD_BIN="${SRCROOT}/CEF/.build/${ARCH}-apple-macosx/${SWIFT_CFG}"
-
-# 3. Wrap helpers into the .app bundles that CEF expects.
-"${SRCROOT}/CEF/Scripts/embed_helpers_into_bundle.sh" \
-  "${BUILD_BIN}/CMUXCEFHelper" \
-  "${BUILD_BIN}/CMUXCEFHelperRenderer" \
-  "${FRAMEWORKS_DIR}"
+./scripts/reload.sh --tag cef-dev
 ```
 
-`Scripts/embed_helpers_into_bundle.sh` is a thin wrapper around the
-prototype's `Sources/WebView/Scripts/embed_cef_helpers.sh` adapted to
-this layout — I will land that script once the build phase is in place.
-
-## 5. Entitlements
-
-The browser-process target (cmux) and the helper apps all need V8 JIT
-and unsigned executable memory. Add to **cmux.entitlements**:
-
-```xml
-<key>com.apple.security.cs.allow-jit</key>
-<true/>
-<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
-<true/>
-```
-
-For **debug builds only** (cmux.entitlements is shared) the CEF
-framework is ad-hoc signed by `vendor/fetch_cef.sh`, so library
-validation has to be relaxed:
-
-```xml
-<key>com.apple.security.cs.disable-library-validation</key>
-<true/>
-```
-
-Production builds re-sign CEF with the cmux Developer ID; the
-`disable-library-validation` entitlement is removed from the release
-entitlements file.
-
-Helper apps get their own entitlements plist with the same three
-entries plus `get-task-allow` for dev builds. The embed script in
-Step 4 writes that plist.
-
-## 6. Verify
-
-```bash
-./scripts/reload.sh --tag cef-feature
-```
-
-Should build cleanly. Launch the resulting `cmux DEV cef-feature.app`
-— it boots normally because the CEF code path is gated behind a
-feature flag and the flag is off by default. The build success is the
-acceptance criterion for this step.
-
-## 7. Flip the flag and write `CEFBrowserPanel`
-
-That's Step 3 of `Prototypes/cef-webview/notes/cmux-integration-plan.md`
-and is done in a follow-up PR.
-
----
-
-## Why this is split out
-
-`project.pbxproj` is brittle; editing it via text manipulation breaks
-the project file in subtle ways that only surface when Xcode tries to
-parse it. The five edits above are simpler to do in Xcode's UI than to
-script, so the integration is documented as a checklist rather than
-applied automatically.
-
-The CMUXCEF package itself is fully self-sufficient (it builds with
-`swift build` from this directory). Everything else is "Xcode plumbing
-for embedding it inside cmux."
+Then launch the printed `.app`, switch `Debug > Browser Engine > CEF`, and
+confirm that the runtime progress window appears only on first use. Switching
+back to WKWebView should not remove the installed runtime.

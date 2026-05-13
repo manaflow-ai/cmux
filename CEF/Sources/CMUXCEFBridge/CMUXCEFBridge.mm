@@ -202,12 +202,6 @@ public:
         if (!command_line->HasSwitch("disable-gpu-compositing")) {
             command_line->AppendSwitch("disable-gpu-compositing");
         }
-        // Forward Chromium internal logs to stderr (which the app redirects
-        // to /tmp/cmux-cef-stderr.log in DEBUG). Default level only — keep
-        // VERBOSE off so the file doesn't blow up.
-        if (!command_line->HasSwitch("enable-logging")) {
-            command_line->AppendSwitchWithValue("enable-logging", "stderr");
-        }
     }
 
     // CefBrowserProcessHandler:
@@ -222,6 +216,13 @@ public:
     // (including helper-process Mojo bootstrap invitations) is gated on
     // this — no pump = wedged helpers = the 15s timeout we kept seeing.
     void OnScheduleMessagePumpWork(int64_t delay_ms) override {
+        static bool is_pumping_now = false;
+        if (delay_ms <= 0 && [NSThread isMainThread] && !is_pumping_now) {
+            is_pumping_now = true;
+            CefDoMessageLoopWork();
+            is_pumping_now = false;
+            return;
+        }
         dispatch_time_t when = (delay_ms <= 0)
             ? DISPATCH_TIME_NOW
             : dispatch_time(DISPATCH_TIME_NOW, delay_ms * NSEC_PER_MSEC);
@@ -526,7 +527,8 @@ private:
     // CefRequestContext destruction is async; we wait for the CEF UI thread
     // to drop it before nuking the cache dir.
     NSString *cachePath = [bridge.cachePath copy];
-    if ([name hasPrefix:@"isolated-"]) {
+    BOOL usesSharedDefaultCache = [[cachePath lastPathComponent] isEqualToString:@"Default"];
+    if ([name hasPrefix:@"isolated-"] && !usesSharedDefaultCache) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
             [[NSFileManager defaultManager] removeItemAtPath:cachePath error:nil];

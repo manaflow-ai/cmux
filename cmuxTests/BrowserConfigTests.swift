@@ -2850,6 +2850,83 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
 }
 
 
+final class CEFRuntimeInstallerTests: XCTestCase {
+    func testDescriptorBuildsPublicDownloadURLFromPinnedLockValues() {
+        let descriptor = CEFRuntimeDescriptor.current
+
+        XCTAssertEqual(
+            descriptor.downloadURL.absoluteString,
+            "https://cef-builds.spotifycdn.com/cef_binary_146.0.10+g8219561+chromium-146.0.7680.179_macosarm64.tar.bz2"
+        )
+        XCTAssertEqual(descriptor.tarballSHA1, "a483c800e506a592c63b60b36a12127eea3fc39f")
+        XCTAssertEqual(descriptor.tarballSizeBytes, 282_101_327)
+    }
+
+    func testDiskSpaceGateRequiresAtLeastRequestedBytes() {
+        XCTAssertTrue(CEFRuntimeInstaller.hasEnoughDiskSpace(available: 100, required: 100))
+        XCTAssertFalse(CEFRuntimeInstaller.hasEnoughDiskSpace(available: 99, required: 100))
+    }
+
+    func testVerifyTarballMetadataAcceptsMatchingSizeAndSHA1() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-cef-runtime-test-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fileURL = root.appendingPathComponent("cef-test.tar.bz2")
+        try Data("abc".utf8).write(to: fileURL)
+        let descriptor = CEFRuntimeDescriptor(
+            version: "test",
+            tarballName: "cef-test.tar.bz2",
+            tarballSHA1: "a9993e364706816aba3e25717850c26c9cd0d89d",
+            tarballSizeBytes: 3,
+            extractedDirectoryName: "cef-test",
+            sourceBaseURL: URL(string: "https://example.com/")!
+        )
+
+        XCTAssertNoThrow(
+            try CEFRuntimeInstaller.verifyTarballMetadata(fileURL: fileURL, descriptor: descriptor)
+        )
+    }
+
+    func testInstalledLocationRequiresFrameworkExecutable() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-cef-runtime-location-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let descriptor = CEFRuntimeDescriptor(
+            version: "test",
+            tarballName: "cef-test.tar.bz2",
+            tarballSHA1: "sha",
+            tarballSizeBytes: 1,
+            extractedDirectoryName: "cef-test",
+            sourceBaseURL: URL(string: "https://example.com/")!
+        )
+
+        XCTAssertNil(CEFRuntimeLocator.installedLocation(descriptor: descriptor, root: root))
+
+        let binary = root
+            .appendingPathComponent("test", isDirectory: true)
+            .appendingPathComponent("Frameworks", isDirectory: true)
+            .appendingPathComponent("Chromium Embedded Framework.framework", isDirectory: true)
+            .appendingPathComponent("Versions", isDirectory: true)
+            .appendingPathComponent("A", isDirectory: true)
+            .appendingPathComponent("Chromium Embedded Framework")
+        try FileManager.default.createDirectory(
+            at: binary.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("binary".utf8).write(to: binary)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
+
+        XCTAssertNotNil(CEFRuntimeLocator.installedLocation(descriptor: descriptor, root: root))
+    }
+}
+
+
 final class BrowserIMEKeyDownRoutingTests: XCTestCase {
     @MainActor
     func testWindowPerformKeyEquivalentDoesNotForwardReturnDuringMarkedTextComposition() {

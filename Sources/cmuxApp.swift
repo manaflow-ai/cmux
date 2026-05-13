@@ -19,6 +19,7 @@ struct cmuxApp: App {
     /// ``BrowserEngineKind`` for the trade-offs; toggle lives under
     /// **Debug → Browser Engine** in DEBUG builds.
     @AppStorage(BrowserEngineKind.userDefaultsKey) private var browserEngineRaw = BrowserEngineKind.default.rawValue
+    @StateObject private var cefRuntimeInstaller = CEFRuntimeInstaller.shared
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
 
@@ -323,14 +324,29 @@ struct cmuxApp: App {
                     ForEach(BrowserEngineKind.allCases, id: \.self) { kind in
                         let isCurrent = browserEngineRaw == kind.rawValue
                         let isAvailable = (kind != .cef) || BrowserEngineKind.isCEFAvailable
-                        Button(action: { browserEngineRaw = kind.rawValue }) {
+                        Button(action: {
+                            if kind == .cef {
+                                Task { @MainActor in
+                                    guard await cefRuntimeInstaller.ensureInstalledAfterUserConfirmation(
+                                        presentingWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                                    ) else { return }
+                                    browserEngineRaw = kind.rawValue
+                                }
+                            } else {
+                                browserEngineRaw = kind.rawValue
+                            }
+                        }) {
                             HStack {
                                 Image(systemName: isCurrent ? "checkmark" : "")
                                     .frame(width: 16)
-                                Text(kind.displayLabel)
+                                if kind == .cef, let status = cefRuntimeInstaller.menuStatusText {
+                                    Text("\(kind.displayLabel) (\(status))")
+                                } else {
+                                    Text(kind.displayLabel)
+                                }
                             }
                         }
-                        .disabled(!isAvailable)
+                        .disabled(!isAvailable || (kind == .cef && cefRuntimeInstaller.phase.isBusy))
                     }
                     if !BrowserEngineKind.isCEFAvailable {
                         Divider()

@@ -996,10 +996,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
         AppIconLaunchState.markDidFinishLaunching()
-        startCEFEngineIfNeeded()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
         } else {
+            #if DEBUG
+            if BrowserEngineKind.current == .cef, BrowserEngineKind.isCEFAvailable {
+                cmuxDebugLog("cef.startup.defer reason=launch")
+            }
+            #endif
             syncActivationPolicy()
         }
 

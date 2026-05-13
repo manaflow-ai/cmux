@@ -8,7 +8,7 @@
 // AppKit lay it out like any other pane.
 //
 // Run:
-//   cd Prototypes/cef-webview/cmux-cef
+//   cd CEF
 //   swift build --product CMUXCEFDemoApp
 //   ./Scripts/codesign_dev.sh
 //   .build/.../CMUXCEFDemoApp
@@ -73,9 +73,15 @@ final class DemoController: NSObject, NSSplitViewDelegate {
 
     func boot() {
         // CEF init
-        let support = try! FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask,
-            appropriateFor: nil, create: true)
+        let support: URL
+        do {
+            support = try FileManager.default.url(
+                for: .applicationSupportDirectory, in: .userDomainMask,
+                appropriateFor: nil, create: true)
+        } catch {
+            print("Failed to locate Application Support directory: \(error)")
+            exit(2)
+        }
         let root = support
             .appendingPathComponent("cmux-cef-demo", isDirectory: true)
             .appendingPathComponent("CEFRoot", isDirectory: true)

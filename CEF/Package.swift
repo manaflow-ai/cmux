@@ -1,8 +1,8 @@
 // swift-tools-version: 6.2
 //
 // CMUXCEF — cmux-owned Swift facade for embedding CEF Chrome runtime
-// browsers inside cmux. See DESIGN.md alongside this package for the
-// architectural decisions.
+// browsers inside cmux. See CEF/README.md and CEF/INTEGRATION.md for
+// the local build and app-runtime installation model.
 //
 // This package is intentionally **isolated**:
 //   * It depends only on the system AppKit / Foundation modules and on
@@ -14,13 +14,9 @@
 //     embedded helper .app bundles inside cmux.app/Contents/Frameworks/.
 //
 // The Frameworks/ directory layout consumed here is the one prepared by
-// `vendor/fetch_cef.sh`. Run that script before building this package.
-//
-// Path used here is relative to the package root and points at the
-// existing prototype Frameworks/ directory. When this package is moved
-// into cmux proper, the path moves with it (e.g. `../../../Frameworks`)
-// or — preferably — the cmux Xcode project sets `FRAMEWORK_SEARCH_PATHS`
-// / `LIBRARY_SEARCH_PATHS` and we drop the `.unsafeFlags` here.
+// `vendor/fetch_cef.sh`. `./scripts/setup.sh` runs it for cmux source
+// checkouts; installed cmux apps download the CEF runtime separately on
+// first CEF use.
 
 import Foundation
 import PackageDescription
@@ -64,18 +60,19 @@ let package = Package(
             ],
             linkerSettings: [
                 // Everything in one unsafeFlags block so the linker sees
-                // -L/-F BEFORE -l/-framework. `.linkedLibrary` /
+                // -L/-F before -l/-weak_framework. `.linkedLibrary` /
                 // `.linkedFramework` are not used because SwiftPM/Xcode
-                // do not preserve their position relative to unsafeFlags
-                // on the resulting link command, which made the linker
-                // skip libcef_dll_wrapper.a and import nothing from the
-                // Chromium framework.
+                // do not preserve their position relative to unsafeFlags.
                 .unsafeFlags([
                     "-L", cefFrameworksDir,
                     "-F", cefFrameworksDir,
-                    "-Xlinker", "-rpath", "-Xlinker", cefFrameworksDir,
                     "-lcef_dll_wrapper",
-                    "-framework", "Chromium Embedded Framework",
+                    // Keep the CEF framework weak-linked so cmux can launch
+                    // before the optional runtime has been installed. The
+                    // bridge calls cef_load_library() with the resolved
+                    // runtime path before touching CEF APIs.
+                    "-Xlinker", "-weak_framework",
+                    "-Xlinker", "Chromium Embedded Framework",
                 ]),
             ]
         ),

@@ -34,10 +34,11 @@ struct CEFBrowserPanelView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        .task {
+        .task(id: isVisibleInUI) {
             if addressText.isEmpty {
                 addressText = panel.addressBarDisplayString
             }
+            guard isVisibleInUI else { return }
             do {
                 try panel.activate()
             } catch {
@@ -266,6 +267,10 @@ private struct CEFContentRepresentable: NSViewRepresentable {
         container.cefPanel = panel
         container.adoptEmbeddableView(panel.embeddableView)
     }
+
+    static func dismantleNSView(_ container: CEFReparentContainerView, coordinator: ()) {
+        container.detachEmbeddableView()
+    }
 }
 
 /// Plain AppKit container that hosts the CEF `embeddableView` as a
@@ -328,6 +333,26 @@ private final class CEFReparentContainerView: NSView {
         cmuxDebugLog("cef.view.reparent panel=\(cefPanel?.id.uuidString.prefix(5) ?? "?") frame=\(bounds)")
         #endif
         syncCEFCoordinates()
+    }
+
+    func detachEmbeddableView() {
+        teardownObservers()
+        guard let view = adoptedCEFView else {
+            cefPanel = nil
+            return
+        }
+        if let window = view.window,
+           let firstResponderView = window.firstResponder as? NSView,
+           firstResponderView === view || firstResponderView.isDescendant(of: view)
+        {
+            window.makeFirstResponder(nil)
+        }
+        view.removeFromSuperview()
+        adoptedCEFView = nil
+        cefPanel = nil
+        #if DEBUG
+        cmuxDebugLog("cef.view.detach")
+        #endif
     }
 
     #if DEBUG

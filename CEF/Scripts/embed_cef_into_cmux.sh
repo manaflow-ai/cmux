@@ -12,16 +12,25 @@ FRAMEWORK_SRC="${CEF_ROOT}/Frameworks/Chromium Embedded Framework.framework"
 FW_DIR="${BUILT_PRODUCTS_DIR}/${EXECUTABLE_FOLDER_PATH}/../Frameworks"
 
 if [[ ! -d "${FRAMEWORK_SRC}" ]]; then
-  echo "warning: CEF framework not provisioned at ${FRAMEWORK_SRC}; running fetch_cef.sh"
-  "${CEF_ROOT}/vendor/fetch_cef.sh"
+  echo "error: CEF framework not provisioned at ${FRAMEWORK_SRC}" >&2
+  echo "error: run ./scripts/setup.sh or CEF/vendor/fetch_cef.sh before building cmux from source." >&2
+  exit 1
 fi
 
 mkdir -p "${FW_DIR}"
 
-# 1. Rsync the Chromium Embedded Framework into Frameworks/.
-rsync -a --delete \
-  "${FRAMEWORK_SRC}" \
-  "${FW_DIR}/"
+# 1. Optionally rsync the Chromium Embedded Framework into Frameworks/.
+# By default cmux ships only the small helper apps; the Debug menu downloads
+# and verifies the CEF runtime on first use. CI/release jobs can opt back into
+# a fully bundled runtime with CMUX_EMBED_CEF_FRAMEWORK=1.
+if [[ "${CMUX_EMBED_CEF_FRAMEWORK:-0}" == "1" ]]; then
+  rsync -a --delete \
+    "${FRAMEWORK_SRC}" \
+    "${FW_DIR}/"
+else
+  rm -rf "${FW_DIR}/Chromium Embedded Framework.framework"
+  echo "embed_cef_into_cmux: skipping bundled CEF framework; runtime installs on first use."
+fi
 
 # 2. Build the helper executables.
 SWIFT_CFG=$(echo "${CONFIGURATION:-Debug}" | tr '[:upper:]' '[:lower:]')
@@ -43,23 +52,27 @@ if [[ ! -x "${HELPER_BIN}" ]] || [[ ! -x "${RENDERER_BIN}" ]]; then
   exit 1
 fi
 
-# 3. Write helper entitlements (JIT + library validation off + get-task-allow).
+# 3. Write helper entitlements. Debug helpers get extra development-only
+# relaxations; Release helpers keep only Chromium's runtime requirements.
 ENT="$(mktemp -t cmux_cef_helper_ent).plist"
-cat > "${ENT}" <<'EOF'
+cat > "${ENT}" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>com.apple.security.cs.allow-jit</key><true/>
   <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
-  <key>com.apple.security.get-task-allow</key><true/>
-  <key>com.apple.security.cs.disable-library-validation</key><true/>
   <!-- Matches Chrome's Helper (Renderer)/Helper (GPU) entitlement set.
        V8 / Skia rely on W^X relaxation that fails silently under hardened
        runtime without these, manifesting as a renderer that parses HTML
        but never ships a compositor frame back to the browser process. -->
   <key>com.apple.security.cs.disable-executable-page-protection</key><true/>
+$(if [[ "${SWIFT_CFG}" == "debug" ]]; then cat <<'DEBUG_ENTITLEMENTS'
+  <key>com.apple.security.get-task-allow</key><true/>
+  <key>com.apple.security.cs.disable-library-validation</key><true/>
   <key>com.apple.security.cs.allow-dyld-environment-variables</key><true/>
+DEBUG_ENTITLEMENTS
+fi)
 </dict>
 </plist>
 EOF

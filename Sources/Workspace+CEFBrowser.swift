@@ -13,8 +13,7 @@ import Foundation
 /// hand a Bonsplit tab to ``BonsplitController``. They do *not*
 /// replicate the WKWebView-specific follow-up (process pool sharing,
 /// rendering-state subscription, remote-workspace status, downloads,
-/// popup routing). Those are wired in follow-up PRs per
-/// `Prototypes/cef-webview/notes/cmux-integration-plan.md` §Step 3+.
+/// popup routing). Those are wired in follow-up PRs.
 ///
 /// v1 scope: opening a new browser pane with the CEF flag on produces
 /// a CEF browser that loads its initial URL inside the cmux pane.
