@@ -76,12 +76,15 @@ extension CMUXCLI {
           doctor|check|validate [--path <path>]   Validate JSONC syntax for cmux config files.
           path|paths                              Print cmux.json paths, docs URL, and schema URL.
           docs|documentation                      Print the same output as `cmux docs settings`.
-          reload                                  Alias for `cmux reload-config`.
+          reload                                  Reload Ghostty config + cmux.json and refresh terminals (alias for `cmux reload-config`).
 
         Config files:
           \(Self.primarySettingsDisplayPath)
           legacy config: \(Self.legacySettingsDisplayPath)
           legacy app support: \(Self.fallbackSettingsDisplayPath)
+
+        Related (not cmux-owned, but cmux reads it for terminal behavior):
+          \(Self.ghosttyConfigDisplayPath)
 
         Examples:
           cmux config doctor
@@ -95,9 +98,14 @@ extension CMUXCLI {
             "primary": Self.primarySettingsDisplayPath,
             "legacy": Self.legacySettingsDisplayPath,
             "fallback": Self.fallbackSettingsDisplayPath,
+            "ghostty_config": [
+                "path": Self.ghosttyConfigDisplayPath,
+                "note": "Not cmux-owned, but cmux reads it. Use for terminal transparency (background-opacity), blur, font, theme, etc.",
+            ],
             "docs_url": Self.settingsDocsURL,
             "schema_url": Self.settingsSchemaURL,
             "reload_command": "cmux reload-config",
+            "reload_scope": "Reloads Ghostty config + cmux.json and refreshes terminals in place. No app restart needed.",
             "backup": "Back up any existing cmux.json file to a timestamped .bak copy before editing so the user can revert.",
         ]
 
@@ -111,6 +119,9 @@ extension CMUXCLI {
         print("  legacy config: \(Self.legacySettingsDisplayPath)")
         print("  legacy app support: \(Self.fallbackSettingsDisplayPath)")
         print()
+        print("Related (not cmux-owned, but cmux reads it for terminal behavior):")
+        print("  \(Self.ghosttyConfigDisplayPath)")
+        print()
         print("Docs:")
         print("  \(Self.settingsDocsURL)")
         print()
@@ -120,7 +131,7 @@ extension CMUXCLI {
         print("Before editing cmux.json:")
         print("  Back up any existing cmux.json file to a timestamped .bak copy so the user can revert.")
         print()
-        print("After editing cmux.json:")
+        print("Reload after editing (covers BOTH cmux.json and Ghostty config; no app restart needed):")
         print("  cmux reload-config")
     }
 
