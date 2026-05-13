@@ -863,6 +863,55 @@ def test_install_preserves_each_codex_hook_position_with_interleaved_third_party
         raise AssertionError(f"interleaved cmux hook positions changed: {commands!r}")
 
 
+def test_install_collapses_consecutive_codex_hook_positions(cli_path: str, root: Path) -> None:
+    codex_home = root / "codex-home-consecutive"
+    codex_home.mkdir()
+    cmux_pre_tool = cmux_codex_feed_command("PreToolUse")
+    user_hook_before = "printf before"
+    user_hook_after = "printf after"
+    (codex_home / "hooks.json").write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "PreToolUse": [
+                        {"hooks": [{"type": "command", "command": user_hook_before}]},
+                        {"hooks": [{"type": "command", "command": cmux_pre_tool, "timeout": 120000}]},
+                        {"hooks": [{"type": "command", "command": cmux_pre_tool, "timeout": 120000}]},
+                        {"hooks": [{"type": "command", "command": user_hook_after}]},
+                    ]
+                }
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "install", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex install failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    hooks = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
+    commands = [group["hooks"][0]["command"] for group in hooks["hooks"]["PreToolUse"]]
+    expected = [
+        user_hook_before,
+        cmux_pre_tool,
+        user_hook_after,
+    ]
+    if commands != expected:
+        raise AssertionError(f"consecutive cmux hooks were not collapsed: {commands!r}")
+
+
 def test_install_replaces_legacy_codex_hook_commands(cli_path: str, root: Path) -> None:
     codex_home = root / "codex-home-legacy-hooks"
     codex_home.mkdir()
@@ -1567,6 +1616,7 @@ def main() -> int:
             test_install_escapes_codex_hook_trust_state_keys(cli_path, root)
             test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path, root)
             test_install_preserves_each_codex_hook_position_with_interleaved_third_party_hooks(cli_path, root)
+            test_install_collapses_consecutive_codex_hook_positions(cli_path, root)
             test_install_replaces_legacy_codex_hook_commands(cli_path, root)
             test_install_migrates_legacy_codex_hooks_feature(cli_path, root)
             test_install_migrates_dotted_codex_hooks_feature(cli_path, root)

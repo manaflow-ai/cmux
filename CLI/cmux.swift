@@ -18100,7 +18100,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 var rewrittenEntries: [[String: Any]] = []
                 for entry in entries {
                     if isCmuxOwnedCommand(entry["command"] as? String ?? "") {
-                        cmuxInsertionIndexes[event, default: []].append(rewrittenEntries.count)
+                        Self.appendCmuxHookInsertionIndex(
+                            rewrittenEntries.count,
+                            for: event,
+                            to: &cmuxInsertionIndexes
+                        )
                         continue
                     }
                     rewrittenEntries.append(entry)
@@ -18117,7 +18121,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         continue
                     }
                     if hookList.contains(where: { isCmuxOwnedCommand($0["command"] as? String ?? "") }) {
-                        cmuxInsertionIndexes[event, default: []].append(rewrittenGroups.count)
+                        Self.appendCmuxHookInsertionIndex(
+                            rewrittenGroups.count,
+                            for: event,
+                            to: &cmuxInsertionIndexes
+                        )
                     }
                     hookList.removeAll { isCmuxOwnedCommand($0["command"] as? String ?? "") }
                     if hookList.isEmpty {
@@ -18338,6 +18346,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
             }
         }
+    }
+
+    private static func appendCmuxHookInsertionIndex(
+        _ index: Int,
+        for event: String,
+        to indexes: inout [String: [Int]]
+    ) {
+        if indexes[event]?.last == index { return }
+        indexes[event, default: []].append(index)
     }
 
     private static func insertCmuxHookValues<T>(_ values: [T], into target: inout [T], atOriginalIndexes indexes: [Int]) {
