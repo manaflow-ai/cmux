@@ -741,15 +741,18 @@ func applyBrowserPositionals(params map[string]any, positionals []string, spec b
 			return nil
 		}
 		if _, ok := params["target_surface_id"]; ok {
-			return nil
+			return fmt.Errorf("unrecognized extra positional argument %q", positionals[0])
 		}
 		if _, ok := params["index"]; ok {
-			return nil
+			return fmt.Errorf("unrecognized extra positional argument %q", positionals[0])
 		}
 		if isIntegerString(positionals[0]) {
 			params["index"] = positionals[0]
 		} else {
 			params["target_surface_id"] = positionals[0]
+		}
+		if len(positionals) > 1 {
+			return fmt.Errorf("unrecognized extra positional argument %q", positionals[1])
 		}
 		return nil
 	case browserSpecialInputArgs:

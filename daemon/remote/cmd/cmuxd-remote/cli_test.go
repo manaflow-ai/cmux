@@ -1292,6 +1292,24 @@ func TestCLIBrowserRejectsJoinLastExtraPositionalsWhenFlagPrefillsKey(t *testing
 	}
 }
 
+func TestCLIBrowserRejectsTabTargetExtraPositionals(t *testing.T) {
+	t.Setenv("CMUX_SOCKET_PATH", "")
+	t.Setenv("HOME", t.TempDir())
+
+	var code int
+	output := captureStderr(t, func() {
+		code = runCLI([]string{
+			"browser", "surface:2", "tab", "switch", "surface:1", "extra",
+		})
+	})
+	if code != 2 {
+		t.Fatalf("browser tab switch with extra positional should return 2, got %d", code)
+	}
+	if !strings.Contains(output, `cmux browser: unrecognized extra positional argument "extra"`) {
+		t.Fatalf("expected extra positional error, got %q", output)
+	}
+}
+
 func TestCLIBrowserTabBareSignTargetDoesNotBecomeIndex(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	code := runCLI([]string{
