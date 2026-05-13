@@ -45,8 +45,8 @@ struct FileExternalOpenApplicationResolver: Sendable {
     static let live = FileExternalOpenApplicationResolver(
         defaultApplicationURL: { NSWorkspace.shared.urlForApplication(toOpen: $0) },
         applicationURLs: { NSWorkspace.shared.urlsForApplications(toOpen: $0) },
-        displayName: Self.liveDisplayName(for:),
-        shouldIncludeApplication: Self.shouldIncludeLiveApplication(_:)
+        displayName: { Self.liveDisplayName(for: $0) },
+        shouldIncludeApplication: { Self.shouldIncludeLiveApplication($0) }
     )
 
     func applications(for fileURL: URL) -> [FileExternalOpenApplication] {
