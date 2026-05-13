@@ -43,6 +43,12 @@ final class DetachedFolderDragIconHostView: NSView {
 
     override var mouseDownCanMoveWindow: Bool { false }
 
+    override var frame: NSRect {
+        didSet {
+            syncDetachedIconFrame()
+        }
+    }
+
     override func setFrameOrigin(_ newOrigin: NSPoint) {
         super.setFrameOrigin(newOrigin)
         syncDetachedIconFrame()
