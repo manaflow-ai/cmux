@@ -1,6 +1,7 @@
 import {
   jsonResponse,
   notFoundVm,
+  vmErrorResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
@@ -23,14 +24,30 @@ export async function POST(
       try {
         rawBody = await request.json();
       } catch {
-        return jsonResponse({ error: "invalid JSON body" }, 400);
+        return vmErrorResponse({
+          error: "vm_invalid_json",
+          status: 400,
+          message: "Cloud VM exec expected a JSON object body.",
+          action: "Send JSON like `{ \"command\": \"pwd\" }`. From the CLI, use `cmux vm exec <id> -- pwd`.",
+        });
       }
-      if (rawBody === null || typeof rawBody !== "object") {
-        return jsonResponse({ error: "body must be a JSON object" }, 400);
+      if (rawBody === null || typeof rawBody !== "object" || Array.isArray(rawBody)) {
+        return vmErrorResponse({
+          error: "vm_invalid_request",
+          status: 400,
+          message: "Cloud VM exec body must be a JSON object.",
+          action: "Send JSON like `{ \"command\": \"pwd\" }`. From the CLI, use `cmux vm exec <id> -- pwd`.",
+        });
       }
       const body = rawBody as { command?: unknown; timeoutMs?: unknown };
       if (typeof body.command !== "string" || body.command.length === 0) {
-        return jsonResponse({ error: "`command` is required and must be a non-empty string" }, 400);
+        return vmErrorResponse({
+          error: "vm_invalid_command",
+          status: 400,
+          message: "`command` is required and must be a non-empty string.",
+          action: "Pass a shell command, for example `cmux vm exec <id> -- uname -a`.",
+          details: { field: "command" },
+        });
       }
       // Clamp the timeout so a client can't tie up provider quota on a runaway exec. Upper
       // bound matches the provider defaults (15 min on Freestyle); negative / non-number

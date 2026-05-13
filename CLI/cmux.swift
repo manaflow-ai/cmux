@@ -1788,10 +1788,20 @@ final class SocketClient {
         if let error = response["error"] as? [String: Any] {
             let code = (error["code"] as? String) ?? "error"
             let message = (error["message"] as? String) ?? "Unknown v2 error"
-            throw CLIError(message: "\(code): \(message)")
+            throw CLIError(message: formatV2Error(code: code, message: message))
         }
 
         throw CLIError(message: "v2 request failed")
+    }
+
+    private func formatV2Error(code: String, message: String) -> String {
+        if code == "vm_error" {
+            return message
+        }
+        if message.contains("\n") {
+            return "\(code):\n\(message)"
+        }
+        return "\(code): \(message)"
     }
 
     func streamV2(
@@ -1936,7 +1946,12 @@ struct CMUXCLI {
         }
         let normalized = trimmed.lowercased()
         guard normalized == "e2b" || normalized == "freestyle" else {
-            throw CLIError(message: "vm new: unsupported provider '\(trimmed)'. Expected e2b or freestyle.")
+            throw CLIError(message: """
+                vm new: unsupported Cloud VM provider override '\(trimmed)'.
+
+                Try:
+                  cmux vm new
+                """)
         }
         return normalized
     }
@@ -2675,14 +2690,32 @@ struct CMUXCLI {
                 let detach = hasFlag(rem1, name: "--detach") || hasFlag(rem1, name: "-d")
                 let remaining = rem1.filter { $0 != "--detach" && $0 != "-d" }
                 if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-                    throw CLIError(message: "vm new: unknown flag '\(unknown)'. Known flags: --image, --provider, --detach/-d")
+                    throw CLIError(message: """
+                        vm new: unknown flag '\(unknown)'.
+
+                        Known flags:
+                          --image <image-id>
+                          --provider <provider>
+                          --detach, -d
+
+                        Try:
+                          cmux vm new
+                        """)
                 }
                 // Stray positional args (e.g. a typo like `cmux vm new myvm`) previously fell
                 // through and still provisioned a VM. That silently costs the user money and
                 // hides the typo. Reject them explicitly.
                 if let extra = remaining.first(where: { !$0.hasPrefix("--") && $0 != "-d" }) {
                     throw CLIError(
-                        message: "vm new: unexpected argument '\(extra)'. vm new takes no positional args; use --image / --provider / --detach."
+                        message: """
+                            vm new: unexpected argument '\(extra)'.
+
+                            `cmux vm new` does not take a VM name or positional arguments.
+
+                            Try:
+                              cmux vm new
+                              cmux vm new --detach
+                            """
                     )
                 }
                 let normalizedProvider = try Self.normalizedVMProvider(providerOpt)
@@ -2733,7 +2766,12 @@ struct CMUXCLI {
 
             case "shell", "attach":
                 guard let vmId = rest.first else {
-                    throw CLIError(message: "Usage: cmux \(command) shell <id>")
+                    throw CLIError(message: """
+                        Usage: cmux \(command) shell <id>
+
+                        Find an id:
+                          cmux vm ls
+                        """)
                 }
                 let shortId = String(vmId.prefix(8))
                 try vmOpenShell(
@@ -2746,7 +2784,12 @@ struct CMUXCLI {
 
             case "rm", "destroy", "delete":
                 guard let vmId = rest.first else {
-                    throw CLIError(message: "Usage: cmux vm rm <id>")
+                    throw CLIError(message: """
+                        Usage: cmux vm rm <id>
+
+                        Find an id:
+                          cmux vm ls
+                        """)
                 }
                 _ = try client.sendV2(method: "vm.destroy", params: ["id": vmId], responseTimeout: 60)
                 if jsonOutput {
@@ -2757,7 +2800,12 @@ struct CMUXCLI {
 
             case "ssh":
                 guard let vmId = rest.first else {
-                    throw CLIError(message: "Usage: cmux \(command) ssh <id>")
+                    throw CLIError(message: """
+                        Usage: cmux \(command) ssh <id>
+
+                        Find an id:
+                          cmux vm ls
+                        """)
                 }
                 let shortId = String(vmId.prefix(8))
                 try vmOpenShell(
@@ -2770,7 +2818,12 @@ struct CMUXCLI {
 
             case "ssh-info":
                 guard let vmId = rest.first else {
-                    throw CLIError(message: "Usage: cmux \(command) ssh-info <id>")
+                    throw CLIError(message: """
+                        Usage: cmux \(command) ssh-info <id>
+
+                        Find an id:
+                          cmux vm ls
+                        """)
                 }
                 try printVMSSHInfo(id: vmId, command: command, client: client, jsonOutput: jsonOutput)
 
@@ -2779,7 +2832,13 @@ struct CMUXCLI {
 
             case "exec":
                 guard let vmId = rest.first else {
-                    throw CLIError(message: "Usage: cmux vm exec <id> -- <command...>")
+                    throw CLIError(message: """
+                        Usage: cmux vm exec <id> -- <command...>
+
+                        Examples:
+                          cmux vm ls
+                          cmux vm exec <id> -- pwd
+                        """)
                 }
                 var commandArgsForVM: [String] = Array(rest.dropFirst())
                 // Consume a leading "--" separator if present.
@@ -2787,7 +2846,12 @@ struct CMUXCLI {
                     commandArgsForVM.removeFirst()
                 }
                 guard !commandArgsForVM.isEmpty else {
-                    throw CLIError(message: "Usage: cmux vm exec <id> -- <command...>")
+                    throw CLIError(message: """
+                        Usage: cmux vm exec <id> -- <command...>
+
+                        Example:
+                          cmux vm exec \(vmId) -- uname -a
+                        """)
                 }
                 // Shell-quote each argv element before joining. Plain-space join previously
                 // dropped quoting so `cmux vm exec <id> -- printf '%s\n' "a b"` reached the
@@ -2821,7 +2885,15 @@ struct CMUXCLI {
                 }
 
             default:
-                throw CLIError(message: "Usage: cmux \(command) <ls|new|shell|rm|exec|ssh> [args...]")
+                throw CLIError(message: """
+                    Usage: cmux \(command) <ls|new|shell|rm|exec|ssh> [args...]
+
+                    Common commands:
+                      cmux vm ls
+                      cmux vm new
+                      cmux vm ssh <id>
+                      cmux vm rm <id>
+                    """)
             }
 
         case "rpc":
@@ -6236,7 +6308,16 @@ struct CMUXCLI {
             let endpoint = try parseVMPtyWebSocketEndpoint(response)
             guard endpoint.daemon != nil else {
                 throw CLIError(
-                    message: "vm.attach_info returned a WebSocket PTY without daemon/proxy support. Rebuild the cloud VM image or snapshot with the current cmuxd-remote."
+                    message: """
+                        This Cloud VM image does not include the cmux daemon proxy needed for interactive attach.
+
+                        What to do:
+                          Update cmux, then create a fresh VM with `cmux vm new`.
+                          If this keeps happening, contact support with the VM id.
+
+                        Details:
+                          vm.attach_info returned WebSocket PTY without daemon/proxy support.
+                        """
                 )
             }
             try runVMPtyWebSocketWorkspace(
@@ -6281,19 +6362,49 @@ struct CMUXCLI {
               let cred = response["credential"] as? [String: Any],
               let kind = cred["kind"] as? String
         else {
-            throw CLIError(message: "vm.attach_info returned malformed SSH payload: \(response)")
+            throw CLIError(message: """
+                cmux could not read the SSH attach information for this Cloud VM.
+
+                What to do:
+                  Retry `cmux vm ssh <id>`.
+                  If it keeps failing, recreate the VM with `cmux vm new` and share the details below.
+
+                Details:
+                  \(redactedCloudVMPayloadString(response))
+                """)
         }
         guard kind == "password" else {
             if kind == "authorizedKey" {
                 throw CLIError(
-                    message: "authorizedKey credentials aren't supported by `cmux vm shell` yet; received from server."
+                    message: """
+                        This Cloud VM returned SSH key credentials, but `cmux vm ssh` currently expects password-style gateway credentials.
+
+                        What to do:
+                          Update cmux and retry.
+                          If this keeps happening, contact support with the VM id.
+                        """
                 )
             }
-            throw CLIError(message: "vm.attach_info returned unknown credential kind: \(kind)")
+            throw CLIError(message: """
+                cmux could not use the SSH credential returned for this Cloud VM.
+
+                What to do:
+                  Retry `cmux vm ssh <id>`.
+                  If it keeps failing, recreate the VM with `cmux vm new`.
+
+                Details:
+                  credential kind: \(kind)
+                """)
         }
         guard let token = cred["value"] as? String,
               !token.isEmpty else {
-            throw CLIError(message: "vm.attach_info password credential missing `value`")
+            throw CLIError(message: """
+                The Cloud VM SSH gateway did not return a usable password token.
+
+                What to do:
+                  Retry `cmux vm ssh <id>`.
+                  If it keeps failing, recreate the VM with `cmux vm new`.
+                """)
         }
 
         // Freestyle gateway has a fresh host key per session and we re-mint per attach,
@@ -6358,7 +6469,7 @@ struct CMUXCLI {
     private func runVMSSHAttach(commandArgs: [String], client: SocketClient) throws {
         let (vmIDOpt, remaining) = parseOption(commandArgs, name: "--id")
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "vm ssh-attach: unknown flag '\(unknown)'")
+            throw CLIError(message: "vm ssh-attach: unknown flag '\(unknown)'. Use `cmux vm ssh-attach --id <vm-id>`.")
         }
         guard remaining.isEmpty else {
             throw CLIError(message: "Usage: cmux vm ssh-attach --id <vm-id>")
@@ -6379,7 +6490,7 @@ struct CMUXCLI {
         )
         let sshArguments = buildSSHCommandArguments(options)
         guard let launchPath = sshArguments.first else {
-            throw CLIError(message: "vm ssh-attach: failed to construct ssh command")
+            throw CLIError(message: "vm ssh-attach could not construct an ssh command. Retry `cmux vm ssh <id>` from a normal cmux shell.")
         }
         client.close()
         try execInteractiveProgram(
@@ -6400,7 +6511,16 @@ struct CMUXCLI {
         guard let url = response["url"] as? String,
               let token = response["token"] as? String,
               let sessionId = response["session_id"] as? String else {
-            throw CLIError(message: "vm.attach_info websocket endpoint missing url/token/session_id: \(response)")
+            throw CLIError(message: """
+                cmux could not read the WebSocket attach information for this Cloud VM.
+
+                What to do:
+                  Retry `cmux vm ssh <id>`.
+                  If it keeps failing, recreate the VM with `cmux vm new`.
+
+                Details:
+                  \(redactedCloudVMPayloadString(response))
+                """)
         }
         let headers = parseHeaders(response["headers"])
         let expiresAtUnix = (response["expires_at_unix"] as? Int64)
@@ -6586,7 +6706,7 @@ struct CMUXCLI {
     private func runVMPtyAttach(commandArgs: [String], client: SocketClient) throws {
         let (vmIDOpt, remaining) = parseOption(commandArgs, name: "--id")
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "vm-pty-attach: unknown flag '\(unknown)'")
+            throw CLIError(message: "vm-pty-attach: unknown flag '\(unknown)'. Use `cmux vm-pty-attach --id <vm-id>`.")
         }
         guard remaining.isEmpty else {
             throw CLIError(message: "Usage: cmux vm-pty-attach --id <vm-id>")
@@ -9088,7 +9208,7 @@ struct CMUXCLI {
 
             Subcommands:
               ls                        List your cloud VMs.
-              new [--image <template>] [--provider <e2b|freestyle>] [--detach|-d]
+              new [--image <template>] [--provider <provider>] [--detach|-d]
                                         Create a new VM. By default drops you into a shell on
                                         the VM (like `docker run -it`). Pass --detach/-d to
                                         just print the id and exit (scripting primitive).
@@ -9096,7 +9216,7 @@ struct CMUXCLI {
                                         Alias: `attach <id>`.
               ssh <id>                  Drop into a cmux-managed SSH workspace for an existing
                                         VM, using the same session path as `cmux ssh`.
-              ssh-info <id>             Print SSH connection details when the VM provider
+              ssh-info <id>             Print SSH connection details when the Cloud VM
                                         exposes SSH.
               rm <id>                   Destroy a VM.
               exec <id> -- <command...> Run a shell command inside the VM and print stdout.
@@ -11920,6 +12040,37 @@ struct CMUXCLI {
 
     private func isUUID(_ value: String) -> Bool {
         return UUID(uuidString: value) != nil
+    }
+
+    private func redactedCloudVMPayloadString(_ response: [String: Any]) -> String {
+        jsonString(redactedCloudVMPayload(response))
+    }
+
+    private func redactedCloudVMPayload(_ value: Any) -> Any {
+        let sensitiveKeys: Set<String> = [
+            "credential",
+            "headers",
+            "password",
+            "privateKeyPem",
+            "private_key_pem",
+            "sessionId",
+            "session_id",
+            "token",
+            "value",
+        ]
+        if let dictionary = value as? [String: Any] {
+            return dictionary.reduce(into: [String: Any]()) { result, pair in
+                if sensitiveKeys.contains(pair.key) {
+                    result[pair.key] = "<redacted>"
+                } else {
+                    result[pair.key] = redactedCloudVMPayload(pair.value)
+                }
+            }
+        }
+        if let array = value as? [Any] {
+            return array.map { redactedCloudVMPayload($0) }
+        }
+        return value
     }
 
     func jsonString(_ object: Any) -> String {

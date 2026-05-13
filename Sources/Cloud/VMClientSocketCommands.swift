@@ -20,7 +20,11 @@ extension TerminalController {
             let idempotencyKey = (params["idempotency_key"] as? String)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard let idempotencyKey, !idempotencyKey.isEmpty else {
-                return v2Error(id: id, code: "invalid_params", message: "vm.create requires `idempotency_key`")
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: "vm.create requires `idempotency_key`. Use `cmux vm new` instead of calling the socket method directly."
+                )
             }
             return v2VmCall(id: id) {
                 let vm = try await VMClient.shared.create(image: image, provider: provider, idempotencyKey: idempotencyKey)
@@ -28,7 +32,7 @@ extension TerminalController {
             }
         case "vm.destroy":
             guard let vmId = params["id"] as? String else {
-                return v2Error(id: id, code: "invalid_params", message: "vm.destroy requires `id`")
+                return v2Error(id: id, code: "invalid_params", message: "vm.destroy requires `id`. Run `cmux vm ls` to find one, then `cmux vm rm <id>`.")
             }
             return v2VmCall(id: id) {
                 try await VMClient.shared.destroy(id: vmId)
@@ -36,10 +40,10 @@ extension TerminalController {
             }
         case "vm.exec":
             guard let vmId = params["id"] as? String else {
-                return v2Error(id: id, code: "invalid_params", message: "vm.exec requires `id`")
+                return v2Error(id: id, code: "invalid_params", message: "vm.exec requires `id`. Run `cmux vm ls` to find one.")
             }
             guard let command = params["command"] as? String else {
-                return v2Error(id: id, code: "invalid_params", message: "vm.exec requires `command`")
+                return v2Error(id: id, code: "invalid_params", message: "vm.exec requires `command`. From the CLI, use `cmux vm exec <id> -- <command>`.")
             }
             let timeoutMs = max(1, Self.socketWorkerInt(params["timeout_ms"]) ?? 30_000)
             return v2VmCall(id: id) {
@@ -48,7 +52,7 @@ extension TerminalController {
             }
         case "vm.ssh_info":
             guard let vmId = params["id"] as? String else {
-                return v2Error(id: id, code: "invalid_params", message: "vm.ssh_info requires `id`")
+                return v2Error(id: id, code: "invalid_params", message: "vm.ssh_info requires `id`. Run `cmux vm ls` to find one.")
             }
             return v2VmCall(id: id) {
                 let endpoint = try await VMClient.shared.openSSH(id: vmId)
@@ -56,7 +60,7 @@ extension TerminalController {
             }
         case "vm.attach_info":
             guard let vmId = params["id"] as? String else {
-                return v2Error(id: id, code: "invalid_params", message: "vm.attach_info requires `id`")
+                return v2Error(id: id, code: "invalid_params", message: "vm.attach_info requires `id`. Run `cmux vm ls` to find one, then `cmux vm ssh <id>`.")
             }
             let requireDaemon = Self.socketWorkerBool(params["require_daemon"])
                 ?? Self.socketWorkerBool(params["requireDaemon"])
