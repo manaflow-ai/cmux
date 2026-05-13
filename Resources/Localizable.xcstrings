@@ -42330,13 +42330,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "前往工作区..."
+            "value": "前往工作区或标签页..."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "前往工作區..."
+            "value": "前往工作區或標籤頁..."
           }
         },
         "ko": {
@@ -42348,79 +42348,79 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zum Arbeitsbereich wechseln …"
+            "value": "Zum Arbeitsbereich oder Tab wechseln …"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ir al espacio de trabajo…"
+            "value": "Ir al espacio de trabajo o pestaña…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aller à l'espace de travail..."
+            "value": "Aller à l'espace de travail ou à l'onglet..."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vai all'area di lavoro…"
+            "value": "Vai all'area di lavoro o alla scheda…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gå til arbejdsområde…"
+            "value": "Gå til arbejdsområde eller fane…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przejdź do przestrzeni roboczej…"
+            "value": "Przejdź do przestrzeni roboczej lub karty…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перейти к рабочему пространству..."
+            "value": "Перейти к рабочему пространству или вкладке..."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Idi na radni prostor…"
+            "value": "Idi na radni prostor ili karticu…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الانتقال إلى مساحة العمل…"
+            "value": "الانتقال إلى مساحة العمل أو تبويب…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gå til arbeidsområde …"
+            "value": "Gå til arbeidsområde eller fane …"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ir para Área de Trabalho…"
+            "value": "Ir para área de trabalho ou aba…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไปที่เวิร์กสเปซ..."
+            "value": "ไปที่เวิร์กสเปซหรือแท็บ..."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Çalışma Alanına Git…"
+            "value": "Çalışma Alanına veya Sekmeye Git…"
           }
         },
         "uk": {
