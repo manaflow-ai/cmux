@@ -154,6 +154,32 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
             XCTAssertTrue(failure.message.contains("timed out"))
         }
     }
+
+    func testHookWithBackgroundChildInheritingStdoutDoesNotStall() async throws {
+        let request = TerminalNotificationPolicyRequest(
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Title",
+            subtitle: "",
+            body: "Body",
+            cwd: FileManager.default.temporaryDirectory.path,
+            isAppFocused: false,
+            isFocusedPanel: false
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "background-stdout",
+            command: "sleep 3 & cat",
+            timeoutSeconds: 5,
+            sourcePath: "/tmp/cmux.json",
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+
+        let startedAt = Date()
+        let result = await evaluate(request: request, hooks: [hook])
+        let envelope = try result.get()
+        XCTAssertEqual(envelope.notification.body, "Body")
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 2)
+    }
 }
 
 @MainActor
