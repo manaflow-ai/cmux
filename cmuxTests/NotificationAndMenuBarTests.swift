@@ -426,6 +426,13 @@ final class GhosttyCrashBreadcrumbTests: XCTestCase {
         XCTAssertEqual(pending?.modifiedAt, crashDate)
     }
 
+    func testDefaultCrashDirectoryUsesCmuxStatePath() throws {
+        XCTAssertTrue(
+            GhosttyCrashBreadcrumb.defaultCrashDirectoryURL.path.hasSuffix("/.local/state/cmux/crash"),
+            GhosttyCrashBreadcrumb.defaultCrashDirectoryURL.path
+        )
+    }
+
     func testPendingCrashIsOneTimeAfterBeingShown() throws {
         let crashDate = Date(timeIntervalSince1970: 300)
         let crashURL = try writeCrashFile(named: "shown.ghosttycrash", modifiedAt: crashDate)

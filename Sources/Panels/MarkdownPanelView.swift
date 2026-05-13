@@ -115,6 +115,12 @@ struct MarkdownPanelView: View {
             backgroundColor: themeBackgroundColor,
             foregroundColor: themeForegroundColor
         ) {
+            FileExternalOpenMenu(
+                fileURL: URL(fileURLWithPath: panel.filePath),
+                isDisabled: panel.isFileUnavailable
+            )
+            .foregroundStyle(.secondary)
+
             if panel.displayMode == .text {
                 PanelHeaderIconButton(
                     systemName: "arrow.counterclockwise",

@@ -31,6 +31,12 @@ export const shortcutCategories: ShortcutCategory[] = [
         description: { en: "Show/hide all cmux windows", ja: "すべてのcmuxウインドウを表示/非表示" },
         note: { en: "system-wide hotkey", ja: "システム全体のホットキー" },
       },
+      {
+        id: "globalSearch",
+        combos: [["⌥", "⌘", "F"]],
+        description: { en: "Global search", ja: "グローバル検索" },
+        note: { en: "system-wide hotkey", ja: "システム全体のホットキー" },
+      },
       { id: "commandPalette", combos: [["⌘", "⇧", "P"]], description: { en: "Command palette", ja: "コマンドパレット" } },
       {
         id: "commandPaletteNext",
@@ -47,7 +53,12 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "newWindow", combos: [["⌘", "⇧", "N"]], description: { en: "New window", ja: "新規ウインドウ" } },
       { id: "closeWindow", combos: [["⌃", "⌘", "W"]], description: { en: "Close window", ja: "ウインドウを閉じる" } },
       { id: "toggleFullScreen", combos: [["⌃", "⌘", "F"]], description: { en: "Toggle full screen", ja: "フルスクリーンを切り替え" } },
-      { id: "sendFeedback", combos: [["⌥", "⌘", "F"]], description: { en: "Send feedback", ja: "フィードバックを送信" } },
+      {
+        id: "sendFeedback",
+        combos: [],
+        description: { en: "Send feedback", ja: "フィードバックを送信" },
+        note: { en: "unbound by default", ja: "デフォルトでは未割り当て" },
+      },
       {
         id: "reopenPreviousSession",
         combos: [["⌘", "⇧", "O"]],
