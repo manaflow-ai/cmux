@@ -181,6 +181,17 @@ if [[ -n "$CMUX_SURFACE_ID" ]]; then
     IN_CMUX=1
 fi
 
+exec_real_claude_passthrough() {
+    if [[ "$IN_CMUX" == "1" ]]; then
+        local cmux_key
+        for cmux_key in "${!CMUX_@}"; do
+            unset "$cmux_key"
+        done
+        unset TERMINFO
+    fi
+    exec "$REAL_CLAUDE" "$@"
+}
+
 if [[ "$IN_CMUX" == "0" || "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]] || ! cmux_socket_available; then
     # In cmux-launched shells, preserve old behavior and always clear nested
     # Claude session markers, even when we must pass through due to stale socket.
@@ -189,7 +200,7 @@ if [[ "$IN_CMUX" == "0" || "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]] || ! cmux_soc
     fi
     clear_inherited_claude_auth_selection_env
     REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
-    exec "$REAL_CLAUDE" "$@"
+    exec_real_claude_passthrough "$@"
 fi
 
 # Find real claude.
@@ -1297,7 +1308,7 @@ if ! should_inject_claude_hooks "$@"; then
             ;;
     esac
     clear_inherited_claude_auth_selection_env
-    exec "$REAL_CLAUDE" "$@"
+    exec_real_claude_passthrough "$@"
 fi
 
 # Unset CLAUDECODE to avoid "nested session" detection — cmux terminals are
