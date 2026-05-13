@@ -1991,24 +1991,12 @@ struct CMUXCLI {
                 index += 1
                 continue
             }
-            let isCommandOptionValue =
-                index > 0 && Self.commandOptionsWithValues.contains(commandArgs[index - 1])
             if arg == "--json" {
-                guard !isCommandOptionValue else {
-                    remaining.append(arg)
-                    index += 1
-                    continue
-                }
                 jsonOutput = true
                 index += 1
                 continue
             }
             if arg == "--id-format" {
-                guard !isCommandOptionValue else {
-                    remaining.append(arg)
-                    index += 1
-                    continue
-                }
                 guard index + 1 < commandArgs.count else {
                     throw CLIError(message: "--id-format requires a value (refs|uuids|both)")
                 }
@@ -2017,6 +2005,11 @@ struct CMUXCLI {
                 continue
             }
             remaining.append(arg)
+            if Self.commandOptionsWithValues.contains(arg), index + 1 < commandArgs.count {
+                remaining.append(commandArgs[index + 1])
+                index += 2
+                continue
+            }
             index += 1
         }
         return (jsonOutput, idFormat, remaining)
