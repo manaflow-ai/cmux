@@ -212,6 +212,8 @@ extension Workspace {
             return "markdown"
         case .filePreview:
             return "file_preview"
+        case .rightSidebarTool:
+            return "right_sidebar_tool"
         }
     }
 }
