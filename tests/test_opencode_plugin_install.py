@@ -198,7 +198,38 @@ await hooks.event({
     }
   }
 });
-"""
+await hooks.event({
+  event: {
+    type: "session.updated",
+    properties: {
+      info: {
+        id: "opencode-session-test",
+        directory: "/tmp/opencode-project",
+        title: "Reply exactly OK."
+      }
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.status",
+    properties: {
+      sessionID: "opencode-session-test",
+      status: {
+        type: "idle"
+      }
+    }
+  }
+});
+await hooks.event({
+  event: {
+    type: "session.idle",
+    properties: {
+      sessionID: "opencode-session-test"
+    }
+  }
+});
+        """
         check = subprocess.run(
             [bun, "--eval", check_source],
             cwd=root,
@@ -223,6 +254,12 @@ await hooks.event({
             return 1
         if args_log.count("hooks opencode session-start") != 1:
             print(f"FAIL: plugin invoked duplicate session-start hooks, got {args_log!r}")
+            return 1
+        if "hooks opencode stop" not in args_log:
+            print(f"FAIL: plugin did not invoke hooks opencode stop, got {args_log!r}")
+            return 1
+        if args_log.count("hooks opencode stop") != 1:
+            print(f"FAIL: plugin invoked duplicate stop hooks, got {args_log!r}")
             return 1
         if '"session_id":"opencode-session-test"' not in stdin_log or '"/tmp/opencode-project"' not in stdin_log:
             print(f"FAIL: plugin did not pass expected session payload, got {stdin_log!r}")
