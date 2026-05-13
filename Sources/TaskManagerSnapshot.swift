@@ -48,7 +48,10 @@ struct CmuxTaskManagerSnapshot {
         }
         self.rows = rows
         self.agentRows = Self.agentRows(from: payload["coding_agents"] as? [[String: Any]] ?? [])
-        self.aggregateRows = Self.programAggregateRows(from: rows)
+        let programTotalPayloads = payload["program_totals"] as? [[String: Any]] ?? []
+        self.aggregateRows = programTotalPayloads.isEmpty
+            ? Self.programAggregateRows(from: rows)
+            : Self.programAggregateRows(fromPayloads: programTotalPayloads)
     }
 
     private static func agentRows(from payloads: [[String: Any]]) -> [CmuxTaskManagerRow] {
@@ -147,6 +150,35 @@ struct CmuxTaskManagerSnapshot {
                     agentAssetName: agentAssetName(for: [aggregate.title])
                 )
             }
+    }
+
+    private static func programAggregateRows(fromPayloads payloads: [[String: Any]]) -> [CmuxTaskManagerRow] {
+        payloads.compactMap { payload in
+            guard let title = nonEmptyString(payload["name"]) else { return nil }
+            let resources = CmuxTaskManagerResources(payload["resources"] as? [String: Any] ?? [:])
+            guard resources.processCount > 1 else { return nil }
+            let detail = String(format: String(
+                localized: "taskManager.aggregate.processCount",
+                defaultValue: "%lld processes"
+            ), Int64(resources.processCount))
+            let id = nonEmptyString(payload["id"]) ?? title.lowercased()
+            return CmuxTaskManagerRow(
+                id: "programAggregate:\(id)",
+                kind: .programAggregate,
+                level: 0,
+                title: title,
+                detail: detail,
+                resources: resources,
+                isDimmed: false,
+                workspaceId: nil,
+                surfaceId: nil,
+                terminalSurfaceId: nil,
+                processId: nil,
+                rootProcessIds: resources.processIds,
+                foregroundProcessGroupIds: [],
+                agentAssetName: agentAssetName(for: [title])
+            )
+        }
     }
 
     private static func appendWindow(_ window: [String: Any], to rows: inout [CmuxTaskManagerRow]) {

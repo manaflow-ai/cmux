@@ -185,6 +185,34 @@ final class TaskManagerResourcesTests: XCTestCase {
         XCTAssertEqual(aggregateRow.resources.processIds, [101, 202])
     }
 
+    func testSnapshotParsesProgramTotalsFromTopPayloadWithoutProcessRows() throws {
+        let snapshot = CmuxTaskManagerSnapshot(payload: [
+            "sample": ["sampled_at": "2026-05-13T12:00:00Z"],
+            "totals": [:],
+            "program_totals": [
+                [
+                    "id": "node",
+                    "name": "node",
+                    "resources": [
+                        "cpu_percent": 9.5,
+                        "resident_bytes": 8192,
+                        "process_count": 3,
+                        "pids": [101, 202, 303],
+                    ],
+                ],
+            ],
+            "windows": [],
+        ])
+
+        XCTAssertTrue(snapshot.rows.isEmpty)
+        XCTAssertEqual(snapshot.aggregateRows.count, 1)
+        let aggregateRow = try XCTUnwrap(snapshot.aggregateRows.first)
+        XCTAssertEqual(aggregateRow.id, "programAggregate:node")
+        XCTAssertEqual(aggregateRow.title, "node")
+        XCTAssertEqual(aggregateRow.resources.cpuPercent, 9.5)
+        XCTAssertEqual(aggregateRow.resources.processIds, [101, 202, 303])
+    }
+
     func testSnapshotParsesCodingAgentRowsFromTopPayload() throws {
         let snapshot = CmuxTaskManagerSnapshot(payload: [
             "sample": ["sampled_at": "2026-05-13T12:00:00Z"],

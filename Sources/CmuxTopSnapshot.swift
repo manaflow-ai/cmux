@@ -159,6 +159,26 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         return summary
     }
 
+    func programSummaryPayload(for pids: Set<Int>) -> [[String: Any]] {
+        var aggregates: [String: CmuxProgramProcessAggregate] = [:]
+
+        for pid in pids.sorted() {
+            guard let process = processesByPID[pid] else { continue }
+            let title = process.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty else { continue }
+            let key = title.lowercased()
+            if aggregates[key] == nil {
+                aggregates[key] = CmuxProgramProcessAggregate(id: key, title: title)
+            }
+            aggregates[key]?.append(process)
+        }
+
+        return aggregates.values
+            .filter { $0.processIds.count > 1 }
+            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            .map { $0.payload() }
+    }
+
     func processTreePayload(for pids: Set<Int>, rootPIDs explicitRootPIDs: Set<Int> = []) -> [[String: Any]] {
         let allowedPIDs = Set(pids.filter { processesByPID[$0] != nil })
         guard !allowedPIDs.isEmpty else { return [] }
@@ -236,6 +256,35 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             processPath: process.path
         ) else { return nil }
         return processArgumentsAndEnvironment(for: process.pid)
+    }
+
+    private struct CmuxProgramProcessAggregate {
+        let id: String
+        let title: String
+        var cpuPercent: Double = 0
+        var residentBytes: Int64 = 0
+        var processIds: [Int] = []
+
+        mutating func append(_ process: CmuxTopProcessInfo) {
+            guard !processIds.contains(process.pid) else { return }
+            cpuPercent += process.cpuPercent
+            residentBytes = CmuxTopProcessSnapshot.clampedAdd(residentBytes, process.residentBytes)
+            processIds.append(process.pid)
+        }
+
+        func payload() -> [String: Any] {
+            let sortedProcessIds = processIds.sorted()
+            return [
+                "id": id,
+                "name": title,
+                "resources": CmuxTopResourceSummary(
+                    cpuPercent: cpuPercent,
+                    residentBytes: residentBytes,
+                    processCount: sortedProcessIds.count,
+                    pids: sortedProcessIds
+                ).payload()
+            ]
+        }
     }
 
     private struct CmuxCodingAgentProcessAggregate {

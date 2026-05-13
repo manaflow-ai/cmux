@@ -3391,8 +3391,11 @@ class TerminalController {
             browserPIDOccurrences: browserPIDOccurrences,
             includeProcesses: includeProcesses
         )
-        let codingAgents = await Task.detached(priority: .utility) {
-            processSnapshot.codingAgentSummaryPayload(for: totalPIDs)
+        let aggregates = await Task.detached(priority: .utility) {
+            (
+                programs: processSnapshot.programSummaryPayload(for: totalPIDs),
+                codingAgents: processSnapshot.codingAgentSummaryPayload(for: totalPIDs)
+            )
         }.value
 
         return [
@@ -3400,7 +3403,8 @@ class TerminalController {
             "caller": NSNull(),
             "sample": processSnapshot.samplePayload(),
             "totals": processSnapshot.summaryPayload(for: totalPIDs),
-            "coding_agents": codingAgents,
+            "program_totals": aggregates.programs,
+            "coding_agents": aggregates.codingAgents,
             "windows": annotatedWindows
         ]
     }
