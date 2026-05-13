@@ -79,8 +79,10 @@ final class CodexTranscriptMonitorRegistry: @unchecked Sendable {
     }
 
     private func publish(_ event: CodexTranscriptMonitorEvent) {
-        Task { @MainActor in
-            TerminalController.shared.handleCodexTranscriptMonitorEvent(event)
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                TerminalController.shared.handleCodexTranscriptMonitorEvent(event)
+            }
         }
     }
 
@@ -260,11 +262,12 @@ final class CodexTranscriptMonitorRegistry: @unchecked Sendable {
                 return
             }
             var data = handle.readDataToEndOfFile()
+            let bytesRead = UInt64(data.count)
             if startOffset > 0, let newline = data.firstIndex(of: 0x0A) {
                 data.removeSubrange(0...newline)
             }
-            readOffset = endOffset
             process(data: data)
+            readOffset = startOffset + bytesRead
         }
 
         private func readIncremental(path: String) {
@@ -279,15 +282,16 @@ final class CodexTranscriptMonitorRegistry: @unchecked Sendable {
                 readOffset = 0
                 pendingData.removeAll(keepingCapacity: false)
             }
+            let seekOffset = readOffset
             do {
-                try handle.seek(toOffset: readOffset)
+                try handle.seek(toOffset: seekOffset)
             } catch {
                 readOffset = endOffset
                 return
             }
             let data = handle.readDataToEndOfFile()
-            readOffset = endOffset
             process(data: data)
+            readOffset = seekOffset + UInt64(data.count)
         }
 
         private func process(data: Data) {
@@ -353,7 +357,7 @@ final class CodexTranscriptMonitorRegistry: @unchecked Sendable {
                 }
 
             case "task_complete", "turn_complete":
-                guard turnMatches(payload: payload) || Self.normalizedValue(request.turnId) == nil else { return }
+                guard turnMatches(payload: payload) else { return }
                 sawRelevantTurn = true
                 if let lastMessage = payload["last_agent_message"] as? String,
                    !lastMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -435,7 +439,7 @@ final class CodexTranscriptMonitorRegistry: @unchecked Sendable {
             let question = Self.userInputQuestionText(from: payload)
             let requestTurnId = Self.normalizedValue(request.turnId)
             let rawCallId = Self.firstString(in: payload, keys: ["call_id", "callId"]) ?? fallbackCallId
-            let callId = rawCallId?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let callId = Self.normalizedValue(rawCallId)
                 ?? "\(payloadTurnId ?? requestTurnId ?? "session"):\(question ?? "request_user_input")"
             guard !publishedUserInputCallIds.contains(callId) else { return nil }
             return UserInputCandidate(callId: callId, question: question)

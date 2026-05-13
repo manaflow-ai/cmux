@@ -188,6 +188,7 @@
 		E7E000000000000000000007 /* CmuxEventPublishing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000008 /* CmuxEventPublishing.swift */; };
 		A5001007 /* TerminalController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001019 /* TerminalController.swift */; };
 		C0DE412700000000000001 /* CodexTranscriptMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE412700000000000002 /* CodexTranscriptMonitor.swift */; };
+		C0DE412700000000000003 /* SidebarLogRingBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE412700000000000004 /* SidebarLogRingBuffer.swift */; };
 		E7E000000000000000000001 /* CmuxEventStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000002 /* CmuxEventStream.swift */; };
 		E7E000000000000000000009 /* CmuxSocketEventMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000A /* CmuxSocketEventMapper.swift */; };
 		D7AB0000000000000000000B /* TerminalController+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */; };
@@ -690,6 +691,7 @@
 		A5001018 /* cmux-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cmux-Bridging-Header.h"; sourceTree = "<group>"; };
 		A5001019 /* TerminalController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalController.swift; sourceTree = "<group>"; };
 		C0DE412700000000000002 /* CodexTranscriptMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptMonitor.swift; sourceTree = "<group>"; };
+		C0DE412700000000000004 /* SidebarLogRingBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarLogRingBuffer.swift; sourceTree = "<group>"; };
 		E7E000000000000000000006 /* CmuxEventBus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventBus.swift; sourceTree = "<group>"; };
 		E7E00000000000000000000E /* CmuxEventLogWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventLogWriter.swift; sourceTree = "<group>"; };
 		E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxLifecycleEventPublishing.swift; sourceTree = "<group>"; };
@@ -1203,6 +1205,7 @@
 					A5001511 /* UITestRecorder.swift */,
 					A5001520 /* PostHogAnalytics.swift */,
 					A5001416 /* Workspace.swift */,
+					C0DE412700000000000004 /* SidebarLogRingBuffer.swift */,
 					D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */,
 					C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */,
 					E30780000000000000000001 /* WorkspaceRemoteConfiguration.swift */,
@@ -1879,6 +1882,7 @@
 				A5001501 /* UITestRecorder.swift in Sources */,
 				A5001521 /* PostHogAnalytics.swift in Sources */,
 					A5001406 /* Workspace.swift in Sources */,
+					C0DE412700000000000003 /* SidebarLogRingBuffer.swift in Sources */,
 					D7AB3605C10DEF0000000003 /* WorkspaceCloseTabsBatching.swift in Sources */,
 					C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */,
 					E30780000000000000000002 /* WorkspaceRemoteConfiguration.swift in Sources */,
