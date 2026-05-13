@@ -843,6 +843,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
     private var mainWindowControllers: [MainWindowController] = []
+    private var windowMoveTargetSnapshotCache: [WindowMoveTargetSnapshotCacheKey: [WindowMoveTargetSnapshot]] = [:]
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
     /// Reset to `.zero` so the first window seeds the point from its own position.
@@ -3833,6 +3834,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     private func notifyMainWindowContextsDidChange() {
+        windowMoveTargetSnapshotCache.removeAll()
         NotificationCenter.default.post(name: .mainWindowContextsDidChange, object: self)
     }
 
@@ -3990,6 +3992,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var id: UUID { windowId }
     }
 
+    private struct WindowMoveTargetSnapshotCacheKey: Hashable {
+        let referenceWindowId: UUID?
+    }
+
     struct WorkspaceMoveTarget: Identifiable {
         let windowId: UUID
         let workspaceId: UUID
@@ -4005,15 +4011,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func windowMoveTargetSnapshots(referenceWindowId: UUID?) -> [WindowMoveTargetSnapshot] {
+        let cacheKey = WindowMoveTargetSnapshotCacheKey(referenceWindowId: referenceWindowId)
+        if let cached = windowMoveTargetSnapshotCache[cacheKey] {
+            return cached
+        }
+
         let orderedSummaries = orderedMainWindowSummaries(referenceWindowId: referenceWindowId)
         let labels = windowLabelsById(orderedSummaries: orderedSummaries, referenceWindowId: referenceWindowId)
-        return orderedSummaries.map { summary in
+        let snapshots = orderedSummaries.map { summary in
             WindowMoveTargetSnapshot(
                 windowId: summary.windowId,
                 label: labels[summary.windowId] ?? "Window",
                 isCurrentWindow: summary.windowId == referenceWindowId
             )
         }
+        windowMoveTargetSnapshotCache[cacheKey] = snapshots
+        return snapshots
     }
 
     func windowMoveTargets(referenceWindowId: UUID?) -> [WindowMoveTarget] {

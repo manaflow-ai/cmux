@@ -16804,7 +16804,7 @@ struct CMUXCLI {
               parsed > 0 else {
             return Self.codexMonitorUnresolvedTranscriptTimeoutSeconds
         }
-        return min(max(parsed, 0.05), Self.codexMonitorUnresolvedTranscriptTimeoutSeconds)
+        return max(parsed, 0.05)
     }
 
     private func startCodexTranscriptMonitor(
@@ -16824,12 +16824,20 @@ struct CMUXCLI {
             return
         }
 
+        let validOwnerPID = ownerPID.flatMap { $0 > 1 ? $0 : nil }
+        if ownerPID != nil, validOwnerPID == nil {
+            telemetry.breadcrumb(
+                "codex-hook.monitor.invalid-owner-pid",
+                data: ["owner_pid": ownerPID ?? -1]
+            )
+        }
+
         let monitorTelemetry: [String: Any] = [
             "has_lease": normalizedHookValue(leasePath) != nil,
             "has_turn_id": normalizedHookValue(turnId) != nil,
             "has_transcript": normalizedHookValue(transcriptPath) != nil,
             "has_surface_id": normalizedHookValue(surfaceId) != nil,
-            "has_owner_pid": ownerPID != nil,
+            "has_owner_pid": validOwnerPID != nil,
         ]
         telemetry.breadcrumb("codex-hook.monitor.start", data: monitorTelemetry)
 
@@ -16856,7 +16864,7 @@ struct CMUXCLI {
         if let cwd, !cwd.isEmpty {
             monitorArgs += ["--cwd", cwd]
         }
-        if let ownerPID, ownerPID > 1 {
+        if let ownerPID = validOwnerPID {
             monitorArgs += ["--owner-pid", String(ownerPID)]
         }
         if let leasePath, !leasePath.isEmpty {
@@ -16875,7 +16883,11 @@ struct CMUXCLI {
         }
     }
 
-    private func runCodexTranscriptMonitor(commandArgs: [String], client: SocketClient) throws {
+    private func runCodexTranscriptMonitor(
+        commandArgs: [String],
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry
+    ) throws {
         let env = ProcessInfo.processInfo.environment
         let workspaceId = optionValue(commandArgs, name: "--workspace") ?? env["CMUX_WORKSPACE_ID"] ?? ""
         let surfaceId = optionValue(commandArgs, name: "--surface") ?? env["CMUX_SURFACE_ID"]
@@ -16887,7 +16899,19 @@ struct CMUXCLI {
         let turnId = optionValue(commandArgs, name: "--turn")
         var transcriptPath = optionValue(commandArgs, name: "--transcript")
         let leasePath = optionValue(commandArgs, name: "--lease")
-        let ownerPID = optionValue(commandArgs, name: "--owner-pid").flatMap(Int.init)
+        let ownerPID: Int?
+        if let rawOwnerPID = optionValue(commandArgs, name: "--owner-pid") {
+            guard let parsedOwnerPID = Int(rawOwnerPID), parsedOwnerPID > 1 else {
+                telemetry.breadcrumb(
+                    "codex-hook.monitor.invalid-owner-pid",
+                    data: ["raw": rawOwnerPID]
+                )
+                return
+            }
+            ownerPID = parsedOwnerPID
+        } else {
+            ownerPID = nil
+        }
 
         guard !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -18984,7 +19008,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         telemetry.breadcrumb("\(def.name)-hook.\(subcommand)")
 
         if def.name == "codex", subcommand == "monitor" {
-            try runCodexTranscriptMonitor(commandArgs: hookArgs, client: client)
+            try runCodexTranscriptMonitor(commandArgs: hookArgs, client: client, telemetry: telemetry)
             return
         }
 
