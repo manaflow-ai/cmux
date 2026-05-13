@@ -638,7 +638,7 @@ function installClaudeChildHookPropagation() {
         }
         continue;
       }
-      if ("|&;<>()[{}]$`*?".includes(char) || char === "[" || char === "]") {
+      if ("|&;<>()[{}]$`*?".includes(char)) {
         return null;
       }
       token += char;
