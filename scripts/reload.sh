@@ -545,7 +545,7 @@ if wait_start is not None:
 
 build_start = time.monotonic()
 try:
-    completed = subprocess.run(command)
+    completed = subprocess.run(command, pass_fds=(fd,))
 except KeyboardInterrupt:
     raise SystemExit(130)
 except OSError as exc:
