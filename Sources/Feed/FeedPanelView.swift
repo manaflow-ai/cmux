@@ -655,28 +655,30 @@ private struct FeedListView: View {
             .frame(height: 1)
     }
 
+    @ViewBuilder
     private var emptyState: some View {
-        let title: String
-        let subtitle: String
         switch filter {
         case .actionable:
-            title = String(localized: "feed.empty.actionable.title",
-                           defaultValue: "No pending decisions")
-            subtitle = String(localized: "feed.empty.actionable.subtitle",
-                              defaultValue: "Permission, plan, and question requests from AI agents will appear here.")
+            emptyStateContent(
+                title: String(localized: "feed.empty.actionable.title",
+                              defaultValue: "No pending decisions"),
+                subtitle: String(localized: "feed.empty.actionable.subtitle",
+                                 defaultValue: "Permission, plan, and question requests from AI agents will appear here.")
+            )
         case .activity:
-            title = String(localized: "feed.empty.activity.title",
-                           defaultValue: "No activity yet")
-            subtitle = String(localized: "feed.empty.activity.subtitle",
-                              defaultValue: "Agent decisions and todo-list updates will appear here.")
+            emptyStateContent(
+                title: String(localized: "feed.empty.activity.title",
+                              defaultValue: "No activity yet"),
+                subtitle: String(localized: "feed.empty.activity.subtitle",
+                                 defaultValue: "Agent decisions and todo-list updates will appear here.")
+            )
         case .agentTree:
-            title = String(localized: "feed.empty.agentTree.title",
-                           defaultValue: "No agent tree yet")
-            subtitle = String(localized: "feed.empty.agentTree.subtitle",
-                              defaultValue: "Task-spawned subagents will appear here as parent and child activity arrives.")
+            EmptyView()
         }
+    }
 
-        return VStack(spacing: 4) {
+    private func emptyStateContent(title: String, subtitle: String) -> some View {
+        VStack(spacing: 4) {
             Text(title)
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
