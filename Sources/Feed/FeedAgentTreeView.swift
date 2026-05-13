@@ -9,6 +9,9 @@ struct FeedAgentTreeView: View {
     let selectedNodeId: String?
     let isKeyboardActive: Bool
     let scrollRequest: FeedAgentTreeScrollRequest?
+    let showsLoadMore: Bool
+    let isLoadingOlderItems: Bool
+    let onLoadOlderItems: () -> Void
     let onToggle: (String) -> Void
     let onSelect: (WorkstreamAgentTreeNode) -> Void
 
@@ -35,8 +38,18 @@ struct FeedAgentTreeView: View {
 
     private var rowStack: some View {
         LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(rows) { row in
-                rowView(for: row)
+            if rows.isEmpty {
+                emptyState
+            } else {
+                ForEach(rows) { row in
+                    rowView(for: row)
+                }
+            }
+            if showsLoadMore {
+                FeedHistoryLoadMoreRow(
+                    isLoading: isLoadingOlderItems,
+                    action: onLoadOlderItems
+                )
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -112,6 +125,23 @@ struct FeedAgentTreeView: View {
             edgeText,
             graph.maxDepth
         )
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 4) {
+            Text(String(localized: "feed.empty.agentTree.title",
+                        defaultValue: "No agent tree yet"))
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+            Text(String(localized: "feed.empty.agentTree.subtitle",
+                        defaultValue: "Task-spawned subagents will appear here as parent and child activity arrives."))
+                .font(.system(size: 11))
+                .foregroundColor(.secondary.opacity(0.7))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 44)
     }
 
 }

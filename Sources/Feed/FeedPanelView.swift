@@ -179,27 +179,26 @@ private struct FeedListView: View {
         ScrollViewReader { proxy in
             Group {
                 if filter == .agentTree {
-                    if agentGraphSnapshot.isEmpty {
-                        emptyState
-                    } else {
-                        FeedAgentTreeView(
-                            graph: agentGraphSnapshot,
-                            rows: visibleAgentTree.rows,
-                            actions: rowActions,
-                            collapsedNodeIds: agentTreeController.collapsedNodeIds,
-                            selectedNodeId: agentTreeController.selectedNodeId,
-                            isKeyboardActive: focusSnapshot.isKeyboardActive,
-                            scrollRequest: agentTreeController.scrollRequest,
-                            onToggle: { nodeId in
-                                agentTreeController.toggle(nodeId)
-                            },
-                            onSelect: { node in
-                                applyAgentTreeSelectionEffect(
-                                    agentTreeController.select(node, focusFeed: false)
-                                )
-                            }
-                        )
-                    }
+                    FeedAgentTreeView(
+                        graph: agentGraphSnapshot,
+                        rows: visibleAgentTree.rows,
+                        actions: rowActions,
+                        collapsedNodeIds: agentTreeController.collapsedNodeIds,
+                        selectedNodeId: agentTreeController.selectedNodeId,
+                        isKeyboardActive: focusSnapshot.isKeyboardActive,
+                        scrollRequest: agentTreeController.scrollRequest,
+                        showsLoadMore: hasMorePersistedItems,
+                        isLoadingOlderItems: isLoadingOlderItems,
+                        onLoadOlderItems: onLoadOlderItems,
+                        onToggle: { nodeId in
+                            agentTreeController.toggle(nodeId)
+                        },
+                        onSelect: { node in
+                            applyAgentTreeSelectionEffect(
+                                agentTreeController.select(node, focusFeed: false)
+                            )
+                        }
+                    )
                 } else {
                     if snapshots.isEmpty && !shouldShowActivityHistoryLoader {
                         emptyState

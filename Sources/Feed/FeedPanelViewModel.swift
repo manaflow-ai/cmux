@@ -63,15 +63,20 @@ final class FeedPanelViewModel {
     }
 
     func loadOlderItems() {
-        guard !isLoadingOlderItems, hasMorePersistedItems else { return }
+        guard !isLoadingOlderItems,
+              hasMorePersistedItems,
+              loadOlderItemsTask == nil
+        else { return }
         loadOlderItemsSequence &+= 1
         let sequence = loadOlderItemsSequence
-        loadOlderItemsTask?.cancel()
         loadOlderItemsTask = Task { @MainActor [weak self, sequence] in
             guard let self, !Task.isCancelled else { return }
+            defer {
+                if self.loadOlderItemsSequence == sequence {
+                    self.loadOlderItemsTask = nil
+                }
+            }
             await FeedCoordinator.shared.store?.loadOlderItems()
-            guard self.loadOlderItemsSequence == sequence else { return }
-            self.loadOlderItemsTask = nil
         }
     }
 
