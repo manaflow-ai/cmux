@@ -1249,7 +1249,7 @@ struct BrowserPanelView: View {
                 .fill(Color(nsColor: omnibarPillBackgroundColor))
         )
         .overlay {
-            BrowserOmnibarCursorRectRepresentable()
+            BrowserOmnibarInteractionRepresentable(panelId: panel.id)
         }
         .overlay(
             RoundedRectangle(cornerRadius: omnibarPillCornerRadius, style: .continuous)
@@ -1568,10 +1568,9 @@ struct BrowserPanelView: View {
 #endif
 
         if addressBarFocused {
-            // Re-run focus behavior (select-all/refresh suggestions) when focus is
-            // explicitly requested again while already focused.
-            let urlString = panel.preferredURLStringForOmnibar() ?? ""
-            let effects = omnibarReduce(state: &omnibarState, event: .focusGained(currentURLString: urlString))
+            // Re-run selection behavior when focus is explicitly requested again
+            // while already focused, without replacing an in-progress edit.
+            let effects = omnibarReduce(state: &omnibarState, event: .focusReasserted())
             applyOmnibarEffects(effects)
             refreshInlineCompletion()
 #if DEBUG
@@ -1847,13 +1846,16 @@ struct BrowserPanelView: View {
 #if DEBUG
         logBrowserFocusState(event: "addressBar.tap")
 #endif
+        let shouldRequestPanelFocus = !isFocused
         if !addressBarFocused {
             // Mark focused before pane selection converges so WebKit focus is not
             // briefly re-acquired during `focusPane`.
             suppressNextFocusGainedSelectAll = true
             setAddressBarFocused(true, reason: "omnibar.tap")
         }
-        onRequestPanelFocus()
+        if shouldRequestPanelFocus {
+            onRequestPanelFocus()
+        }
     }
 
     private func hideSuggestions() {
@@ -2963,6 +2965,7 @@ struct OmnibarState: Equatable {
 
 enum OmnibarEvent: Equatable {
     case focusGained(currentURLString: String, shouldSelectAll: Bool = true)
+    case focusReasserted(shouldSelectAll: Bool = true)
     case focusLostRevertBuffer(currentURLString: String)
     case focusLostPreserveBuffer(currentURLString: String)
     case panelURLChanged(currentURLString: String)
@@ -2992,6 +2995,10 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         state.suggestions = []
         state.selectedSuggestionIndex = 0
         state.selectedSuggestionID = nil
+        effects.shouldSelectAll = shouldSelectAll
+
+    case .focusReasserted(let shouldSelectAll):
+        state.isFocused = true
         effects.shouldSelectAll = shouldSelectAll
 
     case .focusLostRevertBuffer(let url):
@@ -3260,16 +3267,114 @@ func browserOmnibarShouldReacquireFocusAfterEndEditing(
     desiredOmnibarFocus && !nextResponderIsOtherTextField
 }
 
-private final class BrowserOmnibarCursorRectView: NSView {
+private struct WeakOmnibarNativeTextField {
+    weak var field: OmnibarNativeTextField?
+}
+
+private final class BrowserOmnibarNativeFieldRegistry {
+    static let shared = BrowserOmnibarNativeFieldRegistry()
+
+    private var fields: [UUID: WeakOmnibarNativeTextField] = [:]
+
+    func register(_ field: OmnibarNativeTextField, panelId: UUID) {
+        fields[panelId] = WeakOmnibarNativeTextField(field: field)
+    }
+
+    func unregister(_ field: OmnibarNativeTextField, panelId: UUID) {
+        guard fields[panelId]?.field === field else { return }
+        fields[panelId] = nil
+    }
+
+    func field(for panelId: UUID?) -> OmnibarNativeTextField? {
+        guard let panelId else { return nil }
+        guard let field = fields[panelId]?.field else {
+            fields[panelId] = nil
+            return nil
+        }
+        return field
+    }
+}
+
+private final class BrowserOmnibarInteractionView: NSView {
+    var panelId: UUID?
+    private var trackingArea: NSTrackingArea?
+
     override var isFlipped: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setAccessibilityElement(false)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
     override func resetCursorRects() {
         super.resetCursorRects()
         addCursorRect(bounds, cursor: .iBeam)
     }
 
+    override func updateTrackingAreas() {
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        let options: NSTrackingArea.Options = [
+            .inVisibleRect,
+            .activeAlways,
+            .cursorUpdate,
+            .mouseMoved,
+            .mouseEnteredAndExited,
+            .enabledDuringMouseDrag,
+        ]
+        let next = NSTrackingArea(rect: .zero, options: options, owner: self, userInfo: nil)
+        addTrackingArea(next)
+        trackingArea = next
+        super.updateTrackingAreas()
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
+        guard !isHidden, alphaValue > 0, bounds.contains(point) else { return nil }
+        return self
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        setIBeamCursor()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        setIBeamCursor()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        setIBeamCursor()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        NSCursor.arrow.set()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        forwardMouseEvent(event) { field, event in
+            field.mouseDown(with: event)
+        }
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        forwardMouseEvent(event) { field, event in
+            field.mouseDragged(with: event)
+        }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        forwardMouseEvent(event) { field, event in
+            field.mouseUp(with: event)
+        }
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -3281,14 +3386,34 @@ private final class BrowserOmnibarCursorRectView: NSView {
         super.viewDidMoveToWindow()
         window?.invalidateCursorRects(for: self)
     }
-}
 
-private struct BrowserOmnibarCursorRectRepresentable: NSViewRepresentable {
-    func makeNSView(context: Context) -> BrowserOmnibarCursorRectView {
-        BrowserOmnibarCursorRectView(frame: .zero)
+    private func setIBeamCursor() {
+        NSCursor.iBeam.set()
     }
 
-    func updateNSView(_ nsView: BrowserOmnibarCursorRectView, context: Context) {
+    private func forwardMouseEvent(
+        _ event: NSEvent,
+        _ apply: (OmnibarNativeTextField, NSEvent) -> Void
+    ) {
+        guard let field = BrowserOmnibarNativeFieldRegistry.shared.field(for: panelId),
+              field.window === window else {
+            return
+        }
+        apply(field, event)
+    }
+}
+
+private struct BrowserOmnibarInteractionRepresentable: NSViewRepresentable {
+    let panelId: UUID
+
+    func makeNSView(context: Context) -> BrowserOmnibarInteractionView {
+        let view = BrowserOmnibarInteractionView(frame: .zero)
+        view.panelId = panelId
+        return view
+    }
+
+    func updateNSView(_ nsView: BrowserOmnibarInteractionView, context: Context) {
+        nsView.panelId = panelId
         nsView.window?.invalidateCursorRects(for: nsView)
     }
 }
@@ -3330,25 +3455,11 @@ final class OmnibarNativeTextField: NSTextField {
     }
 
     override func mouseDown(with event: NSEvent) {
-        #if DEBUG
-        let frType = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        cmuxDebugLog(
-            "browser.omnibarClick win=\(window?.windowNumber ?? -1) " +
-            "fr=\(frType) hasEditor=\(currentEditor() == nil ? 0 : 1)"
-        )
-        #endif
         let hadEditor = currentEditor() != nil
         onPointerDown?()
 
         if !hadEditor {
-            let result = window?.makeFirstResponder(self) ?? false
-#if DEBUG
-            let frAfter = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-            cmuxDebugLog(
-                "browser.omnibarClick.makeFirstResponder result=\(result ? 1 : 0) " +
-                "win=\(window?.windowNumber ?? -1) fr=\(frAfter)"
-            )
-#endif
+            _ = window?.makeFirstResponder(self)
         }
 
         guard let editor = currentEditor() as? NSTextView else {
@@ -3629,6 +3740,10 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             }
 
             if hitView === field || hitView.isDescendant(of: field) {
+                return false
+            }
+            if let interactionView = hitView as? BrowserOmnibarInteractionView,
+               interactionView.panelId == field.panelId {
                 return false
             }
             if let textView = hitView as? NSTextView,
@@ -4066,6 +4181,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             coordinator?.handleKeyEvent(event, editor: editor) ?? false
         }
         context.coordinator.parentField = field
+        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: panelId)
         return field
     }
 
@@ -4073,6 +4189,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         context.coordinator.parent = self
         context.coordinator.parentField = nsView
         nsView.panelId = panelId
+        BrowserOmnibarNativeFieldRegistry.shared.register(nsView, panelId: panelId)
         nsView.placeholderString = placeholder
         context.coordinator.queueSelectAllRequest(selectAllRequestId)
 
@@ -4198,6 +4315,9 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: OmnibarNativeTextField, coordinator: Coordinator) {
+        if let panelId = nsView.panelId {
+            BrowserOmnibarNativeFieldRegistry.shared.unregister(nsView, panelId: panelId)
+        }
         nsView.onPointerDown = nil
         nsView.onHandleKeyEvent = nil
         nsView.delegate = nil
