@@ -2,6 +2,10 @@ import AppKit
 
 extension ContentView {
     static func commandPaletteShortcutAction(forCommandID commandId: String) -> KeyboardShortcutSettings.Action? {
+        if let target = TerminalDirectoryOpenTarget(commandPaletteCommandId: commandId) {
+            return KeyboardShortcutSettings.Action.terminalDirectoryOpenAction(for: target)
+        }
+
         if let rightSidebarModeAction = commandPaletteRightSidebarModeShortcutAction(forCommandID: commandId) {
             return rightSidebarModeAction
         }

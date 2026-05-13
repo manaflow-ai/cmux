@@ -53,6 +53,40 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
         }
     }
 
+    func testTerminalDirectoryOpenPaletteCommandsExposeBindableShortcutActions() {
+        let actions = KeyboardShortcutSettings.Action.terminalDirectoryOpenActions
+
+        XCTAssertEqual(actions.count, TerminalDirectoryOpenTarget.commandPaletteShortcutTargets.count)
+        for target in TerminalDirectoryOpenTarget.commandPaletteShortcutTargets {
+            let action = KeyboardShortcutSettings.Action.terminalDirectoryOpenAction(for: target)
+            XCTAssertEqual(action?.rawValue, target.commandPaletteCommandId)
+            XCTAssertEqual(ContentView.commandPaletteShortcutAction(forCommandID: target.commandPaletteCommandId), action)
+            XCTAssertEqual(action?.terminalDirectoryOpenTarget, target)
+            XCTAssertEqual(action?.defaultShortcut, .unbound)
+            XCTAssertTrue(action?.isPublicShortcutAction ?? false)
+        }
+    }
+
+    func testSettingsFileParsesTerminalDirectoryOpenPaletteShortcutBinding() throws {
+        let settingsFileURL = settingsDirectoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "shortcuts": {
+            "bindings": {
+              "palette.terminalOpenDirectory.vscode": "cmd+shift+v"
+            }
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        KeyboardShortcutSettings.settingsFileStore.reload()
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.shortcut(for: .terminalOpenDirectoryVSCode),
+            StoredShortcut(key: "v", command: true, shift: true, option: false, control: false)
+        )
+    }
+
     func testFieldEditorMoveCommandHonorsClearedCommandPalettePreviousShortcut() {
         guard let controlPEvent = makeKeyDownEvent(
             key: "\u{10}",

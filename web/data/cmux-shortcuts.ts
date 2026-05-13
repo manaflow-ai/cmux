@@ -17,6 +17,17 @@ export type ShortcutCategory = {
   shortcuts: Shortcut[];
 };
 
+const unboundByDefaultNote: LocalizedText = { en: "unbound by default", ja: "デフォルトでは未割り当て" };
+
+function openWithShortcut(id: string, en: string, ja: string): Shortcut {
+  return {
+    id,
+    combos: [],
+    description: { en, ja },
+    note: unboundByDefaultNote,
+  };
+}
+
 export const shortcutCategories: ShortcutCategory[] = [
   {
     id: "app",
@@ -178,6 +189,27 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "findPrevious", combos: [["⌥", "⌘", "G"]], description: { en: "Find previous", ja: "前を検索" } },
       { id: "hideFind", combos: [["⌥", "⌘", "⇧", "F"]], description: { en: "Hide find bar", ja: "検索バーを隠す" } },
       { id: "useSelectionForFind", combos: [["⌘", "E"]], description: { en: "Use selection for find", ja: "選択範囲で検索" } },
+    ],
+  },
+  {
+    id: "open-with",
+    titleKey: "terminal",
+    shortcuts: [
+      openWithShortcut("palette.terminalOpenDirectory.androidStudio", "Open current directory in Android Studio", "現在のディレクトリをAndroid Studioで開く"),
+      openWithShortcut("palette.terminalOpenDirectory.antigravity", "Open current directory in Antigravity", "現在のディレクトリをAntigravityで開く"),
+      openWithShortcut("palette.terminalOpenDirectory.cursor", "Open current directory in Cursor", "現在のディレクトリをCursorで開く"),
+      openWithShortcut("palette.terminalOpenDirectory.finder", "Open current directory in Finder", "現在のディレクトリをFinderで開く"),
+      openWithShortcut("palette.terminalOpenDirectory.ghostty", "Open current directory in Ghostty", "現在のディレクトリをGhosttyで開く"),
+      openWithShortcut("palette.terminalOpenDirectory.intellij", "Open current directory in IntelliJ IDEA", "現在のディレクトリをIntelliJ IDEAで開く"),
+      openWithShortcut("palette.terminalOpenDirectory.iterm2", "Open current directory in iTerm2", "現在のディレクトリをiTerm2で開く"),
+      openWithShortcut("palette.terminalOpenDirectory.terminal", "Open current directory in Terminal", "現在のディレクトリをTerminalで開く"),
+      openWithShortcut("palette.terminalOpenDirectory.tower", "Open current directory in Tower", "現在のディレクトリをTowerで開く"),
+      openWithShortcut("palette.terminalOpenDirectory.vscode", "Open current directory in VS Code", "現在のディレクトリをVS Codeで開く"),
+      openWithShortcut("palette.terminalOpenDirectory.vscodeInline", "Open current directory in VS Code (Inline)", "現在のディレクトリをVS Code (Inline)で開く"),
+      openWithShortcut("palette.terminalOpenDirectory.warp", "Open current directory in Warp", "現在のディレクトリをWarpで開く"),
+      openWithShortcut("palette.terminalOpenDirectory.windsurf", "Open current directory in Windsurf", "現在のディレクトリをWindsurfで開く"),
+      openWithShortcut("palette.terminalOpenDirectory.xcode", "Open current directory in Xcode", "現在のディレクトリをXcodeで開く"),
+      openWithShortcut("palette.terminalOpenDirectory.zed", "Open current directory in Zed", "現在のディレクトリをZedで開く"),
     ],
   },
   {

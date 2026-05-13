@@ -8847,27 +8847,7 @@ struct ContentView: View {
     }
 
     private func openFocusedDirectory(in target: TerminalDirectoryOpenTarget) -> Bool {
-        guard let directoryURL = focusedTerminalDirectoryURL() else { return false }
-        return openFocusedDirectory(directoryURL, in: target)
-    }
-
-    private func openFocusedDirectory(_ directoryURL: URL, in target: TerminalDirectoryOpenTarget) -> Bool {
-        switch target {
-        case .finder:
-            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directoryURL.path)
-            return true
-        case .vscodeInline:
-            return openFocusedDirectoryInInlineVSCode(directoryURL)
-        default:
-            guard let applicationURL = target.applicationURL() else { return false }
-            let configuration = NSWorkspace.OpenConfiguration()
-            NSWorkspace.shared.open([directoryURL], withApplicationAt: applicationURL, configuration: configuration)
-            return true
-        }
-    }
-
-    private func openFocusedDirectoryInInlineVSCode(_ directoryURL: URL) -> Bool {
-        AppDelegate.shared?.openDirectoryInInlineVSCode(directoryURL, tabManager: tabManager) ?? false
+        TerminalDirectoryOpenLauncher.openCurrentDirectory(in: target, tabManager: tabManager)
     }
 
     private func stopInlineVSCodeServeWeb() {
@@ -8884,21 +8864,6 @@ struct ContentView: View {
             }
         }
         return true
-    }
-
-    private func focusedTerminalDirectoryURL() -> URL? {
-        guard let workspace = tabManager.selectedWorkspace else { return nil }
-        let rawDirectory: String = {
-            if let focusedPanelId = workspace.focusedPanelId,
-               let directory = workspace.panelDirectories[focusedPanelId] {
-                return directory
-            }
-            return workspace.currentDirectory
-        }()
-        let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        guard FileManager.default.fileExists(atPath: trimmed) else { return nil }
-        return URL(fileURLWithPath: trimmed, isDirectory: true)
     }
 
 #if DEBUG

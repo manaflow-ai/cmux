@@ -72,6 +72,21 @@ enum KeyboardShortcutSettings {
         case toggleSidebar
         case newTab
         case openFolder
+        case terminalOpenDirectoryAndroidStudio = "palette.terminalOpenDirectory.androidStudio"
+        case terminalOpenDirectoryAntigravity = "palette.terminalOpenDirectory.antigravity"
+        case terminalOpenDirectoryCursor = "palette.terminalOpenDirectory.cursor"
+        case terminalOpenDirectoryFinder = "palette.terminalOpenDirectory.finder"
+        case terminalOpenDirectoryGhostty = "palette.terminalOpenDirectory.ghostty"
+        case terminalOpenDirectoryIntelliJ = "palette.terminalOpenDirectory.intellij"
+        case terminalOpenDirectoryITerm2 = "palette.terminalOpenDirectory.iterm2"
+        case terminalOpenDirectoryTerminal = "palette.terminalOpenDirectory.terminal"
+        case terminalOpenDirectoryTower = "palette.terminalOpenDirectory.tower"
+        case terminalOpenDirectoryVSCode = "palette.terminalOpenDirectory.vscode"
+        case terminalOpenDirectoryVSCodeInline = "palette.terminalOpenDirectory.vscodeInline"
+        case terminalOpenDirectoryWarp = "palette.terminalOpenDirectory.warp"
+        case terminalOpenDirectoryWindsurf = "palette.terminalOpenDirectory.windsurf"
+        case terminalOpenDirectoryXcode = "palette.terminalOpenDirectory.xcode"
+        case terminalOpenDirectoryZed = "palette.terminalOpenDirectory.zed"
         case reopenPreviousSession
         case goToWorkspace
         case commandPalette
@@ -155,6 +170,21 @@ enum KeyboardShortcutSettings {
             case .toggleSidebar: return String(localized: "shortcut.toggleLeftSidebar.label", defaultValue: "Toggle Left Sidebar")
             case .newTab: return String(localized: "shortcut.newWorkspace.label", defaultValue: "New Workspace")
             case .openFolder: return String(localized: "shortcut.openFolder.label", defaultValue: "Open Folder")
+            case .terminalOpenDirectoryAndroidStudio: return TerminalDirectoryOpenTarget.androidStudio.commandPaletteTitle
+            case .terminalOpenDirectoryAntigravity: return TerminalDirectoryOpenTarget.antigravity.commandPaletteTitle
+            case .terminalOpenDirectoryCursor: return TerminalDirectoryOpenTarget.cursor.commandPaletteTitle
+            case .terminalOpenDirectoryFinder: return TerminalDirectoryOpenTarget.finder.commandPaletteTitle
+            case .terminalOpenDirectoryGhostty: return TerminalDirectoryOpenTarget.ghostty.commandPaletteTitle
+            case .terminalOpenDirectoryIntelliJ: return TerminalDirectoryOpenTarget.intellij.commandPaletteTitle
+            case .terminalOpenDirectoryITerm2: return TerminalDirectoryOpenTarget.iterm2.commandPaletteTitle
+            case .terminalOpenDirectoryTerminal: return TerminalDirectoryOpenTarget.terminal.commandPaletteTitle
+            case .terminalOpenDirectoryTower: return TerminalDirectoryOpenTarget.tower.commandPaletteTitle
+            case .terminalOpenDirectoryVSCode: return TerminalDirectoryOpenTarget.vscode.commandPaletteTitle
+            case .terminalOpenDirectoryVSCodeInline: return TerminalDirectoryOpenTarget.vscodeInline.commandPaletteTitle
+            case .terminalOpenDirectoryWarp: return TerminalDirectoryOpenTarget.warp.commandPaletteTitle
+            case .terminalOpenDirectoryWindsurf: return TerminalDirectoryOpenTarget.windsurf.commandPaletteTitle
+            case .terminalOpenDirectoryXcode: return TerminalDirectoryOpenTarget.xcode.commandPaletteTitle
+            case .terminalOpenDirectoryZed: return TerminalDirectoryOpenTarget.zed.commandPaletteTitle
             case .reopenPreviousSession: return String(localized: "shortcut.reopenPreviousSession.label", defaultValue: "Reopen Previous Session")
             case .goToWorkspace: return String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…")
             case .commandPalette: return String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…")
@@ -262,6 +292,22 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
             case .openFolder:
                 return StoredShortcut(key: "o", command: true, shift: false, option: false, control: false)
+            case .terminalOpenDirectoryAndroidStudio,
+                 .terminalOpenDirectoryAntigravity,
+                 .terminalOpenDirectoryCursor,
+                 .terminalOpenDirectoryFinder,
+                 .terminalOpenDirectoryGhostty,
+                 .terminalOpenDirectoryIntelliJ,
+                 .terminalOpenDirectoryITerm2,
+                 .terminalOpenDirectoryTerminal,
+                 .terminalOpenDirectoryTower,
+                 .terminalOpenDirectoryVSCode,
+                 .terminalOpenDirectoryVSCodeInline,
+                 .terminalOpenDirectoryWarp,
+                 .terminalOpenDirectoryWindsurf,
+                 .terminalOpenDirectoryXcode,
+                 .terminalOpenDirectoryZed:
+                return .unbound
             case .reopenPreviousSession:
                 return StoredShortcut(key: "o", command: true, shift: true, option: false, control: false)
             case .goToWorkspace:

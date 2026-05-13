@@ -96,6 +96,12 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         Array(allCases)
     }
 
+    init?(commandPaletteCommandId: String) {
+        let prefix = "palette.terminalOpenDirectory."
+        guard commandPaletteCommandId.hasPrefix(prefix) else { return nil }
+        self.init(rawValue: String(commandPaletteCommandId.dropFirst(prefix.count)))
+    }
+
     static func availableTargets(in environment: DetectionEnvironment = .live) -> Set<Self> {
         Set(commandPaletteShortcutTargets.filter { $0.isAvailable(in: environment) })
     }
@@ -290,6 +296,126 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             deduped.append(path)
         }
         return deduped
+    }
+}
+
+@MainActor
+enum TerminalDirectoryOpenLauncher {
+    static func currentDirectoryURL(in tabManager: TabManager?) -> URL? {
+        guard let workspace = tabManager?.selectedWorkspace else { return nil }
+        let focusedPanelDirectory = workspace.focusedPanelId.flatMap { workspace.panelDirectories[$0] }
+        for rawDirectory in [focusedPanelDirectory, workspace.currentDirectory] {
+            let trimmed = rawDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !trimmed.isEmpty else { continue }
+            guard FileManager.default.fileExists(atPath: trimmed) else { continue }
+            return URL(fileURLWithPath: trimmed, isDirectory: true)
+        }
+        return nil
+    }
+
+    static func openCurrentDirectory(
+        in target: TerminalDirectoryOpenTarget,
+        tabManager: TabManager?
+    ) -> Bool {
+        guard let directoryURL = currentDirectoryURL(in: tabManager) else { return false }
+        return openDirectory(directoryURL, in: target, tabManager: tabManager)
+    }
+
+    static func openDirectory(
+        _ directoryURL: URL,
+        in target: TerminalDirectoryOpenTarget,
+        tabManager: TabManager?
+    ) -> Bool {
+        switch target {
+        case .finder:
+            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directoryURL.path)
+            return true
+        case .vscodeInline:
+            return AppDelegate.shared?.openDirectoryInInlineVSCode(directoryURL, tabManager: tabManager) ?? false
+        default:
+            guard let applicationURL = target.applicationURL() else { return false }
+            let configuration = NSWorkspace.OpenConfiguration()
+            NSWorkspace.shared.open([directoryURL], withApplicationAt: applicationURL, configuration: configuration)
+            return true
+        }
+    }
+}
+
+extension KeyboardShortcutSettings.Action {
+    static var terminalDirectoryOpenActions: [Self] {
+        TerminalDirectoryOpenTarget.commandPaletteShortcutTargets.compactMap(terminalDirectoryOpenAction(for:))
+    }
+
+    static func terminalDirectoryOpenAction(for target: TerminalDirectoryOpenTarget) -> Self? {
+        switch target {
+        case .androidStudio:
+            return .terminalOpenDirectoryAndroidStudio
+        case .antigravity:
+            return .terminalOpenDirectoryAntigravity
+        case .cursor:
+            return .terminalOpenDirectoryCursor
+        case .finder:
+            return .terminalOpenDirectoryFinder
+        case .ghostty:
+            return .terminalOpenDirectoryGhostty
+        case .intellij:
+            return .terminalOpenDirectoryIntelliJ
+        case .iterm2:
+            return .terminalOpenDirectoryITerm2
+        case .terminal:
+            return .terminalOpenDirectoryTerminal
+        case .tower:
+            return .terminalOpenDirectoryTower
+        case .vscode:
+            return .terminalOpenDirectoryVSCode
+        case .vscodeInline:
+            return .terminalOpenDirectoryVSCodeInline
+        case .warp:
+            return .terminalOpenDirectoryWarp
+        case .windsurf:
+            return .terminalOpenDirectoryWindsurf
+        case .xcode:
+            return .terminalOpenDirectoryXcode
+        case .zed:
+            return .terminalOpenDirectoryZed
+        }
+    }
+
+    var terminalDirectoryOpenTarget: TerminalDirectoryOpenTarget? {
+        switch self {
+        case .terminalOpenDirectoryAndroidStudio:
+            return .androidStudio
+        case .terminalOpenDirectoryAntigravity:
+            return .antigravity
+        case .terminalOpenDirectoryCursor:
+            return .cursor
+        case .terminalOpenDirectoryFinder:
+            return .finder
+        case .terminalOpenDirectoryGhostty:
+            return .ghostty
+        case .terminalOpenDirectoryIntelliJ:
+            return .intellij
+        case .terminalOpenDirectoryITerm2:
+            return .iterm2
+        case .terminalOpenDirectoryTerminal:
+            return .terminal
+        case .terminalOpenDirectoryTower:
+            return .tower
+        case .terminalOpenDirectoryVSCode:
+            return .vscode
+        case .terminalOpenDirectoryVSCodeInline:
+            return .vscodeInline
+        case .terminalOpenDirectoryWarp:
+            return .warp
+        case .terminalOpenDirectoryWindsurf:
+            return .windsurf
+        case .terminalOpenDirectoryXcode:
+            return .xcode
+        case .terminalOpenDirectoryZed:
+            return .zed
+        default:
+            return nil
+        }
     }
 }
 
