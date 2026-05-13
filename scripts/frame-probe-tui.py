@@ -27,6 +27,7 @@ from typing import Deque, Iterable
 
 DEFAULT_HZ = 120.0
 DEFAULT_HISTORY = 480
+BORDER_THICKNESS = 2
 
 
 @dataclass
@@ -246,10 +247,10 @@ def classify_gap(gap_ms: float, budget_ms: float) -> str:
 def draw(stdscr: curses.window, stats: FrameStats, notify: NotifyState, args: argparse.Namespace) -> None:
     stdscr.erase()
     height, width = stdscr.getmaxyx()
-    content_y = 1 if height >= 3 else 0
-    content_x = 2 if width >= 4 else 0
-    content_height = max(0, height - 2) if height >= 3 else height
-    content_width = max(0, width - 4) if width >= 4 else width
+    content_y = BORDER_THICKNESS if height >= BORDER_THICKNESS * 2 + 1 else 0
+    content_x = BORDER_THICKNESS + 1 if width >= BORDER_THICKNESS * 2 + 2 else 0
+    content_height = max(0, height - (BORDER_THICKNESS * 2)) if height >= BORDER_THICKNESS * 2 + 1 else height
+    content_width = max(0, width - ((BORDER_THICKNESS + 1) * 2)) if width >= BORDER_THICKNESS * 2 + 2 else width
     summary = stats.summary()
     budget = stats.budget_ms
     rows = [
@@ -295,12 +296,23 @@ def draw(stdscr: curses.window, stats: FrameStats, notify: NotifyState, args: ar
 def draw_bounds_border(stdscr: curses.window, height: int, width: int) -> None:
     if height < 2 or width < 2:
         return
-    horizontal = "-" * max(0, width - 2)
-    add_line(stdscr, 0, 0, f"+{horizontal}+")
-    add_line(stdscr, height - 1, 0, f"+{horizontal}+")
-    for row in range(1, height - 1):
-        add_line(stdscr, row, 0, "|")
-        add_line(stdscr, row, width - 1, "|")
+    if height < BORDER_THICKNESS * 2 + 1 or width < BORDER_THICKNESS * 2 + 2:
+        horizontal = "#" * width
+        add_line(stdscr, 0, 0, horizontal)
+        add_line(stdscr, height - 1, 0, horizontal)
+        for row in range(1, height - 1):
+            add_line(stdscr, row, 0, "#")
+            add_line(stdscr, row, width - 1, "#")
+        return
+
+    top = "#" * width
+    inner = "##" + "=" * max(0, width - 4) + "##"
+    for row in range(BORDER_THICKNESS):
+        add_line(stdscr, row, 0, top if row == 0 else inner)
+        add_line(stdscr, height - 1 - row, 0, top if row == 0 else inner)
+    for row in range(BORDER_THICKNESS, height - BORDER_THICKNESS):
+        add_line(stdscr, row, 0, "##")
+        add_line(stdscr, row, width - BORDER_THICKNESS, "##")
 
 
 def notify_line(state: NotifyState, args: argparse.Namespace) -> str:

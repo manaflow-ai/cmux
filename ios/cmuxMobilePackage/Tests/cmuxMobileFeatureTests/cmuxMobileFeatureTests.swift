@@ -572,6 +572,66 @@ import Testing
 }
 
 @MainActor
+@Test func terminalSnapshotRequestIncludesReportedViewportSize() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(
+            workspaceID: "live-workspace",
+            title: "Live Workspace",
+            terminalID: "live-terminal"
+        ),
+        try rpcSnapshotResultFrame(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            visibleLines: ["ready"]
+        ),
+        try rpcSnapshotResultFrame(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            visibleLines: ["resized"]
+        ),
+        try rpcSnapshotResultFrame(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            visibleLines: ["resized again"]
+        ),
+    ])
+    let runtime = CMUXMobileRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    store.reportTerminalViewport(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        viewportSize: MobileTerminalViewportSize(columns: 52, rows: 24)
+    )
+    await store.openWorkspace("live-workspace")
+
+    let requests = try await responses.sentRequests()
+    let snapshotRequests = requests.filter { $0.method == "terminal.snapshot" }
+    let viewportSnapshot = try #require(snapshotRequests.last { $0.viewportColumns != nil })
+    #expect(viewportSnapshot.viewportColumns == 52)
+    #expect(viewportSnapshot.viewportRows == 24)
+    #expect(viewportSnapshot.clientID?.isEmpty == false)
+}
+
+@MainActor
 @Test func previewHostIncludesAlternateScreenSnapshotTerminal() {
     let store = CMUXMobileShellStore.preview()
     let workspace = store.workspaces.first { $0.id.rawValue == "workspace-main" }
@@ -645,9 +705,24 @@ private func scriptedWorkspaceListResponses(
 
 private func rpcWorkspaceListFrame(
     workspaceID: String,
-    title: String
+    title: String,
+    terminalID: String? = nil
 ) throws -> Data {
-    try rpcResultFrame(
+    let terminals: [[String: Any]]
+    if let terminalID {
+        terminals = [
+            [
+                "id": terminalID,
+                "title": "Terminal",
+                "current_directory": "/Users/test/project",
+                "is_ready": true,
+                "is_focused": true,
+            ],
+        ]
+    } else {
+        terminals = []
+    }
+    return try rpcResultFrame(
         result: [
             "workspaces": [
                 [
@@ -655,7 +730,7 @@ private func rpcWorkspaceListFrame(
                     "title": title,
                     "current_directory": "/Users/test/project",
                     "is_selected": true,
-                    "terminals": [],
+                    "terminals": terminals,
                 ],
             ],
         ]
@@ -757,8 +832,12 @@ private actor ScriptedTransportResponses {
     func sentRequests() throws -> [RecordedRPCRequest] {
         try sentPayloads.map { payload in
             let request = try #require(JSONSerialization.jsonObject(with: payload) as? [String: Any])
+            let params = request["params"] as? [String: Any] ?? [:]
             return RecordedRPCRequest(
                 method: request["method"] as? String,
+                viewportColumns: params["viewport_columns"] as? Int,
+                viewportRows: params["viewport_rows"] as? Int,
+                clientID: params["client_id"] as? String,
                 hasAuth: request["auth"] != nil
             )
         }
@@ -767,6 +846,9 @@ private actor ScriptedTransportResponses {
 
 private struct RecordedRPCRequest: Sendable {
     var method: String?
+    var viewportColumns: Int?
+    var viewportRows: Int?
+    var clientID: String?
     var hasAuth: Bool
 }
 

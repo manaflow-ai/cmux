@@ -4451,8 +4451,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let surfaceView: GhosttyNSView
     private var lastPixelWidth: UInt32 = 0
     private var lastPixelHeight: UInt32 = 0
+    private var lastUncappedPixelWidth: UInt32 = 0
+    private var lastUncappedPixelHeight: UInt32 = 0
     private var lastXScale: CGFloat = 0
     private var lastYScale: CGFloat = 0
+    private var mobileViewportPixelLimit: (width: UInt32, height: UInt32)?
     private let debugMetadataLock = NSLock()
     private let createdAt: Date = Date()
     private var runtimeSurfaceCreatedAt: Date?
@@ -5441,8 +5444,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         let resolvedBackingWidth = backingSize?.width ?? (width * xScale)
         let resolvedBackingHeight = backingSize?.height ?? (height * yScale)
-        let wpx = pixelDimension(from: resolvedBackingWidth)
-        let hpx = pixelDimension(from: resolvedBackingHeight)
+        let rawWpx = pixelDimension(from: resolvedBackingWidth)
+        let rawHpx = pixelDimension(from: resolvedBackingHeight)
+        lastUncappedPixelWidth = rawWpx
+        lastUncappedPixelHeight = rawHpx
+        let cappedSize = cappedByMobileViewportLimit(width: rawWpx, height: rawHpx)
+        let wpx = cappedSize.width
+        let hpx = cappedSize.height
         guard wpx > 0, hpx > 0 else { return false }
 
         let scaleChanged = !scaleApproximatelyEqual(xScale, lastXScale) || !scaleApproximatelyEqual(yScale, lastYScale)
@@ -5475,6 +5483,60 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         // Let Ghostty continue rendering on its own wakeups for steady-state frames.
         return true
+    }
+
+    @discardableResult
+    func applyMobileViewportLimit(columns: Int, rows: Int, reason: String) -> Bool {
+        guard let surface else { return false }
+        let size = ghostty_surface_size(surface)
+        let cellWidth = max(1, Int(size.cell_width_px))
+        let cellHeight = max(1, Int(size.cell_height_px))
+        let currentColumns = max(1, Int(size.columns))
+        let currentRows = max(1, Int(size.rows))
+        let horizontalNonGridPixels = max(0, Int(size.width_px) - currentColumns * cellWidth)
+        let verticalNonGridPixels = max(0, Int(size.height_px) - currentRows * cellHeight)
+        let targetWidth = UInt32(min(
+            Int(UInt32.max),
+            max(1, columns) * cellWidth + horizontalNonGridPixels
+        ))
+        let targetHeight = UInt32(min(
+            Int(UInt32.max),
+            max(1, rows) * cellHeight + verticalNonGridPixels
+        ))
+
+        mobileViewportPixelLimit = (width: targetWidth, height: targetHeight)
+        let baseWidth = lastUncappedPixelWidth > 0 ? lastUncappedPixelWidth : targetWidth
+        let baseHeight = lastUncappedPixelHeight > 0 ? lastUncappedPixelHeight : targetHeight
+        let cappedSize = cappedByMobileViewportLimit(width: baseWidth, height: baseHeight)
+        let appliedWidth = cappedSize.width
+        let appliedHeight = cappedSize.height
+        let sizeChanged = appliedWidth != lastPixelWidth || appliedHeight != lastPixelHeight
+
+        #if DEBUG
+        Self.sizeLog(
+            "mobileViewportLimit surface=\(id.uuidString.prefix(8)) cells=\(columns)x\(rows) " +
+            "capPx=\(targetWidth)x\(targetHeight) appliedPx=\(appliedWidth)x\(appliedHeight) " +
+            "basePx=\(baseWidth)x\(baseHeight) prev=\(lastPixelWidth)x\(lastPixelHeight) " +
+            "changed=\(sizeChanged ? 1 : 0) reason=\(reason)"
+        )
+        #endif
+
+        guard sizeChanged else { return false }
+        ghostty_surface_set_size(surface, appliedWidth, appliedHeight)
+        lastPixelWidth = appliedWidth
+        lastPixelHeight = appliedHeight
+        ghostty_surface_refresh(surface)
+        return true
+    }
+
+    private func cappedByMobileViewportLimit(width: UInt32, height: UInt32) -> (width: UInt32, height: UInt32) {
+        guard let mobileViewportPixelLimit else {
+            return (width, height)
+        }
+        return (
+            width: min(width, mobileViewportPixelLimit.width),
+            height: min(height, mobileViewportPixelLimit.height)
+        )
     }
 
     /// Force a full size recalculation and surface redraw.

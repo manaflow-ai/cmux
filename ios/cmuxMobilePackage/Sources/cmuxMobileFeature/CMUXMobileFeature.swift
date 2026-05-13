@@ -1273,7 +1273,8 @@ private struct WorkspaceDetailContainer: View {
                     set: { store.selectTerminal($0) }
                 ),
                 createWorkspace: createWorkspace,
-                createTerminal: store.createTerminal
+                createTerminal: store.createTerminal,
+                reportTerminalViewport: store.reportTerminalViewport
             )
             .onAppear {
                 if store.selectedWorkspaceID != workspace.id {
@@ -1531,13 +1532,20 @@ struct WorkspaceDetailView: View {
     @Binding var selectedTerminalID: MobileTerminalPreview.ID?
     let createWorkspace: () -> Void
     let createTerminal: () -> Void
+    let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
 
     private var selectedTerminal: MobileTerminalPreview? {
         workspace.terminals.first { $0.id == selectedTerminalID } ?? workspace.terminals.first
     }
 
     var body: some View {
-        TerminalPreviewSurface(terminal: selectedTerminal)
+        TerminalPreviewSurface(
+            terminal: selectedTerminal,
+            onViewportChange: { viewportSize in
+                guard let terminalID = selectedTerminal?.id else { return }
+                reportTerminalViewport(workspace.id, terminalID, viewportSize)
+            }
+        )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(TerminalPalette.background)
             .ignoresSafeArea(.container, edges: [.bottom])
@@ -1631,6 +1639,7 @@ private enum PlatformPalette {
 
 struct TerminalPreviewSurface: View {
     let terminal: MobileTerminalPreview?
+    var onViewportChange: (MobileTerminalViewportSize) -> Void = { _ in }
 
     private var renderedRows: [MobileTerminalGhosttyRow] {
         guard let terminal else {
@@ -1647,14 +1656,20 @@ struct TerminalPreviewSurface: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            TerminalPalette.background
+        GeometryReader { proxy in
+            ZStack(alignment: .topLeading) {
+                TerminalPalette.background
 
-            TerminalFittedViewportGrid(
-                rows: renderedRows,
-                columnCount: columnCount,
-                cursor: terminal?.snapshot.cursor
-            )
+                TerminalFittedViewportGrid(
+                    rows: renderedRows,
+                    columnCount: columnCount,
+                    cursor: terminal?.snapshot.cursor
+                )
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+            .task(id: viewportReportKey(proxy: proxy)) {
+                onViewportChange(TerminalViewportMetrics.viewportSize(for: visibleTerminalSize(proxy: proxy)))
+            }
         }
         .foregroundStyle(TerminalPalette.foreground)
         .overlay {
@@ -1663,6 +1678,15 @@ struct TerminalPreviewSurface: View {
                 .accessibilityIdentifier("MobileTerminalSurface")
                 .allowsHitTesting(false)
         }
+    }
+
+    private func viewportReportKey(proxy: GeometryProxy) -> String {
+        let viewportSize = TerminalViewportMetrics.viewportSize(for: visibleTerminalSize(proxy: proxy))
+        return "\(terminal?.id.rawValue ?? "none"):\(viewportSize.columns)x\(viewportSize.rows)"
+    }
+
+    private func visibleTerminalSize(proxy: GeometryProxy) -> CGSize {
+        return proxy.size
     }
 }
 
@@ -1713,19 +1737,24 @@ private struct TerminalViewportMetrics {
     let gridWidth: CGFloat
     let gridHeight: CGFloat
 
+    static let preferredFontSize: CGFloat = 12
+    static let preferredCellWidth: CGFloat = 7.4
+    static let preferredRowHeight: CGFloat = 16
+
     init(size: CGSize, columns: Int, rows: Int) {
         let resolvedColumns = max(1, columns)
         let resolvedRows = max(1, rows)
-        let availableWidth = max(1, size.width)
-        let availableHeight = max(1, size.height)
-        let rawCellWidth = availableWidth / CGFloat(resolvedColumns)
-        let rawRowHeight = availableHeight / CGFloat(resolvedRows)
+        cellWidth = Self.preferredCellWidth
+        rowHeight = Self.preferredRowHeight
+        fontSize = Self.preferredFontSize
+        gridWidth = Self.preferredCellWidth * CGFloat(resolvedColumns)
+        gridHeight = Self.preferredRowHeight * CGFloat(resolvedRows)
+    }
 
-        cellWidth = rawCellWidth
-        rowHeight = rawRowHeight
-        fontSize = max(3, min(14, rawCellWidth * 1.55, rawRowHeight * 0.78))
-        gridWidth = rawCellWidth * CGFloat(resolvedColumns)
-        gridHeight = rawRowHeight * CGFloat(resolvedRows)
+    static func viewportSize(for size: CGSize) -> MobileTerminalViewportSize {
+        let columns = max(20, Int(floor(max(1, size.width) / preferredCellWidth)))
+        let rows = max(5, Int(floor(max(1, size.height) / preferredRowHeight)))
+        return MobileTerminalViewportSize(columns: columns, rows: rows)
     }
 }
 

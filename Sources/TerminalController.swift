@@ -76,6 +76,13 @@ class TerminalController {
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
     private nonisolated static let socketListenerFailureCaptureLock = NSLock()
     private nonisolated(unsafe) static var socketListenerFailureLastCapturedAt: [String: Date] = [:]
+    private struct MobileViewportReport {
+        var columns: Int
+        var rows: Int
+        var updatedAt: Date
+    }
+    private static let mobileViewportReportTTL: TimeInterval = 120
+    private var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]
     private nonisolated static let unixSocketPathMaxLength: Int = {
         var addr = sockaddr_un()
         // Reserve one byte for the null terminator.
@@ -17802,6 +17809,8 @@ class TerminalController {
             return .err(code: "invalid_params", message: "max_scrollback_rows must be non-negative", data: nil)
         }
 
+        applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
+
         return mobileTerminalSnapshotPayload(
             workspace: resolved.workspace,
             terminalPanel: terminalPanel,
@@ -17825,6 +17834,41 @@ class TerminalController {
             "workspace_id": resolved.workspace.id.uuidString,
             "surface_id": terminalPanel.id.uuidString
         ])
+    }
+
+    private func applyMobileViewportReport(
+        params: [String: Any],
+        terminalPanel: TerminalPanel
+    ) {
+        guard let clientID = v2String(params, "client_id"),
+              let rawColumns = v2Int(params, "viewport_columns"),
+              let rawRows = v2Int(params, "viewport_rows") else {
+            return
+        }
+
+        let columns = min(max(rawColumns, 20), 300)
+        let rows = min(max(rawRows, 5), 120)
+        let now = Date()
+        var reports = mobileViewportReportsBySurfaceID[terminalPanel.id] ?? [:]
+        reports = reports.filter { _, report in
+            now.timeIntervalSince(report.updatedAt) <= Self.mobileViewportReportTTL
+        }
+        reports[clientID] = MobileViewportReport(
+            columns: columns,
+            rows: rows,
+            updatedAt: now
+        )
+        mobileViewportReportsBySurfaceID[terminalPanel.id] = reports
+
+        guard let minColumns = reports.values.map(\.columns).min(),
+              let minRows = reports.values.map(\.rows).min() else {
+            return
+        }
+        terminalPanel.surface.applyMobileViewportLimit(
+            columns: minColumns,
+            rows: minRows,
+            reason: "mobile.terminal.snapshot"
+        )
     }
 
     private func mobileTerminalSnapshotPayload(
