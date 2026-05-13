@@ -1954,6 +1954,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
+        func cmdClickUITestTerminalPanel(in workspace: Workspace?) -> TerminalPanel? {
+            guard let workspace else { return nil }
+            if let focusedTerminalPanel = workspace.focusedTerminalPanel {
+                return focusedTerminalPanel
+            }
+            return workspace.panels.values
+                .compactMap { $0 as? TerminalPanel }
+                .first { panel in
+                    panel.hostedView.window != nil &&
+                        panel.hostedView.debugPortalVisibleInUI &&
+                        !panel.hostedView.debugPortalFrameInWindow.isEmpty
+                }
+        }
+
         @MainActor
         func executePendingCommandIfNeeded(
             workspace: Workspace,
@@ -2068,7 +2082,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard !resolved else { return }
             let currentTabManager = self.tabManager
             let workspace = currentTabManager?.selectedWorkspace ?? currentTabManager?.tabs.first
-            let terminalPanel = workspace?.focusedTerminalPanel
+            let terminalPanel = cmdClickUITestTerminalPanel(in: workspace)
             let mainWindow = terminalPanel?.hostedView.window
                 ?? currentTabManager.flatMap { self.windowId(for: $0).flatMap { self.mainWindow(for: $0) } }
             if Date() >= deadline {
