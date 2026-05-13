@@ -333,22 +333,58 @@ enum CmuxSettingsJSONWriter {
     }
 }
 
-// Write-back plans are immutable after creation; values are JSON scalars or
-// arrays collected before the plan crosses to background file I/O.
+// Plans capture UserDefaults values before background I/O; custom file-backed values resolve during write().
 struct ManagedSettingsWriteBackPlan: @unchecked Sendable {
     private let changesBySourcePath: [String: [String: Any]]
+    private let customSocketPasswordSources: [(sourcePath: String, jsonPath: String, managedValue: ManagedStringOverride)]
 
-    init(changesBySourcePath: [String: [String: Any]]) {
+    init(
+        changesBySourcePath: [String: [String: Any]],
+        customSocketPasswordSources: [(sourcePath: String, jsonPath: String, managedValue: ManagedStringOverride)] = []
+    ) {
         self.changesBySourcePath = changesBySourcePath
+        self.customSocketPasswordSources = customSocketPasswordSources
     }
 
-    func write(fileManager: FileManager) throws {
-        for sourcePath in changesBySourcePath.keys.sorted() {
-            let changesByPath = changesBySourcePath[sourcePath] ?? [:]
+    func write(
+        fileManager: FileManager,
+        loadSocketPassword: () throws -> String? = { try SocketControlPasswordStore.loadPassword() }
+    ) throws {
+        var resolvedChangesBySourcePath = changesBySourcePath
+        collectCustomSocketPasswordEdits(
+            changesBySourcePath: &resolvedChangesBySourcePath,
+            loadSocketPassword: loadSocketPassword
+        )
+        for sourcePath in resolvedChangesBySourcePath.keys.sorted() {
+            let changesByPath = resolvedChangesBySourcePath[sourcePath] ?? [:]
             let changes = changesByPath.keys.sorted().map { jsonPath in
                 (jsonPath: jsonPath, value: changesByPath[jsonPath]!)
             }
             try CmuxSettingsJSONWriter.write(changes, to: sourcePath, fileManager: fileManager)
+        }
+    }
+
+    private func collectCustomSocketPasswordEdits(
+        changesBySourcePath: inout [String: [String: Any]],
+        loadSocketPassword: () throws -> String?
+    ) {
+        for source in customSocketPasswordSources {
+            let currentSocketPassword: String?
+            do {
+                currentSocketPassword = try loadSocketPassword()
+            } catch {
+                cmuxSettingsLog.error("Failed to read socket password before cmux.json write-back: \(String(describing: error), privacy: .public)")
+                continue
+            }
+            let didChange: Bool
+            switch source.managedValue {
+            case .set(let value):
+                didChange = currentSocketPassword != value
+            case .clear:
+                didChange = currentSocketPassword != nil
+            }
+            guard didChange else { continue }
+            changesBySourcePath[source.sourcePath, default: [:]][source.jsonPath] = currentSocketPassword ?? NSNull()
         }
     }
 }
@@ -405,9 +441,12 @@ enum CmuxSettingsManagedEditWriter {
         var changesBySourcePath: [String: [String: Any]] = [:]
         collectUserDefaultEdits(snapshot: snapshot, changesBySourcePath: &changesBySourcePath)
         collectNewUserDefaultEdits(snapshot: snapshot, changesBySourcePath: &changesBySourcePath)
-        collectCustomSettingEdits(snapshot: snapshot, changesBySourcePath: &changesBySourcePath)
-        guard !changesBySourcePath.isEmpty else { return nil }
-        return ManagedSettingsWriteBackPlan(changesBySourcePath: changesBySourcePath)
+        let customSocketPasswordSources = collectCustomSocketPasswordSources(snapshot: snapshot)
+        guard !changesBySourcePath.isEmpty || !customSocketPasswordSources.isEmpty else { return nil }
+        return ManagedSettingsWriteBackPlan(
+            changesBySourcePath: changesBySourcePath,
+            customSocketPasswordSources: customSocketPasswordSources
+        )
     }
 
     private static func collectUserDefaultEdits(
@@ -445,34 +484,14 @@ enum CmuxSettingsManagedEditWriter {
         }
     }
 
-    private static func collectCustomSettingEdits(
-        snapshot: ResolvedSettingsSnapshot,
-        changesBySourcePath: inout [String: [String: Any]]
-    ) {
+    private static func collectCustomSocketPasswordSources(
+        snapshot: ResolvedSettingsSnapshot
+    ) -> [(sourcePath: String, jsonPath: String, managedValue: ManagedStringOverride)] {
         guard let managedSocketPassword = snapshot.managedCustomSettings.socketPassword,
               let source = snapshot.managedCustomSettingSources[CmuxSettingsFileStore.socketPasswordWriteBackIdentifier]
-        else { return }
-
-        let currentSocketPassword: String?
-        do {
-            currentSocketPassword = try SocketControlPasswordStore.loadPassword()
-        } catch {
-            cmuxSettingsLog.error("Failed to read socket password before cmux.json write-back: \(String(describing: error), privacy: .public)")
-            return
+        else {
+            return []
         }
-        let didChange: Bool = {
-            switch managedSocketPassword {
-            case .set(let value):
-                return currentSocketPassword != value
-            case .clear:
-                return currentSocketPassword != nil
-            }
-        }()
-        guard didChange else { return }
-        if let currentSocketPassword {
-            changesBySourcePath[source.sourcePath, default: [:]][source.jsonPath] = currentSocketPassword
-        } else {
-            changesBySourcePath[source.sourcePath, default: [:]][source.jsonPath] = NSNull()
-        }
+        return [(sourcePath: source.sourcePath, jsonPath: source.jsonPath, managedValue: managedSocketPassword)]
     }
 }

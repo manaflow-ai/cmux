@@ -538,6 +538,41 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         XCTAssertNotNil(store)
     }
 
+    func testSocketPasswordWriteBackResolvesPasswordDuringPlanWrite() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "automation": {
+                "socketPassword": "from-config"
+              }
+            }
+            """,
+            to: primaryURL
+        )
+
+        var snapshot = ResolvedSettingsSnapshot(path: primaryURL.path)
+        snapshot.managedCustomSettings.socketPassword = .set("from-config")
+        snapshot.managedCustomSettingSources[CmuxSettingsFileStore.socketPasswordWriteBackIdentifier] =
+            ManagedCustomSettingSource(
+                sourcePath: primaryURL.path,
+                jsonPath: "automation.socketPassword"
+            )
+        let plan = try XCTUnwrap(CmuxSettingsManagedEditWriter.makeWriteBackPlan(snapshot: snapshot))
+        var loadCount = 0
+
+        try plan.write(fileManager: .default) {
+            loadCount += 1
+            return "from-ui"
+        }
+
+        XCTAssertEqual(loadCount, 1)
+        XCTAssertEqual(try stringSetting(in: primaryURL, section: "automation", key: "socketPassword"), "from-ui")
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-settings-migration-\(UUID().uuidString)",
@@ -608,5 +643,13 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         let object = try JSONSerialization.jsonObject(with: sanitized, options: []) as? [String: Any]
         let settingsSection = object?[section] as? [String: Any]
         return settingsSection?[key] as? Bool
+    }
+
+    private func stringSetting(in url: URL, section: String, key: String) throws -> String? {
+        let data = try Data(contentsOf: url)
+        let sanitized = try JSONCParser.preprocess(data: data)
+        let object = try JSONSerialization.jsonObject(with: sanitized, options: []) as? [String: Any]
+        let settingsSection = object?[section] as? [String: Any]
+        return settingsSection?[key] as? String
     }
 }
