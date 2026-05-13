@@ -8893,6 +8893,7 @@ private struct SidebarResizerAccessibilityModifier: ViewModifier {
 }
 
 private struct SidebarTabItemSettingsSnapshot: Equatable {
+    let hidesAllDetails: Bool
     let sidebarShortcutHintXOffset: Double
     let sidebarShortcutHintYOffset: Double
     let alwaysShowShortcutHints: Bool
@@ -8926,7 +8927,7 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
             defaults: defaults
         )
 
-        let hidesAllDetails = SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
+        hidesAllDetails = SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
         let showsNotificationMessageSetting = SidebarWorkspaceDetailSettings.showsNotificationMessage(
             defaults: defaults
         )
@@ -12188,7 +12189,7 @@ private struct TabItemView: View, Equatable {
     @ViewBuilder
     private var remoteWorkspaceSection: some View {
         let workspaceSnapshot = self.workspaceSnapshot
-        if sidebarShowSSH, let remoteWorkspaceSidebarText = workspaceSnapshot.remoteWorkspaceSidebarText {
+        if !settings.hidesAllDetails, sidebarShowSSH, let remoteWorkspaceSidebarText = workspaceSnapshot.remoteWorkspaceSidebarText {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(remoteWorkspaceSidebarText)
@@ -12234,7 +12235,7 @@ private struct TabItemView: View, Equatable {
         let finderDirectoryPath = WorkspaceFinderDirectoryResolver.path(for: tab)
         let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(path: finderDirectoryPath)
         let latestNotificationSubtitle = latestNotificationText
-        let submittedMessageSubtitle = settings.iMessageModeEnabled
+        let submittedMessageSubtitle = !settings.hidesAllDetails && settings.iMessageModeEnabled
             ? workspaceSnapshot.latestSubmittedMessage?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .nilIfEmpty
@@ -13241,7 +13242,7 @@ private struct TabItemView: View, Equatable {
 
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
             title: tab.title,
-            customDescription: sidebarVisibleCustomDescription,
+            customDescription: settings.hidesAllDetails ? nil : sidebarVisibleCustomDescription,
             isPinned: tab.isPinned,
             customColorHex: tab.customColor,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,

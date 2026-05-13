@@ -6269,6 +6269,7 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+                        .disabled(sidebarHideAllDetails)
 
                         SettingsCardDivider()
 
