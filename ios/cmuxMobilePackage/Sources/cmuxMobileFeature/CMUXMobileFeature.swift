@@ -1132,6 +1132,7 @@ struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
     @State private var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var hasPresentedSplitDetail = false
+    @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     #endif
@@ -1191,7 +1192,7 @@ struct WorkspaceShellView: View {
     }
 
     private var splitLayout: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $splitColumnVisibility) {
             WorkspaceListView(
                 workspaces: store.workspaces,
                 selectedWorkspaceID: store.selectedWorkspaceID,
@@ -1202,7 +1203,11 @@ struct WorkspaceShellView: View {
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
-            workspaceDestination(for: store.selectedWorkspaceID, createWorkspace: store.createWorkspace)
+            workspaceDestination(
+                for: store.selectedWorkspaceID,
+                createWorkspace: store.createWorkspace,
+                safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible
+            )
         }
         .navigationSplitViewStyle(.balanced)
         .onAppear {
@@ -1236,12 +1241,14 @@ struct WorkspaceShellView: View {
     @ViewBuilder
     private func workspaceDestination(
         for workspaceID: MobileWorkspacePreview.ID?,
-        createWorkspace: @escaping () -> Void
+        createWorkspace: @escaping () -> Void,
+        safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth
     ) -> some View {
         WorkspaceDetailContainer(
             store: store,
             workspaceID: workspaceID,
-            createWorkspace: createWorkspace
+            createWorkspace: createWorkspace,
+            safeAreaContext: safeAreaContext
         )
     }
 }
@@ -1255,6 +1262,7 @@ private struct WorkspaceDetailContainer: View {
     @Bindable var store: CMUXMobileShellStore
     let workspaceID: MobileWorkspacePreview.ID?
     let createWorkspace: () -> Void
+    let safeAreaContext: MobileTerminalSafeAreaContext
 
     private var workspace: MobileWorkspacePreview? {
         if let workspaceID {
@@ -1275,7 +1283,8 @@ private struct WorkspaceDetailContainer: View {
                 createWorkspace: createWorkspace,
                 createTerminal: store.createTerminal,
                 reportTerminalViewport: store.reportTerminalViewport,
-                sendTerminalInput: store.sendTerminalRawInput
+                sendTerminalInput: store.sendTerminalRawInput,
+                safeAreaContext: safeAreaContext
             )
             .onAppear {
                 if store.selectedWorkspaceID != workspace.id {
@@ -1535,6 +1544,7 @@ struct WorkspaceDetailView: View {
     let createTerminal: () -> Void
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
+    let safeAreaContext: MobileTerminalSafeAreaContext
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var bottomActionModifierState = MobileTerminalModifierState()
     @State private var terminalFontScale: CGFloat = 1
@@ -1564,12 +1574,13 @@ struct WorkspaceDetailView: View {
                 modifierState: bottomActionModifierState,
                 canDecreaseFont: terminalFontScale > Self.minimumTerminalFontScale,
                 canIncreaseFont: terminalFontScale < Self.maximumTerminalFontScale,
+                safeAreaContext: safeAreaContext,
                 performAction: performBottomAction
             )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         #if os(iOS)
-        .mobileTerminalSafeAreaExpansion()
+        .mobileTerminalSafeAreaExpansion(context: safeAreaContext)
         #endif
         .background(TerminalPalette.background)
         .navigationTitle(workspace.name)
@@ -2148,6 +2159,7 @@ private struct TerminalBottomActionBar: View {
     let modifierState: MobileTerminalModifierState
     let canDecreaseFont: Bool
     let canIncreaseFont: Bool
+    let safeAreaContext: MobileTerminalSafeAreaContext
     let performAction: (MobileTerminalBottomAction) -> Void
 
     var body: some View {
@@ -2205,7 +2217,7 @@ private struct TerminalBottomActionBar: View {
         .accessibilityIdentifier("MobileTerminalBottomActionBar")
         .accessibilityValue(modifierState.accessibilityValue)
         #if os(iOS)
-        .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+        .mobileTerminalSafeAreaExpansion(context: safeAreaContext)
         #endif
     }
 
@@ -2633,24 +2645,73 @@ struct TerminalPreviewSurface: View {
     }
 }
 
+enum MobileTerminalSafeAreaContext: Equatable, Sendable {
+    case fullWidth
+    case splitSidebarVisible
+}
+
+struct MobileTerminalSafeAreaExpansionEdges: Equatable, Sendable {
+    var horizontal: Bool
+    var bottom: Bool
+
+    var hasEdges: Bool {
+        horizontal || bottom
+    }
+
+    var edgeSet: Edge.Set {
+        var edges: Edge.Set = []
+        if horizontal {
+            edges.formUnion(.horizontal)
+        }
+        if bottom {
+            edges.formUnion(.bottom)
+        }
+        return edges
+    }
+}
+
+enum MobileTerminalSafeAreaExpansionPolicy {
+    static func edges(
+        context: MobileTerminalSafeAreaContext,
+        hasCompactVerticalSize: Bool
+    ) -> MobileTerminalSafeAreaExpansionEdges {
+        switch context {
+        case .fullWidth:
+            return MobileTerminalSafeAreaExpansionEdges(
+                horizontal: hasCompactVerticalSize,
+                bottom: true
+            )
+        case .splitSidebarVisible:
+            return MobileTerminalSafeAreaExpansionEdges(
+                horizontal: false,
+                bottom: true
+            )
+        }
+    }
+}
+
 #if os(iOS)
 private struct MobileCompactLandscapeTerminalSafeAreaCompensation: ViewModifier {
+    let context: MobileTerminalSafeAreaContext
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     func body(content: Content) -> some View {
-        if verticalSizeClass == .compact {
+        let edges = MobileTerminalSafeAreaExpansionPolicy.edges(
+            context: context,
+            hasCompactVerticalSize: verticalSizeClass == .compact
+        )
+        if edges.hasEdges {
             content
-                .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+                .ignoresSafeArea(.container, edges: edges.edgeSet)
         } else {
             content
-                .ignoresSafeArea(.container, edges: .bottom)
         }
     }
 }
 
 private extension View {
-    func mobileTerminalSafeAreaExpansion() -> some View {
-        modifier(MobileCompactLandscapeTerminalSafeAreaCompensation())
+    func mobileTerminalSafeAreaExpansion(context: MobileTerminalSafeAreaContext) -> some View {
+        modifier(MobileCompactLandscapeTerminalSafeAreaCompensation(context: context))
     }
 }
 
@@ -2963,18 +3024,19 @@ private struct TerminalVisibleAreaBorder: View {
         let lineWidth = max(2 / max(1, displayScale), 1.25)
         let width = min(metrics.gridWidth, containerSize.width)
         let height = min(metrics.gridHeight, containerSize.height)
+        let borderColor = TerminalPalette.dimForeground.opacity(0.42)
 
         ZStack(alignment: .topLeading) {
             if edges.drawRight {
                 Rectangle()
-                    .fill(PlatformPalette.separator.opacity(0.9))
+                    .fill(borderColor)
                     .frame(width: lineWidth, height: height)
                     .frame(width: width, height: height, alignment: .topTrailing)
             }
 
             if edges.drawBottom {
                 Rectangle()
-                    .fill(PlatformPalette.separator.opacity(0.9))
+                    .fill(borderColor)
                     .frame(width: width, height: lineWidth)
                     .frame(width: width, height: height, alignment: .bottomLeading)
             }

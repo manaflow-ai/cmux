@@ -976,6 +976,27 @@ import Testing
     #expect(TerminalVisibleAreaBorderPolicy.edges(viewportFit: nonLimitingFit) == TerminalVisibleAreaBorderEdges(drawRight: true, drawBottom: true))
 }
 
+@Test func terminalSafeAreaExpansionAccountsForIPadSidebarVisibility() {
+    #expect(
+        MobileTerminalSafeAreaExpansionPolicy.edges(
+            context: .fullWidth,
+            hasCompactVerticalSize: true
+        ) == MobileTerminalSafeAreaExpansionEdges(horizontal: true, bottom: true)
+    )
+    #expect(
+        MobileTerminalSafeAreaExpansionPolicy.edges(
+            context: .fullWidth,
+            hasCompactVerticalSize: false
+        ) == MobileTerminalSafeAreaExpansionEdges(horizontal: false, bottom: true)
+    )
+    #expect(
+        MobileTerminalSafeAreaExpansionPolicy.edges(
+            context: .splitSidebarVisible,
+            hasCompactVerticalSize: true
+        ) == MobileTerminalSafeAreaExpansionEdges(horizontal: false, bottom: true)
+    )
+}
+
 @Test func terminalInputAccessoryMatchesZigReferenceMetrics() {
     #expect(TerminalInputAccessoryVisualMetrics.barHeight == 44)
     #expect(TerminalInputAccessoryVisualMetrics.horizontalInset == 16)
