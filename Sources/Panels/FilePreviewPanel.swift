@@ -1035,7 +1035,7 @@ final class FilePreviewPDFChromeHostView: NSView {
 
 final class FilePreviewPDFChromeHostingView: NSHostingView<AnyView> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        PaneFirstClickFocusSettings.isEnabled()
+        true
     }
 }
 
