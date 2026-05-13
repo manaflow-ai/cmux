@@ -65,6 +65,26 @@ struct WorkstreamAgentGraphTests {
         #expect(child?.focusWorkstreamId == "claude-child")
     }
 
+    @Test("Session metadata on non-tool events appears on root nodes")
+    func sessionMetadataOnNonToolEventsAppearsOnRootNodes() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-root",
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: "workspace-1",
+            extraFieldsJSON: #"{"description":"Coordinate rollout","subagent_type":"planner","model":"sonnet"}"#
+        ))
+
+        let graph = WorkstreamAgentGraphBuilder.snapshot(from: store.items)
+        #expect(graph.nodeCount == 1)
+        let root = graph.roots.first
+        #expect(root?.workstreamId == "claude-root")
+        #expect(root?.title == "Coordinate rollout")
+        #expect(root?.subagentType == "planner")
+        #expect(root?.model == "sonnet")
+    }
+
     @Test("Non-spawn tool input does not create graph metadata")
     func nonSpawnToolInputDoesNotCreateGraphMetadata() {
         let store = WorkstreamStore(ringCapacity: 10)

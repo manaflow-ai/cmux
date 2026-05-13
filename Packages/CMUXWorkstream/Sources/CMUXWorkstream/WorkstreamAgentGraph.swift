@@ -368,6 +368,9 @@ private struct SessionRecord {
             title = Self.basename(cwd)
         }
 
+        let resolvedMetadata = metadata ?? AgentGraphMetadata(item: item)
+        merge(metadata: resolvedMetadata)
+
         switch item.status {
         case .pending:
             status = .waiting
@@ -378,14 +381,6 @@ private struct SessionRecord {
         switch item.payload {
         case .userPrompt(let text):
             mergeTaskDescription(text)
-        case .toolUse(let toolName, let toolInputJSON):
-            let resolvedMetadata = metadata ?? AgentGraphMetadata(
-                source: item.source,
-                extraFieldsJSON: item.extraFieldsJSON,
-                toolName: toolName,
-                toolInputJSON: toolInputJSON
-            )
-            merge(metadata: resolvedMetadata)
         default:
             break
         }
