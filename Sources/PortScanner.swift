@@ -1009,13 +1009,13 @@ final class SidebarWorkspaceResourceUsageStore {
         }
 
         let currentGeneration = generation
-        let intervalNanoseconds = Self.sampleIntervalNanoseconds(configuration.sampleInterval)
+        let sampleInterval = Self.sampleIntervalDuration(configuration.sampleInterval)
         sampleLoopTask = Task { [weak self] in
             guard let self else { return }
             await self.performSample(generation: currentGeneration)
             while !Task.isCancelled {
                 do {
-                    try await Task.sleep(nanoseconds: intervalNanoseconds)
+                    try await Task.sleep(for: sampleInterval)
                 } catch {
                     break
                 }
@@ -1068,15 +1068,15 @@ final class SidebarWorkspaceResourceUsageStore {
         }
     }
 
-    private static func sampleIntervalNanoseconds(_ interval: TimeInterval) -> UInt64 {
+    private static func sampleIntervalDuration(_ interval: TimeInterval) -> Duration {
         let nanoseconds = interval * 1_000_000_000
         guard nanoseconds.isFinite, nanoseconds > 0 else {
-            return 1_000_000_000
+            return .seconds(1)
         }
-        if nanoseconds >= Double(UInt64.max) {
-            return UInt64.max
+        if nanoseconds >= Double(Int64.max) {
+            return .nanoseconds(Int64.max)
         }
-        return UInt64(nanoseconds.rounded(.up))
+        return .nanoseconds(Int64(nanoseconds.rounded(.up)))
     }
 
     nonisolated private static func makeSamplingOutput(context: SamplingContext) -> SamplingOutput {
