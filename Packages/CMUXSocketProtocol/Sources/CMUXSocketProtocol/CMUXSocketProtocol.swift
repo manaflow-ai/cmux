@@ -272,7 +272,7 @@ nonisolated public enum CMUXSocketProtocol {
         }
     }
 
-    private static func vmCall(
+    fileprivate static func vmCall(
         id: Any?,
         jsonRPC: Bool,
         timeoutSeconds: TimeInterval = 17 * 60,
