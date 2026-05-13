@@ -1,5 +1,4 @@
 import AppKit
-import Carbon.HIToolbox
 
 extension GhosttyNSView {
     /// Clamps AppKit's marked-text selection into the active preedit buffer.
@@ -34,96 +33,19 @@ extension GhosttyNSView {
     func shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
         before: (text: String, selection: NSRange),
         after: (text: String, selection: NSRange),
-        accumulatedText: [String],
-        event: NSEvent? = nil,
-        textInputHandledEvent: Bool = false,
-        inputSourceId: String? = nil
+        accumulatedText: [String]
     ) -> Bool {
         guard accumulatedText.isEmpty else { return false }
 
         let hadMarkedTextBefore = !before.text.isEmpty
         let hasMarkedTextAfter = !after.text.isEmpty
-        guard hadMarkedTextBefore || hasMarkedTextAfter else {
-            guard textInputHandledEvent, isBopomofoInputSource(inputSourceId) else { return false }
-            return shouldKeepNoMarkedIMECommandInsideTextInput(event)
-        }
+        guard hadMarkedTextBefore || hasMarkedTextAfter else { return false }
 
         if before.text != after.text {
             return true
         }
 
-        if before.selection != after.selection {
-            return true
-        }
-
-        guard let event, isInputMethodSource(inputSourceId) else {
-            return false
-        }
-        return shouldKeepIMECompositionCommandInsideTextInput(event)
-    }
-
-    func isInputMethodSource(_ sourceId: String?) -> Bool {
-        guard let sourceId else { return false }
-        return sourceId.localizedCaseInsensitiveContains("inputmethod")
-    }
-
-    func isBopomofoInputSource(_ sourceId: String?) -> Bool {
-        guard let sourceId else { return false }
-        return sourceId.localizedCaseInsensitiveContains("Zhuyin")
-            || sourceId.localizedCaseInsensitiveContains("Bopomofo")
-    }
-
-    func hasOnlyTextInputCommandModifiers(_ event: NSEvent) -> Bool {
-        let flags = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
-        return flags.isEmpty || flags == [.shift]
-    }
-
-    func shouldKeepNoMarkedIMECommandInsideTextInput(_ event: NSEvent?) -> Bool {
-        guard let event else { return false }
-        guard hasOnlyTextInputCommandModifiers(event) else { return false }
-
-        switch Int(event.keyCode) {
-        case kVK_DownArrow, kVK_PageUp, kVK_PageDown, kVK_Space:
-            return true
-        default:
-            return false
-        }
-    }
-
-    /// Returns true when a window-level key-equivalent probe should re-enter
-    /// the terminal's keyDown path so AppKit's text input context sees the key
-    /// before terminal bindings or cursor escape sequences do.
-    func shouldRouteTextInputKeyEquivalentToKeyDown(_ event: NSEvent) -> Bool {
-        shouldRouteTextInputKeyEquivalentToKeyDown(event, inputSourceId: nil)
-    }
-
-    func shouldRouteTextInputKeyEquivalentToKeyDown(_ event: NSEvent, inputSourceId: String?) -> Bool {
-        guard event.type == .keyDown else { return false }
-        let resolvedInputSourceId = inputSourceId ?? KeyboardLayout.id
-        if hasMarkedText() {
-            return isInputMethodSource(resolvedInputSourceId)
-                && shouldKeepIMECompositionCommandInsideTextInput(event)
-        }
-        return isBopomofoInputSource(resolvedInputSourceId)
-            && shouldKeepNoMarkedIMECommandInsideTextInput(event)
-    }
-
-    /// Returns true for active-composition command keys that belong to AppKit's
-    /// text input manager even when marked text itself does not change.
-    func shouldKeepIMECompositionCommandInsideTextInput(_ event: NSEvent) -> Bool {
-        guard hasOnlyTextInputCommandModifiers(event) else { return false }
-
-        switch Int(event.keyCode) {
-        case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow,
-             kVK_PageUp, kVK_PageDown, kVK_Home, kVK_End,
-             kVK_Space, kVK_Return, kVK_ANSI_KeypadEnter, kVK_Escape,
-             kVK_Tab, kVK_Delete, kVK_ForwardDelete:
-            return true
-        default:
-            return false
-        }
+        return before.selection != after.selection
     }
 
 #if DEBUG
@@ -132,18 +54,12 @@ extension GhosttyNSView {
         markedSelectionBefore: NSRange,
         markedTextAfter: String,
         markedSelectionAfter: NSRange,
-        accumulatedText: [String],
-        event: NSEvent? = nil,
-        textInputHandledEvent: Bool = false,
-        inputSourceId: String? = nil
+        accumulatedText: [String]
     ) -> Bool {
         shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
             before: (markedTextBefore, markedSelectionBefore),
             after: (markedTextAfter, markedSelectionAfter),
-            accumulatedText: accumulatedText,
-            event: event,
-            textInputHandledEvent: textInputHandledEvent,
-            inputSourceId: inputSourceId
+            accumulatedText: accumulatedText
         )
     }
 #endif
