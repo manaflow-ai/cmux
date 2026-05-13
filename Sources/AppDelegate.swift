@@ -14506,7 +14506,7 @@ private extension NSWindow {
 #if DEBUG
                 cmuxDebugLog("  → browser Return/Enter reentry; using normal dispatch")
 #endif
-                return false
+                return cmux_performKeyEquivalent(with: event)
             }
             cmuxBrowserReturnForwardingDepth += 1
             defer { cmuxBrowserReturnForwardingDepth = max(0, cmuxBrowserReturnForwardingDepth - 1) }
@@ -14532,7 +14532,7 @@ private extension NSWindow {
 #if DEBUG
                 cmuxDebugLog("  → browser arrow reentry; using normal dispatch")
 #endif
-                return false
+                return cmux_performKeyEquivalent(with: event)
             }
             cmuxBrowserArrowForwardingDepth += 1
             defer { cmuxBrowserArrowForwardingDepth = max(0, cmuxBrowserArrowForwardingDepth - 1) }
