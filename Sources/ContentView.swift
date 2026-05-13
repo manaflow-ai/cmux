@@ -12346,37 +12346,6 @@ private struct TabItemView: View, Equatable {
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
-
-                Spacer(minLength: 0)
-
-                ZStack(alignment: .trailing) {
-                    Button(action: {
-                        #if DEBUG
-                        cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
-                        #endif
-                        tabManager.closeWorkspaceWithConfirmation(tab)
-                    }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: UIScaleSettings.scaled(9, by: uiScaleFactor), weight: .medium))
-                            .foregroundColor(activeSecondaryColor(0.7))
-                    }
-                    .buttonStyle(.plain)
-                    .safeHelp(closeButtonTooltip)
-                    .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
-                    .opacity(showCloseButton && !showsWorkspaceShortcutHint ? 1 : 0)
-                    .allowsHitTesting(showCloseButton && !showsWorkspaceShortcutHint)
-
-                    if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
-                        ShortcutHintPill(text: workspaceShortcutLabel, fontSize: 10, emphasis: shortcutHintEmphasis)
-                            .offset(
-                                x: ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset),
-                                y: ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)
-                            )
-                            .shortcutHintTransition()
-                    }
-                }
-                .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
-                .frame(width: trailingAccessoryWidth, height: 16, alignment: .trailing)
             }
 
             if let description = workspaceSnapshot.customDescription {
@@ -12600,12 +12569,16 @@ private struct TabItemView: View, Equatable {
                     tabManager.closeWorkspaceWithConfirmation(tab)
                 }) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .medium))
+                        .font(.system(size: UIScaleSettings.scaled(9, by: uiScaleFactor), weight: .medium))
                         .foregroundColor(activeSecondaryColor(0.7))
                 }
                 .buttonStyle(.plain)
                 .safeHelp(closeButtonTooltip)
-                .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
+                .frame(
+                    width: UIScaleSettings.scaled(SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, by: uiScaleFactor),
+                    height: UIScaleSettings.scaled(16, by: uiScaleFactor),
+                    alignment: .center
+                )
                 .padding(.top, 8)
                 .padding(.trailing, 10)
             }
