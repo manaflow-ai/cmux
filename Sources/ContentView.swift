@@ -9760,15 +9760,10 @@ private struct CmuxExtensionTreeSectionHeader: View {
         HStack(spacing: 4) {
             Button(action: onToggle) {
                 HStack(spacing: 6) {
-                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(.secondary.opacity(0.72))
-                        .frame(width: 10, height: 14)
-
-                    Image(systemName: section.systemImageName)
-                        .font(.system(size: 10, weight: .medium))
+                    Image(systemName: sectionToggleSystemImageName)
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.secondary.opacity(0.82))
-                        .frame(width: 13, height: 14)
+                        .frame(width: 14, height: 14)
 
                     VStack(alignment: .leading, spacing: 1) {
                         Text(section.title)
@@ -9806,11 +9801,8 @@ private struct CmuxExtensionTreeSectionHeader: View {
                     Image(systemName: isCreatingWorktree ? "hourglass" : "plus")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundColor(.secondary.opacity(isCreatingWorktree ? 0.55 : 0.78))
-                        .frame(width: 20, height: 20)
-                        .background(
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .fill(Color.secondary.opacity(0.10))
-                        )
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(isCreatingWorktree)
@@ -9849,6 +9841,13 @@ private struct CmuxExtensionTreeSectionHeader: View {
                 Int64(section.workspaceIds.count)
             )
         )
+    }
+
+    private var sectionToggleSystemImageName: String {
+        guard section.systemImageName == "folder" else {
+            return section.systemImageName
+        }
+        return isCollapsed ? "folder" : "folder.fill"
     }
 }
 
