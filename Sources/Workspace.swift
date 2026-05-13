@@ -7221,8 +7221,6 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
     @Published private(set) var tmuxWorkspaceFlashToken: UInt64 = 0
     var manualUnreadMarkedAt: [UUID: Date] = [:]
-    nonisolated private static let manualUnreadFocusGraceInterval: TimeInterval = 0.2
-    nonisolated private static let manualUnreadClearDelayAfterFocusFlash: TimeInterval = 0.2
     @Published var statusEntries: [String: SidebarStatusEntry] = [:]
     @Published var metadataBlocks: [String: SidebarMetadataBlock] = [:]
     @Published private(set) var latestConversationMessage: String?
@@ -8465,24 +8463,6 @@ final class Workspace: Identifiable, ObservableObject {
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         guard didRemoveUnread else { return }
         syncUnreadBadgeStateForPanel(panelId)
-    }
-
-    static func shouldClearManualUnread(
-        previousFocusedPanelId: UUID?,
-        nextFocusedPanelId: UUID,
-        isManuallyUnread: Bool,
-        markedAt: Date?,
-        now: Date = Date(),
-        sameTabGraceInterval: TimeInterval = manualUnreadFocusGraceInterval
-    ) -> Bool {
-        guard isManuallyUnread else { return false }
-
-        if let previousFocusedPanelId, previousFocusedPanelId != nextFocusedPanelId {
-            return true
-        }
-
-        guard let markedAt else { return true }
-        return now.timeIntervalSince(markedAt) >= sameTabGraceInterval
     }
 
     static func shouldShowUnreadIndicator(hasUnreadNotification: Bool, isManuallyUnread: Bool) -> Bool {
@@ -11889,6 +11869,11 @@ final class Workspace: Identifiable, ObservableObject {
         requestAttentionFlash(panelId: panelId, reason: .notificationDismiss)
     }
 
+    func triggerManualUnreadDismissFlash(panelId: UUID) {
+        guard terminalPanel(for: panelId) != nil else { return }
+        requestAttentionFlash(panelId: panelId, reason: .manualUnreadDismiss)
+    }
+
     func triggerDebugFlash(panelId: UUID) {
         guard panels[panelId] != nil else { return }
         focusPanel(panelId)
@@ -13352,24 +13337,6 @@ extension Workspace: BonsplitDelegate {
         }
         if let terminalPanel = panel as? TerminalPanel {
             rememberTerminalConfigInheritanceSource(terminalPanel)
-        }
-        let isManuallyUnread = manualUnreadPanelIds.contains(panelId)
-        let markedAt = manualUnreadMarkedAt[panelId]
-        if Self.shouldClearManualUnread(
-            previousFocusedPanelId: previousFocusedPanelId,
-            nextFocusedPanelId: panelId,
-            isManuallyUnread: isManuallyUnread,
-            markedAt: markedAt
-        ) {
-            triggerFocusFlash(panelId: panelId)
-            let clearDelay = Self.manualUnreadClearDelayAfterFocusFlash
-            if clearDelay <= 0 {
-                clearManualUnread(panelId: panelId)
-            } else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + clearDelay) { [weak self] in
-                    self?.clearManualUnread(panelId: panelId)
-                }
-            }
         }
 
         // Converge AppKit first responder with bonsplit's selected tab in the focused pane.
