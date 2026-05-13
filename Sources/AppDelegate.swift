@@ -1643,6 +1643,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let lineFormat = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_FORMAT"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let linePrefix = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_PREFIX"] ?? ""
+        if let rawOpenSupportedFiles = env["CMUX_UI_TEST_OPEN_SUPPORTED_FILES_IN_CMUX"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawOpenSupportedFiles.isEmpty {
+            CmdClickSupportedFileRouteSettings.setEnabled(rawOpenSupportedFiles == "1")
+        }
         let extraFileNamesJSON = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_EXTRA_FILE_NAMES_JSON"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -1951,6 +1956,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         @MainActor
         func executePendingCommandIfNeeded(
+            workspace: Workspace,
             terminalPanel: TerminalPanel,
             window: NSWindow
         ) {
@@ -2006,6 +2012,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 payload["lastCommandResult"] = result
                 if let openedPath = result["openedPath"] as? String {
                     payload["lastCommandOpenedPath"] = openedPath
+                    let canonicalOpenedPath = (openedPath as NSString).resolvingSymlinksInPath
+                    let openedInFilePreview = workspace.panels.values.contains { panel in
+                        guard let filePreview = panel as? FilePreviewPanel else { return false }
+                        return (filePreview.filePath as NSString).resolvingSymlinksInPath == canonicalOpenedPath
+                    }
+                    let openedInMarkdownViewer = workspace.panels.values.contains { panel in
+                        guard let markdown = panel as? MarkdownPanel else { return false }
+                        return (markdown.filePath as NSString).resolvingSymlinksInPath == canonicalOpenedPath
+                    }
+                    payload["lastCommandOpenedInFilePreview"] = openedInFilePreview ? "1" : "0"
+                    payload["lastCommandOpenedInMarkdownViewer"] = openedInMarkdownViewer ? "1" : "0"
                     payload["lastCommandSucceeded"] = "1"
                 } else if let error = result["error"] as? String {
                     payload["lastCommandError"] = error
@@ -2195,6 +2212,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard terminalReady, terminalVisible, hasRenderedToken, tokenLayoutReady else { return }
             if commandPath?.isEmpty == false {
                 executePendingCommandIfNeeded(
+                    workspace: workspace,
                     terminalPanel: terminalPanel,
                     window: mainWindow
                 )

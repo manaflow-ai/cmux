@@ -2516,6 +2516,27 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertNotEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
+    func testCmdClickSupportedFileRoutingDefaultsToReadableRegularFilesOnly() throws {
+        let suiteName = "cmux.file-preview-routing.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fileURL = try temporaryTextFile(contents: "preview me", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        XCTAssertTrue(CmdClickSupportedFileRouteSettings.isEnabled(defaults: defaults))
+        XCTAssertTrue(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+        XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: directoryURL.path, defaults: defaults))
+
+        defaults.set(false, forKey: CmdClickSupportedFileRouteSettings.key)
+        XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+    }
+
     private func temporaryTextFile(contents: String, encoding: String.Encoding) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
