@@ -97,6 +97,7 @@ func browserWebExtensionConfigureBaseWebViewConfiguration(
     configuration.websiteDataStore = defaultWebsiteDataStore
     configuration.mediaTypesRequiringUserActionForPlayback = []
     configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+    configuration.applicationNameForUserAgent = BrowserUserAgentSettings.safariApplicationNameForUserAgent
 }
 
 struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
@@ -176,7 +177,11 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
             PermissionCapability("activeTab", availability: .delegatedToWebKit),
             PermissionCapability("alarms", availability: .delegatedToWebKit, apiPaths: ["browser.alarms"]),
             PermissionCapability("bookmarks", availability: .unavailable(.missingHostAdapter), apiPaths: ["browser.bookmarks"]),
-            PermissionCapability("clipboardRead", availability: .unavailable(.noPublicWebKitSurface)),
+            PermissionCapability(
+                "clipboardRead",
+                availability: .unavailable(.noPublicWebKitSurface),
+                appExtensionBundleAvailability: .delegatedToWebKit
+            ),
             PermissionCapability("clipboardWrite", availability: .delegatedToWebKit),
             PermissionCapability("contextMenus", availability: .delegatedToWebKit, apiPaths: ["browser.contextMenus"]),
             PermissionCapability("cookies", availability: .delegatedToWebKit, apiPaths: ["browser.cookies"]),
@@ -189,7 +194,12 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
             PermissionCapability("declarativeNetRequestWithHostAccess", availability: .delegatedToWebKit),
             PermissionCapability("downloads", availability: .unavailable(.missingHostAdapter), apiPaths: ["browser.downloads"]),
             PermissionCapability("favicon", availability: .unavailable(.noPublicWebKitSurface), apiPaths: ["browser.favicon"]),
-            PermissionCapability("idle", availability: .unavailable(.noPublicWebKitSurface), apiPaths: ["browser.idle"]),
+            PermissionCapability(
+                "idle",
+                availability: .unavailable(.noPublicWebKitSurface),
+                appExtensionBundleAvailability: .delegatedToWebKit,
+                apiPaths: ["browser.idle"]
+            ),
             PermissionCapability("management", availability: .unavailable(.missingHostAdapter), apiPaths: ["browser.management"]),
             PermissionCapability("menus", availability: .delegatedToWebKit, apiPaths: ["browser.menus"]),
             PermissionCapability(
@@ -224,6 +234,7 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
             ),
             PermissionCapability("webNavigation", availability: .delegatedToWebKit, apiPaths: ["browser.webNavigation"]),
             PermissionCapability("webRequest", availability: .delegatedToWebKit, apiPaths: ["browser.webRequest"]),
+            PermissionCapability("webRequestBlocking", availability: .delegatedToWebKit),
             PermissionCapability(
                 "webRequestAuthProvider",
                 availability: .unavailable(.missingHostAdapter),
@@ -231,21 +242,45 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
             ),
         ],
         apis: [
-            APICapability("browser.clipboardRead", availability: .unavailable(.noPublicWebKitSurface)),
+            APICapability(
+                "browser.clipboardRead",
+                availability: .unavailable(.noPublicWebKitSurface),
+                appExtensionBundleAvailability: .delegatedToWebKit
+            ),
             APICapability("browser.action.getUserSettings", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.browserAction.getUserSettings", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.bookmarks", availability: .unavailable(.missingHostAdapter)),
             APICapability("browser.downloads", availability: .unavailable(.missingHostAdapter)),
-            APICapability("browser.extension.getBackgroundPage", availability: .unavailable(.noPublicWebKitSurface)),
-            APICapability("browser.extension.getViews", availability: .unavailable(.noPublicWebKitSurface)),
+            APICapability(
+                "browser.extension.getBackgroundPage",
+                availability: .unavailable(.noPublicWebKitSurface),
+                appExtensionBundleAvailability: .delegatedToWebKit
+            ),
+            APICapability(
+                "browser.extension.getViews",
+                availability: .unavailable(.noPublicWebKitSurface),
+                appExtensionBundleAvailability: .delegatedToWebKit
+            ),
             APICapability("browser.favicon", availability: .unavailable(.noPublicWebKitSurface)),
-            APICapability("browser.idle", availability: .unavailable(.noPublicWebKitSurface)),
+            APICapability(
+                "browser.idle",
+                availability: .unavailable(.noPublicWebKitSurface),
+                appExtensionBundleAvailability: .delegatedToWebKit
+            ),
             APICapability("browser.management", availability: .unavailable(.missingHostAdapter)),
             APICapability("browser.notifications", availability: .delegatedToWebKit),
             APICapability("browser.offscreen", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.privacy", availability: .unavailable(.noPublicWebKitSurface)),
-            APICapability("browser.runtime.getBackgroundPage", availability: .unavailable(.noPublicWebKitSurface)),
-            APICapability("browser.runtime.getContexts", availability: .unavailable(.noPublicWebKitSurface)),
+            APICapability(
+                "browser.runtime.getBackgroundPage",
+                availability: .unavailable(.noPublicWebKitSurface),
+                appExtensionBundleAvailability: .delegatedToWebKit
+            ),
+            APICapability(
+                "browser.runtime.getContexts",
+                availability: .unavailable(.noPublicWebKitSurface),
+                appExtensionBundleAvailability: .delegatedToWebKit
+            ),
             APICapability(
                 "browser.runtime.connectNative",
                 availability: .unavailable(.missingHostAdapter),
@@ -256,7 +291,11 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
                 availability: .unavailable(.missingHostAdapter),
                 appExtensionBundleAvailability: .delegatedToWebKit
             ),
-            APICapability("browser.storage.managed", availability: .unavailable(.noPublicWebKitSurface)),
+            APICapability(
+                "browser.storage.managed",
+                availability: .unavailable(.noPublicWebKitSurface),
+                appExtensionBundleAvailability: .delegatedToWebKit
+            ),
             APICapability("browser.userScripts", availability: .unavailable(.noPublicWebKitSurface)),
             APICapability("browser.webRequest.onAuthRequired", availability: .unavailable(.missingHostAdapter)),
         ]
@@ -1088,6 +1127,17 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             }
         }
         try controller.load(context)
+        if webExtension.hasBackgroundContent {
+            context.loadBackgroundContent { error in
+#if DEBUG
+                if let error {
+                    cmuxDebugLog(
+                        "browser.extensions.background.loadFailed label=\(record.displayName) error=\(error.localizedDescription)"
+                    )
+                }
+#endif
+            }
+        }
         contextsByRecordID[record.id] = context
     }
 
@@ -1322,9 +1372,11 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             completionHandler(nil)
             return
         }
-        let anchorView = actionPopupAnchorView(for: action) ?? fallbackAnchorView
+        let sourceAnchorView = actionPopupAnchorView(for: action) ?? fallbackAnchorView
+        let presentationAnchorView = sourceAnchorView.window?.contentView ?? sourceAnchorView
+        let rectInWindow = sourceAnchorView.convert(sourceAnchorView.bounds, to: nil)
+        let rect = presentationAnchorView.convert(rectInWindow, from: nil)
         closeAllActionPopups()
-        let rect = anchorView.bounds
         let presentation = BrowserWebExtensionActionPopupPresentation(
             action: action,
             popupWebView: popupWebView,
@@ -1334,8 +1386,8 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         actionPopupPresentationsByID[presentation.id] = presentation
         presentation.show(
             relativeTo: rect,
-            of: anchorView,
-            preferredEdge: .maxY
+            of: presentationAnchorView,
+            preferredEdge: .minY
         )
         completionHandler(nil)
     }

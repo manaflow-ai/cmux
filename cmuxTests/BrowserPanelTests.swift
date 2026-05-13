@@ -514,9 +514,13 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
         """.data(using: .utf8)?.write(to: root.appendingPathComponent("manifest.json"))
 
         let webExtension = try await WKWebExtension(resourceBaseURL: root)
-        let unsupportedAPIs = browserWebExtensionUnsupportedAPIs(for: webExtension)
+        let unsupportedAPIs = browserWebExtensionUnsupportedAPIs(
+            for: webExtension,
+            sourceKind: .legacyResourceBaseURL
+        )
         let grantablePermissions = browserWebExtensionHostGrantablePermissionNames(
-            from: webExtension.requestedPermissions.map { String($0.rawValue) }
+            from: webExtension.requestedPermissions.map { String($0.rawValue) },
+            sourceKind: .legacyResourceBaseURL
         )
 
         XCTAssertTrue(unsupportedAPIs.contains("browser.action.getUserSettings"))
@@ -541,13 +545,13 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
         XCTAssertFalse(unsupportedAPIs.contains("browser.commands"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.menus"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.notifications"))
-        XCTAssertFalse(unsupportedAPIs.contains("browser.runtime.connectNative"))
-        XCTAssertFalse(unsupportedAPIs.contains("browser.runtime.sendNativeMessage"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.runtime.connectNative"))
+        XCTAssertTrue(unsupportedAPIs.contains("browser.runtime.sendNativeMessage"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.runtime.openOptionsPage"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.webNavigation"))
         XCTAssertFalse(unsupportedAPIs.contains("browser.webRequest"))
-        XCTAssertFalse(unsupportedAPIs.contains("chrome.runtime.connectNative"))
-        XCTAssertFalse(unsupportedAPIs.contains("chrome.runtime.sendNativeMessage"))
+        XCTAssertTrue(unsupportedAPIs.contains("chrome.runtime.connectNative"))
+        XCTAssertTrue(unsupportedAPIs.contains("chrome.runtime.sendNativeMessage"))
         XCTAssertFalse(unsupportedAPIs.contains("chrome.webNavigation"))
     }
 
@@ -565,7 +569,7 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
 
         XCTAssertEqual(
             policy.grantablePermissionNames(from: requestedPermissions),
-            ["storage", "webNavigation", "nativeMessaging", "webRequest", "menus"]
+            ["storage", "webNavigation", "nativeMessaging", "webRequest", "menus", "clipboardRead"]
         )
 
         let unsupportedAPIs = policy.unsupportedAPIs(forPermissionNames: requestedPermissions)
@@ -669,8 +673,10 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
             [
                 "activeTab",
                 "alarms",
+                "clipboardRead",
                 "clipboardWrite",
                 "contextMenus",
+                "idle",
                 "scripting",
                 "storage",
                 "tabs",
@@ -686,6 +692,7 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
             [
                 "alarms",
                 "contextMenus",
+                "idle",
                 "nativeMessaging",
                 "notifications",
                 "scripting",
@@ -703,19 +710,15 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
         )
         for api in [
             "browser.bookmarks",
-            "browser.clipboardRead",
             "browser.downloads",
             "browser.favicon",
-            "browser.idle",
             "browser.management",
             "browser.offscreen",
             "browser.privacy",
-            "browser.runtime.getContexts",
             "browser.webRequest.onAuthRequired",
             "chrome.bookmarks",
             "chrome.downloads",
             "chrome.management",
-            "chrome.runtime.getContexts",
             "chrome.webRequest.onAuthRequired",
         ] {
             XCTAssertTrue(unsupportedAPIs.contains(api), api)

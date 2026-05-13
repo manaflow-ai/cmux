@@ -429,6 +429,7 @@ struct BrowserPanelView: View {
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
     @State private var isBrowserExtensionsPopoverPresented = false
+    @State private var pendingBrowserExtensionActionID: UUID?
     @State private var browserExtensionActions: [BrowserWebExtensionActionSnapshot] = []
     @State private var browserChromeStyle = BrowserChromeStyle.resolve(
         for: .light,
@@ -623,6 +624,11 @@ struct BrowserPanelView: View {
         }
         .onPreferenceChange(BrowserAddressBarHeightPreferenceKey.self) { height in
             addressBarHeight = height
+        }
+        .onChange(of: isBrowserExtensionsPopoverPresented) { _, isPresented in
+            guard !isPresented, let actionID = pendingBrowserExtensionActionID else { return }
+            pendingBrowserExtensionActionID = nil
+            BrowserWebExtensionSupport.performAction(actionID, for: panel)
         }
         .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick).filter { [weak panel] note in
             // Only handle clicks from our own webview.
@@ -1112,7 +1118,7 @@ struct BrowserPanelView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(browserExtensionActions) { action in
                         Button {
-                            BrowserWebExtensionSupport.performAction(action.id, for: panel)
+                            pendingBrowserExtensionActionID = action.id
                             isBrowserExtensionsPopoverPresented = false
                         } label: {
                             HStack(spacing: 8) {
