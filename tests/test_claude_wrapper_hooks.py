@@ -349,6 +349,12 @@ def decode_nul_argv(encoded: str) -> list[str]:
     return [part.decode("utf-8") for part in parts]
 
 
+def decode_optional_nul_argv(encoded: str) -> list[str]:
+    if encoded in {"", "__UNSET__"}:
+        return []
+    return decode_nul_argv(encoded)
+
+
 def run_wrapper_background_child_spawn(
     *,
     child_args: list[str] | None = None,
@@ -578,7 +584,7 @@ exit 0
             env.pop("CMUX_CLAUDE_HOOKS_DISABLED", None)
 
             proc = subprocess.run(
-                ["claude", "agents"],
+                [str(wrapper), "agents"],
                 cwd=tmp,
                 env=env,
                 capture_output=True,
@@ -1027,7 +1033,7 @@ def test_background_claude_child_launches_inherit_cmux_hooks(failures: list[str]
         f"background child: expected child preload to reset CMUX_CLAUDE_PID to its own pid, got {child_cmux_pid!r}",
         failures,
     )
-    launch_argv = decode_nul_argv(child_launch_argv_b64)
+    launch_argv = decode_optional_nul_argv(child_launch_argv_b64)
     expect(bool(launch_argv), f"background child: expected non-empty launch argv, got {launch_argv}", failures)
     if launch_argv:
         expect(launch_argv[0].endswith("/child-bin/claude"), f"background child: expected child executable in launch argv, got {launch_argv}", failures)
@@ -1145,7 +1151,7 @@ def test_background_claude_exec_shell_launches_inherit_cmux_hooks(failures: list
             f"background {label}: expected runtime NODE_OPTIONS restored, got {child_runtime_node_options!r}",
             failures,
         )
-        launch_argv = decode_nul_argv(child_launch_argv_b64)
+        launch_argv = decode_optional_nul_argv(child_launch_argv_b64)
         expect(bool(launch_argv), f"background {label}: expected non-empty launch argv, got {launch_argv}", failures)
         if launch_argv:
             expect(launch_argv[0].endswith("/child-bin/claude"), f"background {label}: expected child executable in launch argv, got {launch_argv}", failures)
@@ -1213,7 +1219,7 @@ def test_background_claude_daemon_child_gets_env_without_settings(failures: list
         f"background daemon child: expected child preload to reset CMUX_CLAUDE_PID to its own pid, got {child_cmux_pid!r}",
         failures,
     )
-    launch_argv = decode_nul_argv(child_launch_argv_b64)
+    launch_argv = decode_optional_nul_argv(child_launch_argv_b64)
     expect(bool(launch_argv), f"background daemon child: expected non-empty launch argv, got {launch_argv}", failures)
     if launch_argv:
         expect(launch_argv[0].endswith("/child-bin/claude"), f"background daemon child: expected child executable in launch argv, got {launch_argv}", failures)
@@ -1249,7 +1255,7 @@ def test_background_claude_env_only_subcommands_after_options_get_env_without_se
             f"background {label}: expected child preload to reset CMUX_CLAUDE_PID to its own pid, got {child_cmux_pid!r}",
             failures,
         )
-        launch_argv = decode_nul_argv(child_launch_argv_b64)
+        launch_argv = decode_optional_nul_argv(child_launch_argv_b64)
         expect(bool(launch_argv), f"background {label}: expected non-empty launch argv, got {launch_argv}", failures)
         if launch_argv:
             expect(launch_argv[0].endswith("/child-bin/claude"), f"background {label}: expected child executable in launch argv, got {launch_argv}", failures)
@@ -1293,7 +1299,7 @@ def test_background_claude_wrapper_exec_env_only_subcommands_after_value_options
                 f"background wrapper exec {case_label}: expected child preload to reset CMUX_CLAUDE_PID to its own pid, got {child_cmux_pid!r}",
                 failures,
             )
-            launch_argv = decode_nul_argv(child_launch_argv_b64)
+            launch_argv = decode_optional_nul_argv(child_launch_argv_b64)
             expect(bool(launch_argv), f"background wrapper exec {case_label}: expected non-empty launch argv, got {launch_argv}", failures)
             if launch_argv:
                 expect(launch_argv[0].endswith("/real-bin/claude"), f"background wrapper exec {case_label}: expected real executable in launch argv, got {launch_argv}", failures)
