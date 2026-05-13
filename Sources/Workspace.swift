@@ -7249,10 +7249,10 @@ final class Workspace: Identifiable, ObservableObject {
     var panelShellActivityStates: [UUID: PanelShellActivityState] = [:]
     /// PIDs associated with agent sidebar entries (e.g. claude_code), keyed by status key.
     /// Hooks, PTY-title discovery, and explicit socket registration all feed this map.
-    @Published var agentPIDs: [String: pid_t] = [:]
+    @Published private(set) var agentPIDs: [String: pid_t] = [:]
     /// Last known process state for agent PIDs. Updated by the TabManager probe timer,
     /// never by sidebar render projection.
-    @Published var agentProcessStates: [String: SidebarAgentProcessState] = [:]
+    @Published private(set) var agentProcessStates: [String: SidebarAgentProcessState] = [:]
     var agentPIDPanelIdsByKey: [String: UUID] = [:]
     var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
     var agentPIDExitWatchers: [String: DispatchSourceProcess] = [:]
@@ -7267,6 +7267,27 @@ final class Workspace: Identifiable, ObservableObject {
     var restoredAgentAutoResumePendingPanelIds: Set<UUID> = []
     var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
+
+    /// Storage-only hooks for Workspace's agent-runtime lifecycle helpers.
+    /// External call sites must use record/update/clear helpers so watcher,
+    /// ownership, notification, and port side effects stay coupled.
+    func setAgentPIDStorageValue(_ pid: pid_t, forKey key: String) {
+        agentPIDs[key] = pid
+    }
+
+    @discardableResult
+    func removeAgentPIDStorageValue(forKey key: String) -> pid_t? {
+        agentPIDs.removeValue(forKey: key)
+    }
+
+    func setAgentProcessStateStorageValue(_ state: SidebarAgentProcessState, forKey key: String) {
+        agentProcessStates[key] = state
+    }
+
+    @discardableResult
+    func removeAgentProcessStateStorageValue(forKey key: String) -> SidebarAgentProcessState? {
+        agentProcessStates.removeValue(forKey: key)
+    }
 
     private func sidebarObservationSignal<Value: Equatable>(
         _ publisher: Published<Value>.Publisher

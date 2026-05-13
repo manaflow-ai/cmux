@@ -132,7 +132,7 @@ extension Workspace {
             return
         }
 
-        agentPIDs[key] = pid
+        setAgentPIDStorageValue(pid, forKey: key)
         if let panelId {
             recordAgentPIDOwnership(key: key, panelId: panelId)
         } else {
@@ -140,11 +140,11 @@ extension Workspace {
         }
         armAgentPIDExitWatcher(key: key, pid: pid, panelId: panelId)
         if agentProcessStates[key]?.pid != pid || agentProcessStates[key]?.isAlive != true {
-            agentProcessStates[key] = SidebarAgentProcessState(
+            setAgentProcessStateStorageValue(SidebarAgentProcessState(
                 pid: pid,
                 isAlive: true,
                 activity: .running
-            )
+            ), forKey: key)
         }
         if refreshPorts {
             refreshTrackedAgentPorts()
@@ -164,7 +164,7 @@ extension Workspace {
     func updateAgentProcessState(key: String, state: SidebarAgentProcessState) -> Bool {
         guard agentPIDs[key] == state.pid else { return false }
         guard agentProcessStates[key] != state else { return false }
-        agentProcessStates[key] = state
+        setAgentProcessStateStorageValue(state, forKey: key)
         return true
     }
 
@@ -185,11 +185,11 @@ extension Workspace {
 
         var didChange = false
         var removedRuntime = false
-        if agentPIDs.removeValue(forKey: key) != nil {
+        if removeAgentPIDStorageValue(forKey: key) != nil {
             didChange = true
             removedRuntime = true
         }
-        if agentProcessStates.removeValue(forKey: key) != nil {
+        if removeAgentProcessStateStorageValue(forKey: key) != nil {
             didChange = true
             removedRuntime = true
         }
@@ -293,7 +293,7 @@ extension Workspace {
             recordAgentPID(key: key, pid: pid, panelId: runtimeState.panelId, refreshPorts: false)
             if let processState = runtimeState.agentProcessStates[key],
                processState.pid == pid {
-                agentProcessStates[key] = processState
+                setAgentProcessStateStorageValue(processState, forKey: key)
             }
             didAdoptAgentPID = true
         }
