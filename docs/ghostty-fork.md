@@ -12,16 +12,17 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `ec097438e`, based on `41ab6c5ab`, with the
-manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
-the stationary link-click fix in https://github.com/manaflow-ai/ghostty/pull/54,
-and the Metal renderer row rebuild guard for cmux issue #3369. This head keeps
-the cmux theme picker hooks, exposes the manual surface IO needed by libghostty
-iOS clients, refreshes embedded mouse modifiers for stationary OSC 8 hyperlink
-clicks, and bounds shaped glyph iteration during IME/preedit row rebuilds.
+The fork was refreshed from upstream `main` again on May 13, 2026.
+Current cmux pinned fork head: `aee4cb8e8`, with the manual embedded IO patch in
+https://github.com/manaflow-ai/ghostty/pull/53, the stationary link-click fix in
+https://github.com/manaflow-ai/ghostty/pull/54, the Metal renderer row rebuild
+guard for cmux issue #3369, and the crash report subdirectory override. This
+head keeps the cmux theme picker hooks, exposes the manual surface IO needed by
+libghostty iOS clients, refreshes embedded mouse modifiers for stationary OSC 8
+hyperlink clicks, bounds shaped glyph iteration during IME/preedit row rebuilds,
+and places embedded cmux Ghostty crash reports under `cmux/crash`.
 The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-ec097438eff7f11d5b6b6942a0e24bbef106d278
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-aee4cb8e850c4f2055dbd7952959267525670680-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
