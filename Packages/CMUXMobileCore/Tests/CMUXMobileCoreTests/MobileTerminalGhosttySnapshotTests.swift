@@ -155,6 +155,34 @@ import Testing
     #expect(snapshot.cursor.isVisible == true)
 }
 
+@Test func ghosttyTextBuilderAlignsSparseViewportRowsToCursorRow() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-sparse-cursor",
+        columns: 24,
+        rows: 6,
+        scrollbackText: nil,
+        viewportText: "line one\nline two\u{001B}[6;9H"
+    )
+
+    #expect(snapshot.renderedVisibleLines == ["", "", "", "", "line one", "line two"])
+    #expect(snapshot.cursor.column == 8)
+    #expect(snapshot.cursor.row == 5)
+}
+
+@Test func ghosttyTextBuilderDoesNotShiftRowsForNormalNewlineCursorMovement() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-normal-newline",
+        columns: 12,
+        rows: 4,
+        scrollbackText: nil,
+        viewportText: "prompt\n"
+    )
+
+    #expect(snapshot.renderedVisibleLines == ["prompt", "", "", ""])
+    #expect(snapshot.cursor.column == 0)
+    #expect(snapshot.cursor.row == 1)
+}
+
 @Test func ghosttyTextBuilderHonorsCursorVisibilitySequences() throws {
     let hiddenSnapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
         terminalID: "terminal-hidden-cursor",

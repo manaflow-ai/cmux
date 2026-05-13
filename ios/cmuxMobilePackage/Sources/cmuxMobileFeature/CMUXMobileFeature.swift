@@ -1569,6 +1569,7 @@ struct WorkspaceDetailView: View {
             TerminalPreviewSurface(
                 terminal: selectedTerminal,
                 fontScale: terminalFontScale,
+                safeAreaContext: safeAreaContext,
                 modifierState: $bottomActionModifierState,
                 isKeyboardVisible: $isTerminalKeyboardVisible,
                 sendTerminalInput: sendTerminalInput,
@@ -1590,9 +1591,13 @@ struct WorkspaceDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         #if os(iOS)
-        .mobileTerminalSafeAreaExpansion(context: safeAreaContext)
-        #endif
+        .background {
+            TerminalPalette.background
+                .ignoresSafeArea(.container, edges: .horizontal)
+        }
+        #else
         .background(TerminalPalette.background)
+        #endif
         .navigationTitle(workspace.name)
         .mobileTerminalNavigationChrome()
         .toolbar {
@@ -2560,11 +2565,13 @@ private enum PlatformPalette {
 struct TerminalPreviewSurface: View {
     let terminal: MobileTerminalPreview?
     var fontScale: CGFloat = 1
+    var safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth
     var modifierState: Binding<MobileTerminalModifierState>?
     var isKeyboardVisible: Binding<Bool>?
     var sendTerminalInput: (String) -> Void = { _ in }
     var onViewportChange: (MobileTerminalViewportSize) -> Void = { _ in }
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     private var renderedRows: [MobileTerminalGhosttyRow] {
         guard let terminal else {
@@ -2585,11 +2592,12 @@ struct TerminalPreviewSurface: View {
             let visibleSize = visibleTerminalSize(proxy: proxy)
             let viewportSize = TerminalViewportMetrics.viewportSize(for: visibleSize, fontScale: fontScale)
             let metrics = TerminalViewportMetrics(
-                size: proxy.size,
+                size: visibleSize,
                 columns: columnCount,
                 rows: max(1, renderedRows.count),
                 fontScale: fontScale
             )
+            let contentInsets = terminalContentInsets(proxy: proxy)
             ZStack(alignment: .topLeading) {
                 TerminalPalette.background
 
@@ -2599,15 +2607,18 @@ struct TerminalPreviewSurface: View {
                     cursor: terminal?.snapshot.cursor,
                     fontScale: fontScale
                 )
+                .frame(width: visibleSize.width, height: visibleSize.height, alignment: .topLeading)
+                .offset(x: contentInsets.leading, y: 0)
 
                 let borderEdges = TerminalVisibleAreaBorderPolicy.edges(viewportFit: terminal?.viewportFit)
                 if borderEdges.hasVisibleEdge {
                     TerminalVisibleAreaBorder(
                         edges: borderEdges,
                         metrics: metrics,
-                        containerSize: proxy.size,
+                        containerSize: visibleSize,
                         displayScale: displayScale
                     )
+                    .offset(x: contentInsets.leading, y: 0)
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
@@ -2651,7 +2662,19 @@ struct TerminalPreviewSurface: View {
     }
 
     private func visibleTerminalSize(proxy: GeometryProxy) -> CGSize {
-        return proxy.size
+        let contentInsets = terminalContentInsets(proxy: proxy)
+        return CGSize(
+            width: max(1, proxy.size.width - contentInsets.leading - contentInsets.trailing),
+            height: max(1, proxy.size.height)
+        )
+    }
+
+    private func terminalContentInsets(proxy: GeometryProxy) -> MobileTerminalContentInsets {
+        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
+            context: safeAreaContext,
+            hasCompactVerticalSize: verticalSizeClass == .compact,
+            safeAreaInsets: proxy.safeAreaInsets
+        )
     }
 }
 
@@ -2697,6 +2720,29 @@ enum MobileTerminalSafeAreaExpansionPolicy {
                 bottom: true
             )
         }
+    }
+}
+
+struct MobileTerminalContentInsets: Equatable, Sendable {
+    static let zero = MobileTerminalContentInsets(leading: 0, trailing: 0)
+
+    var leading: CGFloat
+    var trailing: CGFloat
+}
+
+enum MobileTerminalContentSafeAreaPolicy {
+    static func horizontalInsets(
+        context: MobileTerminalSafeAreaContext,
+        hasCompactVerticalSize: Bool,
+        safeAreaInsets: EdgeInsets
+    ) -> MobileTerminalContentInsets {
+        guard context == .fullWidth, hasCompactVerticalSize else {
+            return .zero
+        }
+        return MobileTerminalContentInsets(
+            leading: max(0, safeAreaInsets.leading),
+            trailing: max(0, safeAreaInsets.trailing)
+        )
     }
 }
 
@@ -2848,6 +2894,7 @@ private final class TerminalHiddenInputTextView: UITextView, UITextViewDelegate 
         textContainerInset = .zero
         isScrollEnabled = false
         isOpaque = false
+        isAccessibilityElement = true
         accessibilityTraits.insert(.keyboardKey)
         delegate = self
         text = ""
@@ -2878,6 +2925,20 @@ private final class TerminalHiddenInputTextView: UITextView, UITextViewDelegate 
         onFocusRequested?()
         becomeFirstResponder()
         super.touchesBegan(touches, with: event)
+    }
+
+    override func accessibilityActivate() -> Bool {
+        onFocusRequested?()
+        becomeFirstResponder()
+        return true
+    }
+
+    override func paste(_ sender: Any?) {
+        guard let pastedText = UIPasteboard.general.string,
+              !pastedText.isEmpty else {
+            return
+        }
+        onText?(pastedText)
     }
 
     func textViewDidChange(_ textView: UITextView) {

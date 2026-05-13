@@ -936,6 +936,9 @@ public final class CMUXMobileShellStore {
 
     private func applyRemoteWorkspaceList(_ response: MobileSyncWorkspaceListResponse) {
         workspaces = response.workspaces.map(MobileWorkspacePreview.init(remote:))
+        if selectActiveTicketTargetIfAvailable() {
+            return
+        }
         if let selectedWorkspaceID,
            workspaces.contains(where: { $0.id == selectedWorkspaceID }) {
             syncSelectedTerminalForWorkspace()
@@ -948,6 +951,24 @@ public final class CMUXMobileShellStore {
             refreshSnapshot: false
         )
         syncSelectedTerminalForWorkspace()
+    }
+
+    private func selectActiveTicketTargetIfAvailable() -> Bool {
+        guard let activeTicket else {
+            return false
+        }
+        let ticketWorkspaceID = MobileWorkspacePreview.ID(rawValue: activeTicket.workspaceID)
+        guard let workspace = workspaces.first(where: { $0.id == ticketWorkspaceID }) else {
+            return false
+        }
+        setSelectedWorkspaceID(ticketWorkspaceID, refreshSnapshot: false)
+        if let ticketTerminalID = activeTicket.terminalID.map(MobileTerminalPreview.ID.init(rawValue:)),
+           workspace.terminals.contains(where: { $0.id == ticketTerminalID }) {
+            selectedTerminalID = ticketTerminalID
+        } else {
+            syncSelectedTerminalForWorkspace()
+        }
+        return true
     }
 
     private func replaceTerminalSnapshot(

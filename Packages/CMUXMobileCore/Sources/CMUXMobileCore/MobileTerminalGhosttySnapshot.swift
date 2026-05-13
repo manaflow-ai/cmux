@@ -119,6 +119,10 @@ public struct MobileTerminalGhosttyRow: Codable, Equatable, Sendable {
     public var trimmedPlainText: String {
         plainText.trimmingTerminalPadding()
     }
+
+    var isVisuallyBlank: Bool {
+        trimmedPlainText.isEmpty
+    }
 }
 
 public struct MobileTerminalGhosttyCursor: Codable, Equatable, Sendable {
@@ -367,7 +371,12 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
             gridSize: MobileTerminalGridSize(columns: columns, rows: rows),
             activeScreen: activeScreen,
             scrollbackRows: scrollbackRows,
-            visibleRows: paddedRows(rows: visibleGrid.rows, columns: columns, count: rows),
+            visibleRows: paddedRows(
+                rows: visibleGrid.rows,
+                columns: columns,
+                count: rows,
+                cursorRow: resolvedCursor.row
+            ),
             cursor: resolvedCursor,
             modes: resolvedModes,
             streamOffset: streamOffset,
@@ -414,13 +423,48 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
     private static func paddedRows(
         rows: [MobileTerminalGhosttyRow],
         columns: Int,
-        count: Int
+        count: Int,
+        cursorRow: Int? = nil
     ) -> [MobileTerminalGhosttyRow] {
         var padded = Array(rows.prefix(count))
+        if let cursorRow {
+            padded = rowsAlignedToCursor(
+                rows: padded,
+                columns: columns,
+                count: count,
+                cursorRow: cursorRow
+            )
+        }
         while padded.count < count {
             padded.append(row(from: "", columns: columns))
         }
         return padded
+    }
+
+    private static func rowsAlignedToCursor(
+        rows: [MobileTerminalGhosttyRow],
+        columns: Int,
+        count: Int,
+        cursorRow: Int
+    ) -> [MobileTerminalGhosttyRow] {
+        guard count > 0,
+              let firstContentRow = rows.firstIndex(where: { !$0.isVisuallyBlank }),
+              firstContentRow == 0,
+              let lastContentRow = rows.lastIndex(where: { !$0.isVisuallyBlank }),
+              cursorRow - lastContentRow > 1 else {
+            return rows
+        }
+
+        let blankRowsToInsert = min(cursorRow - lastContentRow, max(0, count - 1))
+        guard blankRowsToInsert > 0 else {
+            return rows
+        }
+
+        let shiftedRows = Array(
+            repeating: row(from: "", columns: columns),
+            count: blankRowsToInsert
+        ) + rows
+        return Array(shiftedRows.prefix(count))
     }
 
     private static func row(from line: String, columns: Int) -> MobileTerminalGhosttyRow {

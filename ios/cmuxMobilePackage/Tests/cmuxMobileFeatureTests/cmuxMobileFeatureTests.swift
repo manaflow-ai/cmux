@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import Foundation
+import SwiftUI
 import Testing
 @testable import cmuxMobileFeature
 
@@ -175,6 +176,80 @@ import Testing
     #expect(store.selectedWorkspace?.id.rawValue == "live-workspace")
     #expect(store.selectedWorkspace?.name == "Live Workspace")
     #expect(store.selectedTerminalID == nil)
+}
+
+@MainActor
+@Test func attachURLSelectsTicketWorkspaceOverPersistedMobileSelection() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "ticket-workspace",
+        terminalID: "ticket-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date(timeIntervalSince1970: 2_000_000_000)
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcResultFrame(
+            result: [
+                "workspaces": [
+                    [
+                        "id": "workspace-main",
+                        "title": "Persisted Selection",
+                        "current_directory": "/Users/test/old",
+                        "is_selected": true,
+                        "terminals": [
+                            [
+                                "id": "terminal-build",
+                                "title": "Old Terminal",
+                                "current_directory": "/Users/test/old",
+                                "is_ready": true,
+                                "is_focused": true,
+                            ],
+                        ],
+                    ],
+                    [
+                        "id": "ticket-workspace",
+                        "title": "Ticket Workspace",
+                        "current_directory": "/Users/test/new",
+                        "is_selected": false,
+                        "terminals": [
+                            [
+                                "id": "ticket-terminal",
+                                "title": "Ticket Terminal",
+                                "current_directory": "/Users/test/new",
+                                "is_ready": true,
+                                "is_focused": true,
+                            ],
+                        ],
+                    ],
+                ],
+            ]
+        ),
+        try rpcSnapshotResultFrame(
+            workspaceID: "ticket-workspace",
+            terminalID: "ticket-terminal",
+            visibleLines: ["ticket workspace selected"]
+        ),
+    ])
+    let runtime = CMUXMobileRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionError == nil)
+    #expect(store.selectedWorkspace?.id.rawValue == "ticket-workspace")
+    #expect(store.selectedTerminalID?.rawValue == "ticket-terminal")
+    #expect(store.selectedWorkspace?.terminals.first?.lines.contains("ticket workspace selected") == true)
 }
 
 @MainActor
@@ -994,6 +1069,32 @@ import Testing
             context: .splitSidebarVisible,
             hasCompactVerticalSize: true
         ) == MobileTerminalSafeAreaExpansionEdges(horizontal: false, bottom: true)
+    )
+}
+
+@Test func terminalContentSafeAreaInsetsProtectLandscapeCameraArea() {
+    let landscapeInsets = SwiftUI.EdgeInsets(top: 0, leading: 54, bottom: 0, trailing: 21)
+
+    #expect(
+        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
+            context: .fullWidth,
+            hasCompactVerticalSize: true,
+            safeAreaInsets: landscapeInsets
+        ) == MobileTerminalContentInsets(leading: 54, trailing: 21)
+    )
+    #expect(
+        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
+            context: .fullWidth,
+            hasCompactVerticalSize: false,
+            safeAreaInsets: landscapeInsets
+        ) == .zero
+    )
+    #expect(
+        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
+            context: .splitSidebarVisible,
+            hasCompactVerticalSize: true,
+            safeAreaInsets: landscapeInsets
+        ) == .zero
     )
 }
 
