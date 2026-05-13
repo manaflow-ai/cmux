@@ -232,7 +232,7 @@ final class CommandPaletteNucleoFFITests: XCTestCase {
 
     func testNucleoFFIPrefersOpenFolderForOpenFolderQuery() throws {
         let library = try NucleoLibrary()
-        XCTAssertEqual(library.version(), 1)
+        XCTAssertEqual(library.version(), 2)
         let entries = makeOpenFolderEntries()
         let index = try NucleoIndex(library: library, entries: entries)
 
@@ -263,6 +263,53 @@ final class CommandPaletteNucleoFFITests: XCTestCase {
 
         XCTAssertEqual(results.first?.id, "workspace.large.4913")
         XCTAssertLessThanOrEqual(results.count, 10)
+    }
+
+    func testProductionNucleoSearchIndexFindsCommandPaletteCommands() throws {
+        let entries = makeOpenFolderEntries()
+        let corpus = searchCorpus(entries: entries)
+        guard let index = CommandPaletteNucleoSearchIndex(entries: corpus) else {
+            throw XCTSkip("Build the nucleo FFI dylib before running production wrapper tests")
+        }
+
+        let resultIDs = index.search(
+            query: "open folder",
+            resultLimit: 4,
+            historyBoost: { _, _ in 0 }
+        )?.map(\.payload)
+
+        XCTAssertEqual(
+            Array((resultIDs ?? []).prefix(2)),
+            ["palette.openFolder", "palette.openFolderInVSCodeInline"]
+        )
+    }
+
+    func testAppBundleContainsNucleoSearchLibrary() throws {
+        let privateFrameworksPath = try XCTUnwrap(Bundle.main.privateFrameworksPath)
+        let libraryPath = URL(fileURLWithPath: privateFrameworksPath)
+            .appendingPathComponent("libcmux_command_palette_nucleo_ffi.dylib")
+            .path
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: libraryPath),
+            "Expected bundled nucleo search library at \(libraryPath)"
+        )
+    }
+
+    func testProductionNucleoSearchIndexAppliesHistoryBoostBeforeLimiting() throws {
+        let entries = makeOpenFolderEntries()
+        let corpus = searchCorpus(entries: entries)
+        guard let index = CommandPaletteNucleoSearchIndex(entries: corpus) else {
+            throw XCTSkip("Build the nucleo FFI dylib before running production wrapper tests")
+        }
+
+        let results = index.search(
+            query: "",
+            resultLimit: 1,
+            historyBoost: { commandID, _ in commandID == "palette.openFolder" ? 600 : 0 }
+        )
+
+        XCTAssertEqual(results?.map(\.payload), ["palette.openFolder"])
     }
 
     func testNucleoFFILargeWorkspacePerformanceAndCorrectnessComparison() throws {

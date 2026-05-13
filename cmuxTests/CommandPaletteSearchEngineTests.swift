@@ -627,15 +627,23 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(previewCandidateIDs.last, "command.191")
     }
 
-    func testSynchronousSeedRunsOnlyWhenScopeChanges() {
+    func testSynchronousSeedRunsWhenFastIndexIsReadyOrScopeChanges() {
         XCTAssertTrue(
             ContentView.commandPaletteShouldSynchronouslySeedResults(
-                hasVisibleResultsForScope: false
+                hasVisibleResultsForScope: false,
+                hasNucleoSearchIndex: false
             )
         )
         XCTAssertFalse(
             ContentView.commandPaletteShouldSynchronouslySeedResults(
-                hasVisibleResultsForScope: true
+                hasVisibleResultsForScope: true,
+                hasNucleoSearchIndex: false
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldSynchronouslySeedResults(
+                hasVisibleResultsForScope: true,
+                hasNucleoSearchIndex: true
             )
         )
     }

@@ -1158,6 +1158,7 @@ struct ContentView: View {
     @State private var commandPaletteSearchCorpus: [CommandPaletteSearchCorpusEntry<String>] = []
     @State private var commandPaletteSearchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>] = [:]
     @State private var commandPaletteSearchCommandsByID: [String: CommandPaletteCommand] = [:]
+    @State private var commandPaletteNucleoSearchIndex: CommandPaletteNucleoSearchIndex<String>?
     @State private var cachedCommandPaletteResults: [CommandPaletteSearchResult] = []
     @State private var commandPaletteVisibleResults: [CommandPaletteSearchResult] = []
     @State private var commandPaletteVisibleResultsVersion: UInt64 = 0
@@ -5166,6 +5167,7 @@ struct ContentView: View {
         }
         commandPaletteSearchCorpus = searchCorpus
         commandPaletteSearchCorpusByID = Dictionary(uniqueKeysWithValues: searchCorpus.map { ($0.payload, $0) })
+        commandPaletteNucleoSearchIndex = CommandPaletteNucleoSearchIndex(entries: searchCorpus)
         cachedCommandPaletteScope = scope
         cachedCommandPaletteFingerprint = fingerprint
     }
@@ -5176,6 +5178,7 @@ struct ContentView: View {
     }
 
     nonisolated private static func commandPaletteResolvedSearchMatches(
+        searchIndex: CommandPaletteNucleoSearchIndex<String>?,
         searchCorpus: [CommandPaletteSearchCorpusEntry<String>],
         query: String,
         usageHistory: [String: CommandPaletteUsageEntry],
@@ -5184,11 +5187,36 @@ struct ContentView: View {
         resultLimit: Int? = nil,
         shouldCancel: @escaping () -> Bool = { false }
     ) -> [CommandPaletteResolvedSearchMatch] {
+        let limit = resultLimit ?? Self.commandPaletteResolvedResultLimit
+        let historyBoost: (String, Bool) -> Int = { commandId, queryIsEmpty in
+            Self.commandPaletteHistoryBoost(
+                for: commandId,
+                queryIsEmpty: queryIsEmpty,
+                history: usageHistory,
+                now: historyTimestamp
+            )
+        }
+
+        if let results = searchIndex?.search(
+            query: query,
+            resultLimit: limit,
+            historyBoost: historyBoost,
+            shouldCancel: shouldCancel
+        ) {
+            return results.map { result in
+                CommandPaletteResolvedSearchMatch(
+                    commandID: result.payload,
+                    score: result.score,
+                    titleMatchIndices: result.titleMatchIndices
+                )
+            }
+        }
+
         let results = CommandPaletteSearchEngine.search(
             entries: searchCorpus,
             query: query,
-            resultLimit: resultLimit ?? Self.commandPaletteResolvedResultLimit,
-            historyBoost: { commandId, _ in
+            resultLimit: limit,
+            historyBoost: { commandId, queryIsEmpty in
                 Self.commandPaletteHistoryBoost(
                     for: commandId,
                     queryIsEmpty: queryIsEmpty,
@@ -5274,6 +5302,7 @@ struct ContentView: View {
 
     nonisolated private static func commandPalettePreviewSearchMatches(
         scope: CommandPaletteListScope,
+        searchIndex: CommandPaletteNucleoSearchIndex<String>?,
         searchCorpus: [CommandPaletteSearchCorpusEntry<String>],
         candidateCommandIDs: [String],
         searchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>],
@@ -5289,6 +5318,7 @@ struct ContentView: View {
 
         if scope == .commands {
             let matches = commandPaletteResolvedSearchMatches(
+                searchIndex: searchIndex,
                 searchCorpus: searchCorpus,
                 query: query,
                 usageHistory: usageHistory,
@@ -5312,7 +5342,9 @@ struct ContentView: View {
             return []
         }
 
+        let previewSearchIndex = CommandPaletteNucleoSearchIndex(entries: previewEntries)
         let matches = commandPaletteResolvedSearchMatches(
+            searchIndex: previewSearchIndex,
             searchCorpus: previewEntries,
             query: query,
             usageHistory: usageHistory,
@@ -5333,6 +5365,7 @@ struct ContentView: View {
         let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery(query)
         return commandPalettePreviewSearchMatches(
             scope: .commands,
+            searchIndex: CommandPaletteNucleoSearchIndex(entries: searchCorpus),
             searchCorpus: searchCorpus,
             candidateCommandIDs: candidateCommandIDs,
             searchCorpusByID: searchCorpusByID,
@@ -5354,9 +5387,10 @@ struct ContentView: View {
     }
 
     static func commandPaletteShouldSynchronouslySeedResults(
-        hasVisibleResultsForScope: Bool
+        hasVisibleResultsForScope: Bool,
+        hasNucleoSearchIndex: Bool
     ) -> Bool {
-        !hasVisibleResultsForScope
+        hasNucleoSearchIndex || !hasVisibleResultsForScope
     }
 
     static func commandPaletteShouldPreserveEmptyStateWhileSearchPending(
@@ -5404,6 +5438,7 @@ struct ContentView: View {
         let fingerprint = cachedCommandPaletteFingerprint
         let searchCorpus = commandPaletteSearchCorpus
         let searchCorpusByID = commandPaletteSearchCorpusByID
+        let searchIndex = commandPaletteNucleoSearchIndex
         let commandsByID = commandPaletteSearchCommandsByID
         let usageHistory = commandPaletteUsageHistoryByCommandId
         let queryIsEmpty = CommandPaletteFuzzyMatcher.preparedQuery(matchingQuery).isEmpty
@@ -5412,9 +5447,11 @@ struct ContentView: View {
         commandPalettePendingActivation = nil
         cancelCommandPaletteSearch()
         if Self.commandPaletteShouldSynchronouslySeedResults(
-            hasVisibleResultsForScope: commandPaletteVisibleResultsScope == scope
+            hasVisibleResultsForScope: commandPaletteVisibleResultsScope == scope,
+            hasNucleoSearchIndex: searchIndex != nil
         ) {
             let matches = Self.commandPaletteResolvedSearchMatches(
+                searchIndex: searchIndex,
                 searchCorpus: searchCorpus,
                 query: matchingQuery,
                 usageHistory: usageHistory,
@@ -5453,6 +5490,7 @@ struct ContentView: View {
         commandPaletteSearchTask = Task.detached(priority: .userInitiated) {
             let previewMatches = Self.commandPalettePreviewSearchMatches(
                 scope: scope,
+                searchIndex: searchIndex,
                 searchCorpus: searchCorpus,
                 candidateCommandIDs: previewCandidateCommandIDs,
                 searchCorpusByID: searchCorpusByID,
@@ -5497,6 +5535,7 @@ struct ContentView: View {
             guard !Task.isCancelled else { return }
 
             let matches = Self.commandPaletteResolvedSearchMatches(
+                searchIndex: searchIndex,
                 searchCorpus: searchCorpus,
                 query: matchingQuery,
                 usageHistory: usageHistory,
@@ -8306,6 +8345,7 @@ struct ContentView: View {
         commandPaletteSearchCorpus = []
         commandPaletteSearchCorpusByID = [:]
         commandPaletteSearchCommandsByID = [:]
+        commandPaletteNucleoSearchIndex = nil
         cachedCommandPaletteResults = []
         commandPaletteVisibleResults = []
         commandPaletteVisibleResultsScope = nil

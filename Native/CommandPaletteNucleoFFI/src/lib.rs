@@ -79,7 +79,7 @@ pub struct CmuxNucleoIndex {
 
 #[no_mangle]
 pub extern "C" fn cmux_nucleo_ffi_version() -> u32 {
-    1
+    2
 }
 
 #[no_mangle]
@@ -141,6 +141,55 @@ pub unsafe extern "C" fn cmux_nucleo_index_search(
     out_capacity: usize,
     out_count: *mut usize,
 ) -> i32 {
+    cmux_nucleo_index_search_impl(
+        index,
+        query_ptr,
+        query_len,
+        result_limit,
+        std::ptr::null(),
+        0,
+        out_matches,
+        out_capacity,
+        out_count,
+    )
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cmux_nucleo_index_search_with_boosts(
+    index: *mut CmuxNucleoIndex,
+    query_ptr: *const u8,
+    query_len: usize,
+    result_limit: usize,
+    boosts_ptr: *const i32,
+    boosts_count: usize,
+    out_matches: *mut CmuxNucleoMatch,
+    out_capacity: usize,
+    out_count: *mut usize,
+) -> i32 {
+    cmux_nucleo_index_search_impl(
+        index,
+        query_ptr,
+        query_len,
+        result_limit,
+        boosts_ptr,
+        boosts_count,
+        out_matches,
+        out_capacity,
+        out_count,
+    )
+}
+
+unsafe fn cmux_nucleo_index_search_impl(
+    index: *mut CmuxNucleoIndex,
+    query_ptr: *const u8,
+    query_len: usize,
+    result_limit: usize,
+    boosts_ptr: *const i32,
+    boosts_count: usize,
+    out_matches: *mut CmuxNucleoMatch,
+    out_capacity: usize,
+    out_count: *mut usize,
+) -> i32 {
     if index.is_null() || out_count.is_null() {
         return -1;
     }
@@ -161,6 +210,13 @@ pub unsafe extern "C" fn cmux_nucleo_index_search(
     let Ok(query) = str::from_utf8(query_bytes) else {
         return -2;
     };
+    let boosts = if boosts_ptr.is_null() && boosts_count == 0 {
+        None
+    } else if boosts_ptr.is_null() || boosts_count != index.candidates.len() {
+        return -3;
+    } else {
+        Some(slice::from_raw_parts(boosts_ptr, boosts_count))
+    };
 
     let normalized_query = query.split_whitespace().collect::<Vec<_>>().join(" ");
     let output_limit = result_limit.min(out_capacity);
@@ -168,17 +224,19 @@ pub unsafe extern "C" fn cmux_nucleo_index_search(
     let output: Vec<CmuxNucleoMatch>;
 
     if query_is_empty {
-        output = index
-            .candidates
-            .iter()
-            .enumerate()
-            .take(output_limit)
-            .map(|(candidate_index, candidate)| CmuxNucleoMatch {
-                index: candidate_index,
-                score: 0.0,
-                rank: candidate.rank,
-            })
-            .collect();
+        let mut best_matches = BinaryHeap::with_capacity(output_limit);
+        for (candidate_index, candidate) in index.candidates.iter().enumerate() {
+            append_scored_candidate(
+                ScoredCandidate {
+                    index: candidate_index,
+                    score: candidate_boost(boosts, candidate_index),
+                    rank: candidate.rank,
+                },
+                &mut best_matches,
+                output_limit,
+            );
+        }
+        output = sorted_output(best_matches);
     } else {
         let query_mask = ascii_mask_query(&normalized_query);
         let pattern = Pattern::new(
@@ -210,7 +268,7 @@ pub unsafe extern "C" fn cmux_nucleo_index_search(
             append_scored_candidate(
                 ScoredCandidate {
                     index: candidate_index,
-                    score,
+                    score: score + candidate_boost(boosts, candidate_index),
                     rank: candidate.rank,
                 },
                 &mut best_matches,
@@ -218,25 +276,36 @@ pub unsafe extern "C" fn cmux_nucleo_index_search(
             );
         }
 
-        let mut scored: Vec<ScoredCandidate> = best_matches
-            .into_iter()
-            .map(|candidate| candidate.0)
-            .collect();
-        scored.sort_by(scored_candidate_order);
-        output = scored
-            .into_iter()
-            .map(|candidate| CmuxNucleoMatch {
-                index: candidate.index,
-                score: candidate.score,
-                rank: candidate.rank,
-            })
-            .collect();
+        output = sorted_output(best_matches);
     }
 
     let count = output.len();
     std::ptr::copy_nonoverlapping(output.as_ptr(), out_matches, count);
     *out_count = count;
     0
+}
+
+fn candidate_boost(boosts: Option<&[i32]>, candidate_index: usize) -> f64 {
+    boosts
+        .and_then(|values| values.get(candidate_index))
+        .map(|boost| f64::from(*boost))
+        .unwrap_or(0.0)
+}
+
+fn sorted_output(best_matches: BinaryHeap<WorstFirstScoredCandidate>) -> Vec<CmuxNucleoMatch> {
+    let mut scored: Vec<ScoredCandidate> = best_matches
+        .into_iter()
+        .map(|candidate| candidate.0)
+        .collect();
+    scored.sort_by(scored_candidate_order);
+    scored
+        .into_iter()
+        .map(|candidate| CmuxNucleoMatch {
+            index: candidate.index,
+            score: candidate.score,
+            rank: candidate.rank,
+        })
+        .collect()
 }
 
 fn append_scored_candidate(

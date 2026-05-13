@@ -1079,6 +1079,7 @@ struct CommandPaletteSearchCorpusEntry<Payload>: Sendable where Payload: Sendabl
     let nonTitleSearchableTextSet: Set<String>
     let nonTitlePrefixScoreByToken: [String: Int]
     let searchableTextsContainTitle: Bool
+    let nucleoSearchText: String
 
     init(payload: Payload, rank: Int, title: String, searchableTexts: [String]) {
         self.payload = payload
@@ -1087,10 +1088,16 @@ struct CommandPaletteSearchCorpusEntry<Payload>: Sendable where Payload: Sendabl
         let normalizedTitle = CommandPaletteFuzzyMatcher.normalizeForSearch(title)
         self.preparedTitle = CommandPaletteFuzzyMatcher.prepareNormalizedCandidateText(normalizedTitle)
 
+        var nucleoSearchTexts: [String] = []
         var normalizedTexts: [String] = []
         var seen: Set<String> = []
         normalizedTexts.reserveCapacity(searchableTexts.count)
+        nucleoSearchTexts.reserveCapacity(searchableTexts.count)
         for text in searchableTexts {
+            let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedText.isEmpty {
+                nucleoSearchTexts.append(trimmedText)
+            }
             let normalizedText = CommandPaletteFuzzyMatcher.normalizeForSearch(text)
             guard !normalizedText.isEmpty else { continue }
             guard seen.insert(normalizedText).inserted else { continue }
@@ -1107,6 +1114,7 @@ struct CommandPaletteSearchCorpusEntry<Payload>: Sendable where Payload: Sendabl
             preparedCandidates: preparedNonTitleSearchableTexts
         )
         self.searchableTextsContainTitle = seen.contains(normalizedTitle)
+        self.nucleoSearchText = nucleoSearchTexts.joined(separator: "\n")
     }
 }
 
