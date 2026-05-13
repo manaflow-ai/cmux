@@ -111664,6 +111664,76 @@
         "ja": { "stringUnit": { "state": "translated", "value": "プロセス" } }
       }
     },
+    "shortcut.globalSearch.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Global Search" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "グローバル検索" } }
+      }
+    },
+    "statusMenu.searchAllWindows": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Search All Windows..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのウィンドウを検索..." } }
+      }
+    },
+    "globalSearch.palette.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Search all windows, panels, browser tabs..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのウィンドウ、パネル、ブラウザタブを検索..." } }
+      }
+    },
+    "globalSearch.empty.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Type to search" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "入力して検索" } }
+      }
+    },
+    "globalSearch.empty.noResults": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No results" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "結果がありません" } }
+      }
+    },
+    "globalSearch.empty.noOpenPanels": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No open panels" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "開いているパネルがありません" } }
+      }
+    },
+    "globalSearch.kind.browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ" } }
+      }
+    },
+    "globalSearch.kind.markdown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Markdown" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Markdown" } }
+      }
+    },
+    "globalSearch.kind.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Title" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タイトル" } }
+      }
+    },
+    "globalSearch.untitled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Untitled" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無題" } }
+      }
+    },
     "cli.rightSidebar.usage": {
       "extractionState": "manual",
       "localizations": {

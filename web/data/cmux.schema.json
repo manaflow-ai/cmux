@@ -725,6 +725,7 @@
               "openSettings",
               "reloadConfiguration",
               "showHideAllWindows",
+              "globalSearch",
               "newWindow",
               "closeWindow",
               "toggleFullScreen",
