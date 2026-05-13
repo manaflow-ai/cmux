@@ -51,7 +51,7 @@ enum FeedNotificationDispatcher {
         requestId: String,
         notificationTarget: ActiveTerminalTarget?,
         frontmostContext: FrontmostContext? = nil,
-        deliverRequest: (UNNotificationRequest) -> Void = deliver
+        deliverRequest: (WorkstreamEvent, String, UNNotificationRequest) -> Void = deliver
     ) {
         let frontmostContext = frontmostContext ?? currentFrontmostContext()
         guard !shouldSuppress(
@@ -61,7 +61,7 @@ enum FeedNotificationDispatcher {
             return
         }
         guard let request = request(for: event, requestId: requestId) else { return }
-        deliverRequest(request)
+        deliverRequest(event, requestId, request)
     }
 
     static func request(
@@ -135,18 +135,231 @@ enum FeedNotificationDispatcher {
         )
     }
 
-    static func deliver(_ request: UNNotificationRequest) {
+    static func deliver(
+        event: WorkstreamEvent,
+        requestId: String,
+        request: UNNotificationRequest
+    ) {
+        let categoryId = request.content.categoryIdentifier
+        let title = request.content.title
+        let subtitle = request.content.subtitle
+        let body = request.content.body
+
+        Task { @MainActor in
+            await deliverWithPolicy(
+                event: event,
+                requestId: requestId,
+                categoryId: categoryId,
+                title: title,
+                subtitle: subtitle,
+                body: body
+            )
+        }
+    }
+
+    @MainActor
+    private static func deliverWithPolicy(
+        event: WorkstreamEvent,
+        requestId: String,
+        categoryId: String,
+        title: String,
+        subtitle: String,
+        body: String
+    ) async {
+        let policyContext = makePolicyContext(
+            event: event,
+            title: title,
+            subtitle: subtitle,
+            body: body
+        )
+        let deliverDefault = {
+            deliverFeedNotification(
+                requestId: requestId,
+                event: event,
+                categoryId: categoryId,
+                title: title,
+                subtitle: subtitle,
+                body: body,
+                effects: policyContext.envelope.effects
+            )
+        }
+
+        guard !policyContext.hooks.isEmpty else {
+            deliverDefault()
+            return
+        }
+
+        let authorizedHooks = await NotificationPolicyHookAuthorizer.authorize(
+            policyContext.hooks,
+            globalConfigPath: policyContext.globalConfigPath
+        )
+        guard !authorizedHooks.isEmpty else {
+            deliverDefault()
+            return
+        }
+
+        let result = await TerminalNotificationPolicyEngine.evaluate(
+            envelope: policyContext.envelope,
+            hooks: authorizedHooks
+        )
+        switch result {
+        case .success(let envelope):
+            let payload = envelope.notification
+            deliverFeedNotification(
+                requestId: requestId,
+                event: event,
+                categoryId: categoryId,
+                title: payload.title,
+                subtitle: payload.subtitle,
+                body: payload.body,
+                effects: envelope.effects
+            )
+        case .failure(let failure):
+            deliverDefault()
+            TerminalNotificationStore.shared.reportNotificationHookFailure(failure)
+        }
+    }
+
+    private struct PolicyContext {
+        let envelope: TerminalNotificationPolicyEnvelope
+        let hooks: [CmuxResolvedNotificationHook]
+        let globalConfigPath: String?
+    }
+
+    @MainActor
+    private static func makePolicyContext(
+        event: WorkstreamEvent,
+        title: String,
+        subtitle: String,
+        body: String
+    ) -> PolicyContext {
+        let appDelegate = AppDelegate.shared
+        let workspaceID = event.workspaceId.flatMap(UUID.init(uuidString:))
+        let context = workspaceID.flatMap { appDelegate?.contextContainingTabId($0) }
+            ?? appDelegate?.mainWindowContexts.values.first(where: { $0.cmuxConfigStore != nil })
+        let workspace = workspaceID.flatMap { id in
+            context?.tabManager.tabs.first(where: { $0.id == id })
+        }
+        let cwd = normalizedCWD(event.cwd)
+            ?? workspace?.surfaceTabBarDirectory
+            ?? workspace?.currentDirectory
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+        var effects = TerminalNotificationPolicyEffects()
+        effects.record = false
+        effects.markUnread = false
+        effects.reorderWorkspace = false
+        effects.sound = false
+        effects.command = false
+        effects.paneFlash = false
+
+        return PolicyContext(
+            envelope: TerminalNotificationPolicyEnvelope(
+                notification: TerminalNotificationPolicyPayload(
+                    workspaceId: event.workspaceId ?? event.sessionId,
+                    surfaceId: nil,
+                    title: title,
+                    subtitle: subtitle,
+                    body: body
+                ),
+                context: TerminalNotificationPolicyContext(
+                    cwd: cwd,
+                    configPath: nil,
+                    hookId: nil,
+                    appFocused: AppFocusState.isAppFocused(),
+                    focusedPanel: false
+                ),
+                effects: effects
+            ),
+            hooks: context?.cmuxConfigStore?.notificationHooks(startingFrom: cwd) ?? [],
+            globalConfigPath: context?.cmuxConfigStore?.globalConfigPath
+        )
+    }
+
+    private static func normalizedCWD(_ cwd: String?) -> String? {
+        guard let cwd else { return nil }
+        let trimmed = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    @MainActor
+    private static func deliverFeedNotification(
+        requestId: String,
+        event: WorkstreamEvent,
+        categoryId: String,
+        title: String,
+        subtitle: String,
+        body: String,
+        effects: TerminalNotificationPolicyEffects
+    ) {
+        guard effects.desktop || effects.sound || effects.command else { return }
+
+        func runFallbackEffects() {
+            if effects.sound {
+                NotificationSoundSettings.playSelectedSound()
+            }
+            if effects.command {
+                NotificationSoundSettings.runCustomCommand(
+                    title: title,
+                    subtitle: subtitle,
+                    body: body
+                )
+            }
+        }
+
+        if !effects.desktop {
+            runFallbackEffects()
+            return
+        }
+
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.subtitle = subtitle
+        content.body = body
+        content.sound = effects.sound ? NotificationSoundSettings.sound() : nil
+        content.categoryIdentifier = categoryId
+        content.userInfo = [
+            "requestId": requestId,
+            "workstreamId": event.sessionId,
+        ]
+
+        let request = UNNotificationRequest(
+            identifier: "feed.\(requestId)",
+            content: content,
+            trigger: nil
+        )
+
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
             switch settings.authorizationStatus {
             case .authorized, .provisional:
-                center.add(request) { _ in /* best effort */ }
+                center.add(request) { _ in
+                    if effects.command {
+                        NotificationSoundSettings.runCustomCommand(
+                            title: content.title,
+                            subtitle: content.subtitle,
+                            body: content.body
+                        )
+                    }
+                }
             case .notDetermined:
                 center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-                    if granted { center.add(request) { _ in } }
+                    if granted {
+                        center.add(request) { _ in
+                            if effects.command {
+                                NotificationSoundSettings.runCustomCommand(
+                                    title: content.title,
+                                    subtitle: content.subtitle,
+                                    body: content.body
+                                )
+                            }
+                        }
+                    }
+                    if !granted {
+                        runFallbackEffects()
+                    }
                 }
             default:
-                break
+                runFallbackEffects()
             }
         }
     }

@@ -125,7 +125,7 @@ final class FeedCoordinatorTests: XCTestCase {
                 isAppFrontmost: true,
                 activeTerminalTarget: target
             ),
-            deliverRequest: { deliveredRequests.append($0) }
+            deliverRequest: { _, _, request in deliveredRequests.append(request) }
         )
 
         XCTAssertTrue(deliveredRequests.isEmpty)
@@ -159,7 +159,7 @@ final class FeedCoordinatorTests: XCTestCase {
                 isAppFrontmost: true,
                 activeTerminalTarget: activeTarget
             ),
-            deliverRequest: { deliveredRequests.append($0) }
+            deliverRequest: { _, _, request in deliveredRequests.append(request) }
         )
 
         XCTAssertEqual(deliveredRequests.count, 1)
@@ -191,7 +191,7 @@ final class FeedCoordinatorTests: XCTestCase {
                 isAppFrontmost: false,
                 activeTerminalTarget: target
             ),
-            deliverRequest: { deliveredRequests.append($0) }
+            deliverRequest: { _, _, request in deliveredRequests.append(request) }
         )
 
         XCTAssertEqual(deliveredRequests.count, 1)
@@ -223,7 +223,7 @@ final class FeedCoordinatorTests: XCTestCase {
                 isAppFrontmost: true,
                 activeTerminalTarget: activeTarget
             ),
-            deliverRequest: { deliveredRequests.append($0) }
+            deliverRequest: { _, _, request in deliveredRequests.append(request) }
         )
 
         XCTAssertEqual(deliveredRequests.count, 1)
