@@ -12521,6 +12521,7 @@ struct CMUXCLI {
     private struct CodexTeamsThread {
         let id: String
         let cwd: String?
+        let statusType: String?
         let agentNickname: String?
         let agentRole: String?
         let spawn: CodexTeamsSpawn?
@@ -12789,9 +12790,12 @@ struct CMUXCLI {
 
         private func observeThread(_ thread: CodexTeamsThread) throws {
             if knownThreadIds.contains(thread.id) {
-                if let spawn = thread.spawn,
-                   parentByThreadId[thread.id] == nil {
-                    try observeSpawn(thread, spawn: spawn)
+                if let spawn = thread.spawn {
+                    if parentByThreadId[thread.id] == nil {
+                        try observeSpawn(thread, spawn: spawn)
+                    } else if !openedThreadIds.contains(thread.id) {
+                        try openObservedSubagent(thread, spawn: spawn)
+                    }
                 }
                 return
             }
@@ -12835,6 +12839,7 @@ struct CMUXCLI {
             let depth = parentDepth.map { $0 + 1 } ?? max(spawn.sourceDepth ?? 1, 1)
             depthByThreadId[thread.id] = depth
             guard depth <= maxAutoDepth else { return }
+            guard CMUXCLI.codexTeamsThreadIsReadyToResume(thread) else { return }
             guard !openedThreadIds.contains(thread.id) else { return }
 
             do {
@@ -12912,10 +12917,26 @@ struct CMUXCLI {
         return CodexTeamsThread(
             id: id,
             cwd: object["cwd"] as? String,
+            statusType: codexTeamsStatusType(from: object),
             agentNickname: object["agentNickname"] as? String,
             agentRole: object["agentRole"] as? String,
             spawn: codexTeamsSpawn(from: object)
         )
+    }
+
+    private static func codexTeamsStatusType(from threadObject: [String: Any]) -> String? {
+        guard let status = threadObject["status"] as? [String: Any] else {
+            return nil
+        }
+        return status["type"] as? String
+    }
+
+    private static func codexTeamsThreadIsReadyToResume(_ thread: CodexTeamsThread) -> Bool {
+        guard let statusType = thread.statusType?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !statusType.isEmpty else {
+            return true
+        }
+        return statusType == "idle"
     }
 
     private static func codexTeamsSpawn(from threadObject: [String: Any]) -> CodexTeamsSpawn? {
