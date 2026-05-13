@@ -7202,17 +7202,27 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func representativePanelIdForWorkspaceManualUnread() -> UUID? {
-        if let focusedPanelId {
+        if let focusedPanelId, panels[focusedPanelId] != nil {
             return focusedPanelId
         }
 
-        for paneId in bonsplitController.allPaneIds {
-            guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id,
-                  let panelId = panelIdFromSurfaceId(tabId) else { continue }
+        let selectedPanelsByPaneId = Dictionary(
+            uniqueKeysWithValues: bonsplitController.allPaneIds.compactMap { paneId -> (String, UUID)? in
+                guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id,
+                      let panelId = panelIdFromSurfaceId(tabId),
+                      panels[panelId] != nil else {
+                    return nil
+                }
+                return (paneId.id.uuidString, panelId)
+            }
+        )
+
+        for paneId in SidebarBranchOrdering.orderedPaneIds(tree: bonsplitController.treeSnapshot()) {
+            guard let panelId = selectedPanelsByPaneId[paneId] else { continue }
             return panelId
         }
 
-        return panels.keys.first
+        return sidebarOrderedPanelIds().first
     }
 
     func effectiveSelectedPanelId(inPane paneId: PaneID) -> UUID? {
