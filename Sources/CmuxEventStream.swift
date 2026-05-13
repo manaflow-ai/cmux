@@ -41,7 +41,29 @@ extension TerminalController {
 
         let usesJSONRPC = CMUXSocketProtocol.usesJSONRPC(object)
         let requestId: Any? = object["id"]
-        let params = object["params"] as? [String: Any] ?? [:]
+        let params: [String: Any]
+        do {
+            params = try CMUXSocketProtocol.paramsObject(in: object)
+        } catch {
+            if writeInitialResponse {
+                if usesJSONRPC {
+                    let response = v2Error(
+                        id: requestId,
+                        jsonRPC: true,
+                        code: "invalid_params",
+                        message: "params must be a JSON object"
+                    )
+                    _ = Self.writeAllToSocket(Data((response + "\n").utf8), to: socket)
+                } else {
+                    _ = writeEventsStreamLine([
+                        "type": "error",
+                        "ok": false,
+                        "error": ["code": "invalid_params", "message": "params must be a JSON object"]
+                    ], socket: socket)
+                }
+            }
+            return
+        }
         let afterSequence = CmuxEventBus.int64(params["after_seq"] ?? params["after"])
         let names = Self.stringSet(params["names"] ?? params["name"])
         let categories = Self.stringSet(params["categories"] ?? params["category"])

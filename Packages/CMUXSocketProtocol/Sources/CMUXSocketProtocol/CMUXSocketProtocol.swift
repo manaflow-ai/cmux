@@ -1,6 +1,6 @@
 import Foundation
 
-private final class VMCallResultBox: @unchecked Sendable {
+nonisolated private final class VMCallResultBox: @unchecked Sendable {
     private let lock = NSLock()
     private var storage: Result<[String: Any], Error>?
 
@@ -17,16 +17,16 @@ private final class VMCallResultBox: @unchecked Sendable {
     }
 }
 
-private struct VMCallWork: @unchecked Sendable {
+nonisolated private struct VMCallWork: @unchecked Sendable {
     let run: () async throws -> [String: Any]
 }
 
-public enum SocketCommandExecutionPolicy: Equatable {
+nonisolated public enum SocketCommandExecutionPolicy: Equatable {
     case mainActor
     case socketWorker
 }
 
-public struct V2SocketRequest {
+nonisolated public struct V2SocketRequest {
     public let id: Any?
     public let method: String
     public let params: [String: Any]
@@ -38,12 +38,17 @@ public struct V2SocketRequest {
     }
 }
 
-public enum V2CallResult {
+nonisolated public enum V2SocketRequestParseError: Error, Equatable {
+    case missingMethod
+    case invalidParams
+}
+
+nonisolated public enum V2CallResult {
     case ok(Any)
     case err(code: String, message: String, data: Any?)
 }
 
-public enum CMUXSocketProtocol {
+nonisolated public enum CMUXSocketProtocol {
     public static func usesJSONRPC(_ dict: [String: Any]) -> Bool {
         (dict["jsonrpc"] as? String) == "2.0"
     }
@@ -72,10 +77,16 @@ public enum CMUXSocketProtocol {
     }
 
     public static func isJSONRPCNotification(_ command: String) -> Bool {
-        guard let request = parseV2SocketRequest(command) else {
+        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedCommand.hasPrefix("{"),
+              let data = trimmedCommand.data(using: .utf8),
+              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any],
+              usesJSONRPC(dict),
+              let method = dict["method"] as? String,
+              !method.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
-        return request.isJSONRPCNotification
+        return !dict.keys.contains("id")
     }
 
     public static func shouldWriteResponse(for command: String) -> Bool {
@@ -90,18 +101,33 @@ public enum CMUXSocketProtocol {
             return nil
         }
 
+        return try? parseV2SocketRequestObject(dict)
+    }
+
+    public static func parseV2SocketRequestObject(_ dict: [String: Any]) throws -> V2SocketRequest {
         let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !method.isEmpty else {
-            return nil
+            throw V2SocketRequestParseError.missingMethod
         }
 
+        let params = try paramsObject(in: dict)
         return V2SocketRequest(
             id: dict["id"],
             method: method,
-            params: dict["params"] as? [String: Any] ?? [:],
+            params: params,
             usesJSONRPC: usesJSONRPC(dict),
             hasIdMember: dict.keys.contains("id")
         )
+    }
+
+    public static func paramsObject(in dict: [String: Any]) throws -> [String: Any] {
+        guard dict.keys.contains("params") else {
+            return [:]
+        }
+        guard let params = dict["params"] as? [String: Any] else {
+            throw V2SocketRequestParseError.invalidParams
+        }
+        return params
     }
 
     public static let socketWorkerV2Methods: Set<String> = [
@@ -252,6 +278,15 @@ public enum CMUXSocketProtocol {
         timeoutSeconds: TimeInterval = 17 * 60,
         _ work: @escaping () async throws -> [String: Any]
     ) -> String {
+        guard !Thread.isMainThread else {
+            return error(
+                id: id,
+                jsonRPC: jsonRPC,
+                code: "invalid_dispatch",
+                message: "Async socket-worker calls must not block the main thread"
+            )
+        }
+
         let semaphore = DispatchSemaphore(value: 0)
         let resultBox = VMCallResultBox()
         let wrappedWork = VMCallWork(run: work)

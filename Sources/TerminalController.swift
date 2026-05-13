@@ -2420,14 +2420,28 @@ class TerminalController {
             )
         }
 
-        let id: Any? = dict["id"]
-        let usesJSONRPC = CMUXSocketProtocol.usesJSONRPC(dict)
-        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let params = dict["params"] as? [String: Any] ?? [:]
-
-        guard !method.isEmpty else {
-            return v2Error(id: id, jsonRPC: usesJSONRPC, code: "invalid_request", message: "Missing method")
+        let request: V2SocketRequest
+        do {
+            request = try CMUXSocketProtocol.parseV2SocketRequestObject(dict)
+        } catch V2SocketRequestParseError.invalidParams {
+            return v2Error(
+                id: dict["id"],
+                jsonRPC: CMUXSocketProtocol.usesJSONRPC(dict),
+                code: "invalid_params",
+                message: "params must be a JSON object"
+            )
+        } catch {
+            return v2Error(
+                id: dict["id"],
+                jsonRPC: CMUXSocketProtocol.usesJSONRPC(dict),
+                code: "invalid_request",
+                message: "Missing method"
+            )
         }
+        let id = request.id
+        let usesJSONRPC = request.usesJSONRPC
+        let method = request.method
+        let params = request.params
 
         guard CMUXSocketProtocol.executionPolicy(forV2Method: method) == .mainActor else {
             return v2Error(

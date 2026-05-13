@@ -36,6 +36,10 @@ notifications. cmux executes those methods but does not write a response frame.
 An explicit `"id": null` is still a request and receives a response with
 `"id": null`.
 
+Method params are always JSON objects. Omit `"params"` when a method takes no
+arguments; array, string, number, boolean, or null params are rejected as
+`invalid_params`.
+
 ## Errors
 
 JSON-RPC mode uses standard numeric error codes where possible and preserves the
