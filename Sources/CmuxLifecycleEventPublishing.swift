@@ -212,31 +212,8 @@ extension Workspace {
             return "markdown"
         case .filePreview:
             return "file_preview"
-        }
-    }
-}
-
-@MainActor
-private enum MainWindowKeyRegainRefresh {
-    static func refresh(window: NSWindow, context: AppDelegate.MainWindowContext) {
-        // Window focus regain owns the redraw invariant. Cursor tracking and
-        // focused subviews can update themselves only after this invalidation.
-        invalidateContentDisplayTree(window: window)
-        _ = context.keyboardFocusCoordinator.restoreTargetAfterWindowBecameKey()
-    }
-
-    private static func invalidateContentDisplayTree(window: NSWindow) {
-        guard let contentView = window.contentView else { return }
-        invalidateDisplayTree(rootedAt: contentView)
-        window.invalidateCursorRects(for: contentView)
-    }
-
-    private static func invalidateDisplayTree(rootedAt view: NSView) {
-        guard !view.isHidden else { return }
-        view.needsDisplay = true
-        view.layer?.setNeedsDisplay()
-        for subview in view.subviews {
-            invalidateDisplayTree(rootedAt: subview)
+        case .rightSidebarTool:
+            return "right_sidebar_tool"
         }
     }
 }
@@ -245,14 +222,11 @@ extension AppDelegate {
     func handleCmuxWindowBecameKey(_ note: Notification) {
         guard let window = note.object as? NSWindow else { return }
         MainActor.assumeIsolated {
-            let context = contextForMainTerminalWindow(window)
             setActiveMainWindow(window)
             if let windowId = mainWindowId(from: window) {
                 publishCmuxWindowLifecycle(name: "window.keyed", windowId: windowId, origin: "appkit_key")
             }
-            if let context {
-                MainWindowKeyRegainRefresh.refresh(window: window, context: context)
-            }
+            _ = contextForMainTerminalWindow(window)?.keyboardFocusCoordinator.restoreTargetAfterWindowBecameKey()
         }
     }
 

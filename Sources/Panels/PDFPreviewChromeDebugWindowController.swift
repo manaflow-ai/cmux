@@ -218,6 +218,7 @@ private struct PDFPreviewChromeDebugSample: View {
     var body: some View {
         FilePreviewPDFZoomChromeView(
             chromeStyleVariant: variant,
+            fileURL: URL(fileURLWithPath: "/tmp/cmux-pdf-chrome-debug.pdf"),
             zoomOut: { model.record(.zoomOut) },
             actualSize: { model.record(.actualSize) },
             zoomIn: { model.record(.zoomIn) },

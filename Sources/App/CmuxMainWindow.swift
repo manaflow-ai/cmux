@@ -27,49 +27,30 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     }
 }
 
-class FirstMouseGatedHostingView<Content: View>: NSHostingView<Content> {
-    override var intrinsicContentSize: NSSize {
-        NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        if shouldCaptureInactiveFirstMouse(at: point) {
-            return self
-        }
-        return super.hitTest(point)
-    }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        PaneFirstClickFocusSettings.isEnabled()
-    }
-
-    func shouldCaptureInactiveFirstMouse(at point: NSPoint) -> Bool {
-        let localPoint = superview.map { convert(point, from: $0) } ?? point
-        return window?.isKeyWindow != true &&
-            !PaneFirstClickFocusSettings.isEnabled() &&
-            bounds.contains(localPoint)
-    }
-}
-
-final class FirstMouseGatedPassThroughHostingView<Content: View>: FirstMouseGatedHostingView<Content> {
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        shouldCaptureInactiveFirstMouse(at: point) ? self : nil
-    }
-}
-
-struct FirstMouseGatedHostingOverlay: NSViewRepresentable {
-    func makeNSView(context: Context) -> FirstMouseGatedPassThroughHostingView<AnyView> {
-        FirstMouseGatedPassThroughHostingView(rootView: AnyView(EmptyView()))
-    }
-
-    func updateNSView(_ nsView: FirstMouseGatedPassThroughHostingView<AnyView>, context: Context) {
-        nsView.rootView = AnyView(EmptyView())
-    }
-}
-
 @MainActor
 final class CmuxMainWindow: NSWindow {
     private var isSoftHiddenForVisibilityController = false
+    private var isClearingNativeTitlebarProxyIcon = false
+
+    // cmux renders the workspace directory icon inside its custom titlebar, whose layout follows
+    // the sidebar. AppKit's native proxy icon is positioned in the standard titlebar instead.
+    override var representedURL: URL? {
+        get { nil }
+        set { clearNativeTitlebarProxyIcon() }
+    }
+
+    override var representedFilename: String {
+        get { "" }
+        set { clearNativeTitlebarProxyIcon() }
+    }
+
+    private func clearNativeTitlebarProxyIcon() {
+        guard !isClearingNativeTitlebarProxyIcon else { return }
+        isClearingNativeTitlebarProxyIcon = true
+        defer { isClearingNativeTitlebarProxyIcon = false }
+        super.representedURL = nil
+        super.representedFilename = ""
+    }
 
     func setSoftHiddenForVisibilityController(_ isSoftHidden: Bool) {
         isSoftHiddenForVisibilityController = isSoftHidden
