@@ -836,6 +836,34 @@
         }
       ]
     },
+    "configIcon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["symbol", "sfSymbol", "systemImage", "emoji", "image", "file"],
+          "description": "Icon kind. Menu bar items render SF Symbols in the macOS menu bar."
+        },
+        "name": {
+          "type": "string",
+          "description": "SF Symbol name for symbol, sfSymbol, or systemImage icons."
+        },
+        "value": {
+          "type": "string",
+          "description": "Emoji value for emoji icons."
+        },
+        "path": {
+          "type": "string",
+          "description": "Image path for image or file icons."
+        },
+        "scale": {
+          "type": "number",
+          "description": "Optional emoji scale."
+        }
+      }
+    },
     "menuBarMenus": {
       "type": "array",
       "items": {
@@ -891,6 +919,10 @@
             "title": {
               "type": "string",
               "description": "Menu item or submenu title."
+            },
+            "icon": {
+              "$ref": "#/$defs/configIcon",
+              "description": "Optional icon metadata. Menu bar items currently render SF Symbol icons."
             },
             "items": {
               "type": "array",

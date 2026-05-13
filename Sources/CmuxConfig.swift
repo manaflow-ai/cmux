@@ -2752,7 +2752,6 @@ final class CmuxConfigStore: ObservableObject {
                     commandName: actionReference,
                     sourcePath: settingSourcePath
                 )
-                NSLog("[CmuxConfig] %@", issue.logMessage)
                 return (nil, issue)
             }
             action = resolved
@@ -2772,7 +2771,6 @@ final class CmuxConfigStore: ObservableObject {
                     commandName: item.title,
                     sourcePath: settingSourcePath
                 )
-                NSLog("[CmuxConfig] %@", issue.logMessage)
                 return (nil, issue)
             }
             action = resolved

@@ -412,6 +412,10 @@ struct CmuxConfigMenuBarActionItem: Codable, Sendable, Hashable {
         }
 
         try inlineAction?.encode(to: encoder)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(title, forKey: .title)
+        try container.encodeIfPresent(icon, forKey: .icon)
+        try container.encodeIfPresent(tooltip, forKey: .tooltip)
     }
 
     private static func trimmedString(

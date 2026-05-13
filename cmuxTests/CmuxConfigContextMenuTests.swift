@@ -146,6 +146,28 @@ final class CmuxConfigContextMenuTests: XCTestCase {
         }
     }
 
+    func testEncodeMenuBarInlineActionPreservesPresentationFields() throws {
+        let item = try JSONDecoder().decode(CmuxConfigMenuBarItem.self, from: Data("""
+        {
+          "title": "Lint",
+          "icon": { "type": "symbol", "name": "sparkles" },
+          "tooltip": "Run lint",
+          "command": "npm run lint",
+          "target": "currentTerminal"
+        }
+        """.utf8))
+
+        let data = try JSONEncoder().encode(item)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["title"] as? String, "Lint")
+        XCTAssertEqual(object["tooltip"] as? String, "Run lint")
+        let icon = try XCTUnwrap(object["icon"] as? [String: Any])
+        XCTAssertEqual(icon["type"] as? String, "symbol")
+        XCTAssertEqual(icon["name"] as? String, "sparkles")
+        XCTAssertEqual(object["command"] as? String, "npm run lint")
+        XCTAssertEqual(object["target"] as? String, "currentTerminal")
+    }
+
     func testDecodeMenuBarAcceptsArrayShorthand() throws {
         let json = """
         {
