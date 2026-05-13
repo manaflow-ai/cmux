@@ -7012,7 +7012,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // MARK: - Input Handling
 
-    @IBAction private override func selectAll(_ sender: Any?) {
+    // NSResponder overrides must remain internal in Swift, so suppress private_action here.
+    // swiftlint:disable:next private_action
+    @IBAction override func selectAll(_ sender: Any?) {
         _ = selectCommandLineAtCursorOrAll()
     }
 
