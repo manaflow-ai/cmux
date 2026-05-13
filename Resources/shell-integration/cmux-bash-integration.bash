@@ -144,6 +144,18 @@ _cmux_restore_scrollback_once() {
     fi
 }
 _cmux_restore_scrollback_once
+
+_cmux_reset_terminal_keyboard_protocols() {
+    [[ -t 1 || -n "${CMUX_TEST_FORCE_KEYBOARD_RESET:-}${CMUX_TEST_FORCE_KITTY_RESET:-}" ]] || return 0
+    # A crashed TUI may leave keyboard protocol state pushed. At a fresh shell
+    # prompt, return terminal input encoding to plain readline bytes.
+    printf '\033[>m\033[<8u'
+}
+
+_cmux_reset_kitty_keyboard_protocol() {
+    _cmux_reset_terminal_keyboard_protocols
+}
+
 _CMUX_CLAUDE_WRAPPER="${_CMUX_CLAUDE_WRAPPER:-}"
 _cmux_install_claude_wrapper() {
     local integration_dir="${CMUX_SHELL_INTEGRATION_DIR:-}"
@@ -949,6 +961,7 @@ _cmux_bash_preexec_hook() {
 _cmux_prompt_command() {
     local last_status=$?
     _cmux_tmux_sync_cmux_environment
+    _cmux_reset_terminal_keyboard_protocols
 
     local cmux_has_unix_socket=0
     _cmux_socket_is_unix && cmux_has_unix_socket=1
