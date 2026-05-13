@@ -35,9 +35,15 @@ def resolve_cmux_cli() -> str:
 
 
 class PingServer:
-    def __init__(self, socket_path: str, response: bytes = b"PONG\n"):
+    def __init__(
+        self,
+        socket_path: str,
+        response: bytes = b"PONG\n",
+        accept_timeout: float = 6.0,
+    ):
         self.socket_path = socket_path
         self.response = response
+        self.accept_timeout = accept_timeout
         self.ready = threading.Event()
         self.error: Exception | None = None
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -58,7 +64,7 @@ class PingServer:
                 os.remove(self.socket_path)
             server.bind(self.socket_path)
             server.listen(1)
-            server.settimeout(6.0)
+            server.settimeout(self.accept_timeout)
             self.ready.set()
 
             # The CLI may probe candidate sockets with a connect-only check before
@@ -267,6 +273,45 @@ def expect_ping_ignores_dev_tag(
     return True
 
 
+def expect_ping_does_not_use_socket(
+    cli_path: str,
+    home: str,
+    socket_path: str,
+    label: str,
+) -> bool:
+    os.makedirs(os.path.dirname(socket_path), exist_ok=True)
+    server = PingServer(socket_path, response=b"WRONG\n", accept_timeout=1.0)
+    server.start()
+
+    if not server.wait_ready(2.0):
+        print(f"FAIL: {label} socket server did not become ready")
+        return False
+
+    if server.error is not None:
+        print(f"FAIL: {label} socket server failed to start: {server.error}")
+        return False
+
+    try:
+        proc = run_ping(cli_path, home)
+    except Exception as exc:
+        print(f"FAIL: invoking {label} cmux ping failed unexpectedly: {exc}")
+        return False
+    finally:
+        server.join(timeout=2.0)
+        try:
+            os.remove(socket_path)
+        except OSError:
+            pass
+
+    if proc.stdout.strip() == "WRONG":
+        print(f"FAIL: {label} cmux ping used the stable socket fallback")
+        print(f"stdout={proc.stdout!r}")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    return True
+
+
 def python_client_default_bundle_id(extra_env: dict[str, str]) -> str:
     env = os.environ.copy()
     env.pop("CMUX_SOCKET_PATH", None)
@@ -343,6 +388,12 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
             "cmux NIGHTLY",
             "com.cmuxterm.app.nightly",
         )
+        isolated_nightly_cli = bundled_cli_for_variant(
+            cli_path,
+            apps,
+            "cmux NIGHTLY issue3542",
+            "com.cmuxterm.app.nightly.issue3542",
+        )
         dev_agent_cli = bundled_cli_for_variant(
             cli_path,
             apps,
@@ -386,6 +437,21 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
                 rogue_dev_agent_socket,
                 rogue_dev_agent_tag,
                 "dev-agent with stray CMUX_TAG",
+            ):
+                return False
+
+            stable_default_socket = os.path.join(
+                home,
+                "Library",
+                "Application Support",
+                "cmux",
+                "cmux.sock",
+            )
+            if not expect_ping_does_not_use_socket(
+                isolated_nightly_cli,
+                home,
+                stable_default_socket,
+                "isolated nightly without marker",
             ):
                 return False
         finally:
