@@ -1675,18 +1675,40 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
 
     private final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
+        private let commandSemaphore = DispatchSemaphore(value: 0)
         private(set) var commands: [String] = []
 
         func append(_ command: String) {
             lock.lock()
             commands.append(command)
             lock.unlock()
+            commandSemaphore.signal()
         }
 
         func snapshot() -> [String] {
             lock.lock()
             defer { lock.unlock() }
             return commands
+        }
+
+        func waitForCommand(timeout: TimeInterval, matching predicate: (String) -> Bool) -> Bool {
+            let deadline = Date().addingTimeInterval(timeout)
+            while true {
+                lock.lock()
+                let matched = commands.contains(where: predicate)
+                lock.unlock()
+                if matched {
+                    return true
+                }
+
+                let remaining = deadline.timeIntervalSinceNow
+                guard remaining > 0 else {
+                    return false
+                }
+                if commandSemaphore.wait(timeout: .now() + remaining) == .timedOut {
+                    return snapshot().contains(where: predicate)
+                }
+            }
         }
     }
 
@@ -1726,14 +1748,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         timeout: TimeInterval,
         matching predicate: (String) -> Bool
     ) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if state.snapshot().contains(where: predicate) {
-                return true
-            }
-            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + 0.05)
-        }
-        return false
+        state.waitForCommand(timeout: timeout, matching: predicate)
     }
 
     private func bundledCLIPath() throws -> String {

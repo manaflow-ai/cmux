@@ -18383,7 +18383,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     static func codexConfigTomlInstallingHooksFeature(in existingContent: String) -> String {
         var lines = tomlLines(from: existingContent)
         removeCmuxCodexHooksFeatureBlock(from: &lines)
-        removeCmuxCodexHookTrustBlock(from: &lines)
+        if removeCmuxCodexHookTrustBlock(from: &lines) == .malformed {
+            stripMalformedCmuxCodexHookTrustMarker(from: &lines)
+        }
         lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
         lines.removeAll { tomlLineDefinesDottedFeaturesKey("codex_hooks", line: $0) }
 
@@ -18448,7 +18450,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     static func codexConfigTomlUninstallingHooksFeature(from existingContent: String) -> String {
         var lines = tomlLines(from: existingContent)
         removeCmuxCodexHooksFeatureBlock(from: &lines)
-        removeCmuxCodexHookTrustBlock(from: &lines)
+        if removeCmuxCodexHookTrustBlock(from: &lines) == .malformed {
+            stripMalformedCmuxCodexHookTrustMarker(from: &lines)
+        }
         lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
         lines.removeAll { tomlLineDefinesDottedFeaturesKey("codex_hooks", line: $0) }
         removeEmptyFeaturesTable(from: &lines)
@@ -18461,12 +18465,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     ) -> CodexHookTrustInstallResult {
         var lines = tomlLines(from: existingContent)
         let removalResult = removeCmuxCodexHookTrustBlock(from: &lines)
-        guard removalResult != .malformed else {
-            return CodexHookTrustInstallResult(content: tomlContent(from: lines), installedTrust: false)
+        if removalResult == .malformed {
+            stripMalformedCmuxCodexHookTrustMarker(from: &lines)
         }
         guard !entries.isEmpty else {
             return CodexHookTrustInstallResult(content: tomlContent(from: lines), installedTrust: false)
         }
+        removeCodexHookTrustTables(
+            withEscapedKeys: Set(entries.map { tomlBasicStringContent($0.key) }),
+            from: &lines
+        )
 
         if !lines.isEmpty, lines.last?.isEmpty == false {
             lines.append("")
@@ -18792,6 +18800,34 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             lines.removeSubrange(range)
         }
         return ranges.isEmpty ? .notFound : .removed
+    }
+
+    private static func stripMalformedCmuxCodexHookTrustMarker(from lines: inout [String]) {
+        lines.removeAll { $0 == cmuxCodexHookTrustBegin }
+    }
+
+    private static func removeCodexHookTrustTables(withEscapedKeys keys: Set<String>, from lines: inout [String]) {
+        guard !keys.isEmpty else { return }
+        var index = 0
+        while index < lines.count {
+            guard let escapedKey = codexHookTrustTableEscapedKey(from: lines[index]),
+                  keys.contains(escapedKey) else {
+                index += 1
+                continue
+            }
+            let endIndex = tomlTableEndIndex(in: lines, after: index)
+            lines.removeSubrange(index..<endIndex)
+        }
+    }
+
+    private static func codexHookTrustTableEscapedKey(from line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let prefix = "[hooks.state.\""
+        let suffix = "\"]"
+        guard trimmed.hasPrefix(prefix), trimmed.hasSuffix(suffix) else {
+            return nil
+        }
+        return String(trimmed.dropFirst(prefix.count).dropLast(suffix.count))
     }
 
     private static func tomlLineIsCodexHooksFeatureBegin(_ line: String) -> Bool {

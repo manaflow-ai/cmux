@@ -1269,11 +1269,13 @@ def test_uninstall_preserves_unowned_hook_trust_when_cmux_marker_is_unclosed(
         )
 
     config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
+    if "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin" in config_toml:
+        raise AssertionError(f"orphaned cmux hook trust marker was preserved: {config_toml!r}")
     if 'trusted_hash = "sha256:third-party"' not in config_toml:
         raise AssertionError(f"unowned hook trust was removed: {config_toml!r}")
 
 
-def test_install_does_not_append_hook_trust_when_cmux_marker_is_unclosed(
+def test_install_recovers_hook_trust_when_cmux_marker_is_unclosed(
     cli_path: str, root: Path
 ) -> None:
     codex_home = root / "codex-home-unclosed-trust-install"
@@ -1304,14 +1306,22 @@ def test_install_does_not_append_hook_trust_when_cmux_marker_is_unclosed(
         )
 
     config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
-    if "approved cmux hooks" in result.stdout:
-        raise AssertionError(f"install falsely claimed hook trust approval: {result.stdout!r}")
+    if "approved cmux hooks" not in result.stdout:
+        raise AssertionError(f"install did not report recovered hook trust approval: {result.stdout!r}")
     if config_toml.count("# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin") != 1:
-        raise AssertionError(f"install appended a second cmux hook trust marker: {config_toml!r}")
-    if "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end" in config_toml:
-        raise AssertionError(f"install appended a new hook trust block after malformed marker: {config_toml!r}")
-    if config_toml.count("[hooks.state.") != 1:
-        raise AssertionError(f"install appended duplicate hook trust tables: {config_toml!r}")
+        raise AssertionError(f"install did not write one fresh cmux hook trust marker: {config_toml!r}")
+    if config_toml.count("# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end") != 1:
+        raise AssertionError(f"install did not close the recovered hook trust block: {config_toml!r}")
+    if 'trusted_hash = "sha256:stale"' in config_toml:
+        raise AssertionError(f"install preserved stale cmux hook trust: {config_toml!r}")
+    hooks = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
+    state = codex_hook_trust_state(config_toml)
+    expected_trust = expected_cmux_codex_hook_trust(hooks, codex_home / "hooks.json")
+    for key, trusted_hash in expected_trust.items():
+        if state.get(key, {}).get("trusted_hash") != trusted_hash:
+            raise AssertionError(
+                f"missing recovered trusted hash for {key}: expected {trusted_hash!r}, got state {state!r}"
+            )
 
 
 def test_uninstall_codex_hooks_removes_legacy_managed_block(cli_path: str, root: Path) -> None:
@@ -1568,7 +1578,7 @@ def main() -> int:
             test_install_scans_features_past_bracketed_array(cli_path, root)
             test_uninstall_removes_cmux_owned_codex_hooks_feature(cli_path, root)
             test_uninstall_preserves_unowned_hook_trust_when_cmux_marker_is_unclosed(cli_path, root)
-            test_install_does_not_append_hook_trust_when_cmux_marker_is_unclosed(cli_path, root)
+            test_install_recovers_hook_trust_when_cmux_marker_is_unclosed(cli_path, root)
             test_uninstall_codex_hooks_removes_legacy_managed_block(cli_path, root)
             test_install_surfaces_invalid_codex_config_encoding(cli_path, root)
             test_uninstall_surfaces_invalid_codex_config_encoding(cli_path, root)
