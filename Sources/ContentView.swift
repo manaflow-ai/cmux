@@ -2176,6 +2176,9 @@ struct ContentView: View {
             onOpenFilePreview: { filePath in
                 openFilePreviewFromSidebar(filePath: filePath)
             },
+            onOpenAsPane: { mode in
+                openRightSidebarToolPane(mode)
+            },
             onClose: {
                 #if DEBUG
                 cmuxDebugLog("rightSidebar.closeButton")
@@ -2435,46 +2438,20 @@ struct ContentView: View {
     }
 
     private func resumeSession(entry: SessionEntry) {
-        guard let resumeCommand = entry.resumeCommand else { return }
-        let inputWithReturn = resumeCommand + "\n"
-        let targetCwd = entry.resumeWorkingDirectory
+        SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+    }
 
-        // Smart placement: if the focused workspace's tracked cwd matches, open a
-        // new tab inside that workspace. Otherwise create a new workspace.
-        // Remote workspaces are excluded from cwd-match: a session indexed from
-        // the local filesystem must not be resumed inside a remote shell just
-        // because the path string happens to coincide.
-        let selected = tabManager.selectedWorkspace
-        let selectedTab = tabManager.selectedTabId.flatMap { id in
-            tabManager.tabs.first(where: { $0.id == id })
-        }
-        let isRemoteSelection = selectedTab?.isRemoteWorkspace ?? false
-        let workspaceCwd = selected?.currentDirectory
-        let pwdMatches: Bool = {
-            guard !isRemoteSelection,
-                  let targetCwd, !targetCwd.isEmpty,
-                  let workspaceCwd, !workspaceCwd.isEmpty else { return false }
-            let lhs = (targetCwd as NSString).standardizingPath
-            let rhs = (workspaceCwd as NSString).standardizingPath
-            return lhs == rhs
-        }()
-
-        if pwdMatches,
-           let workspace = selected,
-           let paneId = workspace.bonsplitController.focusedPaneId {
-            workspace.newTerminalSurface(
-                inPane: paneId,
-                focus: true,
-                workingDirectory: targetCwd,
-                initialInput: inputWithReturn
-            )
+    func openRightSidebarToolPane(_ mode: RightSidebarMode) {
+        guard mode.canOpenAsPane,
+              let workspace = tabManager.selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+            NSSound.beep()
             return
         }
 
-        tabManager.addWorkspace(
-            workingDirectory: targetCwd,
-            initialTerminalInput: inputWithReturn
-        )
+        sidebarSelectionState.selection = .tabs
+        workspace.clearSplitZoom()
+        _ = workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true)
     }
 
     private func openFilePreviewFromSidebar(filePath: String) {
@@ -5850,6 +5827,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
         case .filePreview:
             return String(localized: "commandPalette.kind.filePreview", defaultValue: "File Preview")
+        case .rightSidebarTool:
+            return String(localized: "commandPalette.kind.rightSidebarTool", defaultValue: "Tool")
         }
     }
 
@@ -5863,6 +5842,8 @@ struct ContentView: View {
             return ["markdown", "note", "preview"]
         case .filePreview:
             return ["file", "preview", "text", "pdf", "image"]
+        case .rightSidebarTool:
+            return ["tool", "files", "find", "vault", "sidebar"]
         }
     }
 
@@ -6288,6 +6269,7 @@ struct ContentView: View {
             )
         )
         contributions.append(contentsOf: Self.commandPaletteRightSidebarModeCommandContributions())
+        contributions.append(contentsOf: Self.commandPaletteRightSidebarToolPaneCommandContributions())
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.toggleMatchTerminalBackground",
@@ -7173,6 +7155,11 @@ struct ContentView: View {
         for mode in RightSidebarMode.allCases {
             registry.register(commandId: Self.commandPaletteRightSidebarModeCommandID(mode)) {
                 handleCommandPaletteRightSidebarMode(mode, observedWindow: observedWindow)
+            }
+        }
+        for descriptor in Self.commandPaletteRightSidebarToolPaneCommandDescriptors() {
+            registry.register(commandId: descriptor.commandId) {
+                handleCommandPaletteRightSidebarToolPane(descriptor.mode)
             }
         }
         registry.register(commandId: "palette.toggleMatchTerminalBackground") {
