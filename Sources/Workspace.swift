@@ -9135,7 +9135,7 @@ final class Workspace: Identifiable, ObservableObject {
             4
         case SidebarAgentFallbackActivity.running.protocolValue:
             3
-        case "idle":
+        case SidebarAgentFallbackActivity.idle.protocolValue:
             1
         default:
             0

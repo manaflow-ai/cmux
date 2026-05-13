@@ -1076,6 +1076,8 @@ class TabManager: ObservableObject {
     var agentPIDProbeInFlight = false
     var agentPIDDiscoveryInFlight = false
     var agentPIDProbeGeneration: UInt64 = 0
+    var agentPIDProbeInFlightGeneration: UInt64?
+    var agentPIDDiscoveryInFlightGeneration: UInt64?
     var agentPIDDiscoveryLastStartedAtByRegistration: [String: Date] = [:]
     private var workspaceGitMetadataPollTimer: DispatchSourceTimer?
     private var selectedWorkspaceGitMetadataPollTimer: DispatchSourceTimer?
@@ -5101,17 +5103,29 @@ class TabManager: ObservableObject {
         guard !trimmed.isEmpty else { return }
         let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
         let priorSawAgentTitleRegistration = pendingPanelTitleUpdates[key]?.sawAgentTitleRegistration == true
+        let now = Date()
+        let hasActiveAgentTitleRegistration: Bool = {
+            guard panelAgentTitleRegistrations[key] != nil,
+                  let seenAt = panelAgentTitleRegistrationSeenAt[key] else {
+                return false
+            }
+            if now.timeIntervalSince(seenAt) <= Self.panelAgentTitleRegistrationLifetime {
+                return true
+            }
+            clearPanelAgentTitleRegistration(for: key)
+            return false
+        }()
         if let registration = SidebarAgentStatusService.titleRegistration(for: trimmed) {
             pendingPanelTitleUpdates[key] = PendingPanelTitleUpdate(
                 title: trimmed,
                 sawAgentTitleRegistration: true
             )
             panelAgentTitleRegistrations[key] = registration
-            panelAgentTitleRegistrationSeenAt[key] = Date()
+            panelAgentTitleRegistrationSeenAt[key] = now
         } else {
             pendingPanelTitleUpdates[key] = PendingPanelTitleUpdate(
                 title: trimmed,
-                sawAgentTitleRegistration: priorSawAgentTitleRegistration
+                sawAgentTitleRegistration: priorSawAgentTitleRegistration || hasActiveAgentTitleRegistration
             )
         }
         panelTitleUpdateCoalescer.signal { [weak self] in
@@ -7402,6 +7416,8 @@ extension TabManager {
         agentPIDProbeGeneration &+= 1
         agentPIDProbeInFlight = false
         agentPIDDiscoveryInFlight = false
+        agentPIDProbeInFlightGeneration = nil
+        agentPIDDiscoveryInFlightGeneration = nil
         agentPIDDiscoveryLastStartedAtByRegistration.removeAll()
         tabHistory.removeAll()
         historyIndex = -1

@@ -100,11 +100,15 @@ extension TabManager {
 
         agentPIDProbeInFlight = true
         let generation = agentPIDProbeGeneration
+        agentPIDProbeInFlightGeneration = generation
         Task.detached(priority: .utility) { [requests] in
             let results = SidebarAgentStatusService.probeResults(for: requests)
             await MainActor.run { [weak self] in
-                guard let self, self.agentPIDProbeGeneration == generation else { return }
+                guard let self,
+                      self.agentPIDProbeInFlightGeneration == generation else { return }
                 self.agentPIDProbeInFlight = false
+                self.agentPIDProbeInFlightGeneration = nil
+                guard self.agentPIDProbeGeneration == generation else { return }
                 self.applyAgentPIDProbeResults(results)
             }
         }
@@ -202,11 +206,15 @@ extension TabManager {
         }
         agentPIDDiscoveryInFlight = true
         let generation = agentPIDProbeGeneration
+        agentPIDDiscoveryInFlightGeneration = generation
         Task.detached(priority: .utility) { [dueRegistrationKeys] in
             let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
             await MainActor.run { [weak self] in
-                guard let self, self.agentPIDProbeGeneration == generation else { return }
+                guard let self,
+                      self.agentPIDDiscoveryInFlightGeneration == generation else { return }
                 self.agentPIDDiscoveryInFlight = false
+                self.agentPIDDiscoveryInFlightGeneration = nil
+                guard self.agentPIDProbeGeneration == generation else { return }
                 let registeredKeys = self.registerAgentPIDsFromTerminalTitlesIfNeeded(
                     processSnapshot: processSnapshot,
                     allowedRegistrationKeys: dueRegistrationKeys

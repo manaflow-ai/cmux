@@ -2,11 +2,14 @@ import Darwin
 import Foundation
 
 nonisolated enum SidebarAgentFallbackActivity: Equatable, Sendable {
+    case idle
     case running
     case needsInput
 
     var protocolValue: String {
         switch self {
+        case .idle:
+            "idle"
         case .running:
             "running"
         case .needsInput:
@@ -16,6 +19,8 @@ nonisolated enum SidebarAgentFallbackActivity: Equatable, Sendable {
 
     var value: String {
         switch self {
+        case .idle:
+            String(localized: "sidebar.agentStatus.idle", defaultValue: "Idle")
         case .running:
             String(localized: "sidebar.agentStatus.running", defaultValue: "Running")
         case .needsInput:
@@ -25,6 +30,8 @@ nonisolated enum SidebarAgentFallbackActivity: Equatable, Sendable {
 
     var icon: String {
         switch self {
+        case .idle:
+            "pause.circle.fill"
         case .running:
             "bolt.fill"
         case .needsInput:
@@ -34,6 +41,8 @@ nonisolated enum SidebarAgentFallbackActivity: Equatable, Sendable {
 
     var color: String {
         switch self {
+        case .idle:
+            "#8E8E93"
         case .running, .needsInput:
             "#4C8DFF"
         }

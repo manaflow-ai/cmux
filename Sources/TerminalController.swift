@@ -426,7 +426,7 @@ class TerminalController {
         let localizedProtocolValues = [
             (String(localized: "sidebar.agentStatus.needsInput", defaultValue: "Needs input"), "needs_input"),
             (String(localized: "sidebar.agentStatus.running", defaultValue: "Running"), "running"),
-            (String(localized: "agent.codex.status.idle", defaultValue: "Idle"), "idle"),
+            (String(localized: "sidebar.agentStatus.idle", defaultValue: "Idle"), "idle"),
         ]
         for (displayValue, protocolValue) in localizedProtocolValues
             where trimmed.localizedCaseInsensitiveCompare(displayValue) == .orderedSame {
@@ -3714,7 +3714,7 @@ class TerminalController {
             return lhs.key < rhs.key
         }
 
-        return candidates.first.map { Int($0.pid) }
+        return candidates.first(where: { $0.isLikelyAlive }).map { Int($0.pid) }
     }
 
     private func v2TreeWindowNode(
@@ -16595,6 +16595,8 @@ class TerminalController {
                 // Still update PID tracking even if the status display hasn't changed.
                 if let pidValue {
                     tab.recordAgentPID(key: key, pid: pidValue, panelId: panelResolution.panelId)
+                } else {
+                    tab.setSidebarStatusPanelOwnership(key: key, panelId: panelResolution.panelId)
                 }
                 return
             }
@@ -16611,6 +16613,8 @@ class TerminalController {
             )
             if let pidValue {
                 tab.recordAgentPID(key: key, pid: pidValue, panelId: panelResolution.panelId)
+            } else {
+                tab.setSidebarStatusPanelOwnership(key: key, panelId: panelResolution.panelId)
             }
         }
         return "OK"

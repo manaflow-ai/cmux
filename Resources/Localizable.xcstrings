@@ -3,6 +3,7 @@
   "version": "1.0",
   "strings": {
     "sidebar.agentStatus.needsInput": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Needs input" } }, "ja": { "stringUnit": { "state": "translated", "value": "入力待ち" } } } },
+    "sidebar.agentStatus.idle": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Idle" } }, "ja": { "stringUnit": { "state": "translated", "value": "待機中" } } } },
     "sidebar.agentStatus.running": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Running" } }, "ja": { "stringUnit": { "state": "translated", "value": "実行中" } } } },
     "cli.error.dismissNotificationSelector": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "dismiss-notification requires exactly one of --id or --all-read" } }, "ja": { "stringUnit": { "state": "translated", "value": "dismiss-notification には --id または --all-read のどちらか一方だけを指定してください" } } } },
     "cli.error.markNotificationReadSelector": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "mark-notification-read requires exactly one selector: --id, --workspace, or --all" } }, "ja": { "stringUnit": { "state": "translated", "value": "mark-notification-read には --id、--workspace、--all のいずれか一つだけを指定してください" } } } },

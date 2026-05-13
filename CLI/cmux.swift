@@ -15047,7 +15047,7 @@ struct CMUXCLI {
                 value: "Running",
                 icon: "bolt.fill",
                 color: "#4C8DFF",
-                protocolValue: "running"
+                protocolValue: ClaudeNotificationSidebarStatusStyle.runningProtocolValue
             )
             print("OK")
 
@@ -15243,7 +15243,7 @@ struct CMUXCLI {
                 value: statusValue,
                 icon: "bolt.fill",
                 color: "#4C8DFF",
-                protocolValue: "running",
+                protocolValue: ClaudeNotificationSidebarStatusStyle.runningProtocolValue,
                 pid: claudePid
             )
             print("OK")
@@ -16860,7 +16860,8 @@ struct CMUXCLI {
         static let needsInputIcon = "bell.fill"
         static let needsInputColor = "#4C8DFF"
         static let needsInputProtocolValue = "needs_input"
-        static let idleValue = String(localized: "agent.codex.status.idle", defaultValue: "Idle")
+        static let runningProtocolValue = "running"
+        static let idleValue = String(localized: "sidebar.agentStatus.idle", defaultValue: "Idle")
         static let idleIcon = "pause.circle.fill"
         static let idleColor = "#8E8E93"
         static let idleProtocolValue = "idle"
@@ -18585,7 +18586,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         client: client
                     )
                 } else {
-                    let idleStatus = String(localized: "agent.codex.status.idle", defaultValue: "Idle")
+                    let idleStatus = String(localized: "sidebar.agentStatus.idle", defaultValue: "Idle")
                     _ = try? sendV1Command(
                         "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                         client: client

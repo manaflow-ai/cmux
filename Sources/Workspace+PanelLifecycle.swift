@@ -99,6 +99,18 @@ extension Workspace {
         agentPIDKeysByPanelId[panelId, default: []].insert(key)
     }
 
+    func setSidebarStatusPanelOwnership(key: String, panelId: UUID?) {
+        if let pid = agentPIDs[key], pid > 0 {
+            recordAgentPID(key: key, pid: pid, panelId: panelId, refreshPorts: false)
+            return
+        }
+        if let panelId {
+            recordAgentPIDOwnership(key: key, panelId: panelId)
+        } else {
+            removeAgentPIDOwnership(key: key)
+        }
+    }
+
     private func armAgentPIDExitWatcher(key: String, pid: pid_t, panelId: UUID?) {
         let scope = AgentPIDExitWatcherScope(panelId: panelId)
         if agentPIDExitWatchers[key] != nil,
@@ -185,6 +197,7 @@ extension Workspace {
 
         var didChange = false
         var removedRuntime = false
+        var removedStatus = false
         if removeAgentPIDStorageValue(forKey: key) != nil {
             didChange = true
             removedRuntime = true
@@ -211,10 +224,11 @@ extension Workspace {
            !hasAgentRuntime(forStatusKey: statusKeyToClear),
            statusEntries.removeValue(forKey: statusKeyToClear) != nil {
             didChange = true
+            removedStatus = true
         }
         if clearStatus, clearNotifications, didChange, let effectivePanelId {
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: effectivePanelId)
-        } else if clearStatus, clearNotifications, didChange, removedRuntime {
+        } else if clearStatus, clearNotifications, didChange, removedRuntime || removedStatus {
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id)
         }
         if didChange, refreshPorts {
