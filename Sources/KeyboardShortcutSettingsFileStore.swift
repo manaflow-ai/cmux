@@ -73,7 +73,7 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
     private var importedManagedDefaults: [String: ManagedSettingsValue] = [:]
     private var activeManagedCustomSettings = ManagedCustomSettings()
     private var lastPersistedSettingsValues: [String: ManagedSettingsValue] = [:]
-    private var pendingSettingsJSONValues: [String: ManagedSettingsValue] = [:]
+    private var pendingSettingsJSONValues: [String: PendingSettingsJSONValue] = [:]
     private var settingsPersistenceTask: Task<Void, Never>?
     private var isApplyingManagedSettings = false
     private(set) var activeSourcePath: String?
@@ -217,7 +217,7 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
 #if DEBUG
     func stagePendingSettingsJSONValueForTesting(_ value: ManagedSettingsValue, for path: String) {
         synchronized {
-            pendingSettingsJSONValues[path] = value
+            pendingSettingsJSONValues[path] = PendingSettingsJSONValue(value: value, source: .userDefaults)
         }
     }
 
@@ -307,15 +307,20 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
             )
             var stalePaths: [String] = []
             var changedValues: [String: ManagedSettingsValue] = [:]
-            for (path, value) in pendingSettingsJSONValues {
-                guard let currentValue = currentValues[path] else { continue }
-                if currentValue == value {
-                    changedValues[path] = value
+            for (path, pendingValue) in pendingSettingsJSONValues {
+                guard pendingValue.source == .userDefaults else { continue }
+                guard let currentValue = currentValues[path] else {
+                    stalePaths.append(path)
+                    continue
+                }
+                if currentValue == pendingValue.value {
+                    changedValues[path] = pendingValue.value
                 } else {
                     stalePaths.append(path)
                 }
             }
             for path in stalePaths {
+                guard pendingSettingsJSONValues[path]?.source == .userDefaults else { continue }
                 pendingSettingsJSONValues.removeValue(forKey: path)
             }
             return changedValues
@@ -325,7 +330,7 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
             return
         }
 
-        let rollback = markSettingsJSONPersistencePending(changedValues)
+        let rollback = markSettingsJSONPersistencePending(changedValues, source: .userDefaults)
         enqueueSettingsJSONPersistence(
             changedValues,
             rollback: rollback,
@@ -341,8 +346,8 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
             )
             for (path, value) in currentValues {
                 if lastPersistedSettingsValues[path] != value {
-                    pendingSettingsJSONValues[path] = value
-                } else {
+                    pendingSettingsJSONValues[path] = PendingSettingsJSONValue(value: value, source: .userDefaults)
+                } else if pendingSettingsJSONValues[path]?.source == .userDefaults {
                     pendingSettingsJSONValues.removeValue(forKey: path)
                 }
             }
@@ -364,7 +369,7 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
         }
         guard !changedValues.isEmpty else { return }
 
-        let rollback = markSettingsJSONPersistencePending(changedValues)
+        let rollback = markSettingsJSONPersistencePending(changedValues, source: .custom)
         enqueueSettingsJSONPersistence(
             changedValues,
             rollback: rollback,
@@ -1439,7 +1444,8 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
     }
 
     private func markSettingsJSONPersistencePending(
-        _ values: [String: ManagedSettingsValue]
+        _ values: [String: ManagedSettingsValue],
+        source: SettingsJSONPersistenceSource
     ) -> SettingsJSONPersistenceRollback {
         synchronized {
             var previousValues: [String: ManagedSettingsValue] = [:]
@@ -1451,7 +1457,7 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
                     missingPreviousPaths.insert(path)
                 }
                 lastPersistedSettingsValues[path] = value
-                pendingSettingsJSONValues[path] = value
+                pendingSettingsJSONValues[path] = PendingSettingsJSONValue(value: value, source: source)
             }
             return SettingsJSONPersistenceRollback(
                 previousValues: previousValues,
@@ -1463,7 +1469,8 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
     private func completeSettingsJSONPersistenceIfCurrent(_ values: [String: ManagedSettingsValue]) {
         synchronized {
             for (path, persistedValue) in values {
-                guard pendingSettingsJSONValues[path] == persistedValue else { continue }
+                guard let pendingValue = pendingSettingsJSONValues[path],
+                      pendingValue.value == persistedValue else { continue }
                 pendingSettingsJSONValues.removeValue(forKey: path)
                 lastPersistedSettingsValues[path] = persistedValue
             }
@@ -1476,7 +1483,8 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
     ) {
         synchronized {
             for (path, attemptedValue) in values {
-                if pendingSettingsJSONValues[path] == attemptedValue {
+                if let pendingValue = pendingSettingsJSONValues[path],
+                   pendingValue.value == attemptedValue {
                     pendingSettingsJSONValues.removeValue(forKey: path)
                 }
                 guard lastPersistedSettingsValues[path] == attemptedValue else {
@@ -1548,6 +1556,16 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
 }
 
 typealias KeyboardShortcutSettingsFileStore = CmuxSettingsFileStore
+
+private enum SettingsJSONPersistenceSource: Sendable {
+    case userDefaults
+    case custom
+}
+
+private struct PendingSettingsJSONValue: Equatable, Sendable {
+    let value: ManagedSettingsValue
+    let source: SettingsJSONPersistenceSource
+}
 
 private struct SettingsJSONPersistenceRollback: Sendable {
     let previousValues: [String: ManagedSettingsValue]
