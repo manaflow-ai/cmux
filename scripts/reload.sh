@@ -452,7 +452,14 @@ if [[ -n "$DERIVED_DATA" ]]; then
 fi
 XCODEBUILD_COMMAND=(xcodebuild)
 if is_apple_silicon_host; then
-  XCODEBUILD_BIN="$(xcrun --find xcodebuild 2>/dev/null || command -v xcodebuild)"
+  XCODEBUILD_BIN="$(xcrun --find xcodebuild 2>/dev/null || true)"
+  if [[ -z "$XCODEBUILD_BIN" ]]; then
+    XCODEBUILD_BIN="$(command -v xcodebuild 2>/dev/null || true)"
+  fi
+  if [[ -z "$XCODEBUILD_BIN" ]]; then
+    echo "error: xcodebuild not found" >&2
+    exit 1
+  fi
   XCODEBUILD_COMMAND=(/usr/bin/arch -arm64 "$XCODEBUILD_BIN")
   XCODEBUILD_ARGS+=(
     ARCHS=arm64
@@ -474,7 +481,7 @@ XCODEBUILD_ARGS+=(build)
 printf '==> xcodebuild command:' 
 printf ' %q' "${XCODEBUILD_COMMAND[@]}" "${XCODEBUILD_ARGS[@]}"
 printf '\n'
-XCODEBUILD_PHASE_START_TIME="$(date +%s)"
+XCODEBUILD_QUEUE_BUILD_START_TIME="$(date +%s)"
 
 XCODEBUILD_LOCK="${TMPDIR:-/tmp}/cmux-xcodebuild-$(id -u).lock"
 # Xcode 26's SWBBuildService is a per-user singleton. Concurrent xcodebuild
@@ -484,6 +491,7 @@ XCODEBUILD_LOCK="${TMPDIR:-/tmp}/cmux-xcodebuild-$(id -u).lock"
 python3 -c '
 import fcntl
 import os
+import subprocess
 import sys
 import time
 
@@ -535,13 +543,27 @@ if wait_start is not None:
     except OSError:
         pass
 
+build_start = time.monotonic()
 try:
-    os.execvp(command[0], command)
+    completed = subprocess.run(command)
+except KeyboardInterrupt:
+    raise SystemExit(130)
 except OSError as exc:
-    raise SystemExit(f"error: exec: {exc}")
+    raise SystemExit(f"error: run xcodebuild: {exc}")
+
+elapsed = int(time.monotonic() - build_start)
+msg = f"==> xcodebuild build completed in {elapsed}s\n"
+try:
+    os.write(1, msg.encode())
+except OSError:
+    pass
+
+if completed.returncode < 0:
+    raise SystemExit(128 + abs(completed.returncode))
+raise SystemExit(completed.returncode)
 ' "$XCODEBUILD_LOCK" "${XCODEBUILD_COMMAND[@]}" "${XCODEBUILD_ARGS[@]}"
-XCODEBUILD_PHASE_ELAPSED=$(( $(date +%s) - XCODEBUILD_PHASE_START_TIME ))
-echo "==> xcodebuild phase completed in ${XCODEBUILD_PHASE_ELAPSED}s"
+XCODEBUILD_QUEUE_BUILD_ELAPSED=$(( $(date +%s) - XCODEBUILD_QUEUE_BUILD_START_TIME ))
+echo "==> xcodebuild queue+build phase completed in ${XCODEBUILD_QUEUE_BUILD_ELAPSED}s"
 sleep 0.2
 
 FALLBACK_APP_NAME="$BASE_APP_NAME"
