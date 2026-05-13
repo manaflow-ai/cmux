@@ -474,9 +474,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     func testMemoryTopPrunesExpiredRowsOnRead() throws {
         let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-top-prune")
+        let listenerFD = try bindUnixSocket(at: socketPath)
         let dbURL = temporaryMemoryTelemetryDatabaseURL(name: "top-prune")
 
         defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
             try? FileManager.default.removeItem(at: dbURL.deletingLastPathComponent())
         }
 
@@ -487,6 +491,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
 
         var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_MEMORY_TELEMETRY_DB_PATH"] = dbURL.path
         environment["CMUX_MEMORY_TELEMETRY_RETENTION_SECONDS"] = "1"
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
@@ -536,17 +541,38 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             }
             let params = payload["params"] as? [String: Any] ?? [:]
             XCTAssertEqual(params["workspace_id"] as? String, "workspace:2")
+            var result = self.memorySystemTopFixture(
+                workspaceId: workspaceId,
+                workspaceRef: "workspace:2",
+                surfaceId: surfaceId,
+                agentKey: "claude_code",
+                agentPID: 626_262,
+                secretCommandLine: "/opt/homebrew/bin/claude --dangerous-secret ignored"
+            )
+            if var windows = result["windows"] as? [[String: Any]] {
+                windows.insert(
+                    [
+                        "id": "CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC",
+                        "ref": "window:0",
+                        "workspaces": [
+                            [
+                                "id": "44444444-4444-4444-4444-444444444444",
+                                "ref": "workspace:1",
+                                "title": "Decoy Workspace",
+                                "resources": ["resident_bytes": 1],
+                                "tags": [],
+                                "panes": [],
+                            ],
+                        ],
+                    ],
+                    at: 0
+                )
+                result["windows"] = windows
+            }
             return self.v2Response(
                 id: id,
                 ok: true,
-                result: self.memorySystemTopFixture(
-                    workspaceId: workspaceId,
-                    workspaceRef: "workspace:2",
-                    surfaceId: surfaceId,
-                    agentKey: "claude_code",
-                    agentPID: 626_262,
-                    secretCommandLine: "/opt/homebrew/bin/claude --dangerous-secret ignored"
-                )
+                result: result
             )
         }
 
@@ -592,6 +618,87 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             ["system.top"]
+        )
+    }
+
+    func testMemoryTrimSendsGracefulExitToSurfaceUUID() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-trim-send")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "12121212-1212-1212-1212-121212121212"
+        let surfaceId = "34343434-3434-3434-3434-343434343434"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "system.top":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: self.memorySystemTopFixture(
+                        workspaceId: workspaceId,
+                        workspaceRef: "workspace:7",
+                        surfaceId: surfaceId,
+                        agentKey: "claude_code",
+                        agentPID: 626_263,
+                        secretCommandLine: "/opt/homebrew/bin/claude --dangerous-secret ignored"
+                    )
+                )
+            case "surface.send_text":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["text"] as? String, "/exit\r")
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "memory",
+                "trim",
+                "--workspace",
+                "workspace:7",
+                "--agent",
+                "claude",
+                "--grace-seconds",
+                "0",
+                "--json",
+                "--id-format",
+                "uuids",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.top", "surface.send_text"]
         )
     }
 

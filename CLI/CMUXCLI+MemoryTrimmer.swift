@@ -111,7 +111,7 @@ extension CMUXCLI {
                 throw CLIError(message: "memory trim requires --workspace <id|ref|index> or a current workspace")
             }
             let payload = try cli.buildMemoryTopPayload(workspaceHandle: workspaceHandle, client: client)
-            guard let workspace = memoryWorkspaceNode(from: payload) else {
+            guard let workspace = memoryWorkspaceNode(from: payload, matching: workspaceHandle) else {
                 throw CLIError(message: "Workspace not found")
             }
             let workspaceId = (workspace["id"] as? String) ?? workspaceHandle
@@ -128,7 +128,7 @@ extension CMUXCLI {
 
             if !options.dryRun {
                 if let graceful,
-                   let surfaceHandle = candidate.surfaceRef ?? candidate.surfaceId {
+                   let surfaceHandle = candidate.surfaceId ?? candidate.surfaceRef {
                     let params: [String: Any] = [
                         "workspace_id": workspaceId,
                         "surface_id": surfaceHandle,
@@ -188,7 +188,7 @@ extension CMUXCLI {
             }
 
             let payload = try cli.buildMemoryTopPayload(workspaceHandle: workspaceHandle, client: client)
-            guard let workspace = memoryWorkspaceNode(from: payload),
+            guard let workspace = memoryWorkspaceNode(from: payload, matching: workspaceHandle),
                   let candidate = memoryAgentCandidates(in: workspace).first(where: { matchesOriginal($0, original: original) }) else {
                 guard isProcessRunning(pid: original.pid) else { return nil }
                 throw CLIError(message: "memory trim refused to signal PID \(original.pid) because system.top could not revalidate the process identity")
@@ -211,15 +211,28 @@ extension CMUXCLI {
             return true
         }
 
-        private func memoryWorkspaceNode(from payload: [String: Any]) -> [String: Any]? {
+        private func memoryWorkspaceNode(from payload: [String: Any], matching workspaceHandle: String?) -> [String: Any]? {
             let windows = payload["windows"] as? [[String: Any]] ?? []
+            var firstWorkspace: [String: Any]?
             for window in windows {
                 let workspaces = window["workspaces"] as? [[String: Any]] ?? []
-                if let workspace = workspaces.first {
-                    return workspace
+                for workspace in workspaces {
+                    if firstWorkspace == nil {
+                        firstWorkspace = workspace
+                    }
+                    if workspaceMatchesHandle(workspace, handle: workspaceHandle) {
+                        return workspace
+                    }
                 }
             }
-            return nil
+            return workspaceHandle == nil ? firstWorkspace : nil
+        }
+
+        private func workspaceMatchesHandle(_ workspace: [String: Any], handle: String?) -> Bool {
+            guard let handle = handle?.trimmingCharacters(in: .whitespacesAndNewlines), !handle.isEmpty else {
+                return false
+            }
+            return (workspace["id"] as? String) == handle || (workspace["ref"] as? String) == handle
         }
 
         private func memoryAgentCandidates(in workspace: [String: Any]) -> [MemoryAgentCandidate] {
