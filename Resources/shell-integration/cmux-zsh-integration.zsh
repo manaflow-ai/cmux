@@ -230,6 +230,8 @@ typeset -g _CMUX_TTY_REPORTED=0
 typeset -g _CMUX_GHOSTTY_SEMANTIC_PATCHED=0
 typeset -g _CMUX_WINCH_GUARD_INSTALLED=0
 typeset -g _CMUX_TMUX_PUSH_SIGNATURE=""
+typeset -g _CMUX_TMUX_PUSH_PENDING_SIGNATURE=""
+typeset -g _CMUX_TMUX_PUSH_JOB_PID=""
 typeset -g _CMUX_TMUX_PULL_SIGNATURE=""
 typeset -g _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=${_CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT:-0}
 typeset -ga _CMUX_TMUX_SYNC_KEYS=(
@@ -277,27 +279,73 @@ _cmux_tmux_shell_env_signature() {
     print -r -- "${(j:\x1f:)parts}"
 }
 
+_cmux_tmux_publish_cmux_environment_apply() {
+    local key value
+    for key in "${_CMUX_TMUX_SYNC_KEYS[@]}"; do
+        value="${(P)key}"
+        [[ -n "$value" ]] || continue
+        tmux set-environment -g "$key" "$value" >/dev/null 2>&1 || return 1
+    done
+
+    for key in "${_CMUX_TMUX_SURFACE_SCOPED_KEYS[@]}"; do
+        tmux set-environment -gu "$key" >/dev/null 2>&1 || return 1
+    done
+}
+
+_cmux_tmux_publish_job_is_running() {
+    [[ -n "$_CMUX_TMUX_PUSH_JOB_PID" ]] || return 1
+    kill -0 "$_CMUX_TMUX_PUSH_JOB_PID" 2>/dev/null
+}
+
+_cmux_tmux_finish_completed_publish_job() {
+    [[ -n "$_CMUX_TMUX_PUSH_PENDING_SIGNATURE" ]] || return 0
+    _cmux_tmux_publish_job_is_running && return 0
+
+    _CMUX_TMUX_PUSH_SIGNATURE="$_CMUX_TMUX_PUSH_PENDING_SIGNATURE"
+    _CMUX_TMUX_PUSH_PENDING_SIGNATURE=""
+    _CMUX_TMUX_PUSH_JOB_PID=""
+}
+
+_cmux_tmux_cancel_publish_job() {
+    if _cmux_tmux_publish_job_is_running; then
+        kill "$_CMUX_TMUX_PUSH_JOB_PID" >/dev/null 2>&1 || true
+    fi
+    _CMUX_TMUX_PUSH_PENDING_SIGNATURE=""
+    _CMUX_TMUX_PUSH_JOB_PID=""
+}
+
 _cmux_tmux_publish_cmux_environment() {
+    local mode="${1:-async}"
     [[ -z "$TMUX" ]] || return 0
     command -v tmux >/dev/null 2>&1 || return 0
 
     local signature
     signature="$(_cmux_tmux_shell_env_signature)"
     [[ -n "$signature" ]] || return 0
+
+    _cmux_tmux_finish_completed_publish_job
+
+    if [[ "$mode" == "sync" ]]; then
+        if [[ "$signature" == "$_CMUX_TMUX_PUSH_SIGNATURE" && "$signature" != "$_CMUX_TMUX_PUSH_PENDING_SIGNATURE" ]]; then
+            return 0
+        fi
+        _cmux_tmux_cancel_publish_job
+        _cmux_tmux_publish_cmux_environment_apply || return 0
+        _CMUX_TMUX_PUSH_SIGNATURE="$signature"
+        return 0
+    fi
+
     [[ "$signature" == "$_CMUX_TMUX_PUSH_SIGNATURE" ]] && return 0
+    if [[ "$signature" == "$_CMUX_TMUX_PUSH_PENDING_SIGNATURE" ]] && _cmux_tmux_publish_job_is_running; then
+        return 0
+    fi
 
-    local key value
-    for key in "${_CMUX_TMUX_SYNC_KEYS[@]}"; do
-        value="${(P)key}"
-        [[ -n "$value" ]] || continue
-        tmux set-environment -g "$key" "$value" >/dev/null 2>&1 || return 0
-    done
-
-    for key in "${_CMUX_TMUX_SURFACE_SCOPED_KEYS[@]}"; do
-        tmux set-environment -gu "$key" >/dev/null 2>&1 || return 0
-    done
-
-    _CMUX_TMUX_PUSH_SIGNATURE="$signature"
+    _cmux_tmux_cancel_publish_job
+    _CMUX_TMUX_PUSH_PENDING_SIGNATURE="$signature"
+    {
+        _cmux_tmux_publish_cmux_environment_apply
+    } >/dev/null 2>&1 &!
+    _CMUX_TMUX_PUSH_JOB_PID=$!
 }
 
 _cmux_tmux_refresh_cmux_environment() {
@@ -347,10 +395,11 @@ _cmux_tmux_refresh_cmux_environment() {
 }
 
 _cmux_tmux_sync_cmux_environment() {
+    local mode="${1:-async}"
     if [[ -n "$TMUX" ]]; then
         _cmux_tmux_refresh_cmux_environment
     else
-        _cmux_tmux_publish_cmux_environment
+        _cmux_tmux_publish_cmux_environment "$mode"
     fi
 }
 
@@ -1097,13 +1146,56 @@ _cmux_command_starts_nested_shell() {
     return 1
 }
 
+_cmux_command_starts_tmux() {
+    local cmd="$1"
+    local -a words
+    words=("${(z)cmd}")
+
+    local index=1
+    local word base
+    while (( index <= ${#words} )); do
+        word="${words[index]}"
+
+        case "$word" in
+            *=*)
+                index=$(( index + 1 ))
+                continue ;;
+            exec|command|builtin|noglob|time)
+                index=$(( index + 1 ))
+                continue ;;
+            env)
+                index=$(( index + 1 ))
+                while (( index <= ${#words} )); do
+                    word="${words[index]}"
+                    case "$word" in
+                        -*|*=*)
+                            index=$(( index + 1 ))
+                            continue ;;
+                    esac
+                    break
+                done
+                continue ;;
+        esac
+
+        base="${word:t}"
+        [[ "$base" == "tmux" ]] && return 0
+        return 1
+    done
+
+    return 1
+}
+
 _cmux_preexec() {
     _cmux_normalize_claude_config_dir
     if (( ! _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT )); then
         _cmux_restore_terminal_identity_after_startup
     fi
-    _cmux_tmux_sync_cmux_environment
     local cmd="${1## }"
+    if _cmux_command_starts_tmux "$cmd"; then
+        _cmux_tmux_sync_cmux_environment sync
+    else
+        _cmux_tmux_sync_cmux_environment async
+    fi
 
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
