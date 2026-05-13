@@ -11,25 +11,8 @@ extension CMUXCLI {
         return "\(requireOption) \(memoryOption) \(cleanedExisting)"
     }
 
-    func normalizedNodeOptionsForRestore(_ existing: String) -> String {
-        let tokens = NodeOptionsSupport.tokens(existing)
-        let strippedTokens = NodeOptionsSupport.tokensRemovingCmuxRestoreEntries(tokens)
-        guard !strippedTokens.isEmpty else { return "" }
-
-        var normalized: [String] = []
-        var index = 0
-        while index < strippedTokens.count {
-            let token = strippedTokens[index]
-
-            if token == "--max-old-space-size", index + 1 < strippedTokens.count {
-                normalized.append("--max-old-space-size=\(strippedTokens[index + 1])")
-                index += 2
-                continue
-            }
-            normalized.append(token)
-            index += 1
-        }
-        return NodeOptionsSupport.joinedTokens(normalized)
+    func normalizedNodeOptionsForRestore(_ existing: String) -> String? {
+        NodeOptionsSupport.normalizedNodeOptionsForRestore(existing)
     }
 
 }

@@ -90,6 +90,26 @@ public enum NodeOptionsSupport {
         return joined.isEmpty ? nil : joined
     }
 
+    public static func normalizedNodeOptionsForRestore(_ rawValue: String?) -> String? {
+        let strippedTokens = tokensRemovingCmuxRestoreEntries(tokens(rawValue))
+        guard !strippedTokens.isEmpty else { return nil }
+
+        var normalized: [String] = []
+        var index = 0
+        while index < strippedTokens.count {
+            let token = strippedTokens[index]
+
+            if token == "--max-old-space-size", index + 1 < strippedTokens.count {
+                normalized.append("--max-old-space-size=\(strippedTokens[index + 1])")
+                index += 2
+                continue
+            }
+            normalized.append(token)
+            index += 1
+        }
+        return joinedTokens(normalized)
+    }
+
     public static func tokensRemovingCmuxRestoreEntries(_ tokens: [String]) -> [String] {
         var filtered: [String] = []
         var index = 0

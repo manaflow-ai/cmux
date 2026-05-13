@@ -444,6 +444,13 @@ func TestMergeNodeOptions(t *testing.T) {
 	if got := mergeNodeOptions(staleLegacyRequire, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
 		t.Fatalf("mergeNodeOptions should strip stale legacy cmux restore require = %q", got)
 	}
+	staleRequireOnly := "--require=/tmp/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096"
+	if got := mergeNodeOptions(staleRequireOnly, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096" {
+		t.Fatalf("mergeNodeOptions should strip stale-only cmux restore require before reinjection = %q", got)
+	}
+	if got := originalNodeOptionsForRestore(staleRequireOnly); got != "" {
+		t.Fatalf("originalNodeOptionsForRestore should treat stale-only cmux restore require as absent = %q", got)
+	}
 
 	staleDurableRequire := "--require \"/Users/example/Library/Application Support/cmux/node-options/restore-node-options.cjs\" --max-old-space-size 4096 --trace-warnings"
 	if got := mergeNodeOptions(staleDurableRequire, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {

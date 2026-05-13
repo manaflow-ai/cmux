@@ -85,6 +85,20 @@ final class ClaudeWrapperNodeOptionsRestoreModuleTests: XCTestCase {
         )
     }
 
+    func testNormalizedNodeOptionsForRestoreTreatsPureCmuxRestoreEntryAsAbsent() {
+        XCTAssertNil(
+            NodeOptionsSupport.normalizedNodeOptionsForRestore(
+                "--require /tmp/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size 4096"
+            )
+        )
+        XCTAssertEqual(
+            NodeOptionsSupport.normalizedNodeOptionsForRestore(
+                "--require=/tmp/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096 --max-old-space-size 8192 --trace-warnings"
+            ),
+            "--max-old-space-size=8192 --trace-warnings"
+        )
+    }
+
     func testRestoreModuleIsRecreatedUnderApplicationSupportAfterDeletion() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-claude-node-options-\(UUID().uuidString)", isDirectory: true)

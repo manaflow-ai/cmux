@@ -1107,19 +1107,27 @@ def test_live_socket_restore_dir_override_keeps_sanitizer_suffix(failures: list[
 def test_live_socket_strips_stale_cmux_restore_require_from_node_options(failures: list[str]) -> None:
     stale_cases = [
         (
+            "stale-preload-only",
+            "--require=/tmp/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096",
+            "__UNSET__",
+        ),
+        (
             "legacy-inline",
             "--require=/tmp/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings",
+            "--trace-warnings",
         ),
         (
             "durable-split",
             '--require "/Users/example/Library/Application Support/cmux/node-options/restore-node-options.cjs" --max-old-space-size 4096 --trace-warnings',
+            "--trace-warnings",
         ),
         (
             "stale-preload-with-user-heap",
             "--require=/tmp/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096 --max-old-space-size=8192 --trace-warnings",
+            "--max-old-space-size=8192 --trace-warnings",
         ),
     ]
-    for label, existing in stale_cases:
+    for label, existing, expected_runtime in stale_cases:
         code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
             socket_state="live",
             argv=["hello"],
@@ -1133,8 +1141,9 @@ def test_live_socket_strips_stale_cmux_restore_require_from_node_options(failure
             f"stale cmux restore require ({label}): expected new restore preload, got {node_options!r}",
             failures,
         )
-        expected_runtime = "--max-old-space-size=8192 --trace-warnings" if label == "stale-preload-with-user-heap" else "--trace-warnings"
-        expected_remaining = ["--max-old-space-size=4096"] + split_node_options(expected_runtime)
+        expected_remaining = ["--max-old-space-size=4096"]
+        if expected_runtime != "__UNSET__":
+            expected_remaining += split_node_options(expected_runtime)
         expect(
             split_node_options(remaining_flags) == expected_remaining,
             "stale cmux restore require "

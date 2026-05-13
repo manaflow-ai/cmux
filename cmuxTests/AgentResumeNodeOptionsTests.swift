@@ -78,4 +78,30 @@ final class AgentResumeNodeOptionsTests: XCTestCase {
             "'claude' '--resume' 'claude-session-empty-node-options' '--model' 'sonnet'"
         )
     }
+
+    func testClaudeResumeCommandDropsEmptyOriginalNodeOptionsEnvironment() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-empty-original-node-options",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "claude",
+                arguments: ["claude", "--model", "sonnet"],
+                workingDirectory: nil,
+                environment: [
+                    "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": "1",
+                    "CMUX_ORIGINAL_NODE_OPTIONS": "--require /tmp/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size 4096",
+                    "NODE_OPTIONS": "--require=\"/Users/example/Library/Application Support/cmux/node-options/restore-node-options.cjs\" --max-old-space-size=4096"
+                ],
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "'claude' '--resume' 'claude-session-empty-original-node-options' '--model' 'sonnet'"
+        )
+    }
 }

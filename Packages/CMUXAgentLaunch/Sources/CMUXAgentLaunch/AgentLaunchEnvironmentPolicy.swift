@@ -82,7 +82,7 @@ public enum AgentLaunchEnvironmentPolicy {
         case "CLAUDE_CONFIG_DIR":
             return value.map { ClaudeConfigDirectoryPath.preferredPath($0) }
         case "NODE_OPTIONS":
-            return NodeOptionsSupport.sanitizedNodeOptions(value)
+            return NodeOptionsSupport.normalizedNodeOptionsForRestore(value)
         default:
             return value
         }
@@ -91,11 +91,11 @@ public enum AgentLaunchEnvironmentPolicy {
     private static func selectedNodeOptions(from env: [String: String]) -> String? {
         switch normalizedValue(env["CMUX_ORIGINAL_NODE_OPTIONS_PRESENT"]) {
         case "1":
-            return NodeOptionsSupport.sanitizedNodeOptions(env["CMUX_ORIGINAL_NODE_OPTIONS"])
+            return NodeOptionsSupport.normalizedNodeOptionsForRestore(env["CMUX_ORIGINAL_NODE_OPTIONS"])
         case "0":
             return nil
         default:
-            return NodeOptionsSupport.sanitizedNodeOptions(env["NODE_OPTIONS"])
+            return NodeOptionsSupport.normalizedNodeOptionsForRestore(env["NODE_OPTIONS"])
         }
     }
 

@@ -12340,9 +12340,10 @@ struct CMUXCLI {
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
             return
         }
-        if let existing = processEnvironment["NODE_OPTIONS"] {
+        if let existing = processEnvironment["NODE_OPTIONS"],
+           let originalNodeOptions = normalizedNodeOptionsForRestore(existing) {
             setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "1", 1)
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS", normalizedNodeOptionsForRestore(existing), 1)
+            setenv("CMUX_ORIGINAL_NODE_OPTIONS", originalNodeOptions, 1)
         } else {
             setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "0", 1)
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
@@ -13200,9 +13201,10 @@ struct CMUXCLI {
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
             return
         }
-        if let existing = processEnvironment["NODE_OPTIONS"] {
+        if let existing = processEnvironment["NODE_OPTIONS"],
+           let originalNodeOptions = normalizedNodeOptionsForRestore(existing) {
             setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "1", 1)
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS", normalizedNodeOptionsForRestore(existing), 1)
+            setenv("CMUX_ORIGINAL_NODE_OPTIONS", originalNodeOptions, 1)
         } else {
             setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "0", 1)
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")

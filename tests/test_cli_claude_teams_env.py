@@ -349,6 +349,47 @@ def main() -> int:
     proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
         cli_path,
         base_env,
+        "--require=/tmp/cmux-claude-node-options/restore-node-options.cjs "
+        "--max-old-space-size=4096",
+    )
+    if proc.returncode != 0:
+        print("FAIL: `cmux claude-teams --version` with only stale cmux restore preload exited non-zero")
+        print(f"exit={proc.returncode}")
+        print(f"stdout={proc.stdout.strip()}")
+        print(f"stderr={proc.stderr.strip()}")
+        return 1
+
+    require_flag, remaining_flags = restore_require_and_remaining(node_options_value)
+    if not require_flag.startswith("--require="):
+        print(
+            "FAIL: expected NODE_OPTIONS to prepend a fresh restore preload after stale-only cleanup, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+    if remaining_flags != "--max-old-space-size=4096":
+        print(
+            "FAIL: expected stale-only cmux restore preload and paired heap cap to be stripped before reinjection, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+
+    if runtime_node_options_value != "__UNSET__":
+        print(
+            "FAIL: expected Claude runtime NODE_OPTIONS to be absent after stale-only cleanup, "
+            f"got {runtime_node_options_value!r}"
+        )
+        return 1
+
+    if child_node_options_value != "__UNSET__":
+        print(
+            "FAIL: expected child NODE_OPTIONS to be absent after stale-only cleanup, "
+            f"got {child_node_options_value!r}"
+        )
+        return 1
+
+    proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
+        cli_path,
+        base_env,
         "--max-old-space-size 2048 --trace-warnings",
     )
     if proc.returncode != 0:

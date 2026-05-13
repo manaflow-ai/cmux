@@ -391,8 +391,14 @@ func getFocusedContext(rc *rpcContext) *focusedContext {
 func configureClaudeNodeOptions(restoreModulePath string) {
 	existing, hadExisting := os.LookupEnv("NODE_OPTIONS")
 	if hadExisting {
-		os.Setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "1")
-		os.Setenv("CMUX_ORIGINAL_NODE_OPTIONS", originalNodeOptionsForRestore(existing))
+		original := originalNodeOptionsForRestore(existing)
+		if original != "" {
+			os.Setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "1")
+			os.Setenv("CMUX_ORIGINAL_NODE_OPTIONS", original)
+		} else {
+			os.Setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "0")
+			os.Unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
+		}
 	} else {
 		os.Setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "0")
 		os.Unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
