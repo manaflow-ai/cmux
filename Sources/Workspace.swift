@@ -429,6 +429,7 @@ extension Workspace {
         let browserSnapshot: SessionBrowserPanelSnapshot?
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
         let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
+        let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -469,6 +470,7 @@ extension Workspace {
             browserSnapshot = nil
             markdownSnapshot = nil
             filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
         case .browser:
             guard let browserPanel = panel as? BrowserPanel else { return nil }
             terminalSnapshot = nil
@@ -484,18 +486,28 @@ extension Workspace {
             )
             markdownSnapshot = nil
             filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
             filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
         case .filePreview:
             guard let filePreviewPanel = panel as? FilePreviewPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = nil
             filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
+            rightSidebarToolSnapshot = nil
+        case .rightSidebarTool:
+            guard let toolPanel = panel as? RightSidebarToolPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = SessionRightSidebarToolPanelSnapshot(mode: toolPanel.mode)
         }
 
         return SessionPanelSnapshot(
@@ -512,7 +524,8 @@ extension Workspace {
             terminal: terminalSnapshot,
             browser: browserSnapshot,
             markdown: markdownSnapshot,
-            filePreview: filePreviewSnapshot
+            filePreview: filePreviewSnapshot,
+            rightSidebarTool: rightSidebarToolSnapshot
         )
     }
 
@@ -843,6 +856,18 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: filePreviewPanel.id)
             return filePreviewPanel.id
+        case .rightSidebarTool:
+            guard let mode = snapshot.rightSidebarTool?.mode,
+                  mode.canOpenAsPane,
+                  let toolPanel = newRightSidebarToolSurface(
+                    inPane: paneId,
+                    mode: mode,
+                    focus: false
+                  ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: toolPanel.id)
+            return toolPanel.id
         }
     }
 
@@ -7369,6 +7394,7 @@ final class Workspace: Identifiable, ObservableObject {
         static let browser = "browser"
         static let markdown = "markdown"
         static let filePreview = "filePreview"
+        static let rightSidebarTool = "rightSidebarTool"
     }
 
     enum PanelShellActivityState: String {
@@ -8194,6 +8220,10 @@ final class Workspace: Identifiable, ObservableObject {
         panels[panelId] as? FilePreviewPanel
     }
 
+    func rightSidebarToolPanel(for panelId: UUID) -> RightSidebarToolPanel? {
+        panels[panelId] as? RightSidebarToolPanel
+    }
+
     private func surfaceKind(for panel: any Panel) -> String {
         switch panel.panelType {
         case .terminal:
@@ -8204,6 +8234,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.markdown
         case .filePreview:
             return SurfaceKind.filePreview
+        case .rightSidebarTool:
+            return SurfaceKind.rightSidebarTool
         }
     }
 
@@ -10639,6 +10671,75 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    func openOrFocusRightSidebarToolSurface(
+        inPane paneId: PaneID,
+        mode: RightSidebarMode,
+        focus: Bool = true
+    ) -> RightSidebarToolPanel? {
+        guard mode.canOpenAsPane else { return nil }
+        for (existingId, panel) in panels {
+            guard let toolPanel = panel as? RightSidebarToolPanel,
+                  toolPanel.mode == mode else {
+                continue
+            }
+            if focus {
+                focusPanel(existingId)
+            }
+            return toolPanel
+        }
+        return newRightSidebarToolSurface(inPane: paneId, mode: mode, focus: focus)
+    }
+
+    @discardableResult
+    func newRightSidebarToolSurface(
+        inPane paneId: PaneID,
+        mode: RightSidebarMode,
+        focus: Bool? = nil,
+        targetIndex: Int? = nil
+    ) -> RightSidebarToolPanel? {
+        guard mode.canOpenAsPane else { return nil }
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let toolPanel = RightSidebarToolPanel(workspace: self, mode: mode)
+        panels[toolPanel.id] = toolPanel
+        panelTitles[toolPanel.id] = toolPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: toolPanel.displayTitle,
+            icon: toolPanel.displayIcon,
+            kind: SurfaceKind.rightSidebarTool,
+            isDirty: false,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: toolPanel.id)
+            panelTitles.removeValue(forKey: toolPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = toolPanel.id
+        if let targetIndex {
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
+        publishCmuxSurfaceCreated(toolPanel.id, paneId: paneId, kind: "right_sidebar_tool", origin: "right_sidebar_tool_tab", focused: shouldFocusNewTab)
+
+        if shouldFocusNewTab {
+            focusPanel(toolPanel.id)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: toolPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        return toolPanel
+    }
+
+    @discardableResult
     func splitPaneWithFilePreview(
         targetPane paneId: PaneID,
         orientation: SplitOrientation,
@@ -11290,6 +11391,8 @@ final class Workspace: Identifiable, ObservableObject {
                 remoteStatus: browserRemoteWorkspaceStatusSnapshot()
             )
             installBrowserPanelSubscription(browserPanel)
+        } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
+            rightSidebarToolPanel.reattach(to: self)
         }
         AppDelegate.shared?.notificationStore?.rebindSurfaceNotifications(
             fromTabId: detached.sourceWorkspaceId,

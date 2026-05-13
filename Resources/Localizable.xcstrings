@@ -9880,6 +9880,108 @@
         }
       }
     },
+    "command.openRightSidebarToolAsPane.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペイン"
+          }
+        }
+      }
+    },
+    "command.openFilesPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Files as Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルをペインで開く"
+          }
+        }
+      }
+    },
+    "command.openFindPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Find as Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索をペインで開く"
+          }
+        }
+      }
+    },
+    "command.openVaultPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Vault as Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaultをペインで開く"
+          }
+        }
+      }
+    },
+    "command.openFeedPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Feed as Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィードをペインで開く"
+          }
+        }
+      }
+    },
+    "command.openDockPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Dock as Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dockをペインで開く"
+          }
+        }
+      }
+    },
     "browser.import.warning.additionalDataUnavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -28834,6 +28936,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "마크다운"
+          }
+        }
+      }
+    },
+    "commandPalette.kind.rightSidebarTool": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tool"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツール"
           }
         }
       }
@@ -105915,6 +106034,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "右サイドバーを閉じる"
+          }
+        }
+      }
+    },
+    "rightSidebar.openAsPane.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open %@ as Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@をペインで開く"
+          }
+        }
+      }
+    },
+    "rightSidebar.openAsPane.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open as pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインで開く"
           }
         }
       }

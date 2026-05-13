@@ -6,6 +6,7 @@ import AppKit
 /// View that renders the appropriate panel view based on panel type
 struct PanelContentView: View {
     let panel: any Panel
+    let workspace: Workspace
     let workspaceId: UUID
     let paneId: PaneID
     let isFocused: Bool
@@ -77,6 +78,17 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .rightSidebarTool:
+            if let rightSidebarToolPanel = panel as? RightSidebarToolPanel {
+                RightSidebarToolPanelView(
+                    panel: rightSidebarToolPanel,
+                    workspace: workspace,
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI,
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         }
     }
 
@@ -94,7 +106,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview:
+        case .markdown, .filePreview, .rightSidebarTool:
             return true
         case .terminal, .browser:
             return false
