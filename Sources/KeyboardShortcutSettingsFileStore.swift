@@ -60,6 +60,7 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
     private let loadSocketPassword: () throws -> String?
     private let saveSocketPassword: (String) throws -> Void
     private let clearSocketPassword: () throws -> Void
+    private let managedUserDefaultsDidMutateForTesting: (() -> Void)?
     private let stateLock = NSLock()
 
     private var primaryWatcher: ShortcutSettingsFileWatcher?
@@ -87,6 +88,7 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
         loadSocketPassword: @escaping () throws -> String? = { try SocketControlPasswordStore.loadPassword() },
         saveSocketPassword: @escaping (String) throws -> Void = { try SocketControlPasswordStore.savePassword($0) },
         clearSocketPassword: @escaping () throws -> Void = { try SocketControlPasswordStore.clearPassword() },
+        managedUserDefaultsDidMutateForTesting: (() -> Void)? = nil,
         startWatching: Bool = true
     ) {
         self.primaryPath = primaryPath
@@ -98,6 +100,7 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
         self.loadSocketPassword = loadSocketPassword
         self.saveSocketPassword = saveSocketPassword
         self.clearSocketPassword = clearSocketPassword
+        self.managedUserDefaultsDidMutateForTesting = managedUserDefaultsDidMutateForTesting
         importedManagedDefaults = Self.loadImportedManagedDefaults(defaults: userDefaults)
 
         bootstrapPrimaryTemplateIfNeeded()
@@ -1158,6 +1161,7 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
         }
 
         if didMutateStoredValue {
+            managedUserDefaultsDidMutateForTesting?()
             return applyManagedDefaultSideEffects(
                 for: defaultsKey,
                 source: "cmuxConfig.applyManagedDefault"
@@ -1274,6 +1278,7 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
         }
 
         if didMutateStoredValue {
+            managedUserDefaultsDidMutateForTesting?()
             return applyManagedDefaultSideEffects(
                 for: defaultsKey,
                 source: "cmuxConfig.restoreUserDefault"
