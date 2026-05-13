@@ -14,7 +14,6 @@ import subprocess
 import tempfile
 import threading
 import time
-import tomllib
 from pathlib import Path
 
 from claude_teams_test_utils import resolve_cmux_cli
@@ -541,6 +540,74 @@ def codex_command_hook_hash(
     return f"sha256:{hashlib.sha256(canonical).hexdigest()}"
 
 
+def toml_basic_string_unescape(value: str) -> str:
+    escaped = {
+        "b": "\b",
+        "t": "\t",
+        "n": "\n",
+        "f": "\f",
+        "r": "\r",
+        '"': '"',
+        "\\": "\\",
+    }
+    result: list[str] = []
+    index = 0
+    while index < len(value):
+        char = value[index]
+        if char != "\\":
+            result.append(char)
+            index += 1
+            continue
+
+        index += 1
+        if index >= len(value):
+            raise AssertionError(f"trailing TOML escape in {value!r}")
+        escape = value[index]
+        if escape in escaped:
+            result.append(escaped[escape])
+            index += 1
+        elif escape in {"u", "U"}:
+            width = 4 if escape == "u" else 8
+            start = index + 1
+            end = start + width
+            hex_value = value[start:end]
+            if len(hex_value) != width:
+                raise AssertionError(f"short TOML unicode escape in {value!r}")
+            result.append(chr(int(hex_value, 16)))
+            index = end
+        else:
+            raise AssertionError(f"unsupported TOML escape \\{escape} in {value!r}")
+    return "".join(result)
+
+
+def codex_hook_trust_state(config_toml: str) -> dict[str, dict[str, str]]:
+    state: dict[str, dict[str, str]] = {}
+    current_key: str | None = None
+    prefix = '[hooks.state."'
+    suffix = '"]'
+
+    for line in config_toml.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(prefix) and stripped.endswith(suffix):
+            current_key = toml_basic_string_unescape(stripped[len(prefix) : -len(suffix)])
+            state[current_key] = {}
+            continue
+        if stripped.startswith("["):
+            current_key = None
+            continue
+        if current_key is None:
+            continue
+        key, separator, raw_value = stripped.partition("=")
+        if separator != "=" or key.strip() != "trusted_hash":
+            continue
+        value = raw_value.strip()
+        if not value.startswith('"') or not value.endswith('"'):
+            raise AssertionError(f"trusted_hash is not a TOML basic string: {line!r}")
+        state[current_key]["trusted_hash"] = toml_basic_string_unescape(value[1:-1])
+
+    return state
+
+
 def expected_cmux_codex_hook_trust(hooks: dict, hooks_path: Path) -> dict[str, str]:
     expected: dict[str, str] = {}
     hooks_path = hooks_path.resolve()
@@ -601,8 +668,7 @@ def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -
         raise AssertionError(f"hooks feature was not enabled: {config_toml!r}")
     if "codex_hooks" in config_toml:
         raise AssertionError(f"deprecated codex_hooks feature was written: {config_toml!r}")
-    config = tomllib.loads(config_toml)
-    state = config.get("hooks", {}).get("state", {})
+    state = codex_hook_trust_state(config_toml)
     expected_trust = expected_cmux_codex_hook_trust(hooks, codex_home / "hooks.json")
     if not expected_trust:
         raise AssertionError(f"expected cmux Codex trust entries, got {expected_trust!r}")
@@ -634,8 +700,7 @@ def test_install_escapes_codex_hook_trust_state_keys(cli_path: str, root: Path) 
 
     hooks = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
     config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
-    config = tomllib.loads(config_toml)
-    state = config.get("hooks", {}).get("state", {})
+    state = codex_hook_trust_state(config_toml)
     expected_trust = expected_cmux_codex_hook_trust(hooks, codex_home / "hooks.json")
     if not expected_trust:
         raise AssertionError(f"expected cmux Codex trust entries, got {expected_trust!r}")
