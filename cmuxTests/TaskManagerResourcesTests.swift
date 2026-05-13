@@ -370,7 +370,7 @@ final class TaskManagerResourcesTests: XCTestCase {
         processId: Int? = nil
     ) -> CmuxTaskManagerRow {
         let processIds = processId.map { [$0] } ?? []
-        CmuxTaskManagerRow(
+        return CmuxTaskManagerRow(
             id: id,
             kind: kind,
             level: level,
