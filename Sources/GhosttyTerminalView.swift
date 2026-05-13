@@ -4402,12 +4402,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private enum PendingSocketInput {
-        case text(Data)
+        case rawText(Data)
+        case keyText(Data)
         case key(PendingKeyEvent)
 
         var estimatedBytes: Int {
             switch self {
-            case .text(let data):
+            case .rawText(let data), .keyText(let data):
                 return data.count
             case .key(let event):
                 return max(event.label.utf8.count, 1)
@@ -5722,7 +5723,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     func sendText(_ text: String) {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return }
         guard let surface = surface else {
-            guard enqueuePendingSocketInputIfAllowed(.text(data), reason: "sendText.queue") else { return }
+            guard enqueuePendingSocketInputIfAllowed(.rawText(data), reason: "sendText.queue") else { return }
             requestBackgroundSurfaceStartIfNeeded()
             return
         }
@@ -5778,7 +5779,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         func flushBufferedText() {
             guard !bufferedText.isEmpty else { return }
-            inputs.append(.text(Data(bufferedText.utf8)))
+            inputs.append(.keyText(Data(bufferedText.utf8)))
             bufferedText.removeAll(keepingCapacity: true)
         }
 
@@ -5821,7 +5822,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     private func writePendingSocketInput(_ input: PendingSocketInput, to surface: ghostty_surface_t) {
         switch input {
-        case .text(let data):
+        case .rawText(let data):
+            writeTextData(data, to: surface)
+        case .keyText(let data):
             sendTextKeyData(data, to: surface)
         case .key(let event):
             sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
