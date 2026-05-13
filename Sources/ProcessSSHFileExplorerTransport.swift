@@ -209,6 +209,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
 
             if markStartedAndShouldTerminate {
                 process.terminate()
+                scheduleForceKillAfterGraceUnlessTerminated(waiter: terminationWaiter)
             }
 
             let terminationStatus: Int32
@@ -217,6 +218,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
                     try await waitForTermination(timeout: timeout, waiter: terminationWaiter)
                 } onCancel: {
                     self.terminate()
+                    self.scheduleForceKillAfterGraceUnlessTerminated(waiter: terminationWaiter)
                 }
             } catch {
                 if case FileExplorerError.downloadTimedOut = error {
@@ -292,6 +294,12 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             case timedOut
         }
 
+        private func scheduleForceKillAfterGraceUnlessTerminated(waiter: TerminationWaiter) {
+            _ = Task.detached(priority: .utility) { [self, waiter] in
+                await forceKillAfterGraceUnlessTerminated(waiter: waiter)
+            }
+        }
+
         private func waitForTermination(timeout: TimeInterval?, waiter: TerminationWaiter) async throws -> Int32 {
             guard let timeout else {
                 return await waiter.wait()
@@ -328,27 +336,27 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         }
 
         private func forceKillAfterGraceUnlessTerminated(waiter: TerminationWaiter) async {
-            enum GraceResult {
-                case terminated
-                case deadline
+            // This deadline must survive parent task cancellation; otherwise a
+            // cancelled SCP task can SIGTERM and then wait forever if scp ignores it.
+            let deadlineTask = Task.detached(priority: .utility) { [self] in
+                do {
+                    try await ContinuousClock().sleep(for: .seconds(1))
+                } catch {
+                    return
+                }
+                forceKillIfRunning()
             }
 
-            await withTaskGroup(of: GraceResult.self) { group in
+            await withTaskGroup(of: Void.self) { group in
                 group.addTask { [waiter] in
                     _ = await waiter.wait()
-                    return .terminated
                 }
-                group.addTask { [self] in
-                    do {
-                        try await ContinuousClock().sleep(for: .seconds(1))
-                    } catch {
-                        return .terminated
-                    }
-                    forceKillIfRunning()
-                    return .deadline
+                group.addTask {
+                    await deadlineTask.value
                 }
 
                 _ = await group.next()
+                deadlineTask.cancel()
                 group.cancelAll()
             }
         }
