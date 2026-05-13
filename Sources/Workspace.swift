@@ -14553,7 +14553,7 @@ extension Workspace {
     }
 
     @discardableResult
-    private func discardAgentRuntimeState(
+    func discardAgentRuntimeState(
         _ runtimeState: DetachedAgentRuntimeState?,
         clearNotifications: Bool = true
     ) -> Bool {
@@ -14597,3 +14597,4 @@ extension Workspace {
             refreshTrackedAgentPorts()
         }
     }
+}
