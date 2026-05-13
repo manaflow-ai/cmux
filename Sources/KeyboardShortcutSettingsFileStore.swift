@@ -214,6 +214,20 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
         (primaryPath as NSString).abbreviatingWithTildeInPath
     }
 
+#if DEBUG
+    func stagePendingSettingsJSONValueForTesting(_ value: ManagedSettingsValue, for path: String) {
+        synchronized {
+            pendingSettingsJSONValues[path] = value
+        }
+    }
+
+    func hasPendingSettingsJSONValueForTesting(path: String) -> Bool {
+        synchronized {
+            pendingSettingsJSONValues[path] != nil
+        }
+    }
+#endif
+
     private func bootstrapPrimaryTemplateIfNeeded() {
         guard !fileManager.fileExists(atPath: primaryPath) else { return }
 

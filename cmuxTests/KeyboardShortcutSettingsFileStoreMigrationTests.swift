@@ -630,6 +630,46 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         withExtendedLifetime(store) {}
     }
 
+    func testStalePendingSettingsPathIsDiscardedWhenNoUserDefaultsProjectionExists() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "sidebarAppearance": {}
+            }
+            """,
+            to: primaryURL
+        )
+
+        let defaultsSuiteName = "cmux.settings-file-store.stale-pending.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuiteName))
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+        defer {
+            defaults.removePersistentDomain(forName: defaultsSuiteName)
+        }
+
+        let notificationCenter = NotificationCenter()
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: nil,
+            userDefaults: defaults,
+            notificationCenter: notificationCenter,
+            startWatching: false
+        )
+
+        let stalePath = "legacy.removedSetting"
+        store.stagePendingSettingsJSONValueForTesting(.bool(true), for: stalePath)
+        XCTAssertTrue(store.hasPendingSettingsJSONValueForTesting(path: stalePath))
+
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        try waitForPendingSettingsPath(stalePath, toBePending: false, in: store)
+
+        withExtendedLifetime(store) {}
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-settings-migration-\(UUID().uuidString)",
@@ -750,5 +790,20 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.02))
         }
         XCTFail("Timed out waiting for \(key) to reapply")
+    }
+
+    private func waitForPendingSettingsPath(
+        _ path: String,
+        toBePending expectedValue: Bool,
+        in store: KeyboardShortcutSettingsFileStore
+    ) throws {
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            if store.hasPendingSettingsJSONValueForTesting(path: path) == expectedValue {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTFail("Timed out waiting for \(path) pending state to become \(expectedValue)")
     }
 }
