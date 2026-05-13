@@ -90,9 +90,16 @@ func cliExecFailureErrno(_ body: () -> Void) -> Int32 {
 private func cliWaitForWritableFD(_ fd: Int32) -> Bool {
     var descriptor = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
     while true {
+        descriptor.revents = 0
         let result = poll(&descriptor, 1, -1)
         if result > 0 {
-            return (descriptor.revents & Int16(POLLOUT)) != 0
+            let revents = descriptor.revents
+            if (revents & Int16(POLLNVAL)) != 0 {
+                return false
+            }
+            // HUP/ERR are useful wakeups: the next write should surface EPIPE
+            // or the concrete fd error so the caller's disposition is honored.
+            return (revents & Int16(POLLOUT | POLLHUP | POLLERR)) != 0
         }
         if result == 0 {
             return false
