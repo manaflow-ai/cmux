@@ -409,7 +409,7 @@ exec node "$FAKE_CHILD_NODE_SCRIPT" "$@"
             real_dir / "claude-parent.js",
             """#!/usr/bin/env node
 const fs = require("node:fs");
-const { exec, execFile, execSync, spawnSync } = require("node:child_process");
+const { exec, execFile, execSync, fork, spawnSync } = require("node:child_process");
 const childCommand = process.env.FAKE_CHILD_COMMAND || process.env.FAKE_CHILD_CLAUDE;
 const childArgs = process.env.FAKE_CHILD_ARGS_JSON
   ? JSON.parse(process.env.FAKE_CHILD_ARGS_JSON)
@@ -417,6 +417,31 @@ const childArgs = process.env.FAKE_CHILD_ARGS_JSON
 const childEnv = { ...process.env };
 if (process.env.FAKE_CHILD_NODE_OPTIONS !== undefined) {
   childEnv.NODE_OPTIONS = process.env.FAKE_CHILD_NODE_OPTIONS;
+}
+
+if (process.env.FAKE_FORK_CHILD === "1") {
+  fs.writeFileSync(process.env.FAKE_CHILD_ARGS_LOG, process.argv.slice(2).join("\\n") + "\\n", "utf8");
+  fs.writeFileSync(
+    process.env.FAKE_CHILD_NODE_OPTIONS_ENV_LOG,
+    `${process.env.NODE_OPTIONS ?? "__UNSET__"}\\n`,
+    "utf8",
+  );
+  fs.writeFileSync(
+    process.env.FAKE_CHILD_RUNTIME_NODE_OPTIONS_LOG,
+    `${process.env.NODE_OPTIONS ?? "__UNSET__"}\\n`,
+    "utf8",
+  );
+  fs.writeFileSync(
+    process.env.FAKE_CHILD_CMUX_PID_LOG,
+    `${process.env.CMUX_CLAUDE_PID ?? "__UNSET__"}\\n`,
+    "utf8",
+  );
+  fs.writeFileSync(
+    process.env.FAKE_CHILD_LAUNCH_ARGV_B64_LOG,
+    `${process.env.CMUX_AGENT_LAUNCH_ARGV_B64 ?? "__UNSET__"}\\n`,
+    "utf8",
+  );
+  process.exit(0);
 }
 
 function shellQuote(value) {
@@ -468,6 +493,30 @@ if (process.env.FAKE_CHILD_LAUNCH_METHOD === "execCallback") {
       process.stderr.write(stderr ?? error.message);
       process.exitCode = error.code || 1;
     }
+  });
+} else if (process.env.FAKE_CHILD_LAUNCH_METHOD === "fork") {
+  const forkEnv = { ...childEnv, FAKE_FORK_CHILD: "1" };
+  const child = fork(process.env.FAKE_PARENT_NODE_SCRIPT, childArgs, {
+    env: forkEnv,
+    silent: true,
+  });
+  let childStderr = "";
+  child.stderr?.on("data", (chunk) => {
+    childStderr += String(chunk);
+  });
+  child.on("error", (error) => {
+    process.stderr.write(error.message);
+    process.exitCode = 1;
+  });
+  child.on("exit", (code, signal) => {
+    if (childStderr) {
+      process.stderr.write(childStderr);
+    }
+    if (signal) {
+      process.stderr.write(`fork child exited by signal ${signal}`);
+      process.exit(1);
+    }
+    process.exit(code ?? 0);
   });
 } else {
   let child;
@@ -1081,6 +1130,35 @@ def test_background_claude_child_launches_inherit_cmux_hooks(failures: list[str]
     if launch_argv:
         expect(launch_argv[0].endswith("/child-bin/claude"), f"background child: expected child executable in launch argv, got {launch_argv}", failures)
     expect("--agent" in launch_argv, f"background child: expected child agent flag in launch argv, got {launch_argv}", failures)
+
+
+def test_background_claude_fork_launch_inherits_cmux_hooks(failures: list[str]) -> None:
+    code, _, child_argv, child_node_options_env, child_runtime_node_options, child_cmux_pid, child_launch_argv_b64, _, stderr = run_wrapper_background_child_spawn(
+        launch_method="fork",
+    )
+    expect(code == 0, f"background fork child: wrapper exited {code}: {stderr}", failures)
+    expect("--settings" in child_argv, f"background fork child: expected child claude launch to receive --settings, got {child_argv}", failures)
+    expect("--agent" in child_argv, f"background fork child: expected child agent args preserved, got {child_argv}", failures)
+    expect(
+        child_node_options_env == "__UNSET__",
+        f"background fork child: expected fork runtime NODE_OPTIONS restored, got {child_node_options_env!r}",
+        failures,
+    )
+    expect(
+        child_runtime_node_options == "__UNSET__",
+        f"background fork child: expected runtime NODE_OPTIONS restored, got {child_runtime_node_options!r}",
+        failures,
+    )
+    expect(
+        child_cmux_pid.isdigit() and int(child_cmux_pid) > 0,
+        f"background fork child: expected preload to set CMUX_CLAUDE_PID for forked child, got {child_cmux_pid!r}",
+        failures,
+    )
+    launch_argv = decode_optional_nul_argv(child_launch_argv_b64)
+    expect(bool(launch_argv), f"background fork child: expected non-empty launch argv, got {launch_argv}", failures)
+    if launch_argv:
+        expect(launch_argv[0].endswith("/real-bin/claude"), f"background fork child: expected real executable in launch argv, got {launch_argv}", failures)
+        expect(launch_argv[1:] == child_argv, f"background fork child: expected launch argv to record patched child args, got {launch_argv}", failures)
 
 
 def test_background_claude_child_through_wrapper_deduplicates_injection(failures: list[str]) -> None:
@@ -1975,6 +2053,7 @@ def main() -> int:
     test_foreground_claude_settings_detection_parses_hooks_json(failures)
     test_foreground_claude_settings_detection_does_not_require_python(failures)
     test_background_claude_child_launches_inherit_cmux_hooks(failures)
+    test_background_claude_fork_launch_inherits_cmux_hooks(failures)
     test_background_claude_child_through_wrapper_deduplicates_injection(failures)
     test_background_claude_child_preserves_explicit_node_options_override(failures)
     test_background_claude_child_preserves_options_when_args_omitted(failures)
