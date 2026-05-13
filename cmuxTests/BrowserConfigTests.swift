@@ -264,6 +264,61 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         XCTAssertTrue(spy.invoked)
     }
 
+    @MainActor
+    func testWindowCmdCCopyPreflightsFocusedBrowserChildIntoWebContentBeforeMainMenu() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+
+        let spy = ActionSpy()
+        installMenu(spy: spy, key: "c", modifiers: [.command])
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        let responder = FirstResponderView(frame: NSRect(x: 0, y: 0, width: 32, height: 20))
+        webView.addSubview(responder)
+
+        var forwardedEvents: [NSEvent] = []
+        cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, event in
+            guard currentWebView === webView else { return nil }
+            forwardedEvents.append(event)
+            return true
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(responder))
+        guard let event = makeKeyDownEvent(
+            key: "c",
+            modifiers: [.command],
+            keyCode: 8,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+C event")
+            return
+        }
+
+        XCTAssertTrue(window.performKeyEquivalent(with: event))
+        XCTAssertEqual(forwardedEvents.count, 1)
+        XCTAssertEqual(forwardedEvents.first?.keyCode, 8)
+        XCTAssertFalse(spy.invoked)
+    }
+
     func testReturnDoesNotRouteToMainMenuWhenWebViewIsFirstResponder() {
         let spy = ActionSpy()
         installMenu(spy: spy, key: "\r", modifiers: [])
