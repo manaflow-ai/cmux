@@ -91,8 +91,9 @@ nonisolated struct TerminalLocation: Equatable, Sendable {
             return local(path: newlineTrimmed, source: source)
         }
 
-        let path = components.percentEncodedPath.removingPercentEncoding ?? components.path
-        guard !path.isEmpty else { return nil }
+        let decodedPath = components.percentEncodedPath.removingPercentEncoding ?? components.path
+        guard !decodedPath.isEmpty else { return nil }
+        let path = normalizedReportedURIPath(decodedPath)
 
         let host = Self.normalizedHost(components.percentEncodedHost?.removingPercentEncoding ?? components.host)
         let remote = host.flatMap { Self.isLocalHost($0) ? nil : $0 }
@@ -131,6 +132,14 @@ nonisolated struct TerminalLocation: Equatable, Sendable {
             trimmed.removeLast()
         }
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func normalizedReportedURIPath(_ path: String) -> String {
+        var normalized = path
+        while normalized.count > 1, normalized.last == "/" {
+            normalized.removeLast()
+        }
+        return normalized
     }
 
     private static func isLocalHost(_ host: String) -> Bool {

@@ -3210,6 +3210,18 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
 
+        if let restoredCurrent {
+            var newBack = restoredBack
+            if newBack.last != restoredCurrent {
+                newBack.append(restoredCurrent)
+            }
+            restoredBackHistoryStack = Self.sanitizedSessionHistoryURLs(newBack)
+            restoredForwardHistoryStack.removeAll(keepingCapacity: false)
+            restoredHistoryCurrentURL = liveCurrent
+            refreshNavigationAvailability()
+            return
+        }
+
         guard !restoredForwardHistoryStack.isEmpty else { return }
 #if DEBUG
         cmuxDebugLog(
