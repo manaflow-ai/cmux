@@ -7709,14 +7709,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let markedTextBefore = markedText.length > 0
         let markedStateBefore = (markedText.string, markedSelectedRange)
 
-        // Capture the keyboard layout ID before interpretation so we can
-        // detect if an IME changed it (e.g. toggling input methods).
-        // We only check when not already in a preedit state.
-        let keyboardIdBefore: String? = if (!markedTextBefore) {
-            KeyboardLayout.id
-        } else {
-            nil
-        }
+        // Capture the keyboard layout ID before interpretation so the IME
+        // forwarding decision uses the source that saw this key.
+        let keyboardIdBefore = KeyboardLayout.id
 
         // Let the input system handle the event (for IME, dead keys, etc.)
 #if DEBUG
@@ -7758,11 +7753,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         let accumulatedText = keyTextAccumulator ?? []
         if shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
-            before: markedStateBefore, after: (markedText.string, markedSelectedRange), accumulatedText: accumulatedText
+            before: markedStateBefore,
+            after: (markedText.string, markedSelectedRange),
+            accumulatedText: accumulatedText,
+            event: translationEvent,
+            inputSourceId: keyboardIdBefore
         ) {
             imeConsumedKeyUps.insert(event.keyCode)
             return
         }
+
+        // A forwarded keyDown owns its keyUp. Clear any stale IME suppression
+        // entry left by an earlier suppressed repeat for the same physical key.
+        imeConsumedKeyUps.remove(event.keyCode)
 
         // Build the key event
         var keyEvent = ghostty_input_key_s()

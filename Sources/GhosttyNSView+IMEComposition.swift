@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 
 extension GhosttyNSView {
     /// Clamps AppKit's marked-text selection into the active preedit buffer.
@@ -33,7 +34,9 @@ extension GhosttyNSView {
     func shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
         before: (text: String, selection: NSRange),
         after: (text: String, selection: NSRange),
-        accumulatedText: [String]
+        accumulatedText: [String],
+        event: NSEvent? = nil,
+        inputSourceId: String? = nil
     ) -> Bool {
         guard accumulatedText.isEmpty else { return false }
 
@@ -45,7 +48,51 @@ extension GhosttyNSView {
             return true
         }
 
-        return before.selection != after.selection
+        if before.selection != after.selection {
+            return !shouldForwardKoreanMarkedSelectionArrowToTerminal(
+                event: event,
+                inputSourceId: inputSourceId
+            )
+        }
+
+        return false
+    }
+
+    func shouldRouteKoreanMarkedSelectionArrowKeyEquivalentToKeyDown(_ event: NSEvent) -> Bool {
+        guard hasMarkedText() else { return false }
+        return shouldForwardKoreanMarkedSelectionArrowToTerminal(
+            event: event,
+            inputSourceId: KeyboardLayout.id
+        )
+    }
+
+    private func shouldForwardKoreanMarkedSelectionArrowToTerminal(
+        event: NSEvent?,
+        inputSourceId: String?
+    ) -> Bool {
+        guard let event else { return false }
+        guard isKorean2SetInputSource(inputSourceId) else { return false }
+        guard hasOnlyPlainTextInputModifiers(event) else { return false }
+
+        switch Int(event.keyCode) {
+        case kVK_LeftArrow, kVK_RightArrow:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func isKorean2SetInputSource(_ inputSourceId: String?) -> Bool {
+        guard let inputSourceId else { return false }
+        return inputSourceId.localizedCaseInsensitiveContains("Korean.2Set")
+            || inputSourceId.localizedCaseInsensitiveContains("2SetKorean")
+    }
+
+    private func hasOnlyPlainTextInputModifiers(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        return flags.isEmpty
     }
 
 #if DEBUG
@@ -54,12 +101,16 @@ extension GhosttyNSView {
         markedSelectionBefore: NSRange,
         markedTextAfter: String,
         markedSelectionAfter: NSRange,
-        accumulatedText: [String]
+        accumulatedText: [String],
+        event: NSEvent? = nil,
+        inputSourceId: String? = nil
     ) -> Bool {
         shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
             before: (markedTextBefore, markedSelectionBefore),
             after: (markedTextAfter, markedSelectionAfter),
-            accumulatedText: accumulatedText
+            accumulatedText: accumulatedText,
+            event: event,
+            inputSourceId: inputSourceId
         )
     }
 #endif
