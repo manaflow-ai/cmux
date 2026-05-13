@@ -20,6 +20,9 @@ final class DetachedFolderDragIconHostView: NSView {
     private var childWindow: NSPanel?
     private var iconView: DraggableFolderNSView?
     private var observers: [NSObjectProtocol] = []
+    private var ancestorViewObservers: [NSObjectProtocol] = []
+    private var observedAncestorViewIds: [ObjectIdentifier] = []
+    private var hasScheduledFrameSync = false
     private weak var observedParentWindow: NSWindow?
 
     init(directory: String) {
@@ -61,11 +64,13 @@ final class DetachedFolderDragIconHostView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        installAncestorViewObservers()
         syncDetachedIcon()
     }
 
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
+        installAncestorViewObservers()
         syncDetachedIcon()
     }
 
@@ -155,6 +160,7 @@ final class DetachedFolderDragIconHostView: NSView {
     }
 
     private func syncDetachedIconFrame() {
+        installAncestorViewObservers()
         guard let parentWindow = window,
               let childWindow else { return }
         let localRect = bounds.isEmpty
@@ -165,6 +171,71 @@ final class DetachedFolderDragIconHostView: NSView {
         if childWindow.frame.origin != rectOnScreen.origin || childWindow.frame.size != rectOnScreen.size {
             childWindow.setFrame(rectOnScreen, display: true)
         }
+    }
+
+    private func installAncestorViewObservers() {
+        var ancestors: [NSView] = []
+        var ancestor = superview
+        while let view = ancestor {
+            ancestors.append(view)
+            ancestor = view.superview
+        }
+
+        let ancestorIds = ancestors.map { ObjectIdentifier($0) }
+        guard ancestorIds != observedAncestorViewIds else { return }
+
+        removeAncestorViewObservers()
+        guard !ancestors.isEmpty else { return }
+
+        let center = NotificationCenter.default
+        for ancestor in ancestors {
+            // SwiftUI may keep this host's local frame stable while moving an
+            // enclosing titlebar/content view, such as when the left sidebar
+            // opens. Observe the ancestor chain so the detached panel follows
+            // the host's converted window rect, not just its local frame.
+            ancestor.postsFrameChangedNotifications = true
+            ancestor.postsBoundsChangedNotifications = true
+            ancestorViewObservers.append(center.addObserver(
+                forName: NSView.frameDidChangeNotification,
+                object: ancestor,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.scheduleDetachedIconFrameSync()
+                }
+            })
+            ancestorViewObservers.append(center.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: ancestor,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.scheduleDetachedIconFrameSync()
+                }
+            })
+        }
+        observedAncestorViewIds = ancestorIds
+    }
+
+    private func scheduleDetachedIconFrameSync() {
+        guard !hasScheduledFrameSync else { return }
+        hasScheduledFrameSync = true
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.hasScheduledFrameSync = false
+                self.syncDetachedIconFrame()
+            }
+        }
+    }
+
+    private func removeAncestorViewObservers() {
+        for observer in ancestorViewObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        ancestorViewObservers.removeAll()
+        observedAncestorViewIds.removeAll()
+        hasScheduledFrameSync = false
     }
 
     private func removeParentWindowObservers() {
@@ -180,6 +251,7 @@ final class DetachedFolderDragIconHostView: NSView {
         // leaves its parent window or deinitializes, remove both so no stale
         // panel keeps tracking an old parent window.
         removeParentWindowObservers()
+        removeAncestorViewObservers()
         if let childWindow {
             childWindow.parent?.removeChildWindow(childWindow)
             childWindow.orderOut(nil)
