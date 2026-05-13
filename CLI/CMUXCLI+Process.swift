@@ -92,7 +92,7 @@ private func cliWaitForWritableFD(_ fd: Int32) -> Bool {
     while true {
         let result = poll(&descriptor, 1, -1)
         if result > 0 {
-            return (descriptor.revents & Int16(POLLNVAL)) == 0
+            return (descriptor.revents & Int16(POLLOUT)) != 0
         }
         if result == 0 {
             return false
@@ -104,10 +104,18 @@ private func cliWaitForWritableFD(_ fd: Int32) -> Bool {
     }
 }
 
+private func cliWriteNeedsStdioDispositionLock(_ fd: Int32) -> Bool {
+    fd == STDOUT_FILENO || fd == STDERR_FILENO
+}
+
 @discardableResult
 func cliWrite(_ data: Data, to handle: FileHandle, onBrokenPipe: CLIBrokenPipeDisposition) -> Bool {
     guard !data.isEmpty else { return true }
     let fd = handle.fileDescriptor
+    let needsStdioDispositionLock = cliWriteNeedsStdioDispositionLock(fd)
+    if !needsStdioDispositionLock {
+        configureCLIWriteFDNoSIGPIPE(fd)
+    }
 
     return data.withUnsafeBytes { rawBuffer in
         guard let baseAddress = rawBuffer.bindMemory(to: UInt8.self).baseAddress else {
@@ -116,11 +124,18 @@ func cliWrite(_ data: Data, to handle: FileHandle, onBrokenPipe: CLIBrokenPipeDi
 
         var offset = 0
         while offset < rawBuffer.count {
-            cliStdioDispositionLock.lock()
-            configureCLIWriteFDNoSIGPIPE(fd)
-            let written = Darwin.write(fd, baseAddress.advanced(by: offset), rawBuffer.count - offset)
-            let errorCode = written < 0 ? errno : 0
-            cliStdioDispositionLock.unlock()
+            let written: Int
+            let errorCode: Int32
+            if needsStdioDispositionLock {
+                cliStdioDispositionLock.lock()
+                configureCLIWriteFDNoSIGPIPE(fd)
+                written = Darwin.write(fd, baseAddress.advanced(by: offset), rawBuffer.count - offset)
+                errorCode = written < 0 ? errno : 0
+                cliStdioDispositionLock.unlock()
+            } else {
+                written = Darwin.write(fd, baseAddress.advanced(by: offset), rawBuffer.count - offset)
+                errorCode = written < 0 ? errno : 0
+            }
 
             if written > 0 {
                 offset += written
@@ -176,14 +191,17 @@ func cliWriteStderr(_ data: Data) {
     _ = cliWrite(data, to: FileHandle.standardError, onBrokenPipe: .ignore)
 }
 
-func cliPrint(_ items: Any..., separator: String = " ", terminator: String = "\n") {
+private func cliPrintItems(_ items: [Any], separator: String, terminator: String) {
     let body = items.map { String(describing: $0) }.joined(separator: separator)
     cliWriteStdout(body + terminator)
 }
 
+func cliPrint(_ items: Any..., separator: String = " ", terminator: String = "\n") {
+    cliPrintItems(items, separator: separator, terminator: terminator)
+}
+
 func print(_ items: Any..., separator: String = " ", terminator: String = "\n") {
-    let body = items.map { String(describing: $0) }.joined(separator: separator)
-    cliWriteStdout(body + terminator)
+    cliPrintItems(items, separator: separator, terminator: terminator)
 }
 
 struct CLIProcessResult {
