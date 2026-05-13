@@ -7767,14 +7767,17 @@ class TerminalController {
                 result = .err(code: "internal_error", message: "Failed to create workspace for detached surface", data: nil)
                 return
             }
-            let destinationPaneId = destinationWorkspace.paneId(forPanelId: surfaceId)?.id
+            guard let destinationPaneId = destinationWorkspace.paneId(forPanelId: surfaceId)?.id else {
+                result = .err(code: "internal_error", message: "Failed to create workspace for detached surface", data: nil)
+                return
+            }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             result = .ok([
                 "window_id": v2OrNull(windowId?.uuidString),
                 "window_ref": v2Ref(kind: .window, uuid: windowId),
                 "workspace_id": destinationWorkspace.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: destinationWorkspace.id),
-                "pane_id": v2OrNull(destinationPaneId?.uuidString),
+                "pane_id": destinationPaneId.uuidString,
                 "pane_ref": v2Ref(kind: .pane, uuid: destinationPaneId),
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)

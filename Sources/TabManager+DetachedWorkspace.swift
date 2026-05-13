@@ -66,7 +66,10 @@ extension TabManager {
                 configTemplate: inheritedConfig,
                 initialDetachedSurface: detached
             )
-            guard newWorkspace.panels[detached.panelId] != nil else { return nil }
+            guard newWorkspace.panels[detached.panelId] != nil,
+                  newWorkspace.paneId(forPanelId: detached.panelId) != nil else {
+                return nil
+            }
 
             applyCreationChromeInheritance(to: newWorkspace, from: sourceWorkspace ?? capturedTabs.first)
             newWorkspace.owningTabManager = self
