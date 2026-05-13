@@ -1,13 +1,13 @@
 import Darwin
 import Foundation
 
-enum TerminalDesktopNotificationBridge {
-    struct ResolvedNotification: Equatable {
+nonisolated enum TerminalDesktopNotificationBridge {
+    nonisolated struct ResolvedNotification: Equatable {
         let title: String
         let body: String
     }
 
-    enum Route: Equatable {
+    nonisolated enum Route: Equatable {
         case deliver(ResolvedNotification)
         case suppressDuplicate
     }

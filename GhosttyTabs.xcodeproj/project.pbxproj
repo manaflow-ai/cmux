@@ -166,6 +166,7 @@
 		A5001004 /* GhosttyConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001014 /* GhosttyConfig.swift */; };
 		A5001005 /* GhosttyTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001015 /* GhosttyTerminalView.swift */; };
 		A5320100A1B2C3D4E5F60718 /* TerminalDesktopNotificationBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5320101A1B2C3D4E5F60718 /* TerminalDesktopNotificationBridge.swift */; };
+		A5320102A1B2C3D4E5F60718 /* TerminalDesktopNotificationBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5320103A1B2C3D4E5F60718 /* TerminalDesktopNotificationBridgeTests.swift */; };
 		C13519000000000000000001 /* TerminalStartupEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13519000000000000000002 /* TerminalStartupEnvironment.swift */; };
 		C13519000000000000000005 /* RestorableAgentTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13519000000000000000006 /* RestorableAgentTypes.swift */; };
 		B3575000000000000000000C /* SessionIndexModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3575000000000000000000B /* SessionIndexModels.swift */; };
@@ -645,6 +646,7 @@
 		A5001014 /* GhosttyConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfig.swift; sourceTree = "<group>"; };
 		A5001015 /* GhosttyTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalView.swift; sourceTree = "<group>"; };
 		A5320101A1B2C3D4E5F60718 /* TerminalDesktopNotificationBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalDesktopNotificationBridge.swift; sourceTree = "<group>"; };
+		A5320103A1B2C3D4E5F60718 /* TerminalDesktopNotificationBridgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalDesktopNotificationBridgeTests.swift; sourceTree = "<group>"; };
 		C13519000000000000000002 /* TerminalStartupEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalStartupEnvironment.swift; sourceTree = "<group>"; };
 		C13519000000000000000006 /* RestorableAgentTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentTypes.swift; sourceTree = "<group>"; };
 		B3575000000000000000000B /* SessionIndexModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexModels.swift; sourceTree = "<group>"; };
@@ -1093,6 +1095,14 @@
 			);
 			sourceTree = "<group>";
 		};
+		A5320110A1B2C3D4E5F60718 /* Notifications */ = {
+			isa = PBXGroup;
+			children = (
+				A5320101A1B2C3D4E5F60718 /* TerminalDesktopNotificationBridge.swift */,
+			);
+			path = Notifications;
+			sourceTree = "<group>";
+		};
 		A5001041 /* Sources */ = {
 			isa = PBXGroup;
 			children = (
@@ -1188,7 +1198,7 @@
 				E30760000000000000000001 /* TmuxWorkspacePaneOverlayView.swift */,
 				A5001014 /* GhosttyConfig.swift */,
 				A5001015 /* GhosttyTerminalView.swift */,
-				A5320101A1B2C3D4E5F60718 /* TerminalDesktopNotificationBridge.swift */,
+				A5320110A1B2C3D4E5F60718 /* Notifications */,
 				C13519000000000000000002 /* TerminalStartupEnvironment.swift */,
 				C13519000000000000000006 /* RestorableAgentTypes.swift */,
 				B3575000000000000000000B /* SessionIndexModels.swift */,
@@ -1473,6 +1483,7 @@
 				9C1BEA3D2E6F49709A71C021 /* TerminalControllerSocketWriteTests.swift */,
 				E7E000000000000000000004 /* CmuxEventBusTests.swift */,
 				A5A5A504A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift */,
+				A5320103A1B2C3D4E5F60718 /* TerminalDesktopNotificationBridgeTests.swift */,
 				A5A5A508A1B2C3D4E5F60718 /* TerminalNotificationClearAllTests.swift */,
 					A5E380700000000000000002 /* TerminalNotificationSocketActionTests.swift */,
 					A5A5A506A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift */,
@@ -2156,6 +2167,7 @@
 				9C1BEA3D2E6F49709A71C020 /* TerminalControllerSocketWriteTests.swift in Sources */,
 				E7E000000000000000000003 /* CmuxEventBusTests.swift in Sources */,
 				A5A5A503A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift in Sources */,
+				A5320102A1B2C3D4E5F60718 /* TerminalDesktopNotificationBridgeTests.swift in Sources */,
 				A5A5A507A1B2C3D4E5F60718 /* TerminalNotificationClearAllTests.swift in Sources */,
 					A5E380700000000000000001 /* TerminalNotificationSocketActionTests.swift in Sources */,
 					A5A5A505A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift in Sources */,
