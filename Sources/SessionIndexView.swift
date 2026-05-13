@@ -1755,6 +1755,7 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
             let shouldRefresh = currentEntry?.id != entry.id || currentUIScaleFactor != nextUIScaleFactor
             currentEntry = entry
             currentUIScaleFactor = nextUIScaleFactor
+            guard popover?.isShown == true else { return }
             if shouldRefresh {
                 refreshContent()
             }
