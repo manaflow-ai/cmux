@@ -8467,6 +8467,27 @@ final class Workspace: Identifiable, ObservableObject {
         syncUnreadBadgeStateForPanel(panelId)
     }
 
+    func markWorkspaceUnread(anchorPanelId: UUID? = nil) {
+        AppDelegate.shared?.notificationStore?.markUnread(forTabId: id)
+        if let anchorPanelId, panels[anchorPanelId] != nil {
+            markPanelUnread(anchorPanelId)
+        }
+        syncUnreadBadgeStatesForAllPanels()
+    }
+
+    func markWorkspaceRead() {
+        AppDelegate.shared?.notificationStore?.markRead(forTabId: id)
+        manualUnreadPanelIds.removeAll()
+        manualUnreadMarkedAt.removeAll()
+        syncUnreadBadgeStatesForAllPanels()
+    }
+
+    private func syncUnreadBadgeStatesForAllPanels() {
+        for panelId in panels.keys {
+            syncUnreadBadgeStateForPanel(panelId)
+        }
+    }
+
     static func shouldClearManualUnread(
         previousFocusedPanelId: UUID?,
         nextFocusedPanelId: UUID,
@@ -14308,11 +14329,11 @@ extension Workspace: BonsplitDelegate {
             let shouldPin = !pinnedPanelIds.contains(panelId)
             setPanelPinned(panelId: panelId, pinned: shouldPin)
         case .markAsRead:
-            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
-            markPanelRead(panelId)
+            guard panelIdFromSurfaceId(tab.id) != nil else { return }
+            markWorkspaceRead()
         case .markAsUnread:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
-            markPanelUnread(panelId)
+            markWorkspaceUnread(anchorPanelId: panelId)
         case .toggleZoom:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             toggleSplitZoom(panelId: panelId)
