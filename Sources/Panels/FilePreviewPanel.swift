@@ -175,6 +175,7 @@ struct FileExternalOpenMenu: View {
             label
         }
         .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .disabled(isDisabled)
         .help(helpText)
         .accessibilityLabel(helpText)
@@ -188,7 +189,12 @@ struct FileExternalOpenMenu: View {
         switch style {
         case .header:
             Image(systemName: "square.and.arrow.up")
-                .frame(width: 18, height: 18)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 13, height: 13)
+                .frame(width: 20, height: 20)
+                .contentShape(Rectangle())
+                .foregroundStyle(.secondary)
         case .chrome:
             Image(systemName: "square.and.arrow.up")
                 .font(.system(size: 16, weight: .semibold))
