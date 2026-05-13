@@ -7718,7 +7718,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let interpretTimingStart = CmuxTypingTiming.start()
         let interpretPhaseStart = ProcessInfo.processInfo.systemUptime
 #endif
-        handleTextInputKeyEvent(translationEvent)
+        interpretKeyEvents([translationEvent])
 #if DEBUG
         interpretMs = (ProcessInfo.processInfo.systemUptime - interpretPhaseStart) * 1000.0
         CmuxTypingTiming.logDuration(
@@ -7945,14 +7945,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         // Rendering is driven by Ghostty's wakeups/renderer.
-    }
-
-    private func handleTextInputKeyEvent(_ event: NSEvent) {
-        guard inputContext != nil else {
-            interpretKeyEvents([event])
-            return
-        }
-        interpretKeyEvents([event])
     }
 
     @discardableResult
