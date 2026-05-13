@@ -196,6 +196,112 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(lines[4].contains("tag codex"), result.stdout)
     }
 
+    func testTopCommandOutputsFlatTSVForShellSorting() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("top-tsv")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let payload: [String: Any] = [
+            "totals": topResources(cpu: 12, rss: 12_000, processCount: 4),
+            "windows": [
+                topNode(ref: "window:1", cpu: 2, rss: 2_000, processCount: 2, extra: [
+                    "workspaces": [
+                        topNode(ref: "workspace:1", cpu: 10, rss: 10_000, processCount: 3, extra: [
+                            "title": "High\tCPU\nWorkspace",
+                        ]),
+                    ],
+                ]),
+            ],
+        ]
+        let serverHandled = startTopMockServer(listenerFD: listenerFD, payload: payload)
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["top", "--flat", "--format", "tsv"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(outputLines(result.stdout), [
+            "12.0\t12000\t4\ttotal\ttotal\t\t",
+            "2.0\t2000\t2\twindow\twindow:1\ttotal\t",
+            "10.0\t10000\t3\tworkspace\tworkspace:1\twindow:1\tHigh CPU Workspace",
+        ])
+    }
+
+    func testTopCommandFormatTSVImpliesFlatOutput() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("top-fmt")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let payload: [String: Any] = [
+            "windows": [
+                topNode(ref: "window:1", cpu: 2, rss: 2_000, processCount: 2),
+            ],
+        ]
+        let serverHandled = startTopMockServer(listenerFD: listenerFD, payload: payload)
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["top", "--format", "tsv"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(outputLines(result.stdout), [
+            "2.0\t2000\t2\twindow\twindow:1\ttotal\t",
+        ])
+    }
+
+    func testTopCommandSortsFlatTSVGloballyByMemory() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("top-tsv-sort")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let payload: [String: Any] = [
+            "windows": [
+                topNode(ref: "window:1", cpu: 2, rss: 2_000, processCount: 2, extra: [
+                    "workspaces": [
+                        topNode(ref: "workspace:low", cpu: 1, rss: 1_000, processCount: 1),
+                        topNode(ref: "workspace:high", cpu: 3, rss: 10_000, processCount: 3),
+                    ],
+                ]),
+            ],
+        ]
+        let serverHandled = startTopMockServer(listenerFD: listenerFD, payload: payload)
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["top", "--format", "tsv", "--sort", "rss"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(outputLines(result.stdout), [
+            "3.0\t10000\t3\tworkspace\tworkspace:high\twindow:1\t",
+            "2.0\t2000\t2\twindow\twindow:1\ttotal\t",
+            "1.0\t1000\t1\tworkspace\tworkspace:low\twindow:1\t",
+        ])
+    }
+
     private func runCLI(cliPath: String, socketPath: String, arguments: [String]) -> ProcessRunResult {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath

@@ -756,6 +756,11 @@ private enum TopSortKey: Equatable {
     case proc
 }
 
+private enum TopTextFormat: Equatable {
+    case tree
+    case tsv
+}
+
 enum SocketPasswordResolver {
     private static let service = "com.cmuxterm.app.socket-control"
     private static let account = "local-socket-password"
@@ -9741,17 +9746,21 @@ struct CMUXCLI {
               --workspace <id|ref|index>   Show only one workspace
               --processes                  Include process trees under surfaces, webviews, and tags
               --sort <cpu|rss|proc>         Sort sibling rows by CPU, memory, or process count
+              --flat                        Print independent rows for shell sorting
+              --format <tree|tsv>           Text output format (tsv implies --flat)
               --json                        Structured JSON output
 
             Output:
               CPU comes from macOS process accounting and can exceed 100% across cores.
               RSS is summed across the unique process IDs attributed to each tree node.
               Browser webviews are attributed through their WebKit content process PID.
+              TSV columns are: cpu_percent, rss_bytes, process_count, kind, ref, parent_ref, title.
 
             Example:
               cmux top
               cmux top --all
               cmux top --sort cpu
+              cmux top --format tsv | sort -t $'\\t' -nrk1,1
               cmux top --workspace workspace:2 --processes
               cmux --json top --all
             """
@@ -11033,6 +11042,9 @@ struct CMUXCLI {
         let jsonOutput: Bool
         let showProcesses: Bool
         let sortKey: TopSortKey?
+        let textFormat: TopTextFormat
+        let requestedFlatOutput: Bool
+        let requestedFormat: Bool
     }
 
     private struct TreePath {
@@ -11100,16 +11112,29 @@ struct CMUXCLI {
         if structuredOutput, options.sortKey != nil {
             throw CLIError(message: "top: --sort is only supported for text output; use --json to sort structured data externally")
         }
+        if structuredOutput, options.requestedFlatOutput || options.requestedFormat {
+            throw CLIError(message: "top: --flat and --format are only supported for text output")
+        }
         let payload = try buildTopPayload(options: options, client: client)
         if structuredOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
         } else {
-            print(renderTopText(
-                payload: payload,
-                idFormat: idFormat,
-                showProcesses: options.showProcesses,
-                sortKey: options.sortKey
-            ))
+            switch options.textFormat {
+            case .tree:
+                print(renderTopText(
+                    payload: payload,
+                    idFormat: idFormat,
+                    showProcesses: options.showProcesses,
+                    sortKey: options.sortKey
+                ))
+            case .tsv:
+                print(renderTopFlatTSV(
+                    payload: payload,
+                    idFormat: idFormat,
+                    showProcesses: options.showProcesses,
+                    sortKey: options.sortKey
+                ))
+            }
         }
     }
 
@@ -11122,12 +11147,17 @@ struct CMUXCLI {
         if rem1.contains("--sort") {
             throw CLIError(message: "top requires --sort <cpu|rss|proc>")
         }
+        let (formatOpt, rem2) = parseOption(rem1, name: "--format")
+        if rem2.contains("--format") {
+            throw CLIError(message: "top requires --format <tree|tsv>")
+        }
 
         var includeAll = false
         var jsonOutput = false
         var showProcesses = false
+        var flatOutput = false
         var remaining: [String] = []
-        for arg in rem1 {
+        for arg in rem2 {
             if arg == "--all" {
                 includeAll = true
                 continue
@@ -11140,14 +11170,22 @@ struct CMUXCLI {
                 showProcesses = true
                 continue
             }
+            if arg == "--flat" {
+                flatOutput = true
+                continue
+            }
             remaining.append(arg)
         }
 
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "top: unknown flag '\(unknown)'. Known flags: --all --workspace <id|ref|index> --processes --sort <cpu|rss|proc> --json")
+            throw CLIError(message: "top: unknown flag '\(unknown)'. Known flags: --all --workspace <id|ref|index> --processes --sort <cpu|rss|proc> --flat --format <tree|tsv> --json")
         }
         if let extra = remaining.first {
             throw CLIError(message: "top: unexpected argument '\(extra)'")
+        }
+        let format = try parseTopTextFormat(formatOpt)
+        if flatOutput, format == .tree {
+            throw CLIError(message: "top: --flat requires --format tsv or no --format")
         }
 
         return TopCommandOptions(
@@ -11155,7 +11193,10 @@ struct CMUXCLI {
             workspaceHandle: workspaceOpt,
             jsonOutput: jsonOutput,
             showProcesses: showProcesses,
-            sortKey: try parseTopSortKey(sortOpt)
+            sortKey: try parseTopSortKey(sortOpt),
+            textFormat: format ?? (flatOutput ? .tsv : .tree),
+            requestedFlatOutput: flatOutput,
+            requestedFormat: formatOpt != nil
         )
     }
 
@@ -11171,6 +11212,19 @@ struct CMUXCLI {
             return .proc
         default:
             throw CLIError(message: "top: invalid --sort value '\(raw)'. Use cpu, rss, or proc")
+        }
+    }
+
+    private func parseTopTextFormat(_ raw: String?) throws -> TopTextFormat? {
+        guard let raw else { return nil }
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch normalized {
+        case "tree":
+            return .tree
+        case "tsv", "tab", "tabs":
+            return .tsv
+        default:
+            throw CLIError(message: "top: invalid --format value '\(raw)'. Use tree or tsv")
         }
     }
 
@@ -11807,6 +11861,260 @@ struct CMUXCLI {
         case .proc:
             return Double(topInt(resources["process_count"]) ?? 0)
         }
+    }
+
+    private struct TopFlatRow {
+        let resources: [String: Any]
+        let kind: String
+        let ref: String
+        let parentRef: String
+        let title: String
+        let ordinal: Int
+
+        var node: [String: Any] {
+            ["resources": resources]
+        }
+    }
+
+    private func renderTopFlatTSV(
+        payload: [String: Any],
+        idFormat: CLIIDFormat,
+        showProcesses: Bool,
+        sortKey: TopSortKey? = nil
+    ) -> String {
+        let windows = payload["windows"] as? [[String: Any]] ?? []
+        guard !windows.isEmpty else { return "" }
+
+        var rows: [TopFlatRow] = []
+        var ordinal = 0
+        if let totals = payload["totals"] as? [String: Any] {
+            appendTopFlatRow(
+                resources: totals,
+                kind: "total",
+                ref: "total",
+                parentRef: "",
+                title: "",
+                ordinal: &ordinal,
+                to: &rows
+            )
+        }
+
+        for window in windows {
+            let windowRef = topFlatHandle(window, fallback: "window", idFormat: idFormat)
+            appendTopFlatNode(
+                window,
+                kind: "window",
+                ref: windowRef,
+                parentRef: "total",
+                title: "",
+                ordinal: &ordinal,
+                to: &rows
+            )
+
+            let workspaces = window["workspaces"] as? [[String: Any]] ?? []
+            for workspace in workspaces {
+                let workspaceRef = topFlatHandle(workspace, fallback: "workspace", idFormat: idFormat)
+                appendTopFlatNode(
+                    workspace,
+                    kind: "workspace",
+                    ref: workspaceRef,
+                    parentRef: windowRef,
+                    title: workspace["title"] as? String ?? "",
+                    ordinal: &ordinal,
+                    to: &rows
+                )
+
+                for tag in workspace["tags"] as? [[String: Any]] ?? [] {
+                    let tagRef = topFlatHandle(tag, fallback: topLabelText(tag["key"] as? String), idFormat: idFormat)
+                    appendTopFlatNode(
+                        tag,
+                        kind: "tag",
+                        ref: tagRef,
+                        parentRef: workspaceRef,
+                        title: tag["value"] as? String ?? "",
+                        ordinal: &ordinal,
+                        to: &rows
+                    )
+                    if showProcesses {
+                        appendTopFlatProcesses(
+                            tag["processes"] as? [[String: Any]] ?? [],
+                            parentRef: tagRef,
+                            ordinal: &ordinal,
+                            to: &rows
+                        )
+                    }
+                }
+
+                for pane in workspace["panes"] as? [[String: Any]] ?? [] {
+                    let paneRef = topFlatHandle(pane, fallback: "pane", idFormat: idFormat)
+                    appendTopFlatNode(
+                        pane,
+                        kind: "pane",
+                        ref: paneRef,
+                        parentRef: workspaceRef,
+                        title: "",
+                        ordinal: &ordinal,
+                        to: &rows
+                    )
+
+                    for surface in pane["surfaces"] as? [[String: Any]] ?? [] {
+                        let surfaceRef = topFlatHandle(surface, fallback: "surface", idFormat: idFormat)
+                        appendTopFlatNode(
+                            surface,
+                            kind: "surface",
+                            ref: surfaceRef,
+                            parentRef: paneRef,
+                            title: surface["title"] as? String ?? "",
+                            ordinal: &ordinal,
+                            to: &rows
+                        )
+
+                        for webview in surface["webviews"] as? [[String: Any]] ?? [] {
+                            let fallback = topInt(webview["pid"]).map { "pid:\($0)" } ?? "webview"
+                            let webviewRef = topFlatHandle(webview, fallback: fallback, idFormat: idFormat)
+                            appendTopFlatNode(
+                                webview,
+                                kind: "webview",
+                                ref: webviewRef,
+                                parentRef: surfaceRef,
+                                title: webview["title"] as? String ?? "",
+                                ordinal: &ordinal,
+                                to: &rows
+                            )
+                            if showProcesses {
+                                appendTopFlatProcesses(
+                                    webview["processes"] as? [[String: Any]] ?? [],
+                                    parentRef: webviewRef,
+                                    ordinal: &ordinal,
+                                    to: &rows
+                                )
+                            }
+                        }
+
+                        if showProcesses {
+                            appendTopFlatProcesses(
+                                surface["processes"] as? [[String: Any]] ?? [],
+                                parentRef: surfaceRef,
+                                ordinal: &ordinal,
+                                to: &rows
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        let outputRows: [TopFlatRow]
+        if let sortKey {
+            outputRows = rows.sorted { lhs, rhs in
+                let lhsValue = topSortValue(lhs.node, sortKey: sortKey)
+                let rhsValue = topSortValue(rhs.node, sortKey: sortKey)
+                guard lhsValue != rhsValue else { return lhs.ordinal < rhs.ordinal }
+                return lhsValue > rhsValue
+            }
+        } else {
+            outputRows = rows
+        }
+
+        return outputRows.map(topFlatTSVLine).joined(separator: "\n")
+    }
+
+    private func appendTopFlatNode(
+        _ node: [String: Any],
+        kind: String,
+        ref: String,
+        parentRef: String,
+        title: String,
+        ordinal: inout Int,
+        to rows: inout [TopFlatRow]
+    ) {
+        appendTopFlatRow(
+            resources: node["resources"] as? [String: Any] ?? [:],
+            kind: kind,
+            ref: ref,
+            parentRef: parentRef,
+            title: title,
+            ordinal: &ordinal,
+            to: &rows
+        )
+    }
+
+    private func appendTopFlatProcesses(
+        _ processes: [[String: Any]],
+        parentRef: String,
+        ordinal: inout Int,
+        to rows: inout [TopFlatRow]
+    ) {
+        for process in processes {
+            let processRef = topInt(process["pid"]).map(String.init)
+                ?? topFlatHandle(process, fallback: "process", idFormat: .refs)
+            appendTopFlatNode(
+                process,
+                kind: "process",
+                ref: processRef,
+                parentRef: parentRef,
+                title: process["name"] as? String ?? "",
+                ordinal: &ordinal,
+                to: &rows
+            )
+            appendTopFlatProcesses(
+                process["children"] as? [[String: Any]] ?? [],
+                parentRef: processRef,
+                ordinal: &ordinal,
+                to: &rows
+            )
+        }
+    }
+
+    private func appendTopFlatRow(
+        resources: [String: Any],
+        kind: String,
+        ref: String,
+        parentRef: String,
+        title: String,
+        ordinal: inout Int,
+        to rows: inout [TopFlatRow]
+    ) {
+        rows.append(TopFlatRow(
+            resources: resources,
+            kind: kind,
+            ref: ref,
+            parentRef: parentRef,
+            title: title,
+            ordinal: ordinal
+        ))
+        ordinal += 1
+    }
+
+    private func topFlatHandle(_ node: [String: Any], fallback: String, idFormat: CLIIDFormat) -> String {
+        let handle = topLabelText(textHandle(node, idFormat: idFormat))
+        if handle != "?" {
+            return handle
+        }
+        let sanitizedFallback = topLabelText(fallback)
+        return sanitizedFallback.isEmpty ? "unknown" : sanitizedFallback
+    }
+
+    private func topFlatTSVLine(_ row: TopFlatRow) -> String {
+        [
+            topFlatCPU(row.resources),
+            String(topInt64(row.resources["resident_bytes"])),
+            String(topInt(row.resources["process_count"]) ?? 0),
+            topTSVField(row.kind),
+            topTSVField(row.ref),
+            topTSVField(row.parentRef),
+            topTSVField(row.title),
+        ].joined(separator: "\t")
+    }
+
+    private func topFlatCPU(_ resources: [String: Any]) -> String {
+        let value = topDouble(resources["cpu_percent"])
+        guard value.isFinite else { return "0.0" }
+        return String(format: "%.1f", value)
+    }
+
+    private func topTSVField(_ raw: String) -> String {
+        topLabelText(raw)
     }
 
     private func appendTopProcessLines(
@@ -21809,7 +22117,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           list-panes [--workspace <id|ref>]
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
           tree [--all] [--workspace <id|ref|index>]
-          top [--all] [--workspace <id|ref|index>] [--processes] [--sort <cpu|rss|proc>]
+          top [--all] [--workspace <id|ref|index>] [--processes] [--sort <cpu|rss|proc>] [--flat] [--format <tree|tsv>]
           focus-pane --pane <id|ref> [--workspace <id|ref>]
           new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]
           new-surface [--type <terminal|browser>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]
