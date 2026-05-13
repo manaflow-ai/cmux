@@ -355,7 +355,11 @@ extension CMUXCLI {
 
     private func waitBeforeReconnectingEventStream(seconds: TimeInterval) {
         guard seconds.isFinite, seconds > 0 else { return }
-        Thread.sleep(forTimeInterval: seconds)
+        let deadline = Date.now.addingTimeInterval(seconds)
+        let wakeTimer = Timer(timeInterval: seconds, repeats: false) { _ in }
+        RunLoop.current.add(wakeTimer, forMode: .default)
+        RunLoop.current.run(until: deadline)
+        wakeTimer.invalidate()
     }
 
     private func printEventResumeGapGuidance(_ resume: CmuxEventsResume) {
