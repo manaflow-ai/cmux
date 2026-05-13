@@ -12732,17 +12732,18 @@ struct CMUXCLI {
             guard let url = URL(string: appServerURL) else {
                 throw CLIError(message: "Invalid Codex app-server URL: \(appServerURL)")
             }
-            let connection = CodexTeamsAppServerConnection(url: url)
-            connection.resume()
-            defer { connection.close() }
-
-            try connection.initialize(
-                clientName: CMUXCLI.codexTeamsWatcherClientName,
-                version: CMUXCLI.codexTeamsClientVersion
-            )
             let reconcileWaiter = DispatchSemaphore(value: 0)
             while true {
-                try backfillLoadedThreads(connection: connection)
+                let connection = CodexTeamsAppServerConnection(url: url)
+                connection.resume()
+                do {
+                    defer { connection.close() }
+                    try connection.initialize(
+                        clientName: CMUXCLI.codexTeamsWatcherClientName,
+                        version: CMUXCLI.codexTeamsClientVersion
+                    )
+                    try backfillLoadedThreads(connection: connection)
+                }
                 _ = reconcileWaiter.wait(timeout: .now() + CMUXCLI.codexTeamsReconcileInterval)
             }
         }
