@@ -364,7 +364,7 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         var attributes: posix_spawnattr_t?
         try throwIfPOSIXError(posix_spawnattr_init(&attributes), operation: "initialize spawn attributes")
         defer { posix_spawnattr_destroy(&attributes) }
-        var flags = Int16(POSIX_SPAWN_SETPGROUP)
+        let flags = Int16(POSIX_SPAWN_SETPGROUP)
         try throwIfPOSIXError(posix_spawnattr_setflags(&attributes, flags), operation: "set spawn flags")
         try throwIfPOSIXError(posix_spawnattr_setpgroup(&attributes, 0), operation: "set process group")
 
@@ -373,7 +373,7 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         var spawnedPID: pid_t = 0
         let spawnResult = try withCStringArray(arguments) { argv in
             try withCStringArray(environment) { envp in
-                try "/bin/sh".withCString { executablePath in
+                "/bin/sh".withCString { executablePath in
                     posix_spawn(&spawnedPID, executablePath, &fileActions, &attributes, argv, envp)
                 }
             }
