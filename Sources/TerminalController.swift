@@ -4580,7 +4580,7 @@ class TerminalController {
                 iMessageModeEnabled: iMessageModeEnabled
             )
             if iMessageModeEnabled {
-                preview = tabManager.tabs.first(where: { $0.id == workspaceId })?.latestSubmittedMessage
+                preview = tabManager.tabs.first(where: { $0.id == workspaceId })?.latestConversationMessage
             }
         }
 
@@ -8414,7 +8414,7 @@ class TerminalController {
         }
 
         CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
-        v2ApplyPromptSubmitSideEffects(for: event)
+        v2ApplyIMessageModeSideEffects(for: event)
 
         let result = FeedCoordinator.shared.ingestBlocking(
             event: event,
@@ -8428,8 +8428,8 @@ class TerminalController {
         return .ok(FeedSocketEncoding.payload(for: result))
     }
 
-    private nonisolated func v2ApplyPromptSubmitSideEffects(for event: WorkstreamEvent) {
-        guard event.hookEventName == .userPromptSubmit,
+    private nonisolated func v2ApplyIMessageModeSideEffects(for event: WorkstreamEvent) {
+        guard event.hookEventName == .userPromptSubmit || event.hookEventName == .stop || event.hookEventName == .subagentStop,
               let rawWorkspaceId = event.workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawWorkspaceId.isEmpty
         else { return }
@@ -8438,11 +8438,22 @@ class TerminalController {
         v2MainSync {
             guard let workspaceId = v2UUIDAny(rawWorkspaceId) else { return }
             guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
-            _ = tabManager.handlePromptSubmit(
-                workspaceId: workspaceId,
-                message: event.submittedPromptMessage,
-                iMessageModeEnabled: iMessageModeEnabled
-            )
+            switch event.hookEventName {
+            case .userPromptSubmit:
+                _ = tabManager.handlePromptSubmit(
+                    workspaceId: workspaceId,
+                    message: event.submittedPromptMessage,
+                    iMessageModeEnabled: iMessageModeEnabled
+                )
+            case .stop, .subagentStop:
+                _ = tabManager.handleAssistantFinalMessage(
+                    workspaceId: workspaceId,
+                    message: event.assistantFinalMessage,
+                    iMessageModeEnabled: iMessageModeEnabled
+                )
+            default:
+                break
+            }
         }
     }
 

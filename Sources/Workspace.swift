@@ -7196,7 +7196,7 @@ final class Workspace: Identifiable, ObservableObject {
     nonisolated private static let manualUnreadClearDelayAfterFocusFlash: TimeInterval = 0.2
     @Published var statusEntries: [String: SidebarStatusEntry] = [:]
     @Published var metadataBlocks: [String: SidebarMetadataBlock] = [:]
-    @Published private(set) var latestSubmittedMessage: String?
+    @Published private(set) var latestConversationMessage: String?
     @Published var logEntries: [SidebarLogEntry] = []
     @Published var progress: SidebarProgressState?
     @Published var gitBranch: SidebarGitBranchState?
@@ -7279,7 +7279,7 @@ final class Workspace: Identifiable, ObservableObject {
             sidebarObservationSignal($isPinned),
             sidebarObservationSignal($customColor),
             sidebarObservationSignal($terminalScrollBarHidden),
-            sidebarObservationSignal($latestSubmittedMessage),
+            sidebarObservationSignal($latestConversationMessage),
         ]
 
         return Publishers.MergeMany(publishers).eraseToAnyPublisher()
@@ -8689,7 +8689,7 @@ final class Workspace: Identifiable, ObservableObject {
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
         agentListeningPorts.removeAll()
-        latestSubmittedMessage = nil
+        latestConversationMessage = nil
         logEntries.removeAll()
         progress = nil
         gitBranch = nil
@@ -8999,11 +8999,16 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
-    func recordSubmittedMessage(_ message: String?) -> Bool {
-        guard let preview = Self.submittedMessagePreview(from: message) else { return false }
-        guard latestSubmittedMessage != preview else { return false }
-        latestSubmittedMessage = preview
+    func recordConversationMessage(_ message: String?) -> Bool {
+        guard let preview = Self.conversationMessagePreview(from: message) else { return false }
+        guard latestConversationMessage != preview else { return false }
+        latestConversationMessage = preview
         return true
+    }
+
+    @discardableResult
+    func recordSubmittedMessage(_ message: String?) -> Bool {
+        recordConversationMessage(message)
     }
 
     var isRemoteWorkspace: Bool {
