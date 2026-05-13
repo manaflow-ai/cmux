@@ -20635,6 +20635,57 @@
         }
       }
     },
+    "agent.codex.input.body.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex is asking a question"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex が質問しています"
+          }
+        }
+      }
+    },
+    "agent.codex.input.status.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex needs input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 入力待ち"
+          }
+        }
+      }
+    },
+    "agent.codex.input.subtitle.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中"
+          }
+        }
+      }
+    },
     "agent.codex.status.idle": {
       "extractionState": "manual",
       "localizations": {
@@ -21794,6 +21845,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Перейти до останнього непрочитаного"
+          }
+        }
+      }
+    },
+    "command.markOldestUnreadAndJumpNext.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as Oldest Unread and Jump to Next Latest Unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最古の未読としてマークして次の最新未読にジャンプ"
           }
         }
       }
@@ -82889,6 +82957,23 @@
         }
       }
     },
+    "shortcut.markOldestUnreadAndJumpNext.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as Oldest Unread and Jump to Next Latest Unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最古の未読としてマークして次の最新未読にジャンプ"
+          }
+        }
+      }
+    },
     "shortcut.newSurface.label": {
       "extractionState": "manual",
       "localizations": {
@@ -111625,6 +111710,139 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Proc" } },
         "ja": { "stringUnit": { "state": "translated", "value": "プロセス" } }
+      }
+    },
+    "taskManager.section.codingAgents": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Coding Agents" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コーディングエージェント" } }
+      }
+    },
+    "taskManager.section.programTotals": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Program Totals" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プログラム合計" } }
+      }
+    },
+    "taskManager.section.hierarchy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hierarchy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "階層" } }
+      }
+    },
+    "taskManager.aggregate.processCount.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1 process" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1 個のプロセス" } }
+      }
+    },
+    "taskManager.aggregate.processCount.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld processes" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld 個のプロセス" } }
+      }
+    },
+    "taskManager.agent.claudeCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Claude Code" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Claude Code" } }
+      }
+    },
+    "taskManager.agent.codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Codex" } }
+      }
+    },
+    "taskManager.agent.opencode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OpenCode" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OpenCode" } }
+      }
+    },
+    "taskManager.agent.pi": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pi" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Pi" } }
+      }
+    },
+    "taskManager.agent.amp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Amp" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Amp" } }
+      }
+    },
+    "taskManager.agent.cursor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cursor" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Cursor" } }
+      }
+    },
+    "taskManager.agent.gemini": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Gemini" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Gemini" } }
+      }
+    },
+    "taskManager.agent.rovodev": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Rovo Dev" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Rovo Dev" } }
+      }
+    },
+    "taskManager.agent.hermesAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hermes Agent" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Hermes Agent" } }
+      }
+    },
+    "taskManager.agent.copilot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copilot" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Copilot" } }
+      }
+    },
+    "taskManager.agent.codebuddy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CodeBuddy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CodeBuddy" } }
+      }
+    },
+    "taskManager.agent.factory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Factory" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Factory" } }
+      }
+    },
+    "taskManager.agent.qoder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Qoder" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Qoder" } }
+      }
+    },
+    "taskManager.loading.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Loading resource usage" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リソース使用状況を読み込み中" } }
       }
     },
     "taskManager.error.title": {

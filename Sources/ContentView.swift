@@ -1330,6 +1330,8 @@ struct ContentView: View {
         let contentView = window.contentView
 
         let unreadRects: [CGRect]
+        let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
+        let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
         if let layoutSnapshot, let contentView {
             unreadRects = layoutSnapshot.panes.compactMap { pane in
                 guard let selectedTabId = pane.selectedTabId,
@@ -1344,7 +1346,9 @@ struct ContentView: View {
                         forTabId: workspace.id,
                         surfaceId: panelId
                     ),
-                    isManuallyUnread: workspace.manualUnreadPanelIds.contains(panelId)
+                    isManuallyUnread: workspace.manualUnreadPanelIds.contains(panelId),
+                    isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+                    isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panelId
                 )
                 guard shouldShowUnread else { return nil }
 
@@ -2297,7 +2301,7 @@ struct ContentView: View {
             TitlebarLeadingInsetReader(inset: $titlebarLeadingInset)
                 .allowsHitTesting(false)
 
-            HStack(spacing: TitlebarFolderIconMetrics.iconTitleSpacing) {
+            HStack(spacing: 8) {
                 if isFullScreen && !sidebarState.isVisible {
                     fullscreenControls
                 }
@@ -2305,11 +2309,8 @@ struct ContentView: View {
                 // Draggable folder icon + focused command name
                 if let directory = focusedDirectory {
                     DetachedFolderDragIcon(directory: directory)
-                        .frame(
-                            width: TitlebarFolderIconMetrics.iconSize,
-                            height: TitlebarFolderIconMetrics.iconSize
-                        )
-                        .padding(.leading, TitlebarFolderIconMetrics.iconLeadingPadding)
+                        .frame(width: 16, height: 16)
+                        .padding(.leading, -6)
                 }
 
                 Text(titlebarText)
@@ -6324,6 +6325,20 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.markOldestUnreadAndJumpNext",
+                title: constant(
+                    String(
+                        localized: "command.markOldestUnreadAndJumpNext.title",
+                        defaultValue: "Mark as Oldest Unread and Jump to Next Latest Unread"
+                    )
+                ),
+                subtitle: constant(String(localized: "command.jumpUnread.subtitle", defaultValue: "Notifications")),
+                keywords: ["mark", "oldest", "unread", "jump", "next", "notification", "defer"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.openSettings",
                 title: constant(String(localized: "command.openSettings.title", defaultValue: "Open Settings")),
                 subtitle: constant(String(localized: "command.openSettings.subtitle", defaultValue: "Global")),
@@ -7200,6 +7215,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.jumpUnread") {
             AppDelegate.shared?.jumpToLatestUnread()
+        }
+        registry.register(commandId: "palette.markOldestUnreadAndJumpNext") {
+            AppDelegate.shared?.markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(
+                preferredWindow: observedWindow
+            )
         }
         registry.register(commandId: "palette.openSettings") {
 #if DEBUG

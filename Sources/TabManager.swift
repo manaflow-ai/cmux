@@ -5085,6 +5085,7 @@ class TabManager: ObservableObject {
     private enum NotificationDismissalContext {
         case activeFocus
         case directInteraction
+        case terminalInteraction
     }
 
     private func dismissFocusedPanelNotificationIfActive(tabId: UUID) {
@@ -5111,6 +5112,11 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
+    func dismissNotificationOnTerminalInteraction(tabId: UUID, surfaceId: UUID?) -> Bool {
+        dismissNotification(tabId: tabId, surfaceId: surfaceId, context: .terminalInteraction)
+    }
+
+    @discardableResult
     private func dismissNotification(
         tabId: UUID,
         surfaceId: UUID?,
@@ -5121,20 +5127,38 @@ class TabManager: ObservableObject {
             guard AppFocusState.isAppActive() else { return false }
         }
         guard let notificationStore = AppDelegate.shared?.notificationStore else { return false }
+        let workspace = tabs.first(where: { $0.id == tabId })
+        let hasManualPanelUnread = surfaceId.map { workspace?.manualUnreadPanelIds.contains($0) ?? false } ?? false
+        let hasManualWorkspaceUnread = notificationStore.hasManualUnread(forTabId: tabId)
+        let canDismissManualUnread = context == .terminalInteraction && (hasManualPanelUnread || hasManualWorkspaceUnread)
         let hasUnreadNotification = notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId)
         let hasFocusedIndicator = notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: surfaceId)
         let hasBell = surfaceId.map { notificationStore.hasBell(forTabId: tabId, surfaceId: $0) } ?? false
-        guard hasUnreadNotification || hasFocusedIndicator || hasBell else { return false }
+        guard hasUnreadNotification || hasFocusedIndicator || canDismissManualUnread || hasBell else { return false }
         if hasUnreadNotification {
             notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
+        }
+        var didDismissManualUnread = false
+        if context == .terminalInteraction {
+            if let panelId = surfaceId, hasManualPanelUnread {
+                workspace?.clearManualUnread(panelId: panelId)
+                didDismissManualUnread = true
+            }
+            if hasManualWorkspaceUnread {
+                didDismissManualUnread = notificationStore.clearManualUnread(forTabId: tabId) || didDismissManualUnread
+            }
         }
         notificationStore.clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
         if let surfaceId, hasBell {
             notificationStore.clearBell(forTabId: tabId, surfaceId: surfaceId)
         }
         if let panelId = surfaceId,
-           let tab = tabs.first(where: { $0.id == tabId }) {
-            tab.triggerNotificationDismissFlash(panelId: panelId)
+           let workspace {
+            if hasUnreadNotification || hasFocusedIndicator {
+                workspace.triggerNotificationDismissFlash(panelId: panelId)
+            } else if didDismissManualUnread {
+                workspace.triggerManualUnreadDismissFlash(panelId: panelId)
+            }
         }
         return true
     }
