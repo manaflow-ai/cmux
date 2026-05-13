@@ -489,6 +489,7 @@ extension Workspace {
             extensionSnapshot = nil
             markdownSnapshot = nil
             filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
         case .extensionPane:
             let rawBundlePath: String
             if let extensionPanel = panel as? ExtensionPanel {
@@ -526,6 +527,7 @@ extension Workspace {
             guard let toolPanel = panel as? RightSidebarToolPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
+            extensionSnapshot = nil
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = SessionRightSidebarToolPanelSnapshot(mode: toolPanel.mode)
