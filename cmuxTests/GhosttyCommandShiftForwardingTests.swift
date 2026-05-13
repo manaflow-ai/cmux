@@ -129,10 +129,6 @@ final class GhosttyCommandShiftForwardingTests: XCTestCase {
         }
         defer { GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver }
 
-        let previousTextInputHandler = GhosttyNSView.debugTextInputEventHandler
-        GhosttyNSView.debugTextInputEventHandler = { _, _ in false }
-        defer { GhosttyNSView.debugTextInputEventHandler = previousTextInputHandler }
-
         hostedTerminal.surface.markChildProcessExitedForTesting(reason: "unit-test-child-exited")
         let event = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
