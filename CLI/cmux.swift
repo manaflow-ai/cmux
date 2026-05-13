@@ -764,6 +764,17 @@ enum CLIIDFormat: String {
     }
 }
 
+private enum TopSortKey: Equatable {
+    case cpu
+    case rss
+    case proc
+}
+
+private enum TopTextFormat: Equatable {
+    case tree
+    case tsv
+}
+
 enum SocketPasswordResolver {
     private static let service = "com.cmuxterm.app.socket-control"
     private static let account = "local-socket-password"
@@ -2302,6 +2313,7 @@ struct CMUXCLI {
         let preSeparatorArgs = commandArgs.firstIndex(of: "--").map { commandArgs[..<$0] } ?? commandArgs[...]
         if command != "__tmux-compat",
            command != "claude-teams",
+           command != "codex-teams",
            preSeparatorArgs.contains(where: { $0 == "--help" || $0 == "-h" }) {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
                 return
@@ -2430,6 +2442,15 @@ struct CMUXCLI {
 
         if command == "claude-teams" {
             try runClaudeTeams(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg
+            )
+            return
+        }
+
+        if command == "codex-teams" {
+            try runCodexTeams(
                 commandArgs: commandArgs,
                 socketPath: resolvedSocketPath,
                 explicitPassword: socketPasswordArg
@@ -3717,6 +3738,9 @@ struct CMUXCLI {
                 idFormat: idFormat,
                 windowOverride: windowId
             )
+
+        case "__codex-teams-watch":
+            try runCodexTeamsWatcher(commandArgs: commandArgs, client: client)
 
         case "capture-pane",
              "resize-pane",
@@ -9305,6 +9329,24 @@ struct CMUXCLI {
               cmux claude-teams --continue
               cmux claude-teams --model sonnet
             """)
+        case "codex-teams":
+            return String(localized: "cli.codex-teams.usage", defaultValue: """
+            Usage: cmux codex-teams [codex-args...]
+
+            Launch Codex with cmux-managed subagent panes.
+
+            This command:
+              - starts a private Codex app-server on localhost
+              - launches the root Codex TUI against that app-server
+              - watches live Codex thread-spawn subagents
+              - opens subagents up to depth 2 as native cmux splits
+              - forwards all remaining arguments to codex
+
+            Examples:
+              cmux codex-teams
+              cmux codex-teams --model gpt-5.4
+              cmux codex-teams resume --last
+            """)
         case "omo":
             return String(localized: "cli.omo.usage", defaultValue: """
             Usage: cmux omo [opencode-args...]
@@ -9748,16 +9790,22 @@ struct CMUXCLI {
               --all                         Include all windows (default: current window only)
               --workspace <id|ref|index>   Show only one workspace
               --processes                  Include process trees under surfaces, webviews, and tags
+              --sort <cpu|rss|proc>         Sort sibling rows by CPU, memory, or process count
+              --flat                        Print independent rows for shell sorting
+              --format <tree|tsv>           Text output format (tsv implies --flat)
               --json                        Structured JSON output
 
             Output:
               CPU comes from macOS process accounting and can exceed 100% across cores.
               RSS is summed across the unique process IDs attributed to each tree node.
               Browser webviews are attributed through their WebKit content process PID.
+              TSV columns are: cpu_percent, rss_bytes, process_count, kind, ref, parent_ref, title.
 
             Example:
               cmux top
               cmux top --all
+              cmux top --sort cpu
+              cmux top --format tsv | sort -t $'\\t' -nrk1,1
               cmux top --workspace workspace:2 --processes
               cmux --json top --all
             """
@@ -11038,6 +11086,10 @@ struct CMUXCLI {
         let workspaceHandle: String?
         let jsonOutput: Bool
         let showProcesses: Bool
+        let sortKey: TopSortKey?
+        let textFormat: TopTextFormat
+        let requestedFlatOutput: Bool
+        let requestedFormat: Bool
     }
 
     private struct TreePath {
@@ -11102,11 +11154,32 @@ struct CMUXCLI {
     ) throws {
         let options = try parseTopCommandOptions(commandArgs)
         let structuredOutput = jsonOutput || options.jsonOutput
+        if structuredOutput, options.sortKey != nil {
+            throw CLIError(message: "top: --sort is only supported for text output; use --json to sort structured data externally")
+        }
+        if structuredOutput, options.requestedFlatOutput || options.requestedFormat {
+            throw CLIError(message: "top: --flat and --format are only supported for text output")
+        }
         let payload = try buildTopPayload(options: options, client: client)
         if structuredOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
         } else {
-            print(renderTopText(payload: payload, idFormat: idFormat, showProcesses: options.showProcesses))
+            switch options.textFormat {
+            case .tree:
+                print(renderTopText(
+                    payload: payload,
+                    idFormat: idFormat,
+                    showProcesses: options.showProcesses,
+                    sortKey: options.sortKey
+                ))
+            case .tsv:
+                print(renderTopFlatTSV(
+                    payload: payload,
+                    idFormat: idFormat,
+                    showProcesses: options.showProcesses,
+                    sortKey: options.sortKey
+                ))
+            }
         }
     }
 
@@ -11115,12 +11188,21 @@ struct CMUXCLI {
         if rem0.contains("--workspace") {
             throw CLIError(message: "top requires --workspace <id|ref|index>")
         }
+        let (sortOpt, rem1) = parseOption(rem0, name: "--sort")
+        if rem1.contains("--sort") {
+            throw CLIError(message: "top requires --sort <cpu|rss|proc>")
+        }
+        let (formatOpt, rem2) = parseOption(rem1, name: "--format")
+        if rem2.contains("--format") {
+            throw CLIError(message: "top requires --format <tree|tsv>")
+        }
 
         var includeAll = false
         var jsonOutput = false
         var showProcesses = false
+        var flatOutput = false
         var remaining: [String] = []
-        for arg in rem0 {
+        for arg in rem2 {
             if arg == "--all" {
                 includeAll = true
                 continue
@@ -11133,22 +11215,62 @@ struct CMUXCLI {
                 showProcesses = true
                 continue
             }
+            if arg == "--flat" {
+                flatOutput = true
+                continue
+            }
             remaining.append(arg)
         }
 
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "top: unknown flag '\(unknown)'. Known flags: --all --workspace <id|ref|index> --processes --json")
+            throw CLIError(message: "top: unknown flag '\(unknown)'. Known flags: --all --workspace <id|ref|index> --processes --sort <cpu|rss|proc> --flat --format <tree|tsv> --json")
         }
         if let extra = remaining.first {
             throw CLIError(message: "top: unexpected argument '\(extra)'")
+        }
+        let format = try parseTopTextFormat(formatOpt)
+        if flatOutput, format == .tree {
+            throw CLIError(message: "top: --flat requires --format tsv or no --format")
         }
 
         return TopCommandOptions(
             includeAllWindows: includeAll,
             workspaceHandle: workspaceOpt,
             jsonOutput: jsonOutput,
-            showProcesses: showProcesses
+            showProcesses: showProcesses,
+            sortKey: try parseTopSortKey(sortOpt),
+            textFormat: format ?? (flatOutput ? .tsv : .tree),
+            requestedFlatOutput: flatOutput,
+            requestedFormat: formatOpt != nil
         )
+    }
+
+    private func parseTopSortKey(_ raw: String?) throws -> TopSortKey? {
+        guard let raw else { return nil }
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch normalized {
+        case "cpu", "cpu%":
+            return .cpu
+        case "rss", "mem", "memory", "ram":
+            return .rss
+        case "proc", "process", "processes", "count":
+            return .proc
+        default:
+            throw CLIError(message: "top: invalid --sort value '\(raw)'. Use cpu, rss, or proc")
+        }
+    }
+
+    private func parseTopTextFormat(_ raw: String?) throws -> TopTextFormat? {
+        guard let raw else { return nil }
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch normalized {
+        case "tree":
+            return .tree
+        case "tsv", "tab", "tabs":
+            return .tsv
+        default:
+            throw CLIError(message: "top: invalid --format value '\(raw)'. Use tree or tsv")
+        }
     }
 
     private func buildTopPayload(
@@ -11653,7 +11775,8 @@ struct CMUXCLI {
     private func renderTopText(
         payload: [String: Any],
         idFormat: CLIIDFormat,
-        showProcesses: Bool
+        showProcesses: Bool,
+        sortKey: TopSortKey? = nil
     ) -> String {
         let windows = payload["windows"] as? [[String: Any]] ?? []
         guard !windows.isEmpty else { return "No windows" }
@@ -11663,10 +11786,10 @@ struct CMUXCLI {
             lines.append("\(topResourceColumns(resources: totals))total")
         }
 
-        for window in windows {
+        for window in topSortedItems(windows, sortKey: sortKey, node: { $0 }) {
             lines.append("\(topResourceColumns(node: window))\(topWindowLabel(window, idFormat: idFormat))")
 
-            let workspaces = window["workspaces"] as? [[String: Any]] ?? []
+            let workspaces = topSortedItems(window["workspaces"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
             for (workspaceIndex, workspace) in workspaces.enumerated() {
                 let workspaceIsLast = workspaceIndex == workspaces.count - 1
                 let workspaceBranch = workspaceIsLast ? "└── " : "├── "
@@ -11675,57 +11798,69 @@ struct CMUXCLI {
 
                 let tags = workspace["tags"] as? [[String: Any]] ?? []
                 let panes = workspace["panes"] as? [[String: Any]] ?? []
-                let workspaceChildCount = tags.count + panes.count
-                var workspaceChildIndex = 0
+                let workspaceChildren = topSortedItems(
+                    tags.map { TopWorkspaceChild.tag($0) } + panes.map { TopWorkspaceChild.pane($0) },
+                    sortKey: sortKey,
+                    node: { $0.node }
+                )
 
-                for tag in tags {
-                    let tagIsLast = workspaceChildIndex == workspaceChildCount - 1
-                    workspaceChildIndex += 1
-                    let tagBranch = tagIsLast ? "└── " : "├── "
-                    let tagIndent = tagIsLast ? "    " : "│   "
-                    lines.append("\(topResourceColumns(node: tag))\(workspaceIndent)\(tagBranch)\(topTagLabel(tag))")
-                    if showProcesses {
-                        appendTopProcessLines(
-                            tag["processes"] as? [[String: Any]] ?? [],
-                            to: &lines,
-                            indent: workspaceIndent + tagIndent
-                        )
-                    }
-                }
+                for (workspaceChildIndex, workspaceChild) in workspaceChildren.enumerated() {
+                    let childIsLast = workspaceChildIndex == workspaceChildren.count - 1
+                    switch workspaceChild {
+                    case .tag(let tag):
+                        let tagIsLast = childIsLast
+                        let tagBranch = tagIsLast ? "└── " : "├── "
+                        let tagIndent = tagIsLast ? "    " : "│   "
+                        lines.append("\(topResourceColumns(node: tag))\(workspaceIndent)\(tagBranch)\(topTagLabel(tag))")
+                        if showProcesses {
+                            appendTopProcessLines(
+                                tag["processes"] as? [[String: Any]] ?? [],
+                                to: &lines,
+                                indent: workspaceIndent + tagIndent,
+                                sortKey: sortKey
+                            )
+                        }
+                    case .pane(let pane):
+                        let paneIsLast = childIsLast
+                        let paneBranch = paneIsLast ? "└── " : "├── "
+                        let paneIndent = paneIsLast ? "    " : "│   "
+                        lines.append("\(topResourceColumns(node: pane))\(workspaceIndent)\(paneBranch)\(topPaneLabel(pane, idFormat: idFormat))")
 
-                for pane in panes {
-                    let paneIsLast = workspaceChildIndex == workspaceChildCount - 1
-                    workspaceChildIndex += 1
-                    let paneBranch = paneIsLast ? "└── " : "├── "
-                    let paneIndent = paneIsLast ? "    " : "│   "
-                    lines.append("\(topResourceColumns(node: pane))\(workspaceIndent)\(paneBranch)\(topPaneLabel(pane, idFormat: idFormat))")
+                        let surfaces = topSortedItems(pane["surfaces"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
+                        for (surfaceIndex, surface) in surfaces.enumerated() {
+                            let surfaceIsLast = surfaceIndex == surfaces.count - 1
+                            let surfaceBranch = surfaceIsLast ? "└── " : "├── "
+                            let surfaceIndent = surfaceIsLast ? "    " : "│   "
+                            lines.append("\(topResourceColumns(node: surface))\(workspaceIndent)\(paneIndent)\(surfaceBranch)\(topSurfaceLabel(surface, idFormat: idFormat))")
 
-                    let surfaces = pane["surfaces"] as? [[String: Any]] ?? []
-                    for (surfaceIndex, surface) in surfaces.enumerated() {
-                        let surfaceIsLast = surfaceIndex == surfaces.count - 1
-                        let surfaceBranch = surfaceIsLast ? "└── " : "├── "
-                        let surfaceIndent = surfaceIsLast ? "    " : "│   "
-                        lines.append("\(topResourceColumns(node: surface))\(workspaceIndent)\(paneIndent)\(surfaceBranch)\(topSurfaceLabel(surface, idFormat: idFormat))")
-
-                        let webviews = surface["webviews"] as? [[String: Any]] ?? []
-                        let surfaceProcesses = surface["processes"] as? [[String: Any]] ?? []
-                        let hasSurfaceProcesses = showProcesses && !surfaceProcesses.isEmpty
-                        if !webviews.isEmpty {
-                            for (webviewIndex, webview) in webviews.enumerated() {
-                                let webviewIsLast = webviewIndex == webviews.count - 1 && !hasSurfaceProcesses
-                                let webviewBranch = webviewIsLast ? "└── " : "├── "
-                                let webviewIndent = webviewIsLast ? "    " : "│   "
-                                lines.append("\(topResourceColumns(node: webview))\(workspaceIndent)\(paneIndent)\(surfaceIndent)\(webviewBranch)\(topWebViewLabel(webview))")
-                                if showProcesses {
-                                    appendTopProcessLines(
-                                        webview["processes"] as? [[String: Any]] ?? [],
-                                        to: &lines,
-                                        indent: workspaceIndent + paneIndent + surfaceIndent + webviewIndent
-                                    )
+                            let webviews = topSortedItems(surface["webviews"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
+                            let surfaceProcesses = surface["processes"] as? [[String: Any]] ?? []
+                            let hasSurfaceProcesses = showProcesses && !surfaceProcesses.isEmpty
+                            if !webviews.isEmpty {
+                                for (webviewIndex, webview) in webviews.enumerated() {
+                                    let webviewIsLast = webviewIndex == webviews.count - 1 && !hasSurfaceProcesses
+                                    let webviewBranch = webviewIsLast ? "└── " : "├── "
+                                    let webviewIndent = webviewIsLast ? "    " : "│   "
+                                    lines.append("\(topResourceColumns(node: webview))\(workspaceIndent)\(paneIndent)\(surfaceIndent)\(webviewBranch)\(topWebViewLabel(webview))")
+                                    if showProcesses {
+                                        appendTopProcessLines(
+                                            webview["processes"] as? [[String: Any]] ?? [],
+                                            to: &lines,
+                                            indent: workspaceIndent + paneIndent + surfaceIndent + webviewIndent,
+                                            sortKey: sortKey
+                                        )
+                                    }
                                 }
                             }
+                            if showProcesses {
+                                appendTopProcessLines(
+                                    surfaceProcesses,
+                                    to: &lines,
+                                    indent: workspaceIndent + paneIndent + surfaceIndent,
+                                    sortKey: sortKey
+                                )
+                            }
                         }
-                        if showProcesses { appendTopProcessLines(surfaceProcesses, to: &lines, indent: workspaceIndent + paneIndent + surfaceIndent) }
                     }
                 }
             }
@@ -11734,20 +11869,315 @@ struct CMUXCLI {
         return lines.joined(separator: "\n")
     }
 
+    private enum TopWorkspaceChild {
+        case tag([String: Any])
+        case pane([String: Any])
+
+        var node: [String: Any] {
+            switch self {
+            case .tag(let node), .pane(let node):
+                return node
+            }
+        }
+    }
+
+    private func topSortedItems<T>(
+        _ items: [T],
+        sortKey: TopSortKey?,
+        node: (T) -> [String: Any]
+    ) -> [T] {
+        guard let sortKey else { return items }
+        return items.enumerated().sorted { lhs, rhs in
+            let lhsValue = topSortValue(node(lhs.element), sortKey: sortKey)
+            let rhsValue = topSortValue(node(rhs.element), sortKey: sortKey)
+            guard lhsValue != rhsValue else { return lhs.offset < rhs.offset }
+            return lhsValue > rhsValue
+        }.map(\.element)
+    }
+
+    private func topSortValue(_ node: [String: Any], sortKey: TopSortKey) -> Double {
+        let resources = node["resources"] as? [String: Any] ?? [:]
+        switch sortKey {
+        case .cpu:
+            let value = topDouble(resources["cpu_percent"])
+            return value.isFinite ? value : 0
+        case .rss:
+            return Double(topInt64(resources["resident_bytes"]))
+        case .proc:
+            return Double(topInt(resources["process_count"]) ?? 0)
+        }
+    }
+
+    private struct TopFlatRow {
+        let resources: [String: Any]
+        let kind: String
+        let ref: String
+        let parentRef: String
+        let title: String
+        let ordinal: Int
+    }
+
+    private func renderTopFlatTSV(
+        payload: [String: Any],
+        idFormat: CLIIDFormat,
+        showProcesses: Bool,
+        sortKey: TopSortKey? = nil
+    ) -> String {
+        let windows = payload["windows"] as? [[String: Any]] ?? []
+        guard !windows.isEmpty else { return "" }
+
+        var rows: [TopFlatRow] = []
+        var ordinal = 0
+        if let totals = payload["totals"] as? [String: Any] {
+            appendTopFlatRow(
+                resources: totals,
+                kind: "total",
+                ref: "total",
+                parentRef: "",
+                title: "",
+                ordinal: &ordinal,
+                to: &rows
+            )
+        }
+
+        for window in topSortedItems(windows, sortKey: sortKey, node: { $0 }) {
+            let windowRef = topFlatHandle(window, fallback: "window", idFormat: idFormat)
+            appendTopFlatNode(
+                window,
+                kind: "window",
+                ref: windowRef,
+                parentRef: "total",
+                title: "",
+                ordinal: &ordinal,
+                to: &rows
+            )
+
+            let workspaces = topSortedItems(window["workspaces"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
+            for workspace in workspaces {
+                let workspaceRef = topFlatHandle(workspace, fallback: "workspace", idFormat: idFormat)
+                appendTopFlatNode(
+                    workspace,
+                    kind: "workspace",
+                    ref: workspaceRef,
+                    parentRef: windowRef,
+                    title: workspace["title"] as? String ?? "",
+                    ordinal: &ordinal,
+                    to: &rows
+                )
+
+                let tags = workspace["tags"] as? [[String: Any]] ?? []
+                let panes = workspace["panes"] as? [[String: Any]] ?? []
+                let workspaceChildren = topSortedItems(
+                    tags.map { TopWorkspaceChild.tag($0) } + panes.map { TopWorkspaceChild.pane($0) },
+                    sortKey: sortKey,
+                    node: { $0.node }
+                )
+                for workspaceChild in workspaceChildren {
+                    switch workspaceChild {
+                    case .tag(let tag):
+                        let tagRef = topFlatHandle(tag, fallback: topLabelText(tag["key"] as? String), idFormat: idFormat)
+                        appendTopFlatNode(
+                            tag,
+                            kind: "tag",
+                            ref: tagRef,
+                            parentRef: workspaceRef,
+                            title: tag["value"] as? String ?? "",
+                            ordinal: &ordinal,
+                            to: &rows
+                        )
+                        if showProcesses {
+                            appendTopFlatProcesses(
+                                tag["processes"] as? [[String: Any]] ?? [],
+                                parentRef: tagRef,
+                                ordinal: &ordinal,
+                                to: &rows,
+                                sortKey: sortKey
+                            )
+                        }
+                    case .pane(let pane):
+                        let paneRef = topFlatHandle(pane, fallback: "pane", idFormat: idFormat)
+                        appendTopFlatNode(
+                            pane,
+                            kind: "pane",
+                            ref: paneRef,
+                            parentRef: workspaceRef,
+                            title: "",
+                            ordinal: &ordinal,
+                            to: &rows
+                        )
+
+                        let surfaces = topSortedItems(pane["surfaces"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
+                        for surface in surfaces {
+                            let surfaceRef = topFlatHandle(surface, fallback: "surface", idFormat: idFormat)
+                            appendTopFlatNode(
+                                surface,
+                                kind: "surface",
+                                ref: surfaceRef,
+                                parentRef: paneRef,
+                                title: surface["title"] as? String ?? "",
+                                ordinal: &ordinal,
+                                to: &rows
+                            )
+
+                            let webviews = topSortedItems(surface["webviews"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
+                            for webview in webviews {
+                                let fallback = topInt(webview["pid"]).map { "pid:\($0)" } ?? "webview"
+                                let webviewRef = topFlatHandle(webview, fallback: fallback, idFormat: idFormat)
+                                appendTopFlatNode(
+                                    webview,
+                                    kind: "webview",
+                                    ref: webviewRef,
+                                    parentRef: surfaceRef,
+                                    title: webview["title"] as? String ?? "",
+                                    ordinal: &ordinal,
+                                    to: &rows
+                                )
+                                if showProcesses {
+                                    appendTopFlatProcesses(
+                                        webview["processes"] as? [[String: Any]] ?? [],
+                                        parentRef: webviewRef,
+                                        ordinal: &ordinal,
+                                        to: &rows,
+                                        sortKey: sortKey
+                                    )
+                                }
+                            }
+
+                            if showProcesses {
+                                appendTopFlatProcesses(
+                                    surface["processes"] as? [[String: Any]] ?? [],
+                                    parentRef: surfaceRef,
+                                    ordinal: &ordinal,
+                                    to: &rows,
+                                    sortKey: sortKey
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return rows.map(topFlatTSVLine).joined(separator: "\n")
+    }
+
+    private func appendTopFlatNode(
+        _ node: [String: Any],
+        kind: String,
+        ref: String,
+        parentRef: String,
+        title: String,
+        ordinal: inout Int,
+        to rows: inout [TopFlatRow]
+    ) {
+        appendTopFlatRow(
+            resources: node["resources"] as? [String: Any] ?? [:],
+            kind: kind,
+            ref: ref,
+            parentRef: parentRef,
+            title: title,
+            ordinal: &ordinal,
+            to: &rows
+        )
+    }
+
+    private func appendTopFlatProcesses(
+        _ processes: [[String: Any]],
+        parentRef: String,
+        ordinal: inout Int,
+        to rows: inout [TopFlatRow],
+        sortKey: TopSortKey?
+    ) {
+        for process in topSortedItems(processes, sortKey: sortKey, node: { $0 }) {
+            let processRef = topInt(process["pid"]).map(String.init)
+                ?? topFlatHandle(process, fallback: "process", idFormat: .refs)
+            appendTopFlatNode(
+                process,
+                kind: "process",
+                ref: processRef,
+                parentRef: parentRef,
+                title: process["name"] as? String ?? "",
+                ordinal: &ordinal,
+                to: &rows
+            )
+            appendTopFlatProcesses(
+                process["children"] as? [[String: Any]] ?? [],
+                parentRef: processRef,
+                ordinal: &ordinal,
+                to: &rows,
+                sortKey: sortKey
+            )
+        }
+    }
+
+    private func appendTopFlatRow(
+        resources: [String: Any],
+        kind: String,
+        ref: String,
+        parentRef: String,
+        title: String,
+        ordinal: inout Int,
+        to rows: inout [TopFlatRow]
+    ) {
+        rows.append(TopFlatRow(
+            resources: resources,
+            kind: kind,
+            ref: ref,
+            parentRef: parentRef,
+            title: title,
+            ordinal: ordinal
+        ))
+        ordinal += 1
+    }
+
+    private func topFlatHandle(_ node: [String: Any], fallback: String, idFormat: CLIIDFormat) -> String {
+        let handle = topLabelText(textHandle(node, idFormat: idFormat))
+        if handle != "?" {
+            return handle
+        }
+        let sanitizedFallback = topLabelText(fallback)
+        return sanitizedFallback.isEmpty ? "unknown" : sanitizedFallback
+    }
+
+    private func topFlatTSVLine(_ row: TopFlatRow) -> String {
+        [
+            topFlatCPU(row.resources),
+            String(topInt64(row.resources["resident_bytes"])),
+            String(topInt(row.resources["process_count"]) ?? 0),
+            topTSVField(row.kind),
+            topTSVField(row.ref),
+            topTSVField(row.parentRef),
+            topTSVField(row.title),
+        ].joined(separator: "\t")
+    }
+
+    private func topFlatCPU(_ resources: [String: Any]) -> String {
+        let value = topDouble(resources["cpu_percent"])
+        guard value.isFinite else { return "0.0" }
+        return String(format: "%.1f", value)
+    }
+
+    private func topTSVField(_ raw: String) -> String {
+        topLabelText(raw)
+    }
+
     private func appendTopProcessLines(
         _ processes: [[String: Any]],
         to lines: inout [String],
-        indent: String
+        indent: String,
+        sortKey: TopSortKey?
     ) {
-        for (index, process) in processes.enumerated() {
-            let isLast = index == processes.count - 1
+        let sortedProcesses = topSortedItems(processes, sortKey: sortKey, node: { $0 })
+        for (index, process) in sortedProcesses.enumerated() {
+            let isLast = index == sortedProcesses.count - 1
             let branch = isLast ? "└── " : "├── "
             let childIndent = isLast ? "    " : "│   "
             lines.append("\(topResourceColumns(node: process))\(indent)\(branch)\(topProcessLabel(process))")
             appendTopProcessLines(
                 process["children"] as? [[String: Any]] ?? [],
                 to: &lines,
-                indent: indent + childIndent
+                indent: indent + childIndent,
+                sortKey: sortKey
             )
         }
     }
@@ -12836,6 +13266,1148 @@ struct CMUXCLI {
         }
         let code = errno
         throw CLIError(message: "Failed to launch claude: \(String(cString: strerror(code)))")
+    }
+
+    // MARK: - cmux codex-teams
+
+    private static let codexTeamsMaxAutoDepth = 2
+    private static let codexTeamsReconcileInterval: TimeInterval = 1
+    private static let codexTeamsProbeClientName = "codex_app_server_daemon"
+    private static let codexTeamsWatcherClientName = "cmux-codex-teams"
+    private static let codexTeamsClientVersion = "0.1.0"
+
+    private struct CodexTeamsSpawn {
+        let parentThreadId: String
+        let sourceDepth: Int?
+        let agentNickname: String?
+        let agentRole: String?
+    }
+
+    private struct CodexTeamsThread {
+        let id: String
+        let cwd: String?
+        let statusType: String?
+        let agentNickname: String?
+        let agentRole: String?
+        let spawn: CodexTeamsSpawn?
+    }
+
+    private final class CodexTeamsAsyncBox<Value>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: Value?
+
+        func set(_ value: Value) {
+            lock.lock()
+            stored = value
+            lock.unlock()
+        }
+
+        func take() -> Value? {
+            lock.lock()
+            defer { lock.unlock() }
+            let value = stored
+            stored = nil
+            return value
+        }
+    }
+
+    private final class CodexTeamsAppServerConnection {
+        private let session: URLSession
+        private let task: URLSessionWebSocketTask
+        private var nextRequestId = 1
+
+        init(url: URL) {
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.timeoutIntervalForRequest = 10
+            configuration.timeoutIntervalForResource = 10
+            session = URLSession(configuration: configuration)
+            task = session.webSocketTask(with: url)
+        }
+
+        func resume() {
+            task.resume()
+        }
+
+        func close() {
+            task.cancel(with: .normalClosure, reason: nil)
+            session.invalidateAndCancel()
+        }
+
+        func initialize(clientName: String, version: String, responseTimeout: TimeInterval = 10) throws {
+            _ = try request(
+                method: "initialize",
+                params: [
+                    "clientInfo": [
+                        "name": clientName,
+                        "title": "cmux Codex Teams",
+                        "version": version
+                    ],
+                    "capabilities": [
+                        "experimentalApi": true
+                    ]
+                ],
+                notificationHandler: nil,
+                responseTimeout: responseTimeout
+            )
+            try sendObject(["method": "initialized"], timeout: responseTimeout)
+        }
+
+        func request(
+            method: String,
+            params: [String: Any]? = nil,
+            notificationHandler: (([String: Any]) throws -> Void)? = nil,
+            responseTimeout: TimeInterval = 10
+        ) throws -> [String: Any] {
+            let requestId = nextRequestId
+            nextRequestId += 1
+            var object: [String: Any] = [
+                "id": requestId,
+                "method": method
+            ]
+            if let params {
+                object["params"] = params
+            }
+            try sendObject(object, timeout: responseTimeout)
+
+            while true {
+                let message = try receiveObject(timeout: responseTimeout)
+                if CodexTeamsAppServerConnection.message(message, hasId: requestId) {
+                    if let error = message["error"] as? [String: Any] {
+                        let message = (error["message"] as? String) ?? "Codex app-server request failed"
+                        throw CLIError(message: message)
+                    }
+                    if let result = message["result"] as? [String: Any] {
+                        return result
+                    }
+                    return ["result": message["result"] ?? NSNull()]
+                }
+
+                if message["method"] is String {
+                    try notificationHandler?(message)
+                }
+            }
+        }
+
+        func receiveObject(timeout: TimeInterval? = nil) throws -> [String: Any] {
+            let semaphore = DispatchSemaphore(value: 0)
+            let box = CodexTeamsAsyncBox<Result<URLSessionWebSocketTask.Message, Error>>()
+            task.receive { result in
+                box.set(result)
+                semaphore.signal()
+            }
+
+            if let timeout,
+               semaphore.wait(timeout: .now() + timeout) == .timedOut {
+                task.cancel(with: .goingAway, reason: nil)
+                throw CLIError(message: "Timed out waiting for Codex app-server response")
+            }
+            if timeout == nil {
+                semaphore.wait()
+            }
+            guard let result = box.take() else {
+                throw CLIError(message: "Codex app-server receive failed")
+            }
+
+            switch result {
+            case .success(.string(let text)):
+                return try Self.decodeObject(Data(text.utf8))
+            case .success(.data(let data)):
+                return try Self.decodeObject(data)
+            case .success:
+                throw CLIError(message: "Codex app-server sent an unsupported websocket message")
+            case .failure(let error):
+                throw error
+            }
+        }
+
+        private func sendObject(_ object: [String: Any], timeout: TimeInterval = 10) throws {
+            let data = try JSONSerialization.data(withJSONObject: object, options: [])
+            guard let text = String(data: data, encoding: .utf8) else {
+                throw CLIError(message: "Failed to encode Codex app-server request")
+            }
+
+            let semaphore = DispatchSemaphore(value: 0)
+            let box = CodexTeamsAsyncBox<Error?>()
+            task.send(.string(text)) { error in
+                box.set(error)
+                semaphore.signal()
+            }
+
+            if semaphore.wait(timeout: .now() + timeout) == .timedOut {
+                throw CLIError(message: "Timed out sending Codex app-server request")
+            }
+            if let error = box.take() ?? nil {
+                throw error
+            }
+        }
+
+        private static func decodeObject(_ data: Data) throws -> [String: Any] {
+            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw CLIError(message: "Codex app-server sent invalid JSON")
+            }
+            return object
+        }
+
+        private static func message(_ message: [String: Any], hasId requestId: Int) -> Bool {
+            if let id = message["id"] as? Int {
+                return id == requestId
+            }
+            if let id = message["id"] as? NSNumber {
+                return id.intValue == requestId
+            }
+            if let id = message["id"] as? String {
+                return id == String(requestId)
+            }
+            return false
+        }
+
+        func canResumeThread(threadId: String) -> Bool {
+            do {
+                _ = try request(
+                    method: "thread/resume",
+                    params: [
+                        "threadId": threadId,
+                        "excludeTurns": true
+                    ],
+                    notificationHandler: nil,
+                    responseTimeout: 2
+                )
+                return true
+            } catch {
+                return false
+            }
+        }
+    }
+
+    private final class CodexTeamsWatcher {
+        private let appServerURL: String
+        private let workspaceId: String
+        private let rootSurfaceId: String
+        private let codexExecutable: String
+        private let launchPath: String?
+        private let maxAutoDepth: Int
+        private let socketClient: SocketClient
+
+        private var knownThreadIds = Set<String>()
+        private var parentByThreadId: [String: String] = [:]
+        private var depthByThreadId: [String: Int] = [:]
+        private var pendingByParentThreadId: [String: [CodexTeamsThread]] = [:]
+        private var threadById: [String: CodexTeamsThread] = [:]
+        private var pendingThreadIds = Set<String>()
+        private var openedThreadIds = Set<String>()
+        private var readinessProbeThreadIds = Set<String>()
+        private var attachableThreadIds = Set<String>()
+        private let readinessLock = NSLock()
+        private let stateLock = NSLock()
+        private var lastAgentSurfaceId: String?
+
+        init(
+            appServerURL: String,
+            workspaceId: String,
+            rootSurfaceId: String,
+            codexExecutable: String,
+            launchPath: String?,
+            maxAutoDepth: Int,
+            socketClient: SocketClient
+        ) {
+            self.appServerURL = appServerURL
+            self.workspaceId = workspaceId
+            self.rootSurfaceId = rootSurfaceId
+            self.codexExecutable = codexExecutable
+            self.launchPath = launchPath
+            self.maxAutoDepth = max(0, maxAutoDepth)
+            self.socketClient = socketClient
+        }
+
+        func run() throws {
+            guard let url = URL(string: appServerURL) else {
+                throw CLIError(message: "Invalid Codex app-server URL: \(appServerURL)")
+            }
+            let reconcileWaiter = DispatchSemaphore(value: 0)
+            while true {
+                let connection = CodexTeamsAppServerConnection(url: url)
+                connection.resume()
+                do {
+                    defer { connection.close() }
+                    try connection.initialize(
+                        clientName: CMUXCLI.codexTeamsWatcherClientName,
+                        version: CMUXCLI.codexTeamsClientVersion
+                    )
+                    try backfillLoadedThreads(connection: connection)
+                    try listenForNotifications(connection: connection)
+                } catch {
+                    fputs("cmux codex-teams watcher connection failed: \(error)\n", stderr)
+                }
+                _ = reconcileWaiter.wait(timeout: .now() + CMUXCLI.codexTeamsReconcileInterval)
+            }
+        }
+
+        private func backfillLoadedThreads(connection: CodexTeamsAppServerConnection) throws {
+            let loaded = try connection.request(
+                method: "thread/loaded/list",
+                params: ["limit": 200],
+                notificationHandler: { [weak self] message in
+                    try self?.handleNotification(message)
+                }
+            )
+            let threadIds = loaded["data"] as? [String] ?? []
+            for threadId in threadIds {
+                let read: [String: Any]
+                do {
+                    read = try connection.request(
+                        method: "thread/read",
+                        params: [
+                            "threadId": threadId,
+                            "includeTurns": false
+                        ],
+                        notificationHandler: { [weak self] message in
+                            try self?.handleNotification(message)
+                        }
+                    )
+                } catch {
+                    fputs("cmux codex-teams watcher skipped unreadable thread \(threadId): \(error)\n", stderr)
+                    continue
+                }
+                if let threadObject = read["thread"] as? [String: Any],
+                   let thread = CMUXCLI.codexTeamsThread(from: threadObject) {
+                    try observeThreadSafely(thread)
+                }
+            }
+        }
+
+        private func listenForNotifications(connection: CodexTeamsAppServerConnection) throws {
+            while true {
+                let message = try connection.receiveObject()
+                try handleNotification(message)
+            }
+        }
+
+        private func handleNotification(_ message: [String: Any]) throws {
+            guard let method = message["method"] as? String else { return }
+            guard method.hasPrefix("thread/"),
+                  let params = message["params"] as? [String: Any],
+                  let threadObject = params["thread"] as? [String: Any],
+                  let thread = CMUXCLI.codexTeamsThread(from: threadObject) else {
+                return
+            }
+            try observeThreadSafely(thread)
+        }
+
+        private func observeThreadSafely(_ thread: CodexTeamsThread) throws {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            try observeThread(thread)
+        }
+
+        private func observeThread(_ thread: CodexTeamsThread) throws {
+            threadById[thread.id] = thread
+            if knownThreadIds.contains(thread.id) {
+                if let spawn = thread.spawn {
+                    if parentByThreadId[thread.id] == nil {
+                        try observeSpawn(thread, spawn: spawn)
+                    } else if !openedThreadIds.contains(thread.id) {
+                        try openObservedSubagent(thread, spawn: spawn)
+                    }
+                }
+                return
+            }
+
+            knownThreadIds.insert(thread.id)
+            if let spawn = thread.spawn {
+                try observeSpawn(thread, spawn: spawn)
+            } else {
+                depthByThreadId[thread.id] = 0
+            }
+
+            try drainPendingChildren(parentThreadId: thread.id)
+        }
+
+        private func observeSpawn(
+            _ thread: CodexTeamsThread,
+            spawn: CodexTeamsSpawn
+        ) throws {
+            parentByThreadId[thread.id] = spawn.parentThreadId
+            guard knownThreadIds.contains(spawn.parentThreadId),
+                  depthByThreadId[spawn.parentThreadId] != nil else {
+                if pendingThreadIds.insert(thread.id).inserted {
+                    pendingByParentThreadId[spawn.parentThreadId, default: []].append(thread)
+                }
+                return
+            }
+            pendingThreadIds.remove(thread.id)
+            try openObservedSubagent(thread, spawn: spawn)
+        }
+
+        private func drainPendingChildren(parentThreadId: String) throws {
+            guard let pending = pendingByParentThreadId.removeValue(forKey: parentThreadId) else {
+                return
+            }
+            for child in pending {
+                pendingThreadIds.remove(child.id)
+                guard let spawn = child.spawn else { continue }
+                try openObservedSubagent(child, spawn: spawn)
+                try drainPendingChildren(parentThreadId: child.id)
+            }
+        }
+
+        private func openObservedSubagent(
+            _ thread: CodexTeamsThread,
+            spawn: CodexTeamsSpawn
+        ) throws {
+            let parentDepth = depthByThreadId[spawn.parentThreadId]
+            let depth = parentDepth.map { $0 + 1 } ?? max(spawn.sourceDepth ?? 1, 1)
+            depthByThreadId[thread.id] = depth
+            guard depth <= maxAutoDepth else { return }
+            guard !openedThreadIds.contains(thread.id) else { return }
+            guard CMUXCLI.codexTeamsThreadMayBeAttachable(thread) else { return }
+            guard codexTeamsConsumeAttachableThreadId(thread.id) else {
+                codexTeamsScheduleReadinessProbe(threadId: thread.id)
+                return
+            }
+
+            do {
+                try openSubagent(thread, spawn: spawn, depth: depth)
+            } catch {
+                if lastAgentSurfaceId != nil {
+                    lastAgentSurfaceId = nil
+                    try openSubagent(thread, spawn: spawn, depth: depth)
+                } else {
+                    throw error
+                }
+            }
+            openedThreadIds.insert(thread.id)
+        }
+
+        private func codexTeamsScheduleReadinessProbe(threadId: String) {
+            readinessLock.lock()
+            if attachableThreadIds.contains(threadId)
+                || readinessProbeThreadIds.contains(threadId)
+                || openedThreadIds.contains(threadId) {
+                readinessLock.unlock()
+                return
+            }
+            readinessProbeThreadIds.insert(threadId)
+            readinessLock.unlock()
+
+            let appServerURL = appServerURL
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                let isAttachable = CMUXCLI.codexTeamsThreadCanResume(
+                    appServerURL: appServerURL,
+                    threadId: threadId
+                )
+                guard let self else { return }
+                self.readinessLock.lock()
+                self.readinessProbeThreadIds.remove(threadId)
+                if isAttachable {
+                    self.attachableThreadIds.insert(threadId)
+                }
+                self.readinessLock.unlock()
+                guard isAttachable else { return }
+                do {
+                    try self.openAttachableThread(threadId: threadId)
+                } catch {
+                    fputs("cmux codex-teams watcher failed to open ready subagent \(threadId): \(error)\n", stderr)
+                }
+            }
+        }
+
+        private func openAttachableThread(threadId: String) throws {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            guard let thread = threadById[threadId],
+                  let spawn = thread.spawn,
+                  parentByThreadId[threadId] != nil else {
+                return
+            }
+            try openObservedSubagent(thread, spawn: spawn)
+        }
+
+        private func codexTeamsConsumeAttachableThreadId(_ threadId: String) -> Bool {
+            readinessLock.lock()
+            defer { readinessLock.unlock() }
+            guard attachableThreadIds.remove(threadId) != nil else {
+                return false
+            }
+            return true
+        }
+
+        private func openSubagent(
+            _ thread: CodexTeamsThread,
+            spawn: CodexTeamsSpawn,
+            depth: Int
+        ) throws {
+            let commandText = CMUXCLI.codexTeamsResumeCommandText(
+                codexExecutable: codexExecutable,
+                appServerURL: appServerURL,
+                threadId: thread.id,
+                launchPath: launchPath
+            )
+            guard let startupScript = CMUXCLI.codexTeamsStartupScript(commandText: commandText, cwd: thread.cwd) else {
+                throw CLIError(message: "Failed to create Codex subagent startup script")
+            }
+
+            let targetSurfaceId = lastAgentSurfaceId ?? rootSurfaceId
+            let direction = lastAgentSurfaceId == nil ? "right" : "down"
+            var splitParams: [String: Any] = [
+                "workspace_id": workspaceId,
+                "surface_id": targetSurfaceId,
+                "direction": direction,
+                "focus": false,
+                "initial_command": startupScript,
+                "tmux_start_command": commandText
+            ]
+            if let cwd = thread.cwd?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !cwd.isEmpty {
+                splitParams["working_directory"] = cwd
+            }
+
+            let created = try socketClient.sendV2(method: "surface.split", params: splitParams)
+            guard let surfaceId = created["surface_id"] as? String else {
+                throw CLIError(message: "surface.split did not return surface_id")
+            }
+            lastAgentSurfaceId = surfaceId
+
+            do {
+                _ = try socketClient.sendV2(method: "tab.action", params: [
+                    "workspace_id": workspaceId,
+                    "surface_id": surfaceId,
+                    "action": "rename",
+                    "title": CMUXCLI.codexTeamsTitle(thread: thread, spawn: spawn, depth: depth)
+                ])
+            } catch {
+                // The subagent pane already exists, so a rename failure should not stop watching.
+            }
+            do {
+                _ = try socketClient.sendV2(method: "workspace.equalize_splits", params: [
+                    "workspace_id": workspaceId,
+                    "orientation": "vertical"
+                ])
+            } catch {
+                // Layout polish is best-effort after the pane is opened.
+            }
+        }
+    }
+
+    private static func codexTeamsThreadCanResume(appServerURL: String, threadId: String) -> Bool {
+        guard let url = URL(string: appServerURL) else {
+            return false
+        }
+        let connection = CodexTeamsAppServerConnection(url: url)
+        connection.resume()
+        do {
+            defer { connection.close() }
+            try connection.initialize(
+                clientName: codexTeamsProbeClientName,
+                version: codexTeamsClientVersion,
+                responseTimeout: 1
+            )
+            return connection.canResumeThread(threadId: threadId)
+        } catch {
+            return false
+        }
+    }
+
+    private static func codexTeamsThread(from object: [String: Any]) -> CodexTeamsThread? {
+        guard let id = object["id"] as? String, !id.isEmpty else { return nil }
+        return CodexTeamsThread(
+            id: id,
+            cwd: object["cwd"] as? String,
+            statusType: codexTeamsStatusType(from: object),
+            agentNickname: object["agentNickname"] as? String,
+            agentRole: object["agentRole"] as? String,
+            spawn: codexTeamsSpawn(from: object)
+        )
+    }
+
+    private static func codexTeamsStatusType(from threadObject: [String: Any]) -> String? {
+        guard let status = threadObject["status"] as? [String: Any] else {
+            return nil
+        }
+        return status["type"] as? String
+    }
+
+    private static func codexTeamsThreadMayBeAttachable(_ thread: CodexTeamsThread) -> Bool {
+        guard let statusType = thread.statusType?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !statusType.isEmpty else {
+            return false
+        }
+        let normalized = statusType
+            .replacingOccurrences(of: "_", with: "")
+            .lowercased()
+        return normalized != "notloaded"
+    }
+
+    private static func codexTeamsSpawn(from threadObject: [String: Any]) -> CodexTeamsSpawn? {
+        guard let source = threadObject["source"] as? [String: Any] else { return nil }
+        let subagentSource = source["subAgent"] ?? source["subagent"]
+        guard let subagent = subagentSource as? [String: Any] else { return nil }
+        let spawnSource = subagent["thread_spawn"] ?? subagent["threadSpawn"]
+        guard let spawn = spawnSource as? [String: Any],
+              let parentThreadId = (spawn["parent_thread_id"] as? String) ?? (spawn["parentThreadId"] as? String),
+              !parentThreadId.isEmpty else {
+            return nil
+        }
+
+        let sourceDepth: Int?
+        if let depth = spawn["depth"] as? Int {
+            sourceDepth = depth
+        } else if let depth = spawn["depth"] as? NSNumber {
+            sourceDepth = depth.intValue
+        } else {
+            sourceDepth = nil
+        }
+
+        return CodexTeamsSpawn(
+            parentThreadId: parentThreadId,
+            sourceDepth: sourceDepth,
+            agentNickname: spawn["agent_nickname"] as? String ?? spawn["agentNickname"] as? String,
+            agentRole: spawn["agent_role"] as? String ?? spawn["agentRole"] as? String
+        )
+    }
+
+    private static func codexTeamsResumeCommandText(
+        codexExecutable: String,
+        appServerURL: String,
+        threadId: String,
+        launchPath: String?
+    ) -> String {
+        var parts = ["env"]
+        if let launchPath,
+           !launchPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append("PATH=\(launchPath)")
+        }
+        parts += [
+            "CMUX_CODEX_TEAMS_APP_SERVER_URL=\(appServerURL)",
+            codexExecutable,
+            "resume",
+            "--remote",
+            appServerURL,
+            threadId
+        ]
+        return parts
+            .map { codexTeamsShellQuote($0) }
+            .joined(separator: " ")
+    }
+
+    private static func codexTeamsShellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    private static func codexTeamsStartupScript(commandText: String, cwd: String?) -> String? {
+        let scriptURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-teams-\(UUID().uuidString.lowercased()).sh")
+        var lines = [
+            "#!/bin/sh",
+            "rm -f -- \"$0\" 2>/dev/null || true"
+        ]
+        if let cwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines), !cwd.isEmpty {
+            lines.append("cd -- \(codexTeamsShellQuote(cwd)) || exit $?")
+        }
+        lines.append("exec \"${SHELL:-/bin/sh}\" -lc \(codexTeamsShellQuote(commandText))")
+        do {
+            try (lines.joined(separator: "\n") + "\n").write(
+                to: scriptURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
+            return scriptURL.path
+        } catch {
+            return nil
+        }
+    }
+
+    private static func codexTeamsTitle(
+        thread: CodexTeamsThread,
+        spawn: CodexTeamsSpawn,
+        depth: Int
+    ) -> String {
+        let label = [
+            spawn.agentRole,
+            thread.agentRole,
+            spawn.agentNickname,
+            thread.agentNickname
+        ]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+            ?? String(thread.id.prefix(8))
+        return "Codex d\(depth): \(label)"
+    }
+
+    private func runCodexTeams(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?
+    ) throws {
+        let processEnvironment = ProcessInfo.processInfo.environment
+        var launcherEnvironment = codexTeamsAugmentedEnvironment(processEnvironment)
+        launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        launcherEnvironment.removeValue(forKey: "CMUX_SOCKET")
+        if let explicitPassword,
+           !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
+        }
+
+        guard let focusedContext = try tmuxCompatFocusedContext(
+            processEnvironment: launcherEnvironment,
+            explicitPassword: explicitPassword
+        ),
+              let rootSurfaceId = focusedContext.surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rootSurfaceId.isEmpty else {
+            throw CLIError(message: "cmux codex-teams must be started from a cmux terminal surface")
+        }
+
+        let codexExecutablePath = resolveCodexExecutable(searchPath: launcherEnvironment["PATH"])
+        let codexExecutableForShell = codexExecutablePath ?? "codex"
+        let appServerPort = omoBindableLoopbackPort(0) ?? 0
+        guard appServerPort > 0 else {
+            throw CLIError(message: "Failed to allocate a localhost port for Codex app-server")
+        }
+        let appServerURL = "ws://127.0.0.1:\(appServerPort)"
+
+        let appServerLogURL = codexTeamsLogURL(port: appServerPort, name: "app-server")
+        let watcherLogURL = codexTeamsLogURL(port: appServerPort, name: "watcher")
+        let appServer = try startCodexTeamsProcess(
+            executablePath: codexExecutablePath,
+            fallbackName: "codex",
+            arguments: ["app-server", "--listen", appServerURL],
+            environment: launcherEnvironment,
+            logURL: appServerLogURL
+        )
+        var watcher: Process?
+        var rootCodex: Process?
+        let originalForegroundProcessGroup = isatty(STDIN_FILENO) == 1 ? tcgetpgrp(STDIN_FILENO) : -1
+        var didForegroundRootCodex = false
+        func restoreRootCodexForegroundIfNeeded() {
+            guard didForegroundRootCodex else { return }
+            try? setTerminalForegroundProcessGroup(originalForegroundProcessGroup)
+            didForegroundRootCodex = false
+        }
+        defer {
+            restoreRootCodexForegroundIfNeeded()
+            codexTeamsTerminateProcess(watcher)
+            codexTeamsTerminateProcess(rootCodex)
+            codexTeamsTerminateProcess(appServer)
+        }
+
+        do {
+            try waitForCodexTeamsAppServer(appServerURL: appServerURL)
+        } catch {
+            throw CLIError(message: "\(error)\nCodex app-server log: \(appServerLogURL.path)")
+        }
+
+        setenv("CMUX_SOCKET_PATH", socketPath, 1)
+        unsetenv("CMUX_SOCKET")
+        if let explicitPassword,
+           !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            setenv("CMUX_SOCKET_PASSWORD", explicitPassword, 1)
+        }
+        setenv("CMUX_CODEX_TEAMS_APP_SERVER_URL", appServerURL, 1)
+        setenv("CMUX_CODEX_TEAMS_MAX_AUTO_DEPTH", String(Self.codexTeamsMaxAutoDepth), 1)
+        let launchExecutable = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
+        let launchArguments = [launchExecutable, "codex-teams"] + commandArgs
+        exportAgentLaunchCommandEnvironment(
+            launcher: "codexTeams",
+            executablePath: launchExecutable,
+            arguments: launchArguments,
+            workingDirectory: launcherEnvironment["PWD"]
+        )
+
+        var rootEnvironment = launcherEnvironment
+        rootEnvironment["CMUX_CODEX_TEAMS_APP_SERVER_URL"] = appServerURL
+        rootEnvironment["CMUX_CODEX_TEAMS_MAX_AUTO_DEPTH"] = String(Self.codexTeamsMaxAutoDepth)
+        rootEnvironment["CMUX_AGENT_LAUNCH_KIND"] = "codexTeams"
+        rootEnvironment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = launchExecutable
+        rootEnvironment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Self.nulSeparatedBase64(launchArguments)
+        if let workingDirectory = launcherEnvironment["PWD"],
+           !workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            rootEnvironment["CMUX_AGENT_LAUNCH_CWD"] = workingDirectory
+        } else {
+            rootEnvironment.removeValue(forKey: "CMUX_AGENT_LAUNCH_CWD")
+        }
+
+        rootCodex = try startCodexTeamsProcess(
+            executablePath: codexExecutablePath,
+            fallbackName: "codex",
+            arguments: codexTeamsRootArguments(appServerURL: appServerURL, commandArgs: commandArgs),
+            environment: rootEnvironment,
+            standardInput: FileHandle.standardInput,
+            standardOutput: FileHandle.standardOutput,
+            standardError: FileHandle.standardError
+        )
+        if originalForegroundProcessGroup > 0,
+           let rootCodex {
+            let childProcessGroup = getpgid(rootCodex.processIdentifier)
+            if childProcessGroup > 0 && childProcessGroup != originalForegroundProcessGroup {
+                try setTerminalForegroundProcessGroup(childProcessGroup)
+                _ = Darwin.kill(-childProcessGroup, SIGCONT)
+                didForegroundRootCodex = true
+            }
+        }
+
+        let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
+        var watcherArguments = [
+            "--socket",
+            socketPath,
+            "__codex-teams-watch",
+            "--workspace-id",
+            focusedContext.workspaceId,
+            "--surface-id",
+            rootSurfaceId,
+            "--app-server-url",
+            appServerURL,
+            "--codex-path",
+            codexExecutableForShell,
+            "--launch-path",
+            codexTeamsSubagentLaunchPath(launcherEnvironment["PATH"]),
+            "--max-auto-depth",
+            String(Self.codexTeamsMaxAutoDepth)
+        ]
+        if let explicitPassword,
+           !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            watcherArguments.insert(contentsOf: ["--password", explicitPassword], at: 2)
+        }
+        if let rootPid = rootCodex?.processIdentifier {
+            watcherArguments += ["--owner-pid", String(rootPid)]
+        }
+        watcherArguments += ["--app-server-pid", String(appServer.processIdentifier)]
+
+        watcher = try startCodexTeamsProcess(
+            executablePath: executablePath,
+            fallbackName: "cmux",
+            arguments: watcherArguments,
+            environment: launcherEnvironment,
+            logURL: watcherLogURL
+        )
+
+        rootCodex?.waitUntilExit()
+        let status = rootCodex?.terminationStatus ?? 0
+        restoreRootCodexForegroundIfNeeded()
+        codexTeamsTerminateProcess(watcher)
+        codexTeamsTerminateProcess(appServer)
+        exit(status)
+    }
+
+    private func codexTeamsAugmentedEnvironment(_ environment: [String: String]) -> [String: String] {
+        var result = environment
+        result["PATH"] = codexTeamsAugmentedPath(environment: environment)
+        return result
+    }
+
+    private func codexTeamsAugmentedPath(environment: [String: String]) -> String {
+        var entries: [String] = []
+        var seen = Set<String>()
+
+        func appendPathList(_ path: String?) {
+            for entry in path?.split(separator: ":").map(String.init) ?? [] {
+                codexTeamsAppendPathEntry(entry, entries: &entries, seen: &seen)
+            }
+        }
+
+        appendPathList(environment["PATH"])
+        appendPathList(codexTeamsLoginShellPath(environment: environment))
+
+        guard let home = environment["HOME"], !home.isEmpty else {
+            return entries.joined(separator: ":")
+        }
+
+        [
+            "\(home)/.nvm/current/bin",
+            "\(home)/.volta/bin",
+            "\(home)/.fnm/current/bin",
+            "\(home)/.bun/bin",
+            "\(home)/.local/share/mise/shims",
+            "\(home)/.asdf/shims",
+            "/opt/homebrew/bin",
+            "/usr/local/bin"
+        ].forEach { codexTeamsAppendPathEntry($0, entries: &entries, seen: &seen) }
+
+        codexTeamsAppendNodeVersionBins(
+            root: "\(home)/.nvm/versions/node",
+            suffix: "bin",
+            entries: &entries,
+            seen: &seen
+        )
+        codexTeamsAppendNodeVersionBins(
+            root: "\(home)/Library/Application Support/fnm/node-versions",
+            suffix: "installation/bin",
+            entries: &entries,
+            seen: &seen
+        )
+        codexTeamsAppendNodeVersionBins(
+            root: "\(home)/.local/share/fnm/node-versions",
+            suffix: "installation/bin",
+            entries: &entries,
+            seen: &seen
+        )
+
+        return entries.joined(separator: ":")
+    }
+
+    private func codexTeamsSubagentLaunchPath(_ path: String?) -> String {
+        return path?
+            .split(separator: ":")
+            .map(String.init)
+            .filter { !$0.isEmpty }
+            .joined(separator: ":") ?? ""
+    }
+
+    private func codexTeamsAppendPathEntry(
+        _ entry: String,
+        entries: inout [String],
+        seen: inout Set<String>
+    ) {
+        let trimmed = entry.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !seen.contains(trimmed) else { return }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: trimmed, isDirectory: &isDirectory),
+              isDirectory.boolValue else { return }
+        seen.insert(trimmed)
+        entries.append(trimmed)
+    }
+
+    private func codexTeamsAppendNodeVersionBins(
+        root: String,
+        suffix: String,
+        entries: inout [String],
+        seen: inout Set<String>
+    ) {
+        let rootURL = URL(fileURLWithPath: root, isDirectory: true)
+        guard let versionURLs = try? FileManager.default.contentsOfDirectory(
+            at: rootURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return
+        }
+
+        for versionURL in versionURLs.sorted(by: codexTeamsNodeVersionURLSortPrecedes) {
+            let binURL = suffix.split(separator: "/").reduce(versionURL) { partial, component in
+                partial.appendingPathComponent(String(component), isDirectory: true)
+            }
+            codexTeamsAppendPathEntry(binURL.path, entries: &entries, seen: &seen)
+        }
+    }
+
+    private func codexTeamsNodeVersionURLSortPrecedes(_ lhs: URL, _ rhs: URL) -> Bool {
+        let comparison = lhs.lastPathComponent.compare(
+            rhs.lastPathComponent,
+            options: [.caseInsensitive, .numeric]
+        )
+        if comparison != .orderedSame {
+            return comparison == .orderedDescending
+        }
+        return lhs.path > rhs.path
+    }
+
+    private func codexTeamsLoginShellPath(environment: [String: String]) -> String? {
+        let shellPath = environment["SHELL"].flatMap { shell -> String? in
+            guard shell.hasPrefix("/"),
+                  FileManager.default.isExecutableFile(atPath: shell) else {
+                return nil
+            }
+            return shell
+        } ?? "/bin/zsh"
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: shellPath)
+        process.arguments = ["-lc", "printf %s \"$PATH\""]
+        process.environment = environment
+
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle(forWritingAtPath: "/dev/null")
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+
+        let outputBox = CodexTeamsAsyncBox<Data>()
+        let outputReadSemaphore = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .utility).async {
+            outputBox.set(output.fileHandleForReading.readDataToEndOfFile())
+            outputReadSemaphore.signal()
+        }
+
+        let semaphore = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .utility).async {
+            process.waitUntilExit()
+            semaphore.signal()
+        }
+        guard semaphore.wait(timeout: .now() + 2) != .timedOut else {
+            process.terminate()
+            return nil
+        }
+
+        _ = outputReadSemaphore.wait(timeout: .now() + 1)
+        let data = outputBox.take() ?? Data()
+        let path = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return path?.isEmpty == false ? path : nil
+    }
+
+    private func codexTeamsRootArguments(appServerURL: String, commandArgs: [String]) -> [String] {
+        guard let first = commandArgs.first, first == "resume" || first == "fork" else {
+            return ["--remote", appServerURL] + commandArgs
+        }
+        return [first, "--remote", appServerURL] + Array(commandArgs.dropFirst())
+    }
+
+    private func codexTeamsLogURL(port: UInt16, name: String) -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-teams-\(port)-\(name).log")
+    }
+
+    private func waitForCodexTeamsAppServer(appServerURL: String) throws {
+        guard let url = URL(string: appServerURL) else {
+            throw CLIError(message: "Invalid Codex app-server URL: \(appServerURL)")
+        }
+        var lastError: Error?
+        let deadline = Date().addingTimeInterval(8)
+        let retryWaiter = DispatchSemaphore(value: 0)
+        while Date() < deadline {
+            let connection = CodexTeamsAppServerConnection(url: url)
+            connection.resume()
+            do {
+                defer { connection.close() }
+                let responseTimeout = max(0.1, min(1, deadline.timeIntervalSinceNow))
+                try connection.initialize(
+                    clientName: Self.codexTeamsProbeClientName,
+                    version: Self.codexTeamsClientVersion,
+                    responseTimeout: responseTimeout
+                )
+                return
+            } catch {
+                lastError = error
+                let retryDelay = max(0.01, min(0.1, deadline.timeIntervalSinceNow))
+                _ = retryWaiter.wait(timeout: .now() + retryDelay)
+            }
+        }
+        throw CLIError(message: "Codex app-server did not become ready: \(lastError.map { String(describing: $0) } ?? "unknown error")")
+    }
+
+    private func startCodexTeamsProcess(
+        executablePath: String?,
+        fallbackName: String,
+        arguments: [String],
+        environment: [String: String]? = nil,
+        logURL: URL? = nil,
+        standardInput: Any? = nil,
+        standardOutput: Any? = nil,
+        standardError: Any? = nil
+    ) throws -> Process {
+        let process = Process()
+        if let executablePath, executablePath.hasPrefix("/") {
+            process.executableURL = URL(fileURLWithPath: executablePath)
+            process.arguments = arguments
+        } else {
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = [executablePath ?? fallbackName] + arguments
+        }
+        process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        process.environment = environment
+
+        if let logURL {
+            process.standardInput = standardInput ?? FileHandle(forReadingAtPath: "/dev/null")
+            let descriptor = Darwin.open(
+                logURL.path,
+                O_WRONLY | O_CREAT | O_TRUNC | O_APPEND,
+                S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH
+            )
+            guard descriptor >= 0 else {
+                throw CLIError(message: "Failed to open Codex Teams log \(logURL.path): \(String(cString: strerror(errno)))")
+            }
+            let logHandle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+            process.standardOutput = logHandle
+            process.standardError = logHandle
+        } else {
+            process.standardInput = standardInput
+            process.standardOutput = standardOutput
+            process.standardError = standardError
+        }
+
+        try process.run()
+        return process
+    }
+
+    private func codexTeamsTerminateProcess(_ process: Process?) {
+        guard let process, process.isRunning else { return }
+        process.terminate()
+    }
+
+    private func runCodexTeamsWatcher(commandArgs: [String], client: SocketClient) throws {
+        let (workspaceId, rem0) = parseOption(commandArgs, name: "--workspace-id")
+        let (surfaceId, rem1) = parseOption(rem0, name: "--surface-id")
+        let (appServerURL, rem2) = parseOption(rem1, name: "--app-server-url")
+        let (codexPath, rem3) = parseOption(rem2, name: "--codex-path")
+        let (launchPath, rem4) = parseOption(rem3, name: "--launch-path")
+        let (maxDepthRaw, rem5a) = parseOption(rem4, name: "--max-auto-depth")
+        let (ownerPidRaw, rem5) = parseOption(rem5a, name: "--owner-pid")
+        let (appServerPidRaw, remaining) = parseOption(rem5, name: "--app-server-pid")
+        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: "__codex-teams-watch: unknown flag '\(unknown)'")
+        }
+        guard let workspaceId, !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw CLIError(message: "__codex-teams-watch requires --workspace-id")
+        }
+        guard let surfaceId, !surfaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw CLIError(message: "__codex-teams-watch requires --surface-id")
+        }
+        guard let appServerURL, !appServerURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw CLIError(message: "__codex-teams-watch requires --app-server-url")
+        }
+        let codexExecutable = codexPath?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let maxDepth = Int(maxDepthRaw ?? "") ?? Self.codexTeamsMaxAutoDepth
+        let ownerPid = ownerPidRaw.flatMap { Int32($0) } ?? 0
+        let appServerPid = appServerPidRaw.flatMap { Int32($0) } ?? 0
+
+        var ownerSource: DispatchSourceProcess?
+        if ownerPid > 0 {
+            if !codexTeamsProcessExists(ownerPid) {
+                if appServerPid > 0 { kill(appServerPid, SIGTERM) }
+                return
+            }
+            let source = DispatchSource.makeProcessSource(
+                identifier: pid_t(ownerPid),
+                eventMask: .exit,
+                queue: DispatchQueue.global(qos: .utility)
+            )
+            source.setEventHandler {
+                if appServerPid > 0 {
+                    kill(appServerPid, SIGTERM)
+                }
+                exit(0)
+            }
+            source.resume()
+            ownerSource = source
+        }
+
+        let watcher = CodexTeamsWatcher(
+            appServerURL: appServerURL,
+            workspaceId: workspaceId,
+            rootSurfaceId: surfaceId,
+            codexExecutable: (codexExecutable?.isEmpty == false ? codexExecutable! : "codex"),
+            launchPath: launchPath,
+            maxAutoDepth: maxDepth,
+            socketClient: client
+        )
+        withExtendedLifetime(ownerSource) {
+            do {
+                try watcher.run()
+            } catch {
+                fputs("cmux codex-teams watcher stopped: \(error)\n", stderr)
+            }
+        }
+    }
+
+    private func codexTeamsProcessExists(_ pid: Int32) -> Bool {
+        guard pid > 0 else { return false }
+        if kill(pid, 0) == 0 {
+            return true
+        }
+        return errno == EPERM
     }
 
     // MARK: - cmux omo (OpenCode + oh-my-openagent)
@@ -22307,6 +23879,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           feed tui|clear
           themes [list|set|clear]
           claude-teams [claude-args...]
+          codex-teams [codex-args...]
           omo [opencode-args...]
           omx [omx-args...]
           omc [omc-args...]
@@ -22339,7 +23912,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           list-panes [--workspace <id|ref>]
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
           tree [--all] [--workspace <id|ref|index>]
-          top [--all] [--workspace <id|ref|index>] [--processes]
+          top [--all] [--workspace <id|ref|index>] [--processes] [--sort <cpu|rss|proc>] [--flat] [--format <tree|tsv>]
           focus-pane --pane <id|ref> [--workspace <id|ref>]
           new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]
           new-surface [--type <terminal|browser>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]
