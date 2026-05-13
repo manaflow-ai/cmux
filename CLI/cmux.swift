@@ -18019,14 +18019,15 @@ struct CMUXCLI {
         client: SocketClient,
         telemetry: CLISocketSentryTelemetry
     ) {
-        guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedWorkspaceId = workspaceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionId.isEmpty, !normalizedWorkspaceId.isEmpty else {
             return
         }
 
         var params: [String: Any] = [
-            "workspace_id": workspaceId,
-            "session_id": sessionId,
+            "workspace_id": normalizedWorkspaceId,
+            "session_id": normalizedSessionId,
         ]
         if let surfaceId = normalizedHookValue(surfaceId) {
             params["surface_id"] = surfaceId
