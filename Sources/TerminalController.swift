@@ -15259,11 +15259,6 @@ class TerminalController {
         return nil
     }
 
-    private func resolveTerminalSurface(from arg: String, tabManager: TabManager, waitUpTo timeout: TimeInterval = 0.6) -> ghostty_surface_t? {
-        guard let terminalPanel = resolveTerminalPanel(from: arg, tabManager: tabManager) else { return nil }
-        return waitForTerminalSurface(terminalPanel, waitUpTo: timeout)
-    }
-
     private func waitForTerminalSurface(_ terminalPanel: TerminalPanel, waitUpTo timeout: TimeInterval = 0.6) -> ghostty_surface_t? {
         if let surface = terminalPanel.surface.surface { return surface }
 

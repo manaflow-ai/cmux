@@ -6154,6 +6154,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private func enqueuePendingSocketInputsIfAllowed(_ inputs: [PendingSocketInput], reason: String) -> TerminalInputDeliveryResult {
+        guard !inputs.isEmpty else { return .empty }
+
         let result = withInputLifecycleLock { () -> (queued: PendingSocketInputQueueSnapshot?, blockReason: String?, discarded: PendingSocketInputDiscard?) in
             guard let blockReason = terminalInputBlockReasonLocked() else {
                 var queued: PendingSocketInputQueueSnapshot?
