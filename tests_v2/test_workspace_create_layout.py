@@ -251,8 +251,8 @@ def test_markdown_surfaces_resolve_paths(c: cmux) -> None:
             )
             pane_ids = {str(s.get("pane_id")) for s in markdown_surfaces}
             _must(len(pane_ids) == 1, f"markdown surfaces should share one pane: {markdown_surfaces!r}")
-            focused_paths = {str(s.get("path")) for s in markdown_surfaces if s.get("focused") is True}
-            _must(focused_paths == {str(plan_path)}, f"focused markdown surface mismatch: {markdown_surfaces!r}")
+            selected_paths = {str(s.get("path")) for s in markdown_surfaces if s.get("selected_in_pane") is True}
+            _must(selected_paths == {str(plan_path)}, f"selected markdown surface mismatch: {markdown_surfaces!r}")
             c.select_workspace(baseline)
         finally:
             if ws:
