@@ -689,6 +689,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var splitButtonTooltipRefreshScheduled = false
+    private var didScheduleGhosttyCrashBreadcrumbCheck = false
+    private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
     private struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
         let windowNumber: Int?
@@ -1572,7 +1574,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if TelemetrySettings.enabledForCurrentLaunch {
             PostHogAnalytics.shared.flush()
         }
+        ghosttyCrashBreadcrumbTask?.cancel()
+        ghosttyCrashBreadcrumbTask = nil
         notificationStore?.clearAll()
+        GhosttyCrashBreadcrumb.markCleanExit()
         enableSuddenTerminationIfNeeded()
     }
 
@@ -1591,6 +1596,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.tabManager = tabManager
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
+        scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
         prepareStartupSessionSnapshotIfNeeded()
@@ -1609,6 +1615,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             scheduleUITestSocketSanityCheckIfNeeded()
         }
 #endif
+    }
+
+    private func scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: TerminalNotificationStore) {
+        guard !didScheduleGhosttyCrashBreadcrumbCheck else { return }
+        didScheduleGhosttyCrashBreadcrumbCheck = true
+
+        ghosttyCrashBreadcrumbTask = Task { [weak self, weak notificationStore] in
+            defer { self?.ghosttyCrashBreadcrumbTask = nil }
+            guard let pendingCrash = await GhosttyCrashBreadcrumb.pendingCrashFromDefaultStorage(),
+                  !Task.isCancelled,
+                  let notificationStore else { return }
+            notificationStore.addNotification(
+                tabId: GhosttyCrashBreadcrumb.notificationTabId,
+                surfaceId: nil,
+                title: String(
+                    localized: "crashBreadcrumb.title",
+                    defaultValue: "cmux crashed during your last session"
+                ),
+                subtitle: String(
+                    localized: "crashBreadcrumb.subtitle",
+                    defaultValue: "Diagnostic file saved"
+                ),
+                body: String(
+                    localized: "crashBreadcrumb.body",
+                    defaultValue: "Diagnostic file saved to ~/.local/state/ghostty/crash/"
+                )
+            )
+            GhosttyCrashBreadcrumb.markShown(pendingCrash)
+        }
     }
 
 #if DEBUG

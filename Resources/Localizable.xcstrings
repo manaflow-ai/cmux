@@ -173,6 +173,57 @@
         }
       }
     },
+    "crashBreadcrumb.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnostic file saved to ~/.local/state/ghostty/crash/"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "診断ファイルは ~/.local/state/ghostty/crash/ に保存されました"
+          }
+        }
+      }
+    },
+    "crashBreadcrumb.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnostic file saved"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "診断ファイルを保存しました"
+          }
+        }
+      }
+    },
+    "crashBreadcrumb.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux crashed during your last session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前回のセッション中に cmux がクラッシュしました"
+          }
+        }
+      }
+    },
     "cli.claude-hook.notification.title": {
       "extractionState": "manual",
       "localizations": {
