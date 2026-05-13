@@ -46,6 +46,7 @@ extension CmuxSettingsFileStore {
         "notifications.customSoundFilePath",
         "notifications.command",
         "sidebar.hideAllDetails",
+        "sidebar.showWorkspaceDescription",
         "sidebar.branchLayout",
         "sidebar.showNotificationMessage",
         "sidebar.showBranchDirectory",
