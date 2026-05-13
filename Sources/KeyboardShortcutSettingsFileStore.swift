@@ -329,6 +329,9 @@ final class CmuxSettingsFileStore {
         if let browserSection = root["browser"] as? [String: Any] {
             parseBrowserSection(browserSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let markdownSection = root["markdown"] as? [String: Any] {
+            parseMarkdownSection(markdownSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let shortcutsSection = root["shortcuts"] {
             parseShortcutsSection(shortcutsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -778,6 +781,120 @@ final class CmuxSettingsFileStore {
         if let raw = jsonString(section["reactGrabVersion"]) {
             snapshot.managedUserDefaults[ReactGrabSettings.versionKey] = .string(raw)
         }
+    }
+
+    private func parseMarkdownSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let raw = jsonString(section["fontFamily"]) {
+            if let normalized = MarkdownTypographySettings.normalizedFontFamily(raw) {
+                snapshot.managedUserDefaults[MarkdownTypographySettings.fontFamilyKey] = .string(normalized)
+            } else {
+                logInvalid("markdown.fontFamily", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("fontFamily") {
+            logInvalid("markdown.fontFamily", sourcePath: sourcePath)
+        }
+
+        parseMarkdownSize(
+            section["fontSize"],
+            path: "markdown.fontSize",
+            defaultsKey: MarkdownTypographySettings.fontSizeKey,
+            range: MarkdownTypographySettings.fontSizeRange,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+
+        if let headingSizes = section["headingSizes"] as? [String: Any] {
+            parseMarkdownSize(
+                headingSizes["h1"],
+                path: "markdown.headingSizes.h1",
+                defaultsKey: MarkdownTypographySettings.headingH1SizeKey,
+                range: MarkdownTypographySettings.headingSizeRange,
+                sourcePath: sourcePath,
+                snapshot: &snapshot
+            )
+            parseMarkdownSize(
+                headingSizes["h2"],
+                path: "markdown.headingSizes.h2",
+                defaultsKey: MarkdownTypographySettings.headingH2SizeKey,
+                range: MarkdownTypographySettings.headingSizeRange,
+                sourcePath: sourcePath,
+                snapshot: &snapshot
+            )
+            parseMarkdownSize(
+                headingSizes["h3"],
+                path: "markdown.headingSizes.h3",
+                defaultsKey: MarkdownTypographySettings.headingH3SizeKey,
+                range: MarkdownTypographySettings.headingSizeRange,
+                sourcePath: sourcePath,
+                snapshot: &snapshot
+            )
+            parseMarkdownSize(
+                headingSizes["h4"],
+                path: "markdown.headingSizes.h4",
+                defaultsKey: MarkdownTypographySettings.headingH4SizeKey,
+                range: MarkdownTypographySettings.headingSizeRange,
+                sourcePath: sourcePath,
+                snapshot: &snapshot
+            )
+            parseMarkdownSize(
+                headingSizes["h5"],
+                path: "markdown.headingSizes.h5",
+                defaultsKey: MarkdownTypographySettings.headingH5SizeKey,
+                range: MarkdownTypographySettings.headingSizeRange,
+                sourcePath: sourcePath,
+                snapshot: &snapshot
+            )
+            parseMarkdownSize(
+                headingSizes["h6"],
+                path: "markdown.headingSizes.h6",
+                defaultsKey: MarkdownTypographySettings.headingH6SizeKey,
+                range: MarkdownTypographySettings.headingSizeRange,
+                sourcePath: sourcePath,
+                snapshot: &snapshot
+            )
+        } else if section.keys.contains("headingSizes") {
+            logInvalid("markdown.headingSizes", sourcePath: sourcePath)
+        }
+
+        if let raw = jsonString(section["codeBlockFontFamily"]) {
+            if let normalized = MarkdownTypographySettings.normalizedFontFamily(raw) {
+                snapshot.managedUserDefaults[MarkdownTypographySettings.codeBlockFontFamilyKey] = .string(normalized)
+            } else {
+                logInvalid("markdown.codeBlockFontFamily", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("codeBlockFontFamily") {
+            logInvalid("markdown.codeBlockFontFamily", sourcePath: sourcePath)
+        }
+
+        parseMarkdownSize(
+            section["codeBlockFontSize"],
+            path: "markdown.codeBlockFontSize",
+            defaultsKey: MarkdownTypographySettings.codeBlockFontSizeKey,
+            range: MarkdownTypographySettings.codeBlockFontSizeRange,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+    }
+
+    private func parseMarkdownSize(
+        _ rawValue: Any?,
+        path: String,
+        defaultsKey: String,
+        range: ClosedRange<Double>,
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        guard rawValue != nil else { return }
+        guard let raw = jsonDouble(rawValue),
+              let normalized = MarkdownTypographySettings.normalizedSize(raw, range: range) else {
+            logInvalid(path, sourcePath: sourcePath)
+            return
+        }
+        snapshot.managedUserDefaults[defaultsKey] = .double(normalized)
     }
 
     private func parseShortcutsSection(

@@ -45,6 +45,7 @@ const sectionOrder = [
   "ui",
   "commands",
   "browser",
+  "markdown",
   "shortcuts",
 ] as const;
 
@@ -69,6 +70,18 @@ const settingsFileExample = `{
   // "browser": {
   //   "openTerminalLinksInCmuxBrowser": true,
   //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"]
+  // },
+
+  // "markdown": {
+  //   "fontFamily": "Avenir Next",
+  //   "fontSize": 16,
+  //   "headingSizes": {
+  //     "h1": 34,
+  //     "h2": 26,
+  //     "h3": 21
+  //   },
+  //   "codeBlockFontFamily": "JetBrains Mono, ui-monospace, monospace",
+  //   "codeBlockFontSize": 14
   // },
 
   // "workspaceColors": {
@@ -303,8 +316,8 @@ working-directory = ~/code`}</CodeBlock>
       <h2>Schema reference</h2>
       <p>
         This reference covers every supported global settings key in <code>cmux.json</code>. The embedded
-        browser, terminal, sidebar, notifications, automation, and cmux-owned keyboard shortcuts
-        all live here. Actions and workspace commands are documented on the{" "}
+        browser, markdown, terminal, sidebar, notifications, automation, and cmux-owned keyboard
+        shortcuts all live here. Actions and workspace commands are documented on the{" "}
         <Link href="/docs/custom-commands">custom commands page</Link>.
       </p>
 

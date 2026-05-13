@@ -29,6 +29,16 @@ struct MarkdownPanelView: View {
     @State private var copyConfirmation: CopyConfirmation? = nil
     @State private var copyConfirmationGeneration: Int = 0
     @State private var renderer = MarkdownWebRendererHandle()
+    @AppStorage(MarkdownTypographySettings.fontFamilyKey) private var markdownFontFamily = MarkdownTypographySettings.defaultFontFamily
+    @AppStorage(MarkdownTypographySettings.fontSizeKey) private var markdownFontSize = MarkdownTypographySettings.defaultFontSize
+    @AppStorage(MarkdownTypographySettings.headingH1SizeKey) private var markdownHeadingH1Size = MarkdownTypographySettings.unsetHeadingSize
+    @AppStorage(MarkdownTypographySettings.headingH2SizeKey) private var markdownHeadingH2Size = MarkdownTypographySettings.unsetHeadingSize
+    @AppStorage(MarkdownTypographySettings.headingH3SizeKey) private var markdownHeadingH3Size = MarkdownTypographySettings.unsetHeadingSize
+    @AppStorage(MarkdownTypographySettings.headingH4SizeKey) private var markdownHeadingH4Size = MarkdownTypographySettings.unsetHeadingSize
+    @AppStorage(MarkdownTypographySettings.headingH5SizeKey) private var markdownHeadingH5Size = MarkdownTypographySettings.unsetHeadingSize
+    @AppStorage(MarkdownTypographySettings.headingH6SizeKey) private var markdownHeadingH6Size = MarkdownTypographySettings.unsetHeadingSize
+    @AppStorage(MarkdownTypographySettings.codeBlockFontFamilyKey) private var markdownCodeBlockFontFamily = MarkdownTypographySettings.defaultCodeBlockFontFamily
+    @AppStorage(MarkdownTypographySettings.codeBlockFontSizeKey) private var markdownCodeBlockFontSize = MarkdownTypographySettings.defaultCodeBlockFontSize
 
     private enum CopyConfirmation: Equatable {
         case markdown
@@ -84,7 +94,10 @@ struct MarkdownPanelView: View {
         ZStack {
             MarkdownWebRenderer(
                 markdown: panel.content,
-                theme: MarkdownWebTheme.resolve(backgroundColor: themeBackgroundColor),
+                theme: MarkdownWebTheme.resolve(
+                    backgroundColor: themeBackgroundColor,
+                    typography: markdownTypography
+                ),
                 panelId: panel.id,
                 workspaceId: panel.workspaceId,
                 filePath: panel.filePath,
@@ -193,6 +206,58 @@ struct MarkdownPanelView: View {
 
     private var themeColorScheme: ColorScheme {
         themeBackgroundColor.isLightColor ? .light : .dark
+    }
+
+    private var markdownTypography: MarkdownWebTypography {
+        let bodyFontSize = MarkdownTypographySettings.normalizedSize(
+            markdownFontSize,
+            range: MarkdownTypographySettings.fontSizeRange
+        ) ?? MarkdownTypographySettings.defaultFontSize
+        let derivedHeadingSizes = MarkdownTypographySettings.defaultHeadingSizes(forFontSize: bodyFontSize)
+        return MarkdownWebTypography(
+            fontFamily: MarkdownTypographySettings.normalizedFontFamily(markdownFontFamily)
+                ?? MarkdownTypographySettings.defaultFontFamily,
+            fontSize: bodyFontSize,
+            headingSizes: MarkdownWebTypography.HeadingSizes(
+                h1: markdownHeadingSize(
+                    markdownHeadingH1Size,
+                    fallback: derivedHeadingSizes.h1
+                ),
+                h2: markdownHeadingSize(
+                    markdownHeadingH2Size,
+                    fallback: derivedHeadingSizes.h2
+                ),
+                h3: markdownHeadingSize(
+                    markdownHeadingH3Size,
+                    fallback: derivedHeadingSizes.h3
+                ),
+                h4: markdownHeadingSize(
+                    markdownHeadingH4Size,
+                    fallback: derivedHeadingSizes.h4
+                ),
+                h5: markdownHeadingSize(
+                    markdownHeadingH5Size,
+                    fallback: derivedHeadingSizes.h5
+                ),
+                h6: markdownHeadingSize(
+                    markdownHeadingH6Size,
+                    fallback: derivedHeadingSizes.h6
+                )
+            ),
+            codeBlockFontFamily: MarkdownTypographySettings.normalizedFontFamily(markdownCodeBlockFontFamily)
+                ?? MarkdownTypographySettings.defaultCodeBlockFontFamily,
+            codeBlockFontSize: MarkdownTypographySettings.normalizedSize(
+                markdownCodeBlockFontSize,
+                range: MarkdownTypographySettings.codeBlockFontSizeRange
+            ) ?? MarkdownTypographySettings.defaultCodeBlockFontSize
+        )
+    }
+
+    private func markdownHeadingSize(_ raw: Double, fallback: Double) -> Double {
+        return MarkdownTypographySettings.normalizedSize(
+            raw,
+            range: MarkdownTypographySettings.headingSizeRange
+        ) ?? fallback
     }
 
     // MARK: - Copy actions

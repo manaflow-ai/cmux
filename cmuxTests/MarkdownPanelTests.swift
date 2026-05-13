@@ -42,6 +42,38 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(overlay.alphaComponent, 1, accuracy: 0.0001)
     }
 
+    func testMarkdownThemeIncludesConfiguredTypographyVariables() {
+        let typography = MarkdownWebTypography(
+            fontFamily: "Avenir Next, sans-serif",
+            fontSize: 16.25,
+            headingSizes: MarkdownWebTypography.HeadingSizes(
+                h1: 34,
+                h2: 26,
+                h3: 21,
+                h4: 17,
+                h5: 14,
+                h6: 12
+            ),
+            codeBlockFontFamily: "JetBrains Mono, ui-monospace, monospace",
+            codeBlockFontSize: 14.5
+        )
+        let theme = MarkdownWebTheme.resolve(
+            backgroundColor: NSColor(srgbRed: 0.10, green: 0.12, blue: 0.14, alpha: 1),
+            typography: typography
+        )
+
+        XCTAssertEqual(theme.cssVariables["--cmux-markdown-font-family"], "Avenir Next, sans-serif")
+        XCTAssertEqual(theme.cssVariables["--cmux-markdown-font-size"], "16.25px")
+        XCTAssertEqual(theme.cssVariables["--cmux-markdown-h1-font-size"], "34px")
+        XCTAssertEqual(theme.cssVariables["--cmux-markdown-h2-font-size"], "26px")
+        XCTAssertEqual(theme.cssVariables["--cmux-markdown-h3-font-size"], "21px")
+        XCTAssertEqual(theme.cssVariables["--cmux-markdown-h4-font-size"], "17px")
+        XCTAssertEqual(theme.cssVariables["--cmux-markdown-h5-font-size"], "14px")
+        XCTAssertEqual(theme.cssVariables["--cmux-markdown-h6-font-size"], "12px")
+        XCTAssertEqual(theme.cssVariables["--cmux-markdown-code-block-font-family"], "JetBrains Mono, ui-monospace, monospace")
+        XCTAssertEqual(theme.cssVariables["--cmux-markdown-code-block-font-size"], "14.5px")
+    }
+
     func testFileOpenRoutesMarkdownFilesToPreviewMarkdownPanel() throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory

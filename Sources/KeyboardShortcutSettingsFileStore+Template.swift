@@ -160,6 +160,22 @@ extension CmuxSettingsFileStore {
                 ],
             ],
             [
+                "markdown": [
+                    "fontFamily": MarkdownTypographySettings.defaultFontFamily,
+                    "fontSize": MarkdownTypographySettings.defaultFontSize,
+                    "headingSizes": [
+                        "h1": MarkdownTypographySettings.defaultHeadingSizes.h1,
+                        "h2": MarkdownTypographySettings.defaultHeadingSizes.h2,
+                        "h3": MarkdownTypographySettings.defaultHeadingSizes.h3,
+                        "h4": MarkdownTypographySettings.defaultHeadingSizes.h4,
+                        "h5": MarkdownTypographySettings.defaultHeadingSizes.h5,
+                        "h6": MarkdownTypographySettings.defaultHeadingSizes.h6,
+                    ],
+                    "codeBlockFontFamily": MarkdownTypographySettings.defaultCodeBlockFontFamily,
+                    "codeBlockFontSize": MarkdownTypographySettings.defaultCodeBlockFontSize,
+                ],
+            ],
+            [
                 "shortcuts": [
                     "bindings": shortcutsBindings,
                 ],
