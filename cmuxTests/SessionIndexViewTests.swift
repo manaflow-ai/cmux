@@ -168,9 +168,10 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertEqual(outcome.errors, [])
         XCTAssertEqual(outcome.entries.count, 1)
         XCTAssertEqual(outcome.entries.first?.sourceLabel, "Test A")
+        let expectedCodexHome = (codexHome.path as NSString).standardizingPath
         XCTAssertEqual(
             outcome.entries.first?.resumeCommand,
-            "cd /tmp/project && env CODEX_HOME='\(codexHome.path)' codex resume custom-home-session -m gpt-5.5 -a never -s danger-full-access -c model_reasoning_effort=medium"
+            "cd /tmp/project && env CODEX_HOME=\(SessionEntry.shellQuote(expectedCodexHome)) codex resume custom-home-session -m gpt-5.5 -a never -s danger-full-access -c model_reasoning_effort=medium"
         )
     }
 
