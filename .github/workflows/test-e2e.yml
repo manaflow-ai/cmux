@@ -218,7 +218,7 @@ jobs:
           # The display churn regression creates its own virtual display above,
           # so recording must start after that harness is ready.
           if [ "$RECORD_VIDEO" = "true" ]; then
-            if /usr/sbin/screencapture -h 2>&1 | grep -q -- "-v"; then
+            if [ -x /usr/sbin/screencapture ]; then
               RAW_RECORDING=/tmp/test-recording-raw.mov
               /usr/sbin/screencapture -v -k -D 1 "$RAW_RECORDING" >/tmp/screencapture.log 2>&1 &
               RECORD_PID=$!
