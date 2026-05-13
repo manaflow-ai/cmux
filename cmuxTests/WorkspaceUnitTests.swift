@@ -3190,6 +3190,7 @@ final class WorkspaceReorderTests: XCTestCase {
 
         manager.moveTabsToTop([first.id])
 
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id])
         XCTAssertEqual(notificationCount, 0)
     }
 
