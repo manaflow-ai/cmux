@@ -382,8 +382,10 @@ private struct ClaudeHookSessionRecord: Codable {
     var workspaceId: String
     var surfaceId: String
     var cwd: String?
+    var transcriptPath: String?
     var pid: Int?
     var launchCommand: AgentHookLaunchCommandRecord?
+    var isRestorable: Bool?
     var lastSubtitle: String?
     var lastBody: String?
     var startedAt: TimeInterval
@@ -482,8 +484,10 @@ private final class ClaudeHookSessionStore {
         workspaceId: String,
         surfaceId: String,
         cwd: String?,
+        transcriptPath: String? = nil,
         pid: Int? = nil,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
+        isRestorable: Bool? = nil,
         lastSubtitle: String? = nil,
         lastBody: String? = nil,
         markActive: Bool = false,
@@ -499,8 +503,10 @@ private final class ClaudeHookSessionStore {
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 cwd: nil,
+                transcriptPath: nil,
                 pid: nil,
                 launchCommand: nil,
+                isRestorable: nil,
                 lastSubtitle: nil,
                 lastBody: nil,
                 startedAt: now,
@@ -513,11 +519,17 @@ private final class ClaudeHookSessionStore {
             if let cwd = normalizeOptional(cwd) {
                 record.cwd = cwd
             }
+            if let transcriptPath = normalizeOptional(transcriptPath) {
+                record.transcriptPath = transcriptPath
+            }
             if let pid {
                 record.pid = pid
             }
             if let launchCommand, !launchCommand.arguments.isEmpty {
                 record.launchCommand = launchCommand
+            }
+            if let isRestorable {
+                record.isRestorable = isRestorable || record.isRestorable == true
             }
             if let subtitle = normalizeOptional(lastSubtitle) {
                 record.lastSubtitle = subtitle
@@ -14883,8 +14895,10 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
+                    transcriptPath: parsedInput.transcriptPath,
                     pid: claudePid,
                     launchCommand: launchCommand,
+                    isRestorable: false,
                     markActive: shouldPromoteActiveSession,
                     turnId: parsedInput.turnId
                 )
@@ -14962,6 +14976,8 @@ struct CMUXCLI {
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         cwd: parsedInput.cwd,
+                        transcriptPath: parsedInput.transcriptPath,
+                        isRestorable: true,
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
                         markActive: true,
@@ -15034,6 +15050,8 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
+                    transcriptPath: parsedInput.transcriptPath,
+                    isRestorable: true,
                     markActive: true,
                     turnId: parsedInput.turnId
                 )
@@ -15095,6 +15113,7 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
+                    transcriptPath: parsedInput.transcriptPath,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
                 )
@@ -15214,6 +15233,7 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: existingSurfaceId,
                     cwd: parsedInput.cwd,
+                    transcriptPath: parsedInput.transcriptPath,
                     lastSubtitle: "Waiting",
                     lastBody: question
                 )

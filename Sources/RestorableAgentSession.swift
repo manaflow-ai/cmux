@@ -468,8 +468,10 @@ private struct RestorableAgentHookSessionRecord: Codable, Sendable {
     var workspaceId: String
     var surfaceId: String
     var cwd: String?
+    var transcriptPath: String?
     var pid: Int?
     var launchCommand: AgentLaunchCommandSnapshot?
+    var isRestorable: Bool?
     var updatedAt: TimeInterval
 }
 
@@ -559,6 +561,12 @@ struct RestorableAgentSessionIndex: Sendable {
                           kind: kind,
                           workspaceId: workspaceId,
                           panelId: panelId
+                      ),
+                      hookRecordIsRestorable(
+                          record,
+                          kind: kind,
+                          homeDirectory: homeDirectory,
+                          fileManager: fileManager
                       ) else {
                     continue
                 }
@@ -590,6 +598,158 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
         normalizedNonEmptyValue(rawValue)
+    }
+
+    private static func hookRecordIsRestorable(
+        _ record: RestorableAgentHookSessionRecord,
+        kind: RestorableAgentKind,
+        homeDirectory: String,
+        fileManager: FileManager
+    ) -> Bool {
+        guard kind == .claude else {
+            return record.isRestorable != false
+        }
+        if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath),
+           regularNonEmptyFileExists(
+               atPath: (transcriptPath as NSString).expandingTildeInPath,
+               fileManager: fileManager
+           ) {
+            return true
+        }
+        return claudeTranscriptExists(for: record, homeDirectory: homeDirectory, fileManager: fileManager)
+    }
+
+    private static func claudeTranscriptExists(
+        for record: RestorableAgentHookSessionRecord,
+        homeDirectory: String,
+        fileManager: FileManager
+    ) -> Bool {
+        guard let sessionId = normalizedNonEmptyValue(record.sessionId),
+              claudeSessionIdIsSafeFilename(sessionId) else {
+            return false
+        }
+
+        let roots = claudeConfigRoots(
+            for: record,
+            homeDirectory: homeDirectory,
+            fileManager: fileManager
+        )
+        guard !roots.isEmpty else { return false }
+
+        let cwd = normalizedWorkingDirectory(record.cwd)
+            ?? normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
+        for root in roots {
+            if let cwd,
+               claudeTranscriptFileExists(
+                   configRoot: root,
+                   projectDirName: encodeClaudeProjectDir(cwd),
+                   sessionId: sessionId,
+                   fileManager: fileManager
+               ) {
+                return true
+            }
+            if claudeTranscriptFileExistsInAnyProject(
+                configRoot: root,
+                sessionId: sessionId,
+                fileManager: fileManager
+            ) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func claudeConfigRoots(
+        for record: RestorableAgentHookSessionRecord,
+        homeDirectory: String,
+        fileManager: FileManager
+    ) -> [String] {
+        if let configured = normalizedNonEmptyValue(record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) {
+            return [
+                ClaudeConfigDirectoryPath.preferredPath(
+                    configured,
+                    fileManager: fileManager,
+                    homeDirectory: homeDirectory
+                ),
+            ]
+        }
+
+        var roots: [String] = []
+        var seen: Set<String> = []
+        func appendRoot(_ path: String) {
+            let standardized = (path as NSString).standardizingPath
+            guard seen.insert(standardized).inserted else { return }
+            roots.append(standardized)
+        }
+
+        let accountRoot = (homeDirectory as NSString).appendingPathComponent(".codex-accounts/claude")
+        if let accountDirs = try? fileManager.contentsOfDirectory(atPath: accountRoot) {
+            for accountDir in accountDirs.sorted() {
+                appendRoot((accountRoot as NSString).appendingPathComponent(accountDir))
+            }
+        }
+        appendRoot((homeDirectory as NSString).appendingPathComponent(".claude"))
+        appendRoot(
+            ClaudeConfigDirectoryPath.preferredPath(
+                (homeDirectory as NSString).appendingPathComponent(".subrouter/codex/claude"),
+                fileManager: fileManager,
+                homeDirectory: homeDirectory
+            )
+        )
+        return roots
+    }
+
+    private static func claudeSessionIdIsSafeFilename(_ sessionId: String) -> Bool {
+        sessionId.range(of: #"[\\/]"#, options: .regularExpression) == nil
+            && !sessionId.isEmpty
+            && sessionId != "."
+            && sessionId != ".."
+    }
+
+    private static func encodeClaudeProjectDir(_ path: String) -> String {
+        path.replacingOccurrences(of: "/", with: "-")
+    }
+
+    private static func claudeTranscriptFileExists(
+        configRoot: String,
+        projectDirName: String,
+        sessionId: String,
+        fileManager: FileManager
+    ) -> Bool {
+        let projectsRoot = (configRoot as NSString).appendingPathComponent("projects")
+        let projectRoot = (projectsRoot as NSString).appendingPathComponent(projectDirName)
+        let path = (projectRoot as NSString).appendingPathComponent("\(sessionId).jsonl")
+        return regularNonEmptyFileExists(atPath: path, fileManager: fileManager)
+    }
+
+    private static func claudeTranscriptFileExistsInAnyProject(
+        configRoot: String,
+        sessionId: String,
+        fileManager: FileManager
+    ) -> Bool {
+        let projectsRoot = (configRoot as NSString).appendingPathComponent("projects")
+        guard let projectDirs = try? fileManager.contentsOfDirectory(atPath: projectsRoot) else {
+            return false
+        }
+        for projectDir in projectDirs {
+            let projectRoot = (projectsRoot as NSString).appendingPathComponent(projectDir)
+            let path = (projectRoot as NSString).appendingPathComponent("\(sessionId).jsonl")
+            if regularNonEmptyFileExists(atPath: path, fileManager: fileManager) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func regularNonEmptyFileExists(atPath path: String, fileManager: FileManager) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
+              !isDirectory.boolValue,
+              let attrs = try? fileManager.attributesOfItem(atPath: path),
+              let size = attrs[.size] as? NSNumber else {
+            return false
+        }
+        return size.intValue > 0
     }
 
     private static func hookRecordStillBelongsToLiveAgent(
