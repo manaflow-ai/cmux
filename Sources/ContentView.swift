@@ -9012,11 +9012,21 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
     }
 }
 
-private struct SidebarTabItemPresentationSnapshot: Equatable {
+struct SidebarTabItemPresentationSnapshot: Equatable {
     let tabId: UUID
     let unreadCount: Int
     let latestNotificationText: String?
     let showsModifierShortcutHints: Bool
+}
+
+struct SidebarTabItemPresentationResolutionPolicy {
+    static func resolved(
+        live: SidebarTabItemPresentationSnapshot,
+        frozen: SidebarTabItemPresentationSnapshot?
+    ) -> SidebarTabItemPresentationSnapshot {
+        guard let frozen, frozen.tabId == live.tabId else { return live }
+        return frozen
+    }
 }
 
 struct VerticalTabsSidebar: View {
@@ -9491,6 +9501,10 @@ struct VerticalTabsSidebar: View {
         let frozenPresentation = frozenTabItemPresentation?.tabId == tab.id
             ? frozenTabItemPresentation
             : nil
+        let resolvedPresentation = SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: livePresentation,
+            frozen: frozenPresentation
+        )
 
         return TabItemView(
             tabManager: tabManager,
@@ -9505,13 +9519,13 @@ struct VerticalTabsSidebar: View {
             workspaceShortcutModifierSymbol: renderContext.workspaceNumberShortcut.numberedDigitHintPrefix,
             canCloseWorkspace: renderContext.canCloseWorkspace,
             accessibilityWorkspaceCount: renderContext.workspaceCount,
-            unreadCount: frozenPresentation?.unreadCount ?? liveUnreadCount,
-            latestNotificationText: frozenPresentation?.latestNotificationText ?? liveLatestNotificationText,
+            unreadCount: resolvedPresentation.unreadCount,
+            latestNotificationText: resolvedPresentation.latestNotificationText,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-            showsModifierShortcutHints: frozenPresentation?.showsModifierShortcutHints ?? liveShowsModifierShortcutHints,
+            showsModifierShortcutHints: resolvedPresentation.showsModifierShortcutHints,
             dragAutoScrollController: dragAutoScrollController,
             draggedTabId: $draggedTabId,
             dropIndicator: $dropIndicator,

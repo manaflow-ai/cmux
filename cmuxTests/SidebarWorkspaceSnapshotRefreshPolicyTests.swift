@@ -143,6 +143,33 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
     }
 }
 
+final class SidebarTabItemPresentationResolutionPolicyTests: XCTestCase {
+    func testFrozenContextMenuPresentationDoesNotSuppressLiveNotificationState() {
+        let tabId = UUID()
+        let frozen = SidebarTabItemPresentationSnapshot(
+            tabId: tabId,
+            unreadCount: 0,
+            latestNotificationText: nil,
+            showsModifierShortcutHints: true
+        )
+        let live = SidebarTabItemPresentationSnapshot(
+            tabId: tabId,
+            unreadCount: 1,
+            latestNotificationText: "done",
+            showsModifierShortcutHints: false
+        )
+
+        let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: live,
+            frozen: frozen
+        )
+
+        XCTAssertEqual(resolved.unreadCount, 1)
+        XCTAssertEqual(resolved.latestNotificationText, "done")
+        XCTAssertTrue(resolved.showsModifierShortcutHints)
+    }
+}
+
 final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
     func testHoverRevealIsIndependentFromStaleContextMenuVisibility() {
         var state = SidebarWorkspaceRowInteractionState()
