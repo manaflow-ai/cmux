@@ -15484,7 +15484,10 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            _ = Self.routeUnescapedInput(unescaped, to: terminalPanel)
+            let routed = Self.routeUnescapedInput(unescaped, to: terminalPanel)
+            if routed.shouldForceRefresh {
+                terminalPanel.surface.forceRefresh(reason: "terminalController.sendInput")
+            }
             success = true
         }
         if let error { return error }
@@ -15552,7 +15555,10 @@ class TerminalController {
             // existing workspace. Return once the input is queued on main so a long
             // payload does not hold the control-socket response open in CI.
             TerminalMutationBus.shared.enqueueMainActorMutation {
-                _ = Self.routeUnescapedInput(unescaped, to: terminalPanel)
+                let routed = Self.routeUnescapedInput(unescaped, to: terminalPanel)
+                if routed.shouldForceRefresh {
+                    terminalPanel.surface.forceRefresh(reason: "terminalController.sendInputToWorkspace")
+                }
             }
             success = true
         }
@@ -15616,7 +15622,10 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            _ = Self.routeUnescapedInput(unescaped, to: terminalPanel)
+            let routed = Self.routeUnescapedInput(unescaped, to: terminalPanel)
+            if routed.shouldForceRefresh {
+                terminalPanel.surface.forceRefresh(reason: "terminalController.sendInputToSurface")
+            }
             success = true
         }
 

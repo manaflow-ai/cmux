@@ -1880,11 +1880,12 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
         XCTAssertTrue(readyText.contains(captureReadyMarker), "Expected Kitty enable marker before clear-history")
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
 
-        try processTerminalOutput(cmuxZshTerminalKeyboardResetSequence(), in: hostedTerminal)
-
         // Mirrors the surface.clear_history socket handler path: clear_screen binding, then refresh.
         XCTAssertTrue(hostedTerminal.surface.performBindingAction("clear_screen"))
         hostedTerminal.surface.forceRefresh(reason: "unit.clearHistory")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+
+        try processTerminalOutput(cmuxZshTerminalKeyboardResetSequence(), in: hostedTerminal)
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
 
         XCTAssertTrue(

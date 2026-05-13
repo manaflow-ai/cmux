@@ -4441,7 +4441,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         case ready(items: [PendingSocketInput], bytes: Int)
     }
 
-    private enum TerminalInputLifecycleState: Equatable {
+    private enum TerminalInputLifecycleState {
         case acceptingInput
         case childExited(reason: String)
     }
@@ -4457,7 +4457,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// `ghostty_surface_inherited_config`, `ghostty_surface_quicklook_font`),
     /// call `liveSurfaceForGhosttyAccess(reason:)` so stale freed pointers are
     /// rejected and quarantined.
-    var hasLiveSurface: Bool { surface != nil && portalLifecycleState == .live }
+    var hasLiveSurface: Bool {
+        withInputLifecycleLock {
+            surface != nil && portalLifecycleState == .live
+        }
+    }
 
     var acceptsTerminalInput: Bool {
         terminalInputBlockReason() == nil
@@ -4650,11 +4654,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func portalBindingGeneration() -> UInt64 {
-        portalLifecycleGeneration
+        withInputLifecycleLock {
+            portalLifecycleGeneration
+        }
     }
 
     func portalBindingStateLabel() -> String {
-        portalLifecycleState.rawValue
+        withInputLifecycleLock {
+            portalLifecycleState.rawValue
+        }
     }
 
     private func withDebugMetadataLock<T>(_ body: () -> T) -> T {
@@ -4702,14 +4710,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func canAcceptPortalBinding(expectedSurfaceId: UUID?, expectedGeneration: UInt64?) -> Bool {
-        guard portalLifecycleState == .live else { return false }
-        if let expectedSurfaceId, expectedSurfaceId != id {
-            return false
+        withInputLifecycleLock {
+            guard portalLifecycleState == .live else { return false }
+            if let expectedSurfaceId, expectedSurfaceId != id {
+                return false
+            }
+            if let expectedGeneration, expectedGeneration != portalLifecycleGeneration {
+                return false
+            }
+            return true
         }
-        if let expectedGeneration, expectedGeneration != portalLifecycleGeneration {
-            return false
-        }
-        return true
     }
 
     @MainActor
@@ -4972,29 +4982,37 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func beginPortalCloseLifecycle(reason: String) {
-        guard portalLifecycleState != .closed else { return }
-        guard portalLifecycleState != .closing else { return }
         recordTeardownRequest(reason: reason)
-        portalLifecycleState = .closing
-        portalLifecycleGeneration &+= 1
+        let generation = withInputLifecycleLock { () -> UInt64? in
+            guard portalLifecycleState != .closed else { return nil }
+            guard portalLifecycleState != .closing else { return nil }
+            portalLifecycleState = .closing
+            portalLifecycleGeneration &+= 1
+            return portalLifecycleGeneration
+        }
+        guard let generation else { return }
 #if DEBUG
         cmuxDebugLog(
             "surface.lifecycle.close.begin surface=\(id.uuidString.prefix(5)) " +
             "workspace=\(tabId.uuidString.prefix(5)) reason=\(reason) " +
-            "generation=\(portalLifecycleGeneration)"
+            "generation=\(generation)"
         )
 #endif
     }
 
     private func markPortalLifecycleClosed(reason: String) {
-        guard portalLifecycleState != .closed else { return }
-        portalLifecycleState = .closed
-        portalLifecycleGeneration &+= 1
+        let generation = withInputLifecycleLock { () -> UInt64? in
+            guard portalLifecycleState != .closed else { return nil }
+            portalLifecycleState = .closed
+            portalLifecycleGeneration &+= 1
+            return portalLifecycleGeneration
+        }
+        guard let generation else { return }
 #if DEBUG
         cmuxDebugLog(
             "surface.lifecycle.close.sealed surface=\(id.uuidString.prefix(5)) " +
             "workspace=\(tabId.uuidString.prefix(5)) reason=\(reason) " +
-            "generation=\(portalLifecycleGeneration)"
+            "generation=\(generation)"
         )
 #endif
     }
@@ -8275,7 +8293,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func flagsChanged(with event: NSEvent) {
-        guard let surface = surface else {
+        let surface: ghostty_surface_t
+        switch ensureSurfaceReadyForInput() {
+        case .ready(let readySurface):
+            surface = readySurface
+        case .blocked:
+            return
+        case .unavailable:
             super.flagsChanged(with: event)
             return
         }
