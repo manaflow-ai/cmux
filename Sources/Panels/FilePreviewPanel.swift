@@ -347,7 +347,11 @@ private final class FileExternalOpenMenuActionTarget: NSObject {
         guard let payload = item.representedObject as? FileExternalOpenMenuActionPayload else {
             return
         }
-        FileExternalOpenAction.open(fileURL: payload.fileURL, applicationURL: payload.applicationURL)
+        if let applicationURL = payload.applicationURL {
+            FileExternalOpenAction.open(fileURL: payload.fileURL, applicationURL: applicationURL)
+        } else {
+            FileExternalOpenAction.openDefault(fileURL: payload.fileURL)
+        }
     }
 }
 
