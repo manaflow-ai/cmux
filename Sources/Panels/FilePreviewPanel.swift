@@ -189,15 +189,6 @@ enum FileExternalOpenMenuStyle {
             return CGSize(width: 42, height: 40)
         }
     }
-
-    var symbolConfiguration: NSImage.SymbolConfiguration {
-        switch self {
-        case .header:
-            return NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
-        case .chrome:
-            return NSImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
-        }
-    }
 }
 
 struct FileExternalOpenMenu: View {
@@ -206,23 +197,73 @@ struct FileExternalOpenMenu: View {
     var style: FileExternalOpenMenuStyle = .header
 
     @State private var resolvedApplications: [FileExternalOpenApplication] = []
+    @State private var isChromeHovered = false
 
     var body: some View {
         let applications = resolvedApplications
         let primaryApplication = primaryApplication(in: applications)
+        let otherApplications = applications.filter { application in
+            application.id != primaryApplication?.id
+        }
         let helpText = helpText(for: primaryApplication)
 
-        FileExternalOpenMenuButton(
-            fileURL: fileURL,
-            applications: applications,
-            isDisabled: isDisabled,
+        Menu {
+            if let primaryApplication {
+                Button(openInTitle(primaryApplication.displayName)) {
+                    FileExternalOpenAction.open(fileURL: fileURL, applicationURL: primaryApplication.url)
+                }
+                if !otherApplications.isEmpty {
+                    Divider()
+                    Menu(FileExternalOpenText.openWithMenu) {
+                        ForEach(otherApplications) { application in
+                            Button(application.displayName) {
+                                FileExternalOpenAction.open(fileURL: fileURL, applicationURL: application.url)
+                            }
+                        }
+                    }
+                }
+            } else {
+                Button(FileExternalOpenText.openExternally) {
+                    FileExternalOpenAction.openDefault(fileURL: fileURL)
+                }
+            }
+        } label: {
+            label
+        }
+        .menuIndicator(.hidden)
+        .menuStyle(.borderlessButton)
+        .modifier(FileExternalOpenMenuChromeStyleModifier(
             style: style,
-            accessibilityLabel: helpText
-        )
-        .frame(width: style.buttonSize.width, height: style.buttonSize.height)
+            isHovered: isChromeHovered
+        ))
+        .disabled(isDisabled)
         .help(helpText)
+        .accessibilityLabel(helpText)
+        .onHover { hovering in
+            if style == .chrome {
+                isChromeHovered = hovering
+            }
+        }
         .task(id: fileURL) {
             await refreshApplications()
+        }
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        switch style {
+        case .header:
+            Image(systemName: "square.and.arrow.up")
+                .font(.system(size: 14, weight: .regular))
+                .frame(width: style.buttonSize.width, height: style.buttonSize.height)
+                .contentShape(Rectangle())
+                .accessibilityHidden(true)
+        case .chrome:
+            Image(systemName: "square.and.arrow.up")
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: style.buttonSize.width, height: style.buttonSize.height)
+                .contentShape(Rectangle())
+                .accessibilityHidden(true)
         }
     }
 
@@ -253,200 +294,20 @@ struct FileExternalOpenMenu: View {
     }
 }
 
-private struct FileExternalOpenMenuButton: NSViewRepresentable {
-    let fileURL: URL
-    let applications: [FileExternalOpenApplication]
-    let isDisabled: Bool
+private struct FileExternalOpenMenuChromeStyleModifier: ViewModifier {
     let style: FileExternalOpenMenuStyle
-    let accessibilityLabel: String
+    let isHovered: Bool
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(
-            fileURL: fileURL,
-            applications: applications
-        )
-    }
-
-    func makeNSView(context: Context) -> NSButton {
-        let button = FileExternalOpenNSButton()
-        button.bezelStyle = .regularSquare
-        button.imagePosition = .imageOnly
-        button.imageScaling = .scaleProportionallyDown
-        button.isBordered = false
-        button.setButtonType(.momentaryChange)
-        button.target = button
-        button.action = #selector(FileExternalOpenNSButton.presentMenuFromAction(_:))
-        button.translatesAutoresizingMaskIntoConstraints = false
-        update(button, coordinator: context.coordinator)
-        return button
-    }
-
-    func updateNSView(_ button: NSButton, context: Context) {
-        context.coordinator.update(
-            fileURL: fileURL,
-            applications: applications
-        )
-        update(button, coordinator: context.coordinator)
-    }
-
-    private func update(_ button: NSButton, coordinator: Coordinator) {
-        let image = NSImage(
-            systemSymbolName: "square.and.arrow.up",
-            accessibilityDescription: nil
-        )?.withSymbolConfiguration(style.symbolConfiguration)
-        button.image = image
-        button.contentTintColor = .labelColor
-        button.isEnabled = !isDisabled
-        button.toolTip = accessibilityLabel
-        button.setAccessibilityLabel(accessibilityLabel)
-        if let button = button as? FileExternalOpenNSButton {
-            button.menuProvider = { [coordinator] in
-                coordinator.makeMenu()
-            }
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        switch style {
+        case .header:
+            content
+        case .chrome:
+            content
+                .buttonStyle(FilePreviewChromeHoverButtonStyle(isHovered: isHovered))
+                .contentShape(Rectangle())
         }
-    }
-
-    final class Coordinator: NSObject {
-        private var fileURL: URL
-        private var applications: [FileExternalOpenApplication]
-
-        init(
-            fileURL: URL,
-            applications: [FileExternalOpenApplication]
-        ) {
-            self.fileURL = fileURL
-            self.applications = applications
-        }
-
-        func update(
-            fileURL: URL,
-            applications: [FileExternalOpenApplication]
-        ) {
-            self.fileURL = fileURL
-            self.applications = applications
-        }
-
-        @objc
-        private func openFile(_ item: NSMenuItem) {
-            guard let request = item.representedObject as? FileExternalOpenMenuRequest else { return }
-            FileExternalOpenAction.open(
-                fileURL: request.fileURL,
-                applicationURL: request.applicationURL
-            )
-        }
-
-        func makeMenu() -> NSMenu {
-            let menu = NSMenu()
-            menu.autoenablesItems = false
-            let primaryApplication = applications.first { $0.isDefault } ?? applications.first
-            let otherApplications = applications.filter { application in
-                application.id != primaryApplication?.id
-            }
-
-            if let primaryApplication {
-                let openItem = menuItem(
-                    title: FileExternalOpenText.openInApplication(primaryApplication.displayName),
-                    fileURL: fileURL,
-                    applicationURL: primaryApplication.url
-                )
-                menu.addItem(openItem)
-
-                if !otherApplications.isEmpty {
-                    menu.addItem(.separator())
-                    let openWithMenu = NSMenu(title: FileExternalOpenText.openWithMenu)
-                    openWithMenu.autoenablesItems = false
-                    for application in otherApplications {
-                        openWithMenu.addItem(menuItem(
-                            title: application.displayName,
-                            fileURL: fileURL,
-                            applicationURL: application.url
-                        ))
-                    }
-                    let openWithItem = NSMenuItem(
-                        title: FileExternalOpenText.openWithMenu,
-                        action: nil,
-                        keyEquivalent: ""
-                    )
-                    openWithItem.submenu = openWithMenu
-                    menu.addItem(openWithItem)
-                }
-            } else {
-                menu.addItem(menuItem(
-                    title: FileExternalOpenText.openExternally,
-                    fileURL: fileURL,
-                    applicationURL: nil
-                ))
-            }
-
-            return menu
-        }
-
-        private func menuItem(
-            title: String,
-            fileURL: URL,
-            applicationURL: URL?
-        ) -> NSMenuItem {
-            let item = NSMenuItem(
-                title: title,
-                action: #selector(openFile(_:)),
-                keyEquivalent: ""
-            )
-            item.target = self
-            item.representedObject = FileExternalOpenMenuRequest(
-                fileURL: fileURL,
-                applicationURL: applicationURL
-            )
-            return item
-        }
-    }
-}
-
-private final class FileExternalOpenNSButton: NSButton {
-    var menuProvider: (() -> NSMenu)?
-    private var activeMenu: NSMenu?
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        true
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        presentMenu(event: event)
-    }
-
-    override func performClick(_ sender: Any?) {
-        presentMenu(event: nil)
-    }
-
-    @objc
-    func presentMenuFromAction(_ sender: Any?) {
-        presentMenu(event: nil)
-    }
-
-    private func presentMenu(event: NSEvent?) {
-        guard isEnabled, let menu = menuProvider?() else { return }
-        activeMenu = menu
-        if let event {
-            NSMenu.popUpContextMenu(menu, with: event, for: self)
-        } else {
-            menu.popUp(
-                positioning: nil,
-                at: NSPoint(x: bounds.minX, y: bounds.minY - 4),
-                in: self
-            )
-        }
-    }
-}
-
-private final class FileExternalOpenMenuRequest: NSObject {
-    let fileURL: URL
-    let applicationURL: URL?
-
-    init(
-        fileURL: URL,
-        applicationURL: URL?
-    ) {
-        self.fileURL = fileURL
-        self.applicationURL = applicationURL
     }
 }
 
