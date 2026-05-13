@@ -7723,14 +7723,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let markedTextBefore = markedText.length > 0
         let markedStateBefore = (markedText.string, markedSelectedRange)
 
-        // Capture the keyboard layout ID before interpretation so we can
-        // detect if an IME changed it (e.g. toggling input methods).
-        // We only check when not already in a preedit state.
-        let keyboardIdBefore: String? = if (!markedTextBefore) {
-            KeyboardLayout.id
-        } else {
-            nil
-        }
+        // Capture the keyboard layout ID before interpretation so the IME
+        // forwarding decision uses the source that saw this key.
+        let keyboardIdBefore = KeyboardLayout.id
 
         // Let the input system handle the event (for IME, dead keys, etc.)
 #if DEBUG
@@ -7772,11 +7767,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         let accumulatedText = keyTextAccumulator ?? []
         if shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
-            before: markedStateBefore, after: (markedText.string, markedSelectedRange), accumulatedText: accumulatedText
+            before: markedStateBefore,
+            after: (markedText.string, markedSelectedRange),
+            accumulatedText: accumulatedText,
+            event: event,
+            inputSourceId: keyboardIdBefore
         ) {
             imeConsumedKeyUps.insert(event.keyCode)
             return
         }
+
+        // A forwarded keyDown owns its keyUp. Clear any stale IME suppression
+        // entry left by an earlier suppressed repeat for the same physical key.
+        imeConsumedKeyUps.remove(event.keyCode)
 
         // Build the key event
         var keyEvent = ghostty_input_key_s()
@@ -13218,6 +13221,12 @@ extension GhosttyNSView: NSTextInputClient {
             return
         }
 
+        if keyTextAccumulator != nil,
+           shouldBufferBopomofoInsertedPreedit(chars) {
+            insertBopomofoPreeditText(chars, replacementRange: replacementRange)
+            return
+        }
+
         // Clear marked text since we're inserting
         unmarkText()
 
@@ -13267,6 +13276,32 @@ extension GhosttyNSView: NSTextInputClient {
             sanitizedChars,
             preserveLiteralEscape: !isExternalCommittedText
         )
+    }
+
+    private func insertBopomofoPreeditText(_ chars: String, replacementRange: NSRange) {
+        let effectiveRange = effectiveBopomofoPreeditReplacementRange(replacementRange)
+        if let range = Range(effectiveRange, in: markedText.string) {
+            let insertionLocation = effectiveRange.location + (chars as NSString).length
+            let next = markedText.string.replacingCharacters(in: range, with: chars)
+            markedText = NSMutableAttributedString(string: next)
+            markedSelectedRange = normalizedMarkedSelectionRange(
+                NSRange(location: insertionLocation, length: 0),
+                markedLength: markedText.length
+            )
+            return
+        }
+
+        markedText.append(NSAttributedString(string: chars))
+        markedSelectedRange = normalizedMarkedSelectionRange(
+            NSRange(location: markedText.length, length: 0),
+            markedLength: markedText.length
+        )
+    }
+
+    private func effectiveBopomofoPreeditReplacementRange(_ replacementRange: NSRange) -> NSRange {
+        guard replacementRange.location == NSNotFound else { return replacementRange }
+        guard markedText.length > 0 else { return NSRange(location: 0, length: 0) }
+        return normalizedMarkedSelectionRange(markedSelectedRange, markedLength: markedText.length)
     }
 }
 
