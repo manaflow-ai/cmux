@@ -83,6 +83,7 @@ def main() -> int:
 
             status_list = _run_cli(cli, ["list-status", "--workspace", workspace_id])
             _must("build=compiling" in status_list, f"list-status should include the inserted status entry: {status_list!r}")
+            _must("deploy=v1.2.3" in status_list, f"list-status should include the second status entry: {status_list!r}")
             _must("priority=80" in status_list, f"list-status should include the inserted status priority: {status_list!r}")
             status_lines = [line for line in status_list.splitlines() if line.strip()]
             build_index = next((idx for idx, line in enumerate(status_lines) if line.startswith("build=compiling")), None)
