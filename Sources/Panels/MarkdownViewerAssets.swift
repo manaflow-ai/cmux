@@ -48,6 +48,20 @@ final class MarkdownViewerAssets {
 
     private static func loadAsset(name: String, ext: String) -> String {
         let bundle = Bundle.main
+        let compressedCandidates: [URL?] = [
+            bundle.url(forResource: name, withExtension: "\(ext).deflate", subdirectory: "markdown-viewer"),
+            bundle.url(forResource: name, withExtension: "\(ext).deflate")
+        ]
+        for case let url? in compressedCandidates {
+            guard let s = loadDeflatedTextAsset(url: url) else {
+#if DEBUG
+                NSLog("MarkdownViewerAssets: invalid compressed asset \(url.path)")
+#endif
+                preconditionFailure("Invalid compressed markdown viewer asset \(url.lastPathComponent)")
+            }
+            return s
+        }
+
         let candidates: [URL?] = [
             bundle.url(forResource: name, withExtension: ext, subdirectory: "markdown-viewer"),
             bundle.url(forResource: name, withExtension: ext)
@@ -61,5 +75,13 @@ final class MarkdownViewerAssets {
         NSLog("MarkdownViewerAssets: missing bundled asset \(name).\(ext)")
 #endif
         preconditionFailure("Missing bundled markdown viewer asset \(name).\(ext)")
+    }
+
+    private static func loadDeflatedTextAsset(url: URL) -> String? {
+        guard let compressed = try? Data(contentsOf: url),
+              let decompressed = try? (compressed as NSData).decompressed(using: .zlib) as Data else {
+            return nil
+        }
+        return String(data: decompressed, encoding: .utf8)
     }
 }

@@ -1,10 +1,18 @@
-import Foundation
+import AppKit
 import Combine
+import Foundation
+
+enum MarkdownPanelDisplayMode: String, CaseIterable, Identifiable {
+    case preview
+    case text
+
+    var id: String { rawValue }
+}
 
 /// A panel that renders a markdown file with live file-watching.
 /// When the file changes on disk, the content is automatically reloaded.
 @MainActor
-final class MarkdownPanel: Panel, ObservableObject {
+final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
     let id: UUID
     let panelType: PanelType = .markdown
 
@@ -16,6 +24,18 @@ final class MarkdownPanel: Panel, ObservableObject {
 
     /// Current markdown content read from the file.
     @Published private(set) var content: String = ""
+
+    /// Current raw text shown by the TextEdit mode.
+    @Published private(set) var textContent: String = ""
+
+    /// Whether TextEdit mode has unsaved changes.
+    @Published private(set) var isDirty: Bool = false
+
+    /// Whether TextEdit mode is saving to disk.
+    @Published private(set) var isSaving: Bool = false
+
+    /// The current view mode for this markdown panel. New panels default to preview.
+    @Published private(set) var displayMode: MarkdownPanelDisplayMode = .preview
 
     /// Title shown in the tab bar (filename).
     @Published private(set) var displayTitle: String = ""
@@ -36,6 +56,11 @@ final class MarkdownPanel: Panel, ObservableObject {
     private nonisolated(unsafe) var fileWatchSource: DispatchSourceFileSystemObject?
     private nonisolated(unsafe) var directoryWatchSource: DispatchSourceFileSystemObject?
     private var directoryWatchPath: String?
+    private var originalTextContent: String = ""
+    private var textEncoding: String.Encoding = .utf8
+    private var saveGeneration: Int = 0
+    private var activeSaveGeneration: Int?
+    private weak var textView: NSTextView?
     private var isClosed: Bool = false
     private let watchQueue = DispatchQueue(label: "com.cmux.markdown-file-watch", qos: .utility)
 
@@ -54,7 +79,8 @@ final class MarkdownPanel: Panel, ObservableObject {
     // MARK: - Panel protocol
 
     func focus() {
-        // Markdown panel is read-only; no first responder to manage.
+        guard displayMode == .text else { return }
+        _ = textView?.window?.makeFirstResponder(textView)
     }
 
     func unfocus() {
@@ -63,6 +89,7 @@ final class MarkdownPanel: Panel, ObservableObject {
 
     func close() {
         isClosed = true
+        textView = nil
         stopWatching()
     }
 
@@ -72,24 +99,125 @@ final class MarkdownPanel: Panel, ObservableObject {
         focusFlashToken += 1
     }
 
-    // MARK: - File I/O
+    func setDisplayMode(_ mode: MarkdownPanelDisplayMode) {
+        guard displayMode != mode else { return }
+        displayMode = mode
+        if mode == .text {
+            focus()
+        }
+    }
 
-    private func loadFileContent() {
-        do {
-            let newContent = try String(contentsOfFile: filePath, encoding: .utf8)
-            content = newContent
-            isFileUnavailable = false
-        } catch {
-            // Fallback: try ISO Latin-1, which accepts all 256 byte values,
-            // covering legacy encodings like Windows-1252.
-            if let data = FileManager.default.contents(atPath: filePath),
-               let decoded = String(data: data, encoding: .isoLatin1) {
-                content = decoded
-                isFileUnavailable = false
-            } else {
-                isFileUnavailable = true
+    func attachTextView(_ textView: NSTextView) {
+        self.textView = textView
+    }
+
+    func retryPendingFocus() {
+        focus()
+    }
+
+    func updateTextContent(_ nextContent: String) {
+        guard textContent != nextContent else { return }
+        textContent = nextContent
+        content = nextContent
+        isDirty = nextContent != originalTextContent
+    }
+
+    @discardableResult
+    func loadTextContent(replacingDirtyContent: Bool = true) -> Task<Void, Never>? {
+        loadFileContent(replacingDirtyContent: replacingDirtyContent)
+        return nil
+    }
+
+    @discardableResult
+    func saveTextContent() -> Task<Void, Never>? {
+        guard !isSaving else { return nil }
+        let currentContent = textView?.string ?? textContent
+        guard currentContent != originalTextContent else {
+            textContent = currentContent
+            content = currentContent
+            isDirty = false
+            return nil
+        }
+
+        saveGeneration += 1
+        let generation = saveGeneration
+        textContent = currentContent
+        content = currentContent
+        isDirty = true
+        isSaving = true
+        activeSaveGeneration = generation
+        let fileURL = URL(fileURLWithPath: filePath)
+        let encoding = textEncoding
+
+        return Task { [weak self, currentContent, fileURL, encoding, generation] in
+            let result = await FilePreviewTextSaver.save(content: currentContent, to: fileURL, encoding: encoding)
+            guard let self, self.activeSaveGeneration == generation else { return }
+            self.activeSaveGeneration = nil
+            self.isSaving = false
+            switch result {
+            case .saved:
+                self.originalTextContent = currentContent
+                self.isDirty = self.textContent != currentContent
+                self.isFileUnavailable = false
+            case .failed(let fileExists):
+                self.isFileUnavailable = !fileExists
             }
         }
+    }
+
+    // MARK: - File I/O
+
+    private func loadFileContent(replacingDirtyContent: Bool = true) {
+        switch Self.loadMarkdownFile(at: filePath) {
+        case .loaded(let newContent, let encoding):
+            applyLoadedContent(newContent, encoding: encoding, replacingDirtyContent: replacingDirtyContent)
+        case .unavailable:
+            guard replacingDirtyContent || !isDirty else {
+                isFileUnavailable = true
+                return
+            }
+            content = ""
+            textContent = ""
+            originalTextContent = ""
+            isDirty = false
+            isFileUnavailable = true
+        }
+    }
+
+    private func applyLoadedContent(
+        _ newContent: String,
+        encoding: String.Encoding,
+        replacingDirtyContent: Bool
+    ) {
+        if !replacingDirtyContent && isDirty {
+            originalTextContent = newContent
+            textEncoding = encoding
+            isDirty = textContent != newContent
+            isFileUnavailable = false
+            return
+        }
+
+        content = newContent
+        textContent = newContent
+        originalTextContent = newContent
+        textEncoding = encoding
+        isDirty = false
+        isFileUnavailable = false
+    }
+
+    private static func loadMarkdownFile(at path: String) -> FilePreviewTextLoader.Result {
+        guard let data = FileManager.default.contents(atPath: path) else {
+            return .unavailable
+        }
+        if let decoded = String(data: data, encoding: .utf8) {
+            return .loaded(content: decoded, encoding: .utf8)
+        }
+        // Fallback: ISO Latin-1 accepts all 256 byte values and covers common
+        // legacy encodings like Windows-1252 well enough for a raw editor.
+        if let decoded = String(data: data, encoding: .isoLatin1) {
+            return .loaded(content: decoded, encoding: .isoLatin1)
+        }
+        return .unavailable
     }
 
     // MARK: - File watcher via DispatchSource
@@ -121,7 +249,7 @@ final class MarkdownPanel: Panel, ObservableObject {
                 DispatchQueue.main.async {
                     guard !self.isClosed else { return }
                     self.stopFileWatcher()
-                    self.loadFileContent()
+                    self.loadFileContent(replacingDirtyContent: false)
                     // Reattach to the replacement inode when atomic-save
                     // already created it; otherwise watch the directory until
                     // the file comes back.
@@ -131,7 +259,7 @@ final class MarkdownPanel: Panel, ObservableObject {
                 // Content changed — reload.
                 DispatchQueue.main.async {
                     guard !self.isClosed else { return }
-                    self.loadFileContent()
+                    self.loadFileContent(replacingDirtyContent: false)
                 }
             }
         }
@@ -178,7 +306,7 @@ final class MarkdownPanel: Panel, ObservableObject {
                     // created at the same path string.
                     self.stopDirectoryWatcher()
                 }
-                self.loadFileContent()
+                self.loadFileContent(replacingDirtyContent: false)
                 if !self.isFileUnavailable {
                     self.startFileWatcher()
                 } else {

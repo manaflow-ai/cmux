@@ -21,6 +21,7 @@ struct MarkdownPanelView: View {
     let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
+    let appearance: PanelAppearance
     let onRequestPanelFocus: () -> Void
 
     @State private var focusFlashOpacity: Double = 0.0
@@ -28,7 +29,6 @@ struct MarkdownPanelView: View {
     @State private var copyConfirmation: CopyConfirmation? = nil
     @State private var copyConfirmationGeneration: Int = 0
     @State private var renderer = MarkdownWebRendererHandle()
-    @Environment(\.colorScheme) private var colorScheme
 
     private enum CopyConfirmation: Equatable {
         case markdown
@@ -61,38 +61,30 @@ struct MarkdownPanelView: View {
                 .padding(FocusFlashPattern.ringInset)
                 .allowsHitTesting(false)
         }
-        .overlay(alignment: .topTrailing) {
-            if !panel.isFileUnavailable {
-                MarkdownPanelToolbar(
-                    confirmation: copyConfirmation?.label,
-                    onCopyMarkdown: { copyAsMarkdown() },
-                    onCopyHTML: { copyAsHTML() }
-                )
-                .padding(.top, 10)
-                .padding(.trailing, 14)
-            }
-        }
         .onChange(of: panel.focusFlashToken) { _ in
             triggerFocusFlashAnimation()
         }
+        .environment(\.colorScheme, themeColorScheme)
     }
 
     // MARK: - Content
 
     private var markdownContentView: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // File path breadcrumb
             filePathHeader
-                .padding(.horizontal, 24)
-                .padding(.top, 16)
-                .padding(.bottom, 8)
 
             Divider()
-                .padding(.horizontal, 16)
 
+            markdownBody
+        }
+    }
+
+    @ViewBuilder
+    private var markdownBody: some View {
+        ZStack {
             MarkdownWebRenderer(
                 markdown: panel.content,
-                isDark: colorScheme == .dark,
+                theme: MarkdownWebTheme.resolve(backgroundColor: themeBackgroundColor),
                 panelId: panel.id,
                 workspaceId: panel.workspaceId,
                 filePath: panel.filePath,
@@ -100,20 +92,67 @@ struct MarkdownPanelView: View {
                 onRequestPanelFocus: onRequestPanelFocus
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .opacity(panel.displayMode == .preview ? 1 : 0)
+            .allowsHitTesting(panel.displayMode == .preview)
+            .accessibilityHidden(panel.displayMode != .preview)
+
+            if panel.displayMode == .text {
+                FilePreviewTextEditor(
+                    panel: panel,
+                    isVisibleInUI: isVisibleInUI,
+                    themeBackgroundColor: themeBackgroundColor,
+                    themeForegroundColor: themeForegroundColor
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
     }
 
     private var filePathHeader: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "doc.richtext")
-                .foregroundColor(.secondary)
-                .font(.system(size: 12))
-            Text(panel.filePath)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer()
+        PanelFilePathHeader(
+            iconSystemName: panel.displayIcon ?? "doc.richtext",
+            filePath: panel.filePath,
+            backgroundColor: themeBackgroundColor,
+            foregroundColor: themeForegroundColor
+        ) {
+            if panel.displayMode == .text {
+                PanelHeaderIconButton(
+                    systemName: "arrow.counterclockwise",
+                    label: String(localized: "markdown.toolbar.revert", defaultValue: "Revert"),
+                    isDisabled: !panel.isDirty,
+                    action: { panel.loadTextContent() }
+                )
+
+                PanelHeaderIconButton(
+                    systemName: "square.and.arrow.down",
+                    label: String(localized: "markdown.toolbar.save", defaultValue: "Save"),
+                    isDisabled: !panel.isDirty || panel.isSaving,
+                    action: { panel.saveTextContent() }
+                )
+            }
+            markdownModeButton
+            MarkdownPanelToolbar(
+                confirmation: copyConfirmation?.label,
+                onCopyMarkdown: { copyAsMarkdown() },
+                onCopyHTML: { copyAsHTML() }
+            )
+        }
+    }
+
+    private var markdownModeButton: some View {
+        switch panel.displayMode {
+        case .preview:
+            PanelHeaderIconButton(
+                systemName: "doc.plaintext",
+                label: String(localized: "markdown.mode.showTextEdit", defaultValue: "Show TextEdit"),
+                action: { panel.setDisplayMode(.text) }
+            )
+        case .text:
+            PanelHeaderIconButton(
+                systemName: "eye",
+                label: String(localized: "markdown.mode.showPreview", defaultValue: "Show Preview"),
+                action: { panel.setDisplayMode(.preview) }
+            )
         }
     }
 
@@ -142,10 +181,19 @@ struct MarkdownPanelView: View {
     // MARK: - Theme
 
     private var backgroundColor: Color {
-        // Match GitHub's --bgColor-default for each color scheme.
-        colorScheme == .dark
-            ? Color(nsColor: NSColor(red: 0x0d / 255.0, green: 0x11 / 255.0, blue: 0x17 / 255.0, alpha: 1.0))
-            : Color(nsColor: NSColor(white: 1.0, alpha: 1.0))
+        Color(nsColor: themeBackgroundColor)
+    }
+
+    private var themeBackgroundColor: NSColor {
+        appearance.backgroundColor
+    }
+
+    private var themeForegroundColor: NSColor {
+        appearance.foregroundColor
+    }
+
+    private var themeColorScheme: ColorScheme {
+        themeBackgroundColor.isLightColor ? .light : .dark
     }
 
     // MARK: - Copy actions
@@ -159,7 +207,7 @@ struct MarkdownPanelView: View {
 
     private func copyAsHTML() {
         Task { @MainActor in
-            guard let html = await renderer.renderedHTML() else { return }
+            guard let html = await renderer.renderedHTML(markdown: panel.content) else { return }
             let text = await renderer.renderedText() ?? panel.content
             let pb = NSPasteboard.general
             pb.clearContents()
@@ -218,20 +266,13 @@ private struct MarkdownPanelToolbar: View {
     let onCopyMarkdown: () -> Void
     let onCopyHTML: () -> Void
 
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             if let confirmation {
                 Text(confirmation)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(toolbarBackground.opacity(0.85))
-                    )
+                    .lineLimit(1)
                     .transition(.opacity)
             }
 
@@ -246,56 +287,15 @@ private struct MarkdownPanelToolbar: View {
                 action: onCopyHTML
             )
         }
-        .padding(4)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(toolbarBackground.opacity(0.7))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(toolbarBorder, lineWidth: 0.5)
-                )
-                .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.35 : 0.1), radius: 4, y: 1)
-        )
         .animation(.easeOut(duration: 0.15), value: confirmation)
     }
 
     private func toolbarButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .medium))
-                .frame(width: 22, height: 22)
-        }
-        .buttonStyle(MarkdownToolbarButtonStyle())
-        .help(title)
-        .accessibilityLabel(title)
-    }
-
-    private var toolbarBackground: Color {
-        colorScheme == .dark
-            ? Color(nsColor: NSColor(white: 0.18, alpha: 1.0))
-            : Color(nsColor: NSColor(white: 1.0, alpha: 1.0))
-    }
-
-    private var toolbarBorder: Color {
-        colorScheme == .dark
-            ? Color.white.opacity(0.08)
-            : Color.black.opacity(0.08)
-    }
-}
-
-private struct MarkdownToolbarButtonStyle: ButtonStyle {
-    @Environment(\.colorScheme) private var colorScheme
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundColor(configuration.isPressed ? .secondary : .primary)
-            .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(configuration.isPressed
-                          ? (colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08))
-                          : Color.clear)
-            )
-            .contentShape(Rectangle())
+        PanelHeaderIconButton(
+            systemName: systemImage,
+            label: title,
+            action: action
+        )
     }
 }
 
@@ -309,9 +309,9 @@ private struct MarkdownToolbarButtonStyle: ButtonStyle {
 final class MarkdownWebRendererHandle {
     weak var coordinator: MarkdownWebRenderer.Coordinator?
 
-    func renderedHTML() async -> String? {
+    func renderedHTML(markdown: String? = nil) async -> String? {
         guard let coordinator else { return nil }
-        return await coordinator.renderedHTML()
+        return await coordinator.renderedHTML(markdown: markdown)
     }
 
     func renderedText() async -> String? {

@@ -2,9 +2,42 @@ import AppKit
 import SwiftUI
 import WebKit
 
+struct MarkdownWebTheme: Equatable {
+    let isDark: Bool
+    let background: String
+    let mutedBackground: String
+    let neutralMutedBackground: String
+    let border: String
+    let mutedBorder: String
+
+    static func resolve(backgroundColor: NSColor) -> MarkdownWebTheme {
+        let isDark = !backgroundColor.isLightColor
+        let muted = backgroundColor.markdownThemeBlend(
+            targetContrast: isDark ? 1.09 : 1.06,
+            of: isDark ? .white : .black
+        )
+        let neutralMuted = backgroundColor.markdownThemeBlend(
+            targetContrast: isDark ? 1.35 : 1.20,
+            of: isDark ? .white : .black
+        ).withAlphaComponent(0.35)
+        let border = backgroundColor.markdownThemeBlend(
+            targetContrast: isDark ? 1.92 : 1.43,
+            of: isDark ? .white : .black
+        )
+        return MarkdownWebTheme(
+            isDark: isDark,
+            background: backgroundColor.markdownCSSColor,
+            mutedBackground: muted.markdownCSSColor,
+            neutralMutedBackground: neutralMuted.markdownCSSColor,
+            border: border.markdownCSSColor,
+            mutedBorder: border.withAlphaComponent(0.70).markdownCSSColor
+        )
+    }
+}
+
 struct MarkdownWebRenderer: NSViewRepresentable {
     let markdown: String
-    let isDark: Bool
+    let theme: MarkdownWebTheme
     let panelId: UUID
     let workspaceId: UUID
     let filePath: String
@@ -41,10 +74,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             webView.isInspectable = false
 #endif
         }
-        applyAppearance(to: webView, isDark: isDark)
+        applyAppearance(to: webView, isDark: theme.isDark)
 
         context.coordinator.webView = webView
-        context.coordinator.loadShell(isDark: isDark, initialMarkdown: markdown)
+        context.coordinator.loadShell(theme: theme, initialMarkdown: markdown)
         return webView
     }
 
@@ -56,8 +89,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         context.coordinator.workspaceId = workspaceId
         context.coordinator.filePath = filePath
         (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
-        applyAppearance(to: nsView, isDark: isDark)
-        context.coordinator.update(markdown: markdown, isDark: isDark)
+        applyAppearance(to: nsView, isDark: theme.isDark)
+        context.coordinator.update(markdown: markdown, theme: theme)
     }
 
     static func dismantleNSView(_ nsView: WKWebView, coordinator: Coordinator) {
@@ -87,16 +120,18 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         var workspaceId: UUID = UUID()
         var filePath: String = ""
         private var pendingMarkdown: String = ""
+        private var pendingTheme: MarkdownWebTheme = .resolve(backgroundColor: GhosttyBackgroundTheme.currentColor())
         private var lastMarkdown: String? = nil
-        private var lastIsDark: Bool? = nil
+        private var lastTheme: MarkdownWebTheme? = nil
         private var isLoaded = false
 
-        func loadShell(isDark: Bool, initialMarkdown: String) {
+        func loadShell(theme: MarkdownWebTheme, initialMarkdown: String) {
             pendingMarkdown = initialMarkdown
-            lastIsDark = isDark
+            pendingTheme = theme
+            lastTheme = theme
             requestedLibs.removeAll()
             isLoaded = false
-            let html = MarkdownViewerAssets.shared.shellHTML(isDark: isDark)
+            let html = MarkdownViewerAssets.shared.shellHTML(isDark: theme.isDark)
             let baseURL = URL(fileURLWithPath: filePath)
 #if DEBUG
             NSLog("MarkdownPanel.loadShell filePath=\(filePath) baseURL=\(baseURL.absoluteString) htmlBytes=\(html.utf8.count)")
@@ -104,23 +139,23 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             webView?.loadHTMLString(html, baseURL: baseURL)
         }
 
-        func update(markdown: String, isDark: Bool) {
-            let themeChanged = lastIsDark != isDark
+        func update(markdown: String, theme: MarkdownWebTheme) {
+            let themeChanged = lastTheme != theme
             let contentChanged = lastMarkdown != markdown
             guard themeChanged || contentChanged else { return }
 
             pendingMarkdown = markdown
+            pendingTheme = theme
 
             if themeChanged {
-                lastIsDark = isDark
+                lastTheme = theme
                 // The WKWebView's NSAppearance change (handled in the
                 // representable's update path) flips `prefers-color-scheme`
                 // automatically. We still nudge the page so highlight.js
                 // swaps stylesheets even if the matchMedia listener is
                 // slow to fire.
-                if isLoaded, let webView {
-                    let js = "window.__cmuxApplyTheme && window.__cmuxApplyTheme();"
-                    webView.evaluateJavaScript(js, completionHandler: nil)
+                if isLoaded {
+                    applyTheme(theme)
                     if !contentChanged {
                         pushMarkdown(lastMarkdown ?? pendingMarkdown)
                     }
@@ -135,8 +170,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
         }
 
-        func renderedHTML() async -> String? {
-            guard let webView, isLoaded else { return nil }
+        func renderedHTML(markdown: String? = nil) async -> String? {
+            guard isLoaded else { return nil }
+            if let markdown {
+                guard await renderMarkdownForExport(markdown) else { return nil }
+            }
             // We export an explicit "rendered HTML" getter from JS so callers
             // get the *content* div only, without the shell <style>/<script>.
             return await evaluateString("window.__cmuxRenderedHTML && window.__cmuxRenderedHTML()")
@@ -156,6 +194,32 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
         }
 
+        private func applyTheme(_ theme: MarkdownWebTheme) {
+            guard let webView else { return }
+            let payload = [
+                "--bgColor-default": theme.background,
+                "--bgColor-muted": theme.mutedBackground,
+                "--bgColor-neutral-muted": theme.neutralMutedBackground,
+                "--borderColor-default": theme.border,
+                "--borderColor-muted": theme.mutedBorder,
+                "--borderColor-neutral-muted": theme.mutedBorder
+            ]
+            guard let data = try? JSONSerialization.data(withJSONObject: payload),
+                  let json = String(data: data, encoding: .utf8) else { return }
+            let js = """
+            (function(vars) {
+              var content = document.getElementById('content');
+              if (!content) { return; }
+              Object.keys(vars).forEach(function(name) {
+                content.style.setProperty(name, vars[name]);
+              });
+              content.style.background = 'transparent';
+              if (window.__cmuxApplyTheme) { window.__cmuxApplyTheme(); }
+            })(\(json));
+            """
+            webView.evaluateJavaScript(js, completionHandler: nil)
+        }
+
         // MARK: Bridge
 
         private func pushMarkdown(_ markdown: String) {
@@ -163,11 +227,38 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #if DEBUG
             NSLog("MarkdownPanel.pushMarkdown bytes=\(markdown.utf8.count)")
 #endif
+            guard let js = Self.renderMarkdownScript(markdown) else { return }
+            webView.evaluateJavaScript(js) { _, error in
+#if DEBUG
+                if let error {
+                    NSLog("MarkdownPanel: pushMarkdown evaluateJavaScript failed: \(error)")
+                }
+#endif
+            }
+        }
+
+        private func renderMarkdownForExport(_ markdown: String) async -> Bool {
+            guard let webView, isLoaded else { return false }
+            guard let js = Self.renderMarkdownScript(markdown) else { return false }
+            do {
+                _ = try await webView.evaluateJavaScript(js)
+                lastMarkdown = markdown
+                pendingMarkdown = markdown
+                return true
+            } catch {
+#if DEBUG
+                NSLog("MarkdownPanel: renderMarkdownForExport evaluateJavaScript failed: \(error)")
+#endif
+                return false
+            }
+        }
+
+        private static func renderMarkdownScript(_ markdown: String) -> String? {
             // Send the raw markdown through a JSON literal so we don't have
             // to hand-escape backticks/backslashes/quotes for JS.
             guard let data = try? JSONSerialization.data(withJSONObject: [markdown]),
-                  let arrayLiteral = String(data: data, encoding: .utf8) else { return }
-            let js = """
+                  let arrayLiteral = String(data: data, encoding: .utf8) else { return nil }
+            return """
             (function(md) {
               if (window.__cmuxRenderMarkdown) {
                 window.__cmuxRenderMarkdown(md);
@@ -182,13 +273,6 @@ struct MarkdownWebRenderer: NSViewRepresentable {
               el.innerHTML = '<pre style=\"color:#f85149;white-space:pre-wrap\">Markdown renderer failed to initialize. Showing raw source.\\n\\n' + esc(md) + '</pre>';
             })(\(arrayLiteral)[0]);
             """
-            webView.evaluateJavaScript(js) { _, error in
-#if DEBUG
-                if let error {
-                    NSLog("MarkdownPanel: pushMarkdown evaluateJavaScript failed: \(error)")
-                }
-#endif
-            }
         }
 
         // MARK: WKScriptMessageHandler
@@ -319,6 +403,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             NSLog("MarkdownPanel.webView.didFinish")
 #endif
             isLoaded = true
+            applyTheme(lastTheme ?? pendingTheme)
             // Replay last known markdown after the shell finishes loading.
             let md = lastMarkdown ?? pendingMarkdown
             lastMarkdown = md
@@ -432,5 +517,76 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
             return false
         }
+    }
+}
+
+private extension NSColor {
+    var markdownCSSColor: String {
+        let color = usingColorSpace(.sRGB) ?? self
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 1
+        color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        let r = min(255, max(0, Int((red * 255).rounded())))
+        let g = min(255, max(0, Int((green * 255).rounded())))
+        let b = min(255, max(0, Int((blue * 255).rounded())))
+        let a = min(1, max(0, alpha))
+        return String(format: "rgba(%d, %d, %d, %.3f)", r, g, b, Double(a))
+    }
+
+    func markdownThemeBlend(withFraction fraction: CGFloat, of color: NSColor) -> NSColor {
+        let base = (usingColorSpace(.sRGB) ?? self)
+        let alpha = base.alphaComponent
+        return (base.withAlphaComponent(1).blended(withFraction: fraction, of: color) ?? base)
+            .withAlphaComponent(alpha)
+    }
+
+    func markdownThemeBlend(targetContrast: CGFloat, of color: NSColor) -> NSColor {
+        let base = usingColorSpace(.sRGB) ?? self
+        let alpha = base.alphaComponent
+        var low: CGFloat = 0
+        var high: CGFloat = 1
+        var result = base.withAlphaComponent(1)
+
+        for _ in 0..<18 {
+            let mid = (low + high) / 2
+            let candidate = base.markdownThemeBlend(withFraction: mid, of: color).withAlphaComponent(1)
+            if candidate.markdownContrastRatio(with: base) < Double(targetContrast) {
+                low = mid
+            } else {
+                high = mid
+                result = candidate
+            }
+        }
+
+        return result.withAlphaComponent(alpha)
+    }
+
+    var markdownRelativeLuminance: Double {
+        let color = usingColorSpace(.sRGB) ?? self
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 1
+        color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+
+        func linear(_ component: CGFloat) -> Double {
+            let value = Double(component)
+            if value <= 0.04045 {
+                return value / 12.92
+            }
+            return pow((value + 0.055) / 1.055, 2.4)
+        }
+
+        return (0.2126 * linear(red)) + (0.7152 * linear(green)) + (0.0722 * linear(blue))
+    }
+
+    func markdownContrastRatio(with other: NSColor) -> Double {
+        let first = markdownRelativeLuminance
+        let second = other.markdownRelativeLuminance
+        let lighter = max(first, second)
+        let darker = min(first, second)
+        return (lighter + 0.05) / (darker + 0.05)
     }
 }

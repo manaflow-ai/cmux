@@ -34,6 +34,7 @@
 		C0DE35530000000000000101 /* BundledCLILinkageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE35530000000000000102 /* BundledCLILinkageTests.swift */; };
 		C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */; };
 		C0DE31390000000000000103 /* FilePreviewReviewFeedbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000104 /* FilePreviewReviewFeedbackTests.swift */; };
+		D3664002D3664002D3664002 /* MarkdownPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3664001D3664001D3664001 /* MarkdownPanelTests.swift */; };
 		C0DEF0A10000000000000001 /* CmuxConfigUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A10000000000000002 /* CmuxConfigUI.swift */; };
 		C0DEF0A30000000000000001 /* SidebarPortDisplayText.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A30000000000000002 /* SidebarPortDisplayText.swift */; };
 		C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B10000000000000002 /* JSONCParser.swift */; };
@@ -753,6 +754,7 @@
 		C0DEF0A30000000000000002 /* SidebarPortDisplayText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarPortDisplayText.swift; sourceTree = "<group>"; };
 		C0DEF0A40000000000000002 /* CmuxConfigContextMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigContextMenuTests.swift; sourceTree = "<group>"; };
 		A5001435A5001435A5001435 /* FilePreviewPDFThumbnailSidebarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewPDFThumbnailSidebarTests.swift; sourceTree = "<group>"; };
+		D3664001D3664001D3664001 /* MarkdownPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPanelTests.swift; sourceTree = "<group>"; };
 		D7AB00000000000000000010 /* AppDelegateMoveTabToNewWorkspaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateMoveTabToNewWorkspaceTests.swift; sourceTree = "<group>"; };
 		C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillUITests.swift; sourceTree = "<group>"; };
 		C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigTests.swift; sourceTree = "<group>"; };
@@ -1275,6 +1277,7 @@
 				D0B10019A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift */,
 				2907A0042907A0042907A004 /* AppDelegateIssue2907RoutingTests.swift */,
 				A5001435A5001435A5001435 /* FilePreviewPDFThumbnailSidebarTests.swift */,
+				D3664001D3664001D3664001 /* MarkdownPanelTests.swift */,
 				C0DE31390000000000000104 /* FilePreviewReviewFeedbackTests.swift */,
 				D7AB00000000000000000010 /* AppDelegateMoveTabToNewWorkspaceTests.swift */,
 				17C9F5BA0DD14EDC8C3E5002 /* MainWindowVisibilityControllerTests.swift */,
@@ -1327,6 +1330,7 @@
 				A5001051 /* Sources */,
 				A5001030 /* Frameworks */,
 				A5001102 /* Resources */,
+				D3664003D3664003D3664003 /* Compress Markdown Viewer Assets */,
 				D1320AA0D1320AA0D1320AA6 /* Copy Dock Tile Plugin */,
 				A5001020 /* Embed Frameworks */,
 				B900000AA1B2C3D4E5F60719 /* Copy CLI */,
@@ -1537,6 +1541,27 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		D3664003D3664003D3664003 /* Compress Markdown Viewer Assets */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/scripts/compress-markdown-viewer-assets.sh",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/markdown-viewer",
+			);
+			name = "Compress Markdown Viewer Assets";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/scripts/compress-markdown-viewer-assets.sh\"\n";
+		};
 		A5001300A1B2C3D4E5F60719 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -1897,6 +1922,7 @@
 				D0B10018A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift in Sources */,
 				2907A0032907A0032907A003 /* AppDelegateIssue2907RoutingTests.swift in Sources */,
 				A5001436A5001436A5001436 /* FilePreviewPDFThumbnailSidebarTests.swift in Sources */,
+				D3664002D3664002D3664002 /* MarkdownPanelTests.swift in Sources */,
 				C0DE31390000000000000103 /* FilePreviewReviewFeedbackTests.swift in Sources */,
 				D7AB0000000000000000000F /* AppDelegateMoveTabToNewWorkspaceTests.swift in Sources */,
 				17C9F5BA0DD14EDC8C3E5001 /* MainWindowVisibilityControllerTests.swift in Sources */,

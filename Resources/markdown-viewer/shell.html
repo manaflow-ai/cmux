@@ -50,6 +50,44 @@ body {
   padding: 0; /* hljs class already pads */
   overflow: auto;
 }
+.cmux-code-block {
+  position: relative;
+  margin: 0 0 16px 0;
+}
+.cmux-code-block pre {
+  margin: 0;
+}
+.cmux-code-block .markdown-body pre,
+.markdown-body .cmux-code-block pre {
+  margin: 0;
+}
+.cmux-code-copy-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  opacity: 0;
+  pointer-events: none;
+  padding: 3px 7px;
+  border: 1px solid var(--borderColor-default);
+  border-radius: 6px;
+  background: var(--bgColor-muted);
+  color: var(--fgColor-muted);
+  font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  cursor: pointer;
+  box-shadow: none;
+  transition: opacity 120ms ease, color 120ms ease, background-color 120ms ease;
+}
+.cmux-code-block:hover .cmux-code-copy-button,
+.cmux-code-copy-button:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.cmux-code-copy-button:hover,
+.cmux-code-copy-button:focus-visible {
+  color: var(--fgColor-default);
+  background: var(--bgColor-default);
+}
 /* Mermaid + Vega-Lite blocks. Both libs render into these containers
    lazily; the .cmux-source <pre> holds the raw block source for the
    library to read, hidden from view. */
@@ -90,9 +128,9 @@ body {
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 10px;
-  font-size: 12px;
+  gap: 8px;
+  padding: 9px 12px;
+  font-size: 13px;
   font-weight: 600;
   user-select: none;
 }
@@ -101,8 +139,15 @@ body {
 }
 .cmux-frontmatter summary::before {
   content: "▸";
-  font-size: 10px;
-  opacity: 0.75;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.82;
+  transform: translateY(0.5px);
 }
 .cmux-frontmatter[open] summary {
   border-bottom: 1px solid var(--borderColor-default);
@@ -251,6 +296,36 @@ html { scroll-behavior: smooth; }
       + '<summary><span>Show frontmatter</span></summary>'
       + '<pre><code class="hljs language-yaml">' + highlighted + '</code></pre>'
       + '</details>';
+  }
+
+  function copyTextToClipboard(text) {
+    var value = String(text == null ? '' : text);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(value).catch(function() {
+        return fallbackCopyText(value);
+      });
+    }
+    return fallbackCopyText(value);
+  }
+
+  function fallbackCopyText(text) {
+    return new Promise(function(resolve, reject) {
+      try {
+        var textarea = document.createElement('textarea');
+        textarea.value = String(text == null ? '' : text);
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        textarea.style.top = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        ok ? resolve() : reject(new Error('copy failed'));
+      } catch (e) {
+        reject(e);
+      }
+    });
   }
 
   function compactForProtocolCheck(value) {
@@ -474,6 +549,95 @@ html { scroll-behavior: smooth; }
     });
   }
 
+  function markdownScroller() {
+    return document.scrollingElement || document.documentElement || document.body;
+  }
+
+  function markdownScrollY() {
+    var scroller = markdownScroller();
+    return Math.max(0, window.scrollY || scroller.scrollTop || 0);
+  }
+
+  function markdownMaxScrollY() {
+    var scroller = markdownScroller();
+    return Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+  }
+
+  function clampScrollY(y) {
+    return Math.max(0, Math.min(markdownMaxScrollY(), y));
+  }
+
+  function setMarkdownScrollY(y) {
+    var targetY = clampScrollY(y);
+    var scroller = markdownScroller();
+    var root = document.documentElement;
+    var previousBehavior = root.style.scrollBehavior;
+    root.style.scrollBehavior = 'auto';
+    try {
+      scroller.scrollTop = targetY;
+      if (Math.abs((scroller.scrollTop || 0) - targetY) > 1) {
+        window.scrollTo(0, targetY);
+      }
+    } finally {
+      root.style.scrollBehavior = previousBehavior;
+    }
+  }
+
+  function firstVisibleMarkdownAnchor() {
+    var x = Math.max(24, Math.min(window.innerWidth - 24, Math.floor(window.innerWidth * 0.45)));
+    var yValues = [16, 48, 96, Math.floor(window.innerHeight * 0.25)];
+    for (var i = 0; i < yValues.length; i++) {
+      var y = Math.max(0, Math.min(window.innerHeight - 1, yValues[i]));
+      var element = document.elementFromPoint(x, y);
+      if (!element || !contentEl.contains(element)) { continue; }
+      var anchor = element.closest('[id]');
+      if (anchor && anchor !== contentEl && contentEl.contains(anchor) && anchor.id) {
+        return {
+          id: anchor.id,
+          top: anchor.getBoundingClientRect().top
+        };
+      }
+    }
+    return null;
+  }
+
+  function captureMarkdownScrollState() {
+    var y = markdownScrollY();
+    var maxY = markdownMaxScrollY();
+    return {
+      anchor: firstVisibleMarkdownAnchor(),
+      nearTop: y <= 2,
+      nearBottom: maxY - y <= 2,
+      ratio: maxY > 0 ? y / maxY : 0
+    };
+  }
+
+  function restoreMarkdownScrollState(state) {
+    if (!state) { return; }
+    function apply() {
+      var targetY;
+      if (state.nearTop) {
+        targetY = 0;
+      } else if (state.nearBottom) {
+        targetY = markdownMaxScrollY();
+      } else if (state.anchor && state.anchor.id) {
+        var anchor = document.getElementById(state.anchor.id);
+        if (anchor) {
+          targetY = markdownScrollY() + anchor.getBoundingClientRect().top - state.anchor.top;
+        }
+      }
+      if (typeof targetY !== 'number' || !isFinite(targetY)) {
+        targetY = markdownMaxScrollY() * state.ratio;
+      }
+      setMarkdownScrollY(targetY);
+    }
+    apply();
+    window.requestAnimationFrame(function() {
+      apply();
+      window.requestAnimationFrame(apply);
+    });
+  }
+
   var mermaidInitialized = false;
   function renderMermaidBlocks() {
     if (typeof mermaid === 'undefined') { renderLibError('mermaid', 'library missing'); return; }
@@ -621,7 +785,43 @@ html { scroll-behavior: smooth; }
     if (contentEl.querySelector('.cmux-vega:not([data-rendered])')) {
       loadLib('vega-lite', renderVegaBlocks);
     }
+    addCodeCopyButtons();
     markMarkdownFileLinks();
+  }
+
+  function addCodeCopyButtons() {
+    contentEl.querySelectorAll('pre > code.hljs').forEach(function(code) {
+      var pre = code.parentElement;
+      if (!pre || pre.closest('.cmux-source') || pre.closest('.cmux-frontmatter')) { return; }
+      if (pre.parentElement && pre.parentElement.classList.contains('cmux-code-block')) { return; }
+
+      var wrapper = document.createElement('div');
+      wrapper.className = 'cmux-code-block';
+      pre.parentNode.insertBefore(wrapper, pre);
+      wrapper.appendChild(pre);
+
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'cmux-code-copy-button';
+      button.textContent = 'Copy';
+      button.setAttribute('aria-label', 'Copy code');
+      button.addEventListener('click', function(ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        copyTextToClipboard(code.textContent || '').then(function() {
+          button.textContent = 'Copied';
+          button.setAttribute('data-copied', '1');
+          window.setTimeout(function() {
+            button.textContent = 'Copy';
+            button.removeAttribute('data-copied');
+          }, 1200);
+        }).catch(function() {
+          button.textContent = 'Failed';
+          window.setTimeout(function() { button.textContent = 'Copy'; }, 1200);
+        });
+      });
+      wrapper.appendChild(button);
+    });
   }
 
   // Local markdown file links and inline-code spans.
@@ -735,10 +935,15 @@ html { scroll-behavior: smooth; }
       var documentParts = extractFrontmatter(md || '');
       var html = renderFrontmatter(documentParts.frontmatter)
         + sanitizeRenderedHTML(marked.parse(documentParts.body || ''));
-      if (contentEl.innerHTML !== html) {
+      var didReplaceContent = contentEl.innerHTML !== html;
+      var scrollState = didReplaceContent ? captureMarkdownScrollState() : null;
+      if (didReplaceContent) {
         contentEl.innerHTML = html;
       }
       postProcessSpecialBlocks();
+      if (didReplaceContent) {
+        restoreMarkdownScrollState(scrollState);
+      }
     } catch (e) {
       contentEl.innerHTML =
         '<div style="color:#f85149;font-family:ui-monospace,monospace;white-space:pre-wrap;padding:8px 12px;border:1px solid #f85149;border-radius:6px;margin-bottom:12px">'
@@ -750,6 +955,9 @@ html { scroll-behavior: smooth; }
   window.__cmuxRenderedHTML = function() {
     if (!contentEl) { return ''; }
     var clone = contentEl.cloneNode(true);
+    clone.querySelectorAll('.cmux-code-copy-button').forEach(function(el) {
+      el.remove();
+    });
     clone.querySelectorAll('*').forEach(function(el) {
       Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {
         var name = String(attr.name || '').toLowerCase();
