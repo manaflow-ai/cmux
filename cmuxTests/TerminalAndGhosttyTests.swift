@@ -1377,6 +1377,23 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
         XCTAssertEqual(resolve(45, chars: "n", hasSelection: false, state: &searchState), .perform(.searchNext, count: 2))
     }
 
+    func testOnlyViewportScrollMotionsTagScrollbarUpdatesAsKeyboardInitiated() {
+        XCTAssertTrue(TerminalKeyboardCopyModeAction.scrollLines(1).shouldTreatScrollbarUpdatesAsKeyboardInitiated)
+        XCTAssertTrue(TerminalKeyboardCopyModeAction.scrollPage(-1).shouldTreatScrollbarUpdatesAsKeyboardInitiated)
+        XCTAssertTrue(TerminalKeyboardCopyModeAction.scrollHalfPage(1).shouldTreatScrollbarUpdatesAsKeyboardInitiated)
+        XCTAssertTrue(TerminalKeyboardCopyModeAction.scrollToTop.shouldTreatScrollbarUpdatesAsKeyboardInitiated)
+        XCTAssertTrue(TerminalKeyboardCopyModeAction.scrollToBottom.shouldTreatScrollbarUpdatesAsKeyboardInitiated)
+        XCTAssertTrue(TerminalKeyboardCopyModeAction.jumpToPrompt(1).shouldTreatScrollbarUpdatesAsKeyboardInitiated)
+
+        XCTAssertFalse(TerminalKeyboardCopyModeAction.searchNext.shouldTreatScrollbarUpdatesAsKeyboardInitiated)
+        XCTAssertFalse(TerminalKeyboardCopyModeAction.searchPrevious.shouldTreatScrollbarUpdatesAsKeyboardInitiated)
+        XCTAssertFalse(
+            TerminalKeyboardCopyModeAction
+                .adjustSelection(.down)
+                .shouldTreatScrollbarUpdatesAsKeyboardInitiated
+        )
+    }
+
     func testInvalidKeyClearsPendingState() {
         var state = TerminalKeyboardCopyModeInputState()
         XCTAssertEqual(resolve(18, chars: "2", hasSelection: false, state: &state), .consume)

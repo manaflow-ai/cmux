@@ -1363,6 +1363,16 @@ enum TerminalKeyboardCopyModeAction: Equatable {
     case searchNext
     case searchPrevious
     case adjustSelection(TerminalKeyboardCopyModeSelectionMove)
+
+    var shouldTreatScrollbarUpdatesAsKeyboardInitiated: Bool {
+        switch self {
+        case .scrollLines, .scrollPage, .scrollHalfPage, .scrollToTop, .scrollToBottom, .jumpToPrompt:
+            return true
+        case .exit, .startSelection, .clearSelection, .copyAndExit, .copyLineAndExit, .startSearch, .searchNext,
+             .searchPrevious, .adjustSelection:
+            return false
+        }
+    }
 }
 
 struct TerminalKeyboardCopyModeInputState: Equatable {
@@ -6915,6 +6925,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    private func performKeyboardCopyModeBindingAction(
+        _ bindingAction: String,
+        copyModeAction: TerminalKeyboardCopyModeAction,
+        repeatCount: Int = 1
+    ) {
+        if copyModeAction.shouldTreatScrollbarUpdatesAsKeyboardInitiated {
+            performKeyboardInitiatedScrollBindingAction(bindingAction, repeatCount: repeatCount)
+        } else {
+            performBindingAction(bindingAction, repeatCount: repeatCount)
+        }
+    }
+
     private func currentKeyboardCopyModeViewportRow(surface: ghostty_surface_t) -> Int {
         let rows = max(Int(ghostty_surface_size(surface).rows), 1)
         let fallback = rows - 1
@@ -7053,37 +7075,60 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = ghostty_surface_clear_selection_compat(surface)
             setKeyboardCopyModeActive(false)
         case let .scrollLines(delta):
-            _ = performKeyboardInitiatedScrollBindingAction("scroll_page_lines:\(delta * count)")
+            performKeyboardCopyModeBindingAction(
+                "scroll_page_lines:\(delta * count)",
+                copyModeAction: action
+            )
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case let .scrollPage(delta):
-            performKeyboardInitiatedScrollBindingAction(
+            performKeyboardCopyModeBindingAction(
                 delta > 0 ? "scroll_page_down" : "scroll_page_up",
+                copyModeAction: action,
                 repeatCount: count
             )
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case let .scrollHalfPage(delta):
             let fraction = delta > 0 ? 0.5 : -0.5
-            performKeyboardInitiatedScrollBindingAction("scroll_page_fractional:\(fraction)", repeatCount: count)
+            performKeyboardCopyModeBindingAction(
+                "scroll_page_fractional:\(fraction)",
+                copyModeAction: action,
+                repeatCount: count
+            )
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case .scrollToTop:
             keyboardCopyModeViewportRow = 0
-            _ = performKeyboardInitiatedScrollBindingAction("scroll_to_top")
+            performKeyboardCopyModeBindingAction("scroll_to_top", copyModeAction: action)
         case .scrollToBottom:
             keyboardCopyModeViewportRow = max(Int(ghostty_surface_size(surface).rows) - 1, 0)
-            _ = performKeyboardInitiatedScrollBindingAction("scroll_to_bottom")
+            performKeyboardCopyModeBindingAction("scroll_to_bottom", copyModeAction: action)
         case let .jumpToPrompt(delta):
-            _ = performKeyboardInitiatedScrollBindingAction("jump_to_prompt:\(delta * count)")
+            performKeyboardCopyModeBindingAction(
+                "jump_to_prompt:\(delta * count)",
+                copyModeAction: action
+            )
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case .startSearch:
             _ = performBindingAction("start_search")
         case .searchNext:
-            performKeyboardInitiatedScrollBindingAction("navigate_search:next", repeatCount: count)
+            performKeyboardCopyModeBindingAction(
+                "navigate_search:next",
+                copyModeAction: action,
+                repeatCount: count
+            )
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case .searchPrevious:
-            performKeyboardInitiatedScrollBindingAction("navigate_search:previous", repeatCount: count)
+            performKeyboardCopyModeBindingAction(
+                "navigate_search:previous",
+                copyModeAction: action,
+                repeatCount: count
+            )
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case let .adjustSelection(direction):
-            performKeyboardInitiatedScrollBindingAction("adjust_selection:\(direction.rawValue)", repeatCount: count)
+            performKeyboardCopyModeBindingAction(
+                "adjust_selection:\(direction.rawValue)",
+                copyModeAction: action,
+                repeatCount: count
+            )
         }
         return true
     }
