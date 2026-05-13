@@ -13,17 +13,15 @@ struct GoalDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             detailBar
-            TimelineView(.periodic(from: .now, by: 60)) { context in
-                ScrollView(.vertical) {
-                    VStack(alignment: .leading, spacing: 14) {
-                        header
-                        metrics(now: context.date)
-                        notes
-                    }
-                    .padding(12)
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 14) {
+                    header
+                    GoalMetricsSection(snapshot: snapshot)
+                    notes
                 }
-                .modifier(ClearScrollBackground())
+                .padding(12)
             }
+            .modifier(ClearScrollBackground())
         }
         .confirmationDialog(
             String(localized: "goals.delete.confirmTitle", defaultValue: "Delete Goal?"),
@@ -102,31 +100,6 @@ struct GoalDetailView: View {
         }
     }
 
-    private func metrics(now: Date) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(String(localized: "goals.metrics.title", defaultValue: "Metrics"))
-                .font(.system(size: 12, weight: .semibold))
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                MetricTile(
-                    title: String(localized: "goals.metrics.wallClock", defaultValue: "Wall clock"),
-                    value: Self.formattedDuration(snapshot.wallClockDuration(at: now))
-                )
-                MetricTile(
-                    title: String(localized: "goals.metrics.active", defaultValue: "Active"),
-                    value: Self.formattedDuration(snapshot.activeDuration(at: now))
-                )
-                MetricTile(
-                    title: String(localized: "goals.metrics.notes", defaultValue: "Notes"),
-                    value: NumberFormatter.localizedString(from: NSNumber(value: snapshot.notes.count), number: .decimal)
-                )
-                MetricTile(
-                    title: String(localized: "goals.metrics.updated", defaultValue: "Updated"),
-                    value: Self.relativeFormatter.localizedString(for: snapshot.updatedAt, relativeTo: now)
-                )
-            }
-        }
-    }
-
     private var notes: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "goals.notes.title", defaultValue: "Notes"))
@@ -162,6 +135,41 @@ struct GoalDetailView: View {
                         NoteRow(note: note)
                     }
                 }
+            }
+        }
+    }
+}
+
+private struct GoalMetricsSection: View {
+    let snapshot: GoalSupervisionSnapshot
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            metrics(now: context.date)
+        }
+    }
+
+    private func metrics(now: Date) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(String(localized: "goals.metrics.title", defaultValue: "Metrics"))
+                .font(.system(size: 12, weight: .semibold))
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                MetricTile(
+                    title: String(localized: "goals.metrics.wallClock", defaultValue: "Wall clock"),
+                    value: Self.formattedDuration(snapshot.wallClockDuration(at: now))
+                )
+                MetricTile(
+                    title: String(localized: "goals.metrics.active", defaultValue: "Active"),
+                    value: Self.formattedDuration(snapshot.activeDuration(at: now))
+                )
+                MetricTile(
+                    title: String(localized: "goals.metrics.notes", defaultValue: "Notes"),
+                    value: NumberFormatter.localizedString(from: NSNumber(value: snapshot.notes.count), number: .decimal)
+                )
+                MetricTile(
+                    title: String(localized: "goals.metrics.updated", defaultValue: "Updated"),
+                    value: Self.relativeFormatter.localizedString(for: snapshot.updatedAt, relativeTo: now)
+                )
             }
         }
     }
