@@ -3684,6 +3684,7 @@ class TerminalController {
 
         for (index, entry) in workspace.sidebarStatusEntriesInDisplayOrder().enumerated() {
             let pid = workspace.agentPIDs[entry.key].flatMap { $0 > 0 ? Int($0) : nil }
+            let surfaceId = workspace.agentPIDPanelIdsByKey[entry.key]
             tags.append([
                 "kind": "tag",
                 "id": v2TopTagIdentifier(workspaceId: workspace.id, key: entry.key),
@@ -3697,13 +3698,16 @@ class TerminalController {
                 "priority": entry.priority,
                 "format": entry.format.rawValue,
                 "visible": true,
-                "pid": v2OrNull(pid)
+                "pid": v2OrNull(pid),
+                "surface_id": v2OrNull(surfaceId?.uuidString),
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
             ])
             seenKeys.insert(entry.key)
         }
 
         for key in workspace.agentPIDs.keys.sorted() where !seenKeys.contains(key) {
             let pid = workspace.agentPIDs[key].flatMap { $0 > 0 ? Int($0) : nil }
+            let surfaceId = workspace.agentPIDPanelIdsByKey[key]
             tags.append([
                 "kind": "tag",
                 "id": v2TopTagIdentifier(workspaceId: workspace.id, key: key),
@@ -3717,7 +3721,9 @@ class TerminalController {
                 "priority": 0,
                 "format": "plain",
                 "visible": false,
-                "pid": v2OrNull(pid)
+                "pid": v2OrNull(pid),
+                "surface_id": v2OrNull(surfaceId?.uuidString),
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
             ])
         }
 

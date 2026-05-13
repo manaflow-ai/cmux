@@ -3,6 +3,7 @@ import CMUXAgentLaunch
 import CoreFoundation
 import CryptoKit
 import Darwin
+import SQLite3
 #if canImport(LocalAuthentication)
 import LocalAuthentication
 #endif
@@ -3142,6 +3143,15 @@ struct CMUXCLI {
 
         case "top":
             try runTopCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "memory", "memory-snapshot", "memory-list", "memory-top", "memory-trim":
+            try runMemoryCommand(
+                command: command,
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat
+            )
 
         case "focus-pane":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
@@ -9809,6 +9819,46 @@ struct CMUXCLI {
               cmux top --workspace workspace:2 --processes
               cmux --json top --all
             """
+        case "memory", "memory-snapshot", "memory-list", "memory-top", "memory-trim":
+            return """
+            Usage: cmux memory <snapshot|list|top|trim> [flags]
+
+            Persist and inspect approximate per-workspace memory telemetry.
+
+            Commands:
+              snapshot                 Sample current workspace usage and persist it to SQLite
+              list                     Show current workspace usage without persisting
+              top                      Sort historical samples by peak/average RSS
+              trim                     Stop a recoverable agent process while preserving the workspace
+
+            Flags:
+              snapshot/list:
+                --workspace <id|ref|index>  Restrict to one workspace
+                --limit <n>                 Limit displayed rows
+                --json                      Structured JSON output
+
+              top:
+                --since <duration>          Time window (default: 6h; units: s, m, h, d)
+                --limit <n>                 Limit rows (default: 20)
+                --json                      Structured JSON output
+
+              trim:
+                --workspace <id|ref|index>  Target workspace (default: current/$CMUX_WORKSPACE_ID)
+                --agent <name|pid|auto>     Agent to trim (default: largest known agent)
+                --grace <duration>          Grace period before TERM/KILL (default: 5s)
+                --dry-run                   Print the selected agent without stopping it
+                --json                      Structured JSON output
+
+            Notes:
+              RSS is approximate because shared pages can be counted in more than one workspace.
+              Stored top process data contains process names only, not full command lines.
+
+            Examples:
+              cmux memory snapshot
+              cmux memory list --workspace workspace:2
+              cmux memory top --since 6h
+              cmux memory trim --workspace workspace:2 --agent codex
+            """
         case "focus-pane":
             return """
             Usage: cmux focus-pane [--pane <id|ref> | <id|ref>] [flags]
@@ -11090,6 +11140,1090 @@ struct CMUXCLI {
         let textFormat: TopTextFormat
         let requestedFlatOutput: Bool
         let requestedFormat: Bool
+    }
+
+    private struct MemoryTopCommandOptions {
+        let since: TimeInterval
+        let jsonOutput: Bool
+        let limit: Int
+    }
+
+    private struct MemoryCurrentCommandOptions {
+        let workspaceHandle: String?
+        let jsonOutput: Bool
+        let limit: Int?
+    }
+
+    private struct MemoryTrimCommandOptions {
+        let workspaceHandle: String?
+        let agent: String?
+        let graceSeconds: TimeInterval
+        let dryRun: Bool
+        let jsonOutput: Bool
+    }
+
+    private struct MemoryWorkspaceSample {
+        let sampledAt: Date
+        let windowId: String?
+        let windowRef: String?
+        let workspaceId: String
+        let workspaceRef: String?
+        let workspaceTitle: String
+        let cpuPercent: Double
+        let residentBytes: Int64
+        let virtualBytes: Int64
+        let processCount: Int
+        let topProcessNames: [String]
+
+        var payload: [String: Any] {
+            [
+                "sampled_at": Self.iso8601(sampledAt),
+                "approximate": true,
+                "window_id": windowId ?? NSNull(),
+                "window_ref": windowRef ?? NSNull(),
+                "workspace_id": workspaceId,
+                "workspace_ref": workspaceRef ?? NSNull(),
+                "workspace_title": workspaceTitle,
+                "cpu_percent": cpuPercent,
+                "resident_bytes": residentBytes,
+                "virtual_bytes": virtualBytes,
+                "process_count": processCount,
+                "top_process_names": topProcessNames
+            ]
+        }
+
+        private static func iso8601(_ date: Date) -> String {
+            ISO8601DateFormatter().string(from: date)
+        }
+    }
+
+    private struct MemoryAgentCandidate {
+        let key: String
+        let pid: Int
+        let surfaceId: String?
+        let surfaceRef: String?
+        let processName: String?
+        let residentBytes: Int64
+
+        var displayName: String {
+            processName.map { "\(key) (\($0))" } ?? key
+        }
+
+        var payload: [String: Any] {
+            [
+                "key": key,
+                "pid": pid,
+                "surface_id": surfaceId ?? NSNull(),
+                "surface_ref": surfaceRef ?? NSNull(),
+                "process_name": processName ?? NSNull(),
+                "resident_bytes": residentBytes
+            ]
+        }
+    }
+
+    private struct MemoryTrimResult {
+        let workspaceId: String
+        let workspaceRef: String?
+        let agent: MemoryAgentCandidate
+        let gracefulAction: String?
+        let terminated: Bool
+        let killed: Bool
+        let stillRunning: Bool
+        let dryRun: Bool
+
+        var payload: [String: Any] {
+            [
+                "workspace_id": workspaceId,
+                "workspace_ref": workspaceRef ?? NSNull(),
+                "agent": agent.payload,
+                "graceful_action": gracefulAction ?? NSNull(),
+                "terminated": terminated,
+                "killed": killed,
+                "still_running": stillRunning,
+                "dry_run": dryRun
+            ]
+        }
+    }
+
+    private final class MemoryTelemetryDatabase {
+        private let url: URL
+        private var db: OpaquePointer?
+
+        var path: String {
+            url.path
+        }
+
+        init(url: URL) {
+            self.url = url
+        }
+
+        deinit {
+            close()
+        }
+
+        func open() throws {
+            guard db == nil else { return }
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let flags = SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX
+            let result = sqlite3_open_v2(url.path, &db, flags, nil)
+            guard result == SQLITE_OK, db != nil else {
+                let message = sqliteMessage() ?? "SQLite open failed with code \(result)"
+                close()
+                throw CLIError(message: message)
+            }
+            _ = sqlite3_busy_timeout(db, 1000)
+            try exec("PRAGMA journal_mode=WAL")
+            try exec("PRAGMA foreign_keys=ON")
+            try migrate()
+        }
+
+        func close() {
+            if let db {
+                sqlite3_close(db)
+            }
+            db = nil
+        }
+
+        func insert(samples: [MemoryWorkspaceSample], retention: TimeInterval) throws {
+            try open()
+            try exec("BEGIN IMMEDIATE")
+            do {
+                for sample in samples {
+                    try insert(sample: sample)
+                }
+                try prune(retention: retention)
+                try exec("COMMIT")
+            } catch {
+                try? exec("ROLLBACK")
+                throw error
+            }
+        }
+
+        func topRows(since: TimeInterval, limit: Int) throws -> [[String: Any]] {
+            try open()
+            let cutoff = Date().addingTimeInterval(-since).timeIntervalSince1970
+            let sql = """
+            SELECT
+                workspace_id,
+                COALESCE(MAX(workspace_ref), ''),
+                COALESCE(MAX(workspace_title), ''),
+                COUNT(*),
+                MAX(rss_bytes),
+                AVG(rss_bytes),
+                MAX(cpu_percent),
+                AVG(cpu_percent),
+                MAX(process_count),
+                MAX(sampled_at)
+            FROM workspace_memory_samples
+            WHERE sampled_at >= ?
+            GROUP BY workspace_id
+            ORDER BY MAX(rss_bytes) DESC, AVG(rss_bytes) DESC
+            LIMIT ?
+            """
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+                throw CLIError(message: sqliteMessage() ?? "SQLite prepare failed")
+            }
+            defer { sqlite3_finalize(stmt) }
+            sqlite3_bind_double(stmt, 1, cutoff)
+            sqlite3_bind_int(stmt, 2, Int32(max(1, limit)))
+
+            var rows: [[String: Any]] = []
+            var stepResult = sqlite3_step(stmt)
+            while stepResult == SQLITE_ROW {
+                rows.append([
+                    "workspace_id": sqliteText(stmt, 0) ?? "",
+                    "workspace_ref": sqliteText(stmt, 1) ?? "",
+                    "workspace_title": sqliteText(stmt, 2) ?? "",
+                    "sample_count": Int(sqlite3_column_int64(stmt, 3)),
+                    "peak_rss_bytes": sqlite3_column_int64(stmt, 4),
+                    "avg_rss_bytes": sqlite3_column_double(stmt, 5),
+                    "peak_cpu_percent": sqlite3_column_double(stmt, 6),
+                    "avg_cpu_percent": sqlite3_column_double(stmt, 7),
+                    "peak_process_count": Int(sqlite3_column_int64(stmt, 8)),
+                    "last_sampled_at": ISO8601DateFormatter().string(
+                        from: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 9))
+                    ),
+                    "approximate": true
+                ])
+                stepResult = sqlite3_step(stmt)
+            }
+            guard stepResult == SQLITE_DONE else {
+                throw CLIError(message: sqliteMessage() ?? "SQLite step failed")
+            }
+            return rows
+        }
+
+        private func migrate() throws {
+            try exec("""
+            CREATE TABLE IF NOT EXISTS workspace_memory_samples (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sampled_at REAL NOT NULL,
+                workspace_id TEXT NOT NULL,
+                workspace_ref TEXT,
+                workspace_title TEXT,
+                window_id TEXT,
+                window_ref TEXT,
+                rss_bytes INTEGER NOT NULL,
+                virtual_bytes INTEGER NOT NULL,
+                cpu_percent REAL NOT NULL,
+                process_count INTEGER NOT NULL,
+                top_process_names TEXT NOT NULL
+            )
+            """)
+            try exec("CREATE INDEX IF NOT EXISTS idx_workspace_memory_samples_time ON workspace_memory_samples(sampled_at)")
+            try exec("CREATE INDEX IF NOT EXISTS idx_workspace_memory_samples_workspace_time ON workspace_memory_samples(workspace_id, sampled_at)")
+        }
+
+        private func insert(sample: MemoryWorkspaceSample) throws {
+            let sql = """
+            INSERT INTO workspace_memory_samples (
+                sampled_at, workspace_id, workspace_ref, workspace_title, window_id, window_ref,
+                rss_bytes, virtual_bytes, cpu_percent, process_count, top_process_names
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+                throw CLIError(message: sqliteMessage() ?? "SQLite prepare failed")
+            }
+            defer { sqlite3_finalize(stmt) }
+            let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+            sqlite3_bind_double(stmt, 1, sample.sampledAt.timeIntervalSince1970)
+            bindText(stmt, 2, sample.workspaceId, transient: transient)
+            bindText(stmt, 3, sample.workspaceRef, transient: transient)
+            bindText(stmt, 4, sample.workspaceTitle, transient: transient)
+            bindText(stmt, 5, sample.windowId, transient: transient)
+            bindText(stmt, 6, sample.windowRef, transient: transient)
+            sqlite3_bind_int64(stmt, 7, sample.residentBytes)
+            sqlite3_bind_int64(stmt, 8, sample.virtualBytes)
+            sqlite3_bind_double(stmt, 9, sample.cpuPercent)
+            sqlite3_bind_int64(stmt, 10, Int64(sample.processCount))
+            bindText(stmt, 11, Self.jsonArray(sample.topProcessNames), transient: transient)
+            guard sqlite3_step(stmt) == SQLITE_DONE else {
+                throw CLIError(message: sqliteMessage() ?? "SQLite insert failed")
+            }
+        }
+
+        private func prune(retention: TimeInterval) throws {
+            guard retention > 0 else { return }
+            let cutoff = Date().addingTimeInterval(-retention).timeIntervalSince1970
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, "DELETE FROM workspace_memory_samples WHERE sampled_at < ?", -1, &stmt, nil) == SQLITE_OK,
+                  let stmt else {
+                throw CLIError(message: sqliteMessage() ?? "SQLite prepare failed")
+            }
+            defer { sqlite3_finalize(stmt) }
+            sqlite3_bind_double(stmt, 1, cutoff)
+            guard sqlite3_step(stmt) == SQLITE_DONE else {
+                throw CLIError(message: sqliteMessage() ?? "SQLite prune failed")
+            }
+        }
+
+        private func exec(_ sql: String) throws {
+            var errorMessage: UnsafeMutablePointer<CChar>?
+            guard sqlite3_exec(db, sql, nil, nil, &errorMessage) == SQLITE_OK else {
+                let message = errorMessage.map { String(cString: $0) } ?? sqliteMessage() ?? "SQLite exec failed"
+                if let errorMessage { sqlite3_free(errorMessage) }
+                throw CLIError(message: message)
+            }
+        }
+
+        private func bindText(
+            _ stmt: OpaquePointer,
+            _ index: Int32,
+            _ value: String?,
+            transient: sqlite3_destructor_type
+        ) {
+            guard let value else {
+                sqlite3_bind_null(stmt, index)
+                return
+            }
+            sqlite3_bind_text(stmt, index, value, -1, transient)
+        }
+
+        private func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? {
+            guard sqlite3_column_type(stmt, index) != SQLITE_NULL,
+                  let cString = sqlite3_column_text(stmt, index) else {
+                return nil
+            }
+            return String(cString: cString)
+        }
+
+        private func sqliteMessage() -> String? {
+            guard let db, let cString = sqlite3_errmsg(db) else { return nil }
+            return String(cString: cString)
+        }
+
+        private static func jsonArray(_ values: [String]) -> String {
+            guard JSONSerialization.isValidJSONObject(values),
+                  let data = try? JSONSerialization.data(withJSONObject: values, options: []),
+                  let text = String(data: data, encoding: .utf8) else {
+                return "[]"
+            }
+            return text
+        }
+    }
+
+    private enum MemorySubcommand: String {
+        case snapshot
+        case list
+        case top
+        case trim
+    }
+
+    private func runMemoryCommand(
+        command: String,
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        let (subcommand, args) = try parseMemorySubcommand(command: command, args: commandArgs)
+        switch subcommand {
+        case .snapshot:
+            let options = try parseMemoryCurrentOptions(args, commandName: "memory snapshot")
+            let samples = try buildMemorySamples(options: options, client: client)
+            let database = MemoryTelemetryDatabase(url: memoryTelemetryDatabaseURL())
+            let retention = memoryTelemetryRetention()
+            try database.insert(samples: samples, retention: retention)
+            let payload: [String: Any] = [
+                "sample_count": samples.count,
+                "database_path": database.path,
+                "retention_seconds": retention,
+                "samples": samples.map(\.payload)
+            ]
+            if jsonOutput || options.jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                print("Recorded \(samples.count) workspace memory sample\(samples.count == 1 ? "" : "s") in \(database.path)")
+                if !samples.isEmpty {
+                    print(renderMemorySamples(samples, idFormat: idFormat))
+                }
+            }
+
+        case .list:
+            let options = try parseMemoryCurrentOptions(args, commandName: "memory list")
+            let samples = try buildMemorySamples(options: options, client: client)
+            let payload: [String: Any] = [
+                "sample_count": samples.count,
+                "samples": samples.map(\.payload)
+            ]
+            if jsonOutput || options.jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                print(renderMemorySamples(samples, idFormat: idFormat))
+            }
+
+        case .top:
+            let options = try parseMemoryTopOptions(args, jsonOutput: jsonOutput)
+            let rows = try MemoryTelemetryDatabase(url: memoryTelemetryDatabaseURL())
+                .topRows(since: options.since, limit: options.limit)
+            let payload: [String: Any] = [
+                "since_seconds": options.since,
+                "limit": options.limit,
+                "rows": rows
+            ]
+            if jsonOutput || options.jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                print(renderMemoryTopRows(rows, idFormat: idFormat))
+            }
+
+        case .trim:
+            let options = try parseMemoryTrimOptions(args, jsonOutput: jsonOutput)
+            let result = try runMemoryTrim(options: options, client: client)
+            if jsonOutput || options.jsonOutput {
+                print(jsonString(formatIDs(result.payload, mode: idFormat)))
+            } else {
+                print(renderMemoryTrimResult(result, idFormat: idFormat))
+            }
+        }
+    }
+
+    private func parseMemorySubcommand(command: String, args: [String]) throws -> (MemorySubcommand, [String]) {
+        switch command {
+        case "memory-snapshot":
+            return (.snapshot, args)
+        case "memory-list":
+            return (.list, args)
+        case "memory-top":
+            return (.top, args)
+        case "memory-trim":
+            return (.trim, args)
+        case "memory":
+            guard let rawSubcommand = args.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                  !rawSubcommand.isEmpty else {
+                throw CLIError(message: "Usage: cmux memory <snapshot|list|top|trim> [flags]")
+            }
+            let rest = Array(args.dropFirst())
+            switch rawSubcommand {
+            case "snapshot", "snap":
+                return (.snapshot, rest)
+            case "list", "ls":
+                return (.list, rest)
+            case "top":
+                return (.top, rest)
+            case "trim":
+                return (.trim, rest)
+            default:
+                throw CLIError(message: "Unknown memory subcommand '\(rawSubcommand)'. Usage: cmux memory <snapshot|list|top|trim> [flags]")
+            }
+        default:
+            throw CLIError(message: "Unknown memory command '\(command)'")
+        }
+    }
+
+    private func parseMemoryCurrentOptions(_ args: [String], commandName: String) throws -> MemoryCurrentCommandOptions {
+        let (workspaceOpt, rem0) = parseOption(args, name: "--workspace")
+        let (limitOpt, rem1) = parseOption(rem0, name: "--limit")
+        var jsonOutput = false
+        var remaining: [String] = []
+        for arg in rem1 {
+            switch arg {
+            case "--json":
+                jsonOutput = true
+            case "--all":
+                continue
+            default:
+                remaining.append(arg)
+            }
+        }
+        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: "\(commandName): unknown flag '\(unknown)'. Known flags: --workspace <id|ref|index> --limit <n> --json")
+        }
+        if let extra = remaining.first {
+            throw CLIError(message: "\(commandName): unexpected argument '\(extra)'")
+        }
+        let limit = try parsePositiveInt(limitOpt, label: "--limit")
+        return MemoryCurrentCommandOptions(
+            workspaceHandle: workspaceOpt,
+            jsonOutput: jsonOutput,
+            limit: limit
+        )
+    }
+
+    private func parseMemoryTopOptions(_ args: [String], jsonOutput globalJSONOutput: Bool) throws -> MemoryTopCommandOptions {
+        let (sinceOpt, rem0) = parseOption(args, name: "--since")
+        let (limitOpt, rem1) = parseOption(rem0, name: "--limit")
+        var jsonOutput = globalJSONOutput
+        var remaining: [String] = []
+        for arg in rem1 {
+            if arg == "--json" {
+                jsonOutput = true
+            } else {
+                remaining.append(arg)
+            }
+        }
+        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: "memory top: unknown flag '\(unknown)'. Known flags: --since <duration> --limit <n> --json")
+        }
+        if let extra = remaining.first {
+            throw CLIError(message: "memory top: unexpected argument '\(extra)'")
+        }
+        let since = try parseMemoryDuration(sinceOpt ?? "6h", label: "--since")
+        let limit = try parsePositiveInt(limitOpt, label: "--limit") ?? 20
+        return MemoryTopCommandOptions(
+            since: since,
+            jsonOutput: jsonOutput,
+            limit: max(1, limit)
+        )
+    }
+
+    private func parseMemoryTrimOptions(_ args: [String], jsonOutput globalJSONOutput: Bool) throws -> MemoryTrimCommandOptions {
+        let (workspaceOpt, rem0) = parseOption(args, name: "--workspace")
+        let (agentOpt, rem1) = parseOption(rem0, name: "--agent")
+        let (graceOpt, rem2) = parseOption(rem1, name: "--grace")
+        let (graceSecondsOpt, rem3) = parseOption(rem2, name: "--grace-seconds")
+        var dryRun = false
+        var jsonOutput = globalJSONOutput
+        var remaining: [String] = []
+        for arg in rem3 {
+            switch arg {
+            case "--dry-run":
+                dryRun = true
+            case "--json":
+                jsonOutput = true
+            default:
+                remaining.append(arg)
+            }
+        }
+        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: "memory trim: unknown flag '\(unknown)'. Known flags: --workspace <id|ref|index> --agent <name|pid|auto> --grace <duration> --grace-seconds <n> --dry-run --json")
+        }
+        if let extra = remaining.first {
+            throw CLIError(message: "memory trim: unexpected argument '\(extra)'")
+        }
+        let graceSeconds: TimeInterval
+        if let graceSecondsOpt {
+            graceSeconds = try parseMemoryDuration(graceSecondsOpt, label: "--grace-seconds")
+        } else {
+            graceSeconds = try parseMemoryDuration(graceOpt ?? "5s", label: "--grace")
+        }
+        let workspaceHandle = workspaceOpt ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+        return MemoryTrimCommandOptions(
+            workspaceHandle: workspaceHandle,
+            agent: agentOpt,
+            graceSeconds: max(0, graceSeconds),
+            dryRun: dryRun,
+            jsonOutput: jsonOutput
+        )
+    }
+
+    private func parseMemoryDuration(_ raw: String, label: String) throws -> TimeInterval {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else {
+            throw CLIError(message: "\(label) requires a duration")
+        }
+        var suffixStart = trimmed.endIndex
+        while suffixStart > trimmed.startIndex {
+            let previous = trimmed.index(before: suffixStart)
+            guard trimmed[previous].isLetter else { break }
+            suffixStart = previous
+        }
+        let numberText = String(trimmed[..<suffixStart])
+        let suffix = String(trimmed[suffixStart...])
+        guard let value = Double(numberText), value >= 0 else {
+            throw CLIError(message: "\(label) must be a non-negative duration like 30s, 15m, 6h, or 1d")
+        }
+        switch suffix {
+        case "", "s", "sec", "secs", "second", "seconds":
+            return value
+        case "m", "min", "mins", "minute", "minutes":
+            return value * 60
+        case "h", "hr", "hrs", "hour", "hours":
+            return value * 60 * 60
+        case "d", "day", "days":
+            return value * 60 * 60 * 24
+        default:
+            throw CLIError(message: "\(label) has unsupported duration unit '\(suffix)'")
+        }
+    }
+
+    private func buildMemorySamples(
+        options: MemoryCurrentCommandOptions,
+        client: SocketClient
+    ) throws -> [MemoryWorkspaceSample] {
+        let payload = try buildMemoryTopPayload(
+            workspaceHandle: options.workspaceHandle,
+            client: client
+        )
+        var samples = memoryWorkspaceSamples(from: payload)
+        samples.sort {
+            if $0.residentBytes != $1.residentBytes {
+                return $0.residentBytes > $1.residentBytes
+            }
+            return ($0.workspaceRef ?? $0.workspaceId) < ($1.workspaceRef ?? $1.workspaceId)
+        }
+        if let limit = options.limit {
+            samples = Array(samples.prefix(max(1, limit)))
+        }
+        return samples
+    }
+
+    private func buildMemoryTopPayload(
+        workspaceHandle: String?,
+        client: SocketClient
+    ) throws -> [String: Any] {
+        var params: [String: Any] = [
+            "all_windows": true,
+            "include_processes": true
+        ]
+        if let workspaceHandle {
+            guard let normalized = try normalizeWorkspaceHandle(workspaceHandle, client: client) else {
+                throw CLIError(message: "Invalid workspace handle")
+            }
+            params["workspace_id"] = normalized
+        }
+        do {
+            return try client.sendV2(method: "system.top", params: params, responseTimeout: 30)
+        } catch let error as CLIError where error.message.hasPrefix("method_not_found:") {
+            throw CLIError(message: "cmux memory requires a running cmux build with system.top support")
+        }
+    }
+
+    private func memoryWorkspaceSamples(from payload: [String: Any]) -> [MemoryWorkspaceSample] {
+        let sampledAt = memorySampleDate(from: payload)
+        let windows = payload["windows"] as? [[String: Any]] ?? []
+        var samples: [MemoryWorkspaceSample] = []
+        for window in windows {
+            let workspaces = window["workspaces"] as? [[String: Any]] ?? []
+            for workspace in workspaces {
+                let resources = workspace["resources"] as? [String: Any] ?? [:]
+                samples.append(
+                    MemoryWorkspaceSample(
+                        sampledAt: sampledAt,
+                        windowId: window["id"] as? String,
+                        windowRef: window["ref"] as? String,
+                        workspaceId: (workspace["id"] as? String) ?? "",
+                        workspaceRef: workspace["ref"] as? String,
+                        workspaceTitle: topLabelText(workspace["title"] as? String),
+                        cpuPercent: topDouble(resources["cpu_percent"]),
+                        residentBytes: topInt64(resources["resident_bytes"]),
+                        virtualBytes: topInt64(resources["virtual_bytes"]),
+                        processCount: topInt(resources["process_count"]) ?? 0,
+                        topProcessNames: topMemoryProcessNames(in: workspace)
+                    )
+                )
+            }
+        }
+        return samples.filter { !$0.workspaceId.isEmpty }
+    }
+
+    private func memorySampleDate(from payload: [String: Any]) -> Date {
+        if let sample = payload["sample"] as? [String: Any],
+           let raw = sample["sampled_at"] as? String,
+           let date = ISO8601DateFormatter().date(from: raw) {
+            return date
+        }
+        return Date()
+    }
+
+    private func topMemoryProcessNames(in workspace: [String: Any]) -> [String] {
+        var residentBytesByName: [String: Int64] = [:]
+        collectMemoryProcessNames(fromProcessesIn: workspace, into: &residentBytesByName)
+        for tag in workspace["tags"] as? [[String: Any]] ?? [] {
+            collectMemoryProcessNames(fromProcessesIn: tag, into: &residentBytesByName)
+        }
+        for pane in workspace["panes"] as? [[String: Any]] ?? [] {
+            collectMemoryProcessNames(fromProcessesIn: pane, into: &residentBytesByName)
+            for surface in pane["surfaces"] as? [[String: Any]] ?? [] {
+                collectMemoryProcessNames(fromProcessesIn: surface, into: &residentBytesByName)
+                for webview in surface["webviews"] as? [[String: Any]] ?? [] {
+                    collectMemoryProcessNames(fromProcessesIn: webview, into: &residentBytesByName)
+                }
+            }
+        }
+        return residentBytesByName
+            .sorted {
+                if $0.value != $1.value { return $0.value > $1.value }
+                return $0.key < $1.key
+            }
+            .prefix(5)
+            .map(\.key)
+    }
+
+    private func collectMemoryProcessNames(
+        fromProcessesIn node: [String: Any],
+        into residentBytesByName: inout [String: Int64]
+    ) {
+        let processes = node["processes"] as? [[String: Any]] ?? []
+        for process in processes {
+            collectMemoryProcessName(from: process, into: &residentBytesByName)
+        }
+    }
+
+    private func collectMemoryProcessName(
+        from process: [String: Any],
+        into residentBytesByName: inout [String: Int64]
+    ) {
+        let name = topLabelText(process["name"] as? String)
+        if !name.isEmpty {
+            let resources = process["resources"] as? [String: Any] ?? [:]
+            residentBytesByName[name, default: 0] += topInt64(resources["resident_bytes"])
+        }
+        for child in process["children"] as? [[String: Any]] ?? [] {
+            collectMemoryProcessName(from: child, into: &residentBytesByName)
+        }
+    }
+
+    private func runMemoryTrim(
+        options: MemoryTrimCommandOptions,
+        client: SocketClient
+    ) throws -> MemoryTrimResult {
+        let workspaceHandle = try normalizeWorkspaceHandle(
+            options.workspaceHandle,
+            client: client,
+            allowCurrent: true
+        )
+        guard let workspaceHandle else {
+            throw CLIError(message: "memory trim requires --workspace <id|ref|index> or a current workspace")
+        }
+        let payload = try buildMemoryTopPayload(workspaceHandle: workspaceHandle, client: client)
+        guard let workspace = memoryWorkspaceNode(from: payload) else {
+            throw CLIError(message: "Workspace not found")
+        }
+        let workspaceId = (workspace["id"] as? String) ?? workspaceHandle
+        let workspaceRef = workspace["ref"] as? String
+        let candidates = memoryAgentCandidates(in: workspace)
+        guard let candidate = selectMemoryAgentCandidate(candidates, requested: options.agent) else {
+            throw CLIError(message: memoryNoAgentMessage(candidates: candidates, requested: options.agent))
+        }
+
+        let graceful = memoryGracefulExit(for: candidate)
+        var gracefulAction: String?
+        var terminated = false
+        var killed = false
+
+        if !options.dryRun {
+            if let graceful,
+               let surfaceHandle = candidate.surfaceRef ?? candidate.surfaceId {
+                let params: [String: Any] = [
+                    "workspace_id": workspaceId,
+                    "surface_id": surfaceHandle,
+                    "text": graceful.text
+                ]
+                _ = try client.sendV2(method: "surface.send_text", params: params)
+                gracefulAction = graceful.label
+                _ = waitForProcessExit(pid: candidate.pid, timeout: options.graceSeconds)
+            }
+
+            if isProcessRunning(pid: candidate.pid) {
+                if Darwin.kill(pid_t(candidate.pid), SIGTERM) == 0 {
+                    terminated = true
+                }
+                _ = waitForProcessExit(pid: candidate.pid, timeout: options.graceSeconds)
+            }
+
+            if isProcessRunning(pid: candidate.pid) {
+                if Darwin.kill(pid_t(candidate.pid), SIGKILL) == 0 {
+                    killed = true
+                }
+                _ = waitForProcessExit(pid: candidate.pid, timeout: 1)
+            }
+        } else {
+            gracefulAction = graceful?.label
+        }
+
+        return MemoryTrimResult(
+            workspaceId: workspaceId,
+            workspaceRef: workspaceRef,
+            agent: candidate,
+            gracefulAction: gracefulAction,
+            terminated: terminated,
+            killed: killed,
+            stillRunning: isProcessRunning(pid: candidate.pid),
+            dryRun: options.dryRun
+        )
+    }
+
+    private func memoryWorkspaceNode(from payload: [String: Any]) -> [String: Any]? {
+        let windows = payload["windows"] as? [[String: Any]] ?? []
+        for window in windows {
+            let workspaces = window["workspaces"] as? [[String: Any]] ?? []
+            if let workspace = workspaces.first {
+                return workspace
+            }
+        }
+        return nil
+    }
+
+    private func memoryAgentCandidates(in workspace: [String: Any]) -> [MemoryAgentCandidate] {
+        var byPID: [Int: MemoryAgentCandidate] = [:]
+        let processIndex = memoryProcessIndex(in: workspace)
+
+        for tag in workspace["tags"] as? [[String: Any]] ?? [] {
+            guard let pid = topInt(tag["pid"]),
+                  let rawKey = tag["key"] as? String,
+                  let key = memoryAgentKey(for: rawKey) else {
+                continue
+            }
+            let process = processIndex[pid]
+            let resources = (process?["resources"] as? [String: Any]) ?? (tag["resources"] as? [String: Any] ?? [:])
+            let processName = topLabelText(process?["name"] as? String)
+            let candidate = MemoryAgentCandidate(
+                key: key,
+                pid: pid,
+                surfaceId: tag["surface_id"] as? String,
+                surfaceRef: tag["surface_ref"] as? String,
+                processName: processName.isEmpty ? nil : processName,
+                residentBytes: topInt64(resources["resident_bytes"])
+            )
+            byPID[pid] = preferredMemoryCandidate(candidate, over: byPID[pid])
+        }
+
+        for pane in workspace["panes"] as? [[String: Any]] ?? [] {
+            for surface in pane["surfaces"] as? [[String: Any]] ?? [] {
+                collectMemoryAgentCandidates(
+                    fromProcessesIn: surface,
+                    surfaceId: surface["id"] as? String,
+                    surfaceRef: surface["ref"] as? String,
+                    into: &byPID
+                )
+            }
+        }
+
+        return byPID.values.sorted {
+            if $0.residentBytes != $1.residentBytes { return $0.residentBytes > $1.residentBytes }
+            return $0.pid < $1.pid
+        }
+    }
+
+    private func memoryProcessIndex(in workspace: [String: Any]) -> [Int: [String: Any]] {
+        var result: [Int: [String: Any]] = [:]
+        indexMemoryProcesses(fromProcessesIn: workspace, into: &result)
+        for tag in workspace["tags"] as? [[String: Any]] ?? [] {
+            indexMemoryProcesses(fromProcessesIn: tag, into: &result)
+        }
+        for pane in workspace["panes"] as? [[String: Any]] ?? [] {
+            indexMemoryProcesses(fromProcessesIn: pane, into: &result)
+            for surface in pane["surfaces"] as? [[String: Any]] ?? [] {
+                indexMemoryProcesses(fromProcessesIn: surface, into: &result)
+                for webview in surface["webviews"] as? [[String: Any]] ?? [] {
+                    indexMemoryProcesses(fromProcessesIn: webview, into: &result)
+                }
+            }
+        }
+        return result
+    }
+
+    private func indexMemoryProcesses(fromProcessesIn node: [String: Any], into result: inout [Int: [String: Any]]) {
+        for process in node["processes"] as? [[String: Any]] ?? [] {
+            indexMemoryProcess(process, into: &result)
+        }
+    }
+
+    private func indexMemoryProcess(_ process: [String: Any], into result: inout [Int: [String: Any]]) {
+        if let pid = topInt(process["pid"]) {
+            result[pid] = process
+        }
+        for child in process["children"] as? [[String: Any]] ?? [] {
+            indexMemoryProcess(child, into: &result)
+        }
+    }
+
+    private func collectMemoryAgentCandidates(
+        fromProcessesIn node: [String: Any],
+        surfaceId: String?,
+        surfaceRef: String?,
+        into byPID: inout [Int: MemoryAgentCandidate]
+    ) {
+        for process in node["processes"] as? [[String: Any]] ?? [] {
+            collectMemoryAgentCandidate(
+                from: process,
+                surfaceId: surfaceId,
+                surfaceRef: surfaceRef,
+                into: &byPID
+            )
+        }
+    }
+
+    private func collectMemoryAgentCandidate(
+        from process: [String: Any],
+        surfaceId: String?,
+        surfaceRef: String?,
+        into byPID: inout [Int: MemoryAgentCandidate]
+    ) {
+        if let pid = topInt(process["pid"]) {
+            let name = topLabelText(process["name"] as? String)
+            if let key = memoryAgentKey(for: name) {
+                let resources = process["resources"] as? [String: Any] ?? [:]
+                let candidate = MemoryAgentCandidate(
+                    key: key,
+                    pid: pid,
+                    surfaceId: surfaceId,
+                    surfaceRef: surfaceRef,
+                    processName: name,
+                    residentBytes: topInt64(resources["resident_bytes"])
+                )
+                byPID[pid] = preferredMemoryCandidate(candidate, over: byPID[pid])
+            }
+        }
+        for child in process["children"] as? [[String: Any]] ?? [] {
+            collectMemoryAgentCandidate(
+                from: child,
+                surfaceId: surfaceId,
+                surfaceRef: surfaceRef,
+                into: &byPID
+            )
+        }
+    }
+
+    private func preferredMemoryCandidate(
+        _ candidate: MemoryAgentCandidate,
+        over existing: MemoryAgentCandidate?
+    ) -> MemoryAgentCandidate {
+        guard let existing else { return candidate }
+        if existing.surfaceId == nil && candidate.surfaceId != nil {
+            return candidate
+        }
+        if candidate.residentBytes > existing.residentBytes {
+            return candidate
+        }
+        return existing
+    }
+
+    private func selectMemoryAgentCandidate(
+        _ candidates: [MemoryAgentCandidate],
+        requested: String?
+    ) -> MemoryAgentCandidate? {
+        guard let requestedRaw = requested?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !requestedRaw.isEmpty,
+              requestedRaw.lowercased() != "auto" else {
+            return candidates.first
+        }
+        if let pid = Int(requestedRaw) {
+            return candidates.first { $0.pid == pid }
+        }
+        let normalized = memoryAgentKey(for: requestedRaw) ?? requestedRaw.lowercased()
+        return candidates.first {
+            $0.key == normalized ||
+                $0.processName?.lowercased() == normalized
+        }
+    }
+
+    private func memoryNoAgentMessage(candidates: [MemoryAgentCandidate], requested: String?) -> String {
+        if let requested, !requested.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let available = candidates.map { "\($0.key):\($0.pid)" }.joined(separator: ", ")
+            return available.isEmpty
+                ? "memory trim found no recoverable agent PIDs in this workspace"
+                : "memory trim could not find agent '\(requested)'. Available: \(available)"
+        }
+        return "memory trim found no recoverable agent PIDs in this workspace"
+    }
+
+    private func memoryAgentKey(for raw: String) -> String? {
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "-")
+        guard !normalized.isEmpty else { return nil }
+        if normalized == "claude-code" || normalized == "claude-code-cli" {
+            return "claude"
+        }
+        if normalized == "claude" || normalized == "claude-code" {
+            return "claude"
+        }
+        for def in Self.agentDefs {
+            if normalized == def.name ||
+                normalized == def.binaryName.lowercased() ||
+                def.aliases.contains(normalized) {
+                return def.name
+            }
+        }
+        return nil
+    }
+
+    private func memoryGracefulExit(for candidate: MemoryAgentCandidate) -> (label: String, text: String)? {
+        switch candidate.key {
+        case "claude":
+            return ("send /exit", "/exit\r")
+        case "codex":
+            return ("send /quit", "/quit\r")
+        default:
+            return nil
+        }
+    }
+
+    private func waitForProcessExit(pid: Int, timeout: TimeInterval) -> Bool {
+        guard timeout > 0 else { return !isProcessRunning(pid: pid) }
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !isProcessRunning(pid: pid) {
+                return true
+            }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        return !isProcessRunning(pid: pid)
+    }
+
+    private func isProcessRunning(pid: Int) -> Bool {
+        guard pid > 0 else { return false }
+        if Darwin.kill(pid_t(pid), 0) == 0 {
+            return true
+        }
+        return errno == EPERM
+    }
+
+    private func memoryTelemetryDatabaseURL() -> URL {
+        let env = ProcessInfo.processInfo.environment
+        if let override = env["CMUX_MEMORY_TELEMETRY_DB_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            return URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
+        }
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        return base
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("telemetry.db", isDirectory: false)
+    }
+
+    private func memoryTelemetryRetention() -> TimeInterval {
+        let raw = ProcessInfo.processInfo.environment["CMUX_MEMORY_TELEMETRY_RETENTION_SECONDS"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let raw, let value = Double(raw), value > 0 else {
+            return 24 * 60 * 60
+        }
+        return value
+    }
+
+    private func renderMemorySamples(_ samples: [MemoryWorkspaceSample], idFormat: CLIIDFormat) -> String {
+        guard !samples.isEmpty else { return "No workspace memory samples" }
+        var lines = ["APPROX RSS  CPU%    PROC  WORKSPACE       TITLE  TOP PROCESSES"]
+        for sample in samples {
+            let handle = memoryWorkspaceHandle(
+                id: sample.workspaceId,
+                ref: sample.workspaceRef,
+                idFormat: idFormat
+            )
+            let rss = padLeft(formatBytes(sample.residentBytes), width: 10)
+            let cpu = padLeft(String(format: "%.1f%%", sample.cpuPercent), width: 7)
+            let proc = padLeft(String(sample.processCount), width: 5)
+            let title = sample.workspaceTitle.isEmpty ? "-" : sample.workspaceTitle
+            let processes = sample.topProcessNames.isEmpty ? "-" : sample.topProcessNames.joined(separator: ",")
+            lines.append("\(rss)  \(cpu)  \(proc)  \(handle.padding(toLength: 15, withPad: " ", startingAt: 0)) \(title)  \(processes)")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func renderMemoryTopRows(_ rows: [[String: Any]], idFormat: CLIIDFormat) -> String {
+        guard !rows.isEmpty else { return "No memory samples in selected time window" }
+        var lines = ["PEAK RSS    AVG RSS     PEAK CPU  AVG CPU   SAMPLES  LAST SAMPLE           WORKSPACE       TITLE"]
+        for row in rows {
+            let handle = memoryWorkspaceHandle(
+                id: row["workspace_id"] as? String,
+                ref: row["workspace_ref"] as? String,
+                idFormat: idFormat
+            )
+            let peakRSS = padLeft(formatBytes(topInt64(row["peak_rss_bytes"])), width: 10)
+            let avgRSS = padLeft(formatBytes(Int64(topDouble(row["avg_rss_bytes"]))), width: 10)
+            let peakCPU = padLeft(String(format: "%.1f%%", topDouble(row["peak_cpu_percent"])), width: 8)
+            let avgCPU = padLeft(String(format: "%.1f%%", topDouble(row["avg_cpu_percent"])), width: 8)
+            let samples = padLeft(String(topInt(row["sample_count"]) ?? 0), width: 7)
+            let lastSample = (row["last_sampled_at"] as? String) ?? "-"
+            let title = topLabelText(row["workspace_title"] as? String)
+            lines.append("\(peakRSS)  \(avgRSS)  \(peakCPU)  \(avgCPU)  \(samples)  \(lastSample.padding(toLength: 21, withPad: " ", startingAt: 0)) \(handle.padding(toLength: 15, withPad: " ", startingAt: 0)) \(title.isEmpty ? "-" : title)")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func renderMemoryTrimResult(_ result: MemoryTrimResult, idFormat: CLIIDFormat) -> String {
+        let workspace = memoryWorkspaceHandle(
+            id: result.workspaceId,
+            ref: result.workspaceRef,
+            idFormat: idFormat
+        )
+        let mode = result.dryRun ? "Would trim" : "Trimmed"
+        var parts = [
+            "\(mode) \(result.agent.displayName)",
+            "pid=\(result.agent.pid)",
+            "workspace=\(workspace)",
+            "rss=\(formatBytes(result.agent.residentBytes))"
+        ]
+        if let gracefulAction = result.gracefulAction {
+            parts.append("graceful=\"\(gracefulAction)\"")
+        }
+        parts.append("terminated=\(result.terminated ? "yes" : "no")")
+        parts.append("killed=\(result.killed ? "yes" : "no")")
+        parts.append("still_running=\(result.stillRunning ? "yes" : "no")")
+        return parts.joined(separator: " ")
+    }
+
+    private func memoryWorkspaceHandle(id: String?, ref: String?, idFormat: CLIIDFormat) -> String {
+        switch idFormat {
+        case .refs:
+            return (ref?.isEmpty == false ? ref : nil) ?? id ?? "?"
+        case .uuids:
+            return (id?.isEmpty == false ? id : nil) ?? ref ?? "?"
+        case .both:
+            let joined = [ref, id].compactMap { value in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }.joined(separator: " ")
+            return joined.isEmpty ? "?" : joined
+        }
     }
 
     private struct TreePath {
@@ -23913,6 +25047,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
           tree [--all] [--workspace <id|ref|index>]
           top [--all] [--workspace <id|ref|index>] [--processes] [--sort <cpu|rss|proc>] [--flat] [--format <tree|tsv>]
+          memory <snapshot|list|top|trim> [flags]
           focus-pane --pane <id|ref> [--workspace <id|ref>]
           new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]
           new-surface [--type <terminal|browser>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]

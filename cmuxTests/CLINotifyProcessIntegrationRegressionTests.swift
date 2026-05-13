@@ -1,5 +1,6 @@
 import XCTest
 import Darwin
+import SQLite3
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -303,6 +304,254 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let activeSessions = try XCTUnwrap(savedState["activeSessionsByWorkspace"] as? [String: Any])
         let active = try XCTUnwrap(activeSessions[context.workspaceId] as? [String: Any])
         XCTAssertEqual(active["turnId"] as? String, "turn-2")
+    }
+
+    func testMemorySnapshotPersistsSystemTopWorkspaceSamplesWithoutCommandLines() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-snapshot")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let dbURL = temporaryMemoryTelemetryDatabaseURL(name: "snapshot")
+        let secretCommandLine = "/usr/local/bin/codex --api-key SECRET_TOKEN_DO_NOT_STORE"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: dbURL.deletingLastPathComponent())
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "system.top" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual((params["all_windows"] as? NSNumber)?.boolValue, true)
+            XCTAssertEqual((params["include_processes"] as? NSNumber)?.boolValue, true)
+            XCTAssertNil(params["workspace_id"])
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: self.memorySystemTopFixture(
+                    workspaceId: workspaceId,
+                    workspaceRef: "workspace:2",
+                    surfaceId: surfaceId,
+                    agentKey: "codex",
+                    agentPID: 424_242,
+                    secretCommandLine: secretCommandLine
+                )
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_MEMORY_TELEMETRY_DB_PATH"] = dbURL.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["memory", "snapshot", "--json", "--id-format", "uuids"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let payload = try jsonPayload(from: result.stdout)
+        XCTAssertEqual(payload["sample_count"] as? Int, 1)
+        let samples = try XCTUnwrap(payload["samples"] as? [[String: Any]])
+        let sample = try XCTUnwrap(samples.first)
+        XCTAssertEqual(sample["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(sample["resident_bytes"] as? Int, 314_572_800)
+        XCTAssertTrue((sample["top_process_names"] as? [String] ?? []).contains("codex"))
+
+        let persistedProcessNames = try memoryTelemetryTopProcessNames(in: dbURL)
+        XCTAssertTrue(persistedProcessNames.contains("codex"))
+        XCTAssertTrue(persistedProcessNames.contains("node"))
+        XCTAssertFalse(persistedProcessNames.contains(secretCommandLine))
+        XCTAssertFalse(result.stdout.contains("SECRET_TOKEN_DO_NOT_STORE"), result.stdout)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.top"]
+        )
+    }
+
+    func testMemoryTopReadsPersistedWorkspaceSamples() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-top")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "33333333-3333-3333-3333-333333333333"
+        let dbURL = temporaryMemoryTelemetryDatabaseURL(name: "top")
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: dbURL.deletingLastPathComponent())
+        }
+
+        let snapshotHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "system.top")
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: self.memorySystemTopFixture(
+                    workspaceId: workspaceId,
+                    workspaceRef: "workspace:4",
+                    surfaceId: "44444444-4444-4444-4444-444444444444",
+                    agentKey: "codex",
+                    agentPID: 525_252,
+                    secretCommandLine: "/usr/local/bin/codex --secret ignored"
+                )
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_MEMORY_TELEMETRY_DB_PATH"] = dbURL.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let snapshotResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["memory", "snapshot", "--json", "--id-format", "uuids"],
+            environment: environment,
+            timeout: 5
+        )
+        wait(for: [snapshotHandled], timeout: 5)
+        XCTAssertFalse(snapshotResult.timedOut, snapshotResult.stderr)
+        XCTAssertEqual(snapshotResult.status, 0, snapshotResult.stderr)
+
+        let topHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            XCTFail("memory top should read SQLite and not resample system.top, saw \(line)")
+            return "{}"
+        }
+
+        let topResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["memory", "top", "--since", "1d", "--json", "--id-format", "uuids"],
+            environment: environment,
+            timeout: 5
+        )
+        wait(for: [topHandled], timeout: 5)
+        XCTAssertFalse(topResult.timedOut, topResult.stderr)
+        XCTAssertEqual(topResult.status, 0, topResult.stderr)
+        XCTAssertTrue(topResult.stderr.isEmpty, topResult.stderr)
+
+        let payload = try jsonPayload(from: topResult.stdout)
+        let rows = try XCTUnwrap(payload["rows"] as? [[String: Any]])
+        let row = try XCTUnwrap(rows.first)
+        XCTAssertEqual(row["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(row["sample_count"] as? Int, 1)
+        XCTAssertEqual(row["peak_rss_bytes"] as? Int, 314_572_800)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.top"]
+        )
+    }
+
+    func testMemoryTrimDryRunSelectsOwnedAgentWithoutSendingOrKilling() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-trim")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "55555555-5555-5555-5555-555555555555"
+        let surfaceId = "66666666-6666-6666-6666-666666666666"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "system.top" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["workspace_id"] as? String, "workspace:2")
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: self.memorySystemTopFixture(
+                    workspaceId: workspaceId,
+                    workspaceRef: "workspace:2",
+                    surfaceId: surfaceId,
+                    agentKey: "claude_code",
+                    agentPID: 626_262,
+                    secretCommandLine: "/opt/homebrew/bin/claude --dangerous-secret ignored"
+                )
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "memory",
+                "trim",
+                "--workspace",
+                "workspace:2",
+                "--agent",
+                "claude",
+                "--dry-run",
+                "--json",
+                "--id-format",
+                "uuids",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let payload = try jsonPayload(from: result.stdout)
+        XCTAssertEqual(payload["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(payload["dry_run"] as? Bool, true)
+        XCTAssertEqual(payload["graceful_action"] as? String, "send /exit")
+        let agent = try XCTUnwrap(payload["agent"] as? [String: Any])
+        XCTAssertEqual(agent["key"] as? String, "claude")
+        XCTAssertEqual(agent["pid"] as? Int, 626_262)
+        XCTAssertEqual(agent["surface_id"] as? String, surfaceId)
+        XCTAssertFalse(
+            state.commands.contains { $0.contains(#""method":"surface.send_text""#) },
+            "dry-run trim must not send terminal input, saw \(state.commands)"
+        )
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.top"]
+        )
     }
 
     func testRightSidebarCLIForwardsV1SocketCommandsQuietly() throws {
@@ -1411,6 +1660,111 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         return try XCTUnwrap(
             JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
             "Expected JSON object, got: \(stdout)"
+        )
+    }
+
+    private func temporaryMemoryTelemetryDatabaseURL(name: String) -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-memory-\(name)-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("telemetry.db", isDirectory: false)
+    }
+
+    private func memorySystemTopFixture(
+        workspaceId: String,
+        workspaceRef: String,
+        surfaceId: String,
+        agentKey: String,
+        agentPID: Int,
+        secretCommandLine: String
+    ) -> [String: Any] {
+        [
+            "sample": ["sampled_at": "2026-05-13T12:00:00Z"],
+            "windows": [
+                [
+                    "id": "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+                    "ref": "window:1",
+                    "workspaces": [
+                        [
+                            "id": workspaceId,
+                            "ref": workspaceRef,
+                            "title": "Memory Workspace",
+                            "resources": [
+                                "cpu_percent": 12.5,
+                                "resident_bytes": 314_572_800,
+                                "virtual_bytes": 629_145_600,
+                                "process_count": 3,
+                            ],
+                            "tags": [
+                                [
+                                    "kind": "tag",
+                                    "key": agentKey,
+                                    "pid": agentPID,
+                                    "surface_id": surfaceId,
+                                    "surface_ref": "surface:3",
+                                    "resources": ["resident_bytes": 268_435_456],
+                                    "command_line": secretCommandLine,
+                                ],
+                            ],
+                            "panes": [
+                                [
+                                    "id": "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB",
+                                    "surfaces": [
+                                        [
+                                            "id": surfaceId,
+                                            "ref": "surface:3",
+                                            "processes": [
+                                                [
+                                                    "pid": 101,
+                                                    "name": "zsh",
+                                                    "resources": ["resident_bytes": 2_097_152],
+                                                    "command_line": "/bin/zsh",
+                                                    "children": [
+                                                        [
+                                                            "pid": agentPID,
+                                                            "name": agentKey == "claude_code" ? "claude" : "codex",
+                                                            "resources": ["resident_bytes": 268_435_456],
+                                                            "command_line": secretCommandLine,
+                                                            "children": [
+                                                                [
+                                                                    "pid": 202,
+                                                                    "name": "node",
+                                                                    "resources": ["resident_bytes": 44_040_192],
+                                                                    "command_line": "node server.js --token SECRET_TOKEN_DO_NOT_STORE",
+                                                                ],
+                                                            ],
+                                                        ],
+                                                    ],
+                                                ],
+                                            ],
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]
+    }
+
+    private func memoryTelemetryTopProcessNames(in dbURL: URL) throws -> [String] {
+        var db: OpaquePointer?
+        let openResult = sqlite3_open_v2(dbURL.path, &db, SQLITE_OPEN_READONLY, nil)
+        XCTAssertEqual(openResult, SQLITE_OK)
+        defer { sqlite3_close(db) }
+
+        var stmt: OpaquePointer?
+        let sql = "SELECT top_process_names FROM workspace_memory_samples LIMIT 1"
+        let prepareResult = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
+        XCTAssertEqual(prepareResult, SQLITE_OK)
+        defer { sqlite3_finalize(stmt) }
+
+        XCTAssertEqual(sqlite3_step(stmt), SQLITE_ROW)
+        let textPointer = try XCTUnwrap(sqlite3_column_text(stmt, 0))
+        let text = String(cString: textPointer)
+        return try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(text.utf8), options: []) as? [String],
+            "Expected process-name JSON array, got: \(text)"
         )
     }
 
