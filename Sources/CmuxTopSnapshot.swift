@@ -21,6 +21,15 @@ nonisolated struct CmuxTopResourceSummary: Sendable {
             "missing_pids": missingPIDs
         ]
     }
+
+    func attributedPayload(sharedAcross occurrenceCount: Int) -> [String: Any] {
+        guard occurrenceCount > 1 else { return payload() }
+        var attributed = self
+        attributed.cpuPercent /= Double(occurrenceCount)
+        attributed.residentBytes = attributed.residentBytes / Int64(occurrenceCount)
+        attributed.virtualBytes = attributed.virtualBytes / Int64(occurrenceCount)
+        return attributed.payload()
+    }
 }
 
 nonisolated struct CmuxTopProcessInfo: Sendable {
