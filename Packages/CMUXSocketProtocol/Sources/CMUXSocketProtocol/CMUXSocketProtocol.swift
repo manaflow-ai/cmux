@@ -55,7 +55,10 @@ public enum CMUXSocketProtocol {
         ) != nil {
             return true
         }
-        return command.contains(#""jsonrpc""#) && command.contains(#""2.0""#)
+        return command.range(
+            of: #"\[\s*"jsonrpc"\s*,\s*"2\.0""#,
+            options: .regularExpression
+        ) != nil
     }
 
     public static func malformedRequestError(command: String, code: String, message: String) -> String {
@@ -243,7 +246,7 @@ public enum CMUXSocketProtocol {
         }
     }
 
-    public static func vmCall(
+    private static func vmCall(
         id: Any?,
         jsonRPC: Bool,
         timeoutSeconds: TimeInterval = 17 * 60,
@@ -335,6 +338,8 @@ public func v2Result(id: Any?, jsonRPC: Bool, _ result: V2CallResult) -> String 
     CMUXSocketProtocol.result(id: id, jsonRPC: jsonRPC, result)
 }
 
+/// Blocking bridge for the existing synchronous socket-worker dispatch path.
+/// Do not call from main-actor socket handlers.
 public func v2VmCall(
     id: Any?,
     jsonRPC: Bool,
