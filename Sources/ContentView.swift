@@ -9046,6 +9046,7 @@ struct VerticalTabsSidebar: View {
     @State private var laidOutWorkspaceRowIds: Set<UUID> = []
     @State private var pendingSelectedWorkspaceScrollId: UUID?
     @State private var collapsedTreeSectionIds: Set<String> = []
+    @State private var worktreeCreationInFlightSectionIds: Set<String> = []
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage("sidebarMatchTerminalBackground")
@@ -9480,7 +9481,11 @@ struct VerticalTabsSidebar: View {
                 CmuxExtensionTreeSectionHeader(
                     section: section,
                     isCollapsed: isCollapsed,
-                    onToggle: { toggleTreeSection(section.id) }
+                    isCreatingWorktree: worktreeCreationInFlightSectionIds.contains(section.id),
+                    onToggle: { toggleTreeSection(section.id) },
+                    onCreateWorktree: section.projectRootPath == nil
+                        ? nil
+                        : { createWorktreeWorkspace(for: section) }
                 )
                 .padding(.top, section.id == sections.first?.id ? 0 : 4)
 
@@ -9665,6 +9670,51 @@ struct VerticalTabsSidebar: View {
         }
     }
 
+    private func createWorktreeWorkspace(for section: CmuxExtensionWorkspaceTreeSection) {
+        guard let projectRootPath = section.projectRootPath,
+              !worktreeCreationInFlightSectionIds.contains(section.id) else {
+            return
+        }
+
+        let sectionId = section.id
+        worktreeCreationInFlightSectionIds.insert(sectionId)
+
+        Task {
+            do {
+                let result = try await Task.detached(priority: .userInitiated) {
+                    try CmuxExtensionWorktreePrototype.createWorktree(
+                        projectRootPath: projectRootPath
+                    )
+                }.value
+
+                await MainActor.run {
+                    worktreeCreationInFlightSectionIds.remove(sectionId)
+                    collapsedTreeSectionIds.remove(sectionId)
+                    selection = .tabs
+                    selectedTabIds.removeAll()
+                    let workspace = tabManager.addWorkspace(
+                        title: result.workspaceTitle,
+                        workingDirectory: result.worktreePath,
+                        initialTerminalCommand: result.devServerCommand,
+                        select: true,
+                        autoWelcomeIfNeeded: false
+                    )
+                    workspace.setCustomDescription(result.workspaceDescription)
+                }
+            } catch {
+                await MainActor.run {
+                    worktreeCreationInFlightSectionIds.remove(sectionId)
+                    NSSound.beep()
+                    #if DEBUG
+                    cmuxDebugLog(
+                        "extensionSidebar.worktree.create.failed section=\(sectionId) error=\(error.localizedDescription)"
+                    )
+                    #endif
+                }
+            }
+        }
+    }
+
     private func extensionWorkspaceSnapshots(
         tabs: [Workspace],
         showsSidebarNotificationMessage: Bool
@@ -9694,6 +9744,9 @@ struct VerticalTabsSidebar: View {
                 customDescription: tab.customDescription,
                 isPinned: tab.isPinned,
                 rootPath: tab.sidebarDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds).first,
+                projectRootPath: tab.sidebarDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds)
+                    .first
+                    .flatMap(CmuxExtensionProjectRootResolver.projectRootPath(forRootPath:)),
                 branchSummary: branchSummary,
                 remoteDisplayTarget: remoteDisplayTarget,
                 remoteConnectionState: tab.isRemoteWorkspace ? tab.remoteConnectionState.rawValue : nil,
@@ -9708,54 +9761,91 @@ struct VerticalTabsSidebar: View {
 private struct CmuxExtensionTreeSectionHeader: View {
     let section: CmuxExtensionWorkspaceTreeSection
     let isCollapsed: Bool
+    let isCreatingWorktree: Bool
     let onToggle: () -> Void
+    let onCreateWorktree: (() -> Void)?
 
     var body: some View {
-        Button(action: onToggle) {
-            HStack(spacing: 6) {
-                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(.secondary.opacity(0.72))
-                    .frame(width: 10, height: 14)
+        HStack(spacing: 4) {
+            Button(action: onToggle) {
+                HStack(spacing: 6) {
+                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.secondary.opacity(0.72))
+                        .frame(width: 10, height: 14)
 
-                Image(systemName: section.systemImageName)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.secondary.opacity(0.82))
-                    .frame(width: 13, height: 14)
+                    Image(systemName: section.systemImageName)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.secondary.opacity(0.82))
+                        .frame(width: 13, height: 14)
 
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(section.title)
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-
-                    if let subtitle = section.subtitle, subtitle != section.title {
-                        Text(subtitle)
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundColor(.secondary.opacity(0.68))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(section.title)
+                            .font(.system(size: 10.5, weight: .semibold))
                             .lineLimit(1)
                             .truncationMode(.middle)
+
+                        if let subtitle = section.subtitle, subtitle != section.title {
+                            Text(subtitle)
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundColor(.secondary.opacity(0.68))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
                     }
+
+                    Spacer(minLength: 0)
+
+                    Text(String(section.workspaceIds.count))
+                        .font(.system(size: 9, weight: .semibold).monospacedDigit())
+                        .foregroundColor(.secondary.opacity(0.72))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(Color.secondary.opacity(0.12))
+                        )
                 }
-
-                Spacer(minLength: 0)
-
-                Text(String(section.workspaceIds.count))
-                    .font(.system(size: 9, weight: .semibold).monospacedDigit())
-                    .foregroundColor(.secondary.opacity(0.72))
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(Color.secondary.opacity(0.12))
-                    )
+                .contentShape(Rectangle())
             }
-            .padding(.leading, 6)
-            .padding(.trailing, 8)
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+
+            if let onCreateWorktree {
+                Button(action: onCreateWorktree) {
+                    Image(systemName: isCreatingWorktree ? "hourglass" : "plus")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.secondary.opacity(isCreatingWorktree ? 0.55 : 0.78))
+                        .frame(width: 20, height: 20)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(Color.secondary.opacity(0.10))
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(isCreatingWorktree)
+                .help(
+                    String(
+                        localized: "sidebar.tree.section.newWorktree.help",
+                        defaultValue: "Create worktree and start dev server"
+                    )
+                )
+                .accessibilityIdentifier("CmuxExtensionTreeSection.NewWorktree.\(section.id)")
+                .accessibilityLabel(
+                    String(
+                        format: String(
+                            localized: "sidebar.tree.section.newWorktree.accessibilityLabel",
+                            defaultValue: "New worktree for %@"
+                        ),
+                        locale: .current,
+                        section.title
+                    )
+                )
+            }
         }
-        .buttonStyle(.plain)
+        .padding(.leading, 6)
+        .padding(.trailing, 8)
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("CmuxExtensionTreeSection.\(section.id)")
         .accessibilityLabel(
             String(
@@ -9768,6 +9858,250 @@ private struct CmuxExtensionTreeSectionHeader: View {
                 Int64(section.workspaceIds.count)
             )
         )
+    }
+}
+
+struct CmuxExtensionWorktreeCreationResult: Equatable, Sendable {
+    let branchName: String
+    let worktreePath: String
+    let workspaceTitle: String
+    let workspaceDescription: String
+    let devServerCommand: String
+}
+
+enum CmuxExtensionProjectRootResolver {
+    static func projectRootPath(forRootPath rootPath: String) -> String? {
+        let trimmed = rootPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let url = URL(fileURLWithPath: trimmed, isDirectory: true).standardizedFileURL
+        if let sourceRoot = sourceProjectRootForCmuxWorktree(url) {
+            return sourceRoot.path
+        }
+        if let gitRoot = nearestGitRoot(containing: url) {
+            return gitRoot.path
+        }
+
+        let parent = url.deletingLastPathComponent()
+        return parent.path.isEmpty ? url.path : parent.path
+    }
+
+    private static func sourceProjectRootForCmuxWorktree(_ url: URL) -> URL? {
+        let components = url.standardizedFileURL.pathComponents
+        guard components.count >= 3 else { return nil }
+
+        for index in 1..<(components.count - 1)
+            where components[index] == ".cmux" && components[index + 1] == "worktrees" {
+            let rootComponents = Array(components.prefix(index))
+            guard !rootComponents.isEmpty else { return nil }
+            return URL(fileURLWithPath: NSString.path(withComponents: rootComponents), isDirectory: true)
+                .standardizedFileURL
+        }
+        return nil
+    }
+
+    private static func nearestGitRoot(containing url: URL) -> URL? {
+        var current = url
+        let fileManager = FileManager.default
+
+        while true {
+            if fileManager.fileExists(atPath: current.appendingPathComponent(".git").path) {
+                return current
+            }
+            let parent = current.deletingLastPathComponent()
+            if parent.path == current.path {
+                return nil
+            }
+            current = parent
+        }
+    }
+}
+
+enum CmuxExtensionWorktreePrototype {
+    enum WorktreeError: LocalizedError {
+        case emptyProjectRoot
+        case commandFailed(executable: String, arguments: [String], status: Int32, output: String)
+
+        var errorDescription: String? {
+            switch self {
+            case .emptyProjectRoot:
+                return "Project root is empty"
+            case .commandFailed(let executable, let arguments, let status, let output):
+                return "\(executable) \(arguments.joined(separator: " ")) exited \(status): \(output)"
+            }
+        }
+    }
+
+    static func createWorktree(projectRootPath: String) throws -> CmuxExtensionWorktreeCreationResult {
+        let trimmedProjectRoot = projectRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedProjectRoot.isEmpty else { throw WorktreeError.emptyProjectRoot }
+
+        let projectRoot = URL(fileURLWithPath: trimmedProjectRoot, isDirectory: true).standardizedFileURL
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        try ensureGitRepository(at: projectRoot)
+        try ensureGitRepositoryHasHead(at: projectRoot)
+
+        let branchName = uniqueBranchName(for: projectRoot)
+        let worktreeRoot = projectRoot
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("worktrees", isDirectory: true)
+        try FileManager.default.createDirectory(at: worktreeRoot, withIntermediateDirectories: true)
+        let worktree = worktreeRoot.appendingPathComponent(branchName, isDirectory: true)
+
+        _ = try runGit(
+            ["-C", projectRoot.path, "worktree", "add", "-b", branchName, worktree.path, "HEAD"]
+        )
+        try writeSampleDevServerFiles(in: worktree, projectName: projectRoot.lastPathComponent)
+
+        let port = port(for: branchName)
+        let sampleDirectory = worktree.appendingPathComponent("cmux-sample-dev", isDirectory: true)
+        let command = [
+            "cd \(shellQuoted(sampleDirectory.path))",
+            "printf 'cmux worktree ready\\nproject: \(shellPrintfEscaped(projectRoot.lastPathComponent))\\nbranch: \(shellPrintfEscaped(branchName))\\nserver: http://127.0.0.1:\(port)\\n\\n'",
+            "python3 -m http.server \(port) --bind 127.0.0.1"
+        ].joined(separator: " && ")
+
+        return CmuxExtensionWorktreeCreationResult(
+            branchName: branchName,
+            worktreePath: worktree.path,
+            workspaceTitle: "Dev \(branchName)",
+            workspaceDescription: "worktree dev server :\(port)",
+            devServerCommand: command
+        )
+    }
+
+    private static func ensureGitRepository(at projectRoot: URL) throws {
+        if (try? runGit(["-C", projectRoot.path, "rev-parse", "--is-inside-work-tree"])) != nil {
+            return
+        }
+        _ = try runGit(["-C", projectRoot.path, "init"])
+    }
+
+    private static func ensureGitRepositoryHasHead(at projectRoot: URL) throws {
+        if (try? runGit(["-C", projectRoot.path, "rev-parse", "--verify", "HEAD"])) != nil {
+            return
+        }
+
+        let marker = projectRoot
+            .appendingPathComponent(".cmux-extensionkit-sample", isDirectory: true)
+            .appendingPathComponent("README.md")
+        try FileManager.default.createDirectory(
+            at: marker.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        # cmux ExtensionKit sample
+
+        This file lets the prototype create a first git commit before adding worktrees.
+        """.write(to: marker, atomically: true, encoding: .utf8)
+
+        _ = try runGit(["-C", projectRoot.path, "add", marker.path])
+        _ = try runGit([
+            "-C", projectRoot.path,
+            "-c", "user.name=cmux",
+            "-c", "user.email=cmux@example.invalid",
+            "commit", "-m", "Initialize cmux ExtensionKit sample"
+        ])
+    }
+
+    private static func writeSampleDevServerFiles(in worktree: URL, projectName: String) throws {
+        let sample = worktree.appendingPathComponent("cmux-sample-dev", isDirectory: true)
+        try FileManager.default.createDirectory(at: sample, withIntermediateDirectories: true)
+        let html = """
+        <!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>cmux worktree</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 48px; line-height: 1.45; }
+            code { background: #f2f2f2; padding: 2px 5px; border-radius: 4px; }
+          </style>
+        </head>
+        <body>
+          <h1>\(htmlEscaped(projectName)) worktree</h1>
+          <p>This page is served from a git worktree created by the CmuxExtensionKit sidebar prototype.</p>
+          <p>Edit <code>cmux-sample-dev/index.html</code> in this worktree and refresh the browser.</p>
+        </body>
+        </html>
+        """
+        try html.write(to: sample.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+    }
+
+    private static func uniqueBranchName(for projectRoot: URL) -> String {
+        let base = sanitizedBranchComponent(projectRoot.lastPathComponent).nilIfEmpty ?? "project"
+        let stamp = "\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(4).lowercased())"
+        return "\(base)-cmux-\(stamp)"
+    }
+
+    private static func sanitizedBranchComponent(_ value: String) -> String {
+        let scalars = value.lowercased().unicodeScalars.map { scalar -> Character in
+            if CharacterSet.alphanumerics.contains(scalar) {
+                return Character(scalar)
+            }
+            return "-"
+        }
+        return String(scalars)
+            .split(separator: "-")
+            .joined(separator: "-")
+    }
+
+    private static func port(for branchName: String) -> Int {
+        let hash = branchName.unicodeScalars.reduce(0) { partial, scalar in
+            (partial &* 31 &+ Int(scalar.value)) & 0x7fffffff
+        }
+        return 5100 + (hash % 700)
+    }
+
+    private static func runGit(_ arguments: [String]) throws -> String {
+        try runExecutable("/usr/bin/env", arguments: ["git"] + arguments)
+    }
+
+    private static func runExecutable(_ executable: String, arguments: [String]) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        let output = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let error = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let combined = [output, error].filter { !$0.isEmpty }.joined(separator: "\n")
+        guard process.terminationStatus == 0 else {
+            throw WorktreeError.commandFailed(
+                executable: executable,
+                arguments: arguments,
+                status: process.terminationStatus,
+                output: combined
+            )
+        }
+        return combined
+    }
+
+    private static func shellQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func shellPrintfEscaped(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "'\\''")
+            .replacingOccurrences(of: "%", with: "%%")
+    }
+
+    private static func htmlEscaped(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
     }
 }
 
@@ -12050,6 +12384,7 @@ struct CmuxExtensionWorkspaceSnapshot: Identifiable, Equatable, Sendable {
     let customDescription: String?
     let isPinned: Bool
     let rootPath: String?
+    let projectRootPath: String?
     let branchSummary: String?
     let remoteDisplayTarget: String?
     let remoteConnectionState: String?
@@ -12122,6 +12457,7 @@ struct CmuxExtensionWorkspaceTreeSection: Identifiable, Equatable, Sendable {
     let title: String
     let subtitle: String?
     let systemImageName: String
+    let projectRootPath: String?
     let workspaceIds: [UUID]
 }
 
@@ -12137,6 +12473,7 @@ enum CmuxExtensionWorkspaceTreeBuilder {
                     title: String(localized: "sidebar.tree.group.pinned", defaultValue: "Pinned"),
                     subtitle: nil,
                     systemImageName: "pin",
+                    projectRootPath: nil,
                     workspaceIds: pinned.map(\.id)
                 )
             )
@@ -12157,6 +12494,7 @@ enum CmuxExtensionWorkspaceTreeBuilder {
                 title: current.title,
                 subtitle: current.subtitle,
                 systemImageName: current.systemImageName,
+                projectRootPath: current.projectRootPath,
                 workspaceIds: current.workspaceIds + [workspace.id]
             )
             grouped[group.id] = current
@@ -12175,6 +12513,7 @@ enum CmuxExtensionWorkspaceTreeBuilder {
                 title: remoteTarget,
                 subtitle: String(localized: "sidebar.tree.group.remote.subtitle", defaultValue: "SSH"),
                 systemImageName: "network",
+                projectRootPath: nil,
                 workspaceIds: []
             )
         }
@@ -12185,12 +12524,15 @@ enum CmuxExtensionWorkspaceTreeBuilder {
                 title: String(localized: "sidebar.tree.group.other", defaultValue: "Other"),
                 subtitle: String(localized: "sidebar.tree.group.other.subtitle", defaultValue: "No folder"),
                 systemImageName: "tray",
+                projectRootPath: nil,
                 workspaceIds: []
             )
         }
 
-        let url = URL(fileURLWithPath: rootPath).standardizedFileURL
-        let groupURL = url.deletingLastPathComponent()
+        let url = URL(fileURLWithPath: rootPath, isDirectory: true).standardizedFileURL
+        let groupURL = trimmedNonEmpty(workspace.projectRootPath)
+            .map { URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL }
+            ?? url.deletingLastPathComponent()
         let groupPath = groupURL.path
         let title = groupURL.lastPathComponent.isEmpty ? SidebarPathFormatter.shortenedPath(groupPath) : groupURL.lastPathComponent
         let subtitle = SidebarPathFormatter.shortenedPath(groupPath)
@@ -12200,6 +12542,7 @@ enum CmuxExtensionWorkspaceTreeBuilder {
             title: title.isEmpty ? "/" : title,
             subtitle: subtitle,
             systemImageName: "folder",
+            projectRootPath: groupPath,
             workspaceIds: []
         )
     }

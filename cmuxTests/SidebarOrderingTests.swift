@@ -80,9 +80,21 @@ final class SidebarBranchLayoutSettingsTests: XCTestCase {
 final class CmuxExtensionSidebarPrototypeTests: XCTestCase {
     func testTreeSectionsPutPinnedWorkspacesFirstAndPreserveWorkspaceOrderInsideGroups() {
         let pinned = workspaceSnapshot(title: "Pinned", isPinned: true, rootPath: "/Users/lawrence/project-a")
-        let projectA = workspaceSnapshot(title: "API", rootPath: "/Users/lawrence/project-a/api")
-        let projectB = workspaceSnapshot(title: "Web", rootPath: "/Users/lawrence/project-a/web")
-        let tools = workspaceSnapshot(title: "Tools", rootPath: "/Users/lawrence/tools/cmux")
+        let projectA = workspaceSnapshot(
+            title: "API",
+            rootPath: "/Users/lawrence/project-a/api",
+            projectRootPath: "/Users/lawrence/project-a"
+        )
+        let projectB = workspaceSnapshot(
+            title: "Web",
+            rootPath: "/Users/lawrence/project-a/web",
+            projectRootPath: "/Users/lawrence/project-a"
+        )
+        let tools = workspaceSnapshot(
+            title: "Tools",
+            rootPath: "/Users/lawrence/tools/cmux",
+            projectRootPath: "/Users/lawrence/tools"
+        )
 
         let snapshot = CmuxExtensionSidebarSnapshot(
             sequence: 10,
@@ -96,6 +108,7 @@ final class CmuxExtensionSidebarPrototypeTests: XCTestCase {
         XCTAssertEqual(sections[0].workspaceIds, [pinned.id])
         XCTAssertEqual(sections[1].workspaceIds, [projectA.id, projectB.id])
         XCTAssertEqual(sections[2].workspaceIds, [tools.id])
+        XCTAssertEqual(sections[1].projectRootPath, "/Users/lawrence/project-a")
     }
 
     func testTreeSectionsGroupRemoteAndUnrootedWorkspacesSeparately() {
@@ -140,10 +153,30 @@ final class CmuxExtensionSidebarPrototypeTests: XCTestCase {
         XCTAssertEqual(snapshot.workspaceIds, [third.id, first.id])
     }
 
+    func testProjectRootResolverKeepsCmuxWorktreesGroupedUnderSourceProject() throws {
+        let root = temporaryDirectory()
+            .appendingPathComponent("Project", isDirectory: true)
+        let api = root.appendingPathComponent("api", isDirectory: true)
+        let worktree = root
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("worktrees", isDirectory: true)
+            .appendingPathComponent("project-cmux-1234", isDirectory: true)
+        try FileManager.default.createDirectory(at: api, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: worktree, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent(".git", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        XCTAssertEqual(CmuxExtensionProjectRootResolver.projectRootPath(forRootPath: api.path), root.path)
+        XCTAssertEqual(CmuxExtensionProjectRootResolver.projectRootPath(forRootPath: worktree.path), root.path)
+    }
+
     private func workspaceSnapshot(
         title: String,
         isPinned: Bool = false,
         rootPath: String? = nil,
+        projectRootPath: String? = nil,
         remoteDisplayTarget: String? = nil
     ) -> CmuxExtensionWorkspaceSnapshot {
         CmuxExtensionWorkspaceSnapshot(
@@ -152,6 +185,7 @@ final class CmuxExtensionSidebarPrototypeTests: XCTestCase {
             customDescription: nil,
             isPinned: isPinned,
             rootPath: rootPath,
+            projectRootPath: projectRootPath,
             branchSummary: nil,
             remoteDisplayTarget: remoteDisplayTarget,
             remoteConnectionState: remoteDisplayTarget == nil ? nil : "connected",
@@ -159,6 +193,11 @@ final class CmuxExtensionSidebarPrototypeTests: XCTestCase {
             latestNotificationText: nil,
             listeningPorts: []
         )
+    }
+
+    private func temporaryDirectory() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-extension-sidebar-tests-\(UUID().uuidString)", isDirectory: true)
     }
 }
 
