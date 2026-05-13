@@ -66,11 +66,12 @@ final class CmuxTaskManagerModel: ObservableObject {
     private let refreshInterval: TimeInterval = 3.0
     private let terminationGraceInterval: TimeInterval = 2.0
 
+    var isInitialLoading: Bool {
+        !snapshot.hasLoadedResourceUsage && errorMessage == nil
+    }
+
     private var hasLoadedSnapshot: Bool {
-        snapshot.sampledAt != nil
-            || !snapshot.rows.isEmpty
-            || !snapshot.agentRows.isEmpty
-            || !snapshot.aggregateRows.isEmpty
+        snapshot.hasLoadedResourceUsage
     }
 
     var sortedRows: [CmuxTaskManagerRow] {

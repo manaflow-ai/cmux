@@ -27,7 +27,7 @@ struct CmuxTaskManagerView: View {
             Text(String(localized: "taskManager.title", defaultValue: "Task Manager"))
                 .font(.title3.weight(.semibold))
 
-            if model.isRefreshing {
+            if model.isRefreshing || model.isInitialLoading {
                 ProgressView()
                     .controlSize(.small)
                     .accessibilityLabel(String(localized: "taskManager.refreshing", defaultValue: "Refreshing"))
@@ -164,6 +164,8 @@ struct CmuxTaskManagerView: View {
                 title: String(localized: "taskManager.error.title", defaultValue: "Unable to load resource usage"),
                 detail: errorMessage
             )
+        } else if model.isInitialLoading {
+            CmuxTaskManagerLoadingView()
         } else if rows.isEmpty && agentRows.isEmpty && aggregateRows.isEmpty {
             CmuxTaskManagerMessageView(
                 title: String(localized: "taskManager.empty.title", defaultValue: "No resource usage"),
@@ -249,6 +251,21 @@ private struct CmuxTaskManagerSectionHeaderView: View {
             .padding(.horizontal, 16)
             .padding(.top, 8)
             .padding(.bottom, 4)
+    }
+}
+
+private struct CmuxTaskManagerLoadingView: View {
+    var body: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.regular)
+                .accessibilityLabel(String(localized: "taskManager.loading.title", defaultValue: "Loading resource usage"))
+            Text(String(localized: "taskManager.loading.title", defaultValue: "Loading resource usage"))
+                .font(.headline)
+                .foregroundStyle(.primary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(32)
     }
 }
 

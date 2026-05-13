@@ -213,6 +213,18 @@ final class TaskManagerResourcesTests: XCTestCase {
         XCTAssertEqual(aggregateRow.resources.processIds, [101, 202, 303])
     }
 
+    func testSnapshotOnlyCountsAsLoadedAfterSamplingOrRowsArrive() {
+        XCTAssertFalse(CmuxTaskManagerSnapshot.empty.hasLoadedResourceUsage)
+
+        let sampledSnapshot = CmuxTaskManagerSnapshot(
+            rows: [],
+            total: .zero,
+            sampledAt: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertTrue(sampledSnapshot.hasLoadedResourceUsage)
+    }
+
     func testSnapshotParsesCodingAgentRowsFromTopPayload() throws {
         let snapshot = CmuxTaskManagerSnapshot(payload: [
             "sample": ["sampled_at": "2026-05-13T12:00:00Z"],

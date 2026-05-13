@@ -111440,6 +111440,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "Qoder" } }
       }
     },
+    "taskManager.loading.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Loading resource usage" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リソース使用状況を読み込み中" } }
+      }
+    },
     "taskManager.error.title": {
       "extractionState": "manual",
       "localizations": {

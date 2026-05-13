@@ -15,6 +15,13 @@ struct CmuxTaskManagerSnapshot {
     let total: CmuxTaskManagerResources
     let sampledAt: Date?
 
+    var hasLoadedResourceUsage: Bool {
+        sampledAt != nil
+            || !rows.isEmpty
+            || !agentRows.isEmpty
+            || !aggregateRows.isEmpty
+    }
+
     var updatedText: String {
         guard let sampledAt else {
             return String(localized: "taskManager.updated.never", defaultValue: "Never")
