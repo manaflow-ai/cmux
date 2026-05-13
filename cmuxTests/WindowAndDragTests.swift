@@ -2429,6 +2429,52 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         withExtendedLifetime([firstWindow, secondWindow]) {}
     }
 
+    func testTextEditorClearThemeDoesNotDrawAppKitBackgrounds() {
+        _ = NSApplication.shared
+        let scrollView = NSScrollView()
+        let textView = SavingTextView()
+        scrollView.documentView = textView
+
+        FilePreviewTextEditor<FilePreviewPanel>.applyTheme(
+            to: scrollView,
+            backgroundColor: .clear,
+            foregroundColor: .white
+        )
+
+        XCTAssertFalse(scrollView.drawsBackground)
+        XCTAssertFalse(scrollView.contentView.drawsBackground)
+        XCTAssertFalse(textView.drawsBackground)
+        XCTAssertEqual(scrollView.backgroundColor.alphaComponent, 0)
+        XCTAssertEqual(scrollView.contentView.backgroundColor.alphaComponent, 0)
+        XCTAssertEqual(textView.backgroundColor.alphaComponent, 0)
+        XCTAssertEqual(textView.textColor, .white)
+        XCTAssertEqual(textView.insertionPointColor, .white)
+    }
+
+    func testTextEditorOpaqueThemeDrawsAppKitBackgrounds() {
+        _ = NSApplication.shared
+        let scrollView = NSScrollView()
+        let textView = SavingTextView()
+        let backgroundColor = NSColor(srgbRed: 0.12, green: 0.14, blue: 0.16, alpha: 1)
+        scrollView.documentView = textView
+
+        FilePreviewTextEditor<FilePreviewPanel>.applyTheme(
+            to: scrollView,
+            backgroundColor: backgroundColor,
+            foregroundColor: .white
+        )
+
+        XCTAssertTrue(scrollView.drawsBackground)
+        XCTAssertTrue(scrollView.contentView.drawsBackground)
+        XCTAssertTrue(textView.drawsBackground)
+        XCTAssertEqual(scrollView.backgroundColor, backgroundColor)
+        XCTAssertEqual(scrollView.contentView.backgroundColor, backgroundColor)
+        XCTAssertEqual(textView.backgroundColor, backgroundColor)
+        XCTAssertEqual(scrollView.backgroundColor.alphaComponent, 1)
+        XCTAssertEqual(scrollView.contentView.backgroundColor.alphaComponent, 1)
+        XCTAssertEqual(textView.backgroundColor.alphaComponent, 1)
+    }
+
     func testPendingTextFocusAppliesWhenTextViewAttaches() throws {
         _ = NSApplication.shared
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)
