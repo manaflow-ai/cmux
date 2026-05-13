@@ -32,7 +32,7 @@
     },
     "commands": {
       "title": "commands",
-      "description": "Custom shell commands and workspace layout definitions. Layout surfaces can be terminal, browser, or markdown; markdown surfaces use path for the file to open.",
+      "description": "Custom shell commands and workspace layout definitions. Layout surfaces can be terminal, browser, or markdown; markdown surfaces require a non-empty path for the file to open.",
       "type": "array",
       "items": {
         "type": "object",
