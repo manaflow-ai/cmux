@@ -1788,20 +1788,109 @@ final class SocketClient {
         if let error = response["error"] as? [String: Any] {
             let code = (error["code"] as? String) ?? "error"
             let message = (error["message"] as? String) ?? "Unknown v2 error"
-            throw CLIError(message: formatV2Error(code: code, message: message))
+            let action = error["action"] as? String
+            let reason = error["reason"] as? String
+            throw CLIError(
+                message: formatV2Error(
+                    code: code,
+                    message: message,
+                    action: action,
+                    reason: reason,
+                    details: safeV2Details(error["details"])
+                )
+            )
         }
 
         throw CLIError(message: "v2 request failed")
     }
 
-    private func formatV2Error(code: String, message: String) -> String {
+    private func formatV2Error(
+        code: String,
+        message: String,
+        action: String? = nil,
+        reason: String? = nil,
+        details: String? = nil
+    ) -> String {
+        let header: String
         if code == "vm_error" {
-            return message
+            header = message
+        } else if message.contains("\n") {
+            header = "\(code):\n\(message)"
+        } else {
+            header = "\(code): \(message)"
         }
-        if message.contains("\n") {
-            return "\(code):\n\(message)"
+        var sections = [header]
+        if let reason = trimmedNonEmptyV2Text(reason) {
+            sections.append("Reason:\n\(indentV2ErrorLines(reason))")
         }
-        return "\(code): \(message)"
+        if let action = trimmedNonEmptyV2Text(action) {
+            sections.append("What to do:\n\(indentV2ErrorLines(action))")
+        }
+        if let details = trimmedNonEmptyV2Text(details) {
+            sections.append("Details:\n\(indentV2ErrorLines(details))")
+        }
+        return sections.joined(separator: "\n\n")
+    }
+
+    private func safeV2Details(_ value: Any?) -> String? {
+        guard let value else { return nil }
+        if let string = value as? String {
+            return trimmedNonEmptyV2Text(string)
+        }
+        if let dictionary = value as? [String: Any] {
+            let allowedKeys = Set([
+                "amount",
+                "code",
+                "duration",
+                "durationMs",
+                "field",
+                "idempotencyKeySet",
+                "imageRequested",
+                "limit",
+                "operation",
+                "retryable",
+                "status",
+                "type",
+                "vmId",
+            ])
+            let lines = dictionary.keys.sorted().compactMap { key -> String? in
+                guard allowedKeys.contains(key), let value = dictionary[key], !(value is NSNull) else { return nil }
+                return "\(key): \(safeV2DetailValue(value))"
+            }
+            return lines.isEmpty ? nil : lines.joined(separator: "\n")
+        }
+        return nil
+    }
+
+    private func safeV2DetailValue(_ value: Any) -> String {
+        if let string = value as? String {
+            return string.replacingOccurrences(of: "\n", with: "\\n")
+                .replacingOccurrences(of: "\r", with: "\\r")
+        }
+        if let number = value as? NSNumber {
+            if CFGetTypeID(number) == CFBooleanGetTypeID() {
+                return number.boolValue ? "true" : "false"
+            }
+            return "\(number)"
+        }
+        if value is [String: Any] || value is [Any] {
+            return "available"
+        }
+        return String(describing: value)
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+    }
+
+    private func trimmedNonEmptyV2Text(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private func indentV2ErrorLines(_ value: String) -> String {
+        value
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { "  \($0)" }
+            .joined(separator: "\n")
     }
 
     func streamV2(
@@ -1947,13 +2036,21 @@ struct CMUXCLI {
         let normalized = trimmed.lowercased()
         guard normalized == "e2b" || normalized == "freestyle" else {
             throw CLIError(message: """
-                vm new: unsupported Cloud VM provider override '\(trimmed)'.
+                vm new: unsupported Cloud VM service override.
 
                 Try:
                   cmux vm new
                 """)
         }
         return normalized
+    }
+
+    private static func isFlagToken(_ value: String) -> Bool {
+        value.hasPrefix("-") && value != "-"
+    }
+
+    private static func isUnknownFlagToken(_ value: String, allowedShortFlags: Set<String> = []) -> Bool {
+        isFlagToken(value) && !allowedShortFlags.contains(value)
     }
 
     private static func vmCreateIdempotencyStoreURL() -> URL {
@@ -2689,7 +2786,7 @@ struct CMUXCLI {
                 let (providerOpt, rem1) = parseOption(rem0, name: "--provider")
                 let detach = hasFlag(rem1, name: "--detach") || hasFlag(rem1, name: "-d")
                 let remaining = rem1.filter { $0 != "--detach" && $0 != "-d" }
-                if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+                if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
                     throw CLIError(message: """
                         vm new: unknown flag '\(unknown)'.
 
@@ -2705,7 +2802,7 @@ struct CMUXCLI {
                 // Stray positional args (e.g. a typo like `cmux vm new myvm`) previously fell
                 // through and still provisioned a VM. That silently costs the user money and
                 // hides the typo. Reject them explicitly.
-                if let extra = remaining.first(where: { !$0.hasPrefix("--") && $0 != "-d" }) {
+                if let extra = remaining.first(where: { !Self.isFlagToken($0) }) {
                     throw CLIError(
                         message: """
                             vm new: unexpected argument '\(extra)'.
@@ -6309,14 +6406,14 @@ struct CMUXCLI {
             guard endpoint.daemon != nil else {
                 throw CLIError(
                     message: """
-                        This Cloud VM image does not include the cmux daemon proxy needed for interactive attach.
+                        This Cloud VM image does not support interactive attach in this cmux build.
 
                         What to do:
                           Update cmux, then create a fresh VM with `cmux vm new`.
                           If this keeps happening, contact support with the VM id.
 
                         Details:
-                          vm.attach_info returned WebSocket PTY without daemon/proxy support.
+                          Interactive attach is not available for this VM image.
                         """
                 )
             }
@@ -6363,47 +6460,53 @@ struct CMUXCLI {
               let kind = cred["kind"] as? String
         else {
             throw CLIError(message: """
-                cmux could not read the SSH attach information for this Cloud VM.
+                cmux could not read the attach information for this Cloud VM.
 
                 What to do:
                   Retry `cmux vm ssh <id>`.
                   If it keeps failing, recreate the VM with `cmux vm new` and share the details below.
 
                 Details:
-                  \(redactedCloudVMPayloadString(response))
+                  Cloud VM attach details were incomplete.
                 """)
         }
         guard kind == "password" else {
             if kind == "authorizedKey" {
                 throw CLIError(
                     message: """
-                        This Cloud VM returned SSH key credentials, but `cmux vm ssh` currently expects password-style gateway credentials.
+                        This Cloud VM does not support interactive SSH attach in this cmux build.
 
                         What to do:
                           Update cmux and retry.
                           If this keeps happening, contact support with the VM id.
+
+                        Details:
+                          Interactive SSH attach is unavailable for this VM.
                         """
                 )
             }
             throw CLIError(message: """
-                cmux could not use the SSH credential returned for this Cloud VM.
+                cmux could not use the attach information for this Cloud VM.
 
                 What to do:
                   Retry `cmux vm ssh <id>`.
                   If it keeps failing, recreate the VM with `cmux vm new`.
 
                 Details:
-                  credential kind: \(kind)
+                  Interactive SSH attach is unavailable for this VM.
                 """)
         }
         guard let token = cred["value"] as? String,
               !token.isEmpty else {
             throw CLIError(message: """
-                The Cloud VM SSH gateway did not return a usable password token.
+                cmux could not open an interactive SSH session for this Cloud VM.
 
                 What to do:
                   Retry `cmux vm ssh <id>`.
                   If it keeps failing, recreate the VM with `cmux vm new`.
+
+                Details:
+                  Cloud VM attach details were incomplete.
                 """)
         }
 
@@ -6460,15 +6563,17 @@ struct CMUXCLI {
             print("  username:  \(username)")
             print("  password:  \(credValue)")
         } else {
-            let kindDescription = credKind.isEmpty || credKind == "?" ? "unknown" : credKind
-            print("credential kind \"\(kindDescription)\" not yet supported by `cmux \(command) ssh-info`; raw response:")
-            print(jsonString(response))
+            print("This Cloud VM does not support `cmux \(command) ssh-info` in this cmux build.")
+            print("")
+            print("What to do:")
+            print("  Update cmux and retry.")
+            print("  If this keeps happening, contact support with the VM id.")
         }
     }
 
     private func runVMSSHAttach(commandArgs: [String], client: SocketClient) throws {
         let (vmIDOpt, remaining) = parseOption(commandArgs, name: "--id")
-        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+        if let unknown = remaining.first(where: { Self.isFlagToken($0) }) {
             throw CLIError(message: "vm ssh-attach: unknown flag '\(unknown)'. Use `cmux vm ssh-attach --id <vm-id>`.")
         }
         guard remaining.isEmpty else {
@@ -6512,14 +6617,14 @@ struct CMUXCLI {
               let token = response["token"] as? String,
               let sessionId = response["session_id"] as? String else {
             throw CLIError(message: """
-                cmux could not read the WebSocket attach information for this Cloud VM.
+                cmux could not read the attach information for this Cloud VM.
 
                 What to do:
                   Retry `cmux vm ssh <id>`.
                   If it keeps failing, recreate the VM with `cmux vm new`.
 
                 Details:
-                  \(redactedCloudVMPayloadString(response))
+                  Cloud VM attach details were incomplete.
                 """)
         }
         let headers = parseHeaders(response["headers"])
@@ -6705,7 +6810,7 @@ struct CMUXCLI {
 
     private func runVMPtyAttach(commandArgs: [String], client: SocketClient) throws {
         let (vmIDOpt, remaining) = parseOption(commandArgs, name: "--id")
-        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+        if let unknown = remaining.first(where: { Self.isFlagToken($0) }) {
             throw CLIError(message: "vm-pty-attach: unknown flag '\(unknown)'. Use `cmux vm-pty-attach --id <vm-id>`.")
         }
         guard remaining.isEmpty else {
@@ -12040,37 +12145,6 @@ struct CMUXCLI {
 
     private func isUUID(_ value: String) -> Bool {
         return UUID(uuidString: value) != nil
-    }
-
-    private func redactedCloudVMPayloadString(_ response: [String: Any]) -> String {
-        jsonString(redactedCloudVMPayload(response))
-    }
-
-    private func redactedCloudVMPayload(_ value: Any) -> Any {
-        let sensitiveKeys: Set<String> = [
-            "credential",
-            "headers",
-            "password",
-            "privateKeyPem",
-            "private_key_pem",
-            "sessionId",
-            "session_id",
-            "token",
-            "value",
-        ]
-        if let dictionary = value as? [String: Any] {
-            return dictionary.reduce(into: [String: Any]()) { result, pair in
-                if sensitiveKeys.contains(pair.key) {
-                    result[pair.key] = "<redacted>"
-                } else {
-                    result[pair.key] = redactedCloudVMPayload(pair.value)
-                }
-            }
-        }
-        if let array = value as? [Any] {
-            return array.map { redactedCloudVMPayload($0) }
-        }
-        return value
     }
 
     func jsonString(_ object: Any) -> String {

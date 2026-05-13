@@ -127,13 +127,35 @@ private func defaultCloudVMAction(status: Int, errorCode: String) -> String {
 }
 
 private func cloudVMDetails(from object: [String: Any]) -> [String] {
-    let ignoredKeys = Set(["error", "message", "reason", "action", "details"])
+    let allowedKeys = Set([
+        "amount",
+        "code",
+        "duration",
+        "durationMs",
+        "field",
+        "idempotencyKeySet",
+        "imageRequested",
+        "limit",
+        "operation",
+        "retryable",
+        "status",
+        "type",
+        "vmId",
+    ])
     var details: [String: Any] = [:]
-    if let nestedDetails = object["details"] as? [String: Any] {
-        details.merge(nestedDetails) { current, _ in current }
-    }
-    for (key, value) in object where !ignoredKeys.contains(key) {
+    func addAllowedDetail(key: String, value: Any) {
+        guard allowedKeys.contains(key), !cloudVMIsNull(value) else { return }
         details[key] = value
+    }
+    if let rawDetails = object["details"] {
+        if let nestedDetails = rawDetails as? [String: Any] {
+            for (key, value) in nestedDetails {
+                addAllowedDetail(key: key, value: value)
+            }
+        }
+    }
+    for (key, value) in object {
+        addAllowedDetail(key: key, value: value)
     }
     return details.keys.sorted().compactMap { key in
         guard let value = details[key], !cloudVMIsNull(value) else { return nil }
@@ -158,6 +180,9 @@ private func cloudVMValueDescription(_ value: Any) -> String {
         return limitedSingleLine(string)
     }
     if let number = value as? NSNumber {
+        if CFGetTypeID(number) == CFBooleanGetTypeID() {
+            return number.boolValue ? "true" : "false"
+        }
         return "\(number)"
     }
     if cloudVMIsNull(value) {
@@ -175,12 +200,13 @@ private func cloudVMIsNull(_ value: Any) -> Bool {
     value is NSNull
 }
 
-private func limitedSingleLine(_ value: String, maxLength: Int = 1200) -> String {
+// maxCharacters is measured in Swift Characters so truncation never splits a grapheme cluster.
+private func limitedSingleLine(_ value: String, maxCharacters: Int = 1200) -> String {
     let singleLine = value
         .replacingOccurrences(of: "\n", with: "\\n")
         .replacingOccurrences(of: "\r", with: "\\r")
-    guard singleLine.count > maxLength else { return singleLine }
-    let index = singleLine.index(singleLine.startIndex, offsetBy: maxLength)
+    guard singleLine.count > maxCharacters else { return singleLine }
+    let index = singleLine.index(singleLine.startIndex, offsetBy: maxCharacters)
     return String(singleLine[..<index]) + "..."
 }
 
@@ -260,13 +286,13 @@ actor VMClient {
         }
         return try items.enumerated().map { index, dict -> VMSummary in
             guard let id = dict["id"] as? String, !id.isEmpty else {
-                throw VMClientError.malformedResponse("missing `id` in /api/vm item \(index)")
+                throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
             }
             guard let provider = dict["provider"] as? String, !provider.isEmpty else {
                 throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
             }
             guard let image = dict["image"] as? String, !image.isEmpty else {
-                throw VMClientError.malformedResponse("missing `image` in /api/vm item \(index)")
+                throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
             }
             let createdAt = (dict["createdAt"] as? Int64)
                 ?? Int64((dict["createdAt"] as? Double) ?? 0)
@@ -339,7 +365,7 @@ actor VMClient {
             guard let url = obj["url"] as? String,
                   let token = obj["token"] as? String,
                   let sessionId = obj["sessionId"] as? String else {
-                throw VMClientError.malformedResponse("attach-endpoint websocket missing url/token/sessionId: \(obj)")
+                throw VMClientError.malformedResponse("Cloud VM attach response was missing required fields.")
             }
             let rawHeaders = obj["headers"] as? [String: Any] ?? [:]
             let headers = rawHeaders.reduce(into: [String: String]()) { result, pair in
@@ -360,7 +386,7 @@ actor VMClient {
                 daemon: daemon
             ))
         default:
-            throw VMClientError.malformedResponse("attach-endpoint unknown transport: \(String(describing: transport))")
+            throw VMClientError.malformedResponse("Cloud VM attach response used an unsupported transport type.")
         }
     }
 
@@ -450,7 +476,7 @@ actor VMClient {
         guard let url = obj["url"] as? String,
               let token = obj["token"] as? String,
               let sessionId = obj["sessionId"] as? String else {
-            throw VMClientError.malformedResponse("attach-endpoint websocket daemon missing url/token/sessionId: \(obj)")
+            throw VMClientError.malformedResponse("Cloud VM attach response was missing required fields.")
         }
         let rawHeaders = obj["headers"] as? [String: Any] ?? [:]
         let headers = rawHeaders.reduce(into: [String: String]()) { result, pair in
@@ -491,22 +517,22 @@ actor VMClient {
               let credDict = obj["credential"] as? [String: Any],
               let kind = credDict["kind"] as? String
         else {
-            throw VMClientError.malformedResponse("ssh-endpoint missing fields: \(obj)")
+            throw VMClientError.malformedResponse("Cloud VM SSH response was missing required fields.")
         }
         let credential: VMSSHEndpoint.Credential
         switch kind {
         case "password":
             guard let value = credDict["value"] as? String else {
-                throw VMClientError.malformedResponse("ssh-endpoint password credential missing value")
+                throw VMClientError.malformedResponse("Cloud VM SSH response was missing required fields.")
             }
             credential = .password(value)
         case "authorizedKey":
             guard let pem = credDict["privateKeyPem"] as? String else {
-                throw VMClientError.malformedResponse("ssh-endpoint authorizedKey credential missing privateKeyPem")
+                throw VMClientError.malformedResponse("Cloud VM SSH response was missing required fields.")
             }
             credential = .authorizedKey(privateKeyPem: pem)
         default:
-            throw VMClientError.malformedResponse("ssh-endpoint unknown credential kind: \(kind)")
+            throw VMClientError.malformedResponse("Cloud VM SSH response used an unsupported attach mode.")
         }
         return VMSSHEndpoint(
             transport: "ssh",
@@ -538,7 +564,7 @@ actor VMClient {
             port = nil
         }
         guard let port, (1...65_535).contains(port) else {
-            throw VMClientError.malformedResponse("ssh-endpoint invalid port: \(String(describing: raw))")
+            throw VMClientError.malformedResponse("Cloud VM SSH response was missing required fields.")
         }
         return port
     }

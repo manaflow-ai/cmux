@@ -31,7 +31,7 @@ import {
   listUserVms,
   runVmWorkflow,
 } from "../../../services/vms/workflows";
-import { setSpanAttributes } from "../../../services/telemetry";
+import { recordSpanError, setSpanAttributes } from "../../../services/telemetry";
 
 export const dynamic = "force-dynamic";
 
@@ -90,77 +90,81 @@ export async function POST(request: Request): Promise<Response> {
       // Runtime-validate the payload before we call a paid provider. An invalid `provider`
       // (client sending `"aws"` or `"docker"`) previously slipped past the type cast and
       // surfaced as a 500 from the driver after provisioning had already half-succeeded.
-      let body: { image?: string; provider?: ProviderId; billingTeamId?: string };
-      try {
-        // Allow callers to send no body at all. The handler already falls through to
-        // default provider/image, so a bare `curl -X POST /api/vm` should create a default
-        // VM. Previously request.json() threw on an empty body and the whole request came
-        // back as 400 "invalid JSON body". Distinguish empty-body from literal-`null`:
-        // empty is a default-create, `null` is malformed input and should 400.
-        const rawText = await request.text();
-        const bodyWasEmpty = rawText.length === 0;
-        const raw = bodyWasEmpty ? undefined : JSON.parse(rawText);
-        if (!bodyWasEmpty) {
-          if (raw === null) {
-            throw new TypeError("body must be a JSON object, got null");
-          }
-          if (typeof raw !== "object" || Array.isArray(raw)) {
-            throw new TypeError("body must be a JSON object");
-          }
-        }
-        const candidate = (raw ?? {}) as Record<string, unknown>;
-        if (candidate.image !== undefined && typeof candidate.image !== "string") {
+      // Allow callers to send no body at all. The handler already falls through to
+      // default provider/image, so a bare `curl -X POST /api/vm` should create a default
+      // VM. Empty is a default-create; malformed or non-object JSON is rejected below.
+      const rawText = await request.text();
+      const bodyWasEmpty = rawText.length === 0;
+      let raw: unknown;
+      if (bodyWasEmpty) {
+        raw = undefined;
+      } else {
+        try {
+          raw = JSON.parse(rawText);
+        } catch (err) {
+          recordSpanError(span, err);
           return vmErrorResponse({
-            error: "vm_invalid_request",
+            error: "vm_json_parse_failed",
             status: 400,
-            message: "`image` must be a string when provided.",
-            action: "Remove `image` to use the default Cloud VM image, or pass a supported Cloud VM image id.",
-            details: { field: "image" },
+            message: "Cloud VM create expected valid JSON.",
+            action: "Send `{}` for the default VM, or include only documented fields such as `image` and `teamId`.",
           });
         }
-        if (candidate.provider !== undefined) {
-          if (typeof candidate.provider !== "string") {
-            return vmErrorResponse({
-              error: "vm_invalid_request",
-              status: 400,
-              message: "`provider` must be a string when provided.",
-              action: "Omit `provider` to use the default Cloud VM service.",
-              details: { field: "provider" },
-            });
-          }
-          if (candidate.provider !== "e2b" && candidate.provider !== "freestyle") {
-            return vmErrorResponse({
-              error: "vm_invalid_provider",
-              status: 400,
-              message: `Unsupported Cloud VM provider override: ${JSON.stringify(candidate.provider)}.`,
-              action: "Omit `provider` to use the default Cloud VM service.",
-              details: { field: "provider" },
-            });
-          }
-        }
-        const bodyBillingTeamId = candidate.billingTeamId ?? candidate.teamId;
-        if (bodyBillingTeamId !== undefined && typeof bodyBillingTeamId !== "string") {
-          return vmErrorResponse({
-            error: "vm_invalid_request",
-            status: 400,
-            message: "`teamId` must be a string when provided.",
-            action: "Use a team id from `cmux auth status`, or omit `teamId` when the signed-in account has one team.",
-            details: { field: "teamId" },
-          });
-        }
-        body = {
-          image: typeof candidate.image === "string" ? candidate.image : undefined,
-          provider: candidate.provider as ProviderId | undefined,
-          billingTeamId: typeof bodyBillingTeamId === "string" ? bodyBillingTeamId.trim() : undefined,
-        };
-      } catch {
+      }
+      if (!bodyWasEmpty && (raw === null || typeof raw !== "object" || Array.isArray(raw))) {
+        recordSpanError(span, new Error("Cloud VM create body was not a JSON object"));
         return vmErrorResponse({
-          error: "vm_invalid_json",
+          error: "vm_expected_object",
           status: 400,
           message: "Cloud VM create expected a JSON object body.",
           action: "Send `{}` for the default VM, or include only documented fields such as `image` and `teamId`.",
         });
       }
+      const candidate = (raw ?? {}) as Record<string, unknown>;
+      if (candidate.image !== undefined && typeof candidate.image !== "string") {
+        return vmErrorResponse({
+          error: "vm_invalid_request",
+          status: 400,
+          message: "`image` must be a string when provided.",
+          action: "Remove `image` to use the default Cloud VM image, or pass a supported Cloud VM image id.",
+          details: { field: "image" },
+        });
+      }
+      if (candidate.provider !== undefined) {
+        if (typeof candidate.provider !== "string") {
+          return vmErrorResponse({
+            error: "vm_invalid_request",
+            status: 400,
+            message: "Cloud VM service override must be a string when provided.",
+            action: "Remove the override to use the default Cloud VM service.",
+            details: { field: "provider" },
+          });
+        }
+        if (candidate.provider !== "e2b" && candidate.provider !== "freestyle") {
+          return vmErrorResponse({
+            error: "vm_invalid_provider",
+            status: 400,
+            message: "Unsupported Cloud VM service override.",
+            action: "Remove the override to use the default Cloud VM service.",
+            details: { field: "provider" },
+          });
+        }
+      }
+      const bodyBillingTeamId = candidate.billingTeamId ?? candidate.teamId;
+      if (bodyBillingTeamId !== undefined && typeof bodyBillingTeamId !== "string") {
+        return vmErrorResponse({
+          error: "vm_invalid_request",
+          status: 400,
+          message: "`teamId` must be a string when provided.",
+          action: "Use a team id from `cmux auth status`, or omit `teamId` when the signed-in account has one team.",
+          details: { field: "teamId" },
+        });
+      }
+      const body: { image?: string; provider?: ProviderId; billingTeamId?: string } = {
+        image: typeof candidate.image === "string" ? candidate.image : undefined,
+        provider: candidate.provider as ProviderId | undefined,
+        billingTeamId: typeof bodyBillingTeamId === "string" ? bodyBillingTeamId.trim() : undefined,
+      };
       const provider = body.provider ?? defaultProviderId();
       let imageSelection;
       try {
@@ -258,7 +262,6 @@ export async function POST(request: Request): Promise<Response> {
             action: "Retry with a fresh `cmux vm new`. If it fails again, copy the details and contact support.",
             details: {
               idempotencyKeySet: !!err.idempotencyKey,
-              previousFailure: err.message,
             },
           });
         }

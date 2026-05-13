@@ -40,7 +40,8 @@ export async function POST(
         });
       }
       const body = rawBody as { command?: unknown; timeoutMs?: unknown };
-      if (typeof body.command !== "string" || body.command.length === 0) {
+      const command = typeof body.command === "string" ? body.command.trim() : "";
+      if (command.length === 0) {
         return vmErrorResponse({
           error: "vm_invalid_command",
           status: 400,
@@ -61,14 +62,14 @@ export async function POST(
       const { id } = await params;
       setSpanAttributes(span, {
         "cmux.vm.id": id,
-        "cmux.command_length": body.command.length,
+        "cmux.command_length": command.length,
         "cmux.timeout_ms": timeoutMs,
       });
       try {
         const result = await runVmWorkflow(execVm({
           userId: user.id,
           providerVmId: id,
-          command: body.command,
+          command,
           timeoutMs,
         }));
         setSpanAttributes(span, { "cmux.exec.exit_code": result.exitCode });

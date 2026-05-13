@@ -1375,6 +1375,36 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    @discardableResult
+    func markLatestNotificationAsOldestUnread(forTabId tabId: UUID, surfaceId: UUID?) -> UUID? {
+        var updated = notifications
+        guard let index = latestNotificationIndex(forTabId: tabId, surfaceId: surfaceId, in: updated) else {
+            if !workspaceIsUnread(forTabId: tabId) {
+                setWorkspaceManualUnread(true, forTabId: tabId)
+            }
+            return nil
+        }
+
+        var notification = updated.remove(at: index)
+        notification.isRead = false
+        let insertionIndex = updated.lastIndex(where: { !$0.isRead }).map { $0 + 1 } ?? updated.endIndex
+        updated.insert(notification, at: insertionIndex)
+        setWorkspaceManualUnread(false, forTabId: tabId)
+        notifications = updated
+        return notification.id
+    }
+
+    private func latestNotificationIndex(forTabId tabId: UUID, surfaceId: UUID?, in notifications: [TerminalNotification]) -> Int? {
+        if let exactIndex = notifications.firstIndex(where: { $0.tabId == tabId && $0.surfaceId == surfaceId }) {
+            return exactIndex
+        }
+        if surfaceId != nil,
+           let workspaceIndex = notifications.firstIndex(where: { $0.tabId == tabId && $0.surfaceId == nil }) {
+            return workspaceIndex
+        }
+        return notifications.firstIndex(where: { $0.tabId == tabId })
+    }
+
     func setFocusedReadIndicator(forTabId tabId: UUID, surfaceId: UUID?) {
         guard let surfaceId else { return }
         guard focusedReadIndicatorByTabId[tabId] != surfaceId else { return }

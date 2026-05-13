@@ -15,10 +15,9 @@ extension TerminalController {
                 ]
             }
         case "vm.create":
-            let image = params["image"] as? String
-            let provider = params["provider"] as? String
-            let idempotencyKey = (params["idempotency_key"] as? String)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let image = Self.socketWorkerString(params["image"])
+            let provider = Self.socketWorkerString(params["provider"])
+            let idempotencyKey = Self.socketWorkerString(params["idempotency_key"])
             guard let idempotencyKey, !idempotencyKey.isEmpty else {
                 return v2Error(
                     id: id,
@@ -31,7 +30,7 @@ extension TerminalController {
                 return ["id": vm.id, "provider": vm.provider, "image": vm.image, "createdAt": vm.createdAt]
             }
         case "vm.destroy":
-            guard let vmId = params["id"] as? String else {
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.destroy requires `id`. Run `cmux vm ls` to find one, then `cmux vm rm <id>`.")
             }
             return v2VmCall(id: id) {
@@ -39,10 +38,10 @@ extension TerminalController {
                 return ["ok": true]
             }
         case "vm.exec":
-            guard let vmId = params["id"] as? String else {
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.exec requires `id`. Run `cmux vm ls` to find one.")
             }
-            guard let command = params["command"] as? String else {
+            guard let command = Self.socketWorkerString(params["command"]), !command.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.exec requires `command`. From the CLI, use `cmux vm exec <id> -- <command>`.")
             }
             let timeoutMs = max(1, Self.socketWorkerInt(params["timeout_ms"]) ?? 30_000)
@@ -51,7 +50,7 @@ extension TerminalController {
                 return ["exit_code": result.exitCode, "stdout": result.stdout, "stderr": result.stderr]
             }
         case "vm.ssh_info":
-            guard let vmId = params["id"] as? String else {
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.ssh_info requires `id`. Run `cmux vm ls` to find one.")
             }
             return v2VmCall(id: id) {
@@ -59,7 +58,7 @@ extension TerminalController {
                 return Self.socketWorkerSSHInfoPayload(endpoint)
             }
         case "vm.attach_info":
-            guard let vmId = params["id"] as? String else {
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.attach_info requires `id`. Run `cmux vm ls` to find one, then `cmux vm ssh <id>`.")
             }
             let requireDaemon = Self.socketWorkerBool(params["require_daemon"])
@@ -135,6 +134,12 @@ extension TerminalController {
             }
         }
         return nil
+    }
+
+    private nonisolated static func socketWorkerString(_ raw: Any?) -> String? {
+        guard let string = raw as? String else { return nil }
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private nonisolated static func socketWorkerInt(_ raw: Any?) -> Int? {

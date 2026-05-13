@@ -468,7 +468,7 @@ describe("VM REST auth", () => {
       new Request("https://cmux.test/api/vm/provider-vm-1/exec", {
         method: "POST",
         headers: { origin: "https://cmux.test" },
-        body: JSON.stringify({ command: "" }),
+        body: JSON.stringify({ command: "   " }),
       }),
       context,
     );
@@ -481,6 +481,29 @@ describe("VM REST auth", () => {
     });
     expect(payload.message).toContain("command");
     expect(payload.action).toContain("cmux vm exec");
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("does not echo unsupported VM service override values", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "aws" }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_invalid_provider",
+      details: { field: "provider" },
+    });
+    expect(JSON.stringify(payload)).not.toContain("aws");
+    expect(payload.message).toContain("Cloud VM service");
+    expect(payload.action).toContain("default Cloud VM service");
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
@@ -667,6 +690,6 @@ function authedStackUser() {
 
 function expectNoCloudVmImplementationLeaks(payload: unknown): void {
   expect(JSON.stringify(payload)).not.toMatch(
-    /Stack Auth|Freestyle|E2B|freestyle|e2b|CMUX_VM_|FREESTYLE_|E2B_|billingTeamId|itemId|billingCustomerId|manifest|snapshot|database|migration/,
+    /Stack Auth|Freestyle|E2B|freestyle|e2b|CMUX_VM_|FREESTYLE_|E2B_|billingTeamId|itemId|billingCustomerId|manifest|snapshot|database|migration|\bsh-[a-z0-9]{8,24}\b|\bteam-[a-z0-9-]+\b/,
   );
 }
