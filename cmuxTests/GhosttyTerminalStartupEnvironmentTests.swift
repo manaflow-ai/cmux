@@ -34,7 +34,7 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         let terminalSessionId = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
         var environment = [
             "TERM_SESSION_ID": "stale-terminal-session",
-            "CMUX_PANE_ID": "stale-pane"
+            "CMUX_TERMINAL_SESSION_ID": "stale-terminal-session"
         ]
         var protectedKeys: Set<String> = []
 
@@ -45,9 +45,9 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         )
 
         XCTAssertEqual(environment["TERM_SESSION_ID"], terminalSessionId.uuidString)
-        XCTAssertEqual(environment["CMUX_PANE_ID"], terminalSessionId.uuidString)
+        XCTAssertEqual(environment["CMUX_TERMINAL_SESSION_ID"], terminalSessionId.uuidString)
         XCTAssertTrue(protectedKeys.contains("TERM_SESSION_ID"))
-        XCTAssertTrue(protectedKeys.contains("CMUX_PANE_ID"))
+        XCTAssertTrue(protectedKeys.contains("CMUX_TERMINAL_SESSION_ID"))
     }
 
     func testMergedStartupEnvironmentProtectsManagedTerminalSessionKeys() {
@@ -65,16 +65,16 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
             protectedKeys: protectedKeys,
             additionalEnvironment: [
                 "TERM_SESSION_ID": "additional-terminal-session",
-                "CMUX_PANE_ID": "additional-pane"
+                "CMUX_TERMINAL_SESSION_ID": "additional-terminal-session"
             ],
             initialEnvironmentOverrides: [
                 "TERM_SESSION_ID": "override-terminal-session",
-                "CMUX_PANE_ID": "override-pane"
+                "CMUX_TERMINAL_SESSION_ID": "override-terminal-session"
             ]
         )
 
         XCTAssertEqual(merged["TERM_SESSION_ID"], terminalSessionId.uuidString)
-        XCTAssertEqual(merged["CMUX_PANE_ID"], terminalSessionId.uuidString)
+        XCTAssertEqual(merged["CMUX_TERMINAL_SESSION_ID"], terminalSessionId.uuidString)
     }
 
     func testMergedStartupEnvironmentAllowsSessionReplayAndInitialEnvCMUXKeys() {

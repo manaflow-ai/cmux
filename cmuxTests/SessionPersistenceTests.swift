@@ -31,13 +31,15 @@ final class SessionPersistenceTests: XCTestCase {
         let snapshot = source.sessionSnapshot(includeScrollback: false)
         let sourcePanelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == sourcePanelId })
         XCTAssertEqual(sourcePanelSnapshot.terminal?.terminalSessionId, sourceTerminalSessionId)
+        let sourceTerminalSessionIds = snapshot.panels.compactMap(\.terminal?.terminalSessionId)
+        XCTAssertEqual(Set(sourceTerminalSessionIds).count, 2)
 
         let restored = Workspace()
         restored.restoreSessionSnapshot(snapshot)
 
-        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
-        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
-        XCTAssertEqual(restoredPanel.surface.terminalSessionId, sourceTerminalSessionId)
+        let restoredSnapshot = restored.sessionSnapshot(includeScrollback: false)
+        let restoredTerminalSessionIds = restoredSnapshot.panels.compactMap(\.terminal?.terminalSessionId)
+        XCTAssertEqual(Set(restoredTerminalSessionIds), Set(sourceTerminalSessionIds))
     }
 
     @MainActor

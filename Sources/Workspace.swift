@@ -790,6 +790,8 @@ extension Workspace {
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
                 for: shouldReplayScrollback ? snapshot.terminal?.scrollback : nil
             )
+            // Pre-terminalSessionId snapshots used the panel UUID as their only
+            // stable terminal identity, so preserve that value on first restore.
             let terminalSessionId = snapshot.terminal?.terminalSessionId ?? snapshot.id
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,

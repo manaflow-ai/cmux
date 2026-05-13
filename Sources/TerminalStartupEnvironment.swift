@@ -34,8 +34,8 @@ extension TerminalSurface {
         let value = terminalSessionId.uuidString
         environment["TERM_SESSION_ID"] = value
         protectedKeys.insert("TERM_SESSION_ID")
-        environment["CMUX_PANE_ID"] = value
-        protectedKeys.insert("CMUX_PANE_ID")
+        environment["CMUX_TERMINAL_SESSION_ID"] = value
+        protectedKeys.insert("CMUX_TERMINAL_SESSION_ID")
     }
 
     static func mergedStartupEnvironment(
