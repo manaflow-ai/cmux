@@ -1486,6 +1486,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let tabId = tabManager.selectedTabId else { return }
         let surfaceId = tabManager.focusedSurfaceId(for: tabId)
         guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) else { return }
+        guard WorkspaceUnreadDismissalPolicy.shouldDismissUnreadNotificationForAppActivation(
+            currentEvent: NSApp.currentEvent,
+            pressedMouseButtons: NSEvent.pressedMouseButtons
+        ) else { return }
 
         if let surfaceId,
            let tab = tabManager.tabs.first(where: { $0.id == tabId }),

@@ -322,7 +322,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         )
 
         XCTAssertFalse(
-            SidebarWorkspaceDirectInteractionPolicy.shouldDismissUnreadNotification(
+            WorkspaceUnreadDismissalPolicy.shouldDismissUnreadNotification(
                 wasSelected: true,
                 modifierFlags: [],
                 event: rightMouseEvent
@@ -332,7 +332,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
 
     func testSidebarEventlessSelectionDoesNotDismissUnread() {
         XCTAssertFalse(
-            SidebarWorkspaceDirectInteractionPolicy.shouldDismissUnreadNotification(
+            WorkspaceUnreadDismissalPolicy.shouldDismissUnreadNotification(
                 wasSelected: true,
                 modifierFlags: [],
                 event: nil
@@ -354,10 +354,77 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            SidebarWorkspaceDirectInteractionPolicy.shouldDismissUnreadNotification(
+            WorkspaceUnreadDismissalPolicy.shouldDismissUnreadNotification(
                 wasSelected: true,
                 modifierFlags: [],
                 event: leftMouseEvent
+            )
+        )
+    }
+
+    func testRightClickActivationDoesNotDismissUnread() {
+        let rightMouseEvent = NSEvent.mouseEvent(
+            with: .rightMouseDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        )
+
+        XCTAssertFalse(
+            WorkspaceUnreadDismissalPolicy.shouldDismissUnreadNotificationForAppActivation(
+                currentEvent: rightMouseEvent,
+                pressedMouseButtons: 1 << 1
+            )
+        )
+
+        XCTAssertFalse(
+            WorkspaceUnreadDismissalPolicy.shouldDismissUnreadNotificationForAppActivation(
+                currentEvent: nil,
+                pressedMouseButtons: 1 << 1
+            )
+        )
+    }
+
+    func testEventlessAppActivationDoesNotDismissUnread() {
+        XCTAssertFalse(
+            WorkspaceUnreadDismissalPolicy.shouldDismissUnreadNotificationForAppActivation(
+                currentEvent: nil,
+                pressedMouseButtons: 0
+            )
+        )
+    }
+
+    func testKeyboardFocusStillDismissesUnread() {
+        XCTAssertTrue(
+            WorkspaceUnreadDismissalPolicy.shouldDismissUnreadNotificationForFocusEvent(
+                currentEvent: nil,
+                pressedMouseButtons: 0
+            )
+        )
+    }
+
+    func testPrimaryAppActivationDoesNotDismissUnread() {
+        let leftMouseEvent = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        )
+
+        XCTAssertFalse(
+            WorkspaceUnreadDismissalPolicy.shouldDismissUnreadNotificationForAppActivation(
+                currentEvent: leftMouseEvent,
+                pressedMouseButtons: 1
             )
         )
     }

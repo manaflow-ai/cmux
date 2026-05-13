@@ -9085,7 +9085,42 @@ struct SidebarTabItemPresentationResolutionPolicy {
     }
 }
 
-enum SidebarWorkspaceDirectInteractionPolicy {
+enum WorkspaceUnreadDismissalPolicy {
+    static func shouldDismissUnreadNotificationForPointerEvent(_ event: NSEvent) -> Bool {
+        switch event.type {
+        case .leftMouseDown, .leftMouseUp:
+            return !event.modifierFlags.contains(.control)
+        default:
+            return false
+        }
+    }
+
+    static func shouldDismissUnreadNotificationForFocusEvent(
+        currentEvent: NSEvent?,
+        pressedMouseButtons: Int
+    ) -> Bool {
+        if let currentEvent {
+            switch currentEvent.type {
+            case .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp:
+                return false
+            case .leftMouseDown, .leftMouseUp:
+                return shouldDismissUnreadNotificationForPointerEvent(currentEvent)
+            default:
+                break
+            }
+        }
+
+        let nonPrimaryMouseButtons = pressedMouseButtons & ~1
+        return nonPrimaryMouseButtons == 0
+    }
+
+    static func shouldDismissUnreadNotificationForAppActivation(
+        currentEvent _: NSEvent?,
+        pressedMouseButtons _: Int
+    ) -> Bool {
+        false
+    }
+
     static func shouldDismissUnreadNotification(
         wasSelected: Bool,
         modifierFlags: NSEvent.ModifierFlags,
@@ -9094,12 +9129,7 @@ enum SidebarWorkspaceDirectInteractionPolicy {
         guard wasSelected else { return false }
         guard !modifierFlags.contains(.command), !modifierFlags.contains(.shift) else { return false }
         guard let event else { return false }
-        switch event.type {
-        case .leftMouseDown, .leftMouseUp:
-            return !event.modifierFlags.contains(.control)
-        default:
-            return false
-        }
+        return shouldDismissUnreadNotificationForPointerEvent(event)
     }
 }
 
@@ -13149,7 +13179,7 @@ private struct TabItemView: View, Equatable {
 
         lastSidebarSelectionIndex = index
         tabManager.selectTab(tab)
-        if SidebarWorkspaceDirectInteractionPolicy.shouldDismissUnreadNotification(
+        if WorkspaceUnreadDismissalPolicy.shouldDismissUnreadNotification(
             wasSelected: wasSelected,
             modifierFlags: modifiers,
             event: NSApp.currentEvent
