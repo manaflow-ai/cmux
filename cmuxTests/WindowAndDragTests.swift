@@ -132,75 +132,6 @@ final class WindowAccessorTests: XCTestCase {
 }
 
 @MainActor
-final class MainWindowFocusRedrawTests: XCTestCase {
-    func testKeyRegainInvalidatesContentWhenPointerIsOverSidebarDivider() {
-        _ = NSApplication.shared
-
-        let appDelegate = AppDelegate()
-        let tabManager = TabManager(autoWelcomeIfNeeded: false)
-        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: tabManager)
-        defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
-        }
-
-        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 420))
-        let splitView = NSSplitView(frame: contentView.bounds)
-        splitView.isVertical = true
-        splitView.autoresizingMask = [.width, .height]
-        splitView.dividerStyle = .thin
-
-        let sidebar = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 420))
-        let main = NSView(frame: NSRect(x: 221, y: 0, width: 419, height: 420))
-        splitView.addArrangedSubview(sidebar)
-        splitView.addArrangedSubview(main)
-        contentView.addSubview(splitView)
-        splitView.setPosition(220, ofDividerAt: 0)
-
-        let window = CmuxMainWindow(
-            contentRect: contentView.bounds,
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
-        window.contentView = contentView
-        defer { window.close() }
-
-        contentView.layoutSubtreeIfNeeded()
-        splitView.adjustSubviews()
-        let dividerPointInSplit = NSPoint(
-            x: sidebar.frame.maxX + splitView.dividerThickness / 2,
-            y: splitView.bounds.midY
-        )
-        let dividerRectInSplit = NSRect(
-            x: sidebar.frame.maxX,
-            y: 0,
-            width: max(splitView.dividerThickness, 1),
-            height: splitView.bounds.height
-        ).insetBy(dx: -5, dy: 0)
-
-        XCTAssertTrue(
-            dividerRectInSplit.contains(dividerPointInSplit),
-            "Test setup should place the pointer over the sidebar/main split divider without depending on screen coordinates."
-        )
-
-        contentView.needsDisplay = false
-
-        appDelegate.handleCmuxWindowResignedKey(
-            Notification(name: NSWindow.didResignKeyNotification, object: window)
-        )
-        appDelegate.handleCmuxWindowBecameKey(
-            Notification(name: NSWindow.didBecomeKeyNotification, object: window)
-        )
-
-        XCTAssertTrue(
-            contentView.needsDisplay,
-            "Regaining key focus must invalidate the root content view even when the pointer is over the resize divider."
-        )
-    }
-}
-
-@MainActor
 final class AppDelegateWindowContextRoutingTests: XCTestCase {
     private func makeMainWindow(id: UUID) -> NSWindow {
         let window = NSWindow(
@@ -1802,17 +1733,6 @@ private final class FilePreviewPDFChromeNotificationFlag: @unchecked Sendable {
 @MainActor
 final class FilePreviewPDFChromeTests: XCTestCase {
     func testChromeHostsAcceptFirstMouse() {
-        let settingsKey = "paneFirstClickFocus.enabled"
-        let previousValue = UserDefaults.standard.object(forKey: settingsKey)
-        defer {
-            if let previousValue {
-                UserDefaults.standard.set(previousValue, forKey: settingsKey)
-            } else {
-                UserDefaults.standard.removeObject(forKey: settingsKey)
-            }
-        }
-        UserDefaults.standard.set(true, forKey: settingsKey)
-
         let host = FilePreviewPDFChromeHostingView(rootView: AnyView(EmptyView()))
 
         XCTAssertTrue(host.acceptsFirstMouse(for: nil))
@@ -2766,110 +2686,6 @@ final class BonsplitTabDragPayloadTests: XCTestCase {
             pasteboard.setData(data, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
         }
         return pasteboard
-    }
-}
-
-@MainActor
-final class MarkdownPanelPointerObserverViewTests: XCTestCase {
-    private func makeWindow() -> NSWindow {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        window.contentView?.layoutSubtreeIfNeeded()
-        return window
-    }
-
-    private func makeMouseEvent(
-        type: NSEvent.EventType,
-        location: NSPoint,
-        window: NSWindow,
-        eventNumber: Int = 1
-    ) -> NSEvent {
-        guard let event = NSEvent.mouseEvent(
-            with: type,
-            location: location,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
-            eventNumber: eventNumber,
-            clickCount: 1,
-            pressure: 1.0
-        ) else {
-            fatalError("Expected to create mouse event")
-        }
-        return event
-    }
-
-    func testObserverTriggersFocusForVisibleLeftClickInsideBounds() {
-        let window = makeWindow()
-        defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        let overlay = MarkdownPanelPointerObserverView(frame: contentView.bounds)
-        overlay.autoresizingMask = [.width, .height]
-        let focusExpectation = expectation(description: "observer forwards focus callback")
-        var pointerDownCount = 0
-        overlay.onPointerDown = {
-            pointerDownCount += 1
-            focusExpectation.fulfill()
-        }
-        contentView.addSubview(overlay)
-
-        _ = overlay.handleEventIfNeeded(
-            makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 60, y: 60), window: window)
-        )
-        wait(for: [focusExpectation], timeout: 1.0)
-
-        XCTAssertEqual(pointerDownCount, 1)
-    }
-
-    func testObserverIgnoresOutsideOrForeignWindowClicks() {
-        let window = makeWindow()
-        defer { window.orderOut(nil) }
-        let otherWindow = makeWindow()
-        defer { otherWindow.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        let overlay = MarkdownPanelPointerObserverView(frame: contentView.bounds)
-        overlay.autoresizingMask = [.width, .height]
-        let noFocusExpectation = expectation(description: "observer ignores invalid clicks")
-        noFocusExpectation.isInverted = true
-        var pointerDownCount = 0
-        overlay.onPointerDown = {
-            pointerDownCount += 1
-            noFocusExpectation.fulfill()
-        }
-        contentView.addSubview(overlay)
-
-        _ = overlay.handleEventIfNeeded(
-            makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 400, y: 400), window: window)
-        )
-        _ = overlay.handleEventIfNeeded(
-            makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 60, y: 60), window: otherWindow, eventNumber: 2)
-        )
-        _ = overlay.handleEventIfNeeded(
-            makeMouseEvent(type: .leftMouseDragged, location: NSPoint(x: 60, y: 60), window: window, eventNumber: 3)
-        )
-        wait(for: [noFocusExpectation], timeout: 0.1)
-
-        XCTAssertEqual(pointerDownCount, 0)
-    }
-
-    func testObserverDoesNotParticipateInHitTesting() {
-        let overlay = MarkdownPanelPointerObserverView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
-        XCTAssertNil(overlay.hitTest(NSPoint(x: 40, y: 30)))
     }
 }
 

@@ -8922,6 +8922,8 @@ private struct SidebarResizerAccessibilityModifier: ViewModifier {
 }
 
 private struct SidebarTabItemSettingsSnapshot: Equatable {
+    let hidesAllDetails: Bool
+    let showsWorkspaceDescription: Bool
     let sidebarShortcutHintXOffset: Double
     let sidebarShortcutHintYOffset: Double
     let alwaysShowShortcutHints: Bool
@@ -8955,7 +8957,14 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
             defaults: defaults
         )
 
-        let hidesAllDetails = SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
+        hidesAllDetails = SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
+        let showsWorkspaceDescriptionSetting = SidebarWorkspaceDetailSettings.showsWorkspaceDescription(
+            defaults: defaults
+        )
+        showsWorkspaceDescription = SidebarWorkspaceDetailSettings.resolvedWorkspaceDescriptionVisibility(
+            showWorkspaceDescription: showsWorkspaceDescriptionSetting,
+            hideAllDetails: hidesAllDetails
+        )
         let showsNotificationMessageSetting = SidebarWorkspaceDetailSettings.showsNotificationMessage(
             defaults: defaults
         )
@@ -9198,11 +9207,6 @@ struct VerticalTabsSidebar: View {
             workspaceScrollArea(renderContext: renderContext)
             SidebarFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
                 .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .overlay {
-            FirstMouseGatedHostingOverlay()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityHidden(true)
         }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
@@ -11891,12 +11895,6 @@ enum SidebarWorkspaceShortcutHintMetrics {
 
 enum SidebarTrailingAccessoryWidthPolicy {
     static let closeButtonWidth: CGFloat = 16
-
-    static func width(
-        canCloseWorkspace: Bool
-    ) -> CGFloat {
-        return canCloseWorkspace ? closeButtonWidth : 0
-    }
 }
 
 // PERF: TabItemView is Equatable so SwiftUI skips body re-evaluation when
@@ -11910,6 +11908,13 @@ enum SidebarTrailingAccessoryWidthPolicy {
 // Do NOT add @EnvironmentObject or new @Binding without updating ==.
 // Do NOT remove .equatable() from the ForEach call site in VerticalTabsSidebar.
 struct SidebarWorkspaceSnapshotBuilder {
+    struct PresentationKey: Equatable {
+        let showsWorkspaceDescription: Bool
+        let usesVerticalBranchLayout: Bool
+        let showsGitBranch: Bool
+        let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
+    }
+
     struct VerticalBranchDirectoryLine: Equatable {
         let branch: String?
         let directory: String?
@@ -11925,6 +11930,7 @@ struct SidebarWorkspaceSnapshotBuilder {
     }
 
     struct Snapshot: Equatable {
+        let presentationKey: PresentationKey
         let title: String
         let customDescription: String?
         let isPinned: Bool
@@ -12056,7 +12062,11 @@ private struct TabItemView: View, Equatable {
     }
 
     private var workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot {
-        workspaceSnapshotStorage ?? makeWorkspaceSnapshot()
+        if let workspaceSnapshotStorage,
+           workspaceSnapshotStorage.presentationKey == workspaceSnapshotPresentationKey {
+            return workspaceSnapshotStorage
+        }
+        return makeWorkspaceSnapshot()
     }
 
     private var activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
@@ -12157,12 +12167,6 @@ private struct TabItemView: View, Equatable {
         (showsModifierShortcutHints || alwaysShowShortcutHints) && workspaceShortcutLabel != nil
     }
 
-    private var trailingAccessoryWidth: CGFloat {
-        SidebarTrailingAccessoryWidthPolicy.width(
-            canCloseWorkspace: canCloseWorkspace
-        )
-    }
-
     private var remoteWorkspaceSidebarText: String? {
         guard tab.hasActiveRemoteTerminalSessions else { return nil }
         let trimmedTarget = tab.remoteDisplayTarget?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -12217,7 +12221,7 @@ private struct TabItemView: View, Equatable {
     @ViewBuilder
     private var remoteWorkspaceSection: some View {
         let workspaceSnapshot = self.workspaceSnapshot
-        if sidebarShowSSH, let remoteWorkspaceSidebarText = workspaceSnapshot.remoteWorkspaceSidebarText {
+        if !settings.hidesAllDetails, sidebarShowSSH, let remoteWorkspaceSidebarText = workspaceSnapshot.remoteWorkspaceSidebarText {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(remoteWorkspaceSidebarText)
@@ -12247,6 +12251,15 @@ private struct TabItemView: View, Equatable {
         settings.visibleAuxiliaryDetails
     }
 
+    private var workspaceSnapshotPresentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey {
+        SidebarWorkspaceSnapshotBuilder.PresentationKey(
+            showsWorkspaceDescription: settings.showsWorkspaceDescription,
+            usesVerticalBranchLayout: sidebarBranchVerticalLayout,
+            showsGitBranch: sidebarShowGitBranch,
+            visibleAuxiliaryDetails: visibleAuxiliaryDetails
+        )
+    }
+
     var body: some View {
         let workspaceSnapshot = self.workspaceSnapshot
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
@@ -12263,7 +12276,7 @@ private struct TabItemView: View, Equatable {
         let finderDirectoryPath = WorkspaceFinderDirectoryResolver.path(for: tab)
         let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(path: finderDirectoryPath)
         let latestNotificationSubtitle = latestNotificationText
-        let submittedMessageSubtitle = settings.iMessageModeEnabled
+        let submittedMessageSubtitle = !settings.hidesAllDetails && settings.iMessageModeEnabled
             ? workspaceSnapshot.latestSubmittedMessage?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .nilIfEmpty
@@ -12296,38 +12309,8 @@ private struct TabItemView: View, Equatable {
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
-
-                Spacer(minLength: 0)
-
-                ZStack(alignment: .trailing) {
-                    Button(action: {
-                        #if DEBUG
-                        cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
-                        #endif
-                        tabManager.closeWorkspaceWithConfirmation(tab)
-                    }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(activeSecondaryColor(0.7))
-                    }
-                    .buttonStyle(.plain)
-                    .safeHelp(closeButtonTooltip)
-                    .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
-                    .opacity(showCloseButton && !showsWorkspaceShortcutHint ? 1 : 0)
-                    .allowsHitTesting(showCloseButton && !showsWorkspaceShortcutHint)
-
-                    if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
-                        ShortcutHintPill(text: workspaceShortcutLabel, fontSize: 10, emphasis: shortcutHintEmphasis)
-                            .offset(
-                                x: ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset),
-                                y: ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)
-                            )
-                            .shortcutHintTransition()
-                    }
-                }
-                .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
-                .frame(width: trailingAccessoryWidth, height: 16, alignment: .trailing)
             }
 
             if let description = workspaceSnapshot.customDescription {
@@ -12533,6 +12516,35 @@ private struct TabItemView: View, Equatable {
                     }
                 }
         )
+        .overlay(alignment: .topTrailing) {
+            if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
+                ShortcutHintPill(text: workspaceShortcutLabel, fontSize: 10, emphasis: shortcutHintEmphasis)
+                    .offset(
+                        x: ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset),
+                        y: ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)
+                    )
+                    .padding(.top, 6)
+                    .padding(.trailing, 10)
+                    .shortcutHintTransition()
+            } else if showCloseButton {
+                Button(action: {
+                    #if DEBUG
+                    cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
+                    #endif
+                    tabManager.closeWorkspaceWithConfirmation(tab)
+                }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(activeSecondaryColor(0.7))
+                }
+                .buttonStyle(.plain)
+                .safeHelp(closeButtonTooltip)
+                .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
+                .padding(.top, 8)
+                .padding(.trailing, 10)
+            }
+        }
+        .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, 6)
         .background {
             GeometryReader { proxy in
@@ -12548,10 +12560,7 @@ private struct TabItemView: View, Equatable {
         .contentShape(Rectangle())
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
-            SidebarWorkspaceRowHoverTracker(
-                rowInteractionState: $rowInteractionState,
-                onMenuTrackingEnded: flushWorkspaceContextMenuFreezeIfLive
-            )
+            SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
         }
         .overlay {
             MiddleClickCapture {
@@ -12671,7 +12680,8 @@ private struct TabItemView: View, Equatable {
                 }
                 .onDisappear {
                     rowInteractionState.contextMenuDidDisappear()
-                    flushWorkspaceContextMenuFreezeIfLive()
+                    frozenPresentation = nil
+                    flushDeferredWorkspaceObservationInvalidation()
                 }
         }
     }
@@ -12682,7 +12692,7 @@ private struct TabItemView: View, Equatable {
             current: workspaceSnapshotStorage,
             next: nextSnapshot,
             force: force,
-            freezesSidebarWorkspaceDetails: rowInteractionState.freezesSidebarWorkspaceDetails
+            contextMenuVisible: rowInteractionState.contextMenuVisible
         )
 
         if workspaceSnapshotStorage != decision.workspaceSnapshotStorage {
@@ -12703,12 +12713,6 @@ private struct TabItemView: View, Equatable {
             workspaceSnapshotStorage = pendingSnapshot
         }
         contextMenuState.pendingWorkspaceSnapshot = nil
-    }
-
-    private func flushWorkspaceContextMenuFreezeIfLive() {
-        guard !rowInteractionState.freezesSidebarWorkspaceDetails else { return }
-        frozenPresentation = nil
-        flushDeferredWorkspaceObservationInvalidation()
     }
 
     private func contextMenuLabel(multi: String, single: String, isMulti: Bool) -> String {
@@ -13269,8 +13273,9 @@ private struct TabItemView: View, Equatable {
         }()
 
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
+            presentationKey: workspaceSnapshotPresentationKey,
             title: tab.title,
-            customDescription: sidebarVisibleCustomDescription,
+            customDescription: settings.showsWorkspaceDescription ? sidebarVisibleCustomDescription : nil,
             isPinned: tab.isPinned,
             customColorHex: tab.customColor,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,

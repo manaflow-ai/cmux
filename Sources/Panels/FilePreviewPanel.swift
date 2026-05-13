@@ -685,7 +685,7 @@ enum FilePreviewTextSaver {
 }
 
 @MainActor
-final class FilePreviewPanel: Panel, ObservableObject {
+final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
     let id: UUID
     let panelType: PanelType = .filePreview
     let filePath: String
@@ -1016,45 +1016,31 @@ struct FilePreviewPanelView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
-            Image(systemName: panel.displayIcon ?? "doc.viewfinder")
-                .foregroundStyle(.secondary)
-                .frame(width: 16)
-            Text(panel.filePath)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(Color(nsColor: themeForegroundColor).opacity(0.68))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .textSelection(.enabled)
-            Spacer(minLength: 8)
+        PanelFilePathHeader(
+            iconSystemName: panel.displayIcon ?? "doc.viewfinder",
+            filePath: panel.filePath,
+            backgroundColor: themeBackgroundColor,
+            foregroundColor: themeForegroundColor
+        ) {
             FileExternalOpenMenu(fileURL: panel.fileURL, isDisabled: panel.isFileUnavailable)
                 .foregroundStyle(.secondary)
 
             if panel.previewMode == .text {
-                Button {
-                    panel.loadTextContent()
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                }
-                .buttonStyle(.borderless)
-                .disabled(!panel.isDirty)
-                .help(String(localized: "filePreview.revert", defaultValue: "Revert"))
-                .accessibilityLabel(String(localized: "filePreview.revert", defaultValue: "Revert"))
+                PanelHeaderIconButton(
+                    systemName: "arrow.counterclockwise",
+                    label: String(localized: "filePreview.revert", defaultValue: "Revert"),
+                    isDisabled: !panel.isDirty,
+                    action: { panel.loadTextContent() }
+                )
 
-                Button {
-                    panel.saveTextContent()
-                } label: {
-                    Image(systemName: "square.and.arrow.down")
-                }
-                .buttonStyle(.borderless)
-                .disabled(!panel.isDirty || panel.isSaving)
-                .help(String(localized: "filePreview.save", defaultValue: "Save"))
-                .accessibilityLabel(String(localized: "filePreview.save", defaultValue: "Save"))
+                PanelHeaderIconButton(
+                    systemName: "square.and.arrow.down",
+                    label: String(localized: "filePreview.save", defaultValue: "Save"),
+                    isDisabled: !panel.isDirty || panel.isSaving,
+                    action: { panel.saveTextContent() }
+                )
             }
         }
-        .padding(.horizontal, 12)
-        .frame(height: 30)
-        .background(Color(nsColor: themeBackgroundColor))
     }
 
     @ViewBuilder
@@ -1236,7 +1222,7 @@ final class FilePreviewPDFChromeHostView: NSView {
 
 final class FilePreviewPDFChromeHostingView: NSHostingView<AnyView> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        PaneFirstClickFocusSettings.isEnabled()
+        true
     }
 }
 

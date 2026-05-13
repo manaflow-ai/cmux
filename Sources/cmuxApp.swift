@@ -5041,6 +5041,8 @@ struct SettingsView: View {
     @AppStorage(CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey)
     private var commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+    @AppStorage(WorkspaceWorkingDirectoryInheritanceSettings.key)
+    private var workspaceInheritWorkingDirectory = WorkspaceWorkingDirectoryInheritanceSettings.defaultValue
     @AppStorage(LastSurfaceCloseShortcutSettings.key)
     private var closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
     @AppStorage(PaneFirstClickFocusSettings.enabledKey)
@@ -5055,6 +5057,8 @@ struct SettingsView: View {
     @AppStorage(IMessageModeSettings.key) private var iMessageMode = IMessageModeSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
+    @AppStorage(SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey)
+    private var sidebarShowWorkspaceDescription = SidebarWorkspaceDetailSettings.defaultShowWorkspaceDescription
     @AppStorage(SidebarWorkspaceDetailSettings.showNotificationMessageKey)
     private var sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
@@ -5106,6 +5110,19 @@ struct SettingsView: View {
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
+    }
+
+    private var workspaceWorkingDirectoryInheritanceSubtitle: String {
+        if workspaceInheritWorkingDirectory {
+            return String(
+                localized: "settings.app.workspaceInheritWorkingDirectory.subtitleOn",
+                defaultValue: "New workspaces start in the focused workspace's working directory."
+            )
+        }
+        return String(
+            localized: "settings.app.workspaceInheritWorkingDirectory.subtitleOff",
+            defaultValue: "New workspaces leave their working directory unset so Ghostty's working-directory setting can apply."
+        )
     }
 
     private var minimalModeEnabled: Bool {
@@ -5759,6 +5776,28 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
+                            configurationReview: .json("app.workspaceInheritWorkingDirectory"),
+                            String(
+                                localized: "settings.app.workspaceInheritWorkingDirectory",
+                                defaultValue: "Inherit Workspace Working Directory"
+                            ),
+                            subtitle: workspaceWorkingDirectoryInheritanceSubtitle
+                        ) {
+                            Toggle("", isOn: $workspaceInheritWorkingDirectory)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsWorkspaceInheritWorkingDirectoryToggle")
+                                .accessibilityLabel(
+                                    String(
+                                        localized: "settings.app.workspaceInheritWorkingDirectory",
+                                        defaultValue: "Inherit Workspace Working Directory"
+                                    )
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
                             configurationReview: .json("app.minimalMode"),
                             String(localized: "settings.app.minimalMode", defaultValue: "Minimal Mode"),
                             subtitle: minimalModeSubtitle
@@ -6233,6 +6272,19 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsCardRow(
+                            configurationReview: .json("sidebar.showWorkspaceDescription"),
+                            String(localized: "settings.app.showWorkspaceDescription", defaultValue: "Show Workspace Description in Sidebar"),
+                            subtitle: String(localized: "settings.app.showWorkspaceDescription.subtitle", defaultValue: "Display custom workspace descriptions below the workspace title.")
+                        ) {
+                            Toggle("", isOn: $sidebarShowWorkspaceDescription)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+                        .disabled(sidebarHideAllDetails)
+
+                        SettingsCardDivider()
+
                         SettingsPickerRow(
                             configurationReview: .json("sidebar.branchLayout"),
                             String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"),
@@ -6320,6 +6372,7 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+                        .disabled(sidebarHideAllDetails)
 
                         SettingsCardDivider()
 
@@ -7282,6 +7335,7 @@ struct SettingsView: View {
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
         commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+        workspaceInheritWorkingDirectory = WorkspaceWorkingDirectoryInheritanceSettings.defaultValue
         workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: WorkspaceTitlebarSettings.showTitlebarKey)
@@ -7304,6 +7358,7 @@ struct SettingsView: View {
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         iMessageMode = IMessageModeSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
+        sidebarShowWorkspaceDescription = SidebarWorkspaceDetailSettings.defaultShowWorkspaceDescription
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
