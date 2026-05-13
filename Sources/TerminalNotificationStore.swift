@@ -896,7 +896,8 @@ final class TerminalNotificationStore: ObservableObject {
         refreshAuthorizationStatus()
     }
 
-    private func setWorkspaceManualUnread(_ isUnread: Bool, forTabId tabId: UUID) {
+    @discardableResult
+    private func setWorkspaceManualUnread(_ isUnread: Bool, forTabId tabId: UUID) -> Bool {
         var nextIds = manualUnreadWorkspaceIds
         let didChange: Bool
         if isUnread {
@@ -904,13 +905,23 @@ final class TerminalNotificationStore: ObservableObject {
         } else {
             didChange = nextIds.remove(tabId) != nil
         }
-        guard didChange else { return }
+        guard didChange else { return false }
         manualUnreadWorkspaceIds = nextIds
+        return true
     }
 
     private func clearWorkspaceManualUnread() {
         guard !manualUnreadWorkspaceIds.isEmpty else { return }
         manualUnreadWorkspaceIds = []
+    }
+
+    func hasManualUnread(forTabId tabId: UUID) -> Bool {
+        manualUnreadWorkspaceIds.contains(tabId)
+    }
+
+    @discardableResult
+    func clearManualUnread(forTabId tabId: UUID) -> Bool {
+        setWorkspaceManualUnread(false, forTabId: tabId)
     }
 
     // Per-workspace badges treat manualUnreadWorkspaceIds as "has unread
@@ -1350,7 +1361,6 @@ final class TerminalNotificationStore: ObservableObject {
                 idsToClear.append(updated[index].id.uuidString)
             }
         }
-        setWorkspaceManualUnread(false, forTabId: tabId)
         if !idsToClear.isEmpty {
             notifications = updated
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
@@ -1359,20 +1369,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func markUnread(forTabId tabId: UUID) {
-        var updated = notifications
-        var didChange = false
-        for index in updated.indices {
-            if updated[index].tabId == tabId, updated[index].isRead {
-                updated[index].isRead = false
-                didChange = true
-            }
-        }
-        if didChange {
-            setWorkspaceManualUnread(false, forTabId: tabId)
-            notifications = updated
-        } else if !workspaceIsUnread(forTabId: tabId) {
-            setWorkspaceManualUnread(true, forTabId: tabId)
-        }
+        setWorkspaceManualUnread(true, forTabId: tabId)
     }
 
     @discardableResult
