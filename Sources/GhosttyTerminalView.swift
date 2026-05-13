@@ -2069,6 +2069,10 @@ class GhosttyApp {
             )
 #endif
 
+            if !needsConfirmClose {
+                callbackTerminalSurface?.markChildProcessInputExited(reason: "closeSurfaceCallback")
+            }
+
             DispatchQueue.main.async {
                 if !needsConfirmClose {
                     callbackTerminalSurface?.markChildProcessExited(reason: "closeSurfaceCallback")
@@ -3761,6 +3765,7 @@ class GhosttyApp {
 #endif
             // Keep host-close async to avoid re-entrant close/deinit while Ghostty is still
             // dispatching this action callback.
+            callbackTerminalSurface?.markChildProcessInputExited(reason: "showChildExitedAction")
             DispatchQueue.main.async {
                 callbackTerminalSurface?.markChildProcessExited(reason: "showChildExitedAction")
                 guard let app = AppDelegate.shared else { return }
@@ -4809,8 +4814,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return false
     }
 
-    @MainActor
-    func markChildProcessExited(reason: String) {
+    @discardableResult
+    func markChildProcessInputExited(reason: String) -> Bool {
         let transition = withInputLifecycleLock { () -> (changed: Bool, discarded: PendingSocketInputDiscard?) in
             switch inputLifecycleState {
             case .childExited:
@@ -4821,7 +4826,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
-        guard transition.changed else { return }
+        guard transition.changed else { return false }
         logPendingSocketInputDiscard(transition.discarded, reason: reason)
 #if DEBUG
         cmuxDebugLog(
@@ -4829,6 +4834,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
             "workspace=\(tabId.uuidString.prefix(5)) reason=\(reason)"
         )
 #endif
+        return true
+    }
+
+    @MainActor
+    func markChildProcessExited(reason: String) {
+        _ = markChildProcessInputExited(reason: reason)
     }
 
     private static let portalHostAreaThreshold: CGFloat = 4
@@ -6010,14 +6021,20 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         pendingSocketInputQueue.append(input)
         pendingSocketInputBytes += incomingBytes
+#if DEBUG
         let pendingKeys = pendingSocketInputQueue.reduce(into: 0) { count, item in
             if case .key = item {
                 count += 1
             }
         }
+#endif
         return PendingSocketInputQueueSnapshot(
             items: pendingSocketInputQueue.count,
+#if DEBUG
             keys: pendingKeys,
+#else
+            keys: 0,
+#endif
             bytes: pendingSocketInputBytes
         )
     }
