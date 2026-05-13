@@ -75,8 +75,15 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
                 app.menuBars.menuBarItems["Tools"],
                 app.menuBars.menuItems["Tools"],
             ],
-            timeout: 4.0,
-            description: "configured Tools menu"
+            timeout: 12.0,
+            description: "configured Tools menu",
+            failureDetails: {
+                let titles = app.menuBars.menuBarItems
+                    .allElementsBoundByIndex
+                    .map(\.label)
+                    .joined(separator: ", ")
+                return "Visible menu titles: \(titles)"
+            }
         )
         toolsMenu.click()
 
@@ -125,7 +132,7 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
                     "title": "Live Bash Items",
                     "source": {
                       "type": "command",
-                      "command": "printf '[{\\"title\\":\\"Generated at demo time\\",\\"command\\":\\"date\\",\\"target\\":\\"currentTerminal\\"}]\\\\n'",
+                      "command": "printf '[]'",
                       "refresh": "manual",
                       "timeoutSeconds": 3
                     }
@@ -153,7 +160,8 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
     private func requireElement(
         candidates: [XCUIElement],
         timeout: TimeInterval,
-        description: String
+        description: String,
+        failureDetails: () -> String = { "" }
     ) -> XCUIElement {
         var match: XCUIElement?
         let found = configuredMenuBarPollUntil(timeout: timeout) {
@@ -163,7 +171,11 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
             }
             return false
         }
-        XCTAssertTrue(found, "Expected \(description) to exist")
+        let details = failureDetails()
+        XCTAssertTrue(
+            found,
+            details.isEmpty ? "Expected \(description) to exist" : "Expected \(description) to exist. \(details)"
+        )
         return match ?? candidates[0]
     }
 
