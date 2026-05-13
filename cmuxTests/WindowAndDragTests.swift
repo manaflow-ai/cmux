@@ -2470,6 +2470,9 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(scrollView.backgroundColor, backgroundColor)
         XCTAssertEqual(scrollView.contentView.backgroundColor, backgroundColor)
         XCTAssertEqual(textView.backgroundColor, backgroundColor)
+        XCTAssertEqual(scrollView.backgroundColor.alphaComponent, 1)
+        XCTAssertEqual(scrollView.contentView.backgroundColor.alphaComponent, 1)
+        XCTAssertEqual(textView.backgroundColor.alphaComponent, 1)
     }
 
     func testPendingTextFocusAppliesWhenTextViewAttaches() throws {
