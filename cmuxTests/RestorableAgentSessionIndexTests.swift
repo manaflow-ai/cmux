@@ -19,7 +19,10 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         let cwd = root.appendingPathComponent("repo", isDirectory: true)
         try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
         try fm.createDirectory(
-            at: projectsDir.appendingPathComponent(Self.claudeProjectDirName(for: cwd.path), isDirectory: true),
+            at: projectsDir.appendingPathComponent(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd.path),
+                isDirectory: true
+            ),
             withIntermediateDirectories: true
         )
 
@@ -132,10 +135,6 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
-    private static func claudeProjectDirName(for path: String) -> String {
-        path.replacingOccurrences(of: "/", with: "-")
-    }
-
     private func hookRecord(
         sessionId: String,
         workspaceId: UUID,
@@ -214,7 +213,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
 
     private func writeClaudeTranscript(sessionId: String, cwd: URL, projectsDir: URL) throws {
         let transcriptURL = projectsDir
-            .appendingPathComponent(Self.claudeProjectDirName(for: cwd.path), isDirectory: true)
+            .appendingPathComponent(RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd.path), isDirectory: true)
             .appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
         try writeClaudeTranscript(sessionId: sessionId, transcriptURL: transcriptURL, cwd: cwd)
     }
