@@ -567,9 +567,9 @@ def cmux_codex_feed_command(agent_event: str) -> str:
 
 
 def is_cmux_codex_hook_command(command: str) -> bool:
-    return command in {cmux_codex_hook_command(subcommand) for subcommand in CMUX_CODEX_HOOK_SUBCOMMANDS} or command in {
-        cmux_codex_feed_command(agent_event) for agent_event in CMUX_CODEX_FEED_EVENTS
-    }
+    hook_commands = {cmux_codex_hook_command(subcommand) for subcommand in CMUX_CODEX_HOOK_SUBCOMMANDS}
+    feed_commands = {cmux_codex_feed_command(agent_event) for agent_event in CMUX_CODEX_FEED_EVENTS}
+    return command in hook_commands or command in feed_commands
 
 
 def toml_basic_string_unescape(value: str) -> str:
@@ -662,6 +662,17 @@ def expected_cmux_codex_hook_trust(hooks: dict, hooks_path: Path) -> dict[str, s
                     status_message=hook.get("statusMessage"),
                 )
     return expected
+
+
+def codex_hook_commands(hooks: dict) -> list[str]:
+    commands: list[str] = []
+    for groups in hooks.get("hooks", {}).values():
+        for group in groups:
+            for hook in group.get("hooks", []):
+                command = hook.get("command")
+                if isinstance(command, str):
+                    commands.append(command)
+    return commands
 
 
 def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -> None:
@@ -792,6 +803,58 @@ def test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path: 
         raise AssertionError(f"cmux hook did not keep its existing position: {groups!r}")
     if second_command != orca_hook:
         raise AssertionError(f"third-party hook was not preserved after cmux hook: {groups!r}")
+
+
+def test_install_replaces_legacy_codex_hook_commands(cli_path: str, root: Path) -> None:
+    codex_home = root / "codex-home-legacy-hooks"
+    codex_home.mkdir()
+    (codex_home / "hooks.json").write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "Stop": [
+                        {"hooks": [{"type": "command", "command": "cmux codex-hook stop"}]},
+                    ],
+                    "PreToolUse": [
+                        {
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "cmux feed-hook --source codex --event PreToolUse",
+                                }
+                            ]
+                        },
+                    ],
+                }
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "install", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex install failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    hooks = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
+    commands = codex_hook_commands(hooks)
+    if any("cmux codex-hook" in command or "cmux feed-hook --source" in command for command in commands):
+        raise AssertionError(f"legacy cmux hook commands were not removed: {commands!r}")
+    if cmux_codex_hook_command("stop") not in commands:
+        raise AssertionError(f"current Stop hook was not installed: {commands!r}")
+    if cmux_codex_feed_command("PreToolUse") not in commands:
+        raise AssertionError(f"current PreToolUse feed hook was not installed: {commands!r}")
 
 
 def test_install_migrates_legacy_codex_hooks_feature(cli_path: str, root: Path) -> None:
@@ -1292,6 +1355,7 @@ def main() -> int:
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_install_escapes_codex_hook_trust_state_keys(cli_path, root)
             test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path, root)
+            test_install_replaces_legacy_codex_hook_commands(cli_path, root)
             test_install_migrates_legacy_codex_hooks_feature(cli_path, root)
             test_install_migrates_dotted_codex_hooks_feature(cli_path, root)
             test_uninstall_preserves_existing_codex_hooks_feature(cli_path, root)

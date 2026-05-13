@@ -135,7 +135,7 @@ extension CMUXCLI {
     ) -> [CodexHookTrustEntry] {
         guard def.name == "codex" else { return [] }
         let isOwnedCommand: (String) -> Bool = { command in
-            isCmuxOwnedHookCommand(command, for: def)
+            isCmuxOwnedHookCommand(command, for: def, includeLegacy: false)
         }
         var entries: [CodexHookTrustEntry] = []
         let keySource = codexNormalizedHookSourcePath(hooksFilePath)
