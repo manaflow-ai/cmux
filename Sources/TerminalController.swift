@@ -1508,6 +1508,11 @@ class TerminalController {
         let params: [String: Any]
     }
 
+    private struct V1SocketRequest {
+        let command: String
+        let args: String
+    }
+
     private nonisolated static let socketWorkerV2Methods: Set<String> = [
         "auth.status",
         "auth.begin_sign_in",
@@ -1526,11 +1531,20 @@ class TerminalController {
         "system.top",
     ]
 
+    private nonisolated static let socketWorkerV1Commands: Set<String> = [
+        "new_pane",
+        "new_surface",
+    ]
+
     private nonisolated static func executionPolicy(forV2Method method: String) -> SocketCommandExecutionPolicy {
         if method.hasPrefix("vm.") || socketWorkerV2Methods.contains(method) {
             return .socketWorker
         }
         return .mainActor
+    }
+
+    private nonisolated static func executionPolicy(forV1Command command: String) -> SocketCommandExecutionPolicy {
+        socketWorkerV1Commands.contains(command) ? .socketWorker : .mainActor
     }
 
     private nonisolated func parseV2SocketRequest(_ command: String) -> V2SocketRequest? {
@@ -1551,6 +1565,61 @@ class TerminalController {
             method: method,
             params: dict["params"] as? [String: Any] ?? [:]
         )
+    }
+
+    private nonisolated func parseV1SocketRequest(_ command: String) -> V1SocketRequest? {
+        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedCommand.isEmpty, !trimmedCommand.hasPrefix("{") else {
+            return nil
+        }
+        let parts = trimmedCommand.split(separator: " ", maxSplits: 1).map(String.init)
+        guard let rawCommand = parts.first else { return nil }
+        return V1SocketRequest(
+            command: rawCommand.lowercased(),
+            args: parts.count > 1 ? parts[1] : ""
+        )
+    }
+
+    private nonisolated func v1RequestRequiresSocketWorker(_ request: V1SocketRequest) -> Bool {
+        guard Self.executionPolicy(forV1Command: request.command) == .socketWorker else {
+            return false
+        }
+        let tokens: [String]
+        switch tokenizeSocketArguments(request.args) {
+        case .success(let parsed):
+            tokens = parsed
+        case .failure:
+            return false
+        }
+        for token in tokens where token.hasPrefix("--type=") {
+            let rawType = String(token.dropFirst(7))
+            guard case .success(let panelType) = panelTypeForSocketArgument(rawType) else {
+                return false
+            }
+            return panelType == .extensionPane
+        }
+        return false
+    }
+
+    private nonisolated func socketWorkerV1ResponseIfNeeded(for command: String) -> String? {
+        guard let request = parseV1SocketRequest(command),
+              v1RequestRequiresSocketWorker(request) else {
+            return nil
+        }
+        return withSocketCommandPolicy(commandKey: request.command, isV2: false) {
+            socketWorkerV1Response(request)
+        }
+    }
+
+    private nonisolated func socketWorkerV1Response(_ request: V1SocketRequest) -> String {
+        switch request.command {
+        case "new_pane":
+            return newPane(request.args)
+        case "new_surface":
+            return newSurface(request.args)
+        default:
+            return "ERROR: Unknown command '\(request.command)'. Use 'help' for available commands."
+        }
     }
 
     private nonisolated func socketWorkerV2ResponseIfNeeded(for command: String) -> String? {
@@ -2019,7 +2088,16 @@ class TerminalController {
             )
         }
 
+        if Thread.isMainThread,
+           let request = parseV1SocketRequest(command),
+           v1RequestRequiresSocketWorker(request) {
+            return "ERROR: \(request.command) must run off the main thread"
+        }
+
         if let response = socketWorkerV2ResponseIfNeeded(for: command) {
+            return response
+        }
+        if let response = socketWorkerV1ResponseIfNeeded(for: command) {
             return response
         }
 
@@ -14963,7 +15041,7 @@ class TerminalController {
     }
 #endif
 
-    func parseSplitDirection(_ value: String) -> SplitDirection? {
+    nonisolated func parseSplitDirection(_ value: String) -> SplitDirection? {
         switch value.lowercased() {
         case "left", "l":
             return .left
@@ -15488,7 +15566,7 @@ class TerminalController {
         return success ? "OK" : "ERROR: Unknown key '\(keyName)'"
     }
 
-    private func openExternallyWhenBrowserDisabled(rawURL: String? = nil, url: URL?) -> String {
+    private nonisolated func openExternallyWhenBrowserDisabled(rawURL: String? = nil, url: URL?) -> String {
         if let rawURL, url == nil {
             return "ERROR: Invalid URL \(rawURL)"
         }
@@ -15917,7 +15995,7 @@ class TerminalController {
 	        return result
 	    }
 	
-    private func panelTypeForSocketArgument(_ rawType: String) -> Result<PanelType, SocketArgumentParseError> {
+    private nonisolated func panelTypeForSocketArgument(_ rawType: String) -> Result<PanelType, SocketArgumentParseError> {
         guard let panelType = PanelType.userInputValue(rawType) else {
             return .failure(.invalidPanelType(rawType))
         }
@@ -15947,7 +16025,7 @@ class TerminalController {
         }
     }
 
-    private func tokenizeSocketArguments(_ args: String) -> Result<[String], SocketArgumentParseError> {
+    private nonisolated func tokenizeSocketArguments(_ args: String) -> Result<[String], SocketArgumentParseError> {
         var tokens: [String] = []
         var current = ""
         var quote: Character?
@@ -16001,7 +16079,7 @@ class TerminalController {
         return .success(tokens)
     }
 
-    private func resolveSocketExtensionBundle(panelType: PanelType, bundlePath: String?) -> Result<ExtensionBundleDescriptor, SocketArgumentParseError>? {
+    private nonisolated func resolveSocketExtensionBundle(panelType: PanelType, bundlePath: String?) -> Result<ExtensionBundleDescriptor, SocketArgumentParseError>? {
         guard panelType == .extensionPane else { return nil }
         // Socket-originated commands are local trusted entrypoints, so a valid bundle path records trust
         // when the workspace creates the extension panel. Extension bridge calls use the stricter pretrusted path.
@@ -16016,9 +16094,7 @@ class TerminalController {
         }
     }
 
-    private func newPane(_ args: String) -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
-
+    private nonisolated func newPane(_ args: String) -> String {
         // Parse arguments: --type=terminal|browser|extension --direction=left|right|up|down --url=... --bundle=...
         var panelType: PanelType = .terminal
         var direction: SplitDirection = .right
@@ -16082,8 +16158,12 @@ class TerminalController {
         let insertFirst = direction.insertFirst
 
         var result = "ERROR: Failed to create pane"
-        let focus = socketCommandAllowsInAppFocusMutations()
+        let focus = Self.socketCommandAllowsInAppFocusMutations()
         v2MainSync {
+            guard let tabManager = self.tabManager else {
+                result = "ERROR: TabManager not available"
+                return
+            }
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }),
                   let focusedPanelId = tab.focusedPanelId else {
@@ -17668,9 +17748,7 @@ class TerminalController {
         return result
     }
 
-    private func newSurface(_ args: String) -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
-
+    private nonisolated func newSurface(_ args: String) -> String {
         // Parse arguments: --type=terminal|browser|extension --pane=<pane_id> --url=... --bundle=...
         var panelType: PanelType = .terminal
         var paneArg: String? = nil
@@ -17721,8 +17799,12 @@ class TerminalController {
         }
 
         var result = "ERROR: Failed to create tab"
-        let focus = socketCommandAllowsInAppFocusMutations()
+        let focus = Self.socketCommandAllowsInAppFocusMutations()
         v2MainSync {
+            guard let tabManager = self.tabManager else {
+                result = "ERROR: TabManager not available"
+                return
+            }
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                 return
