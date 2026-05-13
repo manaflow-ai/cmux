@@ -590,11 +590,20 @@ func resolveBrowserCommand(args []string) (string, browserCommandSpec, int, []st
 	if len(args) == 0 {
 		return "", browserCommandSpec{}, 0, nil, false
 	}
-	if normalizeBrowserToken(args[0]) == "tab" && len(args) > 1 {
-		second := normalizeBrowserToken(args[1])
-		if second != "new" && second != "list" && second != "switch" && second != "close" && (second == "-" || !strings.HasPrefix(second, "-")) {
-			spec := browserCommands["tab switch"]
-			return "tab switch", spec, 1, nil, true
+	if normalizeBrowserToken(args[0]) == "tab" {
+		for idx := 1; idx < len(args); idx++ {
+			if isBrowserShortBooleanFlag(args[idx]) {
+				continue
+			}
+			second := normalizeBrowserToken(args[idx])
+			if strings.HasPrefix(args[idx], "--") {
+				break
+			}
+			if second != "new" && second != "list" && second != "switch" && second != "close" && (second == "-" || !strings.HasPrefix(second, "-")) {
+				spec := browserCommands["tab switch"]
+				return "tab switch", spec, 1, nil, true
+			}
+			break
 		}
 	}
 

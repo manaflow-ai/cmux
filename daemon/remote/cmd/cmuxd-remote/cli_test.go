@@ -1421,6 +1421,36 @@ func TestCLIBrowserTabShortFlagDoesNotBecomeTarget(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserTabShortcutIgnoresInterleavedShortFlag(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "surface:2", "tab", "-i", "3",
+	})
+	if code != 0 {
+		t.Fatalf("browser tab shortcut with interleaved short flag should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.tab.switch" {
+			t.Fatalf("expected browser.tab.switch, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "surface:2" {
+			t.Fatalf("expected surface_id surface:2, got %v", got)
+		}
+		if got := params["index"]; got != "3" {
+			t.Fatalf("expected index 3, got %v", got)
+		}
+		if got := params["interactive"]; got != true {
+			t.Fatalf("expected interactive=true, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser tab switch request")
+	}
+}
+
 func TestCLIBrowserOutDoesNotConsumeShortFlagAsPath(t *testing.T) {
 	sockPath, _ := startMockV2SocketWithRequestCapture(t)
 	code := runCLI([]string{
