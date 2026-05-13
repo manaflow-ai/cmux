@@ -550,19 +550,20 @@ class CmuxEventsStress:
                 self.rss_peak_kb = max(self.rss_peak_kb, value)
 
     def sample_rss_once(self) -> int:
-        if not self.proc:
+        proc = self.proc
+        if not proc:
             return 0
-        pid = self.proc.pid
-        if self.proc.poll() is not None:
+        pid = proc.pid
+        if proc.poll() is not None:
             return 0
-        proc = subprocess.run(
+        ps = subprocess.run(
             ["ps", "-o", "rss=", "-p", str(pid)],
             text=True,
             capture_output=True,
             check=False,
         )
         try:
-            return int(proc.stdout.strip() or "0")
+            return int(ps.stdout.strip() or "0")
         except ValueError:
             return 0
 
