@@ -29,6 +29,12 @@ public enum AgentLaunchSanitizer {
             }
             guard let preserved = preservedArguments(kind: "claude", args: tail) else { return nil }
             return [executable, "claude-teams"] + preserved
+        case "codexTeams":
+            if tail.first == "codex-teams" {
+                tail.removeFirst()
+            }
+            guard let preserved = preservedArguments(kind: "codex", args: tail) else { return nil }
+            return [executable, "codex-teams"] + preserved
         case "omo":
             if tail.first == "omo" {
                 tail.removeFirst()
