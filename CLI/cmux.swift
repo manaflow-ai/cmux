@@ -12497,10 +12497,9 @@ struct CMUXCLI {
     }
 
     func writeShimIfChanged(_ script: String, to url: URL, mode: Int = 0o755) throws {
-        let normalized = script.trimmingCharacters(in: .whitespacesAndNewlines)
         let fileManager = FileManager.default
         let existing = try? String(contentsOf: url, encoding: .utf8)
-        guard existing?.trimmingCharacters(in: .whitespacesAndNewlines) != normalized else {
+        guard existing != script else {
             try fileManager.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
             return
         }
@@ -12516,7 +12515,8 @@ struct CMUXCLI {
             }
         } catch {
             let current = try? String(contentsOf: url, encoding: .utf8)
-            if current?.trimmingCharacters(in: .whitespacesAndNewlines) == normalized {
+            if current == script {
+                try fileManager.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
                 try? fileManager.removeItem(at: tempURL)
                 return
             }
