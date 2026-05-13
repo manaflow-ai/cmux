@@ -159,13 +159,11 @@ extension TerminalController {
                 "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
                 "surface_id": primary["surface_id"] ?? NSNull(),
                 "surface_ref": primary["surface_ref"] ?? NSNull(),
+                "panel_type": primary["panel_type"] ?? NSNull(),
                 "path": primary["path"] ?? NSNull(),
                 "paths": filePaths,
                 "surfaces": surfacePayloads
             ]
-            if let panelType = primary["panel_type"] {
-                response["panel_type"] = panelType
-            }
             if let previewMode = primary["preview_mode"] {
                 response["preview_mode"] = previewMode
             }

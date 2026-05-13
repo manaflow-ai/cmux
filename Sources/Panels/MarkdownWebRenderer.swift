@@ -522,7 +522,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     }
 }
 
-private extension NSColor {
+extension NSColor {
     var markdownOpaqueSRGB: NSColor {
         (usingColorSpace(.sRGB) ?? self).withAlphaComponent(1)
     }
@@ -546,7 +546,7 @@ private extension NSColor {
         let overlay = color.markdownOpaqueSRGB
         var low: CGFloat = 0
         var high: CGFloat = 1
-        var result: CGFloat = 0
+        var result: CGFloat = 1
 
         for _ in 0..<18 {
             let mid = (low + high) / 2

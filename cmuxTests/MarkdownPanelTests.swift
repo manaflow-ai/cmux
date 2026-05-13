@@ -35,6 +35,13 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertFalse(theme.neutralMutedBackground.contains("0.420"))
     }
 
+    func testMarkdownThemeOverlayFallsBackToFullOverlayWhenContrastIsUnreachable() {
+        let base = NSColor(srgbRed: 0.2, green: 0.24, blue: 0.28, alpha: 0.4)
+        let overlay = base.markdownThemeOverlay(targetContrast: 21, of: base)
+
+        XCTAssertEqual(overlay.alphaComponent, 1, accuracy: 0.0001)
+    }
+
     func testFileOpenRoutesMarkdownFilesToPreviewMarkdownPanel() throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory
