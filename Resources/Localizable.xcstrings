@@ -54109,6 +54109,40 @@
         }
       }
     },
+    "settings.app.showWorkspaceDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Workspace Description in Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーにワークスペースの説明を表示"
+          }
+        }
+      }
+    },
+    "settings.app.showWorkspaceDescription.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display custom workspace descriptions below the workspace title."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名の下にカスタム説明を表示します。"
+          }
+        }
+      }
+    },
     "settings.app.renameSelectsName": {
       "extractionState": "manual",
       "localizations": {
@@ -74453,8 +74487,8 @@
         }
     },
     "settings.search.alias.setting.app.hide-sidebar-details": {
-        "extractionState": "manual",
-        "localizations": {
+      "extractionState": "manual",
+      "localizations": {
             "en": {
                 "stringUnit": {
                     "state": "translated",
@@ -74568,8 +74602,25 @@
                     "state": "translated",
                     "value": "sidebar.hideAllDetails compact sidebar hide details only title minimal left rail програма загальні параметри поведінка док рядок меню статус бічна панель навігація ліворуч деталі приховати макет Лівий рейл"
                 }
-            }
         }
+      }
+    },
+    "settings.search.alias.setting.app.show-workspace-description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showWorkspaceDescription workspace description notes markdown sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showWorkspaceDescription workspace description notes markdown sidebar ワークスペース 説明 メモ マークダウン サイドバー"
+          }
+        }
+      }
     },
     "settings.search.alias.setting.app.sidebar-branch-layout": {
         "extractionState": "manual",

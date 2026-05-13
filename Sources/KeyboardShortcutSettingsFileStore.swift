@@ -472,6 +472,9 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["hideAllDetails"]) {
             snapshot.managedUserDefaults[SidebarWorkspaceDetailSettings.hideAllDetailsKey] = .bool(value)
         }
+        if let value = jsonBool(section["showWorkspaceDescription"]) {
+            snapshot.managedUserDefaults[SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey] = .bool(value)
+        }
         if let raw = jsonString(section["branchLayout"]) {
             switch raw {
             case "vertical":

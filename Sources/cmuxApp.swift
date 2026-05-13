@@ -5019,6 +5019,8 @@ struct SettingsView: View {
     @AppStorage(IMessageModeSettings.key) private var iMessageMode = IMessageModeSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
+    @AppStorage(SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey)
+    private var sidebarShowWorkspaceDescription = SidebarWorkspaceDetailSettings.defaultShowWorkspaceDescription
     @AppStorage(SidebarWorkspaceDetailSettings.showNotificationMessageKey)
     private var sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
@@ -6182,6 +6184,19 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsCardRow(
+                            configurationReview: .json("sidebar.showWorkspaceDescription"),
+                            String(localized: "settings.app.showWorkspaceDescription", defaultValue: "Show Workspace Description in Sidebar"),
+                            subtitle: String(localized: "settings.app.showWorkspaceDescription.subtitle", defaultValue: "Display custom workspace descriptions below the workspace title.")
+                        ) {
+                            Toggle("", isOn: $sidebarShowWorkspaceDescription)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+                        .disabled(sidebarHideAllDetails)
+
+                        SettingsCardDivider()
+
                         SettingsPickerRow(
                             configurationReview: .json("sidebar.branchLayout"),
                             String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"),
@@ -7253,6 +7268,7 @@ struct SettingsView: View {
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         iMessageMode = IMessageModeSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
+        sidebarShowWorkspaceDescription = SidebarWorkspaceDetailSettings.defaultShowWorkspaceDescription
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
