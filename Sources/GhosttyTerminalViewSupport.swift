@@ -16,13 +16,6 @@ struct TerminalStatusBarConfiguration: Equatable, Sendable {
     var command: String
     var refreshInterval: Double
 
-    static let disabled = TerminalStatusBarConfiguration(
-        enabled: false,
-        heightRows: TerminalStatusBarSettings.defaultHeightRows,
-        command: TerminalStatusBarSettings.defaultCommand,
-        refreshInterval: TerminalStatusBarSettings.defaultRefreshInterval
-    )
-
     var isRenderable: Bool {
         enabled && !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
