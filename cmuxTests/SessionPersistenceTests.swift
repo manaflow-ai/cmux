@@ -687,6 +687,24 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNotEqual(firstFingerprint, secondFingerprint)
     }
 
+    func testRestorableAgentIndexSkipsHookRecordWithDeadRecordedPID() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let index = try makeRestorableAgentIndex(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            sessionId: "codex-dead-pid-session",
+            arguments: [
+                "/usr/local/bin/codex",
+                "--model",
+                "gpt-5.4",
+            ],
+            pid: Int(Int32.max)
+        )
+
+        XCTAssertNil(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+    }
+
     func testResolvedWindowFramePrefersSavedDisplayIdentity() {
         let savedFrame = SessionRectSnapshot(x: 1_200, y: 100, width: 600, height: 400)
         let savedDisplay = SessionDisplaySnapshot(
@@ -1045,7 +1063,7 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
-    func testRestoredAgentFirstAutoResumeCommandDoesNotClearSnapshot() throws {
+    func testRestoredAgentAutoResumeClearsSnapshotWhenShellReturnsToPrompt() throws {
         let source = Workspace()
         let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
         let sourceIndex = try makeRestorableAgentIndex(
@@ -1072,9 +1090,8 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(autoResumeSnapshot.panels.first?.terminal?.agent?.sessionId, "codex-restored-session")
 
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
-        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
-        let userCommandSnapshot = restored.sessionSnapshot(includeScrollback: false)
-        XCTAssertNil(userCommandSnapshot.panels.first?.terminal?.agent)
+        let exitedAgentSnapshot = restored.sessionSnapshot(includeScrollback: false)
+        XCTAssertNil(exitedAgentSnapshot.panels.first?.terminal?.agent)
     }
 
     @MainActor
@@ -1371,6 +1388,36 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testObservedRunningAgentInvalidatesWhenShellReturnsToPrompt() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+
+        let runningIndex = try makeRestorableAgentIndex(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            sessionId: "codex-running-session",
+            arguments: [
+                "/usr/local/bin/codex",
+                "--model",
+                "gpt-5.4",
+            ]
+        )
+        let runningSnapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: runningIndex
+        )
+        XCTAssertEqual(runningSnapshot.panels.first?.terminal?.agent?.sessionId, "codex-running-session")
+
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+        let idleSnapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: runningIndex
+        )
+        XCTAssertNil(idleSnapshot.panels.first?.terminal?.agent)
+    }
+
     private func makeRestorableAgentIndex(
         kind: RestorableAgentKind = .codex,
         workspaceId: UUID,
@@ -1379,7 +1426,8 @@ final class SessionPersistenceTests: XCTestCase {
         arguments: [String],
         launcher: String? = nil,
         executablePath: String? = nil,
-        environment: [String: String]? = nil
+        environment: [String: String]? = nil,
+        pid: Int? = nil
     ) throws -> RestorableAgentSessionIndex {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-hook-store-\(UUID().uuidString)", isDirectory: true)
@@ -1422,25 +1470,30 @@ final class SessionPersistenceTests: XCTestCase {
         let resolvedExecutablePath = executablePath ?? arguments.first ?? "/usr/local/bin/\(kind.rawValue)"
         let resolvedLauncher = launcher ?? kind.rawValue
 
+        var sessionRecord: [String: Any] = [
+            "sessionId": sessionId,
+            "workspaceId": workspaceId.uuidString,
+            "surfaceId": panelId.uuidString,
+            "cwd": "/tmp/repo",
+            "updatedAt": Date.now.timeIntervalSince1970,
+            "launchCommand": [
+                "launcher": resolvedLauncher,
+                "executablePath": resolvedExecutablePath,
+                "arguments": arguments,
+                "workingDirectory": "/tmp/repo",
+                "environment": resolvedEnvironment,
+                "capturedAt": Date.now.timeIntervalSince1970,
+                "source": "process",
+            ],
+        ]
+        if let pid {
+            sessionRecord["pid"] = pid
+        }
+
         let jsonObject: [String: Any] = [
             "version": 1,
             "sessions": [
-                sessionId: [
-                    "sessionId": sessionId,
-                    "workspaceId": workspaceId.uuidString,
-                    "surfaceId": panelId.uuidString,
-                    "cwd": "/tmp/repo",
-                    "updatedAt": Date().timeIntervalSince1970,
-                    "launchCommand": [
-                        "launcher": resolvedLauncher,
-                        "executablePath": resolvedExecutablePath,
-                        "arguments": arguments,
-                        "workingDirectory": "/tmp/repo",
-                        "environment": resolvedEnvironment,
-                        "capturedAt": Date().timeIntervalSince1970,
-                        "source": "process",
-                    ],
-                ],
+                sessionId: sessionRecord,
             ],
         ]
         let data = try JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted])

@@ -133,7 +133,7 @@ final class WindowAccessorTests: XCTestCase {
 
 @MainActor
 final class MainWindowFocusRedrawTests: XCTestCase {
-    func testKeyRegainInvalidatesContentWhenPointerIsOverSidebarDivider() {
+    func testKeyRegainInvalidatesRootContentView() {
         _ = NSApplication.shared
 
         let appDelegate = AppDelegate()
@@ -168,21 +168,6 @@ final class MainWindowFocusRedrawTests: XCTestCase {
 
         contentView.layoutSubtreeIfNeeded()
         splitView.adjustSubviews()
-        let dividerPointInSplit = NSPoint(
-            x: sidebar.frame.maxX + splitView.dividerThickness / 2,
-            y: splitView.bounds.midY
-        )
-        let dividerRectInSplit = NSRect(
-            x: sidebar.frame.maxX,
-            y: 0,
-            width: max(splitView.dividerThickness, 1),
-            height: splitView.bounds.height
-        ).insetBy(dx: -5, dy: 0)
-
-        XCTAssertTrue(
-            dividerRectInSplit.contains(dividerPointInSplit),
-            "Test setup should place the pointer over the sidebar/main split divider without depending on screen coordinates."
-        )
 
         contentView.needsDisplay = false
 
@@ -195,7 +180,7 @@ final class MainWindowFocusRedrawTests: XCTestCase {
 
         XCTAssertTrue(
             contentView.needsDisplay,
-            "Regaining key focus must invalidate the root content view even when the pointer is over the resize divider."
+            "Regaining key focus must invalidate the root content view."
         )
     }
 }
@@ -1512,6 +1497,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             workspaceId: nil,
             onResumeSession: nil,
             onOpenFilePreview: { _ in },
+            onOpenAsPane: { _ in },
             onClose: {}
         )
         let hostingView = NSHostingView(rootView: rootView)
@@ -1802,17 +1788,6 @@ private final class FilePreviewPDFChromeNotificationFlag: @unchecked Sendable {
 @MainActor
 final class FilePreviewPDFChromeTests: XCTestCase {
     func testChromeHostsAcceptFirstMouse() {
-        let settingsKey = "paneFirstClickFocus.enabled"
-        let previousValue = UserDefaults.standard.object(forKey: settingsKey)
-        defer {
-            if let previousValue {
-                UserDefaults.standard.set(previousValue, forKey: settingsKey)
-            } else {
-                UserDefaults.standard.removeObject(forKey: settingsKey)
-            }
-        }
-        UserDefaults.standard.set(true, forKey: settingsKey)
-
         let host = FilePreviewPDFChromeHostingView(rootView: AnyView(EmptyView()))
 
         XCTAssertTrue(host.acceptsFirstMouse(for: nil))
@@ -2454,6 +2429,52 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         withExtendedLifetime([firstWindow, secondWindow]) {}
     }
 
+    func testTextEditorClearThemeDoesNotDrawAppKitBackgrounds() {
+        _ = NSApplication.shared
+        let scrollView = NSScrollView()
+        let textView = SavingTextView()
+        scrollView.documentView = textView
+
+        FilePreviewTextEditor<FilePreviewPanel>.applyTheme(
+            to: scrollView,
+            backgroundColor: .clear,
+            foregroundColor: .white
+        )
+
+        XCTAssertFalse(scrollView.drawsBackground)
+        XCTAssertFalse(scrollView.contentView.drawsBackground)
+        XCTAssertFalse(textView.drawsBackground)
+        XCTAssertEqual(scrollView.backgroundColor.alphaComponent, 0)
+        XCTAssertEqual(scrollView.contentView.backgroundColor.alphaComponent, 0)
+        XCTAssertEqual(textView.backgroundColor.alphaComponent, 0)
+        XCTAssertEqual(textView.textColor, .white)
+        XCTAssertEqual(textView.insertionPointColor, .white)
+    }
+
+    func testTextEditorOpaqueThemeDrawsAppKitBackgrounds() {
+        _ = NSApplication.shared
+        let scrollView = NSScrollView()
+        let textView = SavingTextView()
+        let backgroundColor = NSColor(srgbRed: 0.12, green: 0.14, blue: 0.16, alpha: 1)
+        scrollView.documentView = textView
+
+        FilePreviewTextEditor<FilePreviewPanel>.applyTheme(
+            to: scrollView,
+            backgroundColor: backgroundColor,
+            foregroundColor: .white
+        )
+
+        XCTAssertTrue(scrollView.drawsBackground)
+        XCTAssertTrue(scrollView.contentView.drawsBackground)
+        XCTAssertTrue(textView.drawsBackground)
+        XCTAssertEqual(scrollView.backgroundColor, backgroundColor)
+        XCTAssertEqual(scrollView.contentView.backgroundColor, backgroundColor)
+        XCTAssertEqual(textView.backgroundColor, backgroundColor)
+        XCTAssertEqual(scrollView.backgroundColor.alphaComponent, 1)
+        XCTAssertEqual(scrollView.contentView.backgroundColor.alphaComponent, 1)
+        XCTAssertEqual(textView.backgroundColor.alphaComponent, 1)
+    }
+
     func testPendingTextFocusAppliesWhenTextViewAttaches() throws {
         _ = NSApplication.shared
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)
@@ -2516,10 +2537,164 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertNotEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
-    private func temporaryTextFile(contents: String, encoding: String.Encoding) throws -> URL {
+    func testExternalOpenApplicationResolverOrdersDefaultAppFirstAndDeduplicates() {
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-sample.mov")
+        let quickTimeURL = URL(fileURLWithPath: "/Applications/QuickTime Player.app")
+        let vlcURL = URL(fileURLWithPath: "/Applications/VLC.app")
+        let names = [
+            quickTimeURL.path: "QuickTime Player",
+            vlcURL.path: "VLC",
+        ]
+        let resolver = FileExternalOpenApplicationResolver(
+            defaultApplicationURL: { _ in quickTimeURL },
+            applicationURLs: { _ in [vlcURL, quickTimeURL, vlcURL] },
+            displayName: { names[$0.path] ?? $0.lastPathComponent },
+            shouldIncludeApplication: { _ in true }
+        )
+
+        let applications = resolver.applications(for: fileURL)
+
+        XCTAssertEqual(applications.map(\.displayName), ["QuickTime Player", "VLC"])
+        XCTAssertEqual(applications.map(\.isDefault), [true, false])
+    }
+
+    func testExternalOpenApplicationResolverFallsBackWhenDefaultAppIsFiltered() {
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-sample.pdf")
+        let cmuxURL = URL(fileURLWithPath: "/Applications/cmux.app")
+        let previewURL = URL(fileURLWithPath: "/System/Applications/Preview.app")
+        let resolver = FileExternalOpenApplicationResolver(
+            defaultApplicationURL: { _ in cmuxURL },
+            applicationURLs: { _ in [cmuxURL, previewURL] },
+            displayName: { $0.deletingPathExtension().lastPathComponent },
+            shouldIncludeApplication: { $0 != cmuxURL }
+        )
+
+        let applications = resolver.applications(for: fileURL)
+
+        XCTAssertEqual(applications.map(\.displayName), ["Preview"])
+        XCTAssertEqual(applications.map(\.isDefault), [false])
+    }
+
+    func testCmdClickSupportedFileRoutingDefaultsToReadableRegularFilesOnly() throws {
+        let suiteName = "cmux.file-preview-routing.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fileURL = try temporaryTextFile(contents: "preview me", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        XCTAssertTrue(CmdClickSupportedFileRouteSettings.isEnabled(defaults: defaults))
+        XCTAssertTrue(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+        XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: directoryURL.path, defaults: defaults))
+
+        defaults.set(false, forKey: CmdClickSupportedFileRouteSettings.key)
+        XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+    }
+
+    func testCmdClickMarkdownRoutingDoesNotRequireSupportedFileRoutingSetting() throws {
+        let suiteName = "cmux.markdown-preview-routing.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fileURL = try temporaryTextFile(contents: "# preview me", encoding: .utf8, pathExtension: "md")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        defaults.set(true, forKey: CmdClickMarkdownRouteSettings.key)
+        defaults.set(false, forKey: CmdClickSupportedFileRouteSettings.key)
+
+        XCTAssertTrue(CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+        XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+    }
+
+    func testCmdClickFilePreviewRoutingReusesRightSidePane() throws {
+        let sourceURL = try temporaryTextFile(contents: "source", encoding: .utf8)
+        let firstURL = try temporaryTextFile(contents: "first", encoding: .utf8)
+        let secondURL = try temporaryTextFile(contents: "second", encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: sourceURL)
+            try? FileManager.default.removeItem(at: firstURL)
+            try? FileManager.default.removeItem(at: secondURL)
+        }
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
+        let sourcePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let sourcePanel = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: sourcePane,
+            filePath: sourceURL.path,
+            focus: true
+        ))
+
+        let firstPanel = try XCTUnwrap(workspace.openOrFocusFilePreviewSplit(
+            from: sourcePanel.id,
+            filePath: firstURL.path
+        ))
+        let rightPane = try XCTUnwrap(workspace.paneId(forPanelId: firstPanel.id))
+        let paneCountAfterFirstOpen = workspace.bonsplitController.allPaneIds.count
+        let rightTabsAfterFirstOpen = workspace.bonsplitController.tabs(inPane: rightPane).count
+
+        let secondPanel = try XCTUnwrap(workspace.openOrFocusFilePreviewSplit(
+            from: sourcePanel.id,
+            filePath: secondURL.path
+        ))
+
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, paneCountAfterFirstOpen)
+        XCTAssertEqual(workspace.paneId(forPanelId: secondPanel.id)?.id, rightPane.id)
+        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: rightPane).count, rightTabsAfterFirstOpen + 1)
+    }
+
+    func testCmdClickMarkdownRoutingReusesRightSidePane() throws {
+        let sourceURL = try temporaryTextFile(contents: "source", encoding: .utf8)
+        let firstURL = try temporaryTextFile(contents: "# first", encoding: .utf8, pathExtension: "md")
+        let secondURL = try temporaryTextFile(contents: "# second", encoding: .utf8, pathExtension: "md")
+        defer {
+            try? FileManager.default.removeItem(at: sourceURL)
+            try? FileManager.default.removeItem(at: firstURL)
+            try? FileManager.default.removeItem(at: secondURL)
+        }
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
+        let sourcePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let sourcePanel = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: sourcePane,
+            filePath: sourceURL.path,
+            focus: true
+        ))
+
+        let firstPanel = try XCTUnwrap(workspace.openOrFocusMarkdownSplit(
+            from: sourcePanel.id,
+            filePath: firstURL.path
+        ))
+        let rightPane = try XCTUnwrap(workspace.paneId(forPanelId: firstPanel.id))
+        let paneCountAfterFirstOpen = workspace.bonsplitController.allPaneIds.count
+        let rightTabsAfterFirstOpen = workspace.bonsplitController.tabs(inPane: rightPane).count
+
+        let secondPanel = try XCTUnwrap(workspace.openOrFocusMarkdownSplit(
+            from: sourcePanel.id,
+            filePath: secondURL.path
+        ))
+
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, paneCountAfterFirstOpen)
+        XCTAssertEqual(workspace.paneId(forPanelId: secondPanel.id)?.id, rightPane.id)
+        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: rightPane).count, rightTabsAfterFirstOpen + 1)
+    }
+
+    private func temporaryTextFile(
+        contents: String,
+        encoding: String.Encoding,
+        pathExtension: String = "txt"
+    ) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("txt")
+            .appendingPathExtension(pathExtension)
         try contents.write(to: url, atomically: true, encoding: encoding)
         return url
     }
