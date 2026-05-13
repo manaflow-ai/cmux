@@ -637,6 +637,45 @@ def main() -> int:
         if 'notifications.command = "tab\\tcr\\rbs\\bff\\funicode!"' not in exported_escaped_text:
             failures.append(f"settings export did not escape TOML control characters: {exported_escaped_text!r}")
 
+        literal_string_path = home / "literal-strings.toml"
+        expected_literal_command = 'printf "\\n#keep"'
+        literal_string_path.write_text(
+            "\n".join(
+                [
+                    "app.preferredEditor = 'zed # stable'",
+                    f"notifications.command = '{expected_literal_command}'",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        literal_string = run_cli(cli_path, ["settings", "import", str(literal_string_path)], home)
+        assert_ok(failures, "settings import TOML literal strings", literal_string)
+        literal_editor_get = run_cli(cli_path, ["settings", "get", "app.preferredEditor", "--json"], home)
+        assert_ok(failures, "settings get TOML literal string with hash", literal_editor_get)
+        literal_editor_payload = parse_json(failures, "settings get TOML literal string with hash", literal_editor_get)
+        if isinstance(literal_editor_payload, dict):
+            assert_equal(
+                failures,
+                "TOML literal string with hash imported value",
+                literal_editor_payload.get("value"),
+                "zed # stable",
+            )
+        literal_command_get = run_cli(cli_path, ["settings", "get", "notifications.command", "--json"], home)
+        assert_ok(failures, "settings get TOML literal string preserves backslash", literal_command_get)
+        literal_command_payload = parse_json(
+            failures,
+            "settings get TOML literal string preserves backslash",
+            literal_command_get,
+        )
+        if isinstance(literal_command_payload, dict):
+            assert_equal(
+                failures,
+                "TOML literal string preserved raw content",
+                literal_command_payload.get("value"),
+                expected_literal_command,
+            )
+
         bad_escape_path = home / "bad-escape.toml"
         bad_escape_path.write_text('notifications.command = "bad\\q"\n', encoding="utf-8")
         bad_escape = run_cli(cli_path, ["settings", "import", str(bad_escape_path)], home)
