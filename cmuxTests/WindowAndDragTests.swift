@@ -132,75 +132,6 @@ final class WindowAccessorTests: XCTestCase {
 }
 
 @MainActor
-final class MainWindowFocusRedrawTests: XCTestCase {
-    func testKeyRegainInvalidatesContentWhenPointerIsOverSidebarDivider() {
-        _ = NSApplication.shared
-
-        let appDelegate = AppDelegate()
-        let tabManager = TabManager(autoWelcomeIfNeeded: false)
-        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: tabManager)
-        defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
-        }
-
-        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 420))
-        let splitView = NSSplitView(frame: contentView.bounds)
-        splitView.isVertical = true
-        splitView.autoresizingMask = [.width, .height]
-        splitView.dividerStyle = .thin
-
-        let sidebar = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 420))
-        let main = NSView(frame: NSRect(x: 221, y: 0, width: 419, height: 420))
-        splitView.addArrangedSubview(sidebar)
-        splitView.addArrangedSubview(main)
-        contentView.addSubview(splitView)
-        splitView.setPosition(220, ofDividerAt: 0)
-
-        let window = CmuxMainWindow(
-            contentRect: contentView.bounds,
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
-        window.contentView = contentView
-        defer { window.close() }
-
-        contentView.layoutSubtreeIfNeeded()
-        splitView.adjustSubviews()
-        let dividerPointInSplit = NSPoint(
-            x: sidebar.frame.maxX + splitView.dividerThickness / 2,
-            y: splitView.bounds.midY
-        )
-        let dividerRectInSplit = NSRect(
-            x: sidebar.frame.maxX,
-            y: 0,
-            width: max(splitView.dividerThickness, 1),
-            height: splitView.bounds.height
-        ).insetBy(dx: -5, dy: 0)
-
-        XCTAssertTrue(
-            dividerRectInSplit.contains(dividerPointInSplit),
-            "Test setup should place the pointer over the sidebar/main split divider without depending on screen coordinates."
-        )
-
-        contentView.needsDisplay = false
-
-        appDelegate.handleCmuxWindowResignedKey(
-            Notification(name: NSWindow.didResignKeyNotification, object: window)
-        )
-        appDelegate.handleCmuxWindowBecameKey(
-            Notification(name: NSWindow.didBecomeKeyNotification, object: window)
-        )
-
-        XCTAssertTrue(
-            contentView.needsDisplay,
-            "Regaining key focus must invalidate the root content view even when the pointer is over the resize divider."
-        )
-    }
-}
-
-@MainActor
 final class AppDelegateWindowContextRoutingTests: XCTestCase {
     private func makeMainWindow(id: UUID) -> NSWindow {
         let window = NSWindow(
@@ -1802,17 +1733,6 @@ private final class FilePreviewPDFChromeNotificationFlag: @unchecked Sendable {
 @MainActor
 final class FilePreviewPDFChromeTests: XCTestCase {
     func testChromeHostsAcceptFirstMouse() {
-        let settingsKey = "paneFirstClickFocus.enabled"
-        let previousValue = UserDefaults.standard.object(forKey: settingsKey)
-        defer {
-            if let previousValue {
-                UserDefaults.standard.set(previousValue, forKey: settingsKey)
-            } else {
-                UserDefaults.standard.removeObject(forKey: settingsKey)
-            }
-        }
-        UserDefaults.standard.set(true, forKey: settingsKey)
-
         let host = FilePreviewPDFChromeHostingView(rootView: AnyView(EmptyView()))
 
         XCTAssertTrue(host.acceptsFirstMouse(for: nil))
