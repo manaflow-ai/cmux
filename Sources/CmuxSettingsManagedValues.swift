@@ -192,6 +192,9 @@ enum ManagedSettingsValueKind: Equatable {
            WorkspaceTabColorSettings.backupPaletteMap(defaults: defaults) != nil {
             return .stringDictionary(WorkspaceTabColorSettings.resolvedPaletteMap(defaults: defaults))
         }
+        if self == .nullableString {
+            return .nullableString(defaults.string(forKey: defaultsKey))
+        }
 
         guard defaults.object(forKey: defaultsKey) != nil else { return nil }
 

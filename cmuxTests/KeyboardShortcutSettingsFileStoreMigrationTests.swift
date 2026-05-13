@@ -538,7 +538,7 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         XCTAssertNotNil(store)
     }
 
-    func testSocketPasswordWriteBackResolvesPasswordDuringPlanWrite() throws {
+    func testSocketPasswordWriteBackResolvesPasswordDuringPlanWrite() async throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -564,7 +564,7 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         let plan = try XCTUnwrap(CmuxSettingsManagedEditWriter.makeWriteBackPlan(snapshot: snapshot))
         var loadCount = 0
 
-        let outcome = try plan.write(fileManager: .default) {
+        let outcome = try await plan.write(fileManager: .default) {
             loadCount += 1
             return "from-ui"
         }
@@ -574,7 +574,7 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         XCTAssertEqual(try stringSetting(in: primaryURL, section: "automation", key: "socketPassword"), "from-ui")
     }
 
-    func testSocketPasswordWriteBackReportsNoChangesWhenPasswordMatches() throws {
+    func testSocketPasswordWriteBackReportsNoChangesWhenPasswordMatches() async throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -601,7 +601,7 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         let plan = try XCTUnwrap(CmuxSettingsManagedEditWriter.makeWriteBackPlan(snapshot: snapshot))
         var loadCount = 0
 
-        let outcome = try plan.write(fileManager: .default) {
+        let outcome = try await plan.write(fileManager: .default) {
             loadCount += 1
             return "from-config"
         }
@@ -609,6 +609,45 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         XCTAssertEqual(outcome, .noChanges)
         XCTAssertEqual(loadCount, 1)
         XCTAssertEqual(try String(contentsOf: primaryURL, encoding: .utf8), originalContents)
+    }
+
+    func testNullableStringClearWritesNullBackToCmuxJSON() async throws {
+        let defaultsKey = "sidebarSelectionColorHex"
+        let defaults = UserDefaults.standard
+        let originalSetting = defaults.object(forKey: defaultsKey)
+        defer {
+            restoreDefaultsValue(originalSetting, forKey: defaultsKey)
+        }
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "workspaceColors": {
+                "selectionColor": "#ff0000"
+              }
+            }
+            """,
+            to: primaryURL
+        )
+
+        defaults.removeObject(forKey: defaultsKey)
+        var snapshot = ResolvedSettingsSnapshot(path: primaryURL.path)
+        snapshot.editableUserDefaults[defaultsKey] = .nullableString("#ff0000")
+        snapshot.editableUserDefaultSources[defaultsKey] = ManagedUserDefaultSource(
+            sourcePath: primaryURL.path,
+            jsonPath: "workspaceColors.selectionColor",
+            valueKind: .nullableString,
+            writeBack: .storedValue
+        )
+        let plan = try XCTUnwrap(CmuxSettingsManagedEditWriter.makeWriteBackPlan(snapshot: snapshot))
+
+        let outcome = try await plan.write(fileManager: .default)
+
+        XCTAssertEqual(outcome, .wroteChanges)
+        XCTAssertTrue(try nullSetting(in: primaryURL, section: "workspaceColors", key: "selectionColor"))
     }
 
     func testJSONCValueEditorFollowsExistingIndentationWhenInsertingMissingSetting() throws {
@@ -703,5 +742,13 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         let object = try JSONSerialization.jsonObject(with: sanitized, options: []) as? [String: Any]
         let settingsSection = object?[section] as? [String: Any]
         return settingsSection?[key] as? String
+    }
+
+    private func nullSetting(in url: URL, section: String, key: String) throws -> Bool {
+        let data = try Data(contentsOf: url)
+        let sanitized = try JSONCParser.preprocess(data: data)
+        let object = try JSONSerialization.jsonObject(with: sanitized, options: []) as? [String: Any]
+        let settingsSection = object?[section] as? [String: Any]
+        return settingsSection?[key] is NSNull
     }
 }

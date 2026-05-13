@@ -24,8 +24,9 @@ struct ManagedSettingsWriteBackPlan: @unchecked Sendable {
 
     func write(
         fileManager: FileManager,
-        loadSocketPassword: () throws -> String? = { try SocketControlPasswordStore.loadPassword() }
-    ) throws -> ManagedSettingsWriteBackOutcome {
+        loadSocketPassword: () throws -> String? = { try SocketControlPasswordStore.loadPassword() },
+        shouldContinue: ManagedSettingsWriteBackShouldContinue = { true }
+    ) async throws -> ManagedSettingsWriteBackOutcome {
         var resolvedChangesBySourcePath = changesBySourcePath
         collectCustomSocketPasswordEdits(
             changesBySourcePath: &resolvedChangesBySourcePath,
@@ -39,6 +40,9 @@ struct ManagedSettingsWriteBackPlan: @unchecked Sendable {
             let changesByPath = resolvedChangesBySourcePath[sourcePath] ?? [:]
             let changes = changesByPath.keys.sorted().map { jsonPath in
                 (jsonPath: jsonPath, value: changesByPath[jsonPath]!)
+            }
+            guard await shouldContinue() else {
+                return .noChanges
             }
             try CmuxSettingsJSONWriter.write(changes, to: sourcePath, fileManager: fileManager)
         }
@@ -77,7 +81,10 @@ struct ManagedSettingsFileIO: @unchecked Sendable {
         self.fileManager = fileManager
     }
 
-    func write(_ plan: ManagedSettingsWriteBackPlan) throws -> ManagedSettingsWriteBackOutcome {
-        try plan.write(fileManager: fileManager)
+    func write(
+        _ plan: ManagedSettingsWriteBackPlan,
+        shouldContinue: ManagedSettingsWriteBackShouldContinue
+    ) async throws -> ManagedSettingsWriteBackOutcome {
+        try await plan.write(fileManager: fileManager, shouldContinue: shouldContinue)
     }
 }

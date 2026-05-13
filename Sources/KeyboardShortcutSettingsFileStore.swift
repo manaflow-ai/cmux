@@ -74,6 +74,7 @@ final class CmuxSettingsFileStore {
     private var activeManagedCustomSettings = ManagedCustomSettings()
     private var activeManagedCustomSettingSources: [String: ManagedCustomSettingSource] = [:]
     private var isApplyingManagedSettings = false
+    private var settingsStateRevision: UInt64 = 0
     private(set) var activeSourcePath: String?
 
     init(
@@ -135,6 +136,7 @@ final class CmuxSettingsFileStore {
 
     func reload() {
         let previousState = synchronized {
+            settingsStateRevision &+= 1
             (
                 shortcuts: shortcutsByAction,
                 sourcePath: activeSourcePath,
@@ -233,7 +235,11 @@ final class CmuxSettingsFileStore {
     @MainActor
     private func reapplyManagedSettingsIfNeeded() {
         let primaryConfigExists = fileManager.fileExists(atPath: primaryPath)
-        let managedState: (snapshot: ResolvedSettingsSnapshot, importedManagedDefaults: [String: ManagedSettingsValue])? = synchronized {
+        let managedState: (
+            snapshot: ResolvedSettingsSnapshot,
+            importedManagedDefaults: [String: ManagedSettingsValue],
+            stateRevision: UInt64
+        )? = synchronized {
             guard !isApplyingManagedSettings else { return nil }
             var snapshot = ResolvedSettingsSnapshot(
                 path: activeSourcePath,
@@ -252,14 +258,14 @@ final class CmuxSettingsFileStore {
                 !snapshot.managedCustomSettings.isEmpty else {
                 return nil
             }
-            return (snapshot, importedManagedDefaults)
+            return (snapshot, importedManagedDefaults, settingsStateRevision)
         }
         guard let managedState else { return }
         if let writeBackPlan = CmuxSettingsManagedEditWriter.makeWriteBackPlan(snapshot: managedState.snapshot) {
             let fileIO = ManagedSettingsFileIO(fileManager: fileManager)
-            Task { [weak self, snapshot = managedState.snapshot, importedManagedDefaults = managedState.importedManagedDefaults, writeBackPlan, writeBackCoordinator, fileIO] in
-                let result = await writeBackCoordinator.schedule {
-                    try fileIO.write(writeBackPlan)
+            Task { [weak self, snapshot = managedState.snapshot, importedManagedDefaults = managedState.importedManagedDefaults, stateRevision = managedState.stateRevision, writeBackPlan, writeBackCoordinator, fileIO] in
+                let result = await writeBackCoordinator.schedule { shouldContinue in
+                    try await fileIO.write(writeBackPlan, shouldContinue: shouldContinue)
                 }
                 guard let result else { return }
                 await MainActor.run {
@@ -267,6 +273,7 @@ final class CmuxSettingsFileStore {
                     case .success(.wroteChanges):
                         self?.reload()
                     case .success(.noChanges):
+                        guard self?.isCurrentSettingsStateRevision(stateRevision) == true else { return }
                         self?.applyManagedSettings(
                             snapshot: snapshot,
                             importedManagedDefaults: importedManagedDefaults,
@@ -275,6 +282,7 @@ final class CmuxSettingsFileStore {
                         )
                     case .failure(let error):
                         logManagedSettingsWriteBackFailure(error)
+                        guard self?.isCurrentSettingsStateRevision(stateRevision) == true else { return }
                         self?.applyManagedSettings(
                             snapshot: snapshot,
                             importedManagedDefaults: importedManagedDefaults,
@@ -286,9 +294,10 @@ final class CmuxSettingsFileStore {
             }
             return
         }
-        Task { [weak self, snapshot = managedState.snapshot, importedManagedDefaults = managedState.importedManagedDefaults, writeBackCoordinator] in
+        Task { [weak self, snapshot = managedState.snapshot, importedManagedDefaults = managedState.importedManagedDefaults, stateRevision = managedState.stateRevision, writeBackCoordinator] in
             await writeBackCoordinator.invalidate()
             await MainActor.run {
+                guard self?.isCurrentSettingsStateRevision(stateRevision) == true else { return }
                 self?.applyManagedSettings(
                     snapshot: snapshot,
                     importedManagedDefaults: importedManagedDefaults,
@@ -297,6 +306,10 @@ final class CmuxSettingsFileStore {
                 )
             }
         }
+    }
+
+    private func isCurrentSettingsStateRevision(_ revision: UInt64) -> Bool {
+        synchronized { settingsStateRevision == revision }
     }
 
     private func synchronized<T>(_ body: () -> T) -> T {
