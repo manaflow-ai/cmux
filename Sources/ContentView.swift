@@ -9679,27 +9679,18 @@ struct VerticalTabsSidebar: View {
         let sectionId = section.id
         worktreeCreationInFlightSectionIds.insert(sectionId)
 
-        Task {
+        Task.detached(priority: .userInitiated) {
             do {
-                let result = try await Task.detached(priority: .userInitiated) {
-                    try CmuxExtensionWorktreePrototype.createWorktree(
-                        projectRootPath: projectRootPath
-                    )
-                }.value
+                let result = try CmuxExtensionWorktreePrototype.createWorktree(
+                    projectRootPath: projectRootPath
+                )
+                try CmuxExtensionWorktreePrototype.createWorkspace(for: result)
 
                 await MainActor.run {
                     worktreeCreationInFlightSectionIds.remove(sectionId)
                     collapsedTreeSectionIds.remove(sectionId)
                     selection = .tabs
                     selectedTabIds.removeAll()
-                    let workspace = tabManager.addWorkspace(
-                        title: result.workspaceTitle,
-                        workingDirectory: result.worktreePath,
-                        initialTerminalCommand: result.devServerCommand,
-                        select: true,
-                        autoWelcomeIfNeeded: false
-                    )
-                    workspace.setCustomDescription(result.workspaceDescription)
                 }
             } catch {
                 await MainActor.run {
@@ -9921,6 +9912,7 @@ enum CmuxExtensionWorktreePrototype {
     enum WorktreeError: LocalizedError {
         case emptyProjectRoot
         case commandFailed(executable: String, arguments: [String], status: Int32, output: String)
+        case workspaceCreateFailed(String)
 
         var errorDescription: String? {
             switch self {
@@ -9928,6 +9920,8 @@ enum CmuxExtensionWorktreePrototype {
                 return "Project root is empty"
             case .commandFailed(let executable, let arguments, let status, let output):
                 return "\(executable) \(arguments.joined(separator: " ")) exited \(status): \(output)"
+            case .workspaceCreateFailed(let message):
+                return message
             }
         }
     }
@@ -9968,6 +9962,41 @@ enum CmuxExtensionWorktreePrototype {
             workspaceDescription: "worktree dev server :\(port)",
             devServerCommand: command
         )
+    }
+
+    static func createWorkspace(for result: CmuxExtensionWorktreeCreationResult) throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = socketPathForCurrentApp()
+        _ = try runExecutable(cliPath, arguments: [
+            "--socket", socketPath,
+            "new-workspace",
+            "--name", result.workspaceTitle,
+            "--description", result.workspaceDescription,
+            "--cwd", result.worktreePath,
+            "--command", result.devServerCommand,
+            "--focus", "true"
+        ])
+    }
+
+    private static func socketPathForCurrentApp() -> String {
+        if let stampedPath = Bundle.main.object(forInfoDictionaryKey: "CMUX_SOCKET_PATH") as? String {
+            let trimmed = stampedPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return SocketControlSettings.socketPath()
+    }
+
+    private static func bundledCLIPath() throws -> String {
+        guard let path = Bundle.main.resourceURL?
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: false)
+            .path,
+              FileManager.default.isExecutableFile(atPath: path) else {
+            throw WorktreeError.workspaceCreateFailed("Bundled cmux CLI is unavailable")
+        }
+        return path
     }
 
     private static func ensureGitRepository(at projectRoot: URL) throws {
