@@ -253,25 +253,28 @@ function refreshActiveLimitProviderStatuses(
       userId: input.userId,
       billingTeamId: input.billingTeamId,
     });
-    for (const vm of candidates) {
-      if (vm.provider !== "freestyle" || !vm.providerVmId) continue;
-      const providerStatus = yield* getStatus(vm.provider, vm.providerVmId).pipe(
-        Effect.catchAll(() => Effect.succeed(null)),
-      );
-      if (!providerStatus) continue;
-      const dbStatus = dbStatusFromProviderStatus(providerStatus);
-      if (dbStatus === vm.status) continue;
-      yield* repo.markProviderObservedStatus({
-        id: vm.id,
-        providerVmId: vm.providerVmId,
-        status: dbStatus,
-      }).pipe(Effect.catchAll(() => Effect.void));
-    }
+    yield* Effect.forEach(candidates, (vm) => {
+      const providerVmId = vm.providerVmId;
+      if (vm.provider !== "freestyle" || !providerVmId) return Effect.void;
+      return Effect.gen(function* () {
+        const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
+          Effect.catchAll(() => Effect.succeed(null)),
+        );
+        if (!providerStatus || providerStatus === "creating") return;
+        const dbStatus = dbStatusFromProviderStatus(providerStatus);
+        if (dbStatus === vm.status) return;
+        yield* repo.markProviderObservedStatus({
+          id: vm.id,
+          providerVmId,
+          status: dbStatus,
+        }).pipe(Effect.catchAll(() => Effect.void));
+      });
+    }, { concurrency: "unbounded", discard: true });
   });
 }
 
-function dbStatusFromProviderStatus(status: "creating" | "running" | "paused" | "destroyed"): CloudVmStatus {
-  return status === "creating" ? "provisioning" : status;
+function dbStatusFromProviderStatus(status: "running" | "paused" | "destroyed"): CloudVmStatus {
+  return status;
 }
 
 export function destroyVm(input: { readonly userId: string; readonly providerVmId: string }) {
