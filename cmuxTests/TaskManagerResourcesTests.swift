@@ -255,6 +255,68 @@ final class TaskManagerResourcesTests: XCTestCase {
         XCTAssertEqual(agentRow.resources.processIds, [101, 202])
     }
 
+    func testSnapshotAnnotatesRestoredHierarchyRowsFromAgentProcessTotals() throws {
+        let resources: [String: Any] = [
+            "cpu_percent": 2.0,
+            "resident_bytes": 512,
+            "process_count": 1,
+            "pids": [101],
+        ]
+        let snapshot = CmuxTaskManagerSnapshot(payload: [
+            "sample": ["sampled_at": "2026-05-13T12:00:00Z"],
+            "totals": resources,
+            "coding_agents": [
+                [
+                    "id": "claude",
+                    "display_name": "Claude Code",
+                    "asset_name": "AgentIcons/Claude",
+                    "resources": resources,
+                ],
+            ],
+            "windows": [
+                [
+                    "id": "window-1",
+                    "ref": "window:1",
+                    "resources": resources,
+                    "workspaces": [
+                        [
+                            "id": "7F587C98-0069-4605-B066-F6FB941D54B4",
+                            "ref": "workspace:1",
+                            "title": "* Explore meaning of life",
+                            "resources": resources,
+                            "panes": [
+                                [
+                                    "id": "pane-1",
+                                    "ref": "pane:1",
+                                    "resources": resources,
+                                    "surfaces": [
+                                        [
+                                            "id": "38457A72-7D87-40FC-8ED5-899B59572FD0",
+                                            "ref": "surface:1",
+                                            "type": "terminal",
+                                            "title": "* Explore meaning of life",
+                                            "resources": resources,
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ])
+
+        let workspaceRow = try XCTUnwrap(snapshot.rows.first { $0.kind == .workspace })
+        let paneRow = try XCTUnwrap(snapshot.rows.first { $0.kind == .pane })
+        let surfaceRow = try XCTUnwrap(snapshot.rows.first { $0.kind == .terminalSurface })
+        let windowRow = try XCTUnwrap(snapshot.rows.first { $0.kind == .window })
+
+        XCTAssertEqual(workspaceRow.agentAssetName, "AgentIcons/Claude")
+        XCTAssertEqual(paneRow.agentAssetName, "AgentIcons/Claude")
+        XCTAssertEqual(surfaceRow.agentAssetName, "AgentIcons/Claude")
+        XCTAssertNil(windowRow.agentAssetName)
+    }
+
     func testCodingAgentMatcherUsesSupportedAgentNamesAndLaunchMetadata() {
         XCTAssertEqual(
             CmuxTaskManagerCodingAgentDefinition.matchingDefinition(

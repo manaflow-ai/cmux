@@ -108,6 +108,26 @@ struct CmuxTaskManagerRow: Identifiable {
             .filter { $0 > 1 && $0 != currentPID }
             .sorted()
     }
+
+    func withAgentAssetName(_ assetName: String?) -> CmuxTaskManagerRow {
+        guard agentAssetName != assetName else { return self }
+        return CmuxTaskManagerRow(
+            id: id,
+            kind: kind,
+            level: level,
+            title: title,
+            detail: detail,
+            resources: resources,
+            isDimmed: isDimmed,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            terminalSurfaceId: terminalSurfaceId,
+            processId: processId,
+            rootProcessIds: rootProcessIds,
+            foregroundProcessGroupIds: foregroundProcessGroupIds,
+            agentAssetName: assetName
+        )
+    }
 }
 
 struct CmuxTaskManagerSortOrder: Equatable {

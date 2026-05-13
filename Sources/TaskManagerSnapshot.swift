@@ -53,8 +53,12 @@ struct CmuxTaskManagerSnapshot {
         for window in windows {
             Self.appendWindow(window, to: &rows)
         }
-        self.rows = rows
-        self.agentRows = Self.agentRows(from: payload["coding_agents"] as? [[String: Any]] ?? [])
+        let agentRows = Self.agentRows(from: payload["coding_agents"] as? [[String: Any]] ?? [])
+        self.rows = Self.rowsWithAgentAssets(
+            rows,
+            assetNameByProcessID: Self.agentAssetNameByProcessID(from: agentRows)
+        )
+        self.agentRows = agentRows
         let programTotalPayloads = payload["program_totals"] as? [[String: Any]] ?? []
         self.aggregateRows = programTotalPayloads.isEmpty
             ? Self.programAggregateRows(from: rows)
@@ -87,6 +91,53 @@ struct CmuxTaskManagerSnapshot {
                 foregroundProcessGroupIds: [],
                 agentAssetName: nonEmptyString(payload["asset_name"])
             )
+        }
+    }
+
+    private static func agentAssetNameByProcessID(from agentRows: [CmuxTaskManagerRow]) -> [Int: String] {
+        var assetNameByProcessID: [Int: String] = [:]
+        for row in agentRows {
+            guard let assetName = row.agentAssetName else { continue }
+            for processID in row.resources.processIds {
+                assetNameByProcessID[processID] = assetName
+            }
+        }
+        return assetNameByProcessID
+    }
+
+    private static func rowsWithAgentAssets(
+        _ rows: [CmuxTaskManagerRow],
+        assetNameByProcessID: [Int: String]
+    ) -> [CmuxTaskManagerRow] {
+        guard !assetNameByProcessID.isEmpty else { return rows }
+        return rows.map { row in
+            if row.agentAssetName != nil {
+                return row
+            }
+            guard row.kind != .window else {
+                return row
+            }
+
+            var assetNames = Set<String>()
+            for processID in row.resources.processIds {
+                if let assetName = assetNameByProcessID[processID] {
+                    assetNames.insert(assetName)
+                }
+            }
+            if let processID = row.processId,
+               let assetName = assetNameByProcessID[processID] {
+                assetNames.insert(assetName)
+            }
+            for processID in row.rootProcessIds {
+                if let assetName = assetNameByProcessID[processID] {
+                    assetNames.insert(assetName)
+                }
+            }
+
+            guard assetNames.count == 1, let assetName = assetNames.first else {
+                return row
+            }
+            return row.withAgentAssetName(assetName)
         }
     }
 
