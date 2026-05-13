@@ -97,9 +97,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
             store: FileExplorerStore,
             state: FileExplorerState,
             onOpenFilePreview: @escaping (String) -> Void,
-            placement: FileExplorerPanelPlacement,
-            onFocus: (() -> Void)?,
-            onContainerChange: ((FileExplorerContainerView?) -> Void)?
+            placement: FileExplorerPanelPlacement = .rightSidebar,
+            onFocus: (() -> Void)? = nil,
+            onContainerChange: ((FileExplorerContainerView?) -> Void)? = nil
         ) {
             self.store = store
             self.state = state

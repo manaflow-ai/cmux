@@ -2456,7 +2456,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             customTitle: nil,
             manuallyUnread: false,
             restorableAgent: nil,
-            restorableAgentAutoResumePending: false,
+            restorableAgentResumeState: nil,
             agentRuntime: nil,
             isRemoteTerminal: false,
             remoteRelayPort: nil,
