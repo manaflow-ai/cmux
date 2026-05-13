@@ -1,6 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
+import { Link } from "../../../../i18n/navigation";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
 import { DownloadButton } from "../../components/download-button";
@@ -63,13 +64,12 @@ cmux notify --title "Build Complete" --body "Your build finished"`}</CodeBlock>
 
       <h2>{t("sessionRestore")}</h2>
       <p>{t("sessionRestoreDesc")}</p>
-      <ul>
-        <li>{t("sessionItem1")}</li>
-        <li>{t("sessionItem2")}</li>
-        <li>{t("sessionItem3")}</li>
-        <li>{t("sessionItem4")}</li>
-      </ul>
       <Callout>{t("sessionCallout")}</Callout>
+      <p>
+        {t.rich("sessionRestoreLink", {
+          link: (chunks) => <Link href="/docs/session-restore">{chunks}</Link>,
+        })}
+      </p>
 
       <h2>{t("requirements")}</h2>
       <ul>
