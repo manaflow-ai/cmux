@@ -9790,6 +9790,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var searchOverlayMutationGeneration: UInt64 = 0
     private var observers: [NSObjectProtocol] = []
     private var workspaceTerminalScrollBarObserver: NSObjectProtocol?
+    private var reparentFocusSuppressionObserver: NSObjectProtocol?
     private var windowObservers: [NSObjectProtocol] = []
     private var scrollbarTrackingArea: NSTrackingArea?
     private var isLiveScrolling = false
@@ -10335,6 +10336,9 @@ final class GhosttySurfaceScrollView: NSView {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         if let workspaceTerminalScrollBarObserver {
             NotificationCenter.default.removeObserver(workspaceTerminalScrollBarObserver)
+        }
+        if let reparentFocusSuppressionObserver {
+            NotificationCenter.default.removeObserver(reparentFocusSuppressionObserver)
         }
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         deferredSearchOverlayMutationWorkItem?.cancel()
@@ -11801,12 +11805,37 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     /// Suppress the surface view's onFocus callback and ghostty_surface_set_focus during
-    /// SwiftUI reparenting (programmatic splits). Call clearSuppressReparentFocus() after layout settles.
+    /// SwiftUI reparenting (programmatic splits).
     func suppressReparentFocus() {
         surfaceView.suppressingReparentFocus = true
     }
 
+    func suppressReparentFocusUntilNextWindowMove() {
+        if let reparentFocusSuppressionObserver {
+            NotificationCenter.default.removeObserver(reparentFocusSuppressionObserver)
+            self.reparentFocusSuppressionObserver = nil
+        }
+
+        suppressReparentFocus()
+        guard let terminalSurface = surfaceView.terminalSurface else {
+            clearSuppressReparentFocus()
+            return
+        }
+
+        reparentFocusSuppressionObserver = NotificationCenter.default.addObserver(
+            forName: .terminalSurfaceHostedViewDidMoveToWindow,
+            object: terminalSurface,
+            queue: .main
+        ) { [weak self] _ in
+            self?.clearSuppressReparentFocus()
+        }
+    }
+
     func clearSuppressReparentFocus() {
+        if let reparentFocusSuppressionObserver {
+            NotificationCenter.default.removeObserver(reparentFocusSuppressionObserver)
+            self.reparentFocusSuppressionObserver = nil
+        }
         surfaceView.suppressingReparentFocus = false
         let hasUsablePortalGeometry: Bool = {
             let size = bounds.size
