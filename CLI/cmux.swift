@@ -16641,6 +16641,7 @@ struct CMUXCLI {
     private static let codexMonitorRetiredLeaseMaxAgeSeconds: TimeInterval = 2 * 60
     private static let codexMonitorOwnerCheckIntervalSeconds: TimeInterval = 60
     private static let codexMonitorOwnerCheckTimeoutSeconds: TimeInterval = 1
+    private static let codexMonitorOwnerProcessPollIntervalSeconds: TimeInterval = 1
     private static let codexMonitorUnresolvedTranscriptTimeoutSeconds: TimeInterval = 5 * 60
 
     private func codexMonitorLeaseDirectory(env: [String: String]) -> URL {
@@ -17002,6 +17003,9 @@ struct CMUXCLI {
             if let transcriptMissingSince {
                 let unresolvedRemaining = unresolvedTranscriptTimeout - Date().timeIntervalSince(transcriptMissingSince)
                 waitTimeout = min(waitTimeout, max(0.05, unresolvedRemaining))
+            }
+            if ownerPID != nil {
+                waitTimeout = min(waitTimeout, Self.codexMonitorOwnerProcessPollIntervalSeconds)
             }
             waitForCodexTranscriptChange(path: transcriptPath, leasePath: leasePath, timeout: waitTimeout)
         }
