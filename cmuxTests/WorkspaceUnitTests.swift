@@ -3616,7 +3616,6 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             XCTFail("Expected split terminal panels")
             return
         }
-
         let window = makeWindow()
         defer { window.orderOut(nil) }
         guard let contentView = window.contentView else {
@@ -3691,6 +3690,8 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             XCTFail("Expected split terminal panels")
             return
         }
+        workspace.focusPanel(leftPanel.id, trigger: .terminalFirstResponder)
+        XCTAssertEqual(workspace.focusedPanelId, leftPanel.id)
 
         let window = makeWindow()
         defer { window.orderOut(nil) }
@@ -3716,12 +3717,18 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             return
         }
 
+        window.makeFirstResponder(nil)
         leftPanel.surface.setFocus(false)
         rightPanel.surface.setFocus(true)
         leftPanel.hostedView.suppressReparentFocus()
 
+        window.orderFrontRegardless()
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
         XCTAssertTrue(window.makeFirstResponder(leftSurfaceView))
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(leftPanel.hostedView.isSurfaceViewFirstResponder())
+        XCTAssertTrue(leftPanel.hostedView.debugRenderStats().desiredFocus)
+        XCTAssertTrue(leftPanel.hostedView.debugPortalVisibleInUI)
 
         XCTAssertFalse(
             leftPanel.surface.debugDesiredFocusState(),
@@ -3729,13 +3736,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         )
 
         leftPanel.hostedView.clearSuppressReparentFocus()
-        let focusRecovered = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                leftPanel.surface.debugDesiredFocusState()
-            },
-            object: NSObject()
-        )
-        wait(for: [focusRecovered], timeout: 1.0)
+        XCTAssertTrue(leftPanel.surface.debugDesiredFocusState())
 #else
         throw XCTSkip("Debug-only regression test")
 #endif

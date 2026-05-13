@@ -55,7 +55,7 @@ final class BrowserOmnibarNativeFieldRegistry {
 
 @MainActor
 final class BrowserOmnibarInteractionView: NSView {
-    nonisolated(unsafe) var panelId: UUID?
+    var panelId: UUID?
     private var trackingArea: NSTrackingArea?
 
     override var isFlipped: Bool { true }
@@ -199,6 +199,7 @@ final class BrowserOmnibarInteractionView: NSView {
     }
 }
 
+@MainActor
 struct BrowserOmnibarInteractionRepresentable: NSViewRepresentable {
     let panelId: UUID
 

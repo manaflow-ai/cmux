@@ -1853,14 +1853,15 @@ struct BrowserPanelView: View {
 #if DEBUG
         logBrowserFocusState(event: "addressBar.tap")
 #endif
+        let wasAddressBarFocused = addressBarFocused
         let shouldRequestPanelFocus = !isFocused
-        if !addressBarFocused {
+        if !wasAddressBarFocused {
             // Mark focused before pane selection converges so WebKit focus is not
             // briefly re-acquired during `focusPane`.
             suppressNextFocusGainedSelectAll = true
             setAddressBarFocused(true, reason: "omnibar.tap")
         }
-        if shouldRequestPanelFocus {
+        if shouldRequestPanelFocus && wasAddressBarFocused {
             onRequestPanelFocus()
         }
     }
@@ -3490,6 +3491,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     let onSelectionChanged: (NSRange, Bool) -> Void
     let shouldSuppressWebViewFocus: () -> Bool
 
+    @MainActor
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: OmnibarTextFieldRepresentable
         var isProgrammaticMutation: Bool = false
