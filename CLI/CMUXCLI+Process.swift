@@ -388,6 +388,95 @@ extension CMUXCLI {
         cliPrint("ok")
     }
 
+    func runSIGPIPENonStdioLockProbe() throws {
+        func setNonBlocking(_ fd: Int32, _ enabled: Bool) throws {
+            let flags = fcntl(fd, F_GETFL, 0)
+            guard flags >= 0 else {
+                throw CLIError(message: "SIGPIPE non-stdio lock probe could not read fd flags: \(String(cString: strerror(errno)))")
+            }
+
+            let nextFlags = enabled ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK)
+            guard fcntl(fd, F_SETFL, nextFlags) == 0 else {
+                throw CLIError(message: "SIGPIPE non-stdio lock probe could not update fd flags: \(String(cString: strerror(errno)))")
+            }
+        }
+
+        func fillPipeUntilFull(writeFD: Int32) throws {
+            var buffer = [UInt8](repeating: 0x78, count: 4096)
+            while true {
+                let written = buffer.withUnsafeMutableBytes { rawBuffer in
+                    Darwin.write(writeFD, rawBuffer.baseAddress, rawBuffer.count)
+                }
+                if written > 0 {
+                    continue
+                }
+                if written == -1, errno == EAGAIN || errno == EWOULDBLOCK {
+                    return
+                }
+                throw CLIError(message: "SIGPIPE non-stdio lock probe could not fill pipe: \(String(cString: strerror(errno)))")
+            }
+        }
+
+        var pipeFDs = [Int32](repeating: 0, count: 2)
+        guard pipe(&pipeFDs) == 0 else {
+            throw CLIError(message: "SIGPIPE non-stdio lock probe could not create pipe: \(String(cString: strerror(errno)))")
+        }
+
+        var readFD: Int32? = pipeFDs[0]
+        let writeHandle = FileHandle(fileDescriptor: pipeFDs[1], closeOnDealloc: false)
+        defer {
+            if let fd = readFD {
+                Darwin.close(fd)
+            }
+            try? writeHandle.close()
+        }
+
+        try setNonBlocking(writeHandle.fileDescriptor, true)
+        try fillPipeUntilFull(writeFD: writeHandle.fileDescriptor)
+        try setNonBlocking(writeHandle.fileDescriptor, false)
+
+        let writerStarted = DispatchSemaphore(value: 0)
+        let writerFinished = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            writerStarted.signal()
+            _ = cliWrite(Data([0x79]), to: writeHandle, onBrokenPipe: .ignore)
+            writerFinished.signal()
+        }
+
+        guard writerStarted.wait(timeout: .now() + 1) == .success else {
+            throw CLIError(message: "SIGPIPE non-stdio lock probe writer did not start")
+        }
+        guard writerFinished.wait(timeout: .now() + 0.1) == .timedOut else {
+            throw CLIError(message: "SIGPIPE non-stdio lock probe writer did not block")
+        }
+
+        let launchFinished = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = CLIProcessRunner.runProcess(
+                executablePath: "/usr/bin/true",
+                arguments: [],
+                timeout: 2
+            )
+            launchFinished.signal()
+        }
+
+        let launchResult = launchFinished.wait(timeout: .now() + 1)
+        if let fd = readFD {
+            Darwin.close(fd)
+            readFD = nil
+        }
+
+        guard writerFinished.wait(timeout: .now() + 1) == .success else {
+            throw CLIError(message: "SIGPIPE non-stdio lock probe writer did not unblock")
+        }
+        guard launchResult == .success else {
+            _ = launchFinished.wait(timeout: .now() + 1)
+            throw CLIError(message: "SIGPIPE non-stdio lock probe child launch was blocked by the stdio disposition lock")
+        }
+
+        cliPrint("ok")
+    }
+
     func runSIGPIPEProbe(commandArgs: [String]) throws {
         let mode = commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "spawn"
         let cliPath = try sigpipeProbeExecutablePath()
