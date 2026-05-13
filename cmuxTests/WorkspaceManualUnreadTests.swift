@@ -310,6 +310,126 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertTrue(workspace.manualUnreadPanelIds.contains(splitPanel.id))
     }
 
+    func testSessionRestorePreservesNotificationUnreadIndicator() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: UUID(),
+                tabId: workspace.id,
+                surfaceId: panelId,
+                title: "Unread",
+                subtitle: "",
+                body: "",
+                createdAt: Date(),
+                isRead: false
+            ),
+        ])
+
+        XCTAssertTrue(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: panelId))
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        store.replaceNotificationsForTesting([])
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredTabId = try XCTUnwrap(restored.surfaceIdFromPanelId(restoredPanelId))
+        XCTAssertTrue(restored.manualUnreadPanelIds.contains(restoredPanelId))
+        XCTAssertTrue(restored.bonsplitController.tab(restoredTabId)?.showsNotificationBadge ?? false)
+        XCTAssertEqual(store.unreadCount(forTabId: restored.id), 1)
+    }
+
+    func testSessionRestorePreservesFocusedReadIndicator() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        store.setFocusedReadIndicator(forTabId: workspace.id, surfaceId: panelId)
+
+        XCTAssertTrue(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: panelId))
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        store.replaceNotificationsForTesting([])
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredTabId = try XCTUnwrap(restored.surfaceIdFromPanelId(restoredPanelId))
+        XCTAssertTrue(restored.manualUnreadPanelIds.contains(restoredPanelId))
+        XCTAssertTrue(restored.bonsplitController.tab(restoredTabId)?.showsNotificationBadge ?? false)
+        XCTAssertEqual(store.unreadCount(forTabId: restored.id), 0)
+    }
+
+    func testSessionAutosaveFingerprintChangesWhenUnreadIndicatorsChange() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let cleanFingerprint = manager.sessionAutosaveFingerprint()
+
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: UUID(),
+                tabId: workspace.id,
+                surfaceId: panelId,
+                title: "Unread",
+                subtitle: "",
+                body: "",
+                createdAt: Date(),
+                isRead: false
+            ),
+        ])
+        XCTAssertNotEqual(cleanFingerprint, manager.sessionAutosaveFingerprint())
+
+        store.replaceNotificationsForTesting([])
+        store.setFocusedReadIndicator(forTabId: workspace.id, surfaceId: panelId)
+        XCTAssertNotEqual(cleanFingerprint, manager.sessionAutosaveFingerprint())
+
+        store.replaceNotificationsForTesting([])
+        store.markUnread(forTabId: workspace.id)
+        XCTAssertNotEqual(cleanFingerprint, manager.sessionAutosaveFingerprint())
+
+        store.replaceNotificationsForTesting([])
+        workspace.markPanelUnread(panelId)
+        XCTAssertNotEqual(cleanFingerprint, manager.sessionAutosaveFingerprint())
+    }
+
     func testShouldShowUnreadIndicatorWhenNotificationIsUnread() {
         XCTAssertTrue(
             Workspace.shouldShowUnreadIndicator(
