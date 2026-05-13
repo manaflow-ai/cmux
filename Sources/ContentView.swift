@@ -9025,7 +9025,12 @@ struct SidebarTabItemPresentationResolutionPolicy {
         frozen: SidebarTabItemPresentationSnapshot?
     ) -> SidebarTabItemPresentationSnapshot {
         guard let frozen, frozen.tabId == live.tabId else { return live }
-        return frozen
+        return SidebarTabItemPresentationSnapshot(
+            tabId: live.tabId,
+            unreadCount: live.unreadCount,
+            latestNotificationText: live.latestNotificationText,
+            showsModifierShortcutHints: frozen.showsModifierShortcutHints
+        )
     }
 }
 
