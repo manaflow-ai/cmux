@@ -39,7 +39,7 @@ extension CMUXCLI {
         }
 
         enum PostInstallAction {
-            case codexConfigToml // write hooks = true to config.toml on install, remove on uninstall
+            case codexConfigToml // write codex_hooks = true to config.toml on install, remove on uninstall
         }
 
         /// Resolves the config directory, respecting env override if set.
@@ -123,6 +123,13 @@ extension CMUXCLI {
             configDir: ".pi/agent", configFile: "extensions/cmux-session.ts", configDirEnvOverride: "PI_CODING_AGENT_DIR",
             sessionStoreSuffix: "pi", disableEnvVar: "CMUX_PI_HOOKS_DISABLED",
             hookMarker: "cmux hooks pi", format: .flat,
+            events: []
+        ),
+        AgentHookDef(
+            name: "amp", displayName: "Amp", statusKey: "amp",
+            configDir: ".config/amp", configFile: "plugins/cmux-session.ts",
+            sessionStoreSuffix: "amp", disableEnvVar: "CMUX_AMP_HOOKS_DISABLED",
+            hookMarker: "cmux hooks amp", format: .flat,
             events: []
         ),
         AgentHookDef(

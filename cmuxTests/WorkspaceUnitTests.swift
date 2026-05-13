@@ -2770,7 +2770,14 @@ final class SidebarWorkspaceDetailSettingsTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         XCTAssertFalse(SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults))
+        XCTAssertTrue(SidebarWorkspaceDetailSettings.showsWorkspaceDescription(defaults: defaults))
         XCTAssertTrue(SidebarWorkspaceDetailSettings.showsNotificationMessage(defaults: defaults))
+        XCTAssertTrue(
+            SidebarWorkspaceDetailSettings.resolvedWorkspaceDescriptionVisibility(
+                showWorkspaceDescription: SidebarWorkspaceDetailSettings.showsWorkspaceDescription(defaults: defaults),
+                hideAllDetails: SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
+            )
+        )
         XCTAssertTrue(
             SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
                 showNotificationMessage: SidebarWorkspaceDetailSettings.showsNotificationMessage(defaults: defaults),
@@ -2788,10 +2795,24 @@ final class SidebarWorkspaceDetailSettingsTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailSettings.hideAllDetailsKey)
+        defaults.set(false, forKey: SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey)
         defaults.set(false, forKey: SidebarWorkspaceDetailSettings.showNotificationMessageKey)
 
         XCTAssertTrue(SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults))
+        XCTAssertFalse(SidebarWorkspaceDetailSettings.showsWorkspaceDescription(defaults: defaults))
         XCTAssertFalse(SidebarWorkspaceDetailSettings.showsNotificationMessage(defaults: defaults))
+        XCTAssertFalse(
+            SidebarWorkspaceDetailSettings.resolvedWorkspaceDescriptionVisibility(
+                showWorkspaceDescription: SidebarWorkspaceDetailSettings.showsWorkspaceDescription(defaults: defaults),
+                hideAllDetails: false
+            )
+        )
+        XCTAssertFalse(
+            SidebarWorkspaceDetailSettings.resolvedWorkspaceDescriptionVisibility(
+                showWorkspaceDescription: true,
+                hideAllDetails: SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
+            )
+        )
         XCTAssertFalse(
             SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
                 showNotificationMessage: SidebarWorkspaceDetailSettings.showsNotificationMessage(defaults: defaults),
