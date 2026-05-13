@@ -20,6 +20,20 @@ LAST_SOCKET_PATH_DIR="$HOME/Library/Application Support/cmux"
 LAST_SOCKET_PATH_FILE="${LAST_SOCKET_PATH_DIR}/last-socket-path"
 AUTO_SKIP_ZIG_BUILD_REASON=""
 
+is_apple_silicon_host() {
+  [[ "$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)" == "1" ]]
+}
+
+is_translated_process() {
+  [[ "$(sysctl -n sysctl.proc_translated 2>/dev/null || echo 0)" == "1" ]]
+}
+
+prefer_native_apple_silicon_tools() {
+  if is_apple_silicon_host && [[ -d /opt/homebrew/bin ]]; then
+    export PATH="/opt/homebrew/bin:${PATH:-}"
+  fi
+}
+
 should_skip_ghostty_cli_helper_zig_build() {
   if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
     AUTO_SKIP_ZIG_BUILD_REASON="CMUX_SKIP_ZIG_BUILD=1"
@@ -406,11 +420,20 @@ reload_finalize() {
     echo
     echo "Build complete. Pass --launch to open the app, or cmd-click the path above."
   fi
+  return 0
 }
 trap reload_finalize EXIT
 
 # Tell the user we're starting (visible even though body output is redirected).
 echo "==> reload starting (tag: ${TAG}, log: ${RELOAD_LOG})" >&3
+if is_apple_silicon_host; then
+  prefer_native_apple_silicon_tools
+  if is_translated_process; then
+    echo "==> Apple Silicon detected; forcing native arm64 build from translated shell" >&3
+  else
+    echo "==> Apple Silicon detected; using native arm64 dev build" >&3
+  fi
+fi
 
 "$PWD/scripts/ensure-ghosttykit.sh"
 
@@ -427,6 +450,15 @@ XCODEBUILD_ARGS=(
 if [[ -n "$DERIVED_DATA" ]]; then
   XCODEBUILD_ARGS+=(-derivedDataPath "$DERIVED_DATA")
 fi
+XCODEBUILD_COMMAND=(xcodebuild)
+if is_apple_silicon_host; then
+  XCODEBUILD_BIN="$(xcrun --find xcodebuild 2>/dev/null || command -v xcodebuild)"
+  XCODEBUILD_COMMAND=(/usr/bin/arch -arm64 "$XCODEBUILD_BIN")
+  XCODEBUILD_ARGS+=(
+    ARCHS=arm64
+    ONLY_ACTIVE_ARCH=YES
+  )
+fi
 if [[ -z "$TAG" ]]; then
   XCODEBUILD_ARGS+=(
     INFOPLIST_KEY_CFBundleName="$APP_NAME"
@@ -439,6 +471,10 @@ if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
   XCODEBUILD_ARGS+=(CMUX_SKIP_ZIG_BUILD=1)
 fi
 XCODEBUILD_ARGS+=(build)
+printf '==> xcodebuild command:' 
+printf ' %q' "${XCODEBUILD_COMMAND[@]}" "${XCODEBUILD_ARGS[@]}"
+printf '\n'
+XCODEBUILD_PHASE_START_TIME="$(date +%s)"
 
 XCODEBUILD_LOCK="${TMPDIR:-/tmp}/cmux-xcodebuild-$(id -u).lock"
 # Xcode 26's SWBBuildService is a per-user singleton. Concurrent xcodebuild
@@ -449,9 +485,11 @@ python3 -c '
 import fcntl
 import os
 import sys
+import time
 
 lock_path = sys.argv[1]
 command = sys.argv[2:]
+wait_start = None
 
 try:
     fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
@@ -477,6 +515,7 @@ except BlockingIOError:
     except OSError:
         sys.stderr.write(msg)
         sys.stderr.flush()
+    wait_start = time.monotonic()
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
     except OSError as exc:
@@ -484,11 +523,25 @@ except BlockingIOError:
 except OSError as exc:
     raise SystemExit(f"error: flock: {exc}")
 
+if wait_start is not None:
+    waited = int(time.monotonic() - wait_start)
+    msg = f"==> xcodebuild lock acquired after {waited}s\n"
+    try:
+        os.write(4, msg.encode())
+    except OSError:
+        pass
+    try:
+        os.write(1, msg.encode())
+    except OSError:
+        pass
+
 try:
     os.execvp(command[0], command)
 except OSError as exc:
     raise SystemExit(f"error: exec: {exc}")
-' "$XCODEBUILD_LOCK" xcodebuild "${XCODEBUILD_ARGS[@]}"
+' "$XCODEBUILD_LOCK" "${XCODEBUILD_COMMAND[@]}" "${XCODEBUILD_ARGS[@]}"
+XCODEBUILD_PHASE_ELAPSED=$(( $(date +%s) - XCODEBUILD_PHASE_START_TIME ))
+echo "==> xcodebuild phase completed in ${XCODEBUILD_PHASE_ELAPSED}s"
 sleep 0.2
 
 FALLBACK_APP_NAME="$BASE_APP_NAME"
