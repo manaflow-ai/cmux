@@ -5005,6 +5005,8 @@ struct SettingsView: View {
     @AppStorage(CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey)
     private var commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+    @AppStorage(WorkspaceWorkingDirectoryInheritanceSettings.key)
+    private var workspaceInheritWorkingDirectory = WorkspaceWorkingDirectoryInheritanceSettings.defaultValue
     @AppStorage(LastSurfaceCloseShortcutSettings.key)
     private var closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
     @AppStorage(PaneFirstClickFocusSettings.enabledKey)
@@ -5072,6 +5074,19 @@ struct SettingsView: View {
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
+    }
+
+    private var workspaceWorkingDirectoryInheritanceSubtitle: String {
+        if workspaceInheritWorkingDirectory {
+            return String(
+                localized: "settings.app.workspaceInheritWorkingDirectory.subtitleOn",
+                defaultValue: "New workspaces start in the focused workspace's working directory."
+            )
+        }
+        return String(
+            localized: "settings.app.workspaceInheritWorkingDirectory.subtitleOff",
+            defaultValue: "New workspaces leave their working directory unset so Ghostty's working-directory setting can apply."
+        )
     }
 
     private var minimalModeEnabled: Bool {
@@ -5720,6 +5735,28 @@ struct SettingsView: View {
                             ForEach(NewWorkspacePlacement.allCases) { placement in
                                 Text(placement.displayName).tag(placement.rawValue)
                             }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("app.workspaceInheritWorkingDirectory"),
+                            String(
+                                localized: "settings.app.workspaceInheritWorkingDirectory",
+                                defaultValue: "Inherit Workspace Working Directory"
+                            ),
+                            subtitle: workspaceWorkingDirectoryInheritanceSubtitle
+                        ) {
+                            Toggle("", isOn: $workspaceInheritWorkingDirectory)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsWorkspaceInheritWorkingDirectoryToggle")
+                                .accessibilityLabel(
+                                    String(
+                                        localized: "settings.app.workspaceInheritWorkingDirectory",
+                                        defaultValue: "Inherit Workspace Working Directory"
+                                    )
+                                )
                         }
 
                         SettingsCardDivider()
@@ -7246,6 +7283,7 @@ struct SettingsView: View {
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
         commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+        workspaceInheritWorkingDirectory = WorkspaceWorkingDirectoryInheritanceSettings.defaultValue
         workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: WorkspaceTitlebarSettings.showTitlebarKey)

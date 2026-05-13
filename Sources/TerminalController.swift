@@ -7781,9 +7781,10 @@ class TerminalController {
                 return
             }
 
-            let destinationWorkspace = tabManager.addWorkspace(select: focus)
-            guard let destinationPane = destinationWorkspace.bonsplitController.focusedPaneId
-                ?? destinationWorkspace.bonsplitController.allPaneIds.first else {
+            guard let destinationWorkspace = tabManager.addWorkspace(
+                fromDetachedSurface: detached,
+                select: focus
+            ) else {
                 if let sourcePaneForRollback {
                     _ = sourceWorkspace.attachDetachedSurface(
                         detached,
@@ -7792,20 +7793,18 @@ class TerminalController {
                         focus: true
                     )
                 }
-                result = .err(code: "internal_error", message: "Destination workspace has no pane", data: nil)
+                result = .err(code: "internal_error", message: "Failed to create workspace for detached surface", data: nil)
                 return
             }
-
-            guard destinationWorkspace.attachDetachedSurface(detached, inPane: destinationPane, focus: focus) != nil else {
-                if let sourcePaneForRollback {
-                    _ = sourceWorkspace.attachDetachedSurface(
-                        detached,
-                        inPane: sourcePaneForRollback,
-                        atIndex: sourceIndex,
-                        focus: true
-                    )
-                }
-                result = .err(code: "internal_error", message: "Failed to attach surface to new workspace", data: nil)
+            guard let destinationPaneId = destinationWorkspace.paneId(forPanelId: surfaceId)?.id else {
+                result = .err(
+                    code: "internal_error",
+                    message: "Failed to resolve destination pane for detached surface",
+                    data: [
+                        "workspace_id": destinationWorkspace.id.uuidString,
+                        "surface_id": surfaceId.uuidString
+                    ]
+                )
                 return
             }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
@@ -7814,8 +7813,8 @@ class TerminalController {
                 "window_ref": v2Ref(kind: .window, uuid: windowId),
                 "workspace_id": destinationWorkspace.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: destinationWorkspace.id),
-                "pane_id": destinationPane.id.uuidString,
-                "pane_ref": v2Ref(kind: .pane, uuid: destinationPane.id),
+                "pane_id": destinationPaneId.uuidString,
+                "pane_ref": v2Ref(kind: .pane, uuid: destinationPaneId),
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
             ])

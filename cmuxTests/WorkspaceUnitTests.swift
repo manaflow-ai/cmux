@@ -803,6 +803,52 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
     }
 
+    func testSettingsFileStoreParsesWorkspaceWorkingDirectoryInheritanceSetting() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = WorkspaceWorkingDirectoryInheritanceSettings.key
+        let previousValue = defaults.object(forKey: managedKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: managedKey)
+            } else {
+                defaults.removeObject(forKey: managedKey)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "workspaceInheritWorkingDirectory": false
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertFalse(WorkspaceWorkingDirectoryInheritanceSettings.isEnabled())
+    }
+
     func testSettingsFileStoreDoesNotApplyAutomaticAppIconDuringStartupReplay() throws {
         let defaults = UserDefaults.standard
         let previousMode = defaults.object(forKey: AppIconSettings.modeKey)
@@ -2200,6 +2246,222 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
             totalCount: 5
         )
         XCTAssertEqual(noSelectionIndex, 5)
+    }
+}
+
+final class WorkspaceWorkingDirectoryInheritanceSettingsTests: XCTestCase {
+    func testDefaultsToEnabledWhenUnset() {
+        let suiteName = "WorkspaceWorkingDirectoryInheritanceSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertTrue(WorkspaceWorkingDirectoryInheritanceSettings.isEnabled(defaults: defaults))
+    }
+
+    func testReadsStoredBooleanValue() {
+        let suiteName = "WorkspaceWorkingDirectoryInheritanceSettingsTests.Stored.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(false, forKey: WorkspaceWorkingDirectoryInheritanceSettings.key)
+        XCTAssertFalse(WorkspaceWorkingDirectoryInheritanceSettings.isEnabled(defaults: defaults))
+
+        defaults.set(true, forKey: WorkspaceWorkingDirectoryInheritanceSettings.key)
+        XCTAssertTrue(WorkspaceWorkingDirectoryInheritanceSettings.isEnabled(defaults: defaults))
+    }
+}
+
+@MainActor
+final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
+    private final class DetachedWorkspaceTestPanel: Panel {
+        let objectWillChange = ObservableObjectPublisher()
+        let id: UUID
+        let panelType: PanelType = .terminal
+        let displayTitle = "Detached"
+        let displayIcon: String? = "terminal.fill"
+        let isDirty = false
+
+        init(id: UUID = UUID()) {
+            self.id = id
+        }
+
+        func close() {}
+        func focus() {}
+        func unfocus() {}
+        func triggerFlash(reason: WorkspaceAttentionFlashReason) {}
+    }
+
+    func testNewWorkspaceInheritsSourceWorkingDirectoryByDefault() throws {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
+            let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
+            let manager = TabManager(
+                initialWorkingDirectory: sourceCwd,
+                autoWelcomeIfNeeded: false
+            )
+
+            let inserted = manager.addWorkspace(autoWelcomeIfNeeded: false)
+
+            XCTAssertEqual(inserted.focusedTerminalPanel?.requestedWorkingDirectory, sourceCwd)
+            XCTAssertEqual(inserted.currentDirectory, sourceCwd)
+        }
+    }
+
+    func testDisabledInheritanceLeavesNewWorkspaceCwdUnsetForGhosttyConfigFallback() throws {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(false) {
+            let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
+            let manager = TabManager(
+                initialWorkingDirectory: sourceCwd,
+                autoWelcomeIfNeeded: false
+            )
+
+            let inserted = manager.addWorkspace(autoWelcomeIfNeeded: false)
+
+            XCTAssertNil(inserted.focusedTerminalPanel?.requestedWorkingDirectory)
+            XCTAssertNotEqual(inserted.currentDirectory, sourceCwd)
+        }
+    }
+
+    func testExplicitWorkspaceWorkingDirectoryWinsWhenInheritanceIsDisabled() throws {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(false) {
+            let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
+            let explicitCwd = "/tmp/cmux-explicit-\(UUID().uuidString)"
+            let manager = TabManager(
+                initialWorkingDirectory: sourceCwd,
+                autoWelcomeIfNeeded: false
+            )
+
+            let inserted = manager.addWorkspace(
+                workingDirectory: explicitCwd,
+                autoWelcomeIfNeeded: false
+            )
+
+            XCTAssertEqual(inserted.focusedTerminalPanel?.requestedWorkingDirectory, explicitCwd)
+            XCTAssertEqual(inserted.currentDirectory, explicitCwd)
+        }
+    }
+
+    func testDetachedWorkspaceInheritsSourceWorkingDirectoryByDefaultWhenTransferHasNoDirectory() throws {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
+            let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
+            let manager = TabManager(
+                initialWorkingDirectory: sourceCwd,
+                autoWelcomeIfNeeded: false
+            )
+            let source = try XCTUnwrap(manager.selectedWorkspace)
+            let detached = makeDetachedWorkspaceTestTransfer(sourceWorkspaceId: source.id)
+
+            let inserted = try XCTUnwrap(manager.addWorkspace(
+                fromDetachedSurface: detached,
+                select: false
+            ))
+
+            XCTAssertEqual(inserted.currentDirectory, sourceCwd)
+            XCTAssertEqual(inserted.surfaceTabBarDirectory, sourceCwd)
+        }
+    }
+
+    func testDisabledInheritanceLeavesDetachedWorkspaceFallbackCwdUnsetWhenTransferHasNoDirectory() throws {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(false) {
+            let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
+            let fallbackCwd = FileManager.default.homeDirectoryForCurrentUser.path
+            let manager = TabManager(
+                initialWorkingDirectory: sourceCwd,
+                autoWelcomeIfNeeded: false
+            )
+            let source = try XCTUnwrap(manager.selectedWorkspace)
+            let detached = makeDetachedWorkspaceTestTransfer(sourceWorkspaceId: source.id)
+
+            let inserted = try XCTUnwrap(manager.addWorkspace(
+                fromDetachedSurface: detached,
+                select: false
+            ))
+
+            XCTAssertEqual(inserted.currentDirectory, fallbackCwd)
+            XCTAssertEqual(inserted.surfaceTabBarDirectory, fallbackCwd)
+        }
+    }
+
+    func testDetachedWorkspaceTransferDirectoryWinsWhenInheritanceIsDisabled() throws {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(false) {
+            let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
+            let transferCwd = "/tmp/cmux-detached-\(UUID().uuidString)"
+            let manager = TabManager(
+                initialWorkingDirectory: sourceCwd,
+                autoWelcomeIfNeeded: false
+            )
+            let source = try XCTUnwrap(manager.selectedWorkspace)
+            let detached = makeDetachedWorkspaceTestTransfer(
+                sourceWorkspaceId: source.id,
+                directory: transferCwd
+            )
+
+            let inserted = try XCTUnwrap(manager.addWorkspace(
+                fromDetachedSurface: detached,
+                select: false
+            ))
+
+            XCTAssertEqual(inserted.currentDirectory, transferCwd)
+            XCTAssertEqual(inserted.surfaceTabBarDirectory, transferCwd)
+        }
+    }
+
+    private func withWorkspaceWorkingDirectoryInheritanceSetting(
+        _ value: Bool?,
+        _ body: () throws -> Void
+    ) rethrows {
+        let defaults = UserDefaults.standard
+        let key = WorkspaceWorkingDirectoryInheritanceSettings.key
+        let previousValue = defaults.object(forKey: key)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+
+        try body()
+    }
+
+    private func makeDetachedWorkspaceTestTransfer(
+        sourceWorkspaceId: UUID,
+        directory: String? = nil
+    ) -> Workspace.DetachedSurfaceTransfer {
+        let panel = DetachedWorkspaceTestPanel()
+        return Workspace.DetachedSurfaceTransfer(
+            sourceWorkspaceId: sourceWorkspaceId,
+            panelId: panel.id,
+            panel: panel,
+            title: panel.displayTitle,
+            icon: panel.displayIcon,
+            iconImageData: nil,
+            kind: "terminal",
+            isLoading: false,
+            isPinned: false,
+            directory: directory,
+            ttyName: nil,
+            cachedTitle: nil,
+            customTitle: nil,
+            manuallyUnread: false,
+            restorableAgent: nil,
+            restorableAgentResumeState: nil,
+            agentRuntime: nil,
+            isRemoteTerminal: false,
+            remoteRelayPort: nil,
+            remoteCleanupConfiguration: nil
+        )
     }
 }
 
