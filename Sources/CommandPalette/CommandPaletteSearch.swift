@@ -448,15 +448,6 @@ enum CommandPaletteFuzzyMatcher {
                 continue
             }
 
-            if let singleEditPrefix = singleEditWordPrefixMatch(
-                tokenChars: token.characters,
-                candidateChars: candidateChars,
-                segments: preparedCandidate.wordSegments
-            ) {
-                matched.formUnion(singleEditPrefix.matchedIndices)
-                continue
-            }
-
             if let initialism = initialismMatchIndices(token: token, candidate: preparedCandidate) {
                 matched.formUnion(initialism)
                 continue
@@ -464,6 +455,15 @@ enum CommandPaletteFuzzyMatcher {
 
             if let stitched = stitchedWordPrefixMatchIndices(token: token, candidate: preparedCandidate) {
                 matched.formUnion(stitched)
+                continue
+            }
+
+            if let singleEditPrefix = singleEditWordPrefixMatch(
+                tokenChars: token.characters,
+                candidateChars: candidateChars,
+                segments: preparedCandidate.wordSegments
+            ) {
+                matched.formUnion(singleEditPrefix.matchedIndices)
                 continue
             }
 
