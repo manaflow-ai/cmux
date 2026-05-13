@@ -708,7 +708,6 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
 
     private let sideDockWidth: CGFloat = 240
     private let bottomDockHeight: CGFloat = 220
-    private let addRailWidth: CGFloat = 28
 
     var body: some View {
         VStack(spacing: 0) {
@@ -726,6 +725,9 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
     private func dockStrip(edge: WorkspaceDockEdge, docks: [WorkspaceDock]) -> some View {
         HStack(spacing: 0) {
             ForEach(docks) { dock in
+                if edge == .right {
+                    Divider()
+                }
                 WorkspaceDockPaneView(
                     workspace: workspace,
                     layout: layout,
@@ -738,10 +740,15 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
                     portalPriority: portalPriority
                 )
                 .frame(width: sideDockWidth)
-                Divider()
+                if edge == .left {
+                    Divider()
+                }
             }
-            addDockButton(edge: edge)
-                .frame(width: addRailWidth)
+        }
+        .contextMenu {
+            Button(addDockTitle(edge: edge)) {
+                layout.addDock(edge: edge)
+            }
         }
     }
 
@@ -762,24 +769,13 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
                 .frame(maxWidth: .infinity)
                 Divider()
             }
-            addDockButton(edge: .bottom)
-                .frame(width: addRailWidth)
         }
         .frame(height: bottomDockHeight)
-    }
-
-    private func addDockButton(edge: WorkspaceDockEdge) -> some View {
-        Button {
-            layout.addDock(edge: edge)
-        } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 11, weight: .semibold))
+        .contextMenu {
+            Button(addDockTitle(edge: .bottom)) {
+                layout.addDock(edge: .bottom)
+            }
         }
-        .buttonStyle(.plain)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(Rectangle())
-        .help(addDockTitle(edge: edge))
-        .accessibilityLabel(addDockTitle(edge: edge))
     }
 
     private func addDockTitle(edge: WorkspaceDockEdge) -> String {
@@ -807,37 +803,19 @@ private struct WorkspaceDockPaneView: View {
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
-            dockBonsplitView
-        }
-        .background(Color(nsColor: GhosttyBackgroundTheme.currentColor()))
-    }
-
-    private var header: some View {
-        HStack(spacing: 6) {
-            Image(systemName: dock.edge.symbolName)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-            Text(dock.title)
-                .font(.system(size: 11, weight: .semibold))
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 4)
-            Button {
-                layout.removeDock(dock)
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
+        dockBonsplitView
+            .background(Color(nsColor: GhosttyBackgroundTheme.currentColor()))
+            .contextMenu {
+                Button(addDockTitle(edge: dock.edge)) {
+                    layout.addDock(edge: dock.edge)
+                }
+                if layout.canRemove(dock) {
+                    Divider()
+                    Button(removeDockTitle, role: .destructive) {
+                        layout.removeDock(dock)
+                    }
+                }
             }
-            .buttonStyle(.plain)
-            .disabled(!layout.canRemove(dock))
-            .help(String(localized: "workspaceDock.remove", defaultValue: "Remove Dock"))
-            .accessibilityLabel(String(localized: "workspaceDock.remove", defaultValue: "Remove Dock"))
-        }
-        .padding(.horizontal, 8)
-        .frame(height: 28)
     }
 
     private var dockBonsplitView: some View {
@@ -899,6 +877,21 @@ private struct WorkspaceDockPaneView: View {
         }
         .internalOnlyTabDrag()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var removeDockTitle: String {
+        String(localized: "workspaceDock.remove", defaultValue: "Remove Dock")
+    }
+
+    private func addDockTitle(edge: WorkspaceDockEdge) -> String {
+        switch edge {
+        case .left:
+            return String(localized: "workspaceDock.add.left", defaultValue: "Add Left Dock")
+        case .right:
+            return String(localized: "workspaceDock.add.right", defaultValue: "Add Right Dock")
+        case .bottom:
+            return String(localized: "workspaceDock.add.bottom", defaultValue: "Add Bottom Dock")
+        }
     }
 }
 

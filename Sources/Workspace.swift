@@ -7121,28 +7121,6 @@ enum WorkspaceDockEdge: String, CaseIterable, Identifiable {
     case bottom
 
     var id: String { rawValue }
-
-    var symbolName: String {
-        switch self {
-        case .left:
-            return "sidebar.left"
-        case .right:
-            return "sidebar.right"
-        case .bottom:
-            return "dock.rectangle"
-        }
-    }
-
-    var localizedTitle: String {
-        switch self {
-        case .left:
-            return String(localized: "workspaceDock.edge.left", defaultValue: "Left Dock")
-        case .right:
-            return String(localized: "workspaceDock.edge.right", defaultValue: "Right Dock")
-        case .bottom:
-            return String(localized: "workspaceDock.edge.bottom", defaultValue: "Bottom Dock")
-        }
-    }
 }
 
 @MainActor
@@ -7161,10 +7139,6 @@ final class WorkspaceDock: ObservableObject, Identifiable {
         for tabId in welcomeTabIds {
             controller.closeTab(tabId)
         }
-    }
-
-    var title: String {
-        "\(edge.localizedTitle) \(ordinal)"
     }
 
     func bind(to workspace: Workspace) {
