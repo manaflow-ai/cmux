@@ -662,6 +662,22 @@ final class FileExplorerStoreTests: XCTestCase {
         XCTAssertFalse(store.isExpanded(node))
     }
 
+    func testCollapseAlreadyCollapsedNodeDoesNotDirtyOutline() {
+        let store = FileExplorerStore()
+        let node = FileExplorerNode(name: "src", path: "/project/src", isDirectory: true)
+        node.children = []
+
+        let revisionBeforeNoOpCollapse = store.outlineRevision
+
+        store.collapse(node: node)
+
+        XCTAssertEqual(
+            store.outlineRevision,
+            revisionBeforeNoOpCollapse,
+            "Collapsing an already-collapsed node must not invalidate the Files outline."
+        )
+    }
+
     func testExpandNonDirectoryDoesNothing() {
         let store = FileExplorerStore()
         let node = FileExplorerNode(name: "file.txt", path: "/project/file.txt", isDirectory: false)
