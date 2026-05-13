@@ -467,6 +467,42 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testMemoryTopPrunesExpiredRowsOnRead() throws {
+        let cliPath = try bundledCLIPath()
+        let dbURL = temporaryMemoryTelemetryDatabaseURL(name: "top-prune")
+
+        defer {
+            try? FileManager.default.removeItem(at: dbURL.deletingLastPathComponent())
+        }
+
+        try insertMemoryTelemetrySample(
+            in: dbURL,
+            sampledAt: Date().addingTimeInterval(-3600),
+            workspaceId: "77777777-7777-7777-7777-777777777777"
+        )
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_MEMORY_TELEMETRY_DB_PATH"] = dbURL.path
+        environment["CMUX_MEMORY_TELEMETRY_RETENTION_SECONDS"] = "1"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["memory", "top", "--since", "2h", "--json", "--id-format", "uuids"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let payload = try jsonPayload(from: result.stdout)
+        let rows = try XCTUnwrap(payload["rows"] as? [[String: Any]])
+        XCTAssertTrue(rows.isEmpty, "Expected expired rows to be pruned on read, got \(rows)")
+        XCTAssertEqual(try memoryTelemetrySampleCount(in: dbURL), 0)
+    }
+
     func testMemoryTrimDryRunSelectsOwnedAgentWithoutSendingOrKilling() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("mem-trim")
@@ -547,6 +583,79 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(
             state.commands.contains { $0.contains(#""method":"surface.send_text""#) },
             "dry-run trim must not send terminal input, saw \(state.commands)"
+        )
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.top"]
+        )
+    }
+
+    func testMemoryTrimAutoRejectsProcessNameFallbackWithoutOwnedTag() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-trim-auto")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "system.top" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: self.memorySystemTopFixture(
+                    workspaceId: "88888888-8888-8888-8888-888888888888",
+                    workspaceRef: "workspace:9",
+                    surfaceId: "99999999-9999-9999-9999-999999999999",
+                    agentKey: "codex",
+                    agentPID: 737_373,
+                    secretCommandLine: "/usr/local/bin/codex --secret ignored",
+                    includeAgentTag: false
+                )
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "memory",
+                "trim",
+                "--workspace",
+                "workspace:9",
+                "--dry-run",
+                "--json",
+                "--id-format",
+                "uuids",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("no cmux-owned recoverable agent PIDs"), result.stderr)
+        XCTAssertFalse(
+            state.commands.contains { $0.contains(#""method":"surface.send_text""#) },
+            "auto trim must not act on process-name-only fallback candidates, saw \(state.commands)"
         )
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
@@ -1675,9 +1784,21 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         surfaceId: String,
         agentKey: String,
         agentPID: Int,
-        secretCommandLine: String
+        secretCommandLine: String,
+        includeAgentTag: Bool = true
     ) -> [String: Any] {
-        [
+        let tags: [[String: Any]] = includeAgentTag ? [
+            [
+                "kind": "tag",
+                "key": agentKey,
+                "pid": agentPID,
+                "surface_id": surfaceId,
+                "surface_ref": "surface:3",
+                "resources": ["resident_bytes": 268_435_456],
+                "command_line": secretCommandLine,
+            ],
+        ] : []
+        return [
             "sample": ["sampled_at": "2026-05-13T12:00:00Z"],
             "windows": [
                 [
@@ -1694,17 +1815,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                                 "virtual_bytes": 629_145_600,
                                 "process_count": 3,
                             ],
-                            "tags": [
-                                [
-                                    "kind": "tag",
-                                    "key": agentKey,
-                                    "pid": agentPID,
-                                    "surface_id": surfaceId,
-                                    "surface_ref": "surface:3",
-                                    "resources": ["resident_bytes": 268_435_456],
-                                    "command_line": secretCommandLine,
-                                ],
-                            ],
+                            "tags": tags,
                             "panes": [
                                 [
                                     "id": "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB",
@@ -1716,18 +1827,24 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                                                 [
                                                     "pid": 101,
                                                     "name": "zsh",
+                                                    "start_seconds": 100,
+                                                    "start_microseconds": 1,
                                                     "resources": ["resident_bytes": 2_097_152],
                                                     "command_line": "/bin/zsh",
                                                     "children": [
                                                         [
                                                             "pid": agentPID,
                                                             "name": agentKey == "claude_code" ? "claude" : "codex",
+                                                            "start_seconds": 200,
+                                                            "start_microseconds": 2,
                                                             "resources": ["resident_bytes": 268_435_456],
                                                             "command_line": secretCommandLine,
                                                             "children": [
                                                                 [
                                                                     "pid": 202,
                                                                     "name": "node",
+                                                                    "start_seconds": 300,
+                                                                    "start_microseconds": 3,
                                                                     "resources": ["resident_bytes": 44_040_192],
                                                                     "command_line": "node server.js --token SECRET_TOKEN_DO_NOT_STORE",
                                                                 ],
@@ -1766,6 +1883,89 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             JSONSerialization.jsonObject(with: Data(text.utf8), options: []) as? [String],
             "Expected process-name JSON array, got: \(text)"
         )
+    }
+
+    private func insertMemoryTelemetrySample(
+        in dbURL: URL,
+        sampledAt: Date,
+        workspaceId: String
+    ) throws {
+        try FileManager.default.createDirectory(
+            at: dbURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        var db: OpaquePointer?
+        let openResult = sqlite3_open_v2(dbURL.path, &db, SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE, nil)
+        XCTAssertEqual(openResult, SQLITE_OK)
+        defer { sqlite3_close(db) }
+
+        try sqliteExec(
+            db,
+            """
+            CREATE TABLE IF NOT EXISTS workspace_memory_samples (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sampled_at REAL NOT NULL,
+                workspace_id TEXT NOT NULL,
+                workspace_ref TEXT,
+                workspace_title TEXT,
+                window_id TEXT,
+                window_ref TEXT,
+                rss_bytes INTEGER NOT NULL,
+                virtual_bytes INTEGER NOT NULL,
+                cpu_percent REAL NOT NULL,
+                process_count INTEGER NOT NULL,
+                top_process_names TEXT NOT NULL
+            )
+            """
+        )
+
+        var stmt: OpaquePointer?
+        let insert = """
+        INSERT INTO workspace_memory_samples (
+            sampled_at, workspace_id, workspace_ref, workspace_title, window_id, window_ref,
+            rss_bytes, virtual_bytes, cpu_percent, process_count, top_process_names
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        XCTAssertEqual(sqlite3_prepare_v2(db, insert, -1, &stmt, nil), SQLITE_OK)
+        defer { sqlite3_finalize(stmt) }
+        let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        sqlite3_bind_double(stmt, 1, sampledAt.timeIntervalSince1970)
+        sqlite3_bind_text(stmt, 2, workspaceId, -1, transient)
+        sqlite3_bind_text(stmt, 3, "workspace:7", -1, transient)
+        sqlite3_bind_text(stmt, 4, "Expired Memory Workspace", -1, transient)
+        sqlite3_bind_text(stmt, 5, "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", -1, transient)
+        sqlite3_bind_text(stmt, 6, "window:1", -1, transient)
+        sqlite3_bind_int64(stmt, 7, 1024)
+        sqlite3_bind_int64(stmt, 8, 2048)
+        sqlite3_bind_double(stmt, 9, 1)
+        sqlite3_bind_int64(stmt, 10, 1)
+        sqlite3_bind_text(stmt, 11, #"["codex"]"#, -1, transient)
+        XCTAssertEqual(sqlite3_step(stmt), SQLITE_DONE)
+    }
+
+    private func memoryTelemetrySampleCount(in dbURL: URL) throws -> Int {
+        var db: OpaquePointer?
+        let openResult = sqlite3_open_v2(dbURL.path, &db, SQLITE_OPEN_READONLY, nil)
+        XCTAssertEqual(openResult, SQLITE_OK)
+        defer { sqlite3_close(db) }
+
+        var stmt: OpaquePointer?
+        XCTAssertEqual(sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM workspace_memory_samples", -1, &stmt, nil), SQLITE_OK)
+        defer { sqlite3_finalize(stmt) }
+        XCTAssertEqual(sqlite3_step(stmt), SQLITE_ROW)
+        return Int(sqlite3_column_int64(stmt, 0))
+    }
+
+    private func sqliteExec(_ db: OpaquePointer?, _ sql: String) throws {
+        var errorMessage: UnsafeMutablePointer<CChar>?
+        let result = sqlite3_exec(db, sql, nil, nil, &errorMessage)
+        defer {
+            if let errorMessage {
+                sqlite3_free(errorMessage)
+            }
+        }
+        XCTAssertEqual(result, SQLITE_OK, errorMessage.map { String(cString: $0) } ?? "")
     }
 
 }

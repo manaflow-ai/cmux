@@ -42,6 +42,8 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
     let cmuxSurfaceID: UUID?
     let processGroupID: Int?
     let terminalProcessGroupID: Int?
+    let startSeconds: Int
+    let startMicroseconds: Int
     var cpuPercent: Double
     let residentBytes: Int64
     let virtualBytes: Int64
@@ -339,6 +341,8 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             "ppid": process.parentPID,
             "name": process.name,
             "path": process.path ?? NSNull(),
+            "start_seconds": process.startSeconds,
+            "start_microseconds": process.startMicroseconds,
             "thread_count": process.threadCount,
             "resources": summary(for: [pid]).payload(),
             "children": childNodes
@@ -470,6 +474,8 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             cmuxSurfaceID: cmuxScope?.surfaceID,
             processGroupID: processGroupID,
             terminalProcessGroupID: terminalProcessGroupID,
+            startSeconds: cacheKey.startSeconds,
+            startMicroseconds: cacheKey.startMicroseconds,
             cpuPercent: 0,
             residentBytes: int64Clamped(taskInfo?.pti_resident_size ?? 0),
             virtualBytes: int64Clamped(taskInfo?.pti_virtual_size ?? 0),
