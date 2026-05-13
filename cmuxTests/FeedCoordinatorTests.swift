@@ -69,6 +69,10 @@ final class FeedCoordinatorTests: XCTestCase {
         let requestId = "auto-allow-request"
         let notifications = NotificationRequestRecorder()
 
+        addTeardownBlock {
+            Self.resetFeedCoordinatorTestHooks()
+        }
+
         await MainActor.run {
             let store = WorkstreamStore(ringCapacity: 10)
             FeedCoordinator.shared.install(store: store)
@@ -128,10 +132,19 @@ final class FeedCoordinatorTests: XCTestCase {
             notifications.requestIds.isEmpty,
             "auto-allowed permission requests should not post native notifications"
         )
+    }
 
-        await MainActor.run {
-            FeedCoordinatorTestHooks.afterBlockingEventIngested = nil
-            FeedCoordinatorTestHooks.notificationPostObserver = nil
+    private static func resetFeedCoordinatorTestHooks() {
+        let reset: @Sendable () -> Void = {
+            MainActor.assumeIsolated {
+                FeedCoordinatorTestHooks.afterBlockingEventIngested = nil
+                FeedCoordinatorTestHooks.notificationPostObserver = nil
+            }
+        }
+        if Thread.isMainThread {
+            reset()
+        } else {
+            DispatchQueue.main.sync(execute: reset)
         }
     }
 }
