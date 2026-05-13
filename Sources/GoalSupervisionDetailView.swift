@@ -109,11 +109,11 @@ struct GoalDetailView: View {
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                 MetricTile(
                     title: String(localized: "goals.metrics.wallClock", defaultValue: "Wall clock"),
-                    value: Self.durationFormatter.string(from: snapshot.wallClockDuration(at: now)) ?? "-"
+                    value: Self.formattedDuration(snapshot.wallClockDuration(at: now))
                 )
                 MetricTile(
                     title: String(localized: "goals.metrics.active", defaultValue: "Active"),
-                    value: Self.durationFormatter.string(from: snapshot.activeDuration(at: now)) ?? "-"
+                    value: Self.formattedDuration(snapshot.activeDuration(at: now))
                 )
                 MetricTile(
                     title: String(localized: "goals.metrics.notes", defaultValue: "Notes"),
@@ -174,6 +174,14 @@ struct GoalDetailView: View {
         formatter.zeroFormattingBehavior = .dropAll
         return formatter
     }()
+
+    private static func formattedDuration(_ duration: TimeInterval) -> String {
+        let formatted = durationFormatter.string(from: duration)
+        guard let formatted, !formatted.isEmpty else {
+            return String(localized: "goals.metrics.zeroDuration", defaultValue: "0m")
+        }
+        return formatted
+    }
 
     private static let relativeFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()

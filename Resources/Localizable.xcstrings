@@ -105707,6 +105707,7 @@
     "goals.metrics.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Metrics" } }, "ja": { "stringUnit": { "state": "translated", "value": "メトリクス" } } } },
     "goals.metrics.updated": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Updated" } }, "ja": { "stringUnit": { "state": "translated", "value": "更新" } } } },
     "goals.metrics.wallClock": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Wall clock" } }, "ja": { "stringUnit": { "state": "translated", "value": "経過時間" } } } },
+    "goals.metrics.zeroDuration": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "0m" } }, "ja": { "stringUnit": { "state": "translated", "value": "0分" } } } },
     "goals.new.accessibilityLabel": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "New Goal" } }, "ja": { "stringUnit": { "state": "translated", "value": "新規ゴール" } } } },
     "goals.new.cancel": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Cancel" } }, "ja": { "stringUnit": { "state": "translated", "value": "キャンセル" } } } },
     "goals.new.create": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Create" } }, "ja": { "stringUnit": { "state": "translated", "value": "作成" } } } },
