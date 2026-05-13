@@ -426,6 +426,7 @@ struct BrowserPanelView: View {
     @State private var isBrowserImportHintPopoverPresented = false
     @State private var lastHandledAddressBarFocusRequestId: UUID?
     @State private var omnibarSelectAllRequestId: UInt64 = 0
+    @State private var suppressNextFocusGainedSelectAll: Bool = false
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
     @State private var browserChromeStyle = BrowserChromeStyle.resolve(
@@ -788,10 +789,16 @@ struct BrowserPanelView: View {
 #endif
                     onRequestPanelFocus()
                 }
-                let effects = omnibarReduce(state: &omnibarState, event: .focusGained(currentURLString: urlString))
+                let shouldSelectAll = !suppressNextFocusGainedSelectAll
+                suppressNextFocusGainedSelectAll = false
+                let effects = omnibarReduce(
+                    state: &omnibarState,
+                    event: .focusGained(currentURLString: urlString, shouldSelectAll: shouldSelectAll)
+                )
                 applyOmnibarEffects(effects)
                 refreshInlineCompletion()
             } else {
+                suppressNextFocusGainedSelectAll = false
                 panel.endSuppressWebViewFocusForAddressBar()
                 NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panel.id)
                 if suppressNextFocusLostRevert {
@@ -1241,6 +1248,9 @@ struct BrowserPanelView: View {
             RoundedRectangle(cornerRadius: omnibarPillCornerRadius, style: .continuous)
                 .fill(Color(nsColor: omnibarPillBackgroundColor))
         )
+        .overlay {
+            BrowserOmnibarCursorRectRepresentable()
+        }
         .overlay(
             RoundedRectangle(cornerRadius: omnibarPillCornerRadius, style: .continuous)
                 .stroke(addressBarFocused ? cmuxAccentColor() : Color.clear, lineWidth: 1)
@@ -1840,6 +1850,7 @@ struct BrowserPanelView: View {
         if !addressBarFocused {
             // Mark focused before pane selection converges so WebKit focus is not
             // briefly re-acquired during `focusPane`.
+            suppressNextFocusGainedSelectAll = true
             setAddressBarFocused(true, reason: "omnibar.tap")
         }
         onRequestPanelFocus()
@@ -2951,7 +2962,7 @@ struct OmnibarState: Equatable {
 }
 
 enum OmnibarEvent: Equatable {
-    case focusGained(currentURLString: String)
+    case focusGained(currentURLString: String, shouldSelectAll: Bool = true)
     case focusLostRevertBuffer(currentURLString: String)
     case focusLostPreserveBuffer(currentURLString: String)
     case panelURLChanged(currentURLString: String)
@@ -2973,7 +2984,7 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
     var effects = OmnibarEffects()
 
     switch event {
-    case .focusGained(let url):
+    case .focusGained(let url, let shouldSelectAll):
         state.isFocused = true
         state.currentURLString = url
         state.buffer = url
@@ -2981,7 +2992,7 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         state.suggestions = []
         state.selectedSuggestionIndex = 0
         state.selectedSuggestionID = nil
-        effects.shouldSelectAll = true
+        effects.shouldSelectAll = shouldSelectAll
 
     case .focusLostRevertBuffer(let url):
         state.isFocused = false
@@ -3249,6 +3260,39 @@ func browserOmnibarShouldReacquireFocusAfterEndEditing(
     desiredOmnibarFocus && !nextResponderIsOtherTextField
 }
 
+private final class BrowserOmnibarCursorRectView: NSView {
+    override var isFlipped: Bool { true }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .iBeam)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        window?.invalidateCursorRects(for: self)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.invalidateCursorRects(for: self)
+    }
+}
+
+private struct BrowserOmnibarCursorRectRepresentable: NSViewRepresentable {
+    func makeNSView(context: Context) -> BrowserOmnibarCursorRectView {
+        BrowserOmnibarCursorRectView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: BrowserOmnibarCursorRectView, context: Context) {
+        nsView.window?.invalidateCursorRects(for: nsView)
+    }
+}
+
 final class OmnibarNativeTextField: NSTextField {
     var panelId: UUID?
     var onPointerDown: (() -> Void)?
@@ -3256,6 +3300,15 @@ final class OmnibarNativeTextField: NSTextField {
     var suppressNextFocusReacquireOnEndEditing = false
     /// Anchor index for Shift+click selection extension, reset on non-shift clicks.
     private var shiftClickAnchor: Int?
+    private var mouseSelectionState: MouseSelectionState?
+    private static let dragSelectionThreshold: CGFloat = 3
+
+    private struct MouseSelectionState {
+        let anchor: Int
+        let initialWindowLocation: NSPoint
+        let selectAllOnMouseUp: Bool
+        var didDrag: Bool
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -3271,6 +3324,11 @@ final class OmnibarNativeTextField: NSTextField {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .iBeam)
+    }
+
     override func mouseDown(with event: NSEvent) {
         #if DEBUG
         let frType = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
@@ -3279,12 +3337,10 @@ final class OmnibarNativeTextField: NSTextField {
             "fr=\(frType) hasEditor=\(currentEditor() == nil ? 0 : 1)"
         )
         #endif
+        let hadEditor = currentEditor() != nil
         onPointerDown?()
 
-        if currentEditor() == nil {
-            // First click — activate editing and select all (standard URL bar behavior).
-            // Avoids NSTextView's tracking loop which can spin forever if text layout
-            // enters an infinite invalidation cycle (e.g. under memory pressure).
+        if !hadEditor {
             let result = window?.makeFirstResponder(self) ?? false
 #if DEBUG
             let frAfter = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
@@ -3293,58 +3349,86 @@ final class OmnibarNativeTextField: NSTextField {
                 "win=\(window?.windowNumber ?? -1) fr=\(frAfter)"
             )
 #endif
-            currentEditor()?.selectAll(nil)
+        }
+
+        guard let editor = currentEditor() as? NSTextView else {
+            super.mouseDown(with: event)
+            return
+        }
+
+        // Keep multi-click word and line selection in the field editor, while avoiding
+        // NSTextField's mouse tracking loop for ordinary clicks.
+        if event.clickCount > 1 {
+            mouseSelectionState = nil
+            editor.mouseDown(with: event)
             shiftClickAnchor = nil
+            return
+        }
+
+        let clickIndex = insertionIndex(for: event, in: editor)
+        let anchor: Int
+        if event.modifierFlags.contains(.shift) {
+            let selected = editor.selectedRange()
+            anchor = shiftClickAnchor ?? selected.location
+            shiftClickAnchor = anchor
+            setSelection(anchor: anchor, extent: clickIndex, in: editor)
         } else {
-            // Already editing — place the cursor at the click position without calling
-            // super.mouseDown, which enters NSTextView's mouse-tracking loop. That loop
-            // can spin forever when NSTextLayoutManager.enumerateTextLayoutFragments hits
-            // an infinite invalidation cycle (see #917). The previous mitigation posted a
-            // synthetic mouseUp via NSApp.postEvent after a timeout, but the tracking loop
-            // does not always dequeue events from the application event queue, so the hang
-            // persisted. By positioning the cursor ourselves we avoid the tracking loop
-            // entirely. Drag-to-select is not supported in this path, but for a single-line
-            // omnibar this is an acceptable trade-off (double-click to select word and
-            // Shift+click to extend selection still work via the field editor).
-            guard let editor = currentEditor() as? NSTextView else {
-                super.mouseDown(with: event)
-                return
-            }
+            anchor = clickIndex
+            shiftClickAnchor = nil
+            editor.setSelectedRange(NSRange(location: clickIndex, length: 0))
+        }
 
-            // Double/triple-click: forward directly to the field editor (NSTextView)
-            // which handles word and line selection internally. This bypasses
-            // NSTextField's super.mouseDown (and its problematic tracking loop)
-            // while preserving multi-click semantics.
-            if event.clickCount > 1 {
-                editor.mouseDown(with: event)
-                shiftClickAnchor = nil
-                return
-            }
+        mouseSelectionState = MouseSelectionState(
+            anchor: anchor,
+            initialWindowLocation: event.locationInWindow,
+            selectAllOnMouseUp: !hadEditor && !event.modifierFlags.contains(.shift),
+            didDrag: false
+        )
+    }
 
-            let localPoint = editor.convert(event.locationInWindow, from: nil)
-            let index = editor.characterIndexForInsertion(at: localPoint)
-            let textLength = (editor.string as NSString).length
-            let safeIndex = min(index, textLength)
+    override func mouseDragged(with event: NSEvent) {
+        guard var state = mouseSelectionState,
+              let editor = currentEditor() as? NSTextView else {
+            super.mouseDragged(with: event)
+            return
+        }
 
-            if event.modifierFlags.contains(.shift) {
-                // Shift+click: extend the existing selection to the clicked position.
-                // Use stored anchor to handle bidirectional extension correctly;
-                // NSRange.location is always the lower index so it cannot serve as
-                // a directional anchor on its own.
-                let sel = editor.selectedRange()
-                let anchor = shiftClickAnchor ?? sel.location
-                shiftClickAnchor = anchor
-                let newRange: NSRange
-                if safeIndex >= anchor {
-                    newRange = NSRange(location: anchor, length: safeIndex - anchor)
-                } else {
-                    newRange = NSRange(location: safeIndex, length: anchor - safeIndex)
-                }
-                editor.setSelectedRange(newRange)
-            } else {
-                shiftClickAnchor = nil
-                editor.setSelectedRange(NSRange(location: safeIndex, length: 0))
-            }
+        let dx = event.locationInWindow.x - state.initialWindowLocation.x
+        let dy = event.locationInWindow.y - state.initialWindowLocation.y
+        let distance = (dx * dx + dy * dy).squareRoot()
+        if state.didDrag || distance >= Self.dragSelectionThreshold {
+            state.didDrag = true
+            setSelection(anchor: state.anchor, extent: insertionIndex(for: event, in: editor), in: editor)
+            mouseSelectionState = state
+        }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard let state = mouseSelectionState,
+              let editor = currentEditor() as? NSTextView else {
+            super.mouseUp(with: event)
+            return
+        }
+
+        mouseSelectionState = nil
+        if state.selectAllOnMouseUp && !state.didDrag {
+            editor.selectAll(nil)
+        }
+    }
+
+    private func insertionIndex(for event: NSEvent, in editor: NSTextView) -> Int {
+        let localPoint = editor.convert(event.locationInWindow, from: nil)
+        let index = editor.characterIndexForInsertion(at: localPoint)
+        let textLength = (editor.string as NSString).length
+        guard index != NSNotFound else { return textLength }
+        return min(max(index, 0), textLength)
+    }
+
+    private func setSelection(anchor: Int, extent: Int, in editor: NSTextView) {
+        if extent >= anchor {
+            editor.setSelectedRange(NSRange(location: anchor, length: extent - anchor))
+        } else {
+            editor.setSelectedRange(NSRange(location: extent, length: anchor - extent))
         }
     }
 
@@ -3365,6 +3449,7 @@ final class OmnibarNativeTextField: NSTextField {
         // Shift+click uses the post-keyboard selection as its anchor, not a
         // stale value from a prior mouse interaction.
         shiftClickAnchor = nil
+        mouseSelectionState = nil
         if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
             super.keyDown(with: event)
             return
@@ -3392,6 +3477,7 @@ final class OmnibarNativeTextField: NSTextField {
         }
 #endif
         shiftClickAnchor = nil
+        mouseSelectionState = nil
         if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
             let result = super.performKeyEquivalent(with: event)
 #if DEBUG

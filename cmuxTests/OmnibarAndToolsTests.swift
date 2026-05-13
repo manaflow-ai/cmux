@@ -399,6 +399,19 @@ final class VSCodeServeWebControllerTests: XCTestCase {
 
 
 final class OmnibarStateMachineTests: XCTestCase {
+    func testPointerFocusCanPreserveInitialClickSelection() throws {
+        var state = OmnibarState()
+
+        let effects = omnibarReduce(
+            state: &state,
+            event: .focusGained(currentURLString: "https://example.com/", shouldSelectAll: false)
+        )
+
+        XCTAssertTrue(state.isFocused)
+        XCTAssertEqual(state.buffer, "https://example.com/")
+        XCTAssertFalse(effects.shouldSelectAll)
+    }
+
     func testEscapeRevertsWhenEditingThenBlursOnSecondEscape() throws {
         var state = OmnibarState()
 
