@@ -943,6 +943,10 @@ struct CarbonHotKeyRegistration: Equatable {
 final class SystemWideHotkeyController {
     static let shared = SystemWideHotkeyController()
     private static let hotKeySignature: OSType = 0x434D484B // "CMHK"
+    private static let hotKeyIDs: [KeyboardShortcutSettings.Action: UInt32] = [
+        .showHideAllWindows: 1,
+        .globalSearch: 2,
+    ]
     private static let systemWideActions: [KeyboardShortcutSettings.Action] = [
         .showHideAllWindows,
         .globalSearch,
@@ -1094,6 +1098,7 @@ final class SystemWideHotkeyController {
         case .globalSearch:
             return true
         default:
+            assertionFailure("Unhandled system-wide hotkey action: \(action.rawValue)")
             return false
         }
     }
@@ -1184,6 +1189,7 @@ final class SystemWideHotkeyController {
         case .globalSearch:
             AppDelegate.shared?.toggleGlobalSearchPaletteFromGlobalHotkey()
         default:
+            assertionFailure("Unhandled system-wide hotkey action: \(action.rawValue)")
             break
         }
     }
@@ -1194,14 +1200,11 @@ final class SystemWideHotkeyController {
     }
 
     private static func hotKeyID(for action: KeyboardShortcutSettings.Action) -> UInt32 {
-        switch action {
-        case .showHideAllWindows:
-            return 1
-        case .globalSearch:
-            return 2
-        default:
+        guard let hotKeyID = hotKeyIDs[action] else {
+            assertionFailure("Unhandled system-wide hotkey action: \(action.rawValue)")
             return 0
         }
+        return hotKeyID
     }
 
     private static func action(forHotKeyID hotKeyID: UInt32) -> KeyboardShortcutSettings.Action? {

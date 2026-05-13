@@ -172,6 +172,30 @@ final class SearchIndexTests: XCTestCase {
         XCTAssertEqual(hits.map(\.id), ["operator-doc"])
     }
 
+    func testSearchTreatsFTSMetacharactersAsTokenSeparators() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
+
+        let index = try SearchIndex(databaseURL: fixture.databaseURL)
+
+        try await index.upsert(
+            SearchIndexDocument(
+                id: "quoted-doc",
+                windowID: UUID(),
+                workspaceID: UUID(),
+                panelID: UUID(),
+                kind: .markdown,
+                title: "Quoted Notes",
+                location: "/tmp/quoted.md",
+                anchor: "/tmp/quoted.md",
+                text: "quoted token content"
+            )
+        )
+
+        let hits = try await index.search("\"quoted\" + token", limit: 10)
+        XCTAssertEqual(hits.map(\.id), ["quoted-doc"])
+    }
+
     func testQueryTokensMatchSearchTokenization() {
         XCTAssertEqual(
             SearchIndex.queryTokens(for: "  Alpha-beta AND gamma_delta  "),

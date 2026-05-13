@@ -715,6 +715,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?
     private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
+    private var lastMenuBarExtraShouldInstall: Bool?
     private lazy var mainWindowVisibilityController = MainWindowVisibilityController(
         dependencies: .init(
             isActivationSuppressed: {
@@ -7377,13 +7378,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func syncMenuBarExtraVisibility(defaults: UserDefaults = .standard) {
-        if MenuBarExtraSettings.shouldInstallMenuBarExtra(defaults: defaults) {
+        let shouldInstall = MenuBarExtraSettings.shouldInstallMenuBarExtra(defaults: defaults)
+        let previousShouldInstall = lastMenuBarExtraShouldInstall
+        lastMenuBarExtraShouldInstall = shouldInstall
+
+        if shouldInstall {
             setupMenuBarExtra()
             return
         }
 
+        let hadPersistentController = menuBarExtraController != nil
         menuBarExtraController?.removeFromMenuBar()
         menuBarExtraController = nil
+        if previousShouldInstall == true || hadPersistentController {
+            removeTransientGlobalSearchMenuBarExtraController()
+        }
     }
 
     @MainActor
