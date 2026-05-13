@@ -741,6 +741,7 @@
               "sendFeedback",
               "showNotifications",
               "jumpToUnread",
+              "markOldestUnreadAndJumpNext",
               "focusRightSidebar",
               "switchRightSidebarToFiles",
               "switchRightSidebarToFind",

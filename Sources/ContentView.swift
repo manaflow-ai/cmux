@@ -6316,6 +6316,20 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.markOldestUnreadAndJumpNext",
+                title: constant(
+                    String(
+                        localized: "command.markOldestUnreadAndJumpNext.title",
+                        defaultValue: "Mark as Oldest Unread and Jump to Next Latest Unread"
+                    )
+                ),
+                subtitle: constant(String(localized: "command.jumpUnread.subtitle", defaultValue: "Notifications")),
+                keywords: ["mark", "oldest", "unread", "jump", "next", "notification", "defer"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.openSettings",
                 title: constant(String(localized: "command.openSettings.title", defaultValue: "Open Settings")),
                 subtitle: constant(String(localized: "command.openSettings.subtitle", defaultValue: "Global")),
@@ -7174,6 +7188,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.jumpUnread") {
             AppDelegate.shared?.jumpToLatestUnread()
+        }
+        registry.register(commandId: "palette.markOldestUnreadAndJumpNext") {
+            AppDelegate.shared?.markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(
+                preferredWindow: observedWindow
+            )
         }
         registry.register(commandId: "palette.openSettings") {
 #if DEBUG

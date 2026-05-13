@@ -10473,7 +10473,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func jumpToLatestUnread() -> TerminalNotification? {
+    func jumpToLatestUnread(excludingNotificationId excludedNotificationId: UUID? = nil) -> TerminalNotification? {
         guard let notificationStore else { return nil }
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
@@ -10486,11 +10486,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Prefer the latest unread that we can actually open. In early startup (especially on the VM),
         // the window-context registry can lag behind model initialization, so fall back to whatever
         // tab manager currently owns the tab.
-        for notification in notificationStore.notifications where !notification.isRead {
+        for notification in notificationStore.notifications where !notification.isRead && notification.id != excludedNotificationId {
             if openNotification(tabId: notification.tabId, surfaceId: notification.surfaceId, notificationId: notification.id) {
                 return notificationStore.notifications.first(where: { $0.id == notification.id }) ?? notification
             }
         }
+        return nil
+    }
+
+    @discardableResult
+    func markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(
+        preferredWindow: NSWindow? = nil
+    ) -> TerminalNotification? {
+        let deferredNotificationId = markFocusedNotificationAsOldestUnread(preferredWindow: preferredWindow)
+        return jumpToLatestUnread(excludingNotificationId: deferredNotificationId)
+    }
+
+    private struct FocusedNotificationTarget {
+        let tabId: UUID
+        let surfaceId: UUID?
+    }
+
+    private func markFocusedNotificationAsOldestUnread(preferredWindow: NSWindow?) -> UUID? {
+        guard let notificationStore,
+              let target = focusedNotificationTarget(preferredWindow: preferredWindow) else {
+            return nil
+        }
+        return notificationStore.markLatestNotificationAsOldestUnread(
+            forTabId: target.tabId,
+            surfaceId: target.surfaceId
+        )
+    }
+
+    private func focusedNotificationTarget(preferredWindow: NSWindow?) -> FocusedNotificationTarget? {
+        if let terminalContext = focusedTerminalShortcutContext(preferredWindow: preferredWindow) {
+            return FocusedNotificationTarget(tabId: terminalContext.workspaceId, surfaceId: terminalContext.panelId)
+        }
+
+        let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        if let context = contextForMainWindow(targetWindow),
+           let selectedTabId = context.tabManager.selectedTabId ?? context.tabManager.tabs.first?.id {
+            return FocusedNotificationTarget(
+                tabId: selectedTabId,
+                surfaceId: context.tabManager.focusedSurfaceId(for: selectedTabId)
+            )
+        }
+
+        if let activeManager = tabManager,
+           let selectedTabId = activeManager.selectedTabId ?? activeManager.tabs.first?.id {
+            return FocusedNotificationTarget(
+                tabId: selectedTabId,
+                surfaceId: activeManager.focusedSurfaceId(for: selectedTabId)
+            )
+        }
+
         return nil
     }
 
@@ -11441,6 +11490,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 #endif
             jumpToLatestUnread()
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .markOldestUnreadAndJumpNext) {
+            markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(
+                preferredWindow: mainWindowForShortcutEvent(event)
+            )
             return true
         }
 
