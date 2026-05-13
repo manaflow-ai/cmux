@@ -92,13 +92,26 @@ APP_ID="$(/usr/libexec/PlistBuddy -c "Print :com.apple.application-identifier" \
   /dev/stdin <<<"$(plutil -convert xml1 -o - "$APP_ENTITLEMENTS")" 2>/dev/null || true)"
 
 if [[ -n "$APP_ID" ]]; then
-  /usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>&1 | grep -q "$APP_ID" || {
+  SIGNED_ENTITLEMENTS="$(/usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>/dev/null)"
+  grep -Fq -- "$APP_ID" <<<"$SIGNED_ENTITLEMENTS" || {
     echo "error: signed app missing application-identifier $APP_ID" >&2
     exit 1
   }
+  KEYCHAIN_ACCESS_GROUPS="$(
+    /usr/libexec/PlistBuddy -c "Print :keychain-access-groups" \
+      /dev/stdin <<<"$SIGNED_ENTITLEMENTS" 2>/dev/null || true
+  )"
+  if [[ -z "$KEYCHAIN_ACCESS_GROUPS" ]]; then
+    echo "error: signed app missing keychain-access-groups entitlement" >&2
+    exit 1
+  fi
+  grep -Fq -- "$APP_ID" <<<"$KEYCHAIN_ACCESS_GROUPS" || {
+    echo "error: signed app missing keychain access group $APP_ID" >&2
+    exit 1
+  }
 fi
-/usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>&1 \
-  | grep -q "com.apple.developer.web-browser.public-key-credential" || {
+SIGNED_ENTITLEMENTS="${SIGNED_ENTITLEMENTS:-$(/usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>/dev/null)}"
+grep -Fq -- "com.apple.developer.web-browser.public-key-credential" <<<"$SIGNED_ENTITLEMENTS" || {
     echo "error: signed app missing web-browser entitlement" >&2
     exit 1
   }
