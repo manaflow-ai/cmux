@@ -1666,11 +1666,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let commandPath = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_COMMAND_PATH"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let screenshotDirectory = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_SCREENSHOT_DIR"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let displayMode = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_MODE"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let lineFormat = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_FORMAT"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let linePrefix = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_PREFIX"] ?? ""
+        if let rawOpenSupportedFiles = env["CMUX_UI_TEST_OPEN_SUPPORTED_FILES_IN_CMUX"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawOpenSupportedFiles.isEmpty {
+            CmdClickSupportedFileRouteSettings.setEnabled(rawOpenSupportedFiles == "1")
+        }
         let extraFileNamesJSON = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_EXTRA_FILE_NAMES_JSON"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -1741,6 +1748,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var tokenPointPayload: [String: Any]?
         var observers: [NSObjectProtocol] = []
         var lastHandledCommandID: String?
+        var screenshotSequence = 0
 
         func rectPayload(_ rect: CGRect) -> [String: Double] {
             [
@@ -1758,10 +1766,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ]
         }
 
+        func doubleValue(_ value: Any?) -> Double? {
+            if let value = value as? Double {
+                return value
+            }
+            if let value = value as? NSNumber {
+                return value.doubleValue
+            }
+            return nil
+        }
+
         func pointFromPayload(_ key: String, in terminalPanel: TerminalPanel) -> NSPoint? {
             guard let payload = tokenPointPayload?[key] as? [String: Any],
-                  let x = payload["x"] as? Double,
-                  let yFromTop = payload["y"] as? Double else {
+                  let x = doubleValue(payload["x"]),
+                  let yFromTop = doubleValue(payload["y"]) else {
                 return nil
             }
 
@@ -1779,7 +1797,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         func pointForTokenColumnOffset(_ offset: Int, in terminalPanel: TerminalPanel) -> NSPoint? {
             guard let selectionStart = pointFromPayload("tokenSelectionStartInTerminal", in: terminalPanel),
                   let tokenCellMetrics = tokenPointPayload?["tokenCellMetrics"] as? [String: Any],
-                  let cellWidth = tokenCellMetrics["cellWidth"] as? Double else {
+                  let cellWidth = doubleValue(tokenCellMetrics["cellWidth"]) else {
                 return nil
             }
 
@@ -1977,8 +1995,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
+        func safeScreenshotLabel(_ label: String) -> String {
+            let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
+            let scalars = label.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
+            let cleaned = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: "-_."))
+            return cleaned.isEmpty ? "capture" : cleaned
+        }
+
+        @MainActor
+        func captureWindowSnapshotIfRequested(label: String, window: NSWindow) -> String? {
+            guard let screenshotDirectory,
+                  !screenshotDirectory.isEmpty,
+                  let contentView = window.contentView else {
+                return nil
+            }
+            let bounds = contentView.bounds
+            guard !bounds.isEmpty,
+                  let bitmap = contentView.bitmapImageRepForCachingDisplay(in: bounds) else {
+                return nil
+            }
+            contentView.cacheDisplay(in: bounds, to: bitmap)
+            guard let data = bitmap.representation(using: .png, properties: [:]) else {
+                return nil
+            }
+            do {
+                let directoryURL = URL(fileURLWithPath: screenshotDirectory, isDirectory: true)
+                try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+                let sequence = String(format: "%03d", screenshotSequence)
+                screenshotSequence += 1
+                let fileURL = directoryURL
+                    .appendingPathComponent("\(sequence)-\(safeScreenshotLabel(label)).png")
+                try data.write(to: fileURL, options: .atomic)
+                return fileURL.path
+            } catch {
+                cmuxDebugLog("cmdclick.ui.snapshot failed label=\(label) error=\(error.localizedDescription)")
+                return nil
+            }
+        }
+
+        func cmdClickUITestTerminalPanel(in workspace: Workspace?) -> TerminalPanel? {
+            guard let workspace else { return nil }
+            if let focusedTerminalPanel = workspace.focusedTerminalPanel {
+                return focusedTerminalPanel
+            }
+            return workspace.panels.values
+                .compactMap { $0 as? TerminalPanel }
+                .first { panel in
+                    panel.hostedView.window != nil &&
+                        panel.hostedView.debugPortalVisibleInUI &&
+                        !panel.hostedView.debugPortalFrameInWindow.isEmpty
+                }
+        }
+
         @MainActor
         func executePendingCommandIfNeeded(
+            workspace: Workspace,
             terminalPanel: TerminalPanel,
             window: NSWindow
         ) {
@@ -2034,6 +2105,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 payload["lastCommandResult"] = result
                 if let openedPath = result["openedPath"] as? String {
                     payload["lastCommandOpenedPath"] = openedPath
+                    let canonicalOpenedPath = (openedPath as NSString).resolvingSymlinksInPath
+                    let openedInFilePreview = workspace.panels.values.contains { panel in
+                        guard let filePreview = panel as? FilePreviewPanel else { return false }
+                        return (filePreview.filePath as NSString).resolvingSymlinksInPath == canonicalOpenedPath
+                    }
+                    let openedInMarkdownViewer = workspace.panels.values.contains { panel in
+                        guard let markdown = panel as? MarkdownPanel else { return false }
+                        return (markdown.filePath as NSString).resolvingSymlinksInPath == canonicalOpenedPath
+                    }
+                    payload["lastCommandOpenedInFilePreview"] = openedInFilePreview ? "1" : "0"
+                    payload["lastCommandOpenedInMarkdownViewer"] = openedInMarkdownViewer ? "1" : "0"
                     payload["lastCommandSucceeded"] = "1"
                 } else if let error = result["error"] as? String {
                     payload["lastCommandError"] = error
@@ -2061,6 +2143,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     payload["lastCommandError"] = "Selection or hover suppression failed"
                 }
 
+            case "capture_window":
+                let label = (command["label"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if let path = captureWindowSnapshotIfRequested(
+                    label: label?.isEmpty == false ? label! : "capture",
+                    window: window
+                ) {
+                    payload["lastCommandScreenshotPath"] = path
+                    payload["lastCommandSucceeded"] = "1"
+                } else {
+                    payload["lastCommandError"] = "Window screenshot capture unavailable"
+                }
+
             default:
                 payload["lastCommandError"] = "Unknown command action: \(action)"
             }
@@ -2079,7 +2174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard !resolved else { return }
             let currentTabManager = self.tabManager
             let workspace = currentTabManager?.selectedWorkspace ?? currentTabManager?.tabs.first
-            let terminalPanel = workspace?.focusedTerminalPanel
+            let terminalPanel = cmdClickUITestTerminalPanel(in: workspace)
             let mainWindow = terminalPanel?.hostedView.window
                 ?? currentTabManager.flatMap { self.windowId(for: $0).flatMap { self.mainWindow(for: $0) } }
             if Date() >= deadline {
@@ -2223,6 +2318,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard terminalReady, terminalVisible, hasRenderedToken, tokenLayoutReady else { return }
             if commandPath?.isEmpty == false {
                 executePendingCommandIfNeeded(
+                    workspace: workspace,
                     terminalPanel: terminalPanel,
                     window: mainWindow
                 )

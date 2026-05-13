@@ -7225,7 +7225,7 @@ final class Workspace: Identifiable, ObservableObject {
     nonisolated private static let manualUnreadClearDelayAfterFocusFlash: TimeInterval = 0.2
     @Published var statusEntries: [String: SidebarStatusEntry] = [:]
     @Published var metadataBlocks: [String: SidebarMetadataBlock] = [:]
-    @Published private(set) var latestSubmittedMessage: String?
+    @Published private(set) var latestConversationMessage: String?
     @Published var logEntries: [SidebarLogEntry] = []
     @Published var progress: SidebarProgressState?
     @Published var gitBranch: SidebarGitBranchState?
@@ -7314,7 +7314,7 @@ final class Workspace: Identifiable, ObservableObject {
             sidebarObservationSignal($isPinned),
             sidebarObservationSignal($customColor),
             sidebarObservationSignal($terminalScrollBarHidden),
-            sidebarObservationSignal($latestSubmittedMessage),
+            sidebarObservationSignal($latestConversationMessage),
         ]
 
         return Publishers.MergeMany(publishers).eraseToAnyPublisher()
@@ -8761,7 +8761,7 @@ final class Workspace: Identifiable, ObservableObject {
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
         agentListeningPorts.removeAll()
-        latestSubmittedMessage = nil
+        latestConversationMessage = nil
         logEntries.removeAll()
         progress = nil
         gitBranch = nil
@@ -9071,11 +9071,16 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
-    func recordSubmittedMessage(_ message: String?) -> Bool {
-        guard let preview = Self.submittedMessagePreview(from: message) else { return false }
-        guard latestSubmittedMessage != preview else { return false }
-        latestSubmittedMessage = preview
+    func recordConversationMessage(_ message: String?) -> Bool {
+        guard let preview = Self.conversationMessagePreview(from: message) else { return false }
+        guard latestConversationMessage != preview else { return false }
+        latestConversationMessage = preview
         return true
+    }
+
+    @discardableResult
+    func recordSubmittedMessage(_ message: String?) -> Bool {
+        recordConversationMessage(message)
     }
 
     var isRemoteWorkspace: Bool {
@@ -10400,6 +10405,11 @@ final class Workspace: Identifiable, ObservableObject {
                 return md
             }
         }
+
+        if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
+            return newMarkdownSurface(inPane: targetPane, filePath: filePath, focus: true)
+        }
+
         return newMarkdownSplit(
             from: panelId,
             orientation: .horizontal,
@@ -10581,6 +10591,33 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         return newFilePreviewSurface(inPane: paneId, filePath: filePath, focus: focus)
+    }
+
+    @discardableResult
+    func openOrFocusFilePreviewSplit(
+        from panelId: UUID,
+        filePath: String
+    ) -> FilePreviewPanel? {
+        let canonical = (filePath as NSString).resolvingSymlinksInPath
+        for (existingId, panel) in panels {
+            guard let preview = panel as? FilePreviewPanel else { continue }
+            if (preview.filePath as NSString).resolvingSymlinksInPath == canonical {
+                focusPanel(existingId)
+                return preview
+            }
+        }
+
+        if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
+            return newFilePreviewSurface(inPane: targetPane, filePath: filePath, focus: true)
+        }
+
+        guard let sourcePaneId = paneId(forPanelId: panelId) else { return nil }
+        return splitPaneWithFilePreview(
+            targetPane: sourcePaneId,
+            orientation: .horizontal,
+            insertFirst: false,
+            filePath: filePath
+        )
     }
 
     @discardableResult
@@ -10873,10 +10910,10 @@ final class Workspace: Identifiable, ObservableObject {
         return bonsplitController.tabs(inPane: paneId).firstIndex(where: { $0.id == tabId })
     }
 
-    /// Returns the nearest right-side sibling pane for browser placement.
+    /// Returns the nearest right-side sibling pane for browser/file-preview placement.
     /// The search is local to the source pane's ancestry in the split tree:
     /// use the closest horizontal ancestor where the source is in the first (left) branch.
-    func preferredBrowserTargetPane(fromPanelId panelId: UUID) -> PaneID? {
+    func preferredRightSideTargetPane(fromPanelId panelId: UUID) -> PaneID? {
         guard let sourcePane = paneId(forPanelId: panelId) else { return nil }
         let sourcePaneId = sourcePane.id.uuidString
         let tree = bonsplitController.treeSnapshot()

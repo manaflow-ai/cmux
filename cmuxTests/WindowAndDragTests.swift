@@ -132,6 +132,94 @@ final class WindowAccessorTests: XCTestCase {
 }
 
 @MainActor
+final class CmuxMainWindowTitlebarProxyIconTests: XCTestCase {
+    func testMainWindowSuppressesNativeRepresentedURLProxyIcon() {
+        _ = NSApplication.shared
+        let window = CmuxMainWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+
+        let workspaceDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        window.representedURL = workspaceDirectory
+
+        XCTAssertNil(
+            window.representedURL,
+            "cmux main windows render the workspace folder icon inside the custom titlebar, so AppKit must not keep a native proxy icon at an independent titlebar position."
+        )
+        XCTAssertTrue(
+            window.representedFilename.isEmpty,
+            "Clearing the native proxy URL should also leave the legacy represented filename empty."
+        )
+
+        window.representedFilename = workspaceDirectory.path
+
+        XCTAssertTrue(
+            window.representedFilename.isEmpty,
+            "cmux main windows must also reject the legacy represented filename proxy icon path."
+        )
+        XCTAssertNil(window.representedURL)
+    }
+}
+
+@MainActor
+final class MainWindowFocusRedrawTests: XCTestCase {
+    func testKeyRegainInvalidatesRootContentView() {
+        _ = NSApplication.shared
+
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: tabManager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+        }
+
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 420))
+        let splitView = NSSplitView(frame: contentView.bounds)
+        splitView.isVertical = true
+        splitView.autoresizingMask = [.width, .height]
+        splitView.dividerStyle = .thin
+
+        let sidebar = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 420))
+        let main = NSView(frame: NSRect(x: 221, y: 0, width: 419, height: 420))
+        splitView.addArrangedSubview(sidebar)
+        splitView.addArrangedSubview(main)
+        contentView.addSubview(splitView)
+        splitView.setPosition(220, ofDividerAt: 0)
+
+        let window = CmuxMainWindow(
+            contentRect: contentView.bounds,
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        window.contentView = contentView
+        defer { window.close() }
+
+        contentView.layoutSubtreeIfNeeded()
+        splitView.adjustSubviews()
+
+        contentView.needsDisplay = false
+
+        appDelegate.handleCmuxWindowResignedKey(
+            Notification(name: NSWindow.didResignKeyNotification, object: window)
+        )
+        appDelegate.handleCmuxWindowBecameKey(
+            Notification(name: NSWindow.didBecomeKeyNotification, object: window)
+        )
+
+        XCTAssertTrue(
+            contentView.needsDisplay,
+            "Regaining key focus must invalidate the root content view."
+        )
+    }
+}
+
+@MainActor
 final class AppDelegateWindowContextRoutingTests: XCTestCase {
     private func makeMainWindow(id: UUID) -> NSWindow {
         let window = NSWindow(
@@ -1497,6 +1585,147 @@ final class WindowDragHandleHitTests: XCTestCase {
 
 @MainActor
 final class DraggableFolderHitTests: XCTestCase {
+    func testDetachedFolderPanelFollowsHostFrameChanges() {
+        _ = NSApplication.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 40, y: 40, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 180))
+        window.contentView = container
+
+        let hostView = DetachedFolderDragIconHostView(directory: NSTemporaryDirectory())
+        hostView.frame = NSRect(
+            x: 24,
+            y: 120,
+            width: TitlebarFolderIconMetrics.iconSize,
+            height: TitlebarFolderIconMetrics.iconSize
+        )
+        container.addSubview(hostView)
+        defer { hostView.removeFromSuperview() }
+
+        hostView.syncDetachedIcon()
+        guard let initialFrame = hostView.detachedIconFrameForTesting else {
+            XCTFail("Expected detached folder panel to be created")
+            return
+        }
+
+        hostView.setFrameOrigin(NSPoint(x: 96, y: 120))
+
+        guard let movedFrame = hostView.detachedIconFrameForTesting else {
+            XCTFail("Expected detached folder panel to remain attached")
+            return
+        }
+        XCTAssertEqual(movedFrame.minX, initialFrame.minX + 72, accuracy: 0.5)
+        XCTAssertEqual(movedFrame.minY, initialFrame.minY, accuracy: 0.5)
+    }
+
+    func testDetachedFolderPanelFollowsHostFrameReplacement() {
+        _ = NSApplication.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 40, y: 40, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 180))
+        window.contentView = container
+
+        let hostView = DetachedFolderDragIconHostView(directory: NSTemporaryDirectory())
+        hostView.frame = NSRect(
+            x: 24,
+            y: 120,
+            width: TitlebarFolderIconMetrics.iconSize,
+            height: TitlebarFolderIconMetrics.iconSize
+        )
+        container.addSubview(hostView)
+        defer { hostView.removeFromSuperview() }
+
+        hostView.syncDetachedIcon()
+        guard let initialFrame = hostView.detachedIconFrameForTesting else {
+            XCTFail("Expected detached folder panel to be created")
+            return
+        }
+
+        hostView.frame = NSRect(
+            x: 96,
+            y: 128,
+            width: TitlebarFolderIconMetrics.iconSize,
+            height: TitlebarFolderIconMetrics.iconSize
+        )
+
+        guard let movedFrame = hostView.detachedIconFrameForTesting else {
+            XCTFail("Expected detached folder panel to remain attached")
+            return
+        }
+        XCTAssertEqual(movedFrame.minX, initialFrame.minX + 72, accuracy: 0.5)
+        XCTAssertEqual(movedFrame.minY, initialFrame.minY + 8, accuracy: 0.5)
+    }
+
+    func testDetachedFolderPanelFollowsAncestorFrameChanges() {
+        _ = NSApplication.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 40, y: 40, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 180))
+        window.contentView = container
+
+        let titlebarHost = NSView(frame: NSRect(x: 24, y: 0, width: 180, height: 180))
+        container.addSubview(titlebarHost)
+        defer { titlebarHost.removeFromSuperview() }
+
+        let hostView = DetachedFolderDragIconHostView(directory: NSTemporaryDirectory())
+        hostView.frame = NSRect(
+            x: 12,
+            y: 120,
+            width: TitlebarFolderIconMetrics.iconSize,
+            height: TitlebarFolderIconMetrics.iconSize
+        )
+        titlebarHost.addSubview(hostView)
+        defer { hostView.removeFromSuperview() }
+
+        hostView.syncDetachedIcon()
+        guard let initialFrame = hostView.detachedIconFrameForTesting else {
+            XCTFail("Expected detached folder panel to be created")
+            return
+        }
+
+        titlebarHost.setFrameOrigin(NSPoint(x: 96, y: 0))
+        let expectedMinX = initialFrame.minX + 72
+        let expectedMinY = initialFrame.minY
+        let deadline = Date().addingTimeInterval(0.5)
+        var movedFrame = hostView.detachedIconFrameForTesting
+        while Date() < deadline {
+            if let frame = movedFrame,
+               abs(frame.minX - expectedMinX) <= 0.5,
+               abs(frame.minY - expectedMinY) <= 0.5 {
+                break
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.005))
+            movedFrame = hostView.detachedIconFrameForTesting
+        }
+
+        guard let movedFrame else {
+            XCTFail("Expected detached folder panel to remain attached")
+            return
+        }
+        XCTAssertEqual(
+            movedFrame.minX,
+            expectedMinX,
+            accuracy: 0.5,
+            "The detached panel must follow converted window coordinates when a sidebar toggle moves an ancestor view without changing the host view's local frame."
+        )
+        XCTAssertEqual(movedFrame.minY, expectedMinY, accuracy: 0.5)
+    }
+
     func testFolderHitTestReturnsContainerWhenInsideBounds() {
         let folderView = DraggableFolderNSView(directory: "/tmp")
         folderView.frame = NSRect(x: 0, y: 0, width: 16, height: 16)
@@ -2437,10 +2666,164 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertNotEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
-    private func temporaryTextFile(contents: String, encoding: String.Encoding) throws -> URL {
+    func testExternalOpenApplicationResolverOrdersDefaultAppFirstAndDeduplicates() {
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-sample.mov")
+        let quickTimeURL = URL(fileURLWithPath: "/Applications/QuickTime Player.app")
+        let vlcURL = URL(fileURLWithPath: "/Applications/VLC.app")
+        let names = [
+            quickTimeURL.path: "QuickTime Player",
+            vlcURL.path: "VLC",
+        ]
+        let resolver = FileExternalOpenApplicationResolver(
+            defaultApplicationURL: { _ in quickTimeURL },
+            applicationURLs: { _ in [vlcURL, quickTimeURL, vlcURL] },
+            displayName: { names[$0.path] ?? $0.lastPathComponent },
+            shouldIncludeApplication: { _ in true }
+        )
+
+        let applications = resolver.applications(for: fileURL)
+
+        XCTAssertEqual(applications.map(\.displayName), ["QuickTime Player", "VLC"])
+        XCTAssertEqual(applications.map(\.isDefault), [true, false])
+    }
+
+    func testExternalOpenApplicationResolverFallsBackWhenDefaultAppIsFiltered() {
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-sample.pdf")
+        let cmuxURL = URL(fileURLWithPath: "/Applications/cmux.app")
+        let previewURL = URL(fileURLWithPath: "/System/Applications/Preview.app")
+        let resolver = FileExternalOpenApplicationResolver(
+            defaultApplicationURL: { _ in cmuxURL },
+            applicationURLs: { _ in [cmuxURL, previewURL] },
+            displayName: { $0.deletingPathExtension().lastPathComponent },
+            shouldIncludeApplication: { $0 != cmuxURL }
+        )
+
+        let applications = resolver.applications(for: fileURL)
+
+        XCTAssertEqual(applications.map(\.displayName), ["Preview"])
+        XCTAssertEqual(applications.map(\.isDefault), [false])
+    }
+
+    func testCmdClickSupportedFileRoutingDefaultsToReadableRegularFilesOnly() throws {
+        let suiteName = "cmux.file-preview-routing.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fileURL = try temporaryTextFile(contents: "preview me", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        XCTAssertTrue(CmdClickSupportedFileRouteSettings.isEnabled(defaults: defaults))
+        XCTAssertTrue(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+        XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: directoryURL.path, defaults: defaults))
+
+        defaults.set(false, forKey: CmdClickSupportedFileRouteSettings.key)
+        XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+    }
+
+    func testCmdClickMarkdownRoutingDoesNotRequireSupportedFileRoutingSetting() throws {
+        let suiteName = "cmux.markdown-preview-routing.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fileURL = try temporaryTextFile(contents: "# preview me", encoding: .utf8, pathExtension: "md")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        defaults.set(true, forKey: CmdClickMarkdownRouteSettings.key)
+        defaults.set(false, forKey: CmdClickSupportedFileRouteSettings.key)
+
+        XCTAssertTrue(CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+        XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+    }
+
+    func testCmdClickFilePreviewRoutingReusesRightSidePane() throws {
+        let sourceURL = try temporaryTextFile(contents: "source", encoding: .utf8)
+        let firstURL = try temporaryTextFile(contents: "first", encoding: .utf8)
+        let secondURL = try temporaryTextFile(contents: "second", encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: sourceURL)
+            try? FileManager.default.removeItem(at: firstURL)
+            try? FileManager.default.removeItem(at: secondURL)
+        }
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
+        let sourcePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let sourcePanel = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: sourcePane,
+            filePath: sourceURL.path,
+            focus: true
+        ))
+
+        let firstPanel = try XCTUnwrap(workspace.openOrFocusFilePreviewSplit(
+            from: sourcePanel.id,
+            filePath: firstURL.path
+        ))
+        let rightPane = try XCTUnwrap(workspace.paneId(forPanelId: firstPanel.id))
+        let paneCountAfterFirstOpen = workspace.bonsplitController.allPaneIds.count
+        let rightTabsAfterFirstOpen = workspace.bonsplitController.tabs(inPane: rightPane).count
+
+        let secondPanel = try XCTUnwrap(workspace.openOrFocusFilePreviewSplit(
+            from: sourcePanel.id,
+            filePath: secondURL.path
+        ))
+
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, paneCountAfterFirstOpen)
+        XCTAssertEqual(workspace.paneId(forPanelId: secondPanel.id)?.id, rightPane.id)
+        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: rightPane).count, rightTabsAfterFirstOpen + 1)
+    }
+
+    func testCmdClickMarkdownRoutingReusesRightSidePane() throws {
+        let sourceURL = try temporaryTextFile(contents: "source", encoding: .utf8)
+        let firstURL = try temporaryTextFile(contents: "# first", encoding: .utf8, pathExtension: "md")
+        let secondURL = try temporaryTextFile(contents: "# second", encoding: .utf8, pathExtension: "md")
+        defer {
+            try? FileManager.default.removeItem(at: sourceURL)
+            try? FileManager.default.removeItem(at: firstURL)
+            try? FileManager.default.removeItem(at: secondURL)
+        }
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
+        let sourcePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let sourcePanel = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: sourcePane,
+            filePath: sourceURL.path,
+            focus: true
+        ))
+
+        let firstPanel = try XCTUnwrap(workspace.openOrFocusMarkdownSplit(
+            from: sourcePanel.id,
+            filePath: firstURL.path
+        ))
+        let rightPane = try XCTUnwrap(workspace.paneId(forPanelId: firstPanel.id))
+        let paneCountAfterFirstOpen = workspace.bonsplitController.allPaneIds.count
+        let rightTabsAfterFirstOpen = workspace.bonsplitController.tabs(inPane: rightPane).count
+
+        let secondPanel = try XCTUnwrap(workspace.openOrFocusMarkdownSplit(
+            from: sourcePanel.id,
+            filePath: secondURL.path
+        ))
+
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, paneCountAfterFirstOpen)
+        XCTAssertEqual(workspace.paneId(forPanelId: secondPanel.id)?.id, rightPane.id)
+        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: rightPane).count, rightTabsAfterFirstOpen + 1)
+    }
+
+    private func temporaryTextFile(
+        contents: String,
+        encoding: String.Encoding,
+        pathExtension: String = "txt"
+    ) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("txt")
+            .appendingPathExtension(pathExtension)
         try contents.write(to: url, atomically: true, encoding: encoding)
         return url
     }

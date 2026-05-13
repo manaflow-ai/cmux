@@ -234,6 +234,19 @@ enum WorkspacePlacementSettings {
         return placement
     }
 
+    static func effectivePlacement(
+        placementOverride: NewWorkspacePlacement?,
+        defaults: UserDefaults = .standard
+    ) -> NewWorkspacePlacement {
+        if let placementOverride {
+            return placementOverride
+        }
+        if IMessageModeSettings.isEnabled(defaults: defaults) {
+            return .top
+        }
+        return current(defaults: defaults)
+    }
+
     static func insertionIndex(
         placement: NewWorkspacePlacement,
         selectedIndex: Int?,
@@ -3806,7 +3819,7 @@ class TabManager: ObservableObject {
         snapshot: WorkspaceCreationSnapshot,
         placementOverride: NewWorkspacePlacement? = nil
     ) -> Int {
-        let placement = placementOverride ?? WorkspacePlacementSettings.current()
+        let placement = WorkspacePlacementSettings.effectivePlacement(placementOverride: placementOverride)
         let liveTabs = orderedLiveWorkspaceCreationTabs(from: snapshot) ?? snapshot.tabs
         let pinnedCount = liveTabs.reduce(into: 0) { partial, tab in
             if tab.isPinned {
