@@ -12839,7 +12839,6 @@ struct CMUXCLI {
             let depth = parentDepth.map { $0 + 1 } ?? max(spawn.sourceDepth ?? 1, 1)
             depthByThreadId[thread.id] = depth
             guard depth <= maxAutoDepth else { return }
-            guard CMUXCLI.codexTeamsThreadIsReadyToResume(thread) else { return }
             guard !openedThreadIds.contains(thread.id) else { return }
 
             do {
@@ -12931,14 +12930,6 @@ struct CMUXCLI {
         return status["type"] as? String
     }
 
-    private static func codexTeamsThreadIsReadyToResume(_ thread: CodexTeamsThread) -> Bool {
-        guard let statusType = thread.statusType?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-              !statusType.isEmpty else {
-            return true
-        }
-        return statusType == "idle"
-    }
-
     private static func codexTeamsSpawn(from threadObject: [String: Any]) -> CodexTeamsSpawn? {
         guard let source = threadObject["source"] as? [String: Any] else { return nil }
         let subagentSource = source["subAgent"] ?? source["subagent"]
@@ -13000,12 +12991,29 @@ struct CMUXCLI {
             .appendingPathComponent("cmux-codex-teams-\(UUID().uuidString.lowercased()).sh")
         var lines = [
             "#!/bin/sh",
-            "rm -f -- \"$0\" 2>/dev/null || true"
+            "rm -f -- \"$0\" 2>/dev/null || true",
+            "attempt=1"
         ]
         if let cwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines), !cwd.isEmpty {
             lines.append("cd -- \(codexTeamsShellQuote(cwd)) || exit $?")
         }
-        lines.append("exec \"${SHELL:-/bin/sh}\" -lc \(codexTeamsShellQuote(commandText))")
+        lines.append("""
+        while :; do
+          if [ "$attempt" -gt 1 ]; then
+            printf 'Waiting for Codex subagent thread to become attachable (attempt %s)...\\n' "$attempt"
+          fi
+          "${SHELL:-/bin/sh}" -lc \(codexTeamsShellQuote(commandText))
+          status=$?
+          if [ "$status" -eq 0 ]; then
+            exit 0
+          fi
+          if [ "$attempt" -ge 300 ]; then
+            exit "$status"
+          fi
+          attempt=$((attempt + 1))
+          sleep 1
+        done
+        """)
         do {
             try (lines.joined(separator: "\n") + "\n").write(
                 to: scriptURL,
