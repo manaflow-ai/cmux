@@ -2316,6 +2316,10 @@ struct ContentView: View {
 
                 Spacer()
 
+                if let selectedWorkspace = tabManager.selectedWorkspace {
+                    WorkspaceDockToggleCluster(layout: selectedWorkspace.dockLayout)
+                }
+
             }
             .frame(height: titlebarContentHeight)
             .padding(.top, 2)

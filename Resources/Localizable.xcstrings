@@ -107367,6 +107367,23 @@
         }
       }
     },
+    "workspaceDock.count.menu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock Count"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock数"
+          }
+        }
+      }
+    },
     "workspaceDock.open.left": {
       "extractionState": "manual",
       "localizations": {

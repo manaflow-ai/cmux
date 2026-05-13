@@ -734,11 +734,7 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
             dockRevealZone(edge: .right)
             dockRevealZone(edge: .bottom)
         }
-        .overlay(alignment: .topTrailing) {
-            WorkspaceDockToggleCluster(layout: layout)
-                .padding(.top, 7)
-                .padding(.trailing, 12)
-        }
+        .background(Color(nsColor: appearance.backgroundColor.withAlphaComponent(1)))
     }
 
     private func dockStrip(edge: WorkspaceDockEdge, docks: [WorkspaceDock]) -> some View {
@@ -769,6 +765,7 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
                 layout.addDock(edge: edge)
             }
         }
+        .background(Color(nsColor: appearance.backgroundColor.withAlphaComponent(1)))
     }
 
     private var bottomDockStrip: some View {
@@ -795,6 +792,7 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
                 layout.addDock(edge: .bottom)
             }
         }
+        .background(Color(nsColor: appearance.backgroundColor.withAlphaComponent(1)))
     }
 
     private var bottomDockHeightForOpenDocks: CGFloat {
@@ -870,11 +868,11 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
     }
 }
 
-private struct WorkspaceDockToggleCluster: View {
+struct WorkspaceDockToggleCluster: View {
     @ObservedObject var layout: WorkspaceDockLayout
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 2) {
             ForEach(WorkspaceDockEdge.controlOrder) { edge in
                 Button {
                     layout.toggleEdge(edge)
@@ -887,9 +885,16 @@ private struct WorkspaceDockToggleCluster: View {
                     Button(layout.isEdgeOpen(edge) ? closeTitle(edge: edge) : openTitle(edge: edge)) {
                         layout.toggleEdge(edge)
                     }
-                    Button(addDockTitle(edge: edge)) {
-                        layout.addDock(edge: edge)
+
+                    Menu(String(localized: "workspaceDock.count.menu", defaultValue: "Dock Count")) {
+                        ForEach(layout.dockCountChoices(for: edge), id: \.self) { count in
+                            Button(dockCountTitle(count: count)) {
+                                layout.setDockCount(edge: edge, count: count)
+                            }
+                            .disabled(!layout.canSetDockCount(edge: edge, count: count))
+                        }
                     }
+
                     if layout.hasEmptyDocks(edge: edge) {
                         Divider()
                         Button(removeEmptyDocksTitle(edge: edge), role: .destructive) {
@@ -899,13 +904,13 @@ private struct WorkspaceDockToggleCluster: View {
                 }
             }
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 5)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
+        .background(Color.primary.opacity(0.045))
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.primary.opacity(0.16), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(Color.primary.opacity(0.11), lineWidth: 1)
         }
     }
 
@@ -953,6 +958,10 @@ private struct WorkspaceDockToggleCluster: View {
         }
     }
 
+    private func dockCountTitle(count: Int) -> String {
+        String(count)
+    }
+
     private func removeEmptyDocksTitle(edge: WorkspaceDockEdge) -> String {
         switch edge {
         case .left:
@@ -972,41 +981,41 @@ private struct WorkspaceDockToggleIcon: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 2.5, style: .continuous)
-                .stroke(iconColor, lineWidth: 1.4)
-                .frame(width: 18, height: 14)
+                .stroke(iconColor, lineWidth: 1)
+                .frame(width: 14, height: 11)
             RoundedRectangle(cornerRadius: 1.4, style: .continuous)
                 .fill(iconColor.opacity(isOpen ? 0.95 : 0.45))
                 .frame(width: stripeSize.width, height: stripeSize.height)
                 .offset(stripeOffset)
         }
-        .frame(width: 26, height: 24)
+        .frame(width: 20, height: 18)
         .background(
             RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(isOpen ? Color.primary.opacity(0.13) : Color.clear)
+                .fill(isOpen ? Color.primary.opacity(0.08) : Color.clear)
         )
     }
 
     private var iconColor: Color {
-        Color.primary.opacity(isOpen ? 0.9 : 0.58)
+        Color.primary.opacity(isOpen ? 0.72 : 0.42)
     }
 
     private var stripeSize: CGSize {
         switch edge {
         case .left, .right:
-            return CGSize(width: 5, height: 12)
+            return CGSize(width: 4, height: 9)
         case .bottom:
-            return CGSize(width: 16, height: 5)
+            return CGSize(width: 12, height: 4)
         }
     }
 
     private var stripeOffset: CGSize {
         switch edge {
         case .left:
-            return CGSize(width: -5.5, height: 0)
+            return CGSize(width: -4.5, height: 0)
         case .right:
-            return CGSize(width: 5.5, height: 0)
+            return CGSize(width: 4.5, height: 0)
         case .bottom:
-            return CGSize(width: 0, height: 4.5)
+            return CGSize(width: 0, height: 3.5)
         }
     }
 
@@ -1026,7 +1035,7 @@ private struct WorkspaceDockPaneView: View {
 
     var body: some View {
         dockBonsplitView
-            .background(Color(nsColor: GhosttyBackgroundTheme.currentColor()))
+            .background(Color(nsColor: appearance.backgroundColor.withAlphaComponent(1)))
             .contextMenu {
                 Button(addDockTitle(edge: dock.edge)) {
                     layout.addDock(edge: dock.edge)

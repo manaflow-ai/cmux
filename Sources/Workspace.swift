@@ -7308,6 +7308,56 @@ final class WorkspaceDockLayout: ObservableObject {
         return dock
     }
 
+    func dockCount(for edge: WorkspaceDockEdge) -> Int {
+        docks(for: edge).count
+    }
+
+    func dockCountChoices(for edge: WorkspaceDockEdge) -> [Int] {
+        Array(0...max(6, dockCount(for: edge) + 2))
+    }
+
+    func canSetDockCount(edge: WorkspaceDockEdge, count: Int) -> Bool {
+        count >= nonEmptyDockCount(for: edge)
+    }
+
+    func setDockCount(edge: WorkspaceDockEdge, count: Int) {
+        let target = max(0, count)
+        let current = docks(for: edge)
+
+        if target > current.count {
+            for _ in current.count..<target {
+                _ = addDock(edge: edge)
+            }
+            openEdge(edge)
+            return
+        }
+
+        if target == current.count {
+            if target == 0 {
+                closeEdge(edge)
+            } else {
+                openEdge(edge)
+            }
+            return
+        }
+
+        let removeCount = current.count - target
+        let removableIds = current
+            .reversed()
+            .filter { $0.controller.allTabIds.isEmpty }
+            .prefix(removeCount)
+            .map(\.id)
+
+        guard removableIds.count == removeCount else { return }
+        removeDocks(withIds: Set(removableIds), edge: edge)
+
+        if docks(for: edge).isEmpty {
+            closeEdge(edge)
+        } else {
+            openEdge(edge)
+        }
+    }
+
     func isEdgeOpen(_ edge: WorkspaceDockEdge) -> Bool {
         openEdges.contains(edge)
     }
@@ -7396,6 +7446,21 @@ final class WorkspaceDockLayout: ObservableObject {
             return right
         case .bottom:
             return bottom
+        }
+    }
+
+    private func nonEmptyDockCount(for edge: WorkspaceDockEdge) -> Int {
+        docks(for: edge).filter { !$0.controller.allTabIds.isEmpty }.count
+    }
+
+    private func removeDocks(withIds ids: Set<UUID>, edge: WorkspaceDockEdge) {
+        switch edge {
+        case .left:
+            left.removeAll { ids.contains($0.id) }
+        case .right:
+            right.removeAll { ids.contains($0.id) }
+        case .bottom:
+            bottom.removeAll { ids.contains($0.id) }
         }
     }
 
