@@ -111078,13 +111078,6 @@
         "ja": { "stringUnit": { "state": "translated", "value": "%@ に Safari Web Extension が見つかりませんでした。" } }
       }
     },
-    "browser.extensions.error.invalidChromeExtensionArchive": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%@ is not a valid Chrome extension package." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ は有効な Chrome 拡張機能パッケージではありません。" } }
-      }
-    },
     "browser.extensions.error.unsupportedOS": {
       "extractionState": "manual",
       "localizations": {
@@ -111095,8 +111088,8 @@
     "browser.extensions.error.unsupportedSource": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%@ is not an extension folder, ZIP, CRX, .appex, or app containing a Safari Web Extension." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ は拡張機能フォルダ、ZIP、CRX、.appex、または Safari Web Extension を含むアプリではありません。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "%@ is not an app or .appex containing a Safari Web Extension." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ は Safari Web Extension を含むアプリまたは .appex ではありません。" } }
       }
     },
     "browser.extensions.install.cancel": {
@@ -111270,8 +111263,8 @@
     "settings.browser.extensions.subtitleEmpty": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Install Chrome-compatible WebExtensions from CRX or ZIP files, unpacked folders, or Safari web extension app bundles." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "CRX または ZIP ファイル、展開済みフォルダ、または Safari Web Extension アプリバンドルから Chrome 互換 WebExtension をインストールします。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Install Safari Web Extension app bundles or standalone .appex bundles." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Safari Web Extension アプリバンドルまたは単体の .appex バンドルをインストールします。" } }
       }
     },
     "settings.browser.extensions.subtitleMany": {
@@ -111298,8 +111291,8 @@
     "settings.search.alias.setting.browser.extensions": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "browser extensions chrome webextensions ublock origin 1password bitwarden icloud passwords password manager passkeys video speed controller ad blocker" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "browser extensions chrome webextensions ublock origin 1password bitwarden icloud passwords password manager passkeys video speed controller ad blocker ブラウザ 拡張機能 パスワード マネージャー 広告ブロック" } }
+        "en": { "stringUnit": { "state": "translated", "value": "browser extensions safari webextensions ublock origin 1password bitwarden icloud passwords password manager passkeys video speed controller ad blocker" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "browser extensions safari webextensions ublock origin 1password bitwarden icloud passwords password manager passkeys video speed controller ad blocker ブラウザ 拡張機能 パスワード マネージャー 広告ブロック" } }
       }
     }
   }

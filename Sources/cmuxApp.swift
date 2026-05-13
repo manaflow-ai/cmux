@@ -1148,6 +1148,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.settings",
     "cmux.about",
     "cmux.licenses",
+    "cmux.browser-extension-window",
     "cmux.browser-popup",
     "cmux.browserProfilePopoverDebug",
     "cmux.configEditor",
@@ -5339,7 +5340,7 @@ struct SettingsView: View {
         }
         switch browserExtensionSummaries.count {
         case 0:
-            return String(localized: "settings.browser.extensions.subtitleEmpty", defaultValue: "Install Chrome-compatible WebExtensions from CRX or ZIP files, unpacked folders, or Safari web extension app bundles.")
+            return String(localized: "settings.browser.extensions.subtitleEmpty", defaultValue: "Install Safari Web Extension app bundles or standalone .appex bundles.")
         case 1:
             return String(localized: "settings.browser.extensions.subtitleOne", defaultValue: "1 extension is installed. WebKit enforces extension isolation, host access, and permission prompts.")
         default:
