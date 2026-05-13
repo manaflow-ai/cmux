@@ -253,7 +253,71 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         )
     }
 
-    func testTabContextMenuMarkAsReadClearsNotificationUnread() throws {
+    func testTabContextMenuMarkAsReadMarksWorkspaceRead() throws {
+        try withTabContextMenuFixture { _, store, workspace, panelId, paneId, tab in
+            let splitPanel = try XCTUnwrap(
+                workspace.newTerminalSplit(from: panelId, orientation: .horizontal)
+            )
+
+            store.addNotification(
+                tabId: workspace.id,
+                surfaceId: panelId,
+                title: "Unread",
+                subtitle: "",
+                body: "Context menu should mark this pane read"
+            )
+            store.addNotification(
+                tabId: workspace.id,
+                surfaceId: splitPanel.id,
+                title: "Unread Split",
+                subtitle: "",
+                body: "Context menu should mark the whole workspace read"
+            )
+
+            XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId))
+            XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: splitPanel.id))
+            XCTAssertTrue(store.workspaceIsUnread(forTabId: workspace.id))
+
+            workspace.splitTabBar(
+                workspace.bonsplitController,
+                didRequestTabContextAction: .markAsRead,
+                for: tab,
+                inPane: paneId
+            )
+
+            XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId))
+            XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: splitPanel.id))
+            XCTAssertFalse(store.workspaceIsUnread(forTabId: workspace.id))
+        }
+    }
+
+    func testTabContextMenuMarkAsUnreadMarksWorkspaceUnread() throws {
+        try withTabContextMenuFixture { _, store, workspace, panelId, paneId, tab in
+            XCTAssertFalse(store.workspaceIsUnread(forTabId: workspace.id))
+            XCTAssertFalse(workspace.manualUnreadPanelIds.contains(panelId))
+
+            workspace.splitTabBar(
+                workspace.bonsplitController,
+                didRequestTabContextAction: .markAsUnread,
+                for: tab,
+                inPane: paneId
+            )
+
+            XCTAssertTrue(store.workspaceIsUnread(forTabId: workspace.id))
+            XCTAssertTrue(workspace.manualUnreadPanelIds.contains(panelId))
+        }
+    }
+
+    private func withTabContextMenuFixture(
+        _ body: (
+            TabManager,
+            TerminalNotificationStore,
+            Workspace,
+            UUID,
+            PaneID,
+            Bonsplit.Tab
+        ) throws -> Void
+    ) throws {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
         let store = TerminalNotificationStore.shared
@@ -280,26 +344,8 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
         let paneId = try XCTUnwrap(workspace.paneId(forPanelId: panelId))
         let tabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(panelId))
-
-        store.addNotification(
-            tabId: workspace.id,
-            surfaceId: panelId,
-            title: "Unread",
-            subtitle: "",
-            body: "Context menu should mark this pane read"
-        )
-
-        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId))
-
         let tab = try XCTUnwrap(workspace.bonsplitController.tab(tabId))
-        workspace.splitTabBar(
-            workspace.bonsplitController,
-            didRequestTabContextAction: .markAsRead,
-            for: tab,
-            inPane: paneId
-        )
-
-        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId))
+        try body(manager, store, workspace, panelId, paneId, tab)
     }
 }
 
