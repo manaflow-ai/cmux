@@ -65,14 +65,15 @@ struct SyncedHostWindow: Identifiable, Equatable, Hashable {
     }
 }
 
-struct SyncedWindowSlotFrame: Equatable {
+extension SyncedHostWindow: Sendable {}
+
+struct SyncedWindowSlotFrame: Equatable, Sendable {
     let quartzFrame: CGRect
     let cocoaFrame: CGRect
     let owningWindowNumber: Int
-    let shouldDeferPlacement: Bool
 }
 
-private enum SyncedWindowActionResult: Equatable {
+private enum SyncedWindowActionResult: Equatable, Sendable {
     case succeeded
     case accessibilityPermissionMissing
     case windowUnavailable
@@ -111,17 +112,18 @@ private struct SyncedHostWindowEnumerator {
     }
 }
 
-@MainActor
-private struct SyncedWindowAccessibilityController {
+private struct SyncedWindowAccessibilityController: Sendable {
     var isTrusted: Bool {
         AXIsProcessTrusted()
     }
 
+    @MainActor
     func requestPermission() {
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
     }
 
+    @MainActor
     func openAccessibilitySettings() {
         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else {
             return
@@ -308,12 +310,24 @@ private struct SyncedWindowAccessibilityController {
 
 @MainActor
 private final class SyncedWindowProjectionController {
+    private struct PlacementRequest: Sendable {
+        let generation: UInt64
+        let window: SyncedHostWindow
+        let slot: SyncedWindowSlotFrame
+        let raise: Bool
+        let reportFailures: Bool
+    }
+
     private let accessibilityController = SyncedWindowAccessibilityController()
     private var targetWindow: SyncedHostWindow?
     private var targetSlot: SyncedWindowSlotFrame?
     private var isPointerInTarget = false
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
+    private var placementGeneration: UInt64 = 0
+    private var pendingPlacementRequest: PlacementRequest?
+    private var isPlacementRunning = false
+    var onPlacementResult: ((SyncedWindowActionResult, Bool) -> Void)?
 
     func start(window: SyncedHostWindow) {
         targetWindow = window
@@ -329,18 +343,24 @@ private final class SyncedWindowProjectionController {
         targetWindow = nil
         targetSlot = nil
         isPointerInTarget = false
+        placementGeneration &+= 1
+        pendingPlacementRequest = nil
     }
 
-    func place(window: SyncedHostWindow, in slot: SyncedWindowSlotFrame, raise: Bool) -> SyncedWindowActionResult {
+    func place(window: SyncedHostWindow, in slot: SyncedWindowSlotFrame, raise: Bool, reportFailures: Bool) {
         targetWindow = window
         targetSlot = slot
         installMouseMonitors()
         isPointerInTarget = slot.cocoaFrame.contains(NSEvent.mouseLocation)
-        let result = accessibilityController.place(window, frame: slot.quartzFrame, raise: raise)
-        if result == .succeeded {
-            keepTargetAboveOwningWindow()
-        }
-        return result
+        placementGeneration &+= 1
+        pendingPlacementRequest = PlacementRequest(
+            generation: placementGeneration,
+            window: window,
+            slot: slot,
+            raise: raise,
+            reportFailures: reportFailures
+        )
+        drainPlacementRequests()
     }
 
     func raiseTarget() -> SyncedWindowActionResult {
@@ -396,7 +416,41 @@ private final class SyncedWindowProjectionController {
         isPointerInTarget = isInside
         if isInside {
             _ = raiseTarget()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+            keepTargetAboveOwningWindow()
         }
+    }
+
+    private func drainPlacementRequests() {
+        guard !isPlacementRunning, let request = pendingPlacementRequest else {
+            return
+        }
+
+        pendingPlacementRequest = nil
+        isPlacementRunning = true
+        let accessibilityController = accessibilityController
+        Task.detached(priority: request.raise ? .userInitiated : .userInteractive) { [weak self] in
+            let result = accessibilityController.place(
+                request.window,
+                frame: request.slot.quartzFrame,
+                raise: request.raise
+            )
+            await self?.finishPlacementRequest(request, result: result)
+        }
+    }
+
+    private func finishPlacementRequest(_ request: PlacementRequest, result: SyncedWindowActionResult) {
+        isPlacementRunning = false
+        let isCurrent = request.generation == placementGeneration && targetWindow?.id == request.window.id
+        if isCurrent {
+            targetSlot = request.slot
+            if result == .succeeded {
+                keepTargetAboveOwningWindow()
+            }
+            onPlacementResult?(result, request.reportFailures)
+        }
+        drainPlacementRequests()
     }
 
     private func keepTargetAboveOwningWindow() {
@@ -453,6 +507,9 @@ final class SyncedWindowPanel: Panel, ObservableObject {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.displayTitle = String(localized: "syncedWindow.title", defaultValue: "Synced Window")
+        projectionController.onPlacementResult = { [weak self] result, reportFailures in
+            self?.handlePlacementResult(result, reportFailures: reportFailures)
+        }
         installAccessibilityStatusObservers()
         reloadWindows()
     }
@@ -539,9 +596,6 @@ final class SyncedWindowPanel: Panel, ObservableObject {
         }
         slotFrame = frame
         projectionController.updateSlot(frame)
-        guard !frame.shouldDeferPlacement else {
-            return
-        }
         placeSelectedWindow(reportFailures: false, raise: false)
     }
 
@@ -608,8 +662,12 @@ final class SyncedWindowPanel: Panel, ObservableObject {
             return
         }
 
-        let result = projectionController.place(window: selectedWindow, in: slotFrame, raise: raise)
-        handlePlacementResult(result, reportFailures: reportFailures)
+        projectionController.place(
+            window: selectedWindow,
+            in: slotFrame,
+            raise: raise,
+            reportFailures: reportFailures
+        )
     }
 
     private func handlePlacementResult(_ result: SyncedWindowActionResult, reportFailures: Bool) {
@@ -1087,7 +1145,7 @@ private final class SyncedWindowDockNSView: NSView {
 
     override func viewWillStartLiveResize() {
         super.viewWillStartLiveResize()
-        reportFrame(shouldDeferPlacement: true)
+        reportFrame()
     }
 
     override func viewDidEndLiveResize() {
@@ -1095,7 +1153,7 @@ private final class SyncedWindowDockNSView: NSView {
         reportFrame()
     }
 
-    func reportFrame(shouldDeferPlacement: Bool = false) {
+    func reportFrame() {
         guard let window, bounds.width > 0, bounds.height > 0 else {
             return
         }
@@ -1110,8 +1168,7 @@ private final class SyncedWindowDockNSView: NSView {
         let slotFrame = SyncedWindowSlotFrame(
             quartzFrame: quartzFrame(fromCocoaFrame: cocoaFrame),
             cocoaFrame: cocoaFrame,
-            owningWindowNumber: window.windowNumber,
-            shouldDeferPlacement: shouldDeferPlacement || inLiveResize
+            owningWindowNumber: window.windowNumber
         )
 
         guard lastFrame != slotFrame else {
@@ -1137,7 +1194,7 @@ private final class SyncedWindowDockNSView: NSView {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.reportFrame(shouldDeferPlacement: NSEvent.pressedMouseButtons != 0)
+                self?.reportFrame()
             }
         }
         windowResizeObserver = center.addObserver(
