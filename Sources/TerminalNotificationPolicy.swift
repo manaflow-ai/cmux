@@ -371,8 +371,8 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         let arguments = ["/bin/sh", "-c", hook.command]
         let environment = environmentStrings()
         var spawnedPID: pid_t = 0
-        let spawnResult = try withCStringArray(arguments) { argv in
-            try withCStringArray(environment) { envp in
+        let spawnResult = withCStringArray(arguments) { argv in
+            withCStringArray(environment) { envp in
                 "/bin/sh".withCString { executablePath in
                     posix_spawn(&spawnedPID, executablePath, &fileActions, &attributes, argv, envp)
                 }
