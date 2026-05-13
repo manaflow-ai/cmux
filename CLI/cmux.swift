@@ -7676,7 +7676,7 @@ struct CMUXCLI {
             """
         case "paste-buffer":
             return """
-            Usage: cmux paste-buffer [--name <name>] [--workspace <id|ref>] [--surface <id|ref>]
+            Usage: cmux paste-buffer [--name <name>] [--workspace <id|ref>] [--surface <id|ref>] [--bracketed]
 
             Paste a named tmux-compat buffer into a surface.
 
@@ -7684,6 +7684,7 @@ struct CMUXCLI {
               --name <name>         Buffer name (default: default)
               --workspace <id|ref>  Workspace context (default: $CMUX_WORKSPACE_ID)
               --surface <id|ref>    Surface context (default: focused surface)
+              --bracketed           Send via paste input path (bracketed paste; safe for vim-mode editors)
             """
         case "list-buffers":
             return """
@@ -14430,7 +14431,7 @@ struct CMUXCLI {
           bind-key | unbind-key | copy-mode
           set-buffer [--name <name>] <text>
           list-buffers
-          paste-buffer [--name <name>] [--workspace <id|ref>] [--surface <id|ref>]
+          paste-buffer [--name <name>] [--workspace <id|ref>] [--surface <id|ref>] [--bracketed]
           respawn-pane [--workspace <id|ref>] [--surface <id|ref>] [--command <cmd>]
           display-message [-p|--print] <text>
 
