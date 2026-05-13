@@ -56,7 +56,7 @@ cmux notify --title "Done" --tab 0 --panel 1
 
 ## Notification Hooks
 
-`cmux.json` can define composable hooks that receive every notification policy as JSON on stdin and return updated JSON on stdout. Hooks can filter native banners, sidebar history, sounds, custom commands, workspace reordering, and pane flashes.
+`cmux.json` can define composable hooks that receive every notification policy as JSON on stdin and return updated JSON on stdout. Hooks are off by default; cmux only runs them when `notifications.hooks` contains at least one enabled hook. Hooks can filter native banners, sidebar history, sounds, custom commands, workspace reordering, and pane flashes.
 
 ```json
 {
