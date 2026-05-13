@@ -668,6 +668,7 @@ private func makeFeedNotificationPolicyContext(
         ?? workspace?.currentDirectory
         ?? FileManager.default.homeDirectoryForCurrentUser.path
     var effects = TerminalNotificationPolicyEffects()
+    effects.desktop = true
     effects.record = false
     effects.markUnread = false
     effects.reorderWorkspace = false
