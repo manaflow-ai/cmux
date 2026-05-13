@@ -223,23 +223,23 @@ struct ExtensionBridgeRPCDispatcher {
         surfaceId: UUID,
         paneId: UUID?
     ) -> V2CallResult {
-        var scopedParams = params
-        if scopedParams["workspace_id"] == nil {
-            scopedParams["workspace_id"] = (scopedParams["workspace"] as? String) ?? workspaceId.uuidString
+        var workingParams = params
+        if workingParams["workspace_id"] == nil {
+            workingParams["workspace_id"] = (workingParams["workspace"] as? String) ?? workspaceId.uuidString
         }
-        scopedParams.removeValue(forKey: "workspace")
+        workingParams.removeValue(forKey: "workspace")
 
-        if scopedParams["surface_id"] == nil,
-           let rawSurface = scopedParams["surface"] as? String {
-            scopedParams["surface_id"] = rawSurface
+        if workingParams["surface_id"] == nil,
+           let rawSurface = workingParams["surface"] as? String {
+            workingParams["surface_id"] = rawSurface
         }
-        scopedParams.removeValue(forKey: "surface")
+        workingParams.removeValue(forKey: "surface")
 
-        if scopedParams["pane_id"] == nil,
-           let rawPane = scopedParams["pane"] as? String {
-            scopedParams["pane_id"] = rawPane
+        if workingParams["pane_id"] == nil,
+           let rawPane = workingParams["pane"] as? String {
+            workingParams["pane_id"] = rawPane
         }
-        scopedParams.removeValue(forKey: "pane")
+        workingParams.removeValue(forKey: "pane")
 
         let workspaceString = workspaceId.uuidString
         let surfaceString = surfaceId.uuidString
@@ -252,14 +252,14 @@ struct ExtensionBridgeRPCDispatcher {
         }
 
         func enforceScope(_ key: String, expected: String) -> V2CallResult? {
-            if let existing = stringValue(scopedParams[key]), existing != expected {
+            if let existing = stringValue(workingParams[key]), existing != expected {
                 return .err(
                     code: "forbidden_scope",
                     message: "Extension bridge method \(method) cannot target a different \(key)",
                     data: ["expected": expected, "received": existing]
                 )
             }
-            scopedParams[key] = expected
+            workingParams[key] = expected
             return nil
         }
 
@@ -302,14 +302,14 @@ struct ExtensionBridgeRPCDispatcher {
 
         switch method {
         case "pane.surfaces":
-            if scopedParams["pane_id"] == nil, let paneId {
-                scopedParams["pane_id"] = paneId.uuidString
+            if workingParams["pane_id"] == nil, let paneId {
+                workingParams["pane_id"] = paneId.uuidString
             }
         default:
             break
         }
 
-        return .ok(scopedParams)
+        return .ok(workingParams)
     }
 
     private func envelope(_ result: V2CallResult) -> [String: Any] {

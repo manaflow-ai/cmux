@@ -6,6 +6,7 @@ import WebKit
 @MainActor
 final class ExtensionPanel: NSObject, Panel, ObservableObject {
     static let bridgeMessageHandlerName = "cmuxExtension"
+    private static let maxEventSubscriptions = 64
 
     let id: UUID
     let panelType: PanelType = .extensionPane
@@ -66,7 +67,7 @@ final class ExtensionPanel: NSObject, Panel, ObservableObject {
             self?.handleBridgeMessage(message, from: webView)
         }
         bridgeMessageHandler = handler
-        configuration.userContentController.add(handler, name: Self.bridgeMessageHandlerName)
+        webView.configuration.userContentController.add(handler, name: Self.bridgeMessageHandlerName)
         webView.onMouseDown = { [weak self] in
             self?.onRequestPanelFocus?()
         }
@@ -212,6 +213,13 @@ final class ExtensionPanel: NSObject, Panel, ObservableObject {
     }
 
     private func subscribeToEvents(params: [String: Any]) -> [String: Any] {
+        guard eventSubscriptions.count < Self.maxEventSubscriptions else {
+            return ExtensionBridgeCodec.bridgeError(
+                code: "too_many_subscriptions",
+                message: "Extension exceeded maximum concurrent event subscriptions"
+            )
+        }
+
         let snapshot = CmuxEventBus.shared.subscribe(
             afterSequence: CmuxEventBus.int64(params["after_seq"] ?? params["after"]),
             names: Self.stringSet(params: params, singularKey: "name", pluralKey: "names"),
@@ -286,7 +294,7 @@ final class ExtensionPanel: NSObject, Panel, ObservableObject {
             guard let key = Self.kvKey(params) else {
                 return ExtensionBridgeCodec.bridgeError(code: "invalid_params", message: "Missing key")
             }
-            let value = ExtensionKVStore(bundle: bundle).get(key)
+            let value = ExtensionKVStore(bundle: bundle, workspaceId: workspaceId.uuidString).get(key)
             return ExtensionBridgeCodec.bridgeOK(["key": key, "value": value])
         case "extension.kv.set":
             guard let key = Self.kvKey(params) else {
@@ -298,7 +306,7 @@ final class ExtensionPanel: NSObject, Panel, ObservableObject {
             guard let encoded = ExtensionBridgeCodec.encodeJSONFragment(value) else {
                 return ExtensionBridgeCodec.bridgeError(code: "invalid_params", message: "Value must be JSON-serializable")
             }
-            switch ExtensionKVStore(bundle: bundle).set(key: key, encodedValue: encoded) {
+            switch ExtensionKVStore(bundle: bundle, workspaceId: workspaceId.uuidString).set(key: key, encodedValue: encoded) {
             case .success:
                 return ExtensionBridgeCodec.bridgeOK(["key": key])
             case .failure(let error):
@@ -308,10 +316,10 @@ final class ExtensionPanel: NSObject, Panel, ObservableObject {
             guard let key = Self.kvKey(params) else {
                 return ExtensionBridgeCodec.bridgeError(code: "invalid_params", message: "Missing key")
             }
-            ExtensionKVStore(bundle: bundle).remove(key)
+            ExtensionKVStore(bundle: bundle, workspaceId: workspaceId.uuidString).remove(key)
             return ExtensionBridgeCodec.bridgeOK(["key": key])
         case "extension.kv.keys":
-            return ExtensionBridgeCodec.bridgeOK(["keys": ExtensionKVStore(bundle: bundle).keys()])
+            return ExtensionBridgeCodec.bridgeOK(["keys": ExtensionKVStore(bundle: bundle, workspaceId: workspaceId.uuidString).keys()])
         default:
             return nil
         }

@@ -1536,11 +1536,35 @@ class TerminalController {
         "new_surface",
     ]
 
-    private nonisolated static func executionPolicy(forV2Method method: String) -> SocketCommandExecutionPolicy {
-        if method.hasPrefix("vm.") || socketWorkerV2Methods.contains(method) {
+    private nonisolated static let socketWorkerV2ExtensionCreationMethods: Set<String> = [
+        "pane.create",
+        "surface.create",
+        "surface.split",
+    ]
+
+    private nonisolated static func executionPolicy(
+        forV2Method method: String,
+        params: [String: Any] = [:]
+    ) -> SocketCommandExecutionPolicy {
+        if method.hasPrefix("vm.")
+            || socketWorkerV2Methods.contains(method)
+            || v2ExtensionCreationRequiresSocketWorker(method: method, params: params) {
             return .socketWorker
         }
         return .mainActor
+    }
+
+    private nonisolated static func v2ExtensionCreationRequiresSocketWorker(
+        method: String,
+        params: [String: Any]
+    ) -> Bool {
+        guard socketWorkerV2ExtensionCreationMethods.contains(method),
+              params[v2ResolvedExtensionBundleParamKey] == nil,
+              let rawType = params["type"] as? String else {
+            return false
+        }
+        let trimmedType = rawType.trimmingCharacters(in: .whitespacesAndNewlines)
+        return PanelType.userInputValue(trimmedType) == .extensionPane
     }
 
     private nonisolated static func executionPolicy(forV1Command command: String) -> SocketCommandExecutionPolicy {
@@ -1624,7 +1648,7 @@ class TerminalController {
 
     private nonisolated func socketWorkerV2ResponseIfNeeded(for command: String) -> String? {
         guard let request = parseV2SocketRequest(command),
-              Self.executionPolicy(forV2Method: request.method) == .socketWorker else {
+              Self.executionPolicy(forV2Method: request.method, params: request.params) == .socketWorker else {
             return nil
         }
 
@@ -1700,10 +1724,57 @@ class TerminalController {
             }
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
+        case "pane.create", "surface.create", "surface.split":
+            return socketWorkerV2ExtensionCreationResponse(request)
         case let method where method.hasPrefix("vm."):
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
         default:
             return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
+        }
+    }
+
+    private nonisolated func socketWorkerV2ExtensionCreationResponse(_ request: V2SocketRequest) -> String {
+        let preparedParamsResult = socketWorkerV2ParamsByResolvingExtensionBundleIfNeeded(request.params)
+        guard case .ok(let payload) = preparedParamsResult,
+              let preparedParams = payload as? [String: Any] else {
+            return v2Result(id: request.id, preparedParamsResult)
+        }
+
+        return v2MainSync {
+            self.v2RefreshKnownRefs()
+            switch request.method {
+            case "pane.create":
+                return self.v2Result(id: request.id, self.v2PaneCreate(params: preparedParams))
+            case "surface.create":
+                return self.v2Result(id: request.id, self.v2SurfaceCreate(params: preparedParams))
+            case "surface.split":
+                return self.v2Result(id: request.id, self.v2SurfaceSplit(params: preparedParams))
+            default:
+                return self.v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
+            }
+        }
+    }
+
+    private nonisolated func socketWorkerV2ParamsByResolvingExtensionBundleIfNeeded(_ params: [String: Any]) -> V2CallResult {
+        guard PanelType.userInputValue((params["type"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") == .extensionPane else {
+            return .ok(params)
+        }
+
+        func trimmedPath(_ key: String) -> String? {
+            guard let string = params[key] as? String else { return nil }
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        guard let bundlePath = trimmedPath("bundle") ?? trimmedPath("bundle_path") else {
+            return .err(code: "invalid_params", message: "Missing bundle path for extension surface", data: nil)
+        }
+        do {
+            var preparedParams = params
+            preparedParams[Self.v2ResolvedExtensionBundleParamKey] = try ExtensionBundleDescriptor.resolve(path: bundlePath)
+            return .ok(preparedParams)
+        } catch {
+            return .err(code: "invalid_params", message: error.localizedDescription, data: ["bundle": bundlePath])
         }
     }
 
@@ -2080,7 +2151,7 @@ class TerminalController {
     private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String {
         if Thread.isMainThread,
            let request = parseV2SocketRequest(command),
-           Self.executionPolicy(forV2Method: request.method) == .socketWorker {
+           Self.executionPolicy(forV2Method: request.method, params: request.params) == .socketWorker {
             return v2Error(
                 id: request.id,
                 code: "invalid_dispatch",
@@ -2516,7 +2587,7 @@ class TerminalController {
             return v2Error(id: id, code: "invalid_request", message: "Missing method")
         }
 
-        guard Self.executionPolicy(forV2Method: method) == .mainActor else {
+        guard Self.executionPolicy(forV2Method: method, params: params) == .mainActor else {
             return v2Error(
                 id: id,
                 code: "invalid_dispatch",

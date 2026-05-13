@@ -6,18 +6,24 @@ struct ExtensionKVStore {
     static let maxValueBytes = 256 * 1024
     static let maxNamespaceBytes = 1024 * 1024
 
+    private static let defaultsLock = NSLock()
+
+    let workspaceId: String
     let bundlePath: String
     let contentHash: String
     var defaults: UserDefaults = .standard
 
-    init(bundle: ExtensionBundleDescriptor, defaults: UserDefaults = .standard) {
+    init(bundle: ExtensionBundleDescriptor, workspaceId: String, defaults: UserDefaults = .standard) {
+        self.workspaceId = workspaceId
         self.bundlePath = bundle.bundlePath
         self.contentHash = bundle.contentHash
         self.defaults = defaults
     }
 
     func get(_ key: String) -> Any {
-        ExtensionBridgeCodec.decodeJSONFragment(store()[key]) ?? NSNull()
+        Self.defaultsLock.lock()
+        defer { Self.defaultsLock.unlock() }
+        return ExtensionBridgeCodec.decodeJSONFragment(unlockedStore()[key]) ?? NSNull()
     }
 
     func set(key: String, encodedValue: String) -> Result<Void, ExtensionKVStoreError> {
@@ -29,7 +35,10 @@ struct ExtensionKVStore {
             return .failure(.quotaExceeded("Value exceeds \(Self.maxValueBytes) bytes"))
         }
 
-        var nextStore = store()
+        Self.defaultsLock.lock()
+        defer { Self.defaultsLock.unlock() }
+
+        var nextStore = unlockedStore()
         nextStore[key] = encodedValue
         let totalBytes = nextStore.reduce(0) { partial, entry in
             partial + entry.key.utf8.count + entry.value.utf8.count
@@ -43,17 +52,24 @@ struct ExtensionKVStore {
     }
 
     func remove(_ key: String) {
-        var nextStore = store()
+        Self.defaultsLock.lock()
+        defer { Self.defaultsLock.unlock() }
+
+        var nextStore = unlockedStore()
         nextStore.removeValue(forKey: key)
         defaults.set(nextStore, forKey: defaultsKey)
     }
 
     func keys() -> [String] {
-        store().keys.sorted()
+        Self.defaultsLock.lock()
+        defer { Self.defaultsLock.unlock() }
+        return unlockedStore().keys.sorted()
     }
 
     private var defaultsKey: String {
-        var keyMaterial = Data(bundlePath.utf8)
+        var keyMaterial = Data(workspaceId.utf8)
+        keyMaterial.append(0)
+        keyMaterial.append(Data(bundlePath.utf8))
         keyMaterial.append(0)
         keyMaterial.append(Data(contentHash.utf8))
         let digest = SHA256.hash(data: keyMaterial)
@@ -62,7 +78,7 @@ struct ExtensionKVStore {
         return "extensionPanel.kv.\(digest)"
     }
 
-    private func store() -> [String: String] {
+    private func unlockedStore() -> [String: String] {
         defaults.dictionary(forKey: defaultsKey) as? [String: String] ?? [:]
     }
 }

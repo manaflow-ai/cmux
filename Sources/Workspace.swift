@@ -10782,6 +10782,7 @@ final class Workspace: Identifiable, ObservableObject {
     ) {
         guard panels[panelId] is BlockedExtensionPanel else { return }
         let paneId = paneId(forPanelId: panelId)
+        let shouldRestoreFocus = focusedPanelId == panelId
         let extensionPanel = ExtensionPanel(
             id: panelId,
             workspaceId: id,
@@ -10806,6 +10807,9 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
         extensionPanel.loadBundleIfNeeded()
+        if shouldRestoreFocus {
+            focusPanel(panelId)
+        }
     }
 
     /// Open the markdown viewer for `filePath`, reusing an existing
