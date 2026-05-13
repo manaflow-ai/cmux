@@ -1699,19 +1699,31 @@ final class DraggableFolderHitTests: XCTestCase {
         }
 
         titlebarHost.setFrameOrigin(NSPoint(x: 96, y: 0))
-        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        let expectedMinX = initialFrame.minX + 72
+        let expectedMinY = initialFrame.minY
+        let deadline = Date().addingTimeInterval(0.5)
+        var movedFrame = hostView.detachedIconFrameForTesting
+        while Date() < deadline {
+            if let frame = movedFrame,
+               abs(frame.minX - expectedMinX) <= 0.5,
+               abs(frame.minY - expectedMinY) <= 0.5 {
+                break
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.005))
+            movedFrame = hostView.detachedIconFrameForTesting
+        }
 
-        guard let movedFrame = hostView.detachedIconFrameForTesting else {
+        guard let movedFrame else {
             XCTFail("Expected detached folder panel to remain attached")
             return
         }
         XCTAssertEqual(
             movedFrame.minX,
-            initialFrame.minX + 72,
+            expectedMinX,
             accuracy: 0.5,
             "The detached panel must follow converted window coordinates when a sidebar toggle moves an ancestor view without changing the host view's local frame."
         )
-        XCTAssertEqual(movedFrame.minY, initialFrame.minY, accuracy: 0.5)
+        XCTAssertEqual(movedFrame.minY, expectedMinY, accuracy: 0.5)
     }
 
     func testFolderHitTestReturnsContainerWhenInsideBounds() {
