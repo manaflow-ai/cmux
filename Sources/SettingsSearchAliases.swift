@@ -44,6 +44,7 @@ enum SettingsSearchAliasIndex {
         "app:appearance": localized("settings.search.alias.setting.app.appearance", defaultValue: "app.appearance theme color scheme light mode dark mode system mode"),
         "app:app-icon": localized("settings.search.alias.setting.app.app-icon", defaultValue: "app.appIcon dock icon application icon app switcher alternate icon"),
         "app:new-workspace-placement": localized("settings.search.alias.setting.app.new-workspace-placement", defaultValue: "app.newWorkspacePlacement new tab insert position order top bottom end"),
+        "app:workspace-inherit-working-directory": localized("settings.search.alias.setting.app.workspace-inherit-working-directory", defaultValue: "app.workspaceInheritWorkingDirectory workspace cwd directory inherit current focused ghostty working-directory"),
         "app:minimal-mode": localized("settings.search.alias.setting.app.minimal-mode", defaultValue: "app.minimalMode minimal layout simple chrome compact titlebar controls"),
         "app:keep-workspace-open": localized("settings.search.alias.setting.app.keep-workspace-open", defaultValue: "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace"),
         "app:focus-pane-first-click": localized("settings.search.alias.setting.app.focus-pane-first-click", defaultValue: "app.focusPaneOnFirstClick click to focus focus follows mouse first click mouse activation"),
