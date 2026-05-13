@@ -98,10 +98,17 @@ class ThreadedUnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamSer
     state: FakeCmuxState
 
 
-def run_cli(cli: str, socket_path: str, args: list[str]) -> str:
+def run_cli(
+    cli: str,
+    socket_path: str,
+    args: list[str],
+    env_overrides: dict[str, str] | None = None,
+) -> str:
     env = dict(os.environ)
     for key in ["CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"]:
         env.pop(key, None)
+    if env_overrides:
+        env.update(env_overrides)
     proc = subprocess.run(
         [cli, "--socket", socket_path, *args],
         capture_output=True,
@@ -163,6 +170,26 @@ def main() -> int:
         try:
             run_cli(cli, socket_path, ["new-workspace", "--name", "agent"])
             assert_last_call(state, "workspace.create", {"title": "agent", "focus": False})
+
+            run_cli(
+                cli,
+                socket_path,
+                ["new-workspace", "--name", "caller-target"],
+                env_overrides={
+                    "CMUX_WORKSPACE_ID": WORKSPACE_ID,
+                    "CMUX_SURFACE_ID": SURFACE_ID,
+                },
+            )
+            assert_last_call(
+                state,
+                "workspace.create",
+                {
+                    "title": "caller-target",
+                    "workspace_id": WORKSPACE_ID,
+                    "surface_id": SURFACE_ID,
+                    "focus": False,
+                },
+            )
 
             run_cli(
                 cli,
