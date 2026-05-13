@@ -9,6 +9,7 @@ public enum PanelType: String, Codable, Sendable {
     case extensionPane = "extension"
     case markdown
     case filePreview = "filepreview"
+    case rightSidebarTool
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -19,6 +20,10 @@ public enum PanelType: String, Codable, Sendable {
         }
         if rawValue.lowercased() == Self.filePreview.rawValue {
             self = .filePreview
+            return
+        }
+        if rawValue.lowercased() == Self.rightSidebarTool.rawValue.lowercased() {
+            self = .rightSidebarTool
             return
         }
         throw DecodingError.dataCorruptedError(

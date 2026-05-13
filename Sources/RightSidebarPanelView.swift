@@ -1,7 +1,6 @@
 import AppKit
 import Bonsplit
 import CMUXWorkstream
-import Observation
 import SwiftUI
 
 private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
@@ -10,7 +9,7 @@ private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
 }
 
 /// Mode shown in the right sidebar (the panel toggled by ⌘⌥B).
-nonisolated enum RightSidebarMode: String, CaseIterable, Sendable {
+nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case files
     case find
     case sessions
@@ -45,6 +44,14 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Sendable {
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
         }
+    }
+}
+
+extension RightSidebarMode {
+    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions]
+
+    var canOpenAsPane: Bool {
+        Self.paneModes.contains(self)
     }
 }
 
@@ -148,6 +155,7 @@ struct RightSidebarPanelView: View {
     let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
     let onOpenFilePreview: (String) -> Void
+    let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void
 
     @State private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
@@ -245,6 +253,9 @@ struct RightSidebarPanelView: View {
                     }
                 }
                 Spacer(minLength: 0)
+                if fileExplorerState.mode.canOpenAsPane {
+                    openAsPaneButton(mode: fileExplorerState.mode)
+                }
                 closeButton
             }
         }
@@ -260,6 +271,27 @@ struct RightSidebarPanelView: View {
             isVisible: true,
             titlebarHeight: titlebarHeight
         )
+    }
+
+    private func openAsPaneButton(mode: RightSidebarMode) -> some View {
+        Button {
+            onOpenAsPane(mode)
+        } label: {
+            Image(systemName: "rectangle.split.2x1")
+                .font(.system(size: 11, weight: .semibold))
+                .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.secondary)
+        .safeHelp(String(localized: "rightSidebar.openAsPane.tooltip", defaultValue: "Open as pane"))
+        .accessibilityLabel(
+            String.localizedStringWithFormat(
+                String(localized: "rightSidebar.openAsPane.accessibilityLabel", defaultValue: "Open %@ as Pane"),
+                mode.label
+            )
+        )
+        .accessibilityIdentifier("RightSidebar.openAsPaneButton")
     }
 
     private var closeButton: some View {
