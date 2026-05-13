@@ -1946,7 +1946,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
             let afterQuote = value.index(after: index)
             guard afterQuote < value.endIndex else { return result }
-            guard value[afterQuote] == "\\" else { return nil }
+            guard value[afterQuote] == "\\" else { return result }
 
             let escapedQuote = value.index(after: afterQuote)
             guard escapedQuote < value.endIndex, value[escapedQuote] == "'" else { return nil }
