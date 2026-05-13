@@ -4438,6 +4438,28 @@ final class TerminalSurface: Identifiable, ObservableObject {
         case childExited(reason: String)
     }
 
+    enum TerminalInputDeliveryResult: Equatable {
+        case delivered(queued: Bool, shouldForceRefresh: Bool)
+        case blocked
+        case empty
+        case invalidKey
+
+        var delivered: Bool {
+            if case .delivered = self { return true }
+            return false
+        }
+
+        var queued: Bool {
+            if case .delivered(let queued, _) = self { return queued }
+            return false
+        }
+
+        var shouldForceRefresh: Bool {
+            if case .delivered(_, let shouldForceRefresh) = self { return shouldForceRefresh }
+            return false
+        }
+    }
+
     private(set) var surface: ghostty_surface_t?
     private var inputLifecycleState: TerminalInputLifecycleState = .acceptingInput
     private weak var attachedView: GhosttyNSView?
@@ -5744,15 +5766,30 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     @discardableResult
     func sendNamedKey(_ keyName: String) -> Bool {
-        guard let event = pendingKeyEvent(for: keyName) else { return false }
-        if let surface = surface {
-            guard consumeTerminalInputIfAllowed(reason: "sendNamedKey.\(event.label)") else { return true }
-            sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
-        } else {
-            guard enqueuePendingSocketInputIfAllowed(.key(event), reason: "sendNamedKey.\(event.label).queue") else { return true }
-            requestBackgroundSurfaceStartIfNeeded()
+        switch sendNamedKeyDelivery(keyName) {
+        case .delivered, .blocked:
+            return true
+        case .empty, .invalidKey:
+            return false
         }
-        return true
+    }
+
+    @discardableResult
+    func sendNamedKeyDelivery(_ keyName: String) -> TerminalInputDeliveryResult {
+        guard let event = pendingKeyEvent(for: keyName) else { return .invalidKey }
+        if let surface = surface {
+            guard consumeTerminalInputIfAllowed(reason: "sendNamedKey.\(event.label)") else { return .blocked }
+            sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
+            return .delivered(queued: false, shouldForceRefresh: true)
+        } else {
+            let delivery = enqueuePendingSocketInputsIfAllowed(
+                [.key(event)],
+                reason: "sendNamedKey.\(event.label).queue"
+            )
+            guard delivery.delivered else { return delivery }
+            requestBackgroundSurfaceStartIfNeeded()
+            return delivery
+        }
     }
 
     /// Send text with control characters (Return, Tab, etc.) delivered as key
@@ -5760,25 +5797,27 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// same key-text path used for attached socket input.
     @discardableResult
     func sendInput(_ text: String) -> Bool {
+        sendInputDelivery(text).delivered
+    }
+
+    @discardableResult
+    func sendInputDelivery(_ text: String) -> TerminalInputDeliveryResult {
         let inputs = parsedSocketInputs(from: text)
-        guard !inputs.isEmpty else { return false }
+        guard !inputs.isEmpty else { return .empty }
 
         guard let surface = surface else {
-            var queued = false
-            for input in inputs {
-                queued = enqueuePendingSocketInputIfAllowed(input, reason: "sendInput.queue") || queued
-            }
-            if queued {
+            let delivery = enqueuePendingSocketInputsIfAllowed(inputs, reason: "sendInput.queue")
+            if delivery.delivered {
                 requestBackgroundSurfaceStartIfNeeded()
             }
-            return queued
+            return delivery
         }
 
-        guard consumeTerminalInputIfAllowed(reason: "sendInput") else { return false }
+        guard consumeTerminalInputIfAllowed(reason: "sendInput") else { return .blocked }
         for input in inputs {
             writePendingSocketInput(input, to: surface)
         }
-        return true
+        return .delivered(queued: false, shouldForceRefresh: true)
     }
 
     private func parsedSocketInputs(from text: String) -> [PendingSocketInput] {
@@ -6112,6 +6151,41 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         return false
+    }
+
+    private func enqueuePendingSocketInputsIfAllowed(_ inputs: [PendingSocketInput], reason: String) -> TerminalInputDeliveryResult {
+        let result = withInputLifecycleLock { () -> (queued: PendingSocketInputQueueSnapshot?, blockReason: String?, discarded: PendingSocketInputDiscard?) in
+            guard let blockReason = terminalInputBlockReasonLocked() else {
+                var queued: PendingSocketInputQueueSnapshot?
+                for input in inputs {
+                    queued = enqueuePendingSocketInputLocked(input)
+                }
+                return (queued, nil, nil)
+            }
+            return (nil, blockReason, clearPendingSocketInputLocked())
+        }
+
+        if let queued = result.queued {
+#if DEBUG
+            cmuxDebugLog(
+                "surface.socket_input.queue surface=\(id.uuidString.prefix(8)) items=\(queued.items) " +
+                "keys=\(queued.keys) bytes=\(queued.bytes)"
+            )
+#endif
+            return .delivered(queued: true, shouldForceRefresh: false)
+        }
+
+        if let blockReason = result.blockReason {
+            logPendingSocketInputDiscard(result.discarded, reason: "\(reason).\(blockReason)")
+#if DEBUG
+            cmuxDebugLog(
+                "surface.input.discard surface=\(id.uuidString.prefix(5)) " +
+                "workspace=\(tabId.uuidString.prefix(5)) reason=\(reason) blocked=\(blockReason)"
+            )
+#endif
+        }
+
+        return .blocked
     }
 
     private func flushPendingSocketInputIfNeeded() {

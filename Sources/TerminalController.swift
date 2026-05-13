@@ -6821,6 +6821,14 @@ class TerminalController {
             if routed.shouldForceRefresh {
                 terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText")
             }
+            guard routed.accepted || routed.failure == .empty else {
+                result = .err(
+                    code: "invalid_state",
+                    message: "Terminal input is not available",
+                    data: ["surface_id": surfaceId.uuidString]
+                )
+                return
+            }
 #if DEBUG
             let sendMs = (ProcessInfo.processInfo.systemUptime - sendStart) * 1000.0
             cmuxDebugLog(
@@ -6864,13 +6872,24 @@ class TerminalController {
                 result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
                 return
             }
-            let surfaceWasReady = terminalPanel.surface.surface != nil
-            let acceptsInput = terminalPanel.surface.acceptsTerminalInput
-            guard terminalPanel.surface.sendNamedKey(key) else {
+            let delivery = terminalPanel.surface.sendNamedKeyDelivery(key)
+            switch delivery {
+            case .invalidKey:
                 result = .err(code: "invalid_params", message: "Unknown key", data: ["key": key])
                 return
+            case .blocked:
+                result = .err(
+                    code: "invalid_state",
+                    message: "Terminal input is not available",
+                    data: ["surface_id": surfaceId.uuidString]
+                )
+                return
+            case .empty:
+                break
+            case .delivered:
+                break
             }
-            if surfaceWasReady && acceptsInput {
+            if delivery.shouldForceRefresh {
                 terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendKey")
             }
             result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
@@ -15290,12 +15309,6 @@ class TerminalController {
         return terminalPanel.surface.surface
     }
 
-    private func resolveSurface(from arg: String, tabManager: TabManager) -> ghostty_surface_t? {
-        // Backwards compatibility: resolve a terminal surface by panel UUID or a stable index.
-        // Use a slightly longer wait to reduce flakiness during bonsplit/layout restructures.
-        return resolveTerminalSurface(from: arg, tabManager: tabManager, waitUpTo: 2.0)
-    }
-
     private func resolveSurfaceId(from arg: String, tab: Workspace) -> UUID? {
         if let uuid = UUID(uuidString: arg), tab.panels[uuid] != nil {
             return uuid
@@ -15414,18 +15427,33 @@ class TerminalController {
     }
 
     private struct RoutedTerminalInputResult {
+        enum Failure {
+            case blocked
+            case empty
+        }
+
         let accepted: Bool
         let queued: Bool
         let shouldForceRefresh: Bool
+        let failure: Failure?
     }
 
     private static func routeUnescapedInput(_ text: String, to terminalPanel: TerminalPanel) -> RoutedTerminalInputResult {
-        let hasSurface = terminalPanel.surface.surface != nil
-        let acceptedInput = terminalPanel.surface.sendInput(text)
+        let delivery = terminalPanel.surface.sendInputDelivery(text)
+        let failure: RoutedTerminalInputResult.Failure?
+        switch delivery {
+        case .blocked:
+            failure = .blocked
+        case .empty, .invalidKey:
+            failure = .empty
+        case .delivered:
+            failure = nil
+        }
         return RoutedTerminalInputResult(
-            accepted: acceptedInput,
-            queued: !hasSurface && acceptedInput,
-            shouldForceRefresh: hasSurface && acceptedInput
+            accepted: delivery.delivered,
+            queued: delivery.queued,
+            shouldForceRefresh: delivery.shouldForceRefresh,
+            failure: failure
         )
     }
 
@@ -15590,7 +15618,17 @@ class TerminalController {
                 return
             }
 
-            success = terminalPanel.surface.sendNamedKey(keyName)
+            let delivery = terminalPanel.surface.sendNamedKeyDelivery(keyName)
+            switch delivery {
+            case .delivered:
+                success = true
+            case .blocked:
+                error = "ERROR: Failed to send key"
+            case .empty:
+                success = false
+            case .invalidKey:
+                success = false
+            }
         }
         if let error { return error }
         return success ? "OK" : "ERROR: Unknown key '\(keyName)'"
@@ -15611,7 +15649,17 @@ class TerminalController {
                 error = "ERROR: Surface not found"
                 return
             }
-            success = terminalPanel.surface.sendNamedKey(keyName)
+            let delivery = terminalPanel.surface.sendNamedKeyDelivery(keyName)
+            switch delivery {
+            case .delivered:
+                success = true
+            case .blocked:
+                error = "ERROR: Failed to send key"
+            case .empty:
+                success = false
+            case .invalidKey:
+                success = false
+            }
         }
 
         if let error { return error }
