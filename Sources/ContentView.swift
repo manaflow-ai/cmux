@@ -1470,6 +1470,7 @@ struct ContentView: View {
         static let updateHasAvailable = "update.hasAvailable"
         static let cliInstalledInPATH = "cli.installedInPATH"
         static let browserDisabled = "browser.disabled"
+        static let supportedFileRoutingDisabled = "filePreview.supportedFileRoutingDisabled"
         static func terminalOpenTargetAvailable(_ target: TerminalDirectoryOpenTarget) -> String {
             "terminal.openTarget.\(target.rawValue).available"
         }
@@ -5838,7 +5839,7 @@ struct ContentView: View {
         case .markdown:
             return ["markdown", "note", "preview"]
         case .filePreview:
-            return ["file", "preview", "text", "pdf", "image"]
+            return ["file", "preview", "text", "pdf", "image", "audio", "video"]
         case .rightSidebarTool:
             return ["tool", "files", "find", "vault", "sidebar"]
         }
@@ -6003,6 +6004,10 @@ struct ContentView: View {
         snapshot.setBool(CommandPaletteContextKeys.workspaceMinimalModeEnabled, isMinimalMode)
         snapshot.setBool(CommandPaletteContextKeys.sidebarMatchTerminalBackground, sidebarMatchTerminalBackground)
         snapshot.setBool(CommandPaletteContextKeys.browserDisabled, BrowserAvailabilitySettings.isDisabled())
+        snapshot.setBool(
+            CommandPaletteContextKeys.supportedFileRoutingDisabled,
+            !CmdClickSupportedFileRouteSettings.isEnabled()
+        )
 
         if let workspace = tabManager.selectedWorkspace {
             let pinTarget = WorkspaceActionDispatcher.Target.single(workspace.id)
@@ -6380,6 +6385,24 @@ struct ContentView: View {
                 subtitle: constant(String(localized: "command.browserAvailability.subtitle", defaultValue: "Browser")),
                 keywords: ["browser", "enable", "embedded", "open"],
                 when: { $0.bool(CommandPaletteContextKeys.browserDisabled) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.disableSupportedFileRouting",
+                title: constant(String(localized: "command.disableSupportedFileRouting.title", defaultValue: "Disable Cmd-click File Previews")),
+                subtitle: constant(String(localized: "command.supportedFileRouting.subtitle", defaultValue: "File Preview")),
+                keywords: ["file", "preview", "disable", "external", "editor", "pdf", "image", "audio", "video"],
+                when: { !$0.bool(CommandPaletteContextKeys.supportedFileRoutingDisabled) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.enableSupportedFileRouting",
+                title: constant(String(localized: "command.enableSupportedFileRouting.title", defaultValue: "Enable Cmd-click File Previews")),
+                subtitle: constant(String(localized: "command.supportedFileRouting.subtitle", defaultValue: "File Preview")),
+                keywords: ["file", "preview", "enable", "cmux", "pdf", "image", "audio", "video"],
+                when: { $0.bool(CommandPaletteContextKeys.supportedFileRoutingDisabled) }
             )
         )
 
@@ -7211,6 +7234,12 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.enableBrowser") {
             BrowserAvailabilitySettings.setDisabled(false)
+        }
+        registry.register(commandId: "palette.disableSupportedFileRouting") {
+            CmdClickSupportedFileRouteSettings.setEnabled(false)
+        }
+        registry.register(commandId: "palette.enableSupportedFileRouting") {
+            CmdClickSupportedFileRouteSettings.setEnabled(true)
         }
 
         registry.register(commandId: "palette.renameWorkspace") {

@@ -10432,6 +10432,11 @@ final class Workspace: Identifiable, ObservableObject {
                 return md
             }
         }
+
+        if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
+            return newMarkdownSurface(inPane: targetPane, filePath: filePath, focus: true)
+        }
+
         return newMarkdownSplit(
             from: panelId,
             orientation: .horizontal,
@@ -10613,6 +10618,33 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         return newFilePreviewSurface(inPane: paneId, filePath: filePath, focus: focus)
+    }
+
+    @discardableResult
+    func openOrFocusFilePreviewSplit(
+        from panelId: UUID,
+        filePath: String
+    ) -> FilePreviewPanel? {
+        let canonical = (filePath as NSString).resolvingSymlinksInPath
+        for (existingId, panel) in panels {
+            guard let preview = panel as? FilePreviewPanel else { continue }
+            if (preview.filePath as NSString).resolvingSymlinksInPath == canonical {
+                focusPanel(existingId)
+                return preview
+            }
+        }
+
+        if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
+            return newFilePreviewSurface(inPane: targetPane, filePath: filePath, focus: true)
+        }
+
+        guard let sourcePaneId = paneId(forPanelId: panelId) else { return nil }
+        return splitPaneWithFilePreview(
+            targetPane: sourcePaneId,
+            orientation: .horizontal,
+            insertFirst: false,
+            filePath: filePath
+        )
     }
 
     @discardableResult
@@ -10905,10 +10937,10 @@ final class Workspace: Identifiable, ObservableObject {
         return bonsplitController.tabs(inPane: paneId).firstIndex(where: { $0.id == tabId })
     }
 
-    /// Returns the nearest right-side sibling pane for browser placement.
+    /// Returns the nearest right-side sibling pane for browser/file-preview placement.
     /// The search is local to the source pane's ancestry in the split tree:
     /// use the closest horizontal ancestor where the source is in the first (left) branch.
-    func preferredBrowserTargetPane(fromPanelId panelId: UUID) -> PaneID? {
+    func preferredRightSideTargetPane(fromPanelId panelId: UUID) -> PaneID? {
         guard let sourcePane = paneId(forPanelId: panelId) else { return nil }
         let sourcePaneId = sourcePane.id.uuidString
         let tree = bonsplitController.treeSnapshot()
