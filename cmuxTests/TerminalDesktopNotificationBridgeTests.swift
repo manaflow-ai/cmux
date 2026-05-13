@@ -8,176 +8,192 @@ import XCTest
 
 final class TerminalDesktopNotificationBridgeTests: XCTestCase {
     func testActiveClaudeHookStillAllowsNonClaudeTerminalNotificationPayloads() {
-        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
-            claudeHooksEnabled: true,
-            workspaceAgentPIDs: ["claude_code": pid_t(123)],
+        assertDelivered(
             title: "Codex question",
-            body: "Does this notification work?"
-        )
-
-        XCTAssertFalse(
-            suppressed,
-            "A Claude hook PID in the workspace should not swallow unrelated terminal OSC notifications such as Codex prompts."
+            body: "Does this notification work?",
+            expectedTitle: "Codex question",
+            expectedBody: "Does this notification work?",
+            """
+            A Claude hook PID in the workspace should not swallow unrelated terminal OSC \
+            notifications such as Codex prompts.
+            """
         )
     }
 
     func testActiveClaudeHookSuppressesGenericClaudeAttentionNotification() {
-        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
-            claudeHooksEnabled: true,
-            workspaceAgentPIDs: ["claude_code": pid_t(123)],
-            title: "Claude Code",
-            body: "Claude Code needs your attention"
-        )
-
-        XCTAssertTrue(suppressed)
+        assertSuppressed(title: "Claude Code", body: "Claude Code needs your attention")
     }
 
     func testActiveClaudeHookSuppressesGenericClaudeAttentionNotificationTitle() {
-        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
-            claudeHooksEnabled: true,
-            workspaceAgentPIDs: ["claude_code": pid_t(123)],
-            title: "Claude Code needs your attention",
-            body: ""
-        )
-
-        XCTAssertTrue(suppressed)
+        assertSuppressed(title: "Claude Code needs your attention", body: "")
     }
 
     func testActiveClaudeHookSuppressesGenericClaudeInputNotificationTitle() {
-        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
-            claudeHooksEnabled: true,
-            workspaceAgentPIDs: ["claude_code": pid_t(123)],
-            title: "Claude Code needs your input",
-            body: ""
-        )
-
-        XCTAssertTrue(suppressed)
+        assertSuppressed(title: "Claude Code needs your input", body: "")
     }
 
     func testActiveClaudeHookSuppressesGenericClaudeInputNotificationTitleWithWhitespaceAndCase() {
-        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
-            claudeHooksEnabled: true,
-            workspaceAgentPIDs: ["claude_code": pid_t(123)],
-            title: "  Claude   CODE  needs your INPUT \n",
-            body: ""
-        )
-
-        XCTAssertTrue(suppressed)
+        assertSuppressed(title: "  Claude   CODE  needs your INPUT \n", body: "")
     }
 
     func testActiveClaudeHookSuppressesGenericClaudeInputNotification() {
-        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
-            claudeHooksEnabled: true,
-            workspaceAgentPIDs: ["claude_code": pid_t(123)],
-            title: "Claude Code",
-            body: "Claude needs your input"
-        )
-
-        XCTAssertTrue(suppressed)
+        assertSuppressed(title: "Claude Code", body: "Claude needs your input")
     }
 
     func testActiveClaudeHookSuppressesSplitGenericClaudeAttentionNotification() {
-        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
-            claudeHooksEnabled: true,
-            workspaceAgentPIDs: ["claude_code": pid_t(123)],
-            title: "Claude Code",
-            body: "needs your attention"
-        )
-
-        XCTAssertTrue(suppressed)
+        assertSuppressed(title: "Claude Code", body: "needs your attention")
     }
 
     func testActiveClaudeHookSuppressesSplitGenericClaudeInputNotification() {
-        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
-            claudeHooksEnabled: true,
-            workspaceAgentPIDs: ["claude_code": pid_t(123)],
-            title: "Claude",
-            body: "needs your input"
-        )
-
-        XCTAssertTrue(suppressed)
+        assertSuppressed(title: "Claude", body: "needs your input")
     }
 
     func testNoClaudePIDAllowsMatchingClaudeAttentionNotification() {
-        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
-            claudeHooksEnabled: true,
+        assertDelivered(
             workspaceAgentPIDs: [:],
             title: "Claude Code",
-            body: "Claude needs your attention"
+            body: "Claude needs your attention",
+            expectedTitle: "Claude Code",
+            expectedBody: "Claude needs your attention"
         )
-
-        XCTAssertFalse(suppressed)
     }
 
     func testZeroClaudePIDAllowsMatchingClaudeAttentionNotification() {
-        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
-            claudeHooksEnabled: true,
+        assertDelivered(
             workspaceAgentPIDs: ["claude_code": pid_t(0)],
             title: "Claude Code",
-            body: "Claude needs your attention"
+            body: "Claude needs your attention",
+            expectedTitle: "Claude Code",
+            expectedBody: "Claude needs your attention"
         )
-
-        XCTAssertFalse(suppressed)
     }
 
     func testDisabledClaudeHooksAllowMatchingClaudeAttentionNotification() {
-        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
+        assertDelivered(
             claudeHooksEnabled: false,
-            workspaceAgentPIDs: ["claude_code": pid_t(123)],
             title: "Claude Code",
-            body: "Claude needs your attention"
+            body: "Claude needs your attention",
+            expectedTitle: "Claude Code",
+            expectedBody: "Claude needs your attention"
         )
-
-        XCTAssertFalse(suppressed)
     }
 
     func testActiveClaudeHookAllowsCrossPhraseNonClaudeNotification() {
-        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
-            claudeHooksEnabled: true,
-            workspaceAgentPIDs: ["claude_code": pid_t(123)],
+        assertDelivered(
             title: "claude.py review",
-            body: "Codex needs your input on the diff"
+            body: "Codex needs your input on the diff",
+            expectedTitle: "claude.py review",
+            expectedBody: "Codex needs your input on the diff"
         )
-
-        XCTAssertFalse(suppressed)
     }
 
     func testActiveClaudeHookAllowsTitleBodyConcatenationFalsePositive() {
-        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
-            claudeHooksEnabled: true,
-            workspaceAgentPIDs: ["claude_code": pid_t(123)],
+        assertDelivered(
             title: "From Claude",
-            body: "needs your input on the review"
+            body: "needs your input on the review",
+            expectedTitle: "From Claude",
+            expectedBody: "needs your input on the review"
         )
-
-        XCTAssertFalse(suppressed)
     }
 
     func testActiveClaudeHookAllowsLongerTitleContainingGenericBannerText() {
-        let suppressed = TerminalDesktopNotificationBridge.shouldSuppressNotification(
-            claudeHooksEnabled: true,
-            workspaceAgentPIDs: ["claude_code": pid_t(123)],
+        assertDelivered(
             title: "Claude needs your input on the review",
-            body: ""
+            body: "",
+            expectedTitle: "Claude needs your input on the review",
+            expectedBody: ""
         )
-
-        XCTAssertFalse(suppressed)
     }
 
-    func testResolvedTitleFallsBackToTabTitle() {
-        XCTAssertEqual(
-            TerminalDesktopNotificationBridge.resolvedTitle(
-                actionTitle: "",
-                fallbackTabTitle: "workspace-1"
-            ),
-            "workspace-1"
+    func testRouteFallsBackToTabTitle() {
+        assertDelivered(
+            title: "",
+            body: "Body",
+            fallbackTabTitle: "workspace-1",
+            expectedTitle: "workspace-1",
+            expectedBody: "Body"
         )
-        XCTAssertEqual(
-            TerminalDesktopNotificationBridge.resolvedTitle(
-                actionTitle: "Plan mode question",
-                fallbackTabTitle: "workspace-1"
-            ),
-            "Plan mode question"
+        assertDelivered(
+            title: "Plan mode question",
+            body: "Body",
+            fallbackTabTitle: "workspace-1",
+            expectedTitle: "Plan mode question",
+            expectedBody: "Body"
+        )
+    }
+
+    private func assertSuppressed(
+        claudeHooksEnabled: Bool = true,
+        workspaceAgentPIDs: [String: pid_t] = ["claude_code": pid_t(123)],
+        title: String,
+        body: String,
+        fallbackTabTitle: String = "workspace-1",
+        _ message: String = "",
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        switch makeRoute(
+            claudeHooksEnabled: claudeHooksEnabled,
+            workspaceAgentPIDs: workspaceAgentPIDs,
+            title: title,
+            body: body,
+            fallbackTabTitle: fallbackTabTitle
+        ) {
+        case .suppressDuplicate:
+            break
+        case .deliver(let notification):
+            XCTFail(
+                message.isEmpty ? "Expected suppression, delivered \(notification)." : message,
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    private func assertDelivered(
+        claudeHooksEnabled: Bool = true,
+        workspaceAgentPIDs: [String: pid_t] = ["claude_code": pid_t(123)],
+        title: String,
+        body: String,
+        fallbackTabTitle: String = "workspace-1",
+        expectedTitle: String,
+        expectedBody: String,
+        _ message: String = "",
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        switch makeRoute(
+            claudeHooksEnabled: claudeHooksEnabled,
+            workspaceAgentPIDs: workspaceAgentPIDs,
+            title: title,
+            body: body,
+            fallbackTabTitle: fallbackTabTitle
+        ) {
+        case .deliver(let notification):
+            XCTAssertEqual(notification.title, expectedTitle, file: file, line: line)
+            XCTAssertEqual(notification.body, expectedBody, file: file, line: line)
+        case .suppressDuplicate:
+            XCTFail(
+                message.isEmpty ? "Expected delivery, suppressed duplicate." : message,
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    private func makeRoute(
+        claudeHooksEnabled: Bool,
+        workspaceAgentPIDs: [String: pid_t],
+        title: String,
+        body: String,
+        fallbackTabTitle: String
+    ) -> TerminalDesktopNotificationBridge.Route {
+        TerminalDesktopNotificationBridge.route(
+            claudeHooksEnabled: claudeHooksEnabled,
+            workspaceAgentPIDs: workspaceAgentPIDs,
+            actionTitle: title,
+            actionBody: body,
+            fallbackTabTitle: fallbackTabTitle
         )
     }
 }

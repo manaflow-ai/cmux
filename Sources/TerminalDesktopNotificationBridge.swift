@@ -2,11 +2,43 @@ import Darwin
 import Foundation
 
 enum TerminalDesktopNotificationBridge {
-    static func resolvedTitle(actionTitle: String, fallbackTabTitle: String) -> String {
+    struct ResolvedNotification: Equatable {
+        let title: String
+        let body: String
+    }
+
+    enum Route: Equatable {
+        case deliver(ResolvedNotification)
+        case suppressDuplicate
+    }
+
+    static func route(
+        claudeHooksEnabled: Bool,
+        workspaceAgentPIDs: [String: pid_t],
+        actionTitle: String,
+        actionBody: String,
+        fallbackTabTitle: String
+    ) -> Route {
+        if shouldSuppressNotification(
+            claudeHooksEnabled: claudeHooksEnabled,
+            workspaceAgentPIDs: workspaceAgentPIDs,
+            title: actionTitle,
+            body: actionBody
+        ) {
+            return .suppressDuplicate
+        }
+
+        return .deliver(ResolvedNotification(
+            title: resolvedTitle(actionTitle: actionTitle, fallbackTabTitle: fallbackTabTitle),
+            body: actionBody
+        ))
+    }
+
+    private static func resolvedTitle(actionTitle: String, fallbackTabTitle: String) -> String {
         actionTitle.isEmpty ? fallbackTabTitle : actionTitle
     }
 
-    static func shouldSuppressNotification(
+    private static func shouldSuppressNotification(
         claudeHooksEnabled: Bool,
         workspaceAgentPIDs: [String: pid_t],
         title: String,

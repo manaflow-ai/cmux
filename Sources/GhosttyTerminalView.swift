@@ -3675,28 +3675,26 @@ class GhosttyApp {
                     // workspace (for example Codex OSC prompts) should still flow into
                     // the cmux notification pipeline.
                     let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? tabManager
-                    if let workspace = owningManager.tabs.first(where: { $0.id == tabId }),
-                       TerminalDesktopNotificationBridge.shouldSuppressNotification(
-                           claudeHooksEnabled: ClaudeCodeIntegrationSettings.hooksEnabled(),
-                           workspaceAgentPIDs: workspace.agentPIDs,
-                           title: actionTitle,
-                           body: actionBody
-                       ) {
-                        return true
-                    }
                     let tabTitle = owningManager.titleForTab(tabId) ?? "Terminal"
-                    let command = TerminalDesktopNotificationBridge.resolvedTitle(
+                    let workspaceAgentPIDs =
+                        owningManager.tabs.first(where: { $0.id == tabId })?.agentPIDs ?? [:]
+                    let route = TerminalDesktopNotificationBridge.route(
+                        claudeHooksEnabled: ClaudeCodeIntegrationSettings.hooksEnabled(),
+                        workspaceAgentPIDs: workspaceAgentPIDs,
                         actionTitle: actionTitle,
+                        actionBody: actionBody,
                         fallbackTabTitle: tabTitle
                     )
-                    let body = actionBody
+                    guard case .deliver(let notification) = route else {
+                        return true
+                    }
                     let surfaceId = tabManager.focusedSurfaceId(for: tabId)
                     TerminalNotificationStore.shared.addNotification(
                         tabId: tabId,
                         surfaceId: surfaceId,
-                        title: command,
+                        title: notification.title,
                         subtitle: "",
-                        body: body
+                        body: notification.body
                     )
                     return true
                 }
@@ -3947,28 +3945,27 @@ class GhosttyApp {
             performOnMain {
                 // Suppress only generic Claude raw-OSC attention banners when Claude hooks
                 // are active; preserve other terminal notification sources in the workspace.
-                let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager
-                if let workspace = owningManager?.tabs.first(where: { $0.id == tabId }),
-                   TerminalDesktopNotificationBridge.shouldSuppressNotification(
-                       claudeHooksEnabled: ClaudeCodeIntegrationSettings.hooksEnabled(),
-                       workspaceAgentPIDs: workspace.agentPIDs,
-                       title: actionTitle,
-                       body: actionBody
-                   ) {
-                    return
-                }
+                let owningManager =
+                    AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager
                 let tabTitle = owningManager?.titleForTab(tabId) ?? "Terminal"
-                let command = TerminalDesktopNotificationBridge.resolvedTitle(
+                let workspaceAgentPIDs =
+                    owningManager?.tabs.first(where: { $0.id == tabId })?.agentPIDs ?? [:]
+                let route = TerminalDesktopNotificationBridge.route(
+                    claudeHooksEnabled: ClaudeCodeIntegrationSettings.hooksEnabled(),
+                    workspaceAgentPIDs: workspaceAgentPIDs,
                     actionTitle: actionTitle,
+                    actionBody: actionBody,
                     fallbackTabTitle: tabTitle
                 )
-                let body = actionBody
+                guard case .deliver(let notification) = route else {
+                    return
+                }
                 TerminalNotificationStore.shared.addNotification(
                     tabId: tabId,
                     surfaceId: surfaceId,
-                    title: command,
+                    title: notification.title,
                     subtitle: "",
-                    body: body
+                    body: notification.body
                 )
             }
             return true
