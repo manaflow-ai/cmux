@@ -303,50 +303,6 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
-    func testDoesNotRerouteKoreanMarkedSelectionArrowKeyEquivalent() throws {
-        let view = GhosttyNSView(frame: .zero)
-        view.setMarkedText(
-            "안녕하세요",
-            selectedRange: NSRange(location: 5, length: 0),
-            replacementRange: NSRange(location: NSNotFound, length: 0)
-        )
-        let event = try keyEvent(
-            text: "\u{F702}",
-            keyCode: UInt16(kVK_LeftArrow),
-            windowNumber: 0
-        )
-
-        XCTAssertFalse(
-            view.shouldRouteTextInputKeyEquivalentToKeyDown(
-                event,
-                inputSourceId: "com.apple.inputmethod.Korean.2SetKorean"
-            ),
-            "Korean 2-Set Left/Right with active marked text should stay on AppKit's normal keyDown dispatch path"
-        )
-    }
-
-    func testDoesNotConsumeZhuyinMarkedTextDownArrowAsKeyEquivalent() throws {
-        let view = GhosttyNSView(frame: .zero)
-        view.setMarkedText(
-            "ㄓㄨ",
-            selectedRange: NSRange(location: 2, length: 0),
-            replacementRange: NSRange(location: NSNotFound, length: 0)
-        )
-        let event = try keyEvent(
-            text: "\u{F701}",
-            keyCode: UInt16(kVK_DownArrow),
-            windowNumber: 0
-        )
-
-        XCTAssertFalse(
-            view.shouldRouteTextInputKeyEquivalentToKeyDown(
-                event,
-                inputSourceId: "com.apple.inputmethod.TCIM.Zhuyin"
-            ),
-            "Zhuyin Down while marked text is active should stay on AppKit's normal keyDown dispatch path"
-        )
-    }
-
     func testSuppressesZhuyinMarkedTextDownArrowAfterTextInputHandling() throws {
         let view = GhosttyNSView(frame: .zero)
         let event = try keyEvent(
@@ -363,51 +319,39 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
                 markedSelectionAfter: NSRange(location: 2, length: 0),
                 accumulatedText: [],
                 event: event,
-                textInputHandledEvent: true,
                 inputSourceId: "com.apple.inputmethod.TCIM.Zhuyin"
             ),
             "Zhuyin Down belongs to the IME candidate menu and should not also move the terminal cursor"
         )
     }
 
-    func testRoutesZhuyinNoMarkedDownArrowThroughKeyDown() throws {
+    func testDoesNotSuppressIdleZhuyinNavigationKeyWithoutMarkedText() throws {
         let view = GhosttyNSView(frame: .zero)
-        let event = try keyEvent(
-            text: "\u{F701}",
-            keyCode: UInt16(kVK_DownArrow),
-            windowNumber: 0
-        )
+        let probes: [(text: String, keyCode: UInt16)] = [
+            ("\u{F701}", UInt16(kVK_DownArrow)),
+            (" ", UInt16(kVK_Space)),
+        ]
 
-        XCTAssertTrue(
-            view.shouldRouteTextInputKeyEquivalentToKeyDown(
-                event,
-                inputSourceId: "com.apple.inputmethod.TCIM.Zhuyin"
-            ),
-            "Zhuyin Down should reach AppKit text input even when AppKit has not exposed marked text"
-        )
-    }
+        for probe in probes {
+            let event = try keyEvent(
+                text: probe.text,
+                keyCode: probe.keyCode,
+                windowNumber: 0
+            )
 
-    func testSuppressesZhuyinNoMarkedDownArrowAfterTextInputHandling() throws {
-        let view = GhosttyNSView(frame: .zero)
-        let event = try keyEvent(
-            text: "\u{F701}",
-            keyCode: UInt16(kVK_DownArrow),
-            windowNumber: 0
-        )
-
-        XCTAssertTrue(
-            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
-                markedTextBefore: "",
-                markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
-                markedTextAfter: "",
-                markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
-                accumulatedText: [],
-                event: event,
-                textInputHandledEvent: true,
-                inputSourceId: "com.apple.inputmethod.TCIM.Zhuyin"
-            ),
-            "A Zhuyin Down key consumed by text input must not also send terminal Down"
-        )
+            XCTAssertFalse(
+                view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                    markedTextBefore: "",
+                    markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
+                    markedTextAfter: "",
+                    markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                    accumulatedText: [],
+                    event: event,
+                    inputSourceId: "com.apple.inputmethod.TCIM.Zhuyin"
+                ),
+                "Idle Zhuyin navigation keys should still reach the terminal when no composition is active"
+            )
+        }
     }
 
     func testBuffersZhuyinComponentInsertTextAsPreedit() {

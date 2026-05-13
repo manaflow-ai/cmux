@@ -6183,7 +6183,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")
     }()
     static var debugGhosttySurfaceKeyEventObserver: ((ghostty_input_key_s) -> Void)?
-    @MainActor static var debugTextInputEventHandler: ((GhosttyNSView, NSEvent) -> Bool)?
 #endif
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
@@ -7719,7 +7718,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let interpretTimingStart = CmuxTypingTiming.start()
         let interpretPhaseStart = ProcessInfo.processInfo.systemUptime
 #endif
-        let textInputHandledEvent = handleTextInputKeyEvent(translationEvent)
+        handleTextInputKeyEvent(translationEvent)
 #if DEBUG
         interpretMs = (ProcessInfo.processInfo.systemUptime - interpretPhaseStart) * 1000.0
         CmuxTypingTiming.logDuration(
@@ -7758,7 +7757,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             after: (markedText.string, markedSelectedRange),
             accumulatedText: accumulatedText,
             event: translationEvent,
-            textInputHandledEvent: textInputHandledEvent,
             inputSourceId: keyboardIdBefore
         ) {
             imeConsumedKeyUps.insert(event.keyCode)
@@ -7949,19 +7947,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Rendering is driven by Ghostty's wakeups/renderer.
     }
 
-    @discardableResult
-    private func handleTextInputKeyEvent(_ event: NSEvent) -> Bool {
-#if DEBUG
-        if let debugTextInputEventHandler = Self.debugTextInputEventHandler {
-            return debugTextInputEventHandler(self, event)
-        }
-#endif
+    private func handleTextInputKeyEvent(_ event: NSEvent) {
         guard inputContext != nil else {
             interpretKeyEvents([event])
-            return false
+            return
         }
         interpretKeyEvents([event])
-        return true
     }
 
     @discardableResult
