@@ -491,11 +491,361 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "サインアウト" } }
       }
     },
+    "mobile.terminal.action.alt" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Alt" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Alt" } }
+      }
+    },
+    "mobile.terminal.action.alt.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Alt" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Alt" } }
+      }
+    },
+    "mobile.terminal.action.claude" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Claude" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Claude" } }
+      }
+    },
+    "mobile.terminal.action.claude.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Insert Claude command" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Claude コマンドを挿入" } }
+      }
+    },
+    "mobile.terminal.action.codex" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Codex" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Codex" } }
+      }
+    },
+    "mobile.terminal.action.codex.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Insert Codex command" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Codex コマンドを挿入" } }
+      }
+    },
+    "mobile.terminal.action.command" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "⌘" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "⌘" } }
+      }
+    },
+    "mobile.terminal.action.command.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Command" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Command" } }
+      }
+    },
+    "mobile.terminal.action.control" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Ctrl" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Ctrl" } }
+      }
+    },
+    "mobile.terminal.action.control.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Control" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Control" } }
+      }
+    },
+    "mobile.terminal.action.ctrlC" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "^C" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "^C" } }
+      }
+    },
+    "mobile.terminal.action.ctrlC.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Control C" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Control C" } }
+      }
+    },
+    "mobile.terminal.action.ctrlD" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "^D" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "^D" } }
+      }
+    },
+    "mobile.terminal.action.ctrlD.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Control D" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Control D" } }
+      }
+    },
+    "mobile.terminal.action.ctrlL" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "^L" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "^L" } }
+      }
+    },
+    "mobile.terminal.action.ctrlL.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Control L" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Control L" } }
+      }
+    },
+    "mobile.terminal.action.ctrlZ" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "^Z" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "^Z" } }
+      }
+    },
+    "mobile.terminal.action.ctrlZ.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Control Z" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Control Z" } }
+      }
+    },
+    "mobile.terminal.action.down" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "↓" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "↓" } }
+      }
+    },
+    "mobile.terminal.action.down.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Down Arrow" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "下矢印" } }
+      }
+    },
+    "mobile.terminal.action.end" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "End" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "End" } }
+      }
+    },
+    "mobile.terminal.action.end.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "End" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "End" } }
+      }
+    },
+    "mobile.terminal.action.escape" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Esc" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Esc" } }
+      }
+    },
+    "mobile.terminal.action.escape.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Escape" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Escape" } }
+      }
+    },
+    "mobile.terminal.action.hideKeyboard.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Hide Keyboard" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "キーボードを隠す" } }
+      }
+    },
+    "mobile.terminal.action.home" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Home" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ホーム" } }
+      }
+    },
+    "mobile.terminal.action.home.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Home" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ホーム" } }
+      }
+    },
+    "mobile.terminal.action.left" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "←" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "←" } }
+      }
+    },
+    "mobile.terminal.action.left.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Left Arrow" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "左矢印" } }
+      }
+    },
+    "mobile.terminal.action.pageDown" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "PgDn" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "PgDn" } }
+      }
+    },
+    "mobile.terminal.action.pageDown.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Page Down" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Page Down" } }
+      }
+    },
+    "mobile.terminal.action.pageUp" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "PgUp" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "PgUp" } }
+      }
+    },
+    "mobile.terminal.action.pageUp.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Page Up" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Page Up" } }
+      }
+    },
+    "mobile.terminal.action.pipe" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "|" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "|" } }
+      }
+    },
+    "mobile.terminal.action.pipe.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pipe" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "パイプ" } }
+      }
+    },
+    "mobile.terminal.action.right" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "→" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "→" } }
+      }
+    },
+    "mobile.terminal.action.right.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Right Arrow" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "右矢印" } }
+      }
+    },
+    "mobile.terminal.action.shift" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "⇧" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "⇧" } }
+      }
+    },
+    "mobile.terminal.action.shift.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Shift" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Shift" } }
+      }
+    },
+    "mobile.terminal.action.tab" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tab" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Tab" } }
+      }
+    },
+    "mobile.terminal.action.tab.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tab" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Tab" } }
+      }
+    },
+    "mobile.terminal.action.tilde" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "~" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "~" } }
+      }
+    },
+    "mobile.terminal.action.tilde.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tilde" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "チルダ" } }
+      }
+    },
+    "mobile.terminal.action.up" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "↑" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "↑" } }
+      }
+    },
+    "mobile.terminal.action.up.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Up Arrow" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "上矢印" } }
+      }
+    },
+    "mobile.terminal.action.zoomIn.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Zoom In" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "拡大" } }
+      }
+    },
+    "mobile.terminal.action.zoomOut.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Zoom Out" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "縮小" } }
+      }
+    },
+    "mobile.terminal.arrowPad.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Arrow pad" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "矢印パッド" } }
+      }
+    },
     "mobile.terminal.inputPlaceholder" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Send to terminal" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナルに送信" } }
+      }
+    },
+    "mobile.terminal.inputProxy.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Terminal input" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナル入力" } }
+      }
+    },
+    "mobile.terminal.modifier.stickyFormat" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@ sticky" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@ 固定" } }
       }
     },
     "mobile.terminal.new" : {

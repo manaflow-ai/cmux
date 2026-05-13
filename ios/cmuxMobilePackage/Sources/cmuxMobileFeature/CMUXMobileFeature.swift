@@ -1274,7 +1274,8 @@ private struct WorkspaceDetailContainer: View {
                 ),
                 createWorkspace: createWorkspace,
                 createTerminal: store.createTerminal,
-                reportTerminalViewport: store.reportTerminalViewport
+                reportTerminalViewport: store.reportTerminalViewport,
+                sendTerminalInput: store.sendTerminalRawInput
             )
             .onAppear {
                 if store.selectedWorkspaceID != workspace.id {
@@ -1533,6 +1534,9 @@ struct WorkspaceDetailView: View {
     let createWorkspace: () -> Void
     let createTerminal: () -> Void
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
+    let sendTerminalInput: (String) -> Void
+    @State private var bottomActionModifierState = MobileTerminalModifierState()
+    @State private var terminalFontScale: CGFloat = 1
 
     private var selectedTerminal: MobileTerminalPreview? {
         workspace.terminals.first { $0.id == selectedTerminalID } ?? workspace.terminals.first
@@ -1541,6 +1545,9 @@ struct WorkspaceDetailView: View {
     var body: some View {
         TerminalPreviewSurface(
             terminal: selectedTerminal,
+            fontScale: terminalFontScale,
+            modifierState: $bottomActionModifierState,
+            sendTerminalInput: sendTerminalInput,
             onViewportChange: { viewportSize in
                 guard let terminalID = selectedTerminal?.id else { return }
                 reportTerminalViewport(workspace.id, terminalID, viewportSize)
@@ -1548,7 +1555,6 @@ struct WorkspaceDetailView: View {
         )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(TerminalPalette.background)
-            .ignoresSafeArea(.container, edges: [.bottom])
             .navigationTitle(workspace.name)
             .mobileTerminalNavigationChrome()
             .toolbar {
@@ -1562,6 +1568,51 @@ struct WorkspaceDetailView: View {
                 }
                 #endif
             }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                TerminalBottomActionBar(
+                    modifierState: bottomActionModifierState,
+                    canDecreaseFont: terminalFontScale > Self.minimumTerminalFontScale,
+                    canIncreaseFont: terminalFontScale < Self.maximumTerminalFontScale,
+                    performAction: performBottomAction
+                )
+            }
+    }
+
+    private static let minimumTerminalFontScale: CGFloat = 0.8
+    private static let maximumTerminalFontScale: CGFloat = 1.5
+    private static let terminalFontScaleStep: CGFloat = 0.1
+
+    private func performBottomAction(_ action: MobileTerminalBottomAction) {
+        if let modifier = action.modifier {
+            bottomActionModifierState.tap(modifier)
+            return
+        }
+
+        switch action {
+        case .hideKeyboard:
+            dismissKeyboard()
+            bottomActionModifierState.clear()
+        case .zoomOut:
+            terminalFontScale = max(Self.minimumTerminalFontScale, terminalFontScale - Self.terminalFontScaleStep)
+            bottomActionModifierState.clear()
+        case .zoomIn:
+            terminalFontScale = min(Self.maximumTerminalFontScale, terminalFontScale + Self.terminalFontScaleStep)
+            bottomActionModifierState.clear()
+        default:
+            let activeModifier = bottomActionModifierState.activeModifier
+            if let input = action.inputText(modifier: bottomActionModifierState.activeModifier) {
+                sendTerminalInput(input)
+                if activeModifier != .shift {
+                    bottomActionModifierState.consumeAfterInput()
+                }
+            }
+        }
+    }
+
+    private func dismissKeyboard() {
+        #if os(iOS)
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        #endif
     }
 
     @ViewBuilder
@@ -1596,6 +1647,803 @@ struct WorkspaceDetailView: View {
         .accessibilityLabel(selectedTerminal?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"))
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(host)
+    }
+}
+
+enum MobileTerminalActionModifier: String, Equatable, Sendable {
+    case control
+    case alternate
+    case command
+    case shift
+
+    var accessibilityLabel: String {
+        switch self {
+        case .control:
+            return L10n.string("mobile.terminal.action.control.label", defaultValue: "Control")
+        case .alternate:
+            return L10n.string("mobile.terminal.action.alt.label", defaultValue: "Alt")
+        case .command:
+            return L10n.string("mobile.terminal.action.command.label", defaultValue: "Command")
+        case .shift:
+            return L10n.string("mobile.terminal.action.shift.label", defaultValue: "Shift")
+        }
+    }
+}
+
+struct MobileTerminalModifierState: Equatable, Sendable {
+    private struct LastTap: Equatable, Sendable {
+        var modifier: MobileTerminalActionModifier
+        var date: Date
+    }
+
+    static let stickyDoubleTapInterval: TimeInterval = 0.4
+
+    private(set) var activeModifier: MobileTerminalActionModifier?
+    private(set) var isSticky = false
+    private var lastTap: LastTap?
+
+    mutating func tap(
+        _ modifier: MobileTerminalActionModifier,
+        now: Date = Date()
+    ) {
+        if activeModifier == modifier, isSticky {
+            clear()
+            return
+        }
+
+        if activeModifier == modifier,
+           let lastTap,
+           lastTap.modifier == modifier,
+           now.timeIntervalSince(lastTap.date) < Self.stickyDoubleTapInterval {
+            isSticky = true
+            self.lastTap = nil
+            return
+        }
+
+        let shouldArm = activeModifier != modifier
+        clear()
+        if shouldArm {
+            activeModifier = modifier
+            isSticky = false
+            lastTap = LastTap(modifier: modifier, date: now)
+        }
+    }
+
+    mutating func consumeAfterInput() {
+        guard !isSticky else { return }
+        clear()
+    }
+
+    mutating func clear() {
+        activeModifier = nil
+        isSticky = false
+        lastTap = nil
+    }
+}
+
+enum MobileTerminalInputResolver {
+    static func textInput(_ text: String, modifier: MobileTerminalActionModifier?) -> String {
+        let normalized = text.replacingOccurrences(of: "\n", with: "\r")
+        switch modifier {
+        case .control:
+            return controlSequence(for: normalized) ?? normalized
+        case .alternate:
+            return "\u{1B}" + normalized
+        case .command:
+            return commandTextSequence(for: normalized) ?? normalized
+        case .shift:
+            return normalized.uppercased()
+        case nil:
+            return normalized
+        }
+    }
+
+    static func backspaceInput(modifier: MobileTerminalActionModifier?) -> String {
+        switch modifier {
+        case .command:
+            return "\u{15}"
+        case .alternate:
+            return "\u{1B}\u{7F}"
+        case .control, .shift, nil:
+            return "\u{7F}"
+        }
+    }
+
+    static func controlSequence(for text: String) -> String? {
+        guard text.count == 1 else { return nil }
+        switch text {
+        case " ", "2":
+            return "\u{00}"
+        case "3":
+            return "\u{1B}"
+        case "4":
+            return "\u{1C}"
+        case "5":
+            return "\u{1D}"
+        case "6":
+            return "\u{1E}"
+        case "7", "/":
+            return "\u{1F}"
+        case "?":
+            return "\u{7F}"
+        default:
+            break
+        }
+
+        guard let scalar = text.uppercased().unicodeScalars.first,
+              text.unicodeScalars.count == 1,
+              (0x40...0x5F).contains(scalar.value),
+              let controlScalar = UnicodeScalar(scalar.value & 0x1F) else {
+            return nil
+        }
+        return String(controlScalar)
+    }
+
+    private static func commandTextSequence(for text: String) -> String? {
+        guard text.count == 1, let character = text.lowercased().first else {
+            return nil
+        }
+        switch character {
+        case "a":
+            return "\u{01}"
+        case "e":
+            return "\u{05}"
+        case "k":
+            return "\u{0B}"
+        case "u":
+            return "\u{15}"
+        case "w":
+            return "\u{17}"
+        case "l":
+            return "\u{0C}"
+        case "c":
+            return "\u{03}"
+        case "d":
+            return "\u{04}"
+        default:
+            return nil
+        }
+    }
+}
+
+enum MobileTerminalBottomAction: String, CaseIterable, Identifiable, Equatable, Sendable {
+    case hideKeyboard
+    case control
+    case alternate
+    case command
+    case shift
+    case zoomOut
+    case zoomIn
+    case escape
+    case tab
+    case upArrow
+    case downArrow
+    case leftArrow
+    case rightArrow
+    case claude
+    case codex
+    case tilde
+    case pipe
+    case ctrlC
+    case ctrlD
+    case ctrlZ
+    case ctrlL
+    case home
+    case end
+    case pageUp
+    case pageDown
+
+    static let scrollableActionBarCases = allCases.filter { $0 != .hideKeyboard }
+
+    var id: String { rawValue }
+
+    var modifier: MobileTerminalActionModifier? {
+        switch self {
+        case .control:
+            return .control
+        case .alternate:
+            return .alternate
+        case .command:
+            return .command
+        case .shift:
+            return .shift
+        default:
+            return nil
+        }
+    }
+
+    var hasTrailingDivider: Bool {
+        switch self {
+        case .shift, .zoomIn, .rightArrow, .codex, .pipe, .ctrlL:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var accessibilityIdentifier: String {
+        "MobileTerminalAction-\(rawValue)"
+    }
+
+    var title: String {
+        switch self {
+        case .hideKeyboard, .zoomOut, .zoomIn:
+            return ""
+        case .control:
+            return L10n.string("mobile.terminal.action.control", defaultValue: "Ctrl")
+        case .alternate:
+            return L10n.string("mobile.terminal.action.alt", defaultValue: "Alt")
+        case .command:
+            return L10n.string("mobile.terminal.action.command", defaultValue: "⌘")
+        case .shift:
+            return L10n.string("mobile.terminal.action.shift", defaultValue: "⇧")
+        case .escape:
+            return L10n.string("mobile.terminal.action.escape", defaultValue: "Esc")
+        case .tab:
+            return L10n.string("mobile.terminal.action.tab", defaultValue: "Tab")
+        case .upArrow:
+            return L10n.string("mobile.terminal.action.up", defaultValue: "↑")
+        case .downArrow:
+            return L10n.string("mobile.terminal.action.down", defaultValue: "↓")
+        case .leftArrow:
+            return L10n.string("mobile.terminal.action.left", defaultValue: "←")
+        case .rightArrow:
+            return L10n.string("mobile.terminal.action.right", defaultValue: "→")
+        case .claude:
+            return L10n.string("mobile.terminal.action.claude", defaultValue: "Claude")
+        case .codex:
+            return L10n.string("mobile.terminal.action.codex", defaultValue: "Codex")
+        case .tilde:
+            return L10n.string("mobile.terminal.action.tilde", defaultValue: "~")
+        case .pipe:
+            return L10n.string("mobile.terminal.action.pipe", defaultValue: "|")
+        case .ctrlC:
+            return L10n.string("mobile.terminal.action.ctrlC", defaultValue: "^C")
+        case .ctrlD:
+            return L10n.string("mobile.terminal.action.ctrlD", defaultValue: "^D")
+        case .ctrlZ:
+            return L10n.string("mobile.terminal.action.ctrlZ", defaultValue: "^Z")
+        case .ctrlL:
+            return L10n.string("mobile.terminal.action.ctrlL", defaultValue: "^L")
+        case .home:
+            return L10n.string("mobile.terminal.action.home", defaultValue: "Home")
+        case .end:
+            return L10n.string("mobile.terminal.action.end", defaultValue: "End")
+        case .pageUp:
+            return L10n.string("mobile.terminal.action.pageUp", defaultValue: "PgUp")
+        case .pageDown:
+            return L10n.string("mobile.terminal.action.pageDown", defaultValue: "PgDn")
+        }
+    }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .hideKeyboard:
+            return L10n.string("mobile.terminal.action.hideKeyboard.label", defaultValue: "Hide Keyboard")
+        case .control:
+            return L10n.string("mobile.terminal.action.control.label", defaultValue: "Control")
+        case .alternate:
+            return L10n.string("mobile.terminal.action.alt.label", defaultValue: "Alt")
+        case .command:
+            return L10n.string("mobile.terminal.action.command.label", defaultValue: "Command")
+        case .shift:
+            return L10n.string("mobile.terminal.action.shift.label", defaultValue: "Shift")
+        case .zoomOut:
+            return L10n.string("mobile.terminal.action.zoomOut.label", defaultValue: "Zoom Out")
+        case .zoomIn:
+            return L10n.string("mobile.terminal.action.zoomIn.label", defaultValue: "Zoom In")
+        case .escape:
+            return L10n.string("mobile.terminal.action.escape.label", defaultValue: "Escape")
+        case .tab:
+            return L10n.string("mobile.terminal.action.tab.label", defaultValue: "Tab")
+        case .upArrow:
+            return L10n.string("mobile.terminal.action.up.label", defaultValue: "Up Arrow")
+        case .downArrow:
+            return L10n.string("mobile.terminal.action.down.label", defaultValue: "Down Arrow")
+        case .leftArrow:
+            return L10n.string("mobile.terminal.action.left.label", defaultValue: "Left Arrow")
+        case .rightArrow:
+            return L10n.string("mobile.terminal.action.right.label", defaultValue: "Right Arrow")
+        case .claude:
+            return L10n.string("mobile.terminal.action.claude.label", defaultValue: "Insert Claude command")
+        case .codex:
+            return L10n.string("mobile.terminal.action.codex.label", defaultValue: "Insert Codex command")
+        case .tilde:
+            return L10n.string("mobile.terminal.action.tilde.label", defaultValue: "Tilde")
+        case .pipe:
+            return L10n.string("mobile.terminal.action.pipe.label", defaultValue: "Pipe")
+        case .ctrlC:
+            return L10n.string("mobile.terminal.action.ctrlC.label", defaultValue: "Control C")
+        case .ctrlD:
+            return L10n.string("mobile.terminal.action.ctrlD.label", defaultValue: "Control D")
+        case .ctrlZ:
+            return L10n.string("mobile.terminal.action.ctrlZ.label", defaultValue: "Control Z")
+        case .ctrlL:
+            return L10n.string("mobile.terminal.action.ctrlL.label", defaultValue: "Control L")
+        case .home:
+            return L10n.string("mobile.terminal.action.home.label", defaultValue: "Home")
+        case .end:
+            return L10n.string("mobile.terminal.action.end.label", defaultValue: "End")
+        case .pageUp:
+            return L10n.string("mobile.terminal.action.pageUp.label", defaultValue: "Page Up")
+        case .pageDown:
+            return L10n.string("mobile.terminal.action.pageDown.label", defaultValue: "Page Down")
+        }
+    }
+
+    var symbolName: String? {
+        switch self {
+        case .hideKeyboard:
+            return "keyboard.chevron.compact.down"
+        case .zoomOut:
+            return "minus.magnifyingglass"
+        case .zoomIn:
+            return "plus.magnifyingglass"
+        default:
+            return nil
+        }
+    }
+
+    func inputText(modifier: MobileTerminalActionModifier?) -> String? {
+        guard let baseText else { return nil }
+        switch modifier {
+        case .alternate:
+            return alternateInputText(baseText: baseText)
+        case .command:
+            return commandInputText ?? baseText
+        case .shift:
+            return baseText
+        case .control, nil:
+            return baseText
+        }
+    }
+
+    private var baseText: String? {
+        switch self {
+        case .hideKeyboard, .control, .alternate, .command, .shift, .zoomOut, .zoomIn:
+            return nil
+        case .escape:
+            return "\u{1B}"
+        case .tab:
+            return "\t"
+        case .tilde:
+            return "~"
+        case .pipe:
+            return "|"
+        case .ctrlC:
+            return "\u{03}"
+        case .ctrlD:
+            return "\u{04}"
+        case .ctrlZ:
+            return "\u{1A}"
+        case .ctrlL:
+            return "\u{0C}"
+        case .upArrow:
+            return "\u{1B}[A"
+        case .downArrow:
+            return "\u{1B}[B"
+        case .leftArrow:
+            return "\u{1B}[D"
+        case .rightArrow:
+            return "\u{1B}[C"
+        case .claude:
+            return "claude --dangerously-skip-permissions\r"
+        case .codex:
+            return "codex --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort=xhigh --search\r"
+        case .home:
+            return "\u{1B}[H"
+        case .end:
+            return "\u{1B}[F"
+        case .pageUp:
+            return "\u{1B}[5~"
+        case .pageDown:
+            return "\u{1B}[6~"
+        }
+    }
+
+    private func alternateInputText(baseText: String) -> String {
+        switch self {
+        case .leftArrow:
+            return "\u{1B}b"
+        case .rightArrow:
+            return "\u{1B}f"
+        default:
+            return "\u{1B}" + baseText
+        }
+    }
+
+    private var commandInputText: String? {
+        switch self {
+        case .leftArrow:
+            return "\u{01}"
+        case .rightArrow:
+            return "\u{05}"
+        default:
+            return nil
+        }
+    }
+
+}
+
+private struct TerminalBottomActionBar: View {
+    let modifierState: MobileTerminalModifierState
+    let canDecreaseFont: Bool
+    let canIncreaseFont: Bool
+    let performAction: (MobileTerminalBottomAction) -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TerminalBottomActionButton(
+                action: .hideKeyboard,
+                isArmed: false,
+                isSticky: false,
+                isEnabled: true
+            ) {
+                performAction(.hideKeyboard)
+            }
+            .padding(.leading, 12)
+
+            TerminalArrowNubPad(
+                sendArrow: { action in
+                    performAction(action)
+                }
+            )
+
+            Divider()
+                .frame(height: 30)
+                .overlay(TerminalPalette.dimForeground.opacity(0.28))
+
+            ScrollView(.horizontal) {
+                HStack(spacing: 6) {
+                    ForEach(MobileTerminalBottomAction.scrollableActionBarCases) { action in
+                        TerminalBottomActionButton(
+                            action: action,
+                            isArmed: action.modifier == modifierState.activeModifier,
+                            isSticky: action.modifier == modifierState.activeModifier && modifierState.isSticky,
+                            isEnabled: isEnabled(action)
+                        ) {
+                            performAction(action)
+                        }
+
+                        if action.hasTrailingDivider {
+                            Divider()
+                                .frame(height: 26)
+                                .overlay(TerminalPalette.dimForeground.opacity(0.28))
+                                .padding(.horizontal, 2)
+                        }
+                    }
+                }
+                .padding(.trailing, 12)
+                .padding(.vertical, 8)
+            }
+            .scrollIndicators(.hidden)
+        }
+        .background(TerminalPalette.background)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(TerminalPalette.dimForeground.opacity(0.18))
+                .frame(height: 1)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileTerminalBottomActionBar")
+        .accessibilityValue(modifierState.accessibilityValue)
+    }
+
+    private func isEnabled(_ action: MobileTerminalBottomAction) -> Bool {
+        switch action {
+        case .zoomOut:
+            return canDecreaseFont
+        case .zoomIn:
+            return canIncreaseFont
+        default:
+            return true
+        }
+    }
+}
+
+private struct TerminalBottomActionButton: View {
+    let action: MobileTerminalBottomAction
+    let isArmed: Bool
+    let isSticky: Bool
+    let isEnabled: Bool
+    let perform: () -> Void
+
+    var body: some View {
+        Button(action: perform) {
+            Group {
+                if let symbolName = action.symbolName {
+                    Image(systemName: symbolName)
+                        .font(.system(size: 15, weight: .semibold))
+                } else {
+                    Text(action.title)
+                        .font(.system(size: 14, weight: .semibold, design: .default))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+            }
+            .frame(minWidth: 36, minHeight: 30)
+            .padding(.horizontal, action.symbolName == nil ? 8 : 4)
+            .foregroundStyle(isEnabled ? TerminalPalette.foreground : TerminalPalette.dimForeground.opacity(0.48))
+            .background(buttonBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .overlay {
+                if isArmed {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(TerminalPalette.foreground.opacity(0.85), lineWidth: isSticky ? 2.5 : 1.5)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .accessibilityLabel(action.accessibilityLabel)
+        .accessibilityIdentifier(action.accessibilityIdentifier)
+        .accessibilityAddTraits(isArmed ? .isSelected : [])
+    }
+
+    private var buttonBackground: Color {
+        if !isEnabled {
+            return TerminalPalette.dimForeground.opacity(0.08)
+        }
+        if isSticky {
+            return TerminalPalette.foreground.opacity(0.28)
+        }
+        if isArmed {
+            return TerminalPalette.dimForeground.opacity(0.34)
+        }
+        return TerminalPalette.dimForeground.opacity(0.18)
+    }
+}
+
+private struct TerminalArrowNubPad: View {
+    let sendArrow: (MobileTerminalBottomAction) -> Void
+
+    @GestureState private var dragOffset: CGSize = .zero
+    @State private var repeatController = RepeatController()
+
+    private enum Direction: String, CaseIterable {
+        case up
+        case down
+        case left
+        case right
+
+        var action: MobileTerminalBottomAction {
+            switch self {
+            case .up:
+                return .upArrow
+            case .down:
+                return .downArrow
+            case .left:
+                return .leftArrow
+            case .right:
+                return .rightArrow
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .up:
+                return "chevron.up"
+            case .down:
+                return "chevron.down"
+            case .left:
+                return "chevron.left"
+            case .right:
+                return "chevron.right"
+            }
+        }
+    }
+
+    private static let size = CGSize(width: 74, height: 42)
+    private static let nubSize: CGFloat = 28
+    private static let maxOffset: CGFloat = 9
+    private static let deadZone: CGFloat = 8
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(TerminalPalette.dimForeground.opacity(0.12))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(TerminalPalette.dimForeground.opacity(0.22), lineWidth: 1)
+                }
+
+            ForEach(Direction.allCases, id: \.self) { direction in
+                Image(systemName: direction.symbol)
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(TerminalPalette.dimForeground.opacity(0.7))
+                    .offset(labelOffset(for: direction))
+                    .accessibilityHidden(true)
+            }
+
+            Circle()
+                .fill(TerminalPalette.dimForeground.opacity(0.34))
+                .overlay {
+                    Circle()
+                        .fill(TerminalPalette.foreground.opacity(0.82))
+                        .frame(width: 8, height: 8)
+                }
+                .frame(width: Self.nubSize, height: Self.nubSize)
+                .offset(clampedOffset(dragOffset))
+                .shadow(color: .black.opacity(0.18), radius: 2, x: 0, y: 1)
+        }
+        .frame(width: Self.size.width, height: Self.size.height)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .updating($dragOffset) { value, state, _ in
+                    state = value.translation
+                }
+                .onChanged { value in
+                    repeatController.setDirection(direction(for: value.translation), sendArrow: sendArrow)
+                }
+                .onEnded { _ in
+                    repeatController.stop()
+                }
+        )
+        .onDisappear {
+            repeatController.stop()
+        }
+        .accessibilityElement()
+        .accessibilityLabel(L10n.string("mobile.terminal.arrowPad.label", defaultValue: "Arrow pad"))
+        .accessibilityIdentifier("MobileTerminalArrowNubPad")
+        .accessibilityAction(named: Text(MobileTerminalBottomAction.upArrow.accessibilityLabel)) {
+            sendArrow(.upArrow)
+        }
+        .accessibilityAction(named: Text(MobileTerminalBottomAction.downArrow.accessibilityLabel)) {
+            sendArrow(.downArrow)
+        }
+        .accessibilityAction(named: Text(MobileTerminalBottomAction.leftArrow.accessibilityLabel)) {
+            sendArrow(.leftArrow)
+        }
+        .accessibilityAction(named: Text(MobileTerminalBottomAction.rightArrow.accessibilityLabel)) {
+            sendArrow(.rightArrow)
+        }
+    }
+
+    private func direction(for translation: CGSize) -> Direction? {
+        let distance = hypot(translation.width, translation.height)
+        guard distance > Self.deadZone else {
+            return nil
+        }
+        if abs(translation.width) > abs(translation.height) {
+            return translation.width > 0 ? .right : .left
+        }
+        return translation.height > 0 ? .down : .up
+    }
+
+    private func clampedOffset(_ offset: CGSize) -> CGSize {
+        CGSize(
+            width: min(Self.maxOffset, max(-Self.maxOffset, offset.width)),
+            height: min(Self.maxOffset, max(-Self.maxOffset, offset.height))
+        )
+    }
+
+    private func labelOffset(for direction: Direction) -> CGSize {
+        switch direction {
+        case .up:
+            return CGSize(width: 0, height: -14)
+        case .down:
+            return CGSize(width: 0, height: 14)
+        case .left:
+            return CGSize(width: -24, height: 0)
+        case .right:
+            return CGSize(width: 24, height: 0)
+        }
+    }
+
+    private final class RepeatController {
+        private static let initialRepeatDelay: TimeInterval = 0.08
+        private static let repeatInterval: TimeInterval = 0.08
+
+        private enum TimerKind {
+            case initial
+            case repeating
+        }
+
+        private var activeDirection: Direction?
+        private var sendArrow: ((MobileTerminalBottomAction) -> Void)?
+        private var initialTimer: Timer?
+        private var repeatTimer: Timer?
+        private var initialTimerTarget: TimerTarget?
+        private var repeatTimerTarget: TimerTarget?
+
+        deinit {
+            invalidateTimers()
+        }
+
+        func setDirection(
+            _ direction: Direction?,
+            sendArrow: @escaping (MobileTerminalBottomAction) -> Void
+        ) {
+            guard direction != activeDirection else { return }
+            invalidateTimers()
+            activeDirection = direction
+            self.sendArrow = sendArrow
+            guard let direction else { return }
+            sendArrow(direction.action)
+            initialTimer = makeTimer(interval: Self.initialRepeatDelay, repeats: false, kind: .initial)
+        }
+
+        func stop() {
+            activeDirection = nil
+            sendArrow = nil
+            invalidateTimers()
+        }
+
+        private func timerFired(kind: TimerKind) {
+            guard let direction = activeDirection, let sendArrow else {
+                stop()
+                return
+            }
+            sendArrow(direction.action)
+            if kind == .initial {
+                initialTimer?.invalidate()
+                initialTimer = nil
+                initialTimerTarget = nil
+                repeatTimer = makeTimer(interval: Self.repeatInterval, repeats: true, kind: .repeating)
+            }
+        }
+
+        private func invalidateTimers() {
+            initialTimer?.invalidate()
+            initialTimer = nil
+            repeatTimer?.invalidate()
+            repeatTimer = nil
+            initialTimerTarget = nil
+            repeatTimerTarget = nil
+        }
+
+        private func makeTimer(
+            interval: TimeInterval,
+            repeats: Bool,
+            kind: TimerKind
+        ) -> Timer {
+            let target = TimerTarget(controller: self, kind: kind)
+            let timer = Timer(
+                timeInterval: interval,
+                target: target,
+                selector: #selector(TimerTarget.fire(_:)),
+                userInfo: nil,
+                repeats: repeats
+            )
+            timer.tolerance = interval * 0.1
+            RunLoop.main.add(timer, forMode: .common)
+            switch kind {
+            case .initial:
+                initialTimerTarget = target
+            case .repeating:
+                repeatTimerTarget = target
+            }
+            return timer
+        }
+
+        private final class TimerTarget: NSObject {
+            weak var controller: RepeatController?
+            let kind: TimerKind
+
+            init(controller: RepeatController, kind: TimerKind) {
+                self.controller = controller
+                self.kind = kind
+            }
+
+            @objc
+            func fire(_ timer: Timer) {
+                controller?.timerFired(kind: kind)
+            }
+        }
+    }
+}
+
+private extension MobileTerminalModifierState {
+    var accessibilityValue: String {
+        guard let activeModifier else { return "" }
+        if isSticky {
+            return String(
+                format: L10n.string("mobile.terminal.modifier.stickyFormat", defaultValue: "%@ sticky"),
+                activeModifier.accessibilityLabel
+            )
+        }
+        return activeModifier.accessibilityLabel
     }
 }
 
@@ -1639,6 +2487,9 @@ private enum PlatformPalette {
 
 struct TerminalPreviewSurface: View {
     let terminal: MobileTerminalPreview?
+    var fontScale: CGFloat = 1
+    var modifierState: Binding<MobileTerminalModifierState>?
+    var sendTerminalInput: (String) -> Void = { _ in }
     var onViewportChange: (MobileTerminalViewportSize) -> Void = { _ in }
 
     private var renderedRows: [MobileTerminalGhosttyRow] {
@@ -1663,16 +2514,27 @@ struct TerminalPreviewSurface: View {
                 TerminalFittedViewportGrid(
                     rows: renderedRows,
                     columnCount: columnCount,
-                    cursor: terminal?.snapshot.cursor
+                    cursor: terminal?.snapshot.cursor,
+                    fontScale: fontScale
                 )
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             .task(id: viewportReportKey(proxy: proxy)) {
-                onViewportChange(TerminalViewportMetrics.viewportSize(for: visibleTerminalSize(proxy: proxy)))
+                onViewportChange(TerminalViewportMetrics.viewportSize(for: visibleTerminalSize(proxy: proxy), fontScale: fontScale))
             }
         }
         .foregroundStyle(TerminalPalette.foreground)
         .overlay {
+            #if os(iOS)
+            if let modifierState {
+                TerminalHiddenInputProxy(
+                    modifierState: modifierState,
+                    sendTerminalInput: sendTerminalInput
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("MobileTerminalInputProxy")
+            }
+            #endif
             Color.clear
                 .accessibilityElement(children: .ignore)
                 .accessibilityIdentifier("MobileTerminalSurface")
@@ -1681,8 +2543,9 @@ struct TerminalPreviewSurface: View {
     }
 
     private func viewportReportKey(proxy: GeometryProxy) -> String {
-        let viewportSize = TerminalViewportMetrics.viewportSize(for: visibleTerminalSize(proxy: proxy))
-        return "\(terminal?.id.rawValue ?? "none"):\(viewportSize.columns)x\(viewportSize.rows)"
+        let viewportSize = TerminalViewportMetrics.viewportSize(for: visibleTerminalSize(proxy: proxy), fontScale: fontScale)
+        let scaleKey = Int((TerminalViewportMetrics.clampedFontScale(fontScale) * 100).rounded())
+        return "\(terminal?.id.rawValue ?? "none"):\(viewportSize.columns)x\(viewportSize.rows):\(scaleKey)"
     }
 
     private func visibleTerminalSize(proxy: GeometryProxy) -> CGSize {
@@ -1690,17 +2553,255 @@ struct TerminalPreviewSurface: View {
     }
 }
 
+#if os(iOS)
+private struct TerminalHiddenInputProxy: UIViewRepresentable {
+    @Binding var modifierState: MobileTerminalModifierState
+    let sendTerminalInput: (String) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            modifierState: $modifierState,
+            sendTerminalInput: sendTerminalInput
+        )
+    }
+
+    func makeUIView(context: Context) -> TerminalHiddenInputTextView {
+        let textView = TerminalHiddenInputTextView()
+        textView.onText = { text in
+            context.coordinator.emitText(text)
+        }
+        textView.onBackspace = {
+            context.coordinator.emitBackspace()
+        }
+        textView.onRawInput = { input in
+            context.coordinator.emitRawInput(input)
+        }
+        textView.accessibilityLabel = L10n.string("mobile.terminal.inputProxy.label", defaultValue: "Terminal input")
+        return textView
+    }
+
+    func updateUIView(_ uiView: TerminalHiddenInputTextView, context: Context) {
+        context.coordinator.modifierState = $modifierState
+        context.coordinator.sendTerminalInput = sendTerminalInput
+        uiView.accessibilityLabel = L10n.string("mobile.terminal.inputProxy.label", defaultValue: "Terminal input")
+    }
+
+    final class Coordinator {
+        var modifierState: Binding<MobileTerminalModifierState>
+        var sendTerminalInput: (String) -> Void
+
+        init(
+            modifierState: Binding<MobileTerminalModifierState>,
+            sendTerminalInput: @escaping (String) -> Void
+        ) {
+            self.modifierState = modifierState
+            self.sendTerminalInput = sendTerminalInput
+        }
+
+        func emitText(_ text: String) {
+            guard !text.isEmpty else { return }
+            let input = MobileTerminalInputResolver.textInput(
+                text,
+                modifier: modifierState.wrappedValue.activeModifier
+            )
+            sendTerminalInput(input)
+            modifierState.wrappedValue.consumeAfterInput()
+        }
+
+        func emitBackspace() {
+            let input = MobileTerminalInputResolver.backspaceInput(
+                modifier: modifierState.wrappedValue.activeModifier
+            )
+            sendTerminalInput(input)
+            modifierState.wrappedValue.consumeAfterInput()
+        }
+
+        func emitRawInput(_ input: String) {
+            guard !input.isEmpty else { return }
+            sendTerminalInput(input)
+            modifierState.wrappedValue.consumeAfterInput()
+        }
+    }
+}
+
+@MainActor
+private final class TerminalHiddenInputTextView: UITextView, UITextViewDelegate {
+    var onText: ((String) -> Void)?
+    var onBackspace: (() -> Void)?
+    var onRawInput: ((String) -> Void)?
+
+    override var canBecomeFirstResponder: Bool { true }
+
+    override var keyCommands: [UIKeyCommand]? {
+        guard markedTextRange == nil else { return nil }
+        return MobileTerminalHardwareKeyResolver.makeKeyCommands(
+            target: self,
+            action: #selector(handleHardwareKeyCommand(_:))
+        )
+    }
+
+    init() {
+        super.init(frame: .zero, textContainer: nil)
+        backgroundColor = .clear
+        textColor = .clear
+        tintColor = .clear
+        autocorrectionType = .no
+        autocapitalizationType = .none
+        smartQuotesType = .no
+        smartDashesType = .no
+        smartInsertDeleteType = .no
+        spellCheckingType = .no
+        keyboardType = .default
+        returnKeyType = .default
+        textContainerInset = .zero
+        isScrollEnabled = false
+        isOpaque = false
+        accessibilityTraits.insert(.keyboardKey)
+        delegate = self
+        text = ""
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    override func insertText(_ text: String) {
+        guard !text.isEmpty else { return }
+        if markedTextRange != nil {
+            super.insertText(text)
+            return
+        }
+        onText?(text)
+    }
+
+    override func deleteBackward() {
+        if markedTextRange != nil || hasText {
+            super.deleteBackward()
+            return
+        }
+        onBackspace?()
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        becomeFirstResponder()
+        super.touchesBegan(touches, with: event)
+    }
+
+    func textViewDidChange(_ textView: UITextView) {
+        guard textView.markedTextRange == nil else { return }
+        let committedText = textView.text ?? ""
+        guard !committedText.isEmpty else { return }
+        textView.text = ""
+        onText?(committedText)
+    }
+
+    @objc
+    private func handleHardwareKeyCommand(_ sender: UIKeyCommand) {
+        guard let input = sender.input,
+              let output = MobileTerminalHardwareKeyResolver.input(
+                input,
+                modifierFlags: sender.modifierFlags
+              ) else {
+            return
+        }
+        onRawInput?(output)
+    }
+}
+
+private enum MobileTerminalHardwareKeyResolver {
+    private struct Command {
+        var input: String
+        var modifierFlags: UIKeyModifierFlags
+    }
+
+    private static let commands: [Command] = [
+        Command(input: UIKeyCommand.inputUpArrow, modifierFlags: []),
+        Command(input: UIKeyCommand.inputDownArrow, modifierFlags: []),
+        Command(input: UIKeyCommand.inputLeftArrow, modifierFlags: []),
+        Command(input: UIKeyCommand.inputRightArrow, modifierFlags: []),
+        Command(input: UIKeyCommand.inputLeftArrow, modifierFlags: [.alternate]),
+        Command(input: UIKeyCommand.inputRightArrow, modifierFlags: [.alternate]),
+        Command(input: UIKeyCommand.inputHome, modifierFlags: []),
+        Command(input: UIKeyCommand.inputEnd, modifierFlags: []),
+        Command(input: UIKeyCommand.inputPageUp, modifierFlags: []),
+        Command(input: UIKeyCommand.inputPageDown, modifierFlags: []),
+        Command(input: UIKeyCommand.inputDelete, modifierFlags: []),
+        Command(input: UIKeyCommand.inputDelete, modifierFlags: [.alternate]),
+        Command(input: UIKeyCommand.inputEscape, modifierFlags: []),
+        Command(input: "\t", modifierFlags: []),
+        Command(input: "\t", modifierFlags: [.shift]),
+    ] + Array("abcdefghijklmnopqrstuvwxyz[]\\ 234567/").map(String.init).map {
+        Command(input: $0, modifierFlags: [.control])
+    } + Array("@^_?").map(String.init).map {
+        Command(input: $0, modifierFlags: [.control, .shift])
+    }
+
+    @MainActor
+    static func makeKeyCommands(target: Any, action: Selector) -> [UIKeyCommand] {
+        commands.map { command in
+            UIKeyCommand(
+                input: command.input,
+                modifierFlags: command.modifierFlags,
+                action: action
+            )
+        }
+    }
+
+    static func input(_ input: String, modifierFlags: UIKeyModifierFlags) -> String? {
+        let normalizedFlags = modifierFlags.intersection([.shift, .control, .alternate])
+        switch (input, normalizedFlags) {
+        case (UIKeyCommand.inputLeftArrow, [.alternate]):
+            return "\u{1B}b"
+        case (UIKeyCommand.inputRightArrow, [.alternate]):
+            return "\u{1B}f"
+        case (UIKeyCommand.inputUpArrow, []):
+            return "\u{1B}[A"
+        case (UIKeyCommand.inputDownArrow, []):
+            return "\u{1B}[B"
+        case (UIKeyCommand.inputRightArrow, []):
+            return "\u{1B}[C"
+        case (UIKeyCommand.inputLeftArrow, []):
+            return "\u{1B}[D"
+        case (UIKeyCommand.inputHome, []):
+            return "\u{1B}[H"
+        case (UIKeyCommand.inputEnd, []):
+            return "\u{1B}[F"
+        case (UIKeyCommand.inputPageUp, []):
+            return "\u{1B}[5~"
+        case (UIKeyCommand.inputPageDown, []):
+            return "\u{1B}[6~"
+        case (UIKeyCommand.inputDelete, []):
+            return "\u{1B}[3~"
+        case (UIKeyCommand.inputDelete, [.alternate]):
+            return "\u{1B}\u{7F}"
+        case (UIKeyCommand.inputEscape, []):
+            return "\u{1B}"
+        case ("\t", []):
+            return "\t"
+        case ("\t", [.shift]):
+            return "\u{1B}[Z"
+        case let (input, flags) where flags == [.control] || flags == [.control, .shift]:
+            return MobileTerminalInputResolver.controlSequence(for: input)
+        default:
+            return nil
+        }
+    }
+}
+#endif
+
 private struct TerminalFittedViewportGrid: View {
     let rows: [MobileTerminalGhosttyRow]
     let columnCount: Int
     let cursor: MobileTerminalGhosttyCursor?
+    let fontScale: CGFloat
 
     var body: some View {
         GeometryReader { proxy in
             let metrics = TerminalViewportMetrics(
                 size: proxy.size,
                 columns: columnCount,
-                rows: max(1, rows.count)
+                rows: max(1, rows.count),
+                fontScale: fontScale
             )
 
             VStack(alignment: .leading, spacing: 0) {
@@ -1741,20 +2842,26 @@ private struct TerminalViewportMetrics {
     static let preferredCellWidth: CGFloat = 7.4
     static let preferredRowHeight: CGFloat = 16
 
-    init(size: CGSize, columns: Int, rows: Int) {
+    init(size: CGSize, columns: Int, rows: Int, fontScale: CGFloat = 1) {
         let resolvedColumns = max(1, columns)
         let resolvedRows = max(1, rows)
-        cellWidth = Self.preferredCellWidth
-        rowHeight = Self.preferredRowHeight
-        fontSize = Self.preferredFontSize
-        gridWidth = Self.preferredCellWidth * CGFloat(resolvedColumns)
-        gridHeight = Self.preferredRowHeight * CGFloat(resolvedRows)
+        let scale = Self.clampedFontScale(fontScale)
+        cellWidth = Self.preferredCellWidth * scale
+        rowHeight = Self.preferredRowHeight * scale
+        fontSize = Self.preferredFontSize * scale
+        gridWidth = cellWidth * CGFloat(resolvedColumns)
+        gridHeight = rowHeight * CGFloat(resolvedRows)
     }
 
-    static func viewportSize(for size: CGSize) -> MobileTerminalViewportSize {
-        let columns = max(20, Int(floor(max(1, size.width) / preferredCellWidth)))
-        let rows = max(5, Int(floor(max(1, size.height) / preferredRowHeight)))
+    static func viewportSize(for size: CGSize, fontScale: CGFloat = 1) -> MobileTerminalViewportSize {
+        let scale = clampedFontScale(fontScale)
+        let columns = max(20, Int(floor(max(1, size.width) / (preferredCellWidth * scale))))
+        let rows = max(5, Int(floor(max(1, size.height) / (preferredRowHeight * scale))))
         return MobileTerminalViewportSize(columns: columns, rows: rows)
+    }
+
+    static func clampedFontScale(_ scale: CGFloat) -> CGFloat {
+        min(1.5, max(0.8, scale))
     }
 }
 

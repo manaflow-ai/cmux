@@ -554,6 +554,19 @@ public final class CMUXMobileShellStore {
             appendPreviewInput(text)
             return
         }
+        await sendRemoteTerminalInput(text + "\r")
+    }
+
+    public func sendTerminalRawInput(_ text: String) {
+        Task { await submitTerminalRawInput(text) }
+    }
+
+    public func submitTerminalRawInput(_ text: String) async {
+        guard !text.isEmpty else { return }
+        guard remoteClient != nil else {
+            appendPreviewInput(Self.previewLine(forRawTerminalInput: text))
+            return
+        }
         await sendRemoteTerminalInput(text)
     }
 
@@ -786,7 +799,7 @@ public final class CMUXMobileShellStore {
                     params: [
                         "workspace_id": workspace.id.rawValue,
                         "surface_id": terminalID,
-                        "text": text + "\r",
+                        "text": text,
                     ]
                 )
             )
@@ -913,6 +926,36 @@ public final class CMUXMobileShellStore {
             .hasSuffix(".ts.net")
     }
 
+    private static func previewLine(forRawTerminalInput text: String) -> String {
+        switch text {
+        case "\u{1B}":
+            return "Esc"
+        case "\t":
+            return "Tab"
+        case "\u{1B}[A":
+            return "↑"
+        case "\u{1B}[B":
+            return "↓"
+        case "\u{1B}[D":
+            return "←"
+        case "\u{1B}[C":
+            return "→"
+        case "\u{03}":
+            return "^C"
+        case "\u{04}":
+            return "^D"
+        case "\u{1A}":
+            return "^Z"
+        case "\u{0C}":
+            return "^L"
+        default:
+            if text.hasSuffix("\r") {
+                return String(text.dropLast())
+            }
+            return text
+        }
+    }
+
     private func appendPreviewInput(_ text: String) {
         guard let workspace = selectedWorkspace,
               let terminalID = selectedTerminalID,
@@ -992,6 +1035,7 @@ private extension CmxAttachTicket {
             authToken: authToken
         )
     }
+
 }
 
 private extension MobileWorkspacePreview {

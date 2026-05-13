@@ -571,6 +571,192 @@ import Testing
     #expect(store.selectedTerminalID?.rawValue == "terminal-notes")
 }
 
+@Test func terminalBottomActionOutputsMatchReferenceAccessoryControls() {
+    #expect(MobileTerminalBottomAction.escape.inputText(modifier: nil) == "\u{1B}")
+    #expect(MobileTerminalBottomAction.tab.inputText(modifier: nil) == "\t")
+    #expect(MobileTerminalBottomAction.upArrow.inputText(modifier: nil) == "\u{1B}[A")
+    #expect(MobileTerminalBottomAction.downArrow.inputText(modifier: nil) == "\u{1B}[B")
+    #expect(MobileTerminalBottomAction.leftArrow.inputText(modifier: nil) == "\u{1B}[D")
+    #expect(MobileTerminalBottomAction.rightArrow.inputText(modifier: nil) == "\u{1B}[C")
+    #expect(MobileTerminalBottomAction.ctrlC.inputText(modifier: nil) == "\u{03}")
+    #expect(MobileTerminalBottomAction.ctrlD.inputText(modifier: nil) == "\u{04}")
+    #expect(MobileTerminalBottomAction.ctrlZ.inputText(modifier: nil) == "\u{1A}")
+    #expect(MobileTerminalBottomAction.ctrlL.inputText(modifier: nil) == "\u{0C}")
+    #expect(MobileTerminalBottomAction.home.inputText(modifier: nil) == "\u{1B}[H")
+    #expect(MobileTerminalBottomAction.end.inputText(modifier: nil) == "\u{1B}[F")
+    #expect(MobileTerminalBottomAction.pageUp.inputText(modifier: nil) == "\u{1B}[5~")
+    #expect(MobileTerminalBottomAction.pageDown.inputText(modifier: nil) == "\u{1B}[6~")
+    #expect(MobileTerminalBottomAction.claude.inputText(modifier: nil) == "claude --dangerously-skip-permissions\r")
+    #expect(MobileTerminalBottomAction.codex.inputText(modifier: nil)?.hasSuffix("--search\r") == true)
+}
+
+@Test func terminalBottomScrollableActionsReserveHideKeyboardForDedicatedButton() {
+    #expect(MobileTerminalBottomAction.scrollableActionBarCases.first == .control)
+    #expect(!MobileTerminalBottomAction.scrollableActionBarCases.contains(.hideKeyboard))
+    #expect(MobileTerminalBottomAction.scrollableActionBarCases.count == MobileTerminalBottomAction.allCases.count - 1)
+}
+
+@Test func terminalBottomActionModifierOutputsMatchReferenceAccessoryControls() {
+    #expect(MobileTerminalBottomAction.leftArrow.inputText(modifier: .alternate) == "\u{1B}b")
+    #expect(MobileTerminalBottomAction.rightArrow.inputText(modifier: .alternate) == "\u{1B}f")
+    #expect(MobileTerminalBottomAction.escape.inputText(modifier: .alternate) == "\u{1B}\u{1B}")
+    #expect(MobileTerminalBottomAction.tab.inputText(modifier: .shift) == "\t")
+    #expect(MobileTerminalBottomAction.leftArrow.inputText(modifier: .command) == "\u{01}")
+    #expect(MobileTerminalBottomAction.rightArrow.inputText(modifier: .command) == "\u{05}")
+    #expect(MobileTerminalBottomAction.upArrow.inputText(modifier: .control) == "\u{1B}[A")
+}
+
+@Test func terminalBottomActionModifiersBecomeStickyOnQuickDoubleTap() {
+    let start = Date(timeIntervalSince1970: 100)
+    var state = MobileTerminalModifierState()
+
+    state.tap(.control, now: start)
+    #expect(state.activeModifier == .control)
+    #expect(!state.isSticky)
+
+    state.tap(.control, now: start.addingTimeInterval(0.39))
+    #expect(state.activeModifier == .control)
+    #expect(state.isSticky)
+
+    state.consumeAfterInput()
+    #expect(state.activeModifier == .control)
+    #expect(state.isSticky)
+
+    state.tap(.control, now: start.addingTimeInterval(1))
+    #expect(state.activeModifier == nil)
+    #expect(!state.isSticky)
+}
+
+@Test func terminalBottomActionModifiersDisarmAfterSingleUseAndWhenSwitchingModifiers() {
+    let start = Date(timeIntervalSince1970: 200)
+    var state = MobileTerminalModifierState()
+
+    state.tap(.alternate, now: start)
+    state.tap(.shift, now: start.addingTimeInterval(0.1))
+    #expect(state.activeModifier == .shift)
+    #expect(!state.isSticky)
+
+    state.consumeAfterInput()
+    #expect(state.activeModifier == nil)
+
+    state.tap(.command, now: start.addingTimeInterval(1))
+    state.tap(.command, now: start.addingTimeInterval(1.5))
+    #expect(state.activeModifier == nil)
+    #expect(!state.isSticky)
+}
+
+@Test func terminalHiddenInputResolverHonorsSoftKeyboardModifiers() {
+    #expect(MobileTerminalInputResolver.textInput("a", modifier: .control) == "\u{01}")
+    #expect(MobileTerminalInputResolver.textInput("?", modifier: .control) == "\u{7F}")
+    #expect(MobileTerminalInputResolver.textInput("word", modifier: .alternate) == "\u{1B}word")
+    #expect(MobileTerminalInputResolver.textInput("k", modifier: .command) == "\u{0B}")
+    #expect(MobileTerminalInputResolver.textInput("hi", modifier: .shift) == "HI")
+    #expect(MobileTerminalInputResolver.textInput("\n", modifier: nil) == "\r")
+}
+
+@Test func terminalHiddenInputResolverBackspaceMatchesReferenceBehavior() {
+    #expect(MobileTerminalInputResolver.backspaceInput(modifier: nil) == "\u{7F}")
+    #expect(MobileTerminalInputResolver.backspaceInput(modifier: .control) == "\u{7F}")
+    #expect(MobileTerminalInputResolver.backspaceInput(modifier: .command) == "\u{15}")
+    #expect(MobileTerminalInputResolver.backspaceInput(modifier: .alternate) == "\u{1B}\u{7F}")
+}
+
+@MainActor
+@Test func submittedTerminalInputStillAppendsCarriageReturn() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(
+            workspaceID: "live-workspace",
+            title: "Live Workspace",
+            terminalID: "live-terminal"
+        ),
+        try rpcSnapshotResultFrame(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            visibleLines: ["ready"]
+        ),
+        try rpcResultFrame(result: ["accepted": true]),
+        try rpcSnapshotResultFrame(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            visibleLines: ["sent"]
+        ),
+    ])
+    let runtime = CMUXMobileRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    store.terminalInputText = "echo hi"
+    await store.submitTerminalInput()
+
+    let inputRequest = try #require(await responses.sentRequests().first { $0.method == "terminal.input" })
+    #expect(inputRequest.text == "echo hi\r")
+    #expect(store.terminalInputText.isEmpty)
+}
+
+@MainActor
+@Test func rawTerminalInputDoesNotAppendCarriageReturn() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(
+            workspaceID: "live-workspace",
+            title: "Live Workspace",
+            terminalID: "live-terminal"
+        ),
+        try rpcSnapshotResultFrame(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            visibleLines: ["ready"]
+        ),
+        try rpcResultFrame(result: ["accepted": true]),
+        try rpcSnapshotResultFrame(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            visibleLines: ["raw sent"]
+        ),
+    ])
+    let runtime = CMUXMobileRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    await store.submitTerminalRawInput("\u{1B}[A")
+
+    let inputRequest = try #require(await responses.sentRequests().first { $0.method == "terminal.input" })
+    #expect(inputRequest.text == "\u{1B}[A")
+}
+
 @MainActor
 @Test func terminalSnapshotRequestIncludesReportedViewportSize() async throws {
     let route = try CmxAttachRoute(
@@ -838,6 +1024,7 @@ private actor ScriptedTransportResponses {
                 viewportColumns: params["viewport_columns"] as? Int,
                 viewportRows: params["viewport_rows"] as? Int,
                 clientID: params["client_id"] as? String,
+                text: params["text"] as? String,
                 hasAuth: request["auth"] != nil
             )
         }
@@ -849,6 +1036,7 @@ private struct RecordedRPCRequest: Sendable {
     var viewportColumns: Int?
     var viewportRows: Int?
     var clientID: String?
+    var text: String?
     var hasAuth: Bool
 }
 
