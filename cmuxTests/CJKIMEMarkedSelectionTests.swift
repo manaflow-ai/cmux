@@ -250,6 +250,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
             selectionAfterByKeyCode[probe.keyCode] = probe.selectionAfter
         }
 
+        AppDelegate.installWindowResponderSwizzlesForTesting()
         KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.Korean.2SetKorean"
         installCJKIMEInterpretKeyEventsSwizzle()
         cjkIMEInterpretKeyEventsHook = { candidateView, events in
@@ -286,7 +287,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
                     keyCode: probe.keyCode,
                     windowNumber: window.windowNumber
                 )
-                surfaceView.keyDown(with: event)
+                window.sendEvent(event)
             }
         }
 
@@ -418,9 +419,10 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         view.insertText("ㄉ", replacementRange: NSRange(location: NSNotFound, length: 0))
         view.insertText("ㄚ", replacementRange: NSRange(location: NSNotFound, length: 0))
         view.insertText("ˋ", replacementRange: NSRange(location: NSNotFound, length: 0))
+        view.insertText("ˊ", replacementRange: NSRange(location: 2, length: 1))
 
         XCTAssertTrue(view.hasMarkedText(), "Zhuyin components inserted by Apple IME should stay in editable preedit")
-        XCTAssertEqual(view.attributedString().string, "ㄉㄚˋ")
+        XCTAssertEqual(view.attributedString().string, "ㄉㄚˊ")
         XCTAssertEqual(view.selectedRange(), NSRange(location: 3, length: 0))
         XCTAssertEqual(
             view.keyTextAccumulatorForTesting,

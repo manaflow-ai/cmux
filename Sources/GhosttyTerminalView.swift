@@ -13284,11 +13284,11 @@ extension GhosttyNSView: NSTextInputClient {
     private func insertBopomofoPreeditText(_ chars: String, replacementRange: NSRange) {
         if replacementRange.location != NSNotFound,
            let range = Range(replacementRange, in: markedText.string) {
+            let insertionLocation = replacementRange.location + (chars as NSString).length
             let next = markedText.string.replacingCharacters(in: range, with: chars)
             markedText = NSMutableAttributedString(string: next)
-            let location = markedText.string.distance(from: markedText.string.startIndex, to: range.lowerBound) + chars.count
             markedSelectedRange = normalizedMarkedSelectionRange(
-                NSRange(location: location, length: 0),
+                NSRange(location: insertionLocation, length: 0),
                 markedLength: markedText.length
             )
             return

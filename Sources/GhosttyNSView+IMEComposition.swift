@@ -118,7 +118,11 @@ extension GhosttyNSView {
 
     private func isInputMethodSource(_ inputSourceId: String?) -> Bool {
         guard let inputSourceId else { return false }
-        return inputSourceId.localizedCaseInsensitiveContains("inputmethod")
+        return inputSourceId.range(
+            of: ".inputmethod.",
+            options: .caseInsensitive,
+            locale: Locale(identifier: "en_US_POSIX")
+        ) != nil
     }
 
     private func isBopomofoInputSource(_ inputSourceId: String?) -> Bool {
