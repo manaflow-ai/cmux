@@ -27,6 +27,9 @@ struct CMUXMobileRootView: View {
     @State private var authManager = AuthManager.shared
     @State private var pendingAttachURL: String?
     @State private var isShowingAddDeviceSheet = true
+    #if os(iOS)
+    @State private var addDeviceSheetDetent: PresentationDetent = .large
+    #endif
 
     var body: some View {
         Group {
@@ -34,7 +37,7 @@ struct CMUXMobileRootView: View {
                 SignInView()
             } else if store.connectionState != .connected {
                 DisconnectedWorkspaceShellView(
-                    showAddDevice: { isShowingAddDeviceSheet = true },
+                    showAddDevice: showAddDevice,
                     signOut: signOut
                 )
                 .sheet(isPresented: $isShowingAddDeviceSheet) {
@@ -48,12 +51,12 @@ struct CMUXMobileRootView: View {
                         cancel: { isShowingAddDeviceSheet = false }
                     )
                     #if os(iOS)
-                    .presentationDetents([.medium, .large])
+                    .presentationDetents([.medium, .large], selection: $addDeviceSheetDetent)
                     .presentationDragIndicator(.visible)
                     #endif
                 }
                 .onAppear {
-                    isShowingAddDeviceSheet = true
+                    showAddDevice()
                 }
             } else {
                 WorkspaceShellView(store: store)
@@ -84,6 +87,13 @@ struct CMUXMobileRootView: View {
 
     private var isAuthenticated: Bool {
         MobileRootAuthGate.isAuthenticated(stackAuthenticated: authManager.isAuthenticated)
+    }
+
+    private func showAddDevice() {
+        #if os(iOS)
+        addDeviceSheetDetent = .large
+        #endif
+        isShowingAddDeviceSheet = true
     }
 
     private func signOut() {
