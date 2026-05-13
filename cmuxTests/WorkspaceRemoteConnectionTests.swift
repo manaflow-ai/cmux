@@ -593,6 +593,33 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testRemoteReconnectingStateIsExposedInStatusPayload() {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64033,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.applyRemoteConnectionStateUpdate(
+            .reconnecting,
+            detail: "Reconnecting to cmux-macmini",
+            target: "cmux-macmini"
+        )
+
+        XCTAssertEqual(workspace.remoteConnectionState, .reconnecting)
+        XCTAssertEqual(workspace.remoteStatusPayload()["state"] as? String, "reconnecting")
+    }
+
+    @MainActor
     func testForegroundSSHAuthReadyIgnoresMismatchedConfiguredToken() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1083,6 +1110,104 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testDaemonBootstrapUploadUsesAbsoluteHomePathForScpDestination() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-upload-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let fakeDaemonURL = directoryURL.appendingPathComponent("cmuxd-remote", isDirectory: false)
+        try Data("fake daemon".utf8).write(to: fakeDaemonURL)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeDaemonURL.path)
+
+        let previousAllowLocalBuild = getenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD").map { String(cString: $0) }
+        let previousDaemonBinary = getenv("CMUX_REMOTE_DAEMON_BINARY").map { String(cString: $0) }
+        setenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD", "1", 1)
+        setenv("CMUX_REMOTE_DAEMON_BINARY", fakeDaemonURL.path, 1)
+        defer {
+            if let previousAllowLocalBuild {
+                setenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD", previousAllowLocalBuild, 1)
+            } else {
+                unsetenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD")
+            }
+            if let previousDaemonBinary {
+                setenv("CMUX_REMOTE_DAEMON_BINARY", previousDaemonBinary, 1)
+            } else {
+                unsetenv("CMUX_REMOTE_DAEMON_BINARY")
+            }
+        }
+
+        let scpInvoked = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var scpDestination: String?
+        WorkspaceRemoteSessionController.runProcessOverrideForTesting = { executable, arguments, _, _ in
+            if executable == "/usr/bin/ssh" {
+                let command = arguments.last ?? ""
+                if command.contains("uname -s") {
+                    return (
+                        status: 0,
+                        stdout: """
+                        __CMUX_REMOTE_HOME__=/home/test
+                        __CMUX_REMOTE_OS__=Linux
+                        __CMUX_REMOTE_ARCH__=x86_64
+                        __CMUX_REMOTE_EXISTS__=no
+                        """,
+                        stderr: ""
+                    )
+                }
+                if command.contains("mkdir -p") {
+                    return (status: 0, stdout: "", stderr: "")
+                }
+                return (status: 0, stdout: "", stderr: "")
+            }
+            if executable == "/usr/bin/scp" {
+                lock.lock()
+                scpDestination = arguments.last
+                lock.unlock()
+                scpInvoked.signal()
+                return (status: 1, stdout: "", stderr: "intentional stop after upload destination capture")
+            }
+            XCTFail("unexpected executable \(executable)")
+            return (status: 1, stdout: "", stderr: "unexpected executable")
+        }
+        defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
+
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "test@hpc.example",
+            port: 2222,
+            identityFile: "/Users/test/.ssh/id_ed25519",
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: "ssh test@hpc.example"
+        )
+        defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
+
+        workspace.configureRemoteConnection(config, autoConnect: true)
+
+        XCTAssertEqual(scpInvoked.wait(timeout: .now() + 2), .success)
+        lock.lock()
+        let capturedDestination = scpDestination
+        lock.unlock()
+        let destination = try XCTUnwrap(capturedDestination)
+        XCTAssertTrue(
+            destination.hasPrefix("test@hpc.example:/home/test/.cmux/bin/cmuxd-remote/"),
+            "expected scp to target an absolute path under remote HOME, got \(destination)"
+        )
+        XCTAssertTrue(
+            destination.contains("/linux-amd64/cmuxd-remote.tmp-"),
+            "expected daemon platform temp path in \(destination)"
+        )
+    }
+
+    @MainActor
     func testDetachAttachPreservesRemoteTerminalSurfaceTracking() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1550,12 +1675,40 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
 
     private final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
+        private let commandSemaphore = DispatchSemaphore(value: 0)
         private(set) var commands: [String] = []
 
         func append(_ command: String) {
             lock.lock()
             commands.append(command)
             lock.unlock()
+            commandSemaphore.signal()
+        }
+
+        func snapshot() -> [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return commands
+        }
+
+        func waitForCommand(timeout: TimeInterval, matching predicate: (String) -> Bool) -> Bool {
+            let deadline = Date().addingTimeInterval(timeout)
+            while true {
+                lock.lock()
+                let matched = commands.contains(where: predicate)
+                lock.unlock()
+                if matched {
+                    return true
+                }
+
+                let remaining = deadline.timeIntervalSinceNow
+                guard remaining > 0 else {
+                    return false
+                }
+                if commandSemaphore.wait(timeout: .now() + remaining) == .timedOut {
+                    return snapshot().contains(where: predicate)
+                }
+            }
         }
     }
 
@@ -1588,6 +1741,14 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             _ = DispatchSemaphore(value: 0).wait(timeout: .now() + 0.05)
         }
         return false
+    }
+
+    private func waitForSocketCommand(
+        state: MockSocketServerState,
+        timeout: TimeInterval,
+        matching predicate: (String) -> Bool
+    ) -> Bool {
+        state.waitForCommand(timeout: timeout, matching: predicate)
     }
 
     private func bundledCLIPath() throws -> String {
@@ -2811,6 +2972,206 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             },
             "Expected monitor to publish high-priority Codex network error status, saw \(state.commands)"
         )
+    }
+
+    func testCodexHookMonitorNotifiesOnRequestUserInput() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-monitor-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-session-monitor-user-input"
+        let turnId = "turn-monitor-user-input"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let transcriptURL = root.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try """
+        {"timestamp":"2026-04-25T07:55:29.462Z","type":"session_meta","payload":{"id":"\(sessionId)","cwd":"\(root.path)"}}
+        {"timestamp":"2026-04-25T07:55:29.500Z","type":"event_msg","payload":{"type":"task_started","turn_id":"\(turnId)","started_at":1777107522}}
+        {"timestamp":"2026-04-25T07:55:29.700Z","type":"event_msg","payload":{"type":"request_user_input","call_id":"call-plan-question","turn_id":"\(turnId)","questions":[{"id":"demo_path","header":"Demo","question":"Which demo path should I use?","options":[{"label":"Plan","description":"Show plan mode"}]}]}}
+        """.write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        _ = startMockServerSignal(listenerFD: listenerFD, state: state) { line in
+            if let data = line.data(using: .utf8),
+               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+               let id = payload["id"] as? String {
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
+            }
+            return "OK"
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let process = Process()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: cliPath)
+        process.arguments = [
+            "hooks", "codex", "monitor",
+            "--workspace",
+            workspaceId,
+            "--surface",
+            surfaceId,
+            "--session",
+            sessionId,
+            "--turn",
+            turnId,
+            "--transcript",
+            transcriptURL.path,
+        ]
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        try process.run()
+
+        let exitSignal = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            process.waitUntilExit()
+            exitSignal.signal()
+        }
+        defer {
+            if process.isRunning {
+                process.terminate()
+                _ = exitSignal.wait(timeout: .now() + 1)
+            }
+            _ = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            _ = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        }
+
+        XCTAssertTrue(
+            waitForProcess(process, toHoldOpenFile: transcriptURL.path, timeout: 2),
+            "Monitor did not start watching the request_user_input transcript"
+        )
+        XCTAssertTrue(
+            waitForSocketCommand(state: state, timeout: 5) { command in
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Waiting|Which demo path should I use?")
+            },
+            "Expected monitor to send Codex input notification, saw \(state.snapshot())"
+        )
+        XCTAssertTrue(
+            waitForSocketCommand(state: state, timeout: 5) { command in
+                command.contains("set_status codex Codex needs input") &&
+                    command.contains("--icon=bell.fill") &&
+                    command.contains("--color=#4C8DFF") &&
+                    command.contains("--priority=100") &&
+                    command.contains("--tab=\(workspaceId)")
+            },
+            "Expected monitor to publish high-priority Codex input status, saw \(state.snapshot())"
+        )
+        XCTAssertTrue(process.isRunning, "Monitor should keep watching the turn after publishing input notification")
+    }
+
+    func testCodexHookMonitorNotifiesOnResponseItemRequestUserInput() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex-response-item")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-monitor-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-session-monitor-response-item"
+        let turnId = "turn-monitor-response-item"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let transcriptURL = root.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try """
+        {"timestamp":"2026-04-25T07:55:29.462Z","type":"session_meta","payload":{"id":"\(sessionId)","cwd":"\(root.path)"}}
+        {"timestamp":"2026-04-25T07:55:29.500Z","type":"turn_context","payload":{"turn_id":"\(turnId)","cwd":"\(root.path)"}}
+        {"timestamp":"2026-04-25T07:55:29.700Z","type":"response_item","payload":{"type":"function_call","name":"request_user_input","arguments":"{\\"questions\\":[{\\"id\\":\\"demo_type\\",\\"header\\":\\"Demo Type\\",\\"question\\":\\"What kind of demo plan should I create?\\",\\"options\\":[{\\"label\\":\\"Product walkthrough (Recommended)\\",\\"description\\":\\"A timed agenda.\\"}]}]}","call_id":"call-plan-function"}}
+        """.write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        _ = startMockServerSignal(listenerFD: listenerFD, state: state) { line in
+            if let data = line.data(using: .utf8),
+               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+               let id = payload["id"] as? String {
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
+            }
+            return "OK"
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let process = Process()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: cliPath)
+        process.arguments = [
+            "hooks", "codex", "monitor",
+            "--workspace",
+            workspaceId,
+            "--surface",
+            surfaceId,
+            "--session",
+            sessionId,
+            "--turn",
+            turnId,
+            "--transcript",
+            transcriptURL.path,
+        ]
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        try process.run()
+
+        let exitSignal = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            process.waitUntilExit()
+            exitSignal.signal()
+        }
+        defer {
+            if process.isRunning {
+                process.terminate()
+                _ = exitSignal.wait(timeout: .now() + 1)
+            }
+            _ = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            _ = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        }
+
+        XCTAssertTrue(
+            waitForProcess(process, toHoldOpenFile: transcriptURL.path, timeout: 2),
+            "Monitor did not start watching the response_item request_user_input transcript"
+        )
+        XCTAssertTrue(
+            waitForSocketCommand(state: state, timeout: 5) { command in
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Waiting|What kind of demo plan should I create?")
+            },
+            "Expected monitor to send Codex input notification from response_item, saw \(state.snapshot())"
+        )
+        XCTAssertTrue(
+            waitForSocketCommand(state: state, timeout: 5) { command in
+                command.contains("set_status codex Codex needs input") &&
+                    command.contains("--icon=bell.fill") &&
+                    command.contains("--color=#4C8DFF") &&
+                    command.contains("--priority=100") &&
+                    command.contains("--tab=\(workspaceId)")
+            },
+            "Expected monitor to publish high-priority Codex input status, saw \(state.snapshot())"
+        )
+        XCTAssertTrue(process.isRunning, "Monitor should keep watching the turn after publishing input notification")
     }
 
     func testCodexHookMonitorReResolvesUnavailableTranscriptPath() throws {

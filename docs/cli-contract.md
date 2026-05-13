@@ -14,8 +14,9 @@ written around user-visible behavior so the implementation can change behind it.
   connecting to the cmux socket.
 - Keep documented `cmux <command> --help` probes working without a socket where
   they already do.
-- Keep `--socket`, `--password`, `--json`, `--id-format`, and `--window` as
-  global options before the command.
+- Keep `--socket`, `--password`, and `--window` as global options before the
+  command. Keep presentation options `--json` and `--id-format` accepted either
+  before or after the command.
 - Keep UUIDs, refs such as `workspace:2`, and indexes accepted wherever the
   command accepts a window, workspace, pane, surface, or tab handle.
 - Keep text output stable for scripting commands unless a command already
@@ -27,7 +28,7 @@ written around user-visible behavior so the implementation can change behind it.
 | Form | Contract |
 | --- | --- |
 | `cmux <path>` | Open a directory or file path in cmux. Relative paths resolve from the current working directory. |
-| `cmux [global-options] <command> [options]` | Run a named command. |
+| `cmux [global-options] <command> [options]` | Run a named command. Presentation options may appear before or after the command. |
 | `cmux --help`, `cmux -h` | Print top-level usage without a socket. |
 | `cmux help` | Print top-level usage without a socket. |
 | `cmux --version`, `cmux -v`, `cmux version` | Print version summary without a socket. |
@@ -125,8 +126,13 @@ Environment:
 | `send-panel` | Send text to a panel/surface. |
 | `send-key-panel` | Send one key to a panel/surface. |
 | `notify` | Send a notification to a workspace/surface. |
-| `list-notifications` | List queued notifications. |
+| `list-notifications` | List queued notifications, including `created_at` and `tab_title`. |
+| `dismiss-notification` | Remove one notification, or remove already-read notifications with `--all-read`. |
+| `mark-notification-read` | Mark one notification, a workspace/surface scope, or all notifications read. |
+| `open-notification` | Focus the notification's workspace/surface and mark it read. |
+| `jump-to-unread` | Focus the latest unread notification. |
 | `clear-notifications` | Clear queued notifications. |
+| `right-sidebar` | Control right sidebar visibility, mode, focus, and state reads. |
 | `set-status` | Set a sidebar status pill. |
 | `clear-status` | Remove a sidebar status pill. |
 | `list-status` | List sidebar status pills. |
@@ -173,7 +179,8 @@ VM subcommands:
 | `vm new`, `vm create` | Create a VM. Supports `--image`, `--provider`, `--detach`, and `-d`. |
 | `vm shell`, `vm attach` | Open an interactive shell for an existing VM. |
 | `vm rm`, `vm destroy`, `vm delete` | Destroy a VM. |
-| `vm ssh`, `vm ssh-info` | Print SSH connection info. |
+| `vm ssh` | Open a cmux-managed SSH workspace for an existing VM. |
+| `vm ssh-info` | Print SSH connection info. |
 | `vm ssh-attach` | Internal attach helper. |
 | `vm exec` | Run a shell command inside a VM. |
 
@@ -272,7 +279,20 @@ Hook subcommands:
 | `hooks claude <event>` | Handle Claude Code hook events. `claude-hook <event>` remains as the main-compatibility alias. |
 | `hooks codex <event>` | Handle Codex hook events. `codex install-hooks` remains as the main-compatibility installer alias. |
 | `hooks feed --source <agent>` | Convert agent hook events into Feed context. |
-| `hooks <agent> <event>` | Generic hook surface for `opencode`, `pi`, `cursor`, `gemini`, `rovodev`, `copilot`, `codebuddy`, `factory`, and `qoder`. |
+| `hooks <agent> <event>` | Generic hook surface for `opencode`, `pi`, `amp`, `cursor`, `gemini`, `rovodev`, `copilot`, `codebuddy`, `factory`, and `qoder`. |
+
+Right sidebar commands:
+
+| Command | Contract |
+| --- | --- |
+| `right-sidebar toggle`, `right-sidebar show`, `right-sidebar hide` | Change right-sidebar visibility without printing on success. |
+| `right-sidebar focus` | Focus the current right-sidebar mode. |
+| `right-sidebar set <files\|find\|vault\|sessions\|feed\|dock>` | Show the right sidebar, switch mode, and focus it unless `--no-focus` is passed. |
+| `right-sidebar files`, `right-sidebar find`, `right-sidebar vault`, `right-sidebar sessions`, `right-sidebar feed`, `right-sidebar dock` | Short aliases for `right-sidebar set <mode>` with focus. |
+| `right-sidebar mode` | Print JSON with `visible` and `mode`. |
+| `--workspace <id\|ref\|index>` | Target the window containing a workspace. Refs and indexes resolve before the V1 socket command is sent. |
+| `--window <id\|ref\|index>` | Target a window. Refs and indexes resolve before the V1 socket command is sent. |
+| `--no-focus` | Only valid with `set`; switches mode without moving focus. |
 
 Docs topics:
 
@@ -347,8 +367,8 @@ the expected text without connecting to a cmux socket.
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
 - `cmux events --help` -> `Usage: cmux events [options]`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout>`
-- `cmux vm --help` -> `Usage: cmux vm <new|ls|rm|exec|shell|attach|ssh> [args...]`
-- `cmux cloud --help` -> `Usage: cmux cloud <new|ls|rm|exec|shell|attach|ssh> [args...]`
+- `cmux vm --help` -> `Usage: cmux vm <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]`
+- `cmux cloud --help` -> `Usage: cmux cloud <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]`
 - `cmux rpc --help` -> `Usage: cmux rpc <method> [json-params]`
 - `cmux help --help` -> `Usage: cmux help`
 - `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]`
@@ -445,7 +465,12 @@ the expected text without connecting to a cmux socket.
 - `cmux send-key-panel --help` -> `Usage: cmux send-key-panel`
 - `cmux notify --help` -> `Usage: cmux notify`
 - `cmux list-notifications --help` -> `Usage: cmux list-notifications`
+- `cmux dismiss-notification --help` -> `Usage: cmux dismiss-notification`
+- `cmux mark-notification-read --help` -> `Usage: cmux mark-notification-read`
+- `cmux open-notification --help` -> `Usage: cmux open-notification`
+- `cmux jump-to-unread --help` -> `Usage: cmux jump-to-unread`
 - `cmux clear-notifications --help` -> `Usage: cmux clear-notifications`
+- `cmux right-sidebar --help` -> `Usage: cmux right-sidebar <command> [flags]`
 - `cmux set-status --help` -> `Usage: cmux set-status`
 - `cmux clear-status --help` -> `Usage: cmux clear-status`
 - `cmux list-status --help` -> `Usage: cmux list-status`

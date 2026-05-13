@@ -10,7 +10,7 @@ enum SettingsSearchAliasIndex {
         case .sidebarAppearance:
             return localized("settings.search.alias.section.sidebarAppearance", defaultValue: "sidebar left rail navigation details branches badges material terminal background")
         case .betaFeatures:
-            return localized("settings.search.alias.section.betaFeatures", defaultValue: "beta experimental unstable preview feed dock right sidebar")
+            return localized("settings.search.alias.section.betaFeatures", defaultValue: "beta experimental unstable preview dock right sidebar")
         case .automation:
             return localized("settings.search.alias.section.automation", defaultValue: "api cli control socket mcp agents hooks ports")
         case .browser:
@@ -44,12 +44,15 @@ enum SettingsSearchAliasIndex {
         "app:appearance": localized("settings.search.alias.setting.app.appearance", defaultValue: "app.appearance theme color scheme light mode dark mode system mode"),
         "app:app-icon": localized("settings.search.alias.setting.app.app-icon", defaultValue: "app.appIcon dock icon application icon app switcher alternate icon"),
         "app:new-workspace-placement": localized("settings.search.alias.setting.app.new-workspace-placement", defaultValue: "app.newWorkspacePlacement new tab insert position order top bottom end"),
+        "app:workspace-inherit-working-directory": localized("settings.search.alias.setting.app.workspace-inherit-working-directory", defaultValue: "app.workspaceInheritWorkingDirectory workspace cwd directory inherit current focused ghostty working-directory"),
         "app:minimal-mode": localized("settings.search.alias.setting.app.minimal-mode", defaultValue: "app.minimalMode minimal layout simple chrome compact titlebar controls"),
         "app:keep-workspace-open": localized("settings.search.alias.setting.app.keep-workspace-open", defaultValue: "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace"),
         "app:focus-pane-first-click": localized("settings.search.alias.setting.app.focus-pane-first-click", defaultValue: "app.focusPaneOnFirstClick click to focus focus follows mouse first click mouse activation"),
         "app:preferred-editor": localized("settings.search.alias.setting.app.preferred-editor", defaultValue: "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
+        "app:supported-file-previews": localized("settings.search.alias.setting.app.supported-file-previews", defaultValue: "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"),
         "app:terminal-config": localized("settings.search.alias.setting.app.terminal-config", defaultValue: "ghostty config configuration terminal settings preview merged file reload"),
         "app:markdown-viewer": localized("settings.search.alias.setting.app.markdown-viewer", defaultValue: "app.openMarkdownInCmuxViewer md markdown mdx viewer preview readme"),
+        "app:imessage-mode": localized("settings.search.alias.setting.app.imessage-mode", defaultValue: "app.iMessageMode imessage message messages chat prompt prompts submitted message texting reorder move workspace top agent send"),
         "app:reorder-notification": localized("settings.search.alias.setting.app.reorder-notification", defaultValue: "app.reorderOnNotification notification reorder move workspace top unread sort"),
         "app:dock-badge": localized("settings.search.alias.setting.app.dock-badge", defaultValue: "notifications.dockBadge badge dock unread count icon notifications red bubble"),
         "app:menu-bar-only": localized("settings.search.alias.setting.app.menu-bar-only", defaultValue: "app.menuBarOnly menubar menu bar dockless hide dock app switcher cmd-tab command-tab"),
@@ -67,10 +70,12 @@ enum SettingsSearchAliasIndex {
         "terminal:scrollbar": localized("settings.search.alias.setting.terminal.scrollbar", defaultValue: "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui"),
         "sidebarAppearance:match-terminal": localized("settings.search.alias.setting.sidebarAppearance.match-terminal", defaultValue: "sidebarAppearance.matchTerminalBackground transparent background material terminal background sync"),
         "sidebarAppearance:hide-sidebar-details": localized("settings.search.alias.setting.app.hide-sidebar-details", defaultValue: "sidebar.hideAllDetails compact sidebar hide details only title minimal left rail"),
+        "sidebarAppearance:show-workspace-description": localized("settings.search.alias.setting.app.show-workspace-description", defaultValue: "sidebar.showWorkspaceDescription workspace description notes markdown sidebar"),
         "sidebarAppearance:sidebar-branch-layout": localized("settings.search.alias.setting.app.sidebar-branch-layout", defaultValue: "sidebar.branchLayout git branch layout vertical inline cwd directory"),
         "sidebarAppearance:show-notification-message": localized("settings.search.alias.setting.app.show-notification-message", defaultValue: "sidebar.showNotificationMessage latest message unread notification text sidebar"),
         "sidebarAppearance:show-branch-directory": localized("settings.search.alias.setting.app.show-branch-directory", defaultValue: "sidebar.showBranchDirectory git branch cwd path directory folder repo sidebar"),
         "sidebarAppearance:show-pull-requests": localized("settings.search.alias.setting.app.show-pull-requests", defaultValue: "sidebar.showPullRequests pr mr review github gitlab bitbucket pull request merge request"),
+        "sidebarAppearance:make-pr-clickable": localized("settings.search.alias.setting.sidebarAppearance.make-pr-clickable", defaultValue: "sidebar.makePullRequestsClickable clickable pull requests pr mr reviews links select workspace row"),
         "sidebarAppearance:open-pr-links": localized("settings.search.alias.setting.app.open-pr-links", defaultValue: "sidebar.openPullRequestLinksInCmuxBrowser pr links github browser default external embedded"),
         "sidebarAppearance:open-port-links": localized("settings.search.alias.setting.app.open-port-links", defaultValue: "sidebar.openPortLinksInCmuxBrowser ports localhost links browser default external embedded"),
         "sidebarAppearance:show-ssh": localized("settings.search.alias.setting.app.show-ssh", defaultValue: "sidebar.showSSH remote host target ssh server"),
@@ -78,7 +83,6 @@ enum SettingsSearchAliasIndex {
         "sidebarAppearance:show-log": localized("settings.search.alias.setting.app.show-log", defaultValue: "sidebar.showLog log status latest message imperative"),
         "sidebarAppearance:show-progress": localized("settings.search.alias.setting.app.show-progress", defaultValue: "sidebar.showProgress progress bar percent status set_progress"),
         "sidebarAppearance:show-metadata": localized("settings.search.alias.setting.app.show-metadata", defaultValue: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
-        "betaFeatures:feed": localized("settings.search.alias.setting.betaFeatures.feed", defaultValue: "feed right sidebar agent decisions permissions questions approval beta unstable"),
         "betaFeatures:dock": localized("settings.search.alias.setting.betaFeatures.dock", defaultValue: "dock right sidebar terminal controls tui beta unstable"),
         "automation:socket-mode": localized("settings.search.alias.setting.automation.socket-mode", defaultValue: "automation.socketControlMode api socket unix domain control server auth allow password disabled"),
         "automation:socket-password": localized("settings.search.alias.setting.automation.socket-password", defaultValue: "automation.socketPassword auth token credential secret password access key"),
@@ -104,6 +108,7 @@ enum SettingsSearchAliasIndex {
         "globalHotkey:enable-hotkey": localized("settings.search.alias.setting.globalHotkey.enable-hotkey", defaultValue: "global hotkey enable system wide show hide all windows"),
         "globalHotkey:shortcut": localized("settings.search.alias.setting.globalHotkey.shortcut", defaultValue: "global hotkey shortcut recorder key command option control"),
         "keyboardShortcuts:shortcut-chords": localized("settings.search.alias.setting.keyboardShortcuts.shortcut-chords", defaultValue: "tmux prefix ctrl-b control-b multi key sequence chord cmux json"),
+        "keyboardShortcuts:reset-defaults": localized("settings.search.alias.setting.keyboardShortcuts.reset-defaults", defaultValue: "reset restore default defaults built in builtin shortcuts hotkeys keybindings commands"),
         "keyboardShortcuts:shortcuts": localized("settings.search.alias.setting.keyboardShortcuts.shortcuts", defaultValue: "hotkeys keybindings key bindings commands keyboard accelerators shortcuts cmux json"),
         "workspaceColors:indicator": localized("settings.search.alias.setting.workspaceColors.indicator", defaultValue: "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
         "workspaceColors:selection": localized("settings.search.alias.setting.workspaceColors.selection", defaultValue: "workspaceColors.selectionColor selected workspace color highlight background active tab"),

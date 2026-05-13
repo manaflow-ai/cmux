@@ -203,6 +203,7 @@ Command palette navigation shortcuts, including ⌃ P, are also customizable and
 |----------|--------|
 | ⌘ I | Show notifications panel |
 | ⌘ ⇧ U | Jump to latest unread |
+| ⌃ ⌘ U | Mark current item as oldest unread and jump to next latest unread |
 
 ### Find
 
@@ -244,19 +245,57 @@ Report nightly bugs on [GitHub Issues](https://github.com/manaflow-ai/cmux/issue
 
 ## Session restore
 
-Quitting cmux saves the current session. On relaunch, cmux restores:
+Quitting cmux saves the current session. On relaunch, cmux restores app-owned
+state:
 - Window/workspace/pane layout
 - Working directories
 - Terminal scrollback (best effort)
 - Browser URL and navigation history
-- Saved Claude Code and Codex sessions, when cmux has a resume token for the panel
+
+cmux does not checkpoint arbitrary live process state. tmux, vim, shells, and
+unsupported terminal apps reopen as normal terminals.
+
+Supported agent sessions can resume when hooks have saved a native session ID.
+Install hooks after installing the agent CLI so its binary is on `PATH`:
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+`cmux hooks setup` installs supported agents it can find and prints a summary
+for skipped agents. Supported resume integrations include Claude Code, Codex,
+OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory,
+and Qoder. Claude Code is handled by the cmux Claude wrapper when Claude
+integration is enabled in Settings.
+
+To keep restored agent terminals idle instead of automatically running their resume commands,
+turn off **Settings > Terminal > Resume Agent Sessions on Reopen** or set this in
+`~/.config/cmux/cmux.json`:
+
+```json
+{
+  "terminal": {
+    "autoResumeAgentSessions": false
+  }
+}
+```
+
+This only disables automatic agent resume commands. cmux still restores the saved layout,
+working directories, scrollback, and browser history.
 
 If you need to reapply the last saved snapshot manually, use:
 - `File > Reopen Previous Session`
 - `⌘ ⇧ O`
 - `cmux restore-session`
 
-cmux does **not** restore arbitrary live terminal process state. tmux, vim, shells, and other tools without a cmux resume flow still reopen as normal terminals rather than resuming in-process state.
+Under the hood, cmux writes a versioned snapshot under
+`~/Library/Application Support/cmux/` and agent hooks write session mappings
+under `~/.cmuxterm/`. On restore, cmux rebuilds the layout first, then runs the
+supported agent's native resume command when automatic agent resume is enabled.
+
+Read the full guide at <https://cmux.com/docs/session-restore>.
 
 ## Star History
 

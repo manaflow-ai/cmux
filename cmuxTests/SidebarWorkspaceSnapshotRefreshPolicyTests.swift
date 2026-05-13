@@ -15,7 +15,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             isPinned: false,
             customColorHex: nil,
             remoteConnectionStatusText: "Connected",
-            latestSubmittedMessage: "old message",
+            latestConversationMessage: "old message",
             listeningPorts: [3000]
         )
         let next = Self.snapshot(
@@ -23,7 +23,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             isPinned: true,
             customColorHex: nil,
             remoteConnectionStatusText: "Disconnected",
-            latestSubmittedMessage: "new message",
+            latestConversationMessage: "new message",
             listeningPorts: [3000, 4000]
         )
 
@@ -39,7 +39,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(decision.workspaceSnapshotStorage, expectedDisplayed)
         XCTAssertTrue(decision.workspaceSnapshotStorage?.isPinned == true)
         XCTAssertEqual(decision.workspaceSnapshotStorage?.remoteConnectionStatusText, "Connected")
-        XCTAssertEqual(decision.workspaceSnapshotStorage?.latestSubmittedMessage, "old message")
+        XCTAssertEqual(decision.workspaceSnapshotStorage?.latestConversationMessage, "old message")
         XCTAssertEqual(decision.workspaceSnapshotStorage?.listeningPorts, [3000])
         XCTAssertEqual(decision.pendingWorkspaceSnapshot, next)
         XCTAssertTrue(decision.hasDeferredWorkspaceObservationInvalidation)
@@ -88,15 +88,17 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
     }
 
     private static func snapshot(
+        presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey? = nil,
         title: String = "workspace",
         customDescription: String? = nil,
         isPinned: Bool = false,
         customColorHex: String? = nil,
         remoteConnectionStatusText: String = "Disconnected",
-        latestSubmittedMessage: String? = nil,
+        latestConversationMessage: String? = nil,
         listeningPorts: [Int] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
+            presentationKey: presentationKey ?? Self.presentationKey(),
             title: title,
             customDescription: customDescription,
             isPinned: isPinned,
@@ -105,7 +107,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: "",
             copyableSidebarSSHError: nil,
-            latestSubmittedMessage: latestSubmittedMessage,
+            latestConversationMessage: latestConversationMessage,
             metadataEntries: [],
             metadataBlocks: [],
             latestLog: nil,
@@ -117,6 +119,94 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             pullRequestRows: [],
             listeningPorts: listeningPorts
         )
+    }
+
+    private static func presentationKey(
+        showsWorkspaceDescription: Bool = true,
+        usesVerticalBranchLayout: Bool = true,
+        showsGitBranch: Bool = true,
+        visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility = SidebarWorkspaceAuxiliaryDetailVisibility(
+            showsMetadata: true,
+            showsLog: true,
+            showsProgress: true,
+            showsBranchDirectory: true,
+            showsPullRequests: true,
+            showsPorts: true
+        )
+    ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
+        SidebarWorkspaceSnapshotBuilder.PresentationKey(
+            showsWorkspaceDescription: showsWorkspaceDescription,
+            usesVerticalBranchLayout: usesVerticalBranchLayout,
+            showsGitBranch: showsGitBranch,
+            visibleAuxiliaryDetails: visibleAuxiliaryDetails
+        )
+    }
+}
+
+final class SidebarTabItemPresentationResolutionPolicyTests: XCTestCase {
+    func testFrozenContextMenuPresentationDoesNotSuppressLiveNotificationState() {
+        let tabId = UUID()
+        let frozen = SidebarTabItemPresentationSnapshot(
+            tabId: tabId,
+            unreadCount: 0,
+            latestNotificationText: nil,
+            showsModifierShortcutHints: true
+        )
+        let live = SidebarTabItemPresentationSnapshot(
+            tabId: tabId,
+            unreadCount: 1,
+            latestNotificationText: "done",
+            showsModifierShortcutHints: false
+        )
+
+        let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: live,
+            frozen: frozen
+        )
+
+        XCTAssertEqual(resolved.unreadCount, 1)
+        XCTAssertEqual(resolved.latestNotificationText, "done")
+        XCTAssertTrue(resolved.showsModifierShortcutHints)
+    }
+
+    func testNoFrozenPresentationUsesLiveSnapshot() {
+        let live = SidebarTabItemPresentationSnapshot(
+            tabId: UUID(),
+            unreadCount: 2,
+            latestNotificationText: "live",
+            showsModifierShortcutHints: true
+        )
+
+        let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: live,
+            frozen: nil
+        )
+
+        XCTAssertEqual(resolved, live)
+    }
+
+    func testNonMatchingTabIdUsesLiveShortcutHints() {
+        let frozen = SidebarTabItemPresentationSnapshot(
+            tabId: UUID(),
+            unreadCount: 0,
+            latestNotificationText: nil,
+            showsModifierShortcutHints: true
+        )
+        let live = SidebarTabItemPresentationSnapshot(
+            tabId: UUID(),
+            unreadCount: 1,
+            latestNotificationText: "done",
+            showsModifierShortcutHints: false
+        )
+
+        let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: live,
+            frozen: frozen
+        )
+
+        XCTAssertEqual(resolved.unreadCount, 1)
+        XCTAssertEqual(resolved.latestNotificationText, "done")
+        XCTAssertFalse(resolved.showsModifierShortcutHints)
     }
 }
 

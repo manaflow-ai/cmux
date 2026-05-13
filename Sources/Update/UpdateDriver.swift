@@ -237,7 +237,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
 
     private func applyState(_ newState: UpdateState) {
-        viewModel.state = newState
+        viewModel.applyDriverState(newState)
         UpdateLogStore.shared.append("state -> \(describe(newState))")
     }
 

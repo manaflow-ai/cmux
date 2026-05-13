@@ -195,6 +195,8 @@ struct WorkspaceContentView: View {
         let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
             workspace.panels.count > 1
         let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
+        let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
+        let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
 
         // Inactive workspaces are kept alive in a ZStack (for state preservation) but their
         // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
@@ -229,7 +231,9 @@ struct WorkspaceContentView: View {
                         forTabId: workspace.id,
                         surfaceId: panel.id
                     ),
-                    isManuallyUnread: workspace.manualUnreadPanelIds.contains(panel.id)
+                    isManuallyUnread: workspace.manualUnreadPanelIds.contains(panel.id),
+                    isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+                    isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panel.id
                 )
                 PanelContentView(
                     panel: panel,
@@ -296,6 +300,12 @@ struct WorkspaceContentView: View {
         .onChange(of: workspace.manualUnreadPanelIds) { _, _ in
             syncBonsplitNotificationBadges()
         }
+        .onChange(of: isWorkspaceManuallyUnread) { _, _ in
+            syncBonsplitNotificationBadges()
+        }
+        .onChange(of: workspaceManualUnreadPanelId) { _, _ in
+            syncBonsplitNotificationBadges()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             refreshGhosttyAppearanceConfig(reason: "ghosttyConfigDidReload")
         }
@@ -328,6 +338,8 @@ struct WorkspaceContentView: View {
 
     private func syncBonsplitNotificationBadges() {
         let manualUnread = workspace.manualUnreadPanelIds
+        let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
+        let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
 
         for paneId in workspace.bonsplitController.allPaneIds {
             for tab in workspace.bonsplitController.tabs(inPane: paneId) {
@@ -335,8 +347,15 @@ struct WorkspaceContentView: View {
                 let expectedKind = panelId.flatMap { workspace.panelKind(panelId: $0) }
                 let expectedPinned = panelId.map { workspace.isPanelPinned($0) } ?? false
                 let shouldShow = panelId.map {
-                    notificationStore.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: $0) ||
-                        manualUnread.contains($0)
+                    Workspace.shouldShowUnreadIndicator(
+                        hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
+                            forTabId: workspace.id,
+                            surfaceId: $0
+                        ),
+                        isManuallyUnread: manualUnread.contains($0),
+                        isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+                        isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == $0
+                    )
                 } ?? false
                 let kindUpdate: String?? = expectedKind.map { .some($0) }
 
@@ -419,6 +438,8 @@ struct WorkspaceContentView: View {
         trimMode: TmuxWorkspacePaneOverlayTrimMode
     ) -> [CGRect] {
         guard let layoutSnapshot else { return [] }
+        let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
+        let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
 
         return layoutSnapshot.panes.compactMap { pane in
             guard let selectedTabId = pane.selectedTabId,
@@ -432,7 +453,9 @@ struct WorkspaceContentView: View {
                     forTabId: workspace.id,
                     surfaceId: panelId
                 ),
-                isManuallyUnread: workspace.manualUnreadPanelIds.contains(panelId)
+                isManuallyUnread: workspace.manualUnreadPanelIds.contains(panelId),
+                isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+                isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panelId
             )
             guard shouldShowUnread else { return nil }
 

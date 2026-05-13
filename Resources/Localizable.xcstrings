@@ -2,6 +2,21 @@
   "sourceLanguage": "en",
   "version": "1.0",
   "strings": {
+    "cli.error.dismissNotificationSelector": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "dismiss-notification requires exactly one of --id or --all-read" } }, "ja": { "stringUnit": { "state": "translated", "value": "dismiss-notification には --id または --all-read のどちらか一方だけを指定してください" } } } },
+    "cli.error.markNotificationReadSelector": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "mark-notification-read requires exactly one selector: --id, --workspace, or --all" } }, "ja": { "stringUnit": { "state": "translated", "value": "mark-notification-read には --id、--workspace、--all のいずれか一つだけを指定してください" } } } },
+    "cli.error.markNotificationReadSurfaceRequiresWorkspace": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "--surface requires --workspace" } }, "ja": { "stringUnit": { "state": "translated", "value": "--surface には --workspace が必要です" } } } },
+    "cli.error.openNotificationRequiresId": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "open-notification requires --id" } }, "ja": { "stringUnit": { "state": "translated", "value": "open-notification には --id が必要です" } } } },
+    "cli.help.dismissNotification": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux dismiss-notification (--id <uuid> | --all-read)\n\nRemove one notification, or remove every already-read notification.\n\nFlags:\n  --id <uuid>           Notification id to remove\n  --all-read            Remove every already-read notification\n  --json                Print JSON\n  --id-format <mode>    refs, uuids, or both" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux dismiss-notification (--id <uuid> | --all-read)\n\n通知を1件削除するか、既読の通知をすべて削除します。\n\nFlags:\n  --id <uuid>           削除する通知 ID\n  --all-read            既読の通知をすべて削除\n  --json                JSON を出力\n  --id-format <mode>    refs、uuids、both のいずれか" } } } },
+    "cli.help.jumpToUnread": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux jump-to-unread\n\nFocus the latest unread notification, matching the Notifications page action.\n\nFlags:\n  --json                Print JSON\n  --id-format <mode>    refs, uuids, or both" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux jump-to-unread\n\n通知ページの操作と同じく、最新の未読通知へフォーカスします。\n\nFlags:\n  --json                JSON を出力\n  --id-format <mode>    refs、uuids、both のいずれか" } } } },
+    "cli.help.markNotificationRead": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux mark-notification-read (--id <uuid> | --workspace <id|ref> [--surface <id|ref>] | --all)\n\nMark notifications read without opening them. Exactly one selector is required.\n\nFlags:\n  --id <uuid>           Mark one notification read\n  --workspace <id|ref>  Mark notifications for a workspace\n  --surface <id|ref>    Narrow --workspace to one surface\n  --all                 Mark every notification read\n  --json                Print JSON\n  --id-format <mode>    refs, uuids, or both" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux mark-notification-read (--id <uuid> | --workspace <id|ref> [--surface <id|ref>] | --all)\n\n通知を開かずに既読にします。セレクタは1つだけ指定してください。\n\nFlags:\n  --id <uuid>           通知を1件既読にする\n  --workspace <id|ref>  ワークスペースの通知を既読にする\n  --surface <id|ref>    --workspace を1つのサーフェスに絞り込む\n  --all                 すべての通知を既読にする\n  --json                JSON を出力\n  --id-format <mode>    refs、uuids、both のいずれか" } } } },
+    "cli.help.openNotification": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux open-notification --id <uuid>\n\nFocus the notification's workspace and surface, then mark the row read.\n\nFlags:\n  --id <uuid>           Notification id to open\n  --json                Print JSON\n  --id-format <mode>    refs, uuids, or both" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux open-notification --id <uuid>\n\n通知のワークスペースとサーフェスへフォーカスし、その行を既読にします。\n\nFlags:\n  --id <uuid>           開く通知 ID\n  --json                JSON を出力\n  --id-format <mode>    refs、uuids、both のいずれか" } } } },
+    "socket.notification.dismissSelectorRequired": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Select exactly one of id or all_read" } }, "ja": { "stringUnit": { "state": "translated", "value": "id または all_read のどちらか一つだけを選択してください" } } } },
+    "socket.notification.idRequired": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Missing or invalid notification id" } }, "ja": { "stringUnit": { "state": "translated", "value": "通知 ID が指定されていないか無効です" } } } },
+    "socket.notification.markReadSelectorRequired": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Select exactly one of id, tab_id, or all" } }, "ja": { "stringUnit": { "state": "translated", "value": "id、tab_id、all のいずれか一つだけを選択してください" } } } },
+    "socket.notification.notFound": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Notification not found" } }, "ja": { "stringUnit": { "state": "translated", "value": "通知が見つかりません" } } } },
+    "socket.notification.surfaceIdInvalid": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Missing or invalid surface_id" } }, "ja": { "stringUnit": { "state": "translated", "value": "surface_id が指定されていないか無効です" } } } },
+    "socket.notification.surfaceIdRequiresWorkspace": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "surface_id requires tab_id or workspace_id" } }, "ja": { "stringUnit": { "state": "translated", "value": "surface_id には tab_id または workspace_id が必要です" } } } },
+    "socket.notification.targetNotFound": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Notification target not found" } }, "ja": { "stringUnit": { "state": "translated", "value": "通知の移動先が見つかりません" } } } },
     "command.toggleLeftSidebar.title": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"تبديل الشريط الجانبي الأيسر"}},"bs":{"stringUnit":{"state":"translated","value":"Prebaci lijevu bočnu traku"}},"da":{"stringUnit":{"state":"translated","value":"Slå venstre sidebjælke til/fra"}},"de":{"stringUnit":{"state":"translated","value":"Linke Seitenleiste ein-/ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Toggle Left Sidebar"}},"es":{"stringUnit":{"state":"translated","value":"Alternar barra lateral izquierda"}},"fr":{"stringUnit":{"state":"translated","value":"Afficher/masquer la barre latérale gauche"}},"it":{"stringUnit":{"state":"translated","value":"Attiva/Disattiva barra laterale sinistra"}},"ja":{"stringUnit":{"state":"translated","value":"左サイドバーを切り替え"}},"ko":{"stringUnit":{"state":"translated","value":"왼쪽 사이드바 전환"}},"nb":{"stringUnit":{"state":"translated","value":"Slå venstre sidepanel av/på"}},"pl":{"stringUnit":{"state":"translated","value":"Przełącz lewy pasek boczny"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Alternar barra lateral esquerda"}},"ru":{"stringUnit":{"state":"translated","value":"Переключить левую боковую панель"}},"th":{"stringUnit":{"state":"translated","value":"สลับแถบด้านข้างซ้าย"}},"tr":{"stringUnit":{"state":"translated","value":"Sol Kenar Çubuğunu Aç/Kapat"}},"uk":{"stringUnit":{"state":"translated","value":"Перемкнути ліву бічну панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"切换左侧边栏"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"切換左側邊欄"}}} },
     "menu.view.toggleLeftSidebar": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"تبديل الشريط الجانبي الأيسر"}},"bs":{"stringUnit":{"state":"translated","value":"Prebaci lijevu bočnu traku"}},"da":{"stringUnit":{"state":"translated","value":"Slå venstre sidebjælke til/fra"}},"de":{"stringUnit":{"state":"translated","value":"Linke Seitenleiste ein-/ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Toggle Left Sidebar"}},"es":{"stringUnit":{"state":"translated","value":"Alternar barra lateral izquierda"}},"fr":{"stringUnit":{"state":"translated","value":"Afficher/masquer la barre latérale gauche"}},"it":{"stringUnit":{"state":"translated","value":"Attiva/Disattiva barra laterale sinistra"}},"ja":{"stringUnit":{"state":"translated","value":"左サイドバーを切り替え"}},"ko":{"stringUnit":{"state":"translated","value":"왼쪽 사이드바 전환"}},"nb":{"stringUnit":{"state":"translated","value":"Slå venstre sidepanel av/på"}},"pl":{"stringUnit":{"state":"translated","value":"Przełącz lewy pasek boczny"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Alternar barra lateral esquerda"}},"ru":{"stringUnit":{"state":"translated","value":"Переключить левую боковую панель"}},"th":{"stringUnit":{"state":"translated","value":"สลับแถบด้านข้างซ้าย"}},"tr":{"stringUnit":{"state":"translated","value":"Sol Kenar Çubuğunu Aç/Kapat"}},"uk":{"stringUnit":{"state":"translated","value":"Перемкнути ліву бічну панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"切换左侧边栏"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"切換左側邊欄"}}} },
     "menu.view.toggleRightSidebar": { "localizations": {"ar":{"stringUnit":{"state":"translated","value":"تبديل الشريط الجانبي الأيمن"}},"bs":{"stringUnit":{"state":"translated","value":"Prebaci desnu bočnu traku"}},"da":{"stringUnit":{"state":"translated","value":"Slå højre sidebjælke til/fra"}},"de":{"stringUnit":{"state":"translated","value":"Rechte Seitenleiste ein-/ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Toggle Right Sidebar"}},"es":{"stringUnit":{"state":"translated","value":"Alternar barra lateral derecha"}},"fr":{"stringUnit":{"state":"translated","value":"Afficher/masquer la barre latérale droite"}},"it":{"stringUnit":{"state":"translated","value":"Attiva/Disattiva barra laterale destra"}},"ja":{"stringUnit":{"state":"translated","value":"右サイドバーを切り替え"}},"ko":{"stringUnit":{"state":"translated","value":"오른쪽 사이드바 전환"}},"nb":{"stringUnit":{"state":"translated","value":"Slå høyre sidepanel av/på"}},"pl":{"stringUnit":{"state":"translated","value":"Przełącz prawy pasek boczny"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Alternar barra lateral direita"}},"ru":{"stringUnit":{"state":"translated","value":"Переключить правую боковую панель"}},"th":{"stringUnit":{"state":"translated","value":"สลับแถบด้านข้างขวา"}},"tr":{"stringUnit":{"state":"translated","value":"Sağ Kenar Çubuğunu Aç/Kapat"}},"uk":{"stringUnit":{"state":"translated","value":"Перемкнути праву бічну панель"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"切换右侧边栏"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"切換右側邊欄"}}} },
@@ -154,6 +169,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux"
+          }
+        }
+      }
+    },
+    "crashBreadcrumb.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnostic file saved to ~/.local/state/cmux/crash/"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "診断ファイルは ~/.local/state/cmux/crash/ に保存されました"
+          }
+        }
+      }
+    },
+    "crashBreadcrumb.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnostic file saved"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "診断ファイルを保存しました"
+          }
+        }
+      }
+    },
+    "crashBreadcrumb.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux crashed during your last session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前回のセッション中に cmux がクラッシュしました"
           }
         }
       }
@@ -9810,6 +9876,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "右サイドバー"
+          }
+        }
+      }
+    },
+    "command.openRightSidebarToolAsPane.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペイン"
+          }
+        }
+      }
+    },
+    "command.openFilesPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Files as Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルをペインで開く"
+          }
+        }
+      }
+    },
+    "command.openFindPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Find as Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索をペインで開く"
+          }
+        }
+      }
+    },
+    "command.openVaultPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Vault as Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaultをペインで開く"
           }
         }
       }
@@ -20501,6 +20635,57 @@
         }
       }
     },
+    "agent.codex.input.body.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex is asking a question"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex が質問しています"
+          }
+        }
+      }
+    },
+    "agent.codex.input.status.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex needs input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 入力待ち"
+          }
+        }
+      }
+    },
+    "agent.codex.input.subtitle.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中"
+          }
+        }
+      }
+    },
     "agent.codex.status.idle": {
       "extractionState": "manual",
       "localizations": {
@@ -21074,6 +21259,23 @@
         }
       }
     },
+    "command.supportedFileRouting.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルプレビュー"
+          }
+        }
+      }
+    },
     "command.disableBrowser.title": {
       "extractionState": "manual",
       "localizations": {
@@ -21087,6 +21289,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmuxブラウザを無効にする"
+          }
+        }
+      }
+    },
+    "command.disableSupportedFileRouting.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable Cmd-click File Previews"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+クリックのファイルプレビューを無効にする"
           }
         }
       }
@@ -21133,6 +21352,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmuxブラウザを有効にする"
+          }
+        }
+      }
+    },
+    "command.enableSupportedFileRouting.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Cmd-click File Previews"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+クリックのファイルプレビューを有効にする"
           }
         }
       }
@@ -21609,6 +21845,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Перейти до останнього непрочитаного"
+          }
+        }
+      }
+    },
+    "command.markOldestUnreadAndJumpNext.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as Oldest Unread and Jump to Next Latest Unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最古の未読としてマークして次の最新未読にジャンプ"
           }
         }
       }
@@ -28768,6 +29021,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "마크다운"
+          }
+        }
+      }
+    },
+    "commandPalette.kind.rightSidebarTool": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tool"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツール"
           }
         }
       }
@@ -52510,6 +52780,57 @@
         }
       }
     },
+    "settings.app.workspaceInheritWorkingDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inherit Workspace Working Directory"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの作業ディレクトリを継承"
+          }
+        }
+      }
+    },
+    "settings.app.workspaceInheritWorkingDirectory.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New workspaces leave their working directory unset so Ghostty's working-directory setting can apply."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ワークスペースの作業ディレクトリを未設定にして、Ghostty の working-directory 設定を適用します。"
+          }
+        }
+      }
+    },
+    "settings.app.workspaceInheritWorkingDirectory.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New workspaces start in the focused workspace's working directory."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ワークスペースはフォーカス中のワークスペースの作業ディレクトリで開始します。"
+          }
+        }
+      }
+    },
     "settings.app.settingsFile.openButton": {
       "extractionState": "manual",
       "localizations": {
@@ -54126,6 +54447,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "워크스페이스 제목 행만 표시합니다. 아래 세부 정보 토글보다 우선합니다."
+          }
+        }
+      }
+    },
+    "settings.app.showWorkspaceDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Workspace Description in Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーにワークスペースの説明を表示"
+          }
+        }
+      }
+    },
+    "settings.app.showWorkspaceDescription.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display custom workspace descriptions below the workspace title."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名の下にカスタム説明を表示します。"
           }
         }
       }
@@ -64959,10 +65314,7 @@
     "settings.betaFeatures.dock": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Dock" } }, "ja": { "stringUnit": { "state": "translated", "value": "Dock" } } } },
     "settings.betaFeatures.dock.subtitleOff": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Hides Dock from the right sidebar until you enable it here." } }, "ja": { "stringUnit": { "state": "translated", "value": "ここで有効にするまで、Dock を右サイドバーから隠します。" } } } },
     "settings.betaFeatures.dock.subtitleOn": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Shows Dock in the right sidebar mode switcher for custom terminal controls." } }, "ja": { "stringUnit": { "state": "translated", "value": "Dock を右サイドバーのモード切り替えに表示し、カスタム端末コントロールを使えるようにします。" } } } },
-    "settings.betaFeatures.feed": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Feed" } }, "ja": { "stringUnit": { "state": "translated", "value": "Feed" } } } },
-    "settings.betaFeatures.feed.subtitleOff": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Hides Feed from the right sidebar until you enable it here." } }, "ja": { "stringUnit": { "state": "translated", "value": "ここで有効にするまで、Feed を右サイドバーから隠します。" } } } },
-    "settings.betaFeatures.feed.subtitleOn": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Shows Feed in the right sidebar mode switcher for inline agent decisions." } }, "ja": { "stringUnit": { "state": "translated", "value": "Feed を右サイドバーのモード切り替えに表示し、エージェントの判断をインラインで扱えるようにします。" } } } },
-    "settings.betaFeatures.warning": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "These features are unstable and may change or break. Enable them only when you are testing them." } }, "ja": { "stringUnit": { "state": "translated", "value": "これらの機能は不安定で、変更されたり壊れたりする可能性があります。テストする場合だけ有効にしてください。" } } } },
+    "settings.betaFeatures.warning": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Dock is unstable and may change or break. Enable it only when you are testing it." } }, "ja": { "stringUnit": { "state": "translated", "value": "Dock は不安定で、変更されたり壊れたりする可能性があります。テストする場合だけ有効にしてください。" } } } },
     "settings.browser.enabled": {
       "extractionState": "manual",
       "localizations": {
@@ -72198,6 +72550,23 @@
             }
         }
     },
+    "settings.search.alias.setting.app.workspace-inherit-working-directory": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.workspaceInheritWorkingDirectory workspace cwd directory inherit current focused ghostty working-directory"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.workspaceInheritWorkingDirectory workspace cwd directory inherit current focused ghostty working-directory 作業ディレクトリ 継承 現在 フォーカス Ghostty"
+                }
+            }
+        }
+    },
     "settings.search.alias.setting.app.minimal-mode": {
         "extractionState": "manual",
         "localizations": {
@@ -72670,6 +73039,23 @@
                 "stringUnit": {
                     "state": "translated",
                     "value": "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor програма загальні параметри поведінка док рядок меню статус бічна панель налаштування конфігурація файл json схема документація довідник редактор код відкрити шлях відкритий"
+                }
+            }
+        }
+    },
+    "settings.search.alias.setting.app.supported-file-previews": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external ファイルプレビュー PDF 画像 動画 音声 エディタ 外部"
                 }
             }
         }
@@ -74477,8 +74863,8 @@
         }
     },
     "settings.search.alias.setting.app.hide-sidebar-details": {
-        "extractionState": "manual",
-        "localizations": {
+      "extractionState": "manual",
+      "localizations": {
             "en": {
                 "stringUnit": {
                     "state": "translated",
@@ -74592,8 +74978,25 @@
                     "state": "translated",
                     "value": "sidebar.hideAllDetails compact sidebar hide details only title minimal left rail програма загальні параметри поведінка док рядок меню статус бічна панель навігація ліворуч деталі приховати макет Лівий рейл"
                 }
-            }
         }
+      }
+    },
+    "settings.search.alias.setting.app.show-workspace-description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showWorkspaceDescription workspace description notes markdown sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showWorkspaceDescription workspace description notes markdown sidebar ワークスペース 説明 メモ マークダウン サイドバー"
+          }
+        }
+      }
     },
     "settings.search.alias.setting.app.sidebar-branch-layout": {
         "extractionState": "manual",
@@ -82575,6 +82978,23 @@
         }
       }
     },
+    "shortcut.markOldestUnreadAndJumpNext.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as Oldest Unread and Jump to Next Latest Unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最古の未読としてマークして次の最新未読にジャンプ"
+          }
+        }
+      }
+    },
     "shortcut.newSurface.label": {
       "extractionState": "manual",
       "localizations": {
@@ -88301,6 +88721,35 @@
         }
       }
     },
+    "remote.status.reconnecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnecting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続中"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повторне підключення"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 연결 중"
+          }
+        }
+      }
+    },
     "remote.status.disconnected": {
       "extractionState": "manual",
       "localizations": {
@@ -88471,6 +88920,35 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@에 SSH 연결 중"
+          }
+        }
+      }
+    },
+    "sidebar.remote.help.reconnecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH reconnecting to %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH は %@ に再接続中"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH повторно підключається до %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 SSH 다시 연결 중"
           }
         }
       }
@@ -101258,6 +101736,91 @@
         }
       }
     },
+    "filePreview.openExternally": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Externally"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外部アプリで開く"
+          }
+        }
+      }
+    },
+    "filePreview.openInApplication": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@で開く"
+          }
+        }
+      }
+    },
+    "filePreview.openWith.menu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open With"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリケーションで開く"
+          }
+        }
+      }
+    },
+    "markdown.copyConfirm.html": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied as HTML"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTMLとしてコピーしました"
+          }
+        }
+      }
+    },
+    "markdown.copyConfirm.markdown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied as Markdown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdownとしてコピーしました"
+          }
+        }
+      }
+    },
     "markdown.fileUnavailable.message": {
       "extractionState": "manual",
       "localizations": {
@@ -101312,6 +101875,159 @@
           "stringUnit": {
             "state": "translated",
             "value": "파일을 사용할 수 없음"
+          }
+        }
+      }
+    },
+    "markdown.mode.preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビュー"
+          }
+        }
+      }
+    },
+    "markdown.mode.showPreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューを表示"
+          }
+        }
+      }
+    },
+    "markdown.mode.showTextEdit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show TextEdit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキスト編集を表示"
+          }
+        }
+      }
+    },
+    "markdown.mode.text": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TextEdit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキスト編集"
+          }
+        }
+      }
+    },
+    "markdown.mode.toggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Markdown Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdownモードを切り替え"
+          }
+        }
+      }
+    },
+    "markdown.toolbar.copyHTML": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy as HTML"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTMLとしてコピー"
+          }
+        }
+      }
+    },
+    "markdown.toolbar.copyMarkdown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy as Markdown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdownとしてコピー"
+          }
+        }
+      }
+    },
+    "markdown.toolbar.revert": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revert"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元に戻す"
+          }
+        }
+      }
+    },
+    "markdown.toolbar.save": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存"
           }
         }
       }
@@ -105446,6 +106162,57 @@
         }
       }
     },
+    "settings.app.preferredEditor.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty for system default."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+クリックのファイルプレビューが無効な場合、またはファイルが未対応の場合に使うコマンドです。空欄のままにするとシステムの既定で開きます。"
+          }
+        }
+      }
+    },
+    "settings.app.openSupportedFilesInCmux": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Supported Files in cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対応ファイルを cmux で開く"
+          }
+        }
+      }
+    },
+    "settings.app.openSupportedFilesInCmux.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-clicking readable files opens text, code, PDFs, images, audio, video, and Quick Look previews in cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取り可能なファイルを Cmd+クリックすると、テキスト、コード、PDF、画像、音声、動画、Quick Look プレビューを cmux で開きます。"
+          }
+        }
+      }
+    },
     "settings.app.openMarkdownInCmuxViewer": {
       "extractionState": "manual",
       "localizations": {
@@ -105511,13 +106278,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd-clicking .md/.markdown/.mkd/.mdx files opens the cmux markdown viewer panel instead of the preferred editor."
+            "value": "When supported file routing is on, Cmd-clicking Markdown files opens the rendered cmux markdown viewer instead of the generic file preview."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": ".md/.markdown/.mkd/.mdx ファイルを Cmd+クリックすると、優先エディタの代わりに cmux マークダウンビューアパネルが開きます。"
+            "value": "対応ファイルのルーティングが有効な場合、Markdown ファイルを Cmd+クリックすると、汎用ファイルプレビューではなくレンダリング済みの cmux マークダウンビューアで開きます。"
           }
         },
         "ko": {
@@ -105577,6 +106344,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "右サイドバーを閉じる"
+          }
+        }
+      }
+    },
+    "rightSidebar.openAsPane.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open %@ as Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@をペインで開く"
+          }
+        }
+      }
+    },
+    "rightSidebar.openAsPane.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open as pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインで開く"
           }
         }
       }
@@ -110316,13 +111117,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activity"
+            "value": "All Activity"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アクティビティ"
+            "value": "すべてのアクティビティ"
           }
         }
       }
@@ -110915,6 +111716,139 @@
         "ja": { "stringUnit": { "state": "translated", "value": "プロセス" } }
       }
     },
+    "taskManager.section.codingAgents": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Coding Agents" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コーディングエージェント" } }
+      }
+    },
+    "taskManager.section.programTotals": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Program Totals" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プログラム合計" } }
+      }
+    },
+    "taskManager.section.hierarchy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hierarchy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "階層" } }
+      }
+    },
+    "taskManager.aggregate.processCount.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1 process" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1 個のプロセス" } }
+      }
+    },
+    "taskManager.aggregate.processCount.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld processes" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld 個のプロセス" } }
+      }
+    },
+    "taskManager.agent.claudeCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Claude Code" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Claude Code" } }
+      }
+    },
+    "taskManager.agent.codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Codex" } }
+      }
+    },
+    "taskManager.agent.opencode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OpenCode" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OpenCode" } }
+      }
+    },
+    "taskManager.agent.pi": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pi" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Pi" } }
+      }
+    },
+    "taskManager.agent.amp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Amp" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Amp" } }
+      }
+    },
+    "taskManager.agent.cursor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cursor" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Cursor" } }
+      }
+    },
+    "taskManager.agent.gemini": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Gemini" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Gemini" } }
+      }
+    },
+    "taskManager.agent.rovodev": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Rovo Dev" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Rovo Dev" } }
+      }
+    },
+    "taskManager.agent.hermesAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hermes Agent" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Hermes Agent" } }
+      }
+    },
+    "taskManager.agent.copilot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copilot" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Copilot" } }
+      }
+    },
+    "taskManager.agent.codebuddy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CodeBuddy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CodeBuddy" } }
+      }
+    },
+    "taskManager.agent.factory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Factory" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Factory" } }
+      }
+    },
+    "taskManager.agent.qoder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Qoder" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Qoder" } }
+      }
+    },
+    "taskManager.loading.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Loading resource usage" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リソース使用状況を読み込み中" } }
+      }
+    },
     "taskManager.error.title": {
       "extractionState": "manual",
       "localizations": {
@@ -111138,6 +112072,118 @@
         "en": { "stringUnit": { "state": "translated", "value": "Process" } },
         "ja": { "stringUnit": { "state": "translated", "value": "プロセス" } }
       }
-    }
+    },
+    "shortcut.globalSearch.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Global Search" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "グローバル検索" } }
+      }
+    },
+    "statusMenu.searchAllWindows": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Search All Windows..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのウィンドウを検索..." } }
+      }
+    },
+    "globalSearch.palette.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Search all windows, panels, browser tabs..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのウィンドウ、パネル、ブラウザタブを検索..." } }
+      }
+    },
+    "globalSearch.empty.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Type to search" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "入力して検索" } }
+      }
+    },
+    "globalSearch.empty.noResults": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No results" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "結果がありません" } }
+      }
+    },
+    "globalSearch.empty.noOpenPanels": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No open panels" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "開いているパネルがありません" } }
+      }
+    },
+    "globalSearch.kind.browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ" } }
+      }
+    },
+    "globalSearch.kind.markdown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Markdown" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Markdown" } }
+      }
+    },
+    "globalSearch.kind.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Title" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タイトル" } }
+      }
+    },
+    "globalSearch.untitled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Untitled" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無題" } }
+      }
+    },
+    "cli.rightSidebar.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux right-sidebar <command> [flags]\n\nControl the right sidebar from the CLI.\n\nCommands:\n  toggle                         Toggle right sidebar visibility\n  show                           Show the right sidebar\n  hide                           Hide the right sidebar\n  focus                          Focus the current right sidebar mode\n  set <files|find|vault|sessions|feed|dock>\n                                 Show, switch mode, and focus\n  mode                           Print {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock\n                                 Alias for show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Target the window containing a workspace\n  --window <id|ref|index>        Target a window\n  --no-focus                     With set, switch mode without moving focus\n\nExamples:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux right-sidebar <command> [flags]\n\nCLI から右サイドバーを操作します。\n\nコマンド:\n  toggle                         右サイドバーの表示を切り替えます\n  show                           右サイドバーを表示します\n  hide                           右サイドバーを隠します\n  focus                          現在の右サイドバーモードにフォーカスします\n  set <files|find|vault|sessions|feed|dock>\n                                 表示して、モードを切り替え、フォーカスします\n  mode                           {\"visible\":bool,\"mode\":string} を出力します\n  files|find|vault|sessions|feed|dock\n                                 show + set + focus のエイリアス\n\nフラグ:\n  --workspace <id|ref|index>     ワークスペースを含むウィンドウを対象にします\n  --window <id|ref|index>        ウィンドウを対象にします\n  --no-focus                     set で、フォーカスを移さずにモードだけ切り替えます\n\n例:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode" } }
+      }
+    },
+    "cli.rightSidebar.error.workspaceRequiresValue": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "right-sidebar: --workspace requires an id" } }, "ja": { "stringUnit": { "state": "translated", "value": "right-sidebar: --workspace には ID が必要です" } } } },
+    "cli.rightSidebar.error.windowRequiresValue": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "right-sidebar: --window requires an id" } }, "ja": { "stringUnit": { "state": "translated", "value": "right-sidebar: --window には ID が必要です" } } } },
+    "cli.rightSidebar.error.unknownFlag": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "right-sidebar: unknown flag '%@'" } }, "ja": { "stringUnit": { "state": "translated", "value": "right-sidebar: 不明なフラグ '%@'" } } } },
+    "cli.rightSidebar.error.missingCommand": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "right-sidebar requires a subcommand" } }, "ja": { "stringUnit": { "state": "translated", "value": "right-sidebar にはサブコマンドが必要です" } } } },
+    "cli.rightSidebar.error.unexpectedArguments": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "right-sidebar %@ received unexpected arguments" } }, "ja": { "stringUnit": { "state": "translated", "value": "right-sidebar %@ に予期しない引数があります" } } } },
+    "cli.rightSidebar.error.noFocusOnlySet": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "right-sidebar: --no-focus is only valid with set" } }, "ja": { "stringUnit": { "state": "translated", "value": "right-sidebar: --no-focus は set でのみ使えます" } } } },
+    "cli.rightSidebar.error.setRequiresMode": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, or dock" } }, "ja": { "stringUnit": { "state": "translated", "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock" } } } },
+    "cli.rightSidebar.error.unknownMode": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Unknown right-sidebar mode '%@'" } }, "ja": { "stringUnit": { "state": "translated", "value": "不明な right-sidebar モード '%@'" } } } },
+    "cli.rightSidebar.error.unknownCommand": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Unknown right-sidebar command '%@'" } }, "ja": { "stringUnit": { "state": "translated", "value": "不明な right-sidebar コマンド '%@'" } } } },
+    "cli.rightSidebar.error.invalidWindow": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Invalid window handle: %@" } }, "ja": { "stringUnit": { "state": "translated", "value": "無効なウィンドウ指定: %@" } } } },
+    "cli.rightSidebar.error.invalidWorkspace": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Invalid workspace handle: %@" } }, "ja": { "stringUnit": { "state": "translated", "value": "無効なワークスペース指定: %@" } } } },
+    "cli.rightSidebar.error.windowRefNotFound": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Window ref not found" } }, "ja": { "stringUnit": { "state": "translated", "value": "ウィンドウ参照が見つかりません" } } } },
+    "cli.rightSidebar.error.workspaceRefNotFound": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Workspace ref not found" } }, "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース参照が見つかりません" } } } },
+    "rightSidebar.remote.error.optionRequiresID": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: %@ requires an id" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: %@ には ID が必要です" } } } },
+    "rightSidebar.remote.error.unknownOption": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Unknown right sidebar option '%@'" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 不明な右サイドバーオプション '%@'" } } } },
+    "rightSidebar.remote.error.usage": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 使用法: right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]" } } } },
+    "rightSidebar.remote.error.usage.toggle": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Usage: right_sidebar toggle [--workspace=<workspace-id>] [--window=<window-id>]" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 使用法: right_sidebar toggle [--workspace=<workspace-id>] [--window=<window-id>]" } } } },
+    "rightSidebar.remote.error.usage.show": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Usage: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 使用法: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]" } } } },
+    "rightSidebar.remote.error.usage.hide": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Usage: right_sidebar hide [--workspace=<workspace-id>] [--window=<window-id>]" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 使用法: right_sidebar hide [--workspace=<workspace-id>] [--window=<window-id>]" } } } },
+    "rightSidebar.remote.error.usage.focus": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Usage: right_sidebar focus [--workspace=<workspace-id>] [--window=<window-id>]" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 使用法: right_sidebar focus [--workspace=<workspace-id>] [--window=<window-id>]" } } } },
+    "rightSidebar.remote.error.usage.mode": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Usage: right_sidebar mode [--workspace=<workspace-id>] [--window=<window-id>]" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 使用法: right_sidebar mode [--workspace=<workspace-id>] [--window=<window-id>]" } } } },
+    "rightSidebar.remote.error.usage.set": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 使用法: right_sidebar set <files|find|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]" } } } },
+    "rightSidebar.remote.error.unknownMode": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Unknown right sidebar mode '%@'" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 不明な右サイドバーモード '%@'" } } } },
+    "rightSidebar.remote.error.noFocusOnlySet": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: --no-focus is only valid with right_sidebar set" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: --no-focus は right_sidebar set でのみ使えます" } } } },
+    "rightSidebar.remote.error.unknownCommand": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Unknown right sidebar command '%@'" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 不明な右サイドバーコマンド '%@'" } } } },
+    "rightSidebar.remote.error.invalidTargetID": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Invalid right sidebar --%@ id '%@'" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 無効な右サイドバー --%@ ID '%@'" } } } },
+    "rightSidebar.remote.error.unknownTargetOption": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Unknown right sidebar target option '%@'" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 不明な右サイドバー対象オプション '%@'" } } } },
+    "rightSidebar.remote.error.targetNotFound": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Right sidebar target not found" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 右サイドバーの対象が見つかりません" } } } },
+    "rightSidebar.remote.error.stateUnavailable": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Right sidebar state not available" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 右サイドバーの状態を利用できません" } } } },
+    "rightSidebar.remote.error.unavailable": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Right sidebar not available" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 右サイドバーを利用できません" } } } },
+    "rightSidebar.remote.error.focusFailed": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Failed to focus right sidebar" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 右サイドバーにフォーカスできませんでした" } } } },
+    "rightSidebar.remote.error.modeUnavailable": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Right sidebar mode '%@' is not available" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 右サイドバーのモード '%@' は利用できません" } } } },
+    "rightSidebar.remote.error.appDelegateUnavailable": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: App delegate not available" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: アプリデリゲートを利用できません" } } } },
+    "notificationHook.failure.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Notification Hook Failed" } }, "ja": { "stringUnit": { "state": "translated", "value": "通知フックに失敗しました" } } } },
+    "notificationHook.failure.body": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "cmux used default notification behavior because '%@' failed." } }, "ja": { "stringUnit": { "state": "translated", "value": "'%@' が失敗したため、cmux は既定の通知動作を使用しました。" } } } }
   }
 }

@@ -26,6 +26,61 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.5": {
+    title: "Codex Teams, Menubar Global Search, Markdown Viewer, Feed by Default",
+    features: [
+      {
+        title: "Codex Teams Subagent Panes",
+        description:
+          "cmux codex-teams now maps Codex's subagent sessions into native cmux panes, the same way claude-teams does for Claude Code. Spawned subagents stack in a right column with sidebar metadata and notifications routed through cmux.",
+      },
+      {
+        title: "Menubar Global Search",
+        description:
+          "A new global search command surfaces windows, workspaces, panes, surfaces, and right-sidebar tools from the menu bar so you can jump anywhere without reaching for the sidebar.",
+      },
+      {
+        title: "Rewritten Markdown Viewer",
+        description:
+          "The Markdown viewer now uses a webview-based renderer with richer formatting, better selection, and faster scrolling. Thanks @tobi for the contribution.",
+      },
+      {
+        title: "Feed on by Default",
+        description:
+          "The Feed is now enabled by default for new and existing users, surfacing notifications, agent events, and workspace activity in one chronological stream.",
+      },
+      {
+        title: "Quality-of-life Polish",
+        description:
+          "Open right sidebar tools as panes, workspace cwd inheritance, an unread defer shortcut, iMessage workspace ordering and previews, and right-sidebar CLI parity. Bug fixes for Korean IME arrows, garbled Chinese paste, Metal renderer crashes, terminal portal resize lag, multi-monitor sleep/wake window position, and Cloud VM SSH attach.",
+      },
+    ],
+  },
+  "0.64.4": {
+    title: "SSH Files Polish, Vault Pi & Hermes, Browser Cookie Import",
+    features: [
+      {
+        title: "SSH Files Polish",
+        description:
+          "The Files sidebar now follows SSH workspaces and shows the remote root instead of the local macOS path. SSH workspace descriptors restore on relaunch, and new guarded cmux://ssh deep links prompt before launching ssh so unfamiliar links can't run arbitrary commands.",
+      },
+      {
+        title: "Vault Pi and Hermes",
+        description:
+          "Pi sessions now restore across relaunch via Vault, and Hermes Agent hooks pipe into the sidebar like Claude, Codex, OpenCode, Gemini, and Rovo Dev. Per-agent toggles let you hide individual agent session restores from Vault.",
+      },
+      {
+        title: "Browser Cookie Import",
+        description:
+          "A new cmux browser cookies import CLI brings cookies from other browsers into cmux's browser panes so logged-in sessions follow you over.",
+      },
+      {
+        title: "Quality-of-life Polish",
+        description:
+          "Welcome sidebar toggle shortcuts, Insert Path and Insert Relative Path in the file explorer right-click menu, a warnBeforeClosingTab toggle to opt back into the close confirmation prompt, plus fixes for IME, command palette Escape, modified Backspace in the omnibar, and stale terminal colors after theme switches.",
+      },
+    ],
+  },
   "0.64.0": {
     title: "Session Restore on Quit, Passkeys, File Explorer, Task Manager",
     features: [
