@@ -23,6 +23,10 @@ final class SettingsSearchIndexTests: XCTestCase {
         assertSearch("ctrl b", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcut-chords"))
         assertSearch("split right", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcuts"))
         assertSearch("factory defaults", contains: SettingsSearchIndex.settingID(for: .reset, idSuffix: "reset-all"))
+        assertSearch("imessage", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "imessage-mode"))
+        assertSearch("chat prompt", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "imessage-mode"))
+        assertSearch("reset shortcut defaults", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "reset-defaults"))
+        assertSearch("clickable pull requests", contains: SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "make-pr-clickable"))
     }
 
     func testSettingsPathAnchorIncludesBrowserEnabled() {
@@ -43,6 +47,20 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertEqual(
             SettingsSearchIndex.anchorID(forSettingsPath: "app.workspaceInheritWorkingDirectory"),
             SettingsSearchIndex.settingID(for: .app, idSuffix: "workspace-inherit-working-directory")
+        )
+    }
+
+    func testSettingsPathAnchorIncludesIMessageMode() {
+        XCTAssertEqual(
+            SettingsSearchIndex.anchorID(forSettingsPath: "app.iMessageMode"),
+            SettingsSearchIndex.settingID(for: .app, idSuffix: "imessage-mode")
+        )
+    }
+
+    func testSettingsPathAnchorIncludesClickablePullRequests() {
+        XCTAssertEqual(
+            SettingsSearchIndex.anchorID(forSettingsPath: "sidebar.makePullRequestsClickable"),
+            SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "make-pr-clickable")
         )
     }
 
