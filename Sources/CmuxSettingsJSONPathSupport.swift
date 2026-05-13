@@ -90,3 +90,37 @@ extension CmuxSettingsFileStore {
         "shortcuts.bindings",
     ]
 }
+
+extension CmuxSettingsJSONPersistence {
+    private static let settingsUIWriteBackUnsupportedJSONPaths: Set<String> = [
+        "workspaceColors.colors",
+        "workspaceColors.paletteOverrides",
+        "workspaceColors.customColors",
+        "browser.hostsToOpenInEmbeddedBrowser",
+        "browser.urlsToAlwaysOpenExternally",
+        "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
+        "shortcuts.bindings",
+        "shortcuts.showModifierHoldHints",
+    ]
+
+    static func settingsUIWriteBackValues(
+        _ values: [String: ManagedSettingsValue]
+    ) -> [String: ManagedSettingsValue] {
+        let supportedPaths = CmuxSettingsFileStore.supportedSettingsJSONPaths
+            .subtracting(settingsUIWriteBackUnsupportedJSONPaths)
+        return values.filter { path, value in
+            supportedPaths.contains(path) && value.isScalarSettingsUIWriteBackValue
+        }
+    }
+}
+
+private extension ManagedSettingsValue {
+    var isScalarSettingsUIWriteBackValue: Bool {
+        switch self {
+        case .bool, .int, .double, .string, .nullableString:
+            return true
+        case .stringArray, .stringDictionary:
+            return false
+        }
+    }
+}

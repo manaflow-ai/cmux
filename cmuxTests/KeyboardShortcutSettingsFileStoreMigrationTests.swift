@@ -630,6 +630,21 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         withExtendedLifetime(store) {}
     }
 
+    func testSettingsUIWriteBackFiltersLossySettingsPaths() {
+        let values = CmuxSettingsJSONPersistence.settingsUIWriteBackValues([
+            "sidebarAppearance.matchTerminalBackground": .bool(true),
+            "workspaceColors.colors": .stringDictionary(["Review": "#112233"]),
+            "browser.hostsToOpenInEmbeddedBrowser": .stringArray(["example.com"]),
+            "browser.urlsToAlwaysOpenExternally": .stringArray(["re:^https://example.com"]),
+            "browser.insecureHttpHostsAllowedInEmbeddedBrowser": .stringArray(["localhost"]),
+            "shortcuts.bindings": .stringDictionary(["newTab": "cmd+t"]),
+            "app.language": .stringArray(["en"]),
+            "future.collection": .stringArray(["value"]),
+        ])
+
+        XCTAssertEqual(values, ["sidebarAppearance.matchTerminalBackground": .bool(true)])
+    }
+
     func testStalePendingSettingsPathIsDiscardedWhenNoUserDefaultsProjectionExists() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }

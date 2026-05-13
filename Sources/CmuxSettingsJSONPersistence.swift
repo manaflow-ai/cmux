@@ -263,10 +263,7 @@ nonisolated enum CmuxSettingsJSONPersistence {
             )),
         ]
 
-        // Collection-valued settings and non-bijective combined settings are
-        // read from cmux.json but omitted from UI write-back until the writer
-        // can preserve nested JSONC trivia and round-trip each mapping exactly.
-        return values
+        return settingsUIWriteBackValues(values)
     }
 
     static func persistSettingsJSONValues(
