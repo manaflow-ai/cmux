@@ -1,6 +1,6 @@
 import Foundation
 
-struct AgentFastPathParsedArgs {
+nonisolated struct AgentFastPathParsedArgs: Sendable {
     let flags: Set<String>
     let options: [String: String]
     let positionals: [String]
@@ -48,6 +48,10 @@ extension CMUXCLI {
                 flags.insert(arg)
                 index += 1
                 continue
+            }
+
+            if arg.hasPrefix("-") {
+                throw CLIError(message: "\(commandName): unknown option \(arg)")
             }
 
             positionals.append(arg)

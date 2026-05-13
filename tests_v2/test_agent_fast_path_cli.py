@@ -120,6 +120,22 @@ def main() -> int:
         _must(send_payload.get("ok") is True, f"agent send returned unexpected payload: {send_payload}")
         _wait_for(lambda: _surface_has(c, workspace_id, surface_id, token), timeout_s=5.0)
 
+        bad_send_flag = _run_agent_process(cli, [
+            "send",
+            "--workspace",
+            workspace_id,
+            "--surface",
+            surface_id,
+            "--ennter",
+            "echo should_not_send",
+        ])
+        bad_send_flag_output = f"{bad_send_flag.stdout}\n{bad_send_flag.stderr}"
+        _must(bad_send_flag.returncode != 0, "agent send should reject unknown dash-prefixed options")
+        _must(
+            "agent send: unknown option --ennter" in bad_send_flag_output,
+            f"agent send should not treat mistyped flags as terminal text: {bad_send_flag_output!r}",
+        )
+
         capture_payload = json.loads(_run_agent(cli, [
             "capture",
             "--workspace",
