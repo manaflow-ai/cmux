@@ -1255,6 +1255,9 @@ claude_first_subcommand() {
                 ;;
             -*)
                 option_name="${arg%%=*}"
+                if claude_passthrough_option_flag "$arg"; then
+                    return 1
+                fi
                 if claude_option_consumes_value "$option_name"; then
                     if [[ "$arg" == *=* ]]; then
                         index=$((index + 1))

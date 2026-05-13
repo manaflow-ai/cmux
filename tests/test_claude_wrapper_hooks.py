@@ -1396,6 +1396,23 @@ def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:
         expect("--session-id" not in real_argv, f"{flag} passthrough: expected no --session-id injection, got {real_argv}", failures)
         expect(node_options == "__UNSET__", f"{flag} passthrough: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
 
+    passthrough_subcommand_shapes = [
+        ("--help agents", ["--help", "agents"]),
+        ("--version daemon", ["--version", "daemon"]),
+        ("-h agents", ["-h", "agents"]),
+        ("-v daemon", ["-v", "daemon"]),
+    ]
+    for label, argv in passthrough_subcommand_shapes:
+        code, real_argv, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
+            socket_state="live",
+            argv=argv,
+        )
+        expect(code == 0, f"{label} passthrough: wrapper exited {code}: {stderr}", failures)
+        expect(real_argv == argv, f"{label} passthrough: expected raw argv, got {real_argv}", failures)
+        expect("--settings" not in real_argv, f"{label} passthrough: expected no --settings injection, got {real_argv}", failures)
+        expect("--session-id" not in real_argv, f"{label} passthrough: expected no --session-id injection, got {real_argv}", failures)
+        expect(node_options == "__UNSET__", f"{label} passthrough: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
+
 
 def test_agents_subcommand_removes_cmux_terminal_fingerprint(failures: list[str]) -> None:
     scenarios = [
