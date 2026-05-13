@@ -8935,7 +8935,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, opencode, pi, cursor, gemini, rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
+              codex, opencode, pi, amp, cursor, gemini, rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -8949,6 +8949,7 @@ struct CMUXCLI {
               ~/.config/opencode/plugins/cmux-session.js
               ~/.config/opencode/plugins/cmux-feed.js
               ~/.pi/agent/extensions/cmux-session.ts
+              ~/.config/amp/plugins/cmux-session.ts
               See docs/agent-hooks.md for the full integration matrix.
 
             Examples:
@@ -16791,6 +16792,7 @@ function base64NulSeparated(values) {
 
 function hookEnvironment(cwd) {
   const env = { ...process.env };
+  delete env.AMP_API_KEY;
   if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
     const argv = normalizedLaunchArgv();
     env.CMUX_AGENT_LAUNCH_KIND = "opencode";
@@ -17054,6 +17056,7 @@ function base64NulSeparated(values: string[]): string {
 
 function hookEnvironment(cwd: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.AMP_API_KEY;
   if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
     const argv = normalizedLaunchArgv();
     env.CMUX_AGENT_LAUNCH_KIND = "pi";
@@ -17290,6 +17293,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             try installPiExtensionHooks(def)
             return
         }
+        if def.name == "amp" {
+            try installAmpExtensionHooks(def)
+            return
+        }
         if def.name == "rovodev" {
             try installRovoDevHooks(def)
             return
@@ -17455,6 +17462,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         if def.name == "pi" {
             try uninstallPiExtensionHooks(def)
+            return
+        }
+        if def.name == "amp" {
+            try uninstallAmpExtensionHooks(def)
             return
         }
         if def.name == "rovodev" {
@@ -20480,7 +20491,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         for def in Self.agentDefs {
             if let agentFilterDef, agentFilterDef.name != def.name { continue }
             let configDir = def.resolvedConfigDir()
-            let canUseMissingConfigDir = def.name == "opencode" || def.name == "pi" || (!isUninstall && def.name == "rovodev")
+            let canUseMissingConfigDir = def.name == "opencode" || def.name == "pi" || def.name == "amp" || (!isUninstall && def.name == "rovodev")
             if !canUseMissingConfigDir, !fm.fileExists(atPath: configDir) {
                 print("  \(def.name): skipped (config dir not found)")
                 skipped += 1
