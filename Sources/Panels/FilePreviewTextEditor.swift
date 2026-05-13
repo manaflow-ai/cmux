@@ -1,8 +1,19 @@
 import AppKit
 import SwiftUI
 
-struct FilePreviewTextEditor: NSViewRepresentable {
-    @ObservedObject var panel: FilePreviewPanel
+@MainActor
+protocol FilePreviewTextEditingPanel: AnyObject {
+    var textContent: String { get }
+
+    func attachTextView(_ textView: NSTextView)
+    func retryPendingFocus()
+    func updateTextContent(_ nextContent: String)
+    @discardableResult
+    func saveTextContent() -> Task<Void, Never>?
+}
+
+struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: ObservableObject & FilePreviewTextEditingPanel {
+    @ObservedObject var panel: PanelModel
     let isVisibleInUI: Bool
     let themeBackgroundColor: NSColor
     let themeForegroundColor: NSColor
@@ -18,7 +29,7 @@ struct FilePreviewTextEditor: NSViewRepresentable {
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
-        scrollView.drawsBackground = true
+        scrollView.drawsBackground = false
 
         let textView = SavingTextView()
         textView.panel = panel
@@ -31,7 +42,7 @@ struct FilePreviewTextEditor: NSViewRepresentable {
         textView.usesFindPanel = true
         textView.usesFontPanel = false
         textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        textView.drawsBackground = true
+        textView.drawsBackground = false
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
@@ -65,25 +76,34 @@ struct FilePreviewTextEditor: NSViewRepresentable {
         context.coordinator.isApplyingPanelUpdate = false
     }
 
-    private static func applyTheme(
+    static func applyTheme(
         to scrollView: NSScrollView,
         backgroundColor: NSColor,
         foregroundColor: NSColor
     ) {
-        scrollView.backgroundColor = backgroundColor
-        scrollView.contentView.backgroundColor = backgroundColor
+        let drawsBackground = shouldDrawBackground(for: backgroundColor)
+        let resolvedBackgroundColor = drawsBackground ? backgroundColor : .clear
+        scrollView.drawsBackground = drawsBackground
+        scrollView.backgroundColor = resolvedBackgroundColor
+        scrollView.contentView.drawsBackground = drawsBackground
+        scrollView.contentView.backgroundColor = resolvedBackgroundColor
         if let textView = scrollView.documentView as? NSTextView {
-            textView.backgroundColor = backgroundColor
+            textView.drawsBackground = drawsBackground
+            textView.backgroundColor = resolvedBackgroundColor
             textView.textColor = foregroundColor
             textView.insertionPointColor = foregroundColor
         }
     }
 
+    static func shouldDrawBackground(for backgroundColor: NSColor) -> Bool {
+        backgroundColor.alphaComponent > 0.001
+    }
+
     final class Coordinator: NSObject, NSTextViewDelegate {
-        var panel: FilePreviewPanel
+        var panel: PanelModel
         var isApplyingPanelUpdate = false
 
-        init(panel: FilePreviewPanel) {
+        init(panel: PanelModel) {
             self.panel = panel
         }
 
@@ -119,7 +139,7 @@ final class SavingTextView: NSTextView {
     private static let minimumPreviewFontSize: CGFloat = 8
     private static let maximumPreviewFontSize: CGFloat = 36
 
-    weak var panel: FilePreviewPanel?
+    weak var panel: (any FilePreviewTextEditingPanel)?
     private var previewFontSize: CGFloat = 13
     private var pendingSaveShortcutChordPrefix: ShortcutStroke?
 
