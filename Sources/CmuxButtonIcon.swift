@@ -1,6 +1,6 @@
 import Foundation
 
-enum CmuxButtonIcon: Codable, Sendable, Hashable {
+nonisolated enum CmuxButtonIcon: Codable, Sendable, Hashable {
     case symbol(String)
     case emoji(String, scale: Double = 1)
     case imagePath(String)
