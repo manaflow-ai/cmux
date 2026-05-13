@@ -68,6 +68,7 @@ struct SyncedHostWindow: Identifiable, Equatable, Hashable {
 struct SyncedWindowSlotFrame: Equatable {
     let quartzFrame: CGRect
     let cocoaFrame: CGRect
+    let owningWindowNumber: Int
     let isLiveResize: Bool
 }
 
@@ -352,10 +353,20 @@ private final class SyncedWindowProjectionController {
         targetSlot = slot
         installMouseMonitors()
         isPointerInTarget = slot.cocoaFrame.contains(NSEvent.mouseLocation)
-        let shouldRaise = isPointerInTarget || !window.isOnScreen
-        let result = accessibilityController.place(window, frame: slot.quartzFrame, raise: shouldRaise)
-        if shouldRaise && !isPointerInTarget {
-            NSApp.activate(ignoringOtherApps: true)
+        let result = accessibilityController.place(window, frame: slot.quartzFrame, raise: true)
+        if result == .succeeded {
+            keepTargetAboveOwningWindow()
+        }
+        return result
+    }
+
+    func raiseTarget() -> SyncedWindowActionResult {
+        guard let targetWindow else {
+            return .windowUnavailable
+        }
+        let result = accessibilityController.raise(targetWindow)
+        if result == .succeeded {
+            keepTargetAboveOwningWindow()
         }
         return result
     }
@@ -395,16 +406,28 @@ private final class SyncedWindowProjectionController {
         }
 
         let isInside = targetSlot.cocoaFrame.contains(NSEvent.mouseLocation)
+        keepTargetAboveOwningWindow()
+
         guard isInside != isPointerInTarget else {
             return
         }
 
         isPointerInTarget = isInside
         if isInside {
-            _ = accessibilityController.raise(targetWindow)
-        } else {
-            NSApp.activate(ignoringOtherApps: true)
+            _ = raiseTarget()
         }
+    }
+
+    private func keepTargetAboveOwningWindow() {
+        guard let targetWindow, let targetSlot else {
+            return
+        }
+
+        guard let owningWindow = NSApp.windows.first(where: { $0.windowNumber == targetSlot.owningWindowNumber }) else {
+            return
+        }
+
+        owningWindow.order(.below, relativeTo: Int(targetWindow.id))
     }
 }
 
@@ -421,6 +444,7 @@ final class SyncedWindowPanel: Panel, ObservableObject {
     @Published private(set) var statusMessage: String?
     @Published private(set) var statusIsError = false
     @Published private(set) var focusFlashToken: Int = 0
+    @Published private(set) var accessibilityTrusted = false
 
     private let enumerator = SyncedHostWindowEnumerator()
     private let accessibilityController = SyncedWindowAccessibilityController()
@@ -439,7 +463,7 @@ final class SyncedWindowPanel: Panel, ObservableObject {
     }
 
     var isAccessibilityTrusted: Bool {
-        accessibilityController.isTrusted
+        accessibilityTrusted
     }
 
     init(workspaceId: UUID) {
@@ -454,6 +478,7 @@ final class SyncedWindowPanel: Panel, ObservableObject {
     }
 
     func reloadWindows() {
+        refreshAccessibilityStatus()
         windows = enumerator.windows()
         if let selectedWindowID, windows.contains(where: { $0.id == selectedWindowID }) {
             updateTitleForSelection()
@@ -477,6 +502,15 @@ final class SyncedWindowPanel: Panel, ObservableObject {
     }
 
     func syncSelectedWindow() {
+        refreshAccessibilityStatus()
+        guard accessibilityTrusted else {
+            isSynced = false
+            projectionController.stop()
+            statusMessage = String(localized: "syncedWindow.status.accessibilityMissing", defaultValue: "Accessibility permission is needed to sync windows.")
+            statusIsError = true
+            return
+        }
+
         guard let selectedWindow else {
             statusMessage = String(localized: "syncedWindow.status.noWindow", defaultValue: "Select a window first.")
             statusIsError = true
@@ -511,16 +545,34 @@ final class SyncedWindowPanel: Panel, ObservableObject {
 
     func requestAccessibilityPermission() {
         accessibilityController.requestPermission()
-        if !accessibilityController.isTrusted {
+        refreshAccessibilityStatus()
+        if !accessibilityTrusted {
             accessibilityController.openAccessibilitySettings()
         }
         statusMessage = String(localized: "syncedWindow.status.accessibilityRequested", defaultValue: "Accessibility permission requested.")
         statusIsError = false
     }
 
+    func checkAccessibilityPermission() {
+        refreshAccessibilityStatus()
+        if accessibilityTrusted {
+            statusMessage = String(localized: "syncedWindow.status.accessibilityReady", defaultValue: "Accessibility ready.")
+            statusIsError = false
+            placeSelectedWindow(reportFailures: true)
+        } else {
+            statusMessage = String(localized: "syncedWindow.status.accessibilityMissing", defaultValue: "Accessibility permission is needed to sync windows.")
+            statusIsError = true
+        }
+    }
+
+    func refreshAccessibilityStatus() {
+        accessibilityTrusted = accessibilityController.isTrusted
+    }
+
     func focus() {
         if isSynced, let selectedWindow {
-            _ = accessibilityController.raise(selectedWindow)
+            projectionController.start(window: selectedWindow)
+            _ = projectionController.raiseTarget()
         }
     }
 
@@ -551,6 +603,9 @@ final class SyncedWindowPanel: Panel, ObservableObject {
             statusMessage = String(localized: "syncedWindow.status.synced", defaultValue: "Window synced to pane.")
             statusIsError = false
         case .accessibilityPermissionMissing:
+            accessibilityTrusted = false
+            isSynced = false
+            projectionController.stop()
             statusMessage = String(localized: "syncedWindow.status.accessibilityMissing", defaultValue: "Accessibility permission is needed to sync windows.")
             statusIsError = true
         case .windowUnavailable:
@@ -594,6 +649,7 @@ struct SyncedWindowPanelView: View {
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
+            panel.refreshAccessibilityStatus()
             if isVisibleInUI {
                 panel.reloadWindows()
             }
@@ -635,13 +691,15 @@ struct SyncedWindowPanelView: View {
             Divider()
             ZStack {
                 Color(nsColor: .controlBackgroundColor)
-                if let selectedWindow = panel.selectedWindow {
+                if !panel.isAccessibilityTrusted {
+                    accessibilityOnboarding
+                } else if let selectedWindow = panel.selectedWindow {
                     selectedWindowPlaceholder(selectedWindow)
                     SyncedWindowDockView(onFrameChange: panel.updateSlotFrame)
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
                         .strokeBorder(
-                            panel.isSynced ? Color.accentColor.opacity(0.7) : Color.secondary.opacity(0.35),
-                            style: StrokeStyle(lineWidth: 1, dash: panel.isSynced ? [7, 5] : [])
+                            isEffectivelySynced ? Color.accentColor.opacity(0.7) : Color.secondary.opacity(0.35),
+                            style: StrokeStyle(lineWidth: 1, dash: isEffectivelySynced ? [7, 5] : [])
                         )
                         .padding(14)
                         .allowsHitTesting(false)
@@ -657,8 +715,8 @@ struct SyncedWindowPanelView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            Image(systemName: panel.isSynced ? "link.circle.fill" : "macwindow")
-                .foregroundStyle(panel.isSynced ? .green : .secondary)
+            Image(systemName: headerIconName)
+                .foregroundStyle(headerIconColor)
             VStack(alignment: .leading, spacing: 2) {
                 Text(panel.selectedWindow?.displayTitle ?? String(localized: "syncedWindow.title", defaultValue: "Synced Window"))
                     .font(.callout.weight(.semibold))
@@ -674,8 +732,8 @@ struct SyncedWindowPanelView: View {
                     panel.requestAccessibilityPermission()
                 } label: {
                     Label(
-                        String(localized: "syncedWindow.button.accessibility", defaultValue: "Accessibility"),
-                        systemImage: "figure.child.circle"
+                        String(localized: "syncedWindow.button.openSettings", defaultValue: "Open Settings"),
+                        systemImage: "gearshape"
                     )
                 }
             }
@@ -690,16 +748,53 @@ struct SyncedWindowPanelView: View {
                     systemImage: panel.isSynced ? "rectangle.portrait.and.arrow.right" : "link"
                 )
             }
-            .disabled(panel.selectedWindow == nil)
+            .disabled(panel.selectedWindow == nil || !panel.isAccessibilityTrusted)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(.bar)
     }
 
+    private var accessibilityOnboarding: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 34))
+                .foregroundStyle(.orange)
+            Text(String(localized: "syncedWindow.onboarding.title", defaultValue: "Enable Accessibility"))
+                .font(.title3.weight(.semibold))
+            Text(String(localized: "syncedWindow.onboarding.message", defaultValue: "cmux needs Accessibility permission to move and raise the selected app window."))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 380)
+            HStack(spacing: 10) {
+                Button {
+                    panel.requestAccessibilityPermission()
+                } label: {
+                    Label(
+                        String(localized: "syncedWindow.button.openSettings", defaultValue: "Open Settings"),
+                        systemImage: "gearshape"
+                    )
+                }
+                Button {
+                    panel.checkAccessibilityPermission()
+                } label: {
+                    Label(
+                        String(localized: "syncedWindow.button.checkAgain", defaultValue: "Check Again"),
+                        systemImage: "arrow.clockwise"
+                    )
+                }
+            }
+        }
+        .padding(28)
+    }
+
     private var headerSubtitle: String {
         if let statusMessage = panel.statusMessage {
             return statusMessage
+        }
+        if !panel.isAccessibilityTrusted {
+            return String(localized: "syncedWindow.status.accessibilityRequired", defaultValue: "Accessibility permission required.")
         }
         if let selectedWindow = panel.selectedWindow {
             let format = String(localized: "syncedWindow.subtitle.selected", defaultValue: "%@ window %@")
@@ -708,14 +803,44 @@ struct SyncedWindowPanelView: View {
         return String(localized: "syncedWindow.subtitle.empty", defaultValue: "Choose an app window to sync")
     }
 
+    private var isEffectivelySynced: Bool {
+        panel.isAccessibilityTrusted && panel.isSynced
+    }
+
+    private var headerIconName: String {
+        if !panel.isAccessibilityTrusted {
+            return "exclamationmark.triangle.fill"
+        }
+        if panel.statusIsError {
+            return "exclamationmark.triangle.fill"
+        }
+        if panel.isSynced {
+            return "link.circle.fill"
+        }
+        return "macwindow"
+    }
+
+    private var headerIconColor: Color {
+        if !panel.isAccessibilityTrusted {
+            return .orange
+        }
+        if panel.statusIsError {
+            return .red
+        }
+        if panel.isSynced {
+            return .green
+        }
+        return .secondary
+    }
+
     private func selectedWindowPlaceholder(_ selectedWindow: SyncedHostWindow) -> some View {
         VStack(spacing: 10) {
-            Image(systemName: panel.isSynced ? "rectangle.inset.filled" : "rectangle.dashed")
+            Image(systemName: isEffectivelySynced ? "rectangle.inset.filled" : "rectangle.dashed")
                 .font(.system(size: 34))
-                .foregroundStyle(panel.isSynced ? Color.accentColor : .secondary)
+                .foregroundStyle(isEffectivelySynced ? Color.accentColor : .secondary)
             Text(selectedWindow.ownerName)
                 .font(.title3.weight(.semibold))
-            Text(panel.isSynced
+            Text(isEffectivelySynced
                 ? String(localized: "syncedWindow.placeholder.synced", defaultValue: "The native app window is aligned here.")
                 : String(localized: "syncedWindow.placeholder.preview", defaultValue: "Press Sync Into Pane to align the native app window here.")
             )
@@ -828,6 +953,7 @@ private final class SyncedWindowDockNSView: NSView {
         let slotFrame = SyncedWindowSlotFrame(
             quartzFrame: quartzFrame(fromCocoaFrame: cocoaFrame),
             cocoaFrame: cocoaFrame,
+            owningWindowNumber: window.windowNumber,
             isLiveResize: inLiveResize
         )
 
