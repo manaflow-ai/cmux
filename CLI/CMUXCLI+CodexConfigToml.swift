@@ -224,10 +224,11 @@ extension CMUXCLI {
         timeoutSec: Int,
         statusMessage: String?
     ) -> String {
+        let normalizedTimeoutSec = max(timeoutSec, 1)
         var handler: [String: Any] = [
             "async": false,
             "command": command,
-            "timeout": timeoutSec,
+            "timeout": normalizedTimeoutSec,
             "type": "command",
         ]
         if let statusMessage {

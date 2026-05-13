@@ -39,6 +39,13 @@ CODEX_HOOK_EVENTS_WITH_MATCHERS = {
     "SessionStart",
 }
 
+CMUX_CODEX_HOOK_MARKERS = (
+    "cmux hooks codex",
+    "cmux codex-hook",
+    "cmux hooks feed --source",
+    "cmux feed-hook --source",
+)
+
 
 class FakeCmuxSocket:
     def __init__(
@@ -619,7 +626,7 @@ def expected_cmux_codex_hook_trust(hooks: dict, hooks_path: Path) -> dict[str, s
             matcher = group.get("matcher") if event_name in CODEX_HOOK_EVENTS_WITH_MATCHERS else None
             for handler_index, hook in enumerate(group.get("hooks", [])):
                 command = hook.get("command", "")
-                if "cmux hooks codex" not in command and "cmux hooks feed --source codex" not in command:
+                if not any(marker in command for marker in CMUX_CODEX_HOOK_MARKERS):
                     continue
                 key = f"{hooks_path}:{event_label}:{group_index}:{handler_index}"
                 expected[key] = codex_command_hook_hash(
