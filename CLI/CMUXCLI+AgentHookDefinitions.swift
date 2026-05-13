@@ -126,6 +126,13 @@ extension CMUXCLI {
             events: []
         ),
         AgentHookDef(
+            name: "amp", displayName: "Amp", statusKey: "amp",
+            configDir: ".config/amp", configFile: "plugins/cmux-session.ts",
+            sessionStoreSuffix: "amp", disableEnvVar: "CMUX_AMP_HOOKS_DISABLED",
+            hookMarker: "cmux hooks amp", format: .flat,
+            events: []
+        ),
+        AgentHookDef(
             name: "cursor", displayName: "Cursor", statusKey: "cursor",
             configDir: ".cursor", configFile: "hooks.json", binaryName: "cursor-agent",
             sessionStoreSuffix: "cursor", disableEnvVar: "CMUX_CURSOR_HOOKS_DISABLED",
