@@ -274,6 +274,28 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         )
     }
 
+    func testShouldShowUnreadIndicatorWhenWorkspaceManualUnreadTargetsRepresentativePanel() {
+        XCTAssertTrue(
+            Workspace.shouldShowUnreadIndicator(
+                hasUnreadNotification: false,
+                isManuallyUnread: false,
+                isWorkspaceManuallyUnread: true,
+                isWorkspaceManualUnreadRepresentative: true
+            )
+        )
+    }
+
+    func testShouldHideWorkspaceManualUnreadIndicatorOnNonRepresentativePanel() {
+        XCTAssertFalse(
+            Workspace.shouldShowUnreadIndicator(
+                hasUnreadNotification: false,
+                isManuallyUnread: false,
+                isWorkspaceManuallyUnread: true,
+                isWorkspaceManualUnreadRepresentative: false
+            )
+        )
+    }
+
     func testShouldHideUnreadIndicatorWhenNeitherNotificationNorManualUnreadExists() {
         XCTAssertFalse(
             Workspace.shouldShowUnreadIndicator(
@@ -281,6 +303,21 @@ final class WorkspaceManualUnreadTests: XCTestCase {
                 isManuallyUnread: false
             )
         )
+    }
+
+    func testWorkspaceManualUnreadRepresentativeTracksFocusedPanel() {
+        let workspace = Workspace()
+        guard let initialPanelId = workspace.focusedPanelId,
+              let splitPanel = workspace.newTerminalSplit(from: initialPanelId, orientation: .horizontal, focus: false) else {
+            XCTFail("Expected workspace with a split panel")
+            return
+        }
+
+        XCTAssertEqual(workspace.representativePanelIdForWorkspaceManualUnread(), initialPanelId)
+
+        workspace.focusPanel(splitPanel.id)
+
+        XCTAssertEqual(workspace.representativePanelIdForWorkspaceManualUnread(), splitPanel.id)
     }
 }
 

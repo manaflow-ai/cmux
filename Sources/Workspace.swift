@@ -7201,6 +7201,20 @@ final class Workspace: Identifiable, ObservableObject {
         return panel
     }
 
+    func representativePanelIdForWorkspaceManualUnread() -> UUID? {
+        if let focusedPanelId {
+            return focusedPanelId
+        }
+
+        for paneId in bonsplitController.allPaneIds {
+            guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id,
+                  let panelId = panelIdFromSurfaceId(tabId) else { continue }
+            return panelId
+        }
+
+        return panels.keys.first
+    }
+
     func effectiveSelectedPanelId(inPane paneId: PaneID) -> UUID? {
         bonsplitController.selectedTab(inPane: paneId).flatMap { panelIdFromSurfaceId($0.id) }
     }
@@ -8302,9 +8316,12 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func syncUnreadBadgeStateForPanel(_ panelId: UUID) {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+        let notificationStore = AppDelegate.shared?.notificationStore
         let shouldShowUnread = Self.shouldShowUnreadIndicator(
             hasUnreadNotification: hasUnreadNotification(panelId: panelId),
-            isManuallyUnread: manualUnreadPanelIds.contains(panelId)
+            isManuallyUnread: manualUnreadPanelIds.contains(panelId),
+            isWorkspaceManuallyUnread: notificationStore?.hasManualUnread(forTabId: id) ?? false,
+            isWorkspaceManualUnreadRepresentative: representativePanelIdForWorkspaceManualUnread() == panelId
         )
         if let existing = bonsplitController.tab(tabId), existing.showsNotificationBadge == shouldShowUnread {
             return
@@ -8465,8 +8482,15 @@ final class Workspace: Identifiable, ObservableObject {
         syncUnreadBadgeStateForPanel(panelId)
     }
 
-    static func shouldShowUnreadIndicator(hasUnreadNotification: Bool, isManuallyUnread: Bool) -> Bool {
-        hasUnreadNotification || isManuallyUnread
+    static func shouldShowUnreadIndicator(
+        hasUnreadNotification: Bool,
+        isManuallyUnread: Bool,
+        isWorkspaceManuallyUnread: Bool = false,
+        isWorkspaceManualUnreadRepresentative: Bool = false
+    ) -> Bool {
+        hasUnreadNotification ||
+            isManuallyUnread ||
+            (isWorkspaceManuallyUnread && isWorkspaceManualUnreadRepresentative)
     }
 
     // MARK: - Title Management
