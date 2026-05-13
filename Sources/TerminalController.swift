@@ -15403,11 +15403,10 @@ class TerminalController {
 
     private static func routeUnescapedInput(_ text: String, to terminalPanel: TerminalPanel) -> RoutedTerminalInputResult {
         let hasSurface = terminalPanel.surface.surface != nil
-        let acceptsInput = terminalPanel.surface.acceptsTerminalInput
-        terminalPanel.surface.sendInput(text)
+        let acceptedInput = terminalPanel.surface.sendInput(text)
         return RoutedTerminalInputResult(
-            queued: !hasSurface && acceptsInput,
-            shouldForceRefresh: hasSurface && acceptsInput
+            queued: !hasSurface && acceptedInput,
+            shouldForceRefresh: hasSurface && acceptedInput
         )
     }
 

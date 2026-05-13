@@ -5747,9 +5747,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// Send text with control characters (Return, Tab, etc.) delivered as key
     /// events so the shell processes them, while regular text is sent via the
     /// same key-text path used for attached socket input.
-    func sendInput(_ text: String) {
+    @discardableResult
+    func sendInput(_ text: String) -> Bool {
         let inputs = parsedSocketInputs(from: text)
-        guard !inputs.isEmpty else { return }
+        guard !inputs.isEmpty else { return false }
 
         guard let surface = surface else {
             var queued = false
@@ -5759,13 +5760,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
             if queued {
                 requestBackgroundSurfaceStartIfNeeded()
             }
-            return
+            return queued
         }
 
-        guard consumeTerminalInputIfAllowed(reason: "sendInput") else { return }
+        guard consumeTerminalInputIfAllowed(reason: "sendInput") else { return false }
         for input in inputs {
             writePendingSocketInput(input, to: surface)
         }
+        return true
     }
 
     private func parsedSocketInputs(from text: String) -> [PendingSocketInput] {
