@@ -480,11 +480,22 @@ enum SessionPersistenceStore {
 }
 
 enum SessionTerminalScrollbackNormalizer {
+    private struct CachedRegularExpression: @unchecked Sendable {
+        let value: NSRegularExpression
+
+        init(pattern: String) {
+            // NSRegularExpression is immutable after initialization here; callers
+            // only use read-only replacement APIs through this cached wrapper.
+            // swiftlint:disable:next force_try
+            value = try! NSRegularExpression(pattern: pattern)
+        }
+    }
+
     private static let ansiEscape = "\u{001B}"
     private static let ansiReset = "\u{001B}[0m"
     private static let zshPromptSpMarkerPattern =
         #"(?:\x1B\[[0-9;]*m)*\x1B\[(?:[0-9]*;)*0?7(?:;[0-9]*)*m%\x1B\[[0-9;]*m[ \t]*"#
-    private static let zshPromptSpRegex = try! NSRegularExpression(
+    private static let zshPromptSpRegex = CachedRegularExpression(
         pattern: zshPromptSpMarkerPattern
     )
 
@@ -519,7 +530,7 @@ enum SessionTerminalScrollbackNormalizer {
         guard text.contains("%"), text.contains("\(ansiEscape)[") else {
             return text
         }
-        return zshPromptSpRegex.stringByReplacingMatches(
+        return zshPromptSpRegex.value.stringByReplacingMatches(
             in: text,
             range: NSRange(text.startIndex..<text.endIndex, in: text),
             withTemplate: "\n"
