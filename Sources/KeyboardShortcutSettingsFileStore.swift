@@ -137,7 +137,7 @@ final class CmuxSettingsFileStore {
     func reload() {
         let previousState = synchronized {
             settingsStateRevision &+= 1
-            (
+            return (
                 shortcuts: shortcutsByAction,
                 sourcePath: activeSourcePath,
                 managedUserDefaults: activeManagedUserDefaults,
