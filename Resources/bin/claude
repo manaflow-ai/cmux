@@ -546,6 +546,24 @@ function installClaudeChildHookPropagation() {
     return nextOptions;
   }
 
+  function cmuxScrubbedEnv(env) {
+    const nextEnv = { ...(env && typeof env === "object" ? env : process.env) };
+    for (const key of Object.keys(nextEnv)) {
+      if (key.startsWith("CMUX_")) {
+        delete nextEnv[key];
+      }
+    }
+    return nextEnv;
+  }
+
+  function withCmuxPassthroughEnv(options) {
+    const nextOptions = options && typeof options === "object" && !Array.isArray(options)
+      ? { ...options }
+      : {};
+    nextOptions.env = cmuxScrubbedEnv(nextOptions.env);
+    return nextOptions;
+  }
+
   function patchClaudeChild(command, args, options) {
     const normalizedArgs = Array.isArray(args) ? args.map(String) : [];
     const insertIndex = claudeInsertIndex(command, normalizedArgs);
@@ -555,7 +573,11 @@ function installClaudeChildHookPropagation() {
 
     const subcommand = firstClaudeSubcommand(normalizedArgs, insertIndex);
     if (passthroughSubcommands.has(subcommand)) {
-      return { args: normalizedArgs, options, patched: false };
+      return {
+        args: normalizedArgs,
+        options: withCmuxPassthroughEnv(options),
+        patched: true,
+      };
     }
 
     const nextArgs = envOnlySubcommands.has(subcommand)
@@ -819,7 +841,7 @@ function installClaudeChildHookPropagation() {
     const actualArgs = normalized.args.map(String);
     const subcommand = firstClaudeSubcommand(actualArgs, 0);
     if (passthroughSubcommands.has(subcommand)) {
-      return callOriginalArgsOptions(originalFork, this, modulePath, argCount, args, options);
+      return originalFork.call(this, modulePath, actualArgs, withCmuxPassthroughEnv(normalized.options));
     }
     const nextArgs = envOnlySubcommands.has(subcommand) ? actualArgs : withCmuxSettings(actualArgs, 0);
     return originalFork.call(this, modulePath, nextArgs, withCmuxClaudeEnv(normalized.options, process.execPath, [modulePath, ...nextArgs], 1));
