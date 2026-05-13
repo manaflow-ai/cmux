@@ -269,11 +269,15 @@ doneFlags:
 		cliUsage()
 		return 0
 	}
+	var browserReq browserRelayRequest
 	if cmdName == "browser" {
 		if browserHelpRequested(cmdArgs) {
-			return runBrowserRelay("", cmdArgs, jsonOutput, nil)
+			browserUsage(os.Stdout)
+			return 0
 		}
-		if _, _, _, err := buildBrowserRelayRequest(cmdArgs); err != nil {
+		var err error
+		browserReq, err = buildBrowserRelayRequest(cmdArgs)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "cmux browser: %v\n", err)
 			return 2
 		}
@@ -298,7 +302,7 @@ doneFlags:
 
 	// Browser subcommand delegation
 	if cmdName == "browser" {
-		return runBrowserRelay(socketPath, cmdArgs, jsonOutput, refreshAddr)
+		return runBrowserRelay(socketPath, browserReq, jsonOutput, refreshAddr)
 	}
 
 	// Agent launch commands
@@ -437,25 +441,20 @@ func runRPC(socketPath string, args []string, jsonOutput bool, refreshAddr func(
 	return 0
 }
 
-// runBrowserRelay handles "cmux browser <subcommand>" by mapping to browser.* v2 methods.
-func runBrowserRelay(socketPath string, args []string, jsonOutput bool, refreshAddr func() string) int {
-	if browserHelpRequested(args) {
-		browserUsage(os.Stdout)
-		return 0
-	}
-
-	spec, params, parsed, err := buildBrowserRelayRequest(args)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "cmux browser: %v\n", err)
-		return 2
-	}
-
-	resp, err := socketRoundTripV2(socketPath, spec.method, params, refreshAddr)
+// runBrowserRelay sends a parsed "cmux browser <subcommand>" request as a browser.* v2 method.
+func runBrowserRelay(socketPath string, req browserRelayRequest, jsonOutput bool, refreshAddr func() string) int {
+	resp, err := socketRoundTripV2(socketPath, req.spec.method, req.params, refreshAddr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
 		return 1
 	}
-	return printBrowserRelayResponse(spec, resp, jsonOutput || parsed.localJSON, parsed.outPath)
+	return printBrowserRelayResponse(req.spec, resp, jsonOutput || req.parsed.localJSON, req.parsed.outPath)
+}
+
+type browserRelayRequest struct {
+	spec   browserCommandSpec
+	params map[string]any
+	parsed browserParsedArgs
 }
 
 type browserParsedArgs struct {
@@ -465,12 +464,13 @@ type browserParsedArgs struct {
 	outPath    string
 }
 
-func buildBrowserRelayRequest(args []string) (browserCommandSpec, map[string]any, browserParsedArgs, error) {
+func buildBrowserRelayRequest(args []string) (browserRelayRequest, error) {
 	if len(args) == 0 {
-		return browserCommandSpec{}, nil, browserParsedArgs{}, fmt.Errorf("requires a subcommand (%s)", browserSubcommandHint())
+		return browserRelayRequest{}, fmt.Errorf("requires a subcommand (%s)", browserSubcommandHint())
 	}
 
 	leadingParams := map[string]any{}
+	leadingParamSources := map[string]string{}
 	localJSON := false
 	for len(args) > 0 {
 		switch normalizeBrowserToken(args[0]) {
@@ -480,35 +480,40 @@ func buildBrowserRelayRequest(args []string) (browserCommandSpec, map[string]any
 			continue
 		case "--surface":
 			if len(args) < 2 {
-				return browserCommandSpec{}, nil, browserParsedArgs{}, fmt.Errorf("--surface requires a value")
+				return browserRelayRequest{}, fmt.Errorf("--surface requires a value")
 			}
 			leadingParams["surface_id"] = args[1]
+			leadingParamSources["surface_id"] = "--surface"
 			args = args[2:]
 			continue
 		case "--workspace":
 			if len(args) < 2 {
-				return browserCommandSpec{}, nil, browserParsedArgs{}, fmt.Errorf("--workspace requires a value")
+				return browserRelayRequest{}, fmt.Errorf("--workspace requires a value")
 			}
 			leadingParams["workspace_id"] = args[1]
+			leadingParamSources["workspace_id"] = "--workspace"
 			args = args[2:]
 			continue
 		case "--window":
 			if len(args) < 2 {
-				return browserCommandSpec{}, nil, browserParsedArgs{}, fmt.Errorf("--window requires a value")
+				return browserRelayRequest{}, fmt.Errorf("--window requires a value")
 			}
 			leadingParams["window_id"] = args[1]
+			leadingParamSources["window_id"] = "--window"
 			args = args[2:]
 			continue
 		case "--pane":
 			if len(args) < 2 {
-				return browserCommandSpec{}, nil, browserParsedArgs{}, fmt.Errorf("--pane requires a value")
+				return browserRelayRequest{}, fmt.Errorf("--pane requires a value")
 			}
 			leadingParams["pane_id"] = args[1]
+			leadingParamSources["pane_id"] = "--pane"
 			args = args[2:]
 			continue
 		}
 		if isBrowserSurfaceTarget(args[0]) {
 			leadingParams["surface_id"] = args[0]
+			leadingParamSources["surface_id"] = "surface target"
 			args = args[1:]
 			continue
 		}
@@ -518,9 +523,9 @@ func buildBrowserRelayRequest(args []string) (browserCommandSpec, map[string]any
 	commandKey, spec, consumed, interleavedFlags, ok := resolveBrowserCommand(args)
 	if !ok {
 		if len(args) == 0 {
-			return browserCommandSpec{}, nil, browserParsedArgs{}, fmt.Errorf("requires a subcommand (%s)", browserSubcommandHint())
+			return browserRelayRequest{}, fmt.Errorf("requires a subcommand (%s)", browserSubcommandHint())
 		}
-		return browserCommandSpec{}, nil, browserParsedArgs{}, fmt.Errorf("unknown subcommand %q", args[0])
+		return browserRelayRequest{}, fmt.Errorf("unknown subcommand %q", args[0])
 	}
 
 	parseArgs := args[consumed:]
@@ -529,22 +534,37 @@ func buildBrowserRelayRequest(args []string) (browserCommandSpec, map[string]any
 	}
 	parsed, err := parseBrowserArgs(parseArgs)
 	if err != nil {
-		return browserCommandSpec{}, nil, browserParsedArgs{}, err
+		return browserRelayRequest{}, err
 	}
 	parsed.localJSON = parsed.localJSON || localJSON
+	if parsed.outPath != "" && spec.special != browserSpecialScreenshot {
+		return browserRelayRequest{}, fmt.Errorf("--out is only supported for browser screenshot")
+	}
 
 	params := make(map[string]any, len(spec.defaultParams)+len(leadingParams)+len(parsed.flags))
 	for key, value := range spec.defaultParams {
 		params[key] = value
 	}
+	paramSources := map[string]string{}
 	for key, value := range leadingParams {
 		params[key] = value
-	}
-	for key, value := range parsed.flags {
-		paramKey := browserFlagToParamKey(key)
-		if override, ok := spec.flagOverrides[key]; ok {
-			paramKey = override
+		if source, ok := leadingParamSources[key]; ok {
+			paramSources[key] = source
 		}
+	}
+	flagKeys := make([]string, 0, len(parsed.flags))
+	for key := range parsed.flags {
+		flagKeys = append(flagKeys, key)
+	}
+	sort.Strings(flagKeys)
+	for _, key := range flagKeys {
+		value := parsed.flags[key]
+		paramKey := browserParamKeyForFlag(key, spec)
+		source := "--" + key
+		if previous, ok := paramSources[paramKey]; ok && previous != source {
+			return browserRelayRequest{}, fmt.Errorf("conflicting browser options %s and %s both set %s", previous, source, paramKey)
+		}
+		paramSources[paramKey] = source
 		params[paramKey] = value
 	}
 	if browserOpenCommandShouldNavigate(commandKey, params) {
@@ -552,10 +572,10 @@ func buildBrowserRelayRequest(args []string) (browserCommandSpec, map[string]any
 	}
 
 	if err := applyBrowserPositionals(params, parsed.positional, spec); err != nil {
-		return browserCommandSpec{}, nil, browserParsedArgs{}, err
+		return browserRelayRequest{}, err
 	}
 	if err := applyBrowserSpecialParams(params, spec); err != nil {
-		return browserCommandSpec{}, nil, browserParsedArgs{}, err
+		return browserRelayRequest{}, err
 	}
 	if spec.useWorkspaceEnv {
 		applyWorkspaceEnvFallback(params)
@@ -563,7 +583,7 @@ func buildBrowserRelayRequest(args []string) (browserCommandSpec, map[string]any
 	if spec.useSurfaceEnv {
 		applySurfaceEnvFallback(params)
 	}
-	return spec, params, parsed, nil
+	return browserRelayRequest{spec: spec, params: params, parsed: parsed}, nil
 }
 
 func resolveBrowserCommand(args []string) (string, browserCommandSpec, int, []string, bool) {
@@ -906,6 +926,7 @@ func browserOpenCommandShouldNavigate(commandKey string, params map[string]any) 
 func browserUsage(out io.Writer) {
 	fmt.Fprintln(out, "Usage: cmux browser [--surface <id|ref> | <surface>] <subcommand> [args]")
 	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Options: --out <path> is supported by browser screenshot only")
 	fmt.Fprintf(out, "Subcommands: %s\n", browserSubcommandHint())
 }
 
@@ -1045,6 +1066,13 @@ func browserFlagToParamKey(key string) string {
 	default:
 		return commonFlagToParamKey(key)
 	}
+}
+
+func browserParamKeyForFlag(key string, spec browserCommandSpec) string {
+	if override, ok := spec.flagOverrides[key]; ok {
+		return override
+	}
+	return browserFlagToParamKey(key)
 }
 
 func commonFlagToParamKey(key string) string {

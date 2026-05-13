@@ -1432,6 +1432,42 @@ func TestCLIBrowserOutDoesNotConsumeShortFlagAsPath(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserRejectsOutForNonScreenshotCommands(t *testing.T) {
+	t.Setenv("CMUX_SOCKET_PATH", "")
+	t.Setenv("HOME", t.TempDir())
+
+	var code int
+	output := captureStderr(t, func() {
+		code = runCLI([]string{
+			"browser", "surface:2", "get", "title", "--out", "/tmp/title.txt",
+		})
+	})
+	if code != 2 {
+		t.Fatalf("browser non-screenshot --out should return 2, got %d", code)
+	}
+	if !strings.Contains(output, "cmux browser: --out is only supported for browser screenshot") {
+		t.Fatalf("expected non-screenshot --out error, got %q", output)
+	}
+}
+
+func TestCLIBrowserRejectsConflictingSurfaceAliases(t *testing.T) {
+	t.Setenv("CMUX_SOCKET_PATH", "")
+	t.Setenv("HOME", t.TempDir())
+
+	var code int
+	output := captureStderr(t, func() {
+		code = runCLI([]string{
+			"browser", "get", "title", "--panel", "surface:1", "--surface", "surface:2",
+		})
+	})
+	if code != 2 {
+		t.Fatalf("browser conflicting surface aliases should return 2, got %d", code)
+	}
+	if !strings.Contains(output, "conflicting browser options --panel and --surface both set surface_id") {
+		t.Fatalf("expected conflicting surface alias error, got %q", output)
+	}
+}
+
 func TestCLIBrowserErrorsClearUsesListMethodWithClearParam(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	code := runCLI([]string{
