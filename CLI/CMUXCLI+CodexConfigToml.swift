@@ -262,9 +262,37 @@ extension CMUXCLI {
     }
 
     private static func tomlBasicStringContent(_ value: String) -> String {
-        value
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
+        var escaped = ""
+        escaped.reserveCapacity(value.count)
+
+        for scalar in value.unicodeScalars {
+            switch scalar.value {
+            case 0x08:
+                escaped += "\\b"
+            case 0x09:
+                escaped += "\\t"
+            case 0x0A:
+                escaped += "\\n"
+            case 0x0C:
+                escaped += "\\f"
+            case 0x0D:
+                escaped += "\\r"
+            case 0x22:
+                escaped += "\\\""
+            case 0x5C:
+                escaped += "\\\\"
+            case 0x00...0x1F, 0x7F...0x9F:
+                if scalar.value <= 0xFFFF {
+                    escaped += String(format: "\\u%04X", scalar.value)
+                } else {
+                    escaped += String(format: "\\U%08X", scalar.value)
+                }
+            default:
+                escaped.unicodeScalars.append(scalar)
+            }
+        }
+
+        return escaped
     }
 
     private static func tomlLines(from content: String) -> [String] {
@@ -393,20 +421,8 @@ extension CMUXCLI {
             if let endIndex = lines[index...].firstIndex(of: cmuxCodexHookTrustEnd) {
                 lines.removeSubrange(index...endIndex)
             } else {
-                var blockEnd = index + 1
-                while blockEnd < lines.count {
-                    let line = lines[blockEnd]
-                    if line == cmuxCodexHookTrustEnd {
-                        blockEnd += 1
-                        break
-                    }
-                    if tomlLineIsAnyTableHeader(line),
-                       !line.hasPrefix("[hooks.state.") {
-                        break
-                    }
-                    blockEnd += 1
-                }
-                lines.removeSubrange(index..<blockEnd)
+                // Leave malformed cmux blocks intact rather than risking unrelated hooks.state tables.
+                index += 1
             }
         }
     }
