@@ -117,6 +117,25 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         XCTAssertEqual(error["code"] as? String, "invalid_params")
     }
 
+    func testNotificationMarkReadRejectsUnknownId() async throws {
+        let fixture = try makeSocketFixture(name: "notif-read-missing")
+        defer { fixture.cleanup() }
+
+        let missingId = UUID()
+        let response = try await sendV2RequestAsync(
+            method: "notification.mark_read",
+            params: ["id": missingId.uuidString],
+            to: fixture.socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "\(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "not_found")
+        XCTAssertEqual(error["message"] as? String, "Notification not found")
+        let data = try XCTUnwrap(error["data"] as? [String: Any])
+        XCTAssertEqual(data["id"] as? String, missingId.uuidString)
+    }
+
     func testNotificationOpenFocusesDestinationAndMarksRead() async throws {
         let fixture = try makeSocketFixture(name: "notif-open", includeWindow: true)
         defer { fixture.cleanup() }
