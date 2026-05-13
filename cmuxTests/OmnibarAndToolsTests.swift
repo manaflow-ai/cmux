@@ -430,6 +430,11 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertTrue(effects.shouldSelectAll)
     }
 
+    func testFocusReassertionDoesNotSelectAllDuringUserEdit() throws {
+        XCTAssertFalse(browserOmnibarShouldSelectAllOnFocusReassertion(isUserEditing: true))
+        XCTAssertTrue(browserOmnibarShouldSelectAllOnFocusReassertion(isUserEditing: false))
+    }
+
     func testEscapeRevertsWhenEditingThenBlursOnSecondEscape() throws {
         var state = OmnibarState()
 
@@ -615,6 +620,44 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertEqual(harness.state.buffer, "gm")
         XCTAssertEqual(harness.inlineCompletion?.typedText, "gm")
         XCTAssertEqual(harness.inlineCompletion?.displayText, "gmail.com")
+    }
+}
+
+@MainActor
+final class BrowserOmnibarNativeFieldRegistryTests: XCTestCase {
+    func testFieldLookupPrefersMatchingWindowOverMostRecentOffWindowField() throws {
+        let panelId = UUID()
+        let registry = BrowserOmnibarNativeFieldRegistry()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 32),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 32))
+        let visibleField = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        let offWindowField = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        visibleField.panelId = panelId
+        offWindowField.panelId = panelId
+        contentView.addSubview(visibleField)
+        window.contentView = contentView
+        defer {
+            registry.unregister(visibleField, panelId: panelId)
+            registry.unregister(offWindowField, panelId: panelId)
+            visibleField.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        registry.register(visibleField, panelId: panelId)
+        registry.register(offWindowField, panelId: panelId)
+
+        XCTAssertTrue(registry.field(for: panelId, in: window) === visibleField)
+        XCTAssertTrue(registry.field(for: panelId) === offWindowField)
+
+        registry.unregister(offWindowField, panelId: panelId)
+
+        XCTAssertTrue(registry.field(for: panelId) === visibleField)
     }
 }
 
