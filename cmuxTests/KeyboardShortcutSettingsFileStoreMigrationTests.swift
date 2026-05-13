@@ -587,6 +587,41 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         XCTAssertEqual(try sidebarAppearanceBool("matchTerminalBackground", in: patched), true)
     }
 
+    func testJSONCSettingsPatcherDoesNotRenderNSNumberScalarsAsBooleans() throws {
+        let source = """
+        {
+          "automation": {
+            "portRange": 10
+          },
+          "sidebarAppearance": {
+            "tintOpacity": 0.5
+          }
+        }
+        """
+
+        let patchedPortRange = try JSONCSettingsPatcher.setting(
+            "automation.portRange",
+            to: NSNumber(value: 1),
+            in: source
+        )
+        let patchedOpacity = try JSONCSettingsPatcher.setting(
+            "sidebarAppearance.tintOpacity",
+            to: NSNumber(value: 1.0),
+            in: patchedPortRange
+        )
+
+        let root = try parsedRootObject(in: patchedOpacity)
+        let automation = try XCTUnwrap(root["automation"] as? [String: Any])
+        let portRange = try XCTUnwrap(automation["portRange"] as? NSNumber)
+        XCTAssertNotEqual(CFGetTypeID(portRange), CFBooleanGetTypeID())
+        XCTAssertEqual(portRange.intValue, 1)
+
+        let sidebarAppearance = try XCTUnwrap(root["sidebarAppearance"] as? [String: Any])
+        let tintOpacity = try XCTUnwrap(sidebarAppearance["tintOpacity"] as? NSNumber)
+        XCTAssertNotEqual(CFGetTypeID(tintOpacity), CFBooleanGetTypeID())
+        XCTAssertEqual(tintOpacity.doubleValue, 1.0)
+    }
+
     func testUnsupportedManagedCollectionReappliesInsteadOfDrifting() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -780,6 +815,11 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         let root = try XCTUnwrap(JSONSerialization.jsonObject(with: sanitized) as? [String: Any])
         let automation = try XCTUnwrap(root["automation"] as? [String: Any])
         return automation["socketPassword"]
+    }
+
+    private func parsedRootObject(in source: String) throws -> [String: Any] {
+        let sanitized = try JSONCParser.preprocess(data: Data(source.utf8))
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: sanitized) as? [String: Any])
     }
 
     private func sidebarAppearanceString(_ key: String, in source: String) throws -> String? {
