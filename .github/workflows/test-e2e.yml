@@ -218,28 +218,41 @@ jobs:
           # The display churn regression creates its own virtual display above,
           # so recording must start after that harness is ready.
           if [ "$RECORD_VIDEO" = "true" ]; then
-            DEVLIST=$( ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true )
-            echo "Available devices:"
-            echo "$DEVLIST" | grep -E "AVFoundation|Capture screen"
+            if /usr/sbin/screencapture -h 2>&1 | grep -q -- "-v"; then
+              RAW_RECORDING=/tmp/test-recording-raw.mov
+              /usr/sbin/screencapture -v -k -D 1 "$RAW_RECORDING" >/tmp/screencapture.log 2>&1 &
+              RECORD_PID=$!
+              echo "RECORD_BACKEND=screencapture" >> "$GITHUB_ENV"
+              echo "RECORD_RAW=$RAW_RECORDING" >> "$GITHUB_ENV"
+              echo "Started screencapture video recording"
+            else
+              DEVLIST=$( ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true )
+              echo "Available devices:"
+              echo "$DEVLIST" | grep -E "AVFoundation|Capture screen"
 
-            SCREEN_INDEX=$( echo "$DEVLIST" | grep "Capture screen" | head -1 \
-              | sed 's/.*\[\([0-9]*\)\].*/\1/' )
-            SCREEN_INDEX="${SCREEN_INDEX:-0}"
-            echo "Using screen device index: $SCREEN_INDEX"
+              SCREEN_INDEX=$( echo "$DEVLIST" | grep "Capture screen" | head -1 \
+                | sed 's/.*\[\([0-9]*\)\].*/\1/' )
+              SCREEN_INDEX="${SCREEN_INDEX:-0}"
+              echo "Using screen device index: $SCREEN_INDEX"
 
-            ffmpeg -f avfoundation -framerate 10 -capture_cursor 1 \
-              -i "${SCREEN_INDEX}:none" \
-              -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
-              /tmp/test-recording-raw.mp4 </dev/null >/tmp/ffmpeg.log 2>&1 &
-            RECORD_PID=$!
+              RAW_RECORDING=/tmp/test-recording-raw.mp4
+              ffmpeg -f avfoundation -framerate 10 -capture_cursor 1 \
+                -i "${SCREEN_INDEX}:none" \
+                -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
+                "$RAW_RECORDING" </dev/null >/tmp/ffmpeg.log 2>&1 &
+              RECORD_PID=$!
+              echo "RECORD_BACKEND=ffmpeg" >> "$GITHUB_ENV"
+              echo "RECORD_RAW=$RAW_RECORDING" >> "$GITHUB_ENV"
+            fi
             echo "RECORD_PID=$RECORD_PID" >> "$GITHUB_ENV"
             sleep 2
 
             if kill -0 "$RECORD_PID" 2>/dev/null; then
               echo "Recording started (PID $RECORD_PID)"
             else
-              echo "::warning::ffmpeg screen recording failed to start"
-              cat /tmp/ffmpeg.log
+              echo "::warning::screen recording failed to start"
+              cat /tmp/screencapture.log 2>/dev/null || true
+              cat /tmp/ffmpeg.log 2>/dev/null || true
             fi
           fi
 
@@ -297,13 +310,29 @@ jobs:
             fi
             sleep 1
           done
+          if kill -0 "$RECORD_PID" 2>/dev/null; then
+            kill -TERM "$RECORD_PID" 2>/dev/null || true
+            for i in $(seq 1 5); do
+              if ! kill -0 "$RECORD_PID" 2>/dev/null; then
+                echo "Recording terminated after ${i}s"
+                break
+              fi
+              sleep 1
+            done
+          fi
           kill -9 "$RECORD_PID" 2>/dev/null || true
 
           echo "=== raw recording ==="
-          ls -lh /tmp/test-recording-raw.mp4 2>/dev/null || { echo "No recording file"; exit 0; }
+          RAW_RECORDING="${RECORD_RAW:-/tmp/test-recording-raw.mp4}"
+          ls -lh "$RAW_RECORDING" 2>/dev/null || {
+            echo "No recording file"
+            cat /tmp/screencapture.log 2>/dev/null || true
+            cat /tmp/ffmpeg.log 2>/dev/null || true
+            exit 0
+          }
 
           # Trim: detect first non-black frame and cut from there
-          BLACK_END=$(ffmpeg -i /tmp/test-recording-raw.mp4 \
+          BLACK_END=$(ffmpeg -i "$RAW_RECORDING" \
             -vf "blackdetect=d=0.3:pic_th=0.95:pix_th=0.1" \
             -an -f null - 2>&1 \
             | grep "black_end" | tail -1 \
@@ -311,12 +340,14 @@ jobs:
 
           if [ -n "$BLACK_END" ] && [ "$BLACK_END" != "0" ]; then
             echo "Trimming ${BLACK_END}s of black frames from start"
-            ffmpeg -y -i /tmp/test-recording-raw.mp4 -ss "$BLACK_END" \
+            ffmpeg -y -i "$RAW_RECORDING" -ss "$BLACK_END" \
               -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
               /tmp/test-recording.mp4 2>/dev/null
           else
-            echo "No black frames detected, using raw recording"
-            mv /tmp/test-recording-raw.mp4 /tmp/test-recording.mp4
+            echo "No black frames detected, transcoding raw recording"
+            ffmpeg -y -i "$RAW_RECORDING" \
+              -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
+              /tmp/test-recording.mp4 2>/dev/null
           fi
 
           echo "=== final recording ==="
