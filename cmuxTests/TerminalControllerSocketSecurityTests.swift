@@ -519,7 +519,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             return (false, initialVisible, initialMode)
         }
 
-        return rightSidebarStateAfter(
+        return try rightSidebarStateAfter(
             initialVisible: initialVisible,
             initialMode: initialMode
         ) { appDelegate in
