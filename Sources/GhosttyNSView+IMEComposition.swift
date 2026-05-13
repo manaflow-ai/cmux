@@ -2,6 +2,10 @@ import AppKit
 import Carbon.HIToolbox
 
 extension GhosttyNSView {
+    private static let korean2SetInputSourceIDs: Set<String> = [
+        "com.apple.inputmethod.Korean.2SetKorean",
+    ]
+
     /// Clamps AppKit's marked-text selection into the active preedit buffer.
     func normalizedMarkedSelectionRange(_ range: NSRange, markedLength: Int) -> NSRange {
         guard markedLength > 0 else {
@@ -109,8 +113,7 @@ extension GhosttyNSView {
 
     private func isKorean2SetInputSource(_ inputSourceId: String?) -> Bool {
         guard let inputSourceId else { return false }
-        return inputSourceId.localizedCaseInsensitiveContains("Korean.2Set")
-            || inputSourceId.localizedCaseInsensitiveContains("2SetKorean")
+        return Self.korean2SetInputSourceIDs.contains(inputSourceId)
     }
 
     private func isInputMethodSource(_ inputSourceId: String?) -> Bool {

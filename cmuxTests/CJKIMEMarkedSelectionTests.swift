@@ -297,6 +297,28 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
+    func testDoesNotRerouteKoreanMarkedSelectionArrowKeyEquivalent() throws {
+        let view = GhosttyNSView(frame: .zero)
+        view.setMarkedText(
+            "안녕하세요",
+            selectedRange: NSRange(location: 5, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        let event = try keyEvent(
+            text: "\u{F702}",
+            keyCode: UInt16(kVK_LeftArrow),
+            windowNumber: 0
+        )
+
+        XCTAssertFalse(
+            view.shouldRouteTextInputKeyEquivalentToKeyDown(
+                event,
+                inputSourceId: "com.apple.inputmethod.Korean.2SetKorean"
+            ),
+            "Korean 2-Set Left/Right with active marked text should stay on AppKit's normal keyDown dispatch path"
+        )
+    }
+
     func testDoesNotConsumeZhuyinMarkedTextDownArrowAsKeyEquivalent() throws {
         let view = GhosttyNSView(frame: .zero)
         view.setMarkedText(
