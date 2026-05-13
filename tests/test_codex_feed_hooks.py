@@ -432,7 +432,11 @@ def test_codex_monitor_exits_when_owner_process_exits(cli_path: str, root: Path)
     env["CMUX_CODEX_MONITOR_UNRESOLVED_TRANSCRIPT_TIMEOUT_SECONDS"] = "30"
 
     owner = subprocess.Popen(["/bin/sleep", "30"])
-    with FakeCmuxSocket(socket_path, None):
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        surfaces=[{"id": FAKE_SURFACE_ID, "ref": FAKE_SURFACE_ID}],
+    ) as fake:
         monitor = subprocess.Popen(
             [
                 cli_path,
@@ -459,6 +463,27 @@ def test_codex_monitor_exits_when_owner_process_exits(cli_path: str, root: Path)
         )
         try:
             wait_for_monitor_pids(session_id, present=True, timeout=5)
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                if monitor.poll() is not None:
+                    stdout, stderr = monitor.communicate(timeout=1)
+                    raise AssertionError(
+                        "monitor exited before owner PID was terminated; "
+                        f"stdout={stdout}\nstderr={stderr}"
+                    )
+                if any(frame.get("method") == "surface.list" for frame in fake.frames):
+                    break
+                time.sleep(0.05)
+            else:
+                raise AssertionError(f"monitor did not query owner surfaces: {fake.frames!r}")
+
+            if monitor.poll() is not None:
+                stdout, stderr = monitor.communicate(timeout=1)
+                raise AssertionError(
+                    "monitor exited from surface ownership check before owner PID was terminated; "
+                    f"stdout={stdout}\nstderr={stderr}"
+                )
+
             owner.terminate()
             owner.wait(timeout=5)
             stdout, stderr = monitor.communicate(timeout=5)
