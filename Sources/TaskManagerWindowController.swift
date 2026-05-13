@@ -52,6 +52,7 @@ final class CmuxTaskManagerModel: ObservableObject {
     @Published private(set) var snapshot = CmuxTaskManagerSnapshot.empty
     @Published private(set) var isRefreshing = false
     @Published private(set) var errorMessage: String?
+    @Published private(set) var sortOrder = CmuxTaskManagerSortOrder.defaultOrder
     @Published var includesProcesses = false {
         didSet {
             guard oldValue != includesProcesses else { return }
@@ -64,6 +65,18 @@ final class CmuxTaskManagerModel: ObservableObject {
     private var terminationTimers: [UUID: Timer] = [:]
     private let refreshInterval: TimeInterval = 3.0
     private let terminationGraceInterval: TimeInterval = 2.0
+
+    var sortedRows: [CmuxTaskManagerRow] {
+        sortOrder.sortedRows(snapshot.rows)
+    }
+
+    var sortedAggregateRows: [CmuxTaskManagerRow] {
+        sortOrder.sortedRows(snapshot.aggregateRows)
+    }
+
+    func sort(by column: CmuxTaskManagerSortOrder.Column) {
+        sortOrder = sortOrder.toggled(for: column)
+    }
 
     func start() {
         guard refreshTimer == nil else {

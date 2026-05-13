@@ -3,11 +3,13 @@ import Foundation
 struct CmuxTaskManagerSnapshot {
     static let empty = CmuxTaskManagerSnapshot(
         rows: [],
+        aggregateRows: [],
         total: .zero,
         sampledAt: nil
     )
 
     let rows: [CmuxTaskManagerRow]
+    let aggregateRows: [CmuxTaskManagerRow]
     let total: CmuxTaskManagerResources
     let sampledAt: Date?
 
@@ -18,8 +20,14 @@ struct CmuxTaskManagerSnapshot {
         return CmuxTaskManagerFormat.time(sampledAt)
     }
 
-    init(rows: [CmuxTaskManagerRow], total: CmuxTaskManagerResources, sampledAt: Date?) {
+    init(
+        rows: [CmuxTaskManagerRow],
+        aggregateRows: [CmuxTaskManagerRow]? = nil,
+        total: CmuxTaskManagerResources,
+        sampledAt: Date?
+    ) {
         self.rows = rows
+        self.aggregateRows = aggregateRows ?? Self.programAggregateRows(from: rows)
         self.total = total
         self.sampledAt = sampledAt
     }
@@ -35,6 +43,76 @@ struct CmuxTaskManagerSnapshot {
             Self.appendWindow(window, to: &rows)
         }
         self.rows = rows
+        self.aggregateRows = Self.programAggregateRows(from: rows)
+    }
+
+    private struct ProgramAggregate {
+        let title: String
+        var cpuPercent: Double = 0
+        var residentBytes: Int64 = 0
+        var processIds: [Int] = []
+
+        mutating func append(_ row: CmuxTaskManagerRow) {
+            guard let processId = row.processId else { return }
+            cpuPercent += row.resources.cpuPercent
+            residentBytes = Self.clampedAdd(residentBytes, row.resources.residentBytes)
+            processIds.append(processId)
+        }
+
+        private static func clampedAdd(_ lhs: Int64, _ rhs: Int64) -> Int64 {
+            let (sum, overflow) = lhs.addingReportingOverflow(rhs)
+            return overflow ? Int64.max : sum
+        }
+    }
+
+    private static func programAggregateRows(from rows: [CmuxTaskManagerRow]) -> [CmuxTaskManagerRow] {
+        var aggregatesByKey: [String: ProgramAggregate] = [:]
+        var seenProcessIds: Set<Int> = []
+
+        for row in rows where row.kind == .process {
+            guard let processId = row.processId,
+                  seenProcessIds.insert(processId).inserted else { continue }
+
+            let title = row.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty else { continue }
+            let key = title.lowercased()
+            if aggregatesByKey[key] == nil {
+                aggregatesByKey[key] = ProgramAggregate(title: title)
+            }
+            aggregatesByKey[key]?.append(row)
+        }
+
+        return aggregatesByKey.values
+            .filter { $0.processIds.count > 1 }
+            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            .map { aggregate in
+                let processIds = aggregate.processIds.sorted()
+                let detail = String(format: String(
+                    localized: "taskManager.aggregate.processCount",
+                    defaultValue: "%lld processes"
+                ), Int64(processIds.count))
+                return CmuxTaskManagerRow(
+                    id: "programAggregate:\(aggregate.title.lowercased())",
+                    kind: .programAggregate,
+                    level: 0,
+                    title: aggregate.title,
+                    detail: detail,
+                    resources: CmuxTaskManagerResources(
+                        cpuPercent: aggregate.cpuPercent,
+                        residentBytes: aggregate.residentBytes,
+                        processCount: processIds.count,
+                        processIds: processIds
+                    ),
+                    isDimmed: false,
+                    workspaceId: nil,
+                    surfaceId: nil,
+                    terminalSurfaceId: nil,
+                    processId: nil,
+                    rootProcessIds: processIds,
+                    foregroundProcessGroupIds: [],
+                    agentAssetName: agentAssetName(for: [aggregate.title])
+                )
+            }
     }
 
     private static func appendWindow(_ window: [String: Any], to rows: inout [CmuxTaskManagerRow]) {

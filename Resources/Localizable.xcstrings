@@ -111321,6 +111321,27 @@
         "ja": { "stringUnit": { "state": "translated", "value": "プロセス" } }
       }
     },
+    "taskManager.section.programTotals": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Program Totals" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プログラム合計" } }
+      }
+    },
+    "taskManager.section.hierarchy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hierarchy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "階層" } }
+      }
+    },
+    "taskManager.aggregate.processCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld processes" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld 個のプロセス" } }
+      }
+    },
     "taskManager.error.title": {
       "extractionState": "manual",
       "localizations": {

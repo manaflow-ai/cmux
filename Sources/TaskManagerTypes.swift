@@ -12,6 +12,7 @@ struct CmuxTaskManagerRow: Identifiable {
         case browserSurface
         case webview
         case process
+        case programAggregate
 
         var systemImage: String {
             switch self {
@@ -23,6 +24,7 @@ struct CmuxTaskManagerRow: Identifiable {
             case .browserSurface: return "globe"
             case .webview: return "network"
             case .process: return "gearshape"
+            case .programAggregate: return "gearshape.2"
             }
         }
 
@@ -36,6 +38,7 @@ struct CmuxTaskManagerRow: Identifiable {
             case .browserSurface: return .blue
             case .webview: return .purple
             case .process: return .secondary
+            case .programAggregate: return .accentColor
             }
         }
     }
@@ -104,6 +107,128 @@ struct CmuxTaskManagerRow: Identifiable {
     }
 }
 
+struct CmuxTaskManagerSortOrder: Equatable {
+    enum Column: Equatable {
+        case name
+        case cpu
+        case memory
+        case processes
+
+        var defaultDirection: Direction {
+            switch self {
+            case .name: return .ascending
+            case .cpu, .memory, .processes: return .descending
+            }
+        }
+    }
+
+    enum Direction: Equatable {
+        case ascending
+        case descending
+
+        var toggled: Direction {
+            switch self {
+            case .ascending: return .descending
+            case .descending: return .ascending
+            }
+        }
+    }
+
+    static let defaultOrder = CmuxTaskManagerSortOrder(column: .cpu, direction: .descending)
+
+    let column: Column
+    let direction: Direction
+
+    func toggled(for selectedColumn: Column) -> CmuxTaskManagerSortOrder {
+        if selectedColumn == column {
+            return CmuxTaskManagerSortOrder(column: column, direction: direction.toggled)
+        }
+        return CmuxTaskManagerSortOrder(
+            column: selectedColumn,
+            direction: selectedColumn.defaultDirection
+        )
+    }
+
+    func sortedRows(_ rows: [CmuxTaskManagerRow]) -> [CmuxTaskManagerRow] {
+        guard !rows.isEmpty else { return rows }
+        var index = 0
+        let rootLevel = rows[0].level
+        let nodes = parseNodes(rows, index: &index, level: rootLevel)
+        return flatten(sortNodes(nodes))
+    }
+
+    private func parseNodes(
+        _ rows: [CmuxTaskManagerRow],
+        index: inout Int,
+        level: Int
+    ) -> [SortNode] {
+        var nodes: [SortNode] = []
+        while index < rows.count {
+            let row = rows[index]
+            if row.level < level {
+                break
+            }
+            if row.level > level {
+                break
+            }
+
+            index += 1
+            var children: [SortNode] = []
+            while index < rows.count, rows[index].level > row.level {
+                children.append(contentsOf: parseNodes(rows, index: &index, level: rows[index].level))
+            }
+            nodes.append(SortNode(row: row, children: children))
+        }
+        return nodes
+    }
+
+    private func sortNodes(_ nodes: [SortNode]) -> [SortNode] {
+        let sorted = nodes.enumerated().sorted { lhs, rhs in
+            let comparison = compare(lhs.element.row, rhs.element.row)
+            if comparison != .orderedSame {
+                return direction == .ascending
+                    ? comparison == .orderedAscending
+                    : comparison == .orderedDescending
+            }
+            return lhs.offset < rhs.offset
+        }
+
+        return sorted.map { _, node in
+            SortNode(row: node.row, children: sortNodes(node.children))
+        }
+    }
+
+    private func flatten(_ nodes: [SortNode]) -> [CmuxTaskManagerRow] {
+        nodes.flatMap { node in
+            [node.row] + flatten(node.children)
+        }
+    }
+
+    private func compare(_ lhs: CmuxTaskManagerRow, _ rhs: CmuxTaskManagerRow) -> ComparisonResult {
+        switch column {
+        case .name:
+            return lhs.title.localizedStandardCompare(rhs.title)
+        case .cpu:
+            return valueComparison(lhs.resources.cpuPercent, rhs.resources.cpuPercent)
+        case .memory:
+            return valueComparison(lhs.resources.residentBytes, rhs.resources.residentBytes)
+        case .processes:
+            return valueComparison(lhs.resources.processCount, rhs.resources.processCount)
+        }
+    }
+
+    private func valueComparison<T: Comparable>(_ lhs: T, _ rhs: T) -> ComparisonResult {
+        if lhs < rhs { return .orderedAscending }
+        if lhs > rhs { return .orderedDescending }
+        return .orderedSame
+    }
+}
+
+private struct SortNode {
+    let row: CmuxTaskManagerRow
+    let children: [SortNode]
+}
+
 struct CmuxTaskManagerResources {
     static let zero = CmuxTaskManagerResources(cpuPercent: 0, residentBytes: 0, processCount: 0)
 
@@ -112,11 +237,11 @@ struct CmuxTaskManagerResources {
     let processCount: Int
     let processIds: [Int]
 
-    init(cpuPercent: Double, residentBytes: Int64, processCount: Int) {
+    init(cpuPercent: Double, residentBytes: Int64, processCount: Int, processIds: [Int] = []) {
         self.cpuPercent = cpuPercent
         self.residentBytes = residentBytes
         self.processCount = processCount
-        self.processIds = []
+        self.processIds = processIds
     }
 
     init(_ payload: [String: Any]) {
