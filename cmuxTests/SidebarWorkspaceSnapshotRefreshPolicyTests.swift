@@ -134,6 +134,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
     }
 
     private static func snapshot(
+        presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey? = nil,
         title: String = "workspace",
         customDescription: String? = nil,
         isPinned: Bool = false,
@@ -145,6 +146,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         listeningPorts: [Int] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
+            presentationKey: presentationKey ?? Self.presentationKey(),
             title: title,
             customDescription: customDescription,
             isPinned: isPinned,
@@ -164,6 +166,27 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             branchLinesContainBranch: false,
             pullRequestRows: [],
             listeningPorts: listeningPorts
+        )
+    }
+
+    private static func presentationKey(
+        showsWorkspaceDescription: Bool = true,
+        usesVerticalBranchLayout: Bool = true,
+        showsGitBranch: Bool = true,
+        visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility = SidebarWorkspaceAuxiliaryDetailVisibility(
+            showsMetadata: true,
+            showsLog: true,
+            showsProgress: true,
+            showsBranchDirectory: true,
+            showsPullRequests: true,
+            showsPorts: true
+        )
+    ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
+        SidebarWorkspaceSnapshotBuilder.PresentationKey(
+            showsWorkspaceDescription: showsWorkspaceDescription,
+            usesVerticalBranchLayout: usesVerticalBranchLayout,
+            showsGitBranch: showsGitBranch,
+            visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )
     }
 }

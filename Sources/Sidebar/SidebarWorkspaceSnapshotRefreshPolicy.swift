@@ -18,6 +18,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
     func applyingContextMenuImmediateFields(from snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot) -> Self {
         guard contextMenuImmediateFields != snapshot.contextMenuImmediateFields else { return self }
         return Self(
+            presentationKey: snapshot.presentationKey,
             title: snapshot.title,
             customDescription: snapshot.customDescription,
             isPinned: snapshot.isPinned,

@@ -381,6 +381,11 @@
           "default": false,
           "description": "Hide all per-workspace detail rows."
         },
+        "showWorkspaceDescription": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show custom workspace descriptions in the sidebar."
+        },
         "branchLayout": {
           "type": "string",
           "enum": ["vertical", "inline"],
