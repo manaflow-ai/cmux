@@ -4418,7 +4418,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    private enum TerminalInputLifecycleState: Equatable {
+        case acceptingInput
+        case childExited(reason: String)
+    }
+
     private(set) var surface: ghostty_surface_t?
+    private var inputLifecycleState: TerminalInputLifecycleState = .acceptingInput
     private weak var attachedView: GhosttyNSView?
 
     /// Whether the runtime Ghostty surface exists and has not begun teardown.
@@ -5941,6 +5947,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor
     func setNeedsConfirmCloseOverrideForTesting(_ value: Bool?) {
         needsConfirmCloseOverrideForTesting = value
+    }
+
+    @MainActor
+    func markChildProcessExitedForTesting(reason: String = "test") {
+        inputLifecycleState = .childExited(reason: reason)
     }
 
     /// Test-only helper to deterministically simulate a released runtime surface.

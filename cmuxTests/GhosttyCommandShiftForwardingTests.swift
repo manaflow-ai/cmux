@@ -9,6 +9,7 @@ import AppKit
 
 @MainActor
 final class GhosttyCommandShiftForwardingTests: XCTestCase {
+    private static let keyCodeANSIH: UInt16 = 4
     private static let keyCodeANSIK: UInt16 = 40
 
     private struct HostedTerminal {
@@ -107,5 +108,49 @@ final class GhosttyCommandShiftForwardingTests: XCTestCase {
         XCTAssertEqual(keyEvent.mods.rawValue & GHOSTTY_MODS_SUPER.rawValue, GHOSTTY_MODS_SUPER.rawValue)
         XCTAssertEqual(keyEvent.mods.rawValue & GHOSTTY_MODS_SHIFT.rawValue, GHOSTTY_MODS_SHIFT.rawValue)
         XCTAssertEqual(keyEvent.unshifted_codepoint, "k".unicodeScalars.first?.value)
+    }
+
+    func testDeadTerminalPaneKeyDownDoesNotForwardInputToGhostty() throws {
+        let hostedTerminal = try makeHostedTerminal()
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        defer { window.orderOut(nil) }
+
+        XCTAssertTrue(window.makeFirstResponder(surfaceView), "Expected Ghostty surface view to accept first responder")
+        XCTAssertNotNil(surfaceView.terminalSurface)
+
+        let observedKeyCode = UInt32(Self.keyCodeANSIH)
+        var forwardedPressCount = 0
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == observedKeyCode else { return }
+            forwardedPressCount += 1
+        }
+        defer { GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver }
+
+        let previousTextInputHandler = GhosttyNSView.debugTextInputEventHandler
+        GhosttyNSView.debugTextInputEventHandler = { _, _ in false }
+        defer { GhosttyNSView.debugTextInputEventHandler = previousTextInputHandler }
+
+        hostedTerminal.surface.markChildProcessExitedForTesting(reason: "unit-test-child-exited")
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "h",
+            charactersIgnoringModifiers: "h",
+            isARepeat: false,
+            keyCode: Self.keyCodeANSIH
+        ))
+
+        withExtendedLifetime(hostedTerminal.surface) {
+            surfaceView.keyDown(with: event)
+        }
+
+        XCTAssertEqual(forwardedPressCount, 0, "Dead terminal panes must discard key input before it reaches Ghostty")
     }
 }
