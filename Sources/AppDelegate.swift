@@ -11121,8 +11121,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Ctrl+D belongs to the focused terminal surface; never treat it as an app shortcut.
             return false
         }
-        // Chrome-like omnibar navigation while holding Cmd+N / Ctrl+N / Cmd+P / Ctrl+P.
-        if let delta = commandOmnibarSelectionDelta(
+        // Chrome-like omnibar navigation while holding Ctrl+N / Ctrl+P.
+        if let delta = controlOmnibarSelectionDelta(
             hasFocusedAddressBar: hasFocusedAddressBarInShortcutContext,
             flags: flags,
             chars: chars
@@ -11148,8 +11148,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        // Let omnibar-local Emacs navigation (Cmd/Ctrl+N/P) win while the browser
-        // address bar is focused. Without this, app-level Cmd+N can steal focus.
+        // Let omnibar-local Emacs navigation (Ctrl+N/P) win while the browser
+        // address bar is focused.
         if hasFocusedAddressBarInShortcutContext,
            shouldBypassAppShortcutForFocusedBrowserAddressBar(flags: flags, chars: chars) {
             return false
@@ -12062,8 +12062,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         guard browserAddressBarFocusedPanelId != nil else { return false }
         let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-        let isCommandOrControlOnly = normalizedFlags == [.command] || normalizedFlags == [.control]
-        guard isCommandOrControlOnly else { return false }
+        guard normalizedFlags == [.control] else { return false }
         let shouldBypass = chars == "n" || chars == "p"
 #if DEBUG
         if shouldBypass {
@@ -12077,12 +12076,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return shouldBypass
     }
 
-    private func commandOmnibarSelectionDelta(
+    private func controlOmnibarSelectionDelta(
         hasFocusedAddressBar: Bool,
         flags: NSEvent.ModifierFlags,
         chars: String
     ) -> Int? {
-        browserOmnibarSelectionDeltaForCommandNavigation(
+        browserOmnibarSelectionDeltaForControlNavigation(
             hasFocusedAddressBar: hasFocusedAddressBar,
             flags: flags,
             chars: chars

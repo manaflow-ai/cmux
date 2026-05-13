@@ -2714,7 +2714,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 }
 
 
-final class BrowserOmnibarCommandNavigationTests: XCTestCase {
+final class BrowserOmnibarKeyboardNavigationTests: XCTestCase {
     func testArrowNavigationDeltaRequiresFocusedAddressBarAndNoModifierFlags() {
         XCTAssertNil(
             browserOmnibarSelectionDeltaForArrowNavigation(
@@ -2767,35 +2767,33 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
         )
     }
 
-    func testCommandNavigationDeltaRequiresFocusedAddressBarAndCommandOrControlOnly() {
+    func testControlNavigationDeltaRequiresFocusedAddressBarAndControlOnly() {
         XCTAssertNil(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: false,
+                flags: [.control],
+                chars: "n"
+            )
+        )
+
+        XCTAssertNil(
+            browserOmnibarSelectionDeltaForControlNavigation(
+                hasFocusedAddressBar: true,
                 flags: [.command],
                 chars: "n"
             )
         )
 
-        XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
-                hasFocusedAddressBar: true,
-                flags: [.command],
-                chars: "n"
-            ),
-            1
-        )
-
-        XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+        XCTAssertNil(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.command],
                 chars: "p"
-            ),
-            -1
+            )
         )
 
         XCTAssertNil(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.command, .shift],
                 chars: "n"
@@ -2803,7 +2801,7 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.control],
                 chars: "p"
@@ -2812,7 +2810,7 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.control],
                 chars: "n"
@@ -2821,22 +2819,21 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
         )
     }
 
-    func testCommandNavigationDeltaIgnoresCapsLockModifier() {
+    func testControlNavigationDeltaIgnoresCapsLockModifier() {
         XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.control, .capsLock],
                 chars: "n"
             ),
             1
         )
-        XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+        XCTAssertNil(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.command, .capsLock],
                 chars: "p"
-            ),
-            -1
+            )
         )
     }
 

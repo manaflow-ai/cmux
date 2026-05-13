@@ -3869,20 +3869,16 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             let modifiers = event.modifierFlags.intersection([.command, .control, .shift, .option, .function])
             // When a non-Latin input source is active (Korean, Chinese, Japanese),
             // charactersIgnoringModifiers returns non-ASCII characters. Normalize
-            // via KeyboardLayout so Cmd/Ctrl+N/P navigation works across input sources.
+            // via KeyboardLayout so Ctrl+N/P navigation works across input sources.
             let lowered = KeyboardLayout.normalizedCharacters(for: event)
-            let hasCommandOrControl = modifiers.contains(.command) || modifiers.contains(.control)
 
-            // Cmd/Ctrl+N and Cmd/Ctrl+P should repeat while held.
-            if hasCommandOrControl, lowered == "n" {
-                parent.onMoveSelection(+1)
-#if DEBUG
-                handled = true
-#endif
-                return true
-            }
-            if hasCommandOrControl, lowered == "p" {
-                parent.onMoveSelection(-1)
+            // Ctrl+N and Ctrl+P should repeat while held.
+            if let delta = browserOmnibarSelectionDeltaForControlNavigation(
+                hasFocusedAddressBar: true,
+                flags: event.modifierFlags,
+                chars: lowered
+            ) {
+                parent.onMoveSelection(delta)
 #if DEBUG
                 handled = true
 #endif
