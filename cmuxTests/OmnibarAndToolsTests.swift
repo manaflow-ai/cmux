@@ -653,11 +653,46 @@ final class BrowserOmnibarNativeFieldRegistryTests: XCTestCase {
         registry.register(offWindowField, panelId: panelId)
 
         XCTAssertTrue(registry.field(for: panelId, in: window) === visibleField)
+        XCTAssertNil(registry.field(for: panelId, in: nil))
         XCTAssertTrue(registry.field(for: panelId) === offWindowField)
 
         registry.unregister(offWindowField, panelId: panelId)
 
         XCTAssertTrue(registry.field(for: panelId) === visibleField)
+    }
+
+    func testWindowLookupDoesNotFallBackAcrossWindows() throws {
+        let panelId = UUID()
+        let registry = BrowserOmnibarNativeFieldRegistry()
+        let sourceWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 32),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let requestedWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 32),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 32))
+        let sourceField = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        sourceField.panelId = panelId
+        contentView.addSubview(sourceField)
+        sourceWindow.contentView = contentView
+        defer {
+            registry.unregister(sourceField, panelId: panelId)
+            sourceField.removeFromSuperview()
+            sourceWindow.contentView = nil
+            sourceWindow.orderOut(nil)
+            requestedWindow.orderOut(nil)
+        }
+
+        registry.register(sourceField, panelId: panelId)
+
+        XCTAssertTrue(registry.field(for: panelId, in: sourceWindow) === sourceField)
+        XCTAssertNil(registry.field(for: panelId, in: requestedWindow))
     }
 }
 

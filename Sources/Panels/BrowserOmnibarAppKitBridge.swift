@@ -11,8 +11,6 @@ final class BrowserOmnibarNativeFieldRegistry {
 
     private var fields: [UUID: [WeakOmnibarNativeTextField]] = [:]
 
-    deinit {}
-
     func register(_ field: OmnibarNativeTextField, panelId: UUID) {
         var entries = fields[panelId] ?? []
         entries.removeAll { entry in
@@ -39,11 +37,11 @@ final class BrowserOmnibarNativeFieldRegistry {
     }
 
     func field(for panelId: UUID?, in window: NSWindow?) -> OmnibarNativeTextField? {
-        guard let panelId else { return nil }
+        guard let panelId, let window else { return nil }
         pruneDeadEntries(for: panelId)
         guard let entries = fields[panelId] else { return nil }
         let liveFields = entries.reversed().compactMap(\.field)
-        return liveFields.first { $0.window === window } ?? liveFields.first
+        return liveFields.first { $0.window === window }
     }
 
     private func pruneDeadEntries(for panelId: UUID) {
@@ -69,8 +67,6 @@ final class BrowserOmnibarInteractionView: NSView {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-
-    deinit {}
 
     override func resetCursorRects() {
         super.resetCursorRects()
