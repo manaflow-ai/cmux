@@ -54,7 +54,7 @@ final class FeedKeyboardFocusView: NSView {
         guard let window else { return }
         AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerFeedHost(self)
         #if DEBUG
-        dlog("feed.focus.host attach window=\(ObjectIdentifier(window))")
+        cmuxDebugLog("feed.focus.host attach window=\(ObjectIdentifier(window))")
         #endif
     }
 
@@ -71,7 +71,7 @@ final class FeedKeyboardFocusView: NSView {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.type == .keyDown, event.keyCode == 53 {
             #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "feed.focus.host escape window=\(window.map { String(describing: ObjectIdentifier($0)) } ?? "nil") " +
                 "fr=\(feedDebugResponderSummary(window?.firstResponder))"
             )
@@ -89,7 +89,7 @@ final class FeedKeyboardFocusView: NSView {
     override func keyDown(with event: NSEvent) {
         #if DEBUG
         let chars = event.charactersIgnoringModifiers ?? ""
-        dlog(
+        cmuxDebugLog(
             "feed.focus.host keyDown key=\(event.keyCode) chars=\(chars) " +
             "fr=\(feedDebugResponderSummary(window?.firstResponder))"
         )
@@ -138,7 +138,7 @@ final class FeedKeyboardFocusView: NSView {
             onFocusChanged?(true)
         }
         #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "feed.focus.host become result=\(result ? 1 : 0) " +
             "window=\(window.map { String(describing: ObjectIdentifier($0)) } ?? "nil") " +
             "fr=\(feedDebugResponderSummary(window?.firstResponder))"
@@ -153,7 +153,7 @@ final class FeedKeyboardFocusView: NSView {
             onFocusChanged?(false)
         }
         #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "feed.focus.host resign result=\(result ? 1 : 0) " +
             "window=\(window.map { String(describing: ObjectIdentifier($0)) } ?? "nil") " +
             "fr=\(feedDebugResponderSummary(window?.firstResponder))"
@@ -173,7 +173,7 @@ final class FeedKeyboardFocusView: NSView {
         #endif
         let result = window.makeFirstResponder(self)
         #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "feed.focus.host request result=\(result ? 1 : 0) " +
             "window=\(ObjectIdentifier(window)) before=\(before) " +
             "after=\(feedDebugResponderSummary(window.firstResponder))"
