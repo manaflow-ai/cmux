@@ -9100,10 +9100,11 @@ struct VerticalTabsSidebar: View {
         from oldWorkspaceIds: [UUID],
         to newWorkspaceIds: [UUID]
     ) -> Bool {
-        guard let selectedWorkspaceId = tabManager.selectedTabId else {
-            return false
-        }
-        return !oldWorkspaceIds.contains(selectedWorkspaceId) && newWorkspaceIds.contains(selectedWorkspaceId)
+        SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+            selectedWorkspaceId: tabManager.selectedTabId,
+            oldWorkspaceIds: oldWorkspaceIds,
+            newWorkspaceIds: newWorkspaceIds
+        )
     }
 
     private struct WorkspaceListRenderContext {

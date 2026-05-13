@@ -143,6 +143,58 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
     }
 }
 
+final class SidebarSelectedWorkspaceScrollPolicyTests: XCTestCase {
+    func testRequestsScrollWhenSelectedWorkspaceFirstAppears() {
+        XCTAssertTrue(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: "b",
+                oldWorkspaceIds: ["a"],
+                newWorkspaceIds: ["a", "b"]
+            )
+        )
+    }
+
+    func testRequestsScrollWhenSelectedWorkspaceMovesToTop() {
+        XCTAssertTrue(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: "c",
+                oldWorkspaceIds: ["a", "b", "c"],
+                newWorkspaceIds: ["c", "a", "b"]
+            )
+        )
+    }
+
+    func testRequestsScrollWhenAnotherReorderMovesSelectedWorkspaceIndex() {
+        XCTAssertTrue(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: "b",
+                oldWorkspaceIds: ["a", "b", "c"],
+                newWorkspaceIds: ["c", "a", "b"]
+            )
+        )
+    }
+
+    func testSkipsScrollWhenReorderLeavesSelectedWorkspaceIndexUnchanged() {
+        XCTAssertFalse(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: "a",
+                oldWorkspaceIds: ["a", "b", "c"],
+                newWorkspaceIds: ["a", "c", "b"]
+            )
+        )
+    }
+
+    func testSkipsScrollWhenSelectedWorkspaceIsMissing() {
+        XCTAssertFalse(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: "b",
+                oldWorkspaceIds: ["a", "b"],
+                newWorkspaceIds: ["a", "c"]
+            )
+        )
+    }
+}
+
 final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
     func testHoverRevealIsIndependentFromStaleContextMenuVisibility() {
         var state = SidebarWorkspaceRowInteractionState()
