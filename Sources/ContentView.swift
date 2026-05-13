@@ -3939,7 +3939,6 @@ struct ContentView: View {
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("CommandPaletteResultRow.\(index)")
                             .accessibilityValue(row.id)
-                            .id(index)
                             .onHover { hovering in
                                 if hovering {
                                     hoveredIndex = index
