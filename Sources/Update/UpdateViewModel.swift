@@ -29,26 +29,14 @@ class UpdateViewModel: ObservableObject {
     }
 
     func recordDetectedUpdate(_ item: SUAppcastItem) {
-        recordDetectedUpdateMetadata(item)
-    }
-
-    func recordAvailableUpdate(_ update: UpdateState.UpdateAvailable) {
-        recordDetectedUpdateMetadata(update.appcastItem)
-        state = .updateAvailable(update)
-        if let overrideState, case .updateAvailable = overrideState {
-            self.overrideState = .updateAvailable(update)
-        }
+        let version = Self.normalizedDetectedUpdateVersion(from: item.displayVersionString)
+        detectedUpdateItem = version == nil ? nil : item
+        detectedUpdateVersion = version
     }
 
     func clearDetectedUpdate() {
         detectedUpdateItem = nil
         detectedUpdateVersion = nil
-    }
-
-    func cancelActiveStateForNewCheck() {
-        state.cancel()
-        state = .idle
-        overrideState = nil
     }
 
     func dismissDetectedAvailableUpdate() {
@@ -69,10 +57,17 @@ class UpdateViewModel: ObservableObject {
         }
     }
 
-    private func recordDetectedUpdateMetadata(_ item: SUAppcastItem) {
-        let version = Self.normalizedDetectedUpdateVersion(from: item.displayVersionString)
-        detectedUpdateItem = version == nil ? nil : item
-        detectedUpdateVersion = version
+    func cancelActiveStateForNewCheck() {
+        state.cancel()
+        state = .idle
+        overrideState = nil
+    }
+
+    func applyDriverState(_ newState: UpdateState) {
+        if case .updateAvailable(let update) = newState {
+            recordDetectedUpdate(update.appcastItem)
+        }
+        state = newState
     }
 
     var text: String {
