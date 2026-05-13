@@ -7259,9 +7259,9 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var agentProcessStates: [String: SidebarAgentProcessState] = [:]
     var agentPIDPanelIdsByKey: [String: UUID] = [:]
     var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
-    var agentPIDExitWatchers: [String: DispatchSourceProcess] = [:]
-    var agentPIDExitWatcherPIDs: [String: pid_t] = [:]
-    var agentPIDExitWatcherScopes: [String: AgentPIDExitWatcherScope] = [:]
+    private var agentPIDExitWatchers: [String: DispatchSourceProcess] = [:]
+    private var agentPIDExitWatcherPIDs: [String: pid_t] = [:]
+    private var agentPIDExitWatcherScopes: [String: AgentPIDExitWatcherScope] = [:]
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
@@ -7281,21 +7281,21 @@ final class Workspace: Identifiable, ObservableObject {
     /// Storage-only hooks for Workspace's agent-runtime lifecycle helpers.
     /// External call sites must use record/update/clear helpers so watcher,
     /// ownership, notification, and port side effects stay coupled.
-    func setAgentPIDStorageValue(_ pid: pid_t, forKey key: String) {
+    private func setAgentPIDStorageValue(_ pid: pid_t, forKey key: String) {
         agentPIDs[key] = pid
     }
 
     @discardableResult
-    func removeAgentPIDStorageValue(forKey key: String) -> pid_t? {
+    private func removeAgentPIDStorageValue(forKey key: String) -> pid_t? {
         agentPIDs.removeValue(forKey: key)
     }
 
-    func setAgentProcessStateStorageValue(_ state: SidebarAgentProcessState, forKey key: String) {
+    private func setAgentProcessStateStorageValue(_ state: SidebarAgentProcessState, forKey key: String) {
         agentProcessStates[key] = state
     }
 
     @discardableResult
-    func removeAgentProcessStateStorageValue(forKey key: String) -> SidebarAgentProcessState? {
+    private func removeAgentProcessStateStorageValue(forKey key: String) -> SidebarAgentProcessState? {
         agentProcessStates.removeValue(forKey: key)
     }
 
@@ -14278,3 +14278,322 @@ extension Workspace: BonsplitDelegate {
 
     // No post-close polling refresh loop: we rely on view invariants and Ghostty's wakeups.
 }
+
+// MARK: - Agent Sidebar Runtime Lifecycle
+
+extension Workspace {
+    enum AgentPIDExitWatcherScope: Equatable {
+        case panel(UUID)
+        case unscoped
+
+        init(panelId: UUID?) {
+            if let panelId {
+                self = .panel(panelId)
+            } else {
+                self = .unscoped
+            }
+        }
+
+        var panelId: UUID? {
+            switch self {
+            case .panel(let id):
+                id
+            case .unscoped:
+                nil
+            }
+        }
+    }
+
+    private static let agentPIDExitWatcherQueue = DispatchQueue(
+        label: "com.cmux.sidebar-agent-pid-exit",
+        qos: .utility
+    )
+
+    func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
+        let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
+
+        var agentPIDsForPanel: [String: pid_t] = [:]
+        var agentProcessStatesForPanel: [String: SidebarAgentProcessState] = [:]
+        var statusEntriesForPanel: [String: SidebarStatusEntry] = [:]
+        for key in pidKeys {
+            if let pid = agentPIDs[key] {
+                agentPIDsForPanel[key] = pid
+            }
+            if let processState = agentProcessStates[key] {
+                agentProcessStatesForPanel[key] = processState
+            }
+            let statusKey = agentStatusKey(forAgentPIDKey: key)
+            if let statusEntry = statusEntries[statusKey] {
+                statusEntriesForPanel[statusKey] = statusEntry
+            }
+        }
+        guard !statusEntriesForPanel.isEmpty || !agentPIDsForPanel.isEmpty || !agentProcessStatesForPanel.isEmpty || !pidKeys.isEmpty else { return nil }
+        return DetachedAgentRuntimeState(
+            panelId: panelId,
+            statusEntries: statusEntriesForPanel,
+            agentPIDs: agentPIDsForPanel,
+            agentProcessStates: agentProcessStatesForPanel,
+            agentPIDKeys: pidKeys
+        )
+    }
+
+    func agentStatusKey(forAgentPIDKey key: String) -> String {
+        if statusEntries[key] != nil {
+            return key
+        }
+        guard let dotIndex = key.firstIndex(of: ".") else {
+            return key
+        }
+        return String(key[..<dotIndex])
+    }
+
+    private func hasAgentRuntime(forStatusKey statusKey: String) -> Bool {
+        for key in agentPIDs.keys where agentStatusKey(forAgentPIDKey: key) == statusKey {
+            return true
+        }
+        for key in agentProcessStates.keys where agentStatusKey(forAgentPIDKey: key) == statusKey {
+            return true
+        }
+        for key in agentPIDPanelIdsByKey.keys where agentStatusKey(forAgentPIDKey: key) == statusKey {
+            return true
+        }
+        return false
+    }
+
+    private func removeAgentPIDOwnership(key: String) {
+        if let previousPanelId = agentPIDPanelIdsByKey[key] {
+            agentPIDKeysByPanelId[previousPanelId]?.remove(key)
+            if agentPIDKeysByPanelId[previousPanelId]?.isEmpty == true {
+                agentPIDKeysByPanelId.removeValue(forKey: previousPanelId)
+            }
+            agentPIDPanelIdsByKey.removeValue(forKey: key)
+        }
+    }
+
+    private func recordAgentPIDOwnership(key: String, panelId: UUID) {
+        if let previousPanelId = agentPIDPanelIdsByKey[key], previousPanelId != panelId {
+            removeAgentPIDOwnership(key: key)
+        }
+        agentPIDPanelIdsByKey[key] = panelId
+        agentPIDKeysByPanelId[panelId, default: []].insert(key)
+    }
+
+    func setSidebarStatusPanelOwnership(key: String, panelId: UUID?) {
+        if let pid = agentPIDs[key], pid > 0 {
+            recordAgentPID(key: key, pid: pid, panelId: panelId, refreshPorts: false)
+            return
+        }
+        if let panelId {
+            recordAgentPIDOwnership(key: key, panelId: panelId)
+        } else {
+            removeAgentPIDOwnership(key: key)
+        }
+    }
+
+    private func armAgentPIDExitWatcher(key: String, pid: pid_t, panelId: UUID?) {
+        let scope = AgentPIDExitWatcherScope(panelId: panelId)
+        if agentPIDExitWatchers[key] != nil,
+           agentPIDExitWatcherPIDs[key] == pid,
+           agentPIDExitWatcherScopes[key] == scope {
+            return
+        }
+        agentPIDExitWatchers.removeValue(forKey: key)?.cancel()
+        agentPIDExitWatcherPIDs.removeValue(forKey: key)
+        agentPIDExitWatcherScopes.removeValue(forKey: key)
+        let source = DispatchSource.makeProcessSource(
+            identifier: pid,
+            eventMask: .exit,
+            queue: Self.agentPIDExitWatcherQueue
+        )
+        source.setEventHandler { [weak self] in
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.agentPIDs[key] == pid else { return }
+                _ = self.clearAgentPID(key: key, panelId: scope.panelId, clearStatus: true)
+            }
+        }
+        agentPIDExitWatchers[key] = source
+        agentPIDExitWatcherPIDs[key] = pid
+        agentPIDExitWatcherScopes[key] = scope
+        source.resume()
+    }
+
+    func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) {
+        guard pid > 0 else {
+            _ = clearAgentPID(key: key, panelId: panelId, clearStatus: true, refreshPorts: refreshPorts)
+            return
+        }
+
+        setAgentPIDStorageValue(pid, forKey: key)
+        if let panelId {
+            recordAgentPIDOwnership(key: key, panelId: panelId)
+        } else {
+            removeAgentPIDOwnership(key: key)
+        }
+        armAgentPIDExitWatcher(key: key, pid: pid, panelId: panelId)
+        if agentProcessStates[key]?.pid != pid || agentProcessStates[key]?.isAlive != true {
+            setAgentProcessStateStorageValue(SidebarAgentProcessState(
+                pid: pid,
+                isAlive: true,
+                activity: .running
+            ), forKey: key)
+        }
+        if refreshPorts {
+            refreshTrackedAgentPorts()
+        }
+    }
+
+    func setAgentPID(
+        key: String,
+        panelId: UUID? = nil,
+        pid: pid_t,
+        refreshPorts: Bool = true
+    ) {
+        recordAgentPID(key: key, pid: pid, panelId: panelId, refreshPorts: refreshPorts)
+    }
+
+    @discardableResult
+    func updateAgentProcessState(key: String, state: SidebarAgentProcessState) -> Bool {
+        guard agentPIDs[key] == state.pid else { return false }
+        guard agentProcessStates[key] != state else { return false }
+        setAgentProcessStateStorageValue(state, forKey: key)
+        return true
+    }
+
+    @discardableResult
+    func clearAgentPID(
+        key: String,
+        panelId: UUID? = nil,
+        clearStatus: Bool = false,
+        clearNotifications: Bool = true,
+        refreshPorts: Bool = true
+    ) -> Bool {
+        let ownedPanelId = agentPIDPanelIdsByKey[key]
+        if let panelId, let ownedPanelId, ownedPanelId != panelId {
+            return false
+        }
+        let effectivePanelId = panelId ?? ownedPanelId
+        let statusKeyToClear = clearStatus ? agentStatusKey(forAgentPIDKey: key) : nil
+
+        var didChange = false
+        var removedRuntime = false
+        var removedStatus = false
+        if removeAgentPIDStorageValue(forKey: key) != nil {
+            didChange = true
+            removedRuntime = true
+        }
+        if removeAgentProcessStateStorageValue(forKey: key) != nil {
+            didChange = true
+            removedRuntime = true
+        }
+        if let watcher = agentPIDExitWatchers.removeValue(forKey: key) {
+            watcher.cancel()
+            didChange = true
+        }
+        if agentPIDExitWatcherPIDs.removeValue(forKey: key) != nil {
+            didChange = true
+        }
+        if agentPIDExitWatcherScopes.removeValue(forKey: key) != nil {
+            didChange = true
+        }
+        if ownedPanelId != nil {
+            removeAgentPIDOwnership(key: key)
+            didChange = true
+        }
+        if let statusKeyToClear,
+           !hasAgentRuntime(forStatusKey: statusKeyToClear),
+           statusEntries.removeValue(forKey: statusKeyToClear) != nil {
+            didChange = true
+            removedStatus = true
+        }
+        if clearStatus, clearNotifications, didChange, let effectivePanelId {
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: effectivePanelId)
+        } else if clearStatus, clearNotifications, didChange, removedRuntime || removedStatus {
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id)
+        }
+        if didChange, refreshPorts {
+            refreshTrackedAgentPorts()
+        }
+        return didChange
+    }
+
+    func refreshTrackedAgentPorts() {
+        agentListeningPorts.removeAll(keepingCapacity: false)
+        let remainingAgentPIDs = Set(agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
+        PortScanner.shared.refreshAgentPorts(workspaceId: id, agentPIDs: remainingAgentPIDs)
+        recomputeListeningPorts()
+    }
+
+    func clearAllAgentRuntimeState(refreshPorts: Bool = true) {
+        let keys = Set(agentPIDs.keys)
+            .union(agentProcessStates.keys)
+            .union(agentPIDPanelIdsByKey.keys)
+            .union(agentPIDExitWatchers.keys)
+            .union(agentPIDExitWatcherPIDs.keys)
+            .union(agentPIDExitWatcherScopes.keys)
+        for key in keys {
+            _ = clearAgentPID(key: key, clearStatus: true, refreshPorts: false)
+        }
+        agentListeningPorts.removeAll()
+        if refreshPorts {
+            refreshTrackedAgentPorts()
+        }
+    }
+
+    @discardableResult
+    func clearSidebarMetadataEntry(key: String, refreshPorts: Bool = true) -> Bool {
+        let didClearRuntime = clearAgentPID(
+            key: key,
+            clearStatus: true,
+            refreshPorts: refreshPorts
+        )
+        if statusEntries.removeValue(forKey: key) != nil {
+            return true
+        }
+        return didClearRuntime
+    }
+
+    @discardableResult
+    private func discardAgentRuntimeState(
+        _ runtimeState: DetachedAgentRuntimeState?,
+        clearNotifications: Bool = true
+    ) -> Bool {
+        guard let runtimeState else { return false }
+        var didChange = false
+        for key in runtimeState.agentPIDKeys {
+            if clearAgentPID(
+                key: key,
+                panelId: runtimeState.panelId,
+                clearStatus: true,
+                clearNotifications: clearNotifications,
+                refreshPorts: false
+            ) {
+                didChange = true
+            }
+        }
+        if didChange {
+            refreshTrackedAgentPorts()
+        }
+        return didChange
+    }
+
+    func adoptDetachedAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) {
+        guard let runtimeState else { return }
+        for (statusKey, statusEntry) in runtimeState.statusEntries {
+            statusEntries[statusKey] = statusEntry
+        }
+        var didAdoptAgentPID = false
+        for (key, pid) in runtimeState.agentPIDs {
+            recordAgentPID(key: key, pid: pid, panelId: runtimeState.panelId, refreshPorts: false)
+            if let processState = runtimeState.agentProcessStates[key],
+               processState.pid == pid {
+                setAgentProcessStateStorageValue(processState, forKey: key)
+            }
+            didAdoptAgentPID = true
+        }
+        for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
+            recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
+        }
+        if didAdoptAgentPID {
+            refreshTrackedAgentPorts()
+        }
+    }
