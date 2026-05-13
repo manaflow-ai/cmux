@@ -26,6 +26,7 @@ final class SettingsSearchIndexTests: XCTestCase {
         assertSearch("imessage", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "imessage-mode"))
         assertSearch("chat prompt", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "imessage-mode"))
         assertSearch("reset shortcut defaults", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "reset-defaults"))
+        assertSearch("clickable pr", contains: SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "make-pr-clickable"))
         assertSearch("clickable pull requests", contains: SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "make-pr-clickable"))
     }
 
