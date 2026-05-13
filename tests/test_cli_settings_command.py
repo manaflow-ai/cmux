@@ -950,6 +950,8 @@ openSettings = "cmd+option+,"
         )
         unset_corrupt_binding = run_cli(cli_path, ["settings", "shortcuts", "unset", "openSettings"], home)
         assert_ok(failures, "shortcut unset removes malformed binding", unset_corrupt_binding)
+        restore_export_shortcut = run_cli(cli_path, ["settings", "shortcuts", "set", "openSettings", "cmd+n"], home)
+        assert_ok(failures, "shortcut export setup restores configured binding", restore_export_shortcut)
 
         before_import = read_config(home)
         bad_import_path = home / "bad-import.json"
