@@ -637,13 +637,14 @@ final class FileExplorerStoreTests: XCTestCase {
         store.setRootForTesting(path: staleRoot)
         store.refreshGitStatus()
         store.setRootForTesting(path: activeRoot)
+        let revisionBeforeStaleStatusReturns = store.outlineRevision
         await fulfillment(of: [staleFetchCompleted], timeout: 1.0)
         try await Task.sleep(nanoseconds: 100_000_000)
 
         XCTAssertEqual(store.gitStatusByPath, activeStatus)
         XCTAssertEqual(
             store.outlineRevision,
-            revisionAfterInitialStatus,
+            revisionBeforeStaleStatusReturns,
             "A git status result for a previous root must not dirty the current file outline."
         )
     }
