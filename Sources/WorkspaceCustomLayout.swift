@@ -8,7 +8,7 @@ nonisolated private let workspaceCustomLayoutLogger = Logger(
     category: "WorkspaceCustomLayout"
 )
 
-func logCustomLayoutMarkdownPathFailure(
+nonisolated func logCustomLayoutMarkdownPathFailure(
     _ failure: CmuxReadableFilePathResolutionFailure,
     context: String
 ) {
@@ -17,7 +17,7 @@ func logCustomLayoutMarkdownPathFailure(
     )
 }
 
-func absoluteCustomLayoutDirectory(_ directory: String) -> String {
+nonisolated func absoluteCustomLayoutDirectory(_ directory: String) -> String {
     let expandedDirectory = NSString(string: directory).expandingTildeInPath
     if expandedDirectory.hasPrefix("/") {
         return NSString(string: expandedDirectory).standardizingPath
