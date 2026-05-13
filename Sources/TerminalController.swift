@@ -351,7 +351,7 @@ private final class CodexTranscriptMonitorRegistry: @unchecked Sendable {
             case "error", "stream_error":
                 updateRelevantTurn(payload: payload, onlyWhenMatching: true)
                 guard turnMatches(payload: payload) || sawRelevantTurn else { return }
-                if let failure = failureCandidate(
+                if let failure = Self.failureCandidate(
                     from: payload,
                     isStreamError: eventType == "stream_error",
                     requireFailureSignal: false
