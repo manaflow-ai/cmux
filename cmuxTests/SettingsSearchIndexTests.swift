@@ -17,6 +17,7 @@ final class SettingsSearchIndexTests: XCTestCase {
         assertSearch("http allowlist", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "http-allowlist"))
         assertSearch("claude executable", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "claude-path"))
         assertSearch("resume on reopen", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
+        assertSearch("workspace cwd", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "workspace-inherit-working-directory"))
         assertSearch("claude sessions", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
         assertSearch("opencode resume", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
         assertSearch("ctrl b", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcut-chords"))
@@ -35,6 +36,13 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertEqual(
             SettingsSearchIndex.anchorID(forSettingsPath: "terminal.autoResumeAgentSessions"),
             SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume")
+        )
+    }
+
+    func testSettingsPathAnchorIncludesWorkspaceWorkingDirectoryInheritance() {
+        XCTAssertEqual(
+            SettingsSearchIndex.anchorID(forSettingsPath: "app.workspaceInheritWorkingDirectory"),
+            SettingsSearchIndex.settingID(for: .app, idSuffix: "workspace-inherit-working-directory")
         )
     }
 

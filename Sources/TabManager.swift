@@ -234,6 +234,19 @@ enum WorkspacePlacementSettings {
         return placement
     }
 
+    static func effectivePlacement(
+        placementOverride: NewWorkspacePlacement?,
+        defaults: UserDefaults = .standard
+    ) -> NewWorkspacePlacement {
+        if let placementOverride {
+            return placementOverride
+        }
+        if IMessageModeSettings.isEnabled(defaults: defaults) {
+            return .top
+        }
+        return current(defaults: defaults)
+    }
+
     static func insertionIndex(
         placement: NewWorkspacePlacement,
         selectedIndex: Int?,
@@ -260,6 +273,18 @@ enum WorkspacePlacementSettings {
             }
             return min(clampedSelectedIndex + 1, clampedTotalCount)
         }
+    }
+}
+
+enum WorkspaceWorkingDirectoryInheritanceSettings {
+    static let key = "workspaceInheritWorkingDirectory"
+    static let defaultValue = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: key) != nil else {
+            return defaultValue
+        }
+        return defaults.bool(forKey: key)
     }
 }
 
@@ -2120,7 +2145,7 @@ class TabManager: ObservableObject {
         // entire creation path. Release ARC can otherwise drop retains early across the
         // helper/insertion chain, which reintroduces use-after-free crashes in optimized builds.
         return withExtendedLifetime((capturedTabs, sourceWorkspace)) {
-            let dir = preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
+            let dir = implicitWorkingDirectoryForNewWorkspace(from: sourceWorkspace)
             let font = inheritedTerminalFontPointsForNewWorkspace(workspace: sourceWorkspace)
             let snapshot = workspaceCreationSnapshotLite(
                 currentTabs: capturedTabs,
@@ -3806,7 +3831,7 @@ class TabManager: ObservableObject {
         snapshot: WorkspaceCreationSnapshot,
         placementOverride: NewWorkspacePlacement? = nil
     ) -> Int {
-        let placement = placementOverride ?? WorkspacePlacementSettings.current()
+        let placement = WorkspacePlacementSettings.effectivePlacement(placementOverride: placementOverride)
         let liveTabs = orderedLiveWorkspaceCreationTabs(from: snapshot) ?? snapshot.tabs
         let pinnedCount = liveTabs.reduce(into: 0) { partial, tab in
             if tab.isPinned {
@@ -3853,6 +3878,13 @@ class TabManager: ObservableObject {
         return workspace.panelDirectories.values.lazy.compactMap { directory in
             self.normalizedWorkingDirectory(directory)
         }.first
+    }
+
+    func implicitWorkingDirectoryForNewWorkspace(from sourceWorkspace: Workspace?) -> String? {
+        guard WorkspaceWorkingDirectoryInheritanceSettings.isEnabled() else {
+            return nil
+        }
+        return preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
     }
 
     func moveTabToTop(_ tabId: UUID) {

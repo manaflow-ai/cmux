@@ -4586,7 +4586,7 @@ class TerminalController {
                 iMessageModeEnabled: iMessageModeEnabled
             )
             if iMessageModeEnabled {
-                preview = tabManager.tabs.first(where: { $0.id == workspaceId })?.latestSubmittedMessage
+                preview = tabManager.tabs.first(where: { $0.id == workspaceId })?.latestConversationMessage
             }
         }
 
@@ -7787,9 +7787,10 @@ class TerminalController {
                 return
             }
 
-            let destinationWorkspace = tabManager.addWorkspace(select: focus)
-            guard let destinationPane = destinationWorkspace.bonsplitController.focusedPaneId
-                ?? destinationWorkspace.bonsplitController.allPaneIds.first else {
+            guard let destinationWorkspace = tabManager.addWorkspace(
+                fromDetachedSurface: detached,
+                select: focus
+            ) else {
                 if let sourcePaneForRollback {
                     _ = sourceWorkspace.attachDetachedSurface(
                         detached,
@@ -7798,20 +7799,18 @@ class TerminalController {
                         focus: true
                     )
                 }
-                result = .err(code: "internal_error", message: "Destination workspace has no pane", data: nil)
+                result = .err(code: "internal_error", message: "Failed to create workspace for detached surface", data: nil)
                 return
             }
-
-            guard destinationWorkspace.attachDetachedSurface(detached, inPane: destinationPane, focus: focus) != nil else {
-                if let sourcePaneForRollback {
-                    _ = sourceWorkspace.attachDetachedSurface(
-                        detached,
-                        inPane: sourcePaneForRollback,
-                        atIndex: sourceIndex,
-                        focus: true
-                    )
-                }
-                result = .err(code: "internal_error", message: "Failed to attach surface to new workspace", data: nil)
+            guard let destinationPaneId = destinationWorkspace.paneId(forPanelId: surfaceId)?.id else {
+                result = .err(
+                    code: "internal_error",
+                    message: "Failed to resolve destination pane for detached surface",
+                    data: [
+                        "workspace_id": destinationWorkspace.id.uuidString,
+                        "surface_id": surfaceId.uuidString
+                    ]
+                )
                 return
             }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
@@ -7820,8 +7819,8 @@ class TerminalController {
                 "window_ref": v2Ref(kind: .window, uuid: windowId),
                 "workspace_id": destinationWorkspace.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: destinationWorkspace.id),
-                "pane_id": destinationPane.id.uuidString,
-                "pane_ref": v2Ref(kind: .pane, uuid: destinationPane.id),
+                "pane_id": destinationPaneId.uuidString,
+                "pane_ref": v2Ref(kind: .pane, uuid: destinationPaneId),
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
             ])
@@ -8488,7 +8487,7 @@ class TerminalController {
         }
 
         CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
-        v2ApplyPromptSubmitSideEffects(for: event)
+        v2ApplyIMessageModeSideEffects(for: event)
 
         let result = FeedCoordinator.shared.ingestBlocking(
             event: event,
@@ -8502,21 +8501,38 @@ class TerminalController {
         return .ok(FeedSocketEncoding.payload(for: result))
     }
 
-    private nonisolated func v2ApplyPromptSubmitSideEffects(for event: WorkstreamEvent) {
-        guard event.hookEventName == .userPromptSubmit,
+    private nonisolated func v2ApplyIMessageModeSideEffects(for event: WorkstreamEvent) {
+        guard event.hookEventName == .userPromptSubmit || event.hookEventName == .stop || event.hookEventName == .subagentStop,
               let rawWorkspaceId = event.workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawWorkspaceId.isEmpty
         else { return }
 
         let iMessageModeEnabled = IMessageModeSettings.isEnabled()
-        v2MainSync {
-            guard let workspaceId = v2UUIDAny(rawWorkspaceId) else { return }
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
-            _ = tabManager.handlePromptSubmit(
-                workspaceId: workspaceId,
-                message: event.submittedPromptMessage,
-                iMessageModeEnabled: iMessageModeEnabled
-            )
+        switch event.hookEventName {
+        case .userPromptSubmit:
+            v2MainSync {
+                guard let workspaceId = v2UUIDAny(rawWorkspaceId) else { return }
+                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
+                _ = tabManager.handlePromptSubmit(
+                    workspaceId: workspaceId,
+                    message: event.submittedPromptMessage,
+                    iMessageModeEnabled: iMessageModeEnabled
+                )
+            }
+        case .stop, .subagentStop:
+            let assistantFinalMessage = event.assistantFinalMessage
+            Task { @MainActor [weak self, rawWorkspaceId, assistantFinalMessage, iMessageModeEnabled] in
+                guard let self,
+                      let workspaceId = self.v2UUIDAny(rawWorkspaceId) else { return }
+                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
+                _ = tabManager.handleAssistantFinalMessage(
+                    workspaceId: workspaceId,
+                    message: assistantFinalMessage,
+                    iMessageModeEnabled: iMessageModeEnabled
+                )
+            }
+        default:
+            break
         }
     }
 
@@ -9329,7 +9345,7 @@ class TerminalController {
             var createdSplit = true
             var placementStrategy = "split_right"
             let createdPanel: BrowserPanel?
-            if let targetPane = ws.preferredBrowserTargetPane(fromPanelId: sourceSurfaceId) {
+            if let targetPane = ws.preferredRightSideTargetPane(fromPanelId: sourceSurfaceId) {
                 createdPanel = ws.newBrowserSurface(inPane: targetPane, url: url, focus: focus)
                 createdSplit = false
                 placementStrategy = "reuse_right_sibling"
