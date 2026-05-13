@@ -40,7 +40,6 @@ private let configuredMenuBarLaunchArguments = [
 final class ConfiguredMenuBarDemoUITests: XCTestCase {
     private var app: XCUIApplication?
     private var configURL: URL?
-    private var originalConfig: Data?
 
     override func setUpWithError() throws {
         try super.setUpWithError()
@@ -61,6 +60,7 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
         self.app = app
         app.launchArguments += configuredMenuBarLaunchArguments
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_CMUX_CONFIG_PATH"] = try XCTUnwrap(configURL?.path)
         launchAndActivate(app)
 
         XCTAssertTrue(
@@ -84,13 +84,12 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
 
     private func writeConfiguredMenuBarDemoConfig() throws {
         let fileManager = FileManager.default
-        let configDirectory = fileManager.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/cmux", isDirectory: true)
+        let configDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-configured-menubar-demo-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: configDirectory, withIntermediateDirectories: true)
 
         let configURL = configDirectory.appendingPathComponent("cmux.json", isDirectory: false)
         self.configURL = configURL
-        originalConfig = try? Data(contentsOf: configURL)
 
         let config = #"""
         {
@@ -179,11 +178,7 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
         guard let configURL else {
             return
         }
-        if let originalConfig {
-            try? originalConfig.write(to: configURL, options: .atomic)
-        } else {
-            try? FileManager.default.removeItem(at: configURL)
-        }
+        try? FileManager.default.removeItem(at: configURL.deletingLastPathComponent())
     }
 
     private func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {

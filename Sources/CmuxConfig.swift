@@ -1728,6 +1728,14 @@ final class CmuxConfigStore: ObservableObject {
     private let fileWatchingEnabled: Bool
 
     nonisolated private static func defaultGlobalConfigPath() -> String {
+#if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        if environment["CMUX_UI_TEST_MODE"] == "1",
+           let uiTestConfigPath = environment["CMUX_UI_TEST_CMUX_CONFIG_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !uiTestConfigPath.isEmpty {
+            return uiTestConfigPath
+        }
+#endif
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return (home as NSString).appendingPathComponent(".config/cmux/cmux.json")
     }
