@@ -2887,13 +2887,11 @@ final class BrowserPanel: Panel, ObservableObject {
             self?.createFloatingPopup(configuration: configuration, windowFeatures: windowFeatures)
         }
         browserUIDelegate.closeRequested = { [weak self] closedWebView in
-            Task { @MainActor [weak self, weak closedWebView] in
-                guard let self, let closedWebView, self.isCurrentWebView(closedWebView) else { return }
+            guard let self, self.isCurrentWebView(closedWebView) else { return }
 #if DEBUG
-                cmuxDebugLog("browser.webViewDidClose panel=\(self.id.uuidString.prefix(5))")
+            cmuxDebugLog("browser.webViewDidClose panel=\(self.id.uuidString.prefix(5))")
 #endif
-                self.webViewDidRequestClose?()
-            }
+            self.webViewDidRequestClose?()
         }
         self.uiDelegate = browserUIDelegate
 
