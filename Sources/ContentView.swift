@@ -9269,7 +9269,7 @@ struct VerticalTabsSidebar: View {
                   !tabIds.contains(frozenTabItemPresentation.tabId) else { return }
             self.frozenTabItemPresentation = nil
         }
-        .onChange(of: resourceUsageConfiguration) { configuration in
+        .onChange(of: resourceUsageConfiguration) { _, configuration in
             resourceUsageStore.bind(tabManager: tabManager, configuration: configuration)
         }
         .onReceive(NotificationCenter.default.publisher(for: SidebarDragLifecycleNotification.requestClear)) { notification in
