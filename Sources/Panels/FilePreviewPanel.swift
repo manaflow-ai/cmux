@@ -235,10 +235,12 @@ struct FileExternalOpenMenu: View {
         case .header:
             Image(systemName: "square.and.arrow.up")
                 .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
         case .chrome:
             Image(systemName: "square.and.arrow.up")
                 .font(.system(size: 16, weight: .semibold))
                 .frame(width: 42, height: 40)
+                .contentShape(Rectangle())
         }
     }
 
@@ -1437,7 +1439,7 @@ struct FilePreviewPDFZoomChromeView: View {
                 zoomButtons(includeDividers: false)
                 secondaryButtons(includeDividers: false)
                 if let fileURL {
-                    FileExternalOpenMenu(fileURL: fileURL)
+                    FileExternalOpenMenu(fileURL: fileURL, style: .chrome)
                 }
             } label: {
                 Label(
@@ -2091,7 +2093,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         static let minimumSidebarWidth = FilePreviewPDFSizing.minimumSidebarWidth
         static let maximumSidebarWidth = FilePreviewPDFSizing.maximumSidebarWidth
         static let floatingChromeHeight: CGFloat = 40
-        static let floatingControlsWidth: CGFloat = 318
+        static let floatingControlsWidth: CGFloat = 344
         static let floatingChromeCornerRadius: CGFloat = 20
     }
 
@@ -2430,6 +2432,9 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         titleStack.translatesAutoresizingMaskIntoConstraints = false
         chromeHost.addSubview(titleStack)
 
+        let zoomWidthConstraint = zoomChromeHost.widthAnchor.constraint(equalToConstant: Metrics.floatingControlsWidth)
+        zoomWidthConstraint.priority = .defaultHigh
+
         NSLayoutConstraint.activate([
             sidebarChromeHost.topAnchor.constraint(equalTo: chromeHost.topAnchor, constant: 10),
             sidebarChromeHost.leadingAnchor.constraint(equalTo: chromeHost.leadingAnchor, constant: 10),
@@ -2438,7 +2443,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
 
             zoomChromeHost.topAnchor.constraint(equalTo: chromeHost.topAnchor, constant: 10),
             zoomChromeHost.trailingAnchor.constraint(equalTo: chromeHost.trailingAnchor, constant: -10),
-            zoomChromeHost.widthAnchor.constraint(equalToConstant: Metrics.floatingControlsWidth),
+            zoomWidthConstraint,
             zoomChromeHost.heightAnchor.constraint(equalToConstant: Metrics.floatingChromeHeight),
 
             titleStack.leadingAnchor.constraint(equalTo: sidebarChromeHost.trailingAnchor, constant: 12),
