@@ -269,8 +269,14 @@ doneFlags:
 		cliUsage()
 		return 0
 	}
-	if cmdName == "browser" && browserHelpRequested(cmdArgs) {
-		return runBrowserRelay("", cmdArgs, jsonOutput, nil)
+	if cmdName == "browser" {
+		if browserHelpRequested(cmdArgs) {
+			return runBrowserRelay("", cmdArgs, jsonOutput, nil)
+		}
+		if _, _, _, err := buildBrowserRelayRequest(cmdArgs); err != nil {
+			fmt.Fprintf(os.Stderr, "cmux browser: %v\n", err)
+			return 2
+		}
 	}
 
 	// refreshAddr is set when the address came from socket_addr file (not env/flag),
@@ -541,7 +547,9 @@ func buildBrowserRelayRequest(args []string) (browserCommandSpec, map[string]any
 		spec = browserCommands["navigate"]
 	}
 
-	applyBrowserPositionals(params, parsed.positional, spec)
+	if err := applyBrowserPositionals(params, parsed.positional, spec); err != nil {
+		return browserCommandSpec{}, nil, browserParsedArgs{}, err
+	}
 	if err := applyBrowserSpecialParams(params, spec); err != nil {
 		return browserCommandSpec{}, nil, browserParsedArgs{}, err
 	}
@@ -698,7 +706,7 @@ func browserFlagIsBoolean(key string) bool {
 	}
 }
 
-func applyBrowserPositionals(params map[string]any, positionals []string, spec browserCommandSpec) {
+func applyBrowserPositionals(params map[string]any, positionals []string, spec browserCommandSpec) error {
 	switch spec.special {
 	case browserSpecialFindNth:
 		positionalIndex := 0
@@ -709,28 +717,28 @@ func applyBrowserPositionals(params map[string]any, positionals []string, spec b
 		if _, ok := params["selector"]; !ok && positionalIndex < len(positionals) {
 			params["selector"] = strings.Join(positionals[positionalIndex:], " ")
 		}
-		return
+		return nil
 	case browserSpecialTabTarget:
 		if len(positionals) == 0 {
-			return
+			return nil
 		}
 		if _, ok := params["target_surface_id"]; ok {
-			return
+			return nil
 		}
 		if _, ok := params["index"]; ok {
-			return
+			return nil
 		}
 		if isIntegerString(positionals[0]) {
 			params["index"] = positionals[0]
 		} else {
 			params["target_surface_id"] = positionals[0]
 		}
-		return
+		return nil
 	case browserSpecialInputArgs:
 		if len(positionals) > 0 {
 			params["args"] = append([]string(nil), positionals...)
 		}
-		return
+		return nil
 	}
 
 	positionalIndex := 0
@@ -748,6 +756,10 @@ func applyBrowserPositionals(params map[string]any, positionals []string, spec b
 		params[key] = value
 		positionalIndex++
 	}
+	if !spec.joinLast && positionalIndex < len(positionals) {
+		return fmt.Errorf("unrecognized extra positional argument %q", positionals[positionalIndex])
+	}
+	return nil
 }
 
 func applyBrowserSpecialParams(params map[string]any, spec browserCommandSpec) error {
@@ -757,8 +769,11 @@ func applyBrowserSpecialParams(params map[string]any, spec browserCommandSpec) e
 			if !parsed {
 				return fmt.Errorf("--timeout must be a number of seconds")
 			}
+			if seconds < 0 {
+				return fmt.Errorf("--timeout must be a non-negative number of seconds")
+			}
 			if _, hasTimeoutMs := params["timeout_ms"]; !hasTimeoutMs {
-				params["timeout_ms"] = fmt.Sprintf("%d", max(1, int(seconds*1000)))
+				params["timeout_ms"] = fmt.Sprintf("%d", int(seconds*1000))
 			}
 			delete(params, "timeout")
 		}

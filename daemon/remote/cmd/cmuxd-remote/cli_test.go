@@ -994,6 +994,47 @@ func TestCLIBrowserWaitRejectsInvalidTimeout(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserParseErrorsDoNotRequireSocket(t *testing.T) {
+	t.Setenv("CMUX_SOCKET_PATH", "")
+	t.Setenv("HOME", t.TempDir())
+
+	var code int
+	output := captureStderr(t, func() {
+		code = runCLI([]string{
+			"browser", "wait",
+			"--timeout", "later",
+		})
+	})
+	if code != 2 {
+		t.Fatalf("browser parse error should return 2 before socket lookup, got %d", code)
+	}
+	if !strings.Contains(output, "cmux browser: --timeout must be a number of seconds") {
+		t.Fatalf("expected browser parse error, got %q", output)
+	}
+	if strings.Contains(output, "CMUX_SOCKET_PATH") {
+		t.Fatalf("parse error should not be replaced by socket lookup error, got %q", output)
+	}
+}
+
+func TestCLIBrowserWaitRejectsNegativeTimeout(t *testing.T) {
+	t.Setenv("CMUX_SOCKET_PATH", "")
+	t.Setenv("HOME", t.TempDir())
+
+	var code int
+	output := captureStderr(t, func() {
+		code = runCLI([]string{
+			"browser", "wait",
+			"--timeout", "-5",
+		})
+	})
+	if code != 2 {
+		t.Fatalf("browser wait with negative timeout should return 2, got %d", code)
+	}
+	if !strings.Contains(output, "cmux browser: --timeout must be a non-negative number of seconds") {
+		t.Fatalf("expected negative timeout error, got %q", output)
+	}
+}
+
 func TestCLIBrowserAutomationPositionals(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	t.Setenv("CMUX_SURFACE_ID", "env-sf")
@@ -1212,6 +1253,24 @@ func TestCLIBrowserGenericAdvertisedMethodDispatch(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for browser viewport set request")
+	}
+}
+
+func TestCLIBrowserFixedArityRejectsExtraPositionals(t *testing.T) {
+	t.Setenv("CMUX_SOCKET_PATH", "")
+	t.Setenv("HOME", t.TempDir())
+
+	var code int
+	output := captureStderr(t, func() {
+		code = runCLI([]string{
+			"browser", "surface:2", "viewport", "set", "1200", "800", "extra",
+		})
+	})
+	if code != 2 {
+		t.Fatalf("browser viewport set with extra positional should return 2, got %d", code)
+	}
+	if !strings.Contains(output, `cmux browser: unrecognized extra positional argument "extra"`) {
+		t.Fatalf("expected extra positional error, got %q", output)
 	}
 }
 
