@@ -382,6 +382,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(persistedProcessNames.contains("codex"))
         XCTAssertTrue(persistedProcessNames.contains("node"))
         XCTAssertFalse(persistedProcessNames.contains(secretCommandLine))
+        XCTAssertFalse(
+            persistedProcessNames.contains { $0.contains("SECRET_TOKEN_DO_NOT_STORE") },
+            "Persisted process names must not include command-line secrets: \(persistedProcessNames)"
+        )
         XCTAssertFalse(result.stdout.contains("SECRET_TOKEN_DO_NOT_STORE"), result.stdout)
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
@@ -443,6 +447,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTFail("memory top should read SQLite and not resample system.top, saw \(line)")
             return "{}"
         }
+        topHandled.isInverted = true
 
         let topResult = runProcess(
             executablePath: cliPath,
@@ -450,7 +455,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             environment: environment,
             timeout: 5
         )
-        wait(for: [topHandled], timeout: 5)
+        wait(for: [topHandled], timeout: 0.1)
         XCTAssertFalse(topResult.timedOut, topResult.stderr)
         XCTAssertEqual(topResult.status, 0, topResult.stderr)
         XCTAssertTrue(topResult.stderr.isEmpty, topResult.stderr)
