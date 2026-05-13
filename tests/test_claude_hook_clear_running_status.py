@@ -212,7 +212,7 @@ def main() -> int:
             env,
         )
 
-        if not has_command(server.commands, f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}"):
+        if not has_command(server.commands, f"set_status claude_code \"Running\" --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}"):
             print("FAIL: expected prompt-submit to set Claude Running")
             print(f"commands={server.commands!r}")
             return 1
@@ -239,7 +239,7 @@ def main() -> int:
         )
         second_turn_commands = server.commands[second_turn_start:]
 
-        if not has_command(second_turn_commands, f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}"):
+        if not has_command(second_turn_commands, f"set_status claude_code \"Running\" --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}"):
             print("FAIL: expected second turn prompt-submit to set Claude Running")
             print(f"second_turn_commands={second_turn_commands!r}")
             return 1
@@ -260,7 +260,7 @@ def main() -> int:
             return 1
         if not has_command_with(
             clear_commands,
-            f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}",
+            f"set_status claude_code \"Running\" --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}",
             f"--panel={surface_id}",
         ):
             print("FAIL: expected clear SessionStart to set Claude Running on the current panel")
@@ -297,7 +297,7 @@ def main() -> int:
         )
         old_stop_commands = server.commands[old_stop_start:]
 
-        if has_command(old_stop_commands, f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}"):
+        if has_command(old_stop_commands, f"set_status claude_code \"Idle\" --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}"):
             print("FAIL: stale pre-clear Stop must not overwrite the active clear session")
             print(f"old_stop_commands={old_stop_commands!r}")
             return 1

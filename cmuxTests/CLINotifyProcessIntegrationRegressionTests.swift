@@ -26,7 +26,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertTrue(
             context.state.commands.contains {
-                $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
+                $0.hasPrefix("set_status claude_code \"Running\" --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
             "Expected clear SessionStart to mark Claude running, saw \(context.state.commands)"
@@ -71,14 +71,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         XCTAssertTrue(
             context.state.commands.contains {
-                $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
+                $0.hasPrefix("set_status claude_code \"Running\" --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
             "Expected clear SessionStart to mark Claude running, saw \(context.state.commands)"
         )
         XCTAssertFalse(
             context.state.commands.contains {
-                $0.hasPrefix("set_status claude_code Idle ") && $0.contains("--tab=\(context.workspaceId)")
+                $0.hasPrefix("set_status claude_code \"Idle\" ") && $0.contains("--tab=\(context.workspaceId)")
             },
             "Expected stale Stop from old session not to clobber the clear session, saw \(context.state.commands)"
         )
@@ -132,7 +132,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let newPromptCommands = Array(context.state.commands.dropFirst(newPromptStart))
         XCTAssertTrue(
             newPromptCommands.contains {
-                $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
+                $0.hasPrefix("set_status claude_code \"Running\" --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
             },
             "Expected a new Claude session to replace a stopped idle owner on prompt-submit, saw \(newPromptCommands)"
         )
@@ -925,11 +925,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     func testClaudeNotificationIdlePromptSetsIdleStatus() throws {
         let state = try runClaudeNotificationHook(message: "idle_prompt")
         XCTAssertTrue(
-            state.commands.contains { $0.contains("set_status claude_code Idle") },
+            state.commands.contains { $0.contains("set_status claude_code \"Idle\"") },
             "Expected idle_prompt notification to set Idle, saw \(state.commands)"
         )
         XCTAssertFalse(
-            state.commands.contains { $0.contains("set_status claude_code Needs input") },
+            state.commands.contains { $0.contains("set_status claude_code \"Needs input\"") },
             "idle_prompt must not be routed as Needs input: \(state.commands)"
         )
     }
@@ -937,11 +937,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     func testClaudeNotificationCompletionSetsIdleStatus() throws {
         let state = try runClaudeNotificationHook(message: "completion")
         XCTAssertTrue(
-            state.commands.contains { $0.contains("set_status claude_code Idle") },
+            state.commands.contains { $0.contains("set_status claude_code \"Idle\"") },
             "Expected completion notification to set Idle, saw \(state.commands)"
         )
         XCTAssertFalse(
-            state.commands.contains { $0.contains("set_status claude_code Needs input") },
+            state.commands.contains { $0.contains("set_status claude_code \"Needs input\"") },
             "completion must not be routed as Needs input: \(state.commands)"
         )
     }
@@ -949,11 +949,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     func testClaudeNotificationPermissionRequestSetsNeedsInputStatus() throws {
         let state = try runClaudeNotificationHook(message: "permission_request")
         XCTAssertTrue(
-            state.commands.contains { $0.contains("set_status claude_code Needs input") },
+            state.commands.contains { $0.contains("set_status claude_code \"Needs input\"") },
             "Expected permission_request notification to set Needs input, saw \(state.commands)"
         )
         XCTAssertFalse(
-            state.commands.contains { $0.contains("set_status claude_code Idle") },
+            state.commands.contains { $0.contains("set_status claude_code \"Idle\"") },
             "permission_request must not be routed as Idle: \(state.commands)"
         )
     }
@@ -961,11 +961,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     func testClaudeNotificationGenericInputMessageStaysNeedsInput() throws {
         let state = try runClaudeNotificationHook(message: "needs_input")
         XCTAssertTrue(
-            state.commands.contains { $0.contains("set_status claude_code Needs input") },
+            state.commands.contains { $0.contains("set_status claude_code \"Needs input\"") },
             "Expected generic input notification to remain Needs input, saw \(state.commands)"
         )
         XCTAssertFalse(
-            state.commands.contains { $0.contains("set_status claude_code Idle") },
+            state.commands.contains { $0.contains("set_status claude_code \"Idle\"") },
             "Generic input notification must not be routed as Idle: \(state.commands)"
         )
     }
