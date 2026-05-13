@@ -216,6 +216,54 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         XCTAssertTrue(spy.invoked)
     }
 
+    func testCmdCCopyPreflightsIntoWebContentBeforeMainMenu() {
+        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+
+        let spy = ActionSpy()
+        installMenu(spy: spy, key: "c", modifiers: [.command])
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        var forwardedEvents: [NSEvent] = []
+        cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, event in
+            guard currentWebView === webView else { return nil }
+            forwardedEvents.append(event)
+            return true
+        }
+        defer { cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil }
+
+        let event = makeKeyDownEvent(key: "c", modifiers: [.command], keyCode: 8) // kVK_ANSI_C
+        XCTAssertNotNil(event)
+
+        XCTAssertTrue(webView.performKeyEquivalent(with: event!))
+        XCTAssertEqual(forwardedEvents.count, 1)
+        XCTAssertEqual(forwardedEvents.first?.keyCode, 8)
+        XCTAssertFalse(spy.invoked)
+    }
+
+    func testCmdCCopyFallsBackToMainMenuWhenWebContentDoesNotHandleIt() {
+        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+
+        let spy = ActionSpy()
+        installMenu(spy: spy, key: "c", modifiers: [.command])
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        var forwardedEvents: [NSEvent] = []
+        cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, event in
+            guard currentWebView === webView else { return nil }
+            forwardedEvents.append(event)
+            return false
+        }
+        defer { cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil }
+
+        let event = makeKeyDownEvent(key: "c", modifiers: [.command], keyCode: 8) // kVK_ANSI_C
+        XCTAssertNotNil(event)
+
+        XCTAssertTrue(webView.performKeyEquivalent(with: event!))
+        XCTAssertEqual(forwardedEvents.count, 1)
+        XCTAssertEqual(forwardedEvents.first?.keyCode, 8)
+        XCTAssertTrue(spy.invoked)
+    }
+
     func testReturnDoesNotRouteToMainMenuWhenWebViewIsFirstResponder() {
         let spy = ActionSpy()
         installMenu(spy: spy, key: "\r", modifiers: [])
