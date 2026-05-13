@@ -2305,6 +2305,7 @@ struct ContentView: View {
                             width: TitlebarFolderIconMetrics.iconSize,
                             height: TitlebarFolderIconMetrics.iconSize
                         )
+                        .padding(.leading, TitlebarFolderIconMetrics.iconLeadingPadding)
                 }
 
                 Text(titlebarText)
