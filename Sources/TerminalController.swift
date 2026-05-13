@@ -16913,6 +16913,7 @@ class TerminalController {
     private func clearLog(_ args: String) -> String {
         var result = "OK"
         v2MainSync {
+            TerminalMutationBus.shared.drainPendingMutationsSynchronously()
             guard let tab = resolveTabForReport(args) else {
                 result = "ERROR: Tab not found"
                 return
@@ -16937,6 +16938,7 @@ class TerminalController {
 
         var result = ""
         v2MainSync {
+            TerminalMutationBus.shared.drainPendingMutationsSynchronously()
             guard let tab = resolveTabForReport(args) else {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return

@@ -205,6 +205,18 @@ final class TerminalMutationBus: @unchecked Sendable {
         }
     }
 
+    @MainActor
+    func drainPendingMutationsSynchronously() {
+        while true {
+            let batch = takeNextBatch()
+            guard !batch.isEmpty else {
+                markDrainCompleteIfEmpty()
+                return
+            }
+            perform(batch)
+        }
+    }
+
 #if DEBUG
     nonisolated func setDrainsSuspendedForTesting(_ suspended: Bool) {
         let shouldScheduleDrain: Bool
@@ -220,14 +232,7 @@ final class TerminalMutationBus: @unchecked Sendable {
 
     @MainActor
     func drainForTesting() {
-        while true {
-            let batch = takeNextBatch()
-            guard !batch.isEmpty else {
-                markDrainCompleteIfEmpty()
-                return
-            }
-            perform(batch)
-        }
+        drainPendingMutationsSynchronously()
     }
 #endif
 

@@ -141,6 +141,55 @@ final class TerminalNotificationQueueTests: XCTestCase {
         XCTAssertEqual(deliveredTitles, [])
     }
 
+    func testLogReadAndClearFlushPendingSidebarMutations() async throws {
+        let socketPath = makeSocketPath("log-order")
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        appDelegate.tabManager = manager
+        let workspace = manager.addWorkspace(select: true)
+        TerminalMutationBus.shared.setDrainsSuspendedForTesting(true)
+        defer {
+            TerminalMutationBus.shared.setDrainsSuspendedForTesting(false)
+            TerminalMutationBus.shared.drainForTesting()
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = originalTabManager
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let tabArg = workspace.id.uuidString
+        let responses = try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    continuation.resume(returning: try self.sendCommands([
+                        "log --tab=\(tabArg) -- queued entry",
+                        "list_log --tab=\(tabArg)",
+                        "clear_log --tab=\(tabArg)",
+                        "list_log --tab=\(tabArg)",
+                    ], to: socketPath))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+
+        XCTAssertEqual(responses, [
+            "OK",
+            "[info] queued entry",
+            "OK",
+            "No log entries",
+        ])
+    }
+
     func testClearNotificationsIsBoundaryForFreshNotify() async throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
