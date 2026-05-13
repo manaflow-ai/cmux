@@ -412,6 +412,24 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertFalse(effects.shouldSelectAll)
     }
 
+    func testRefocusRequestPreservesEditingBuffer() throws {
+        var state = OmnibarState()
+
+        _ = omnibarReduce(
+            state: &state,
+            event: .focusGained(currentURLString: "https://example.com/")
+        )
+        _ = omnibarReduce(state: &state, event: .bufferChanged("abcdef"))
+
+        let effects = omnibarReduce(state: &state, event: .focusReasserted())
+
+        XCTAssertTrue(state.isFocused)
+        XCTAssertTrue(state.isUserEditing)
+        XCTAssertEqual(state.currentURLString, "https://example.com/")
+        XCTAssertEqual(state.buffer, "abcdef")
+        XCTAssertTrue(effects.shouldSelectAll)
+    }
+
     func testEscapeRevertsWhenEditingThenBlursOnSecondEscape() throws {
         var state = OmnibarState()
 
