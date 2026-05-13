@@ -6814,27 +6814,17 @@ class TerminalController {
             #if DEBUG
             let sendStart = ProcessInfo.processInfo.systemUptime
             #endif
-            let queued: Bool
-            if terminalPanel.surface.surface != nil {
-                let acceptsInput = terminalPanel.surface.acceptsTerminalInput
-                terminalPanel.surface.sendInput(text)
-                // Ensure we present a new frame after injecting input so snapshot-based tests (and
-                // socket-driven agents) can observe the updated terminal without requiring a focus
-                // change to trigger a draw.
-                if acceptsInput {
-                    terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText")
-                }
-                queued = false
-            } else {
-                // Avoid blocking the main actor waiting for view/surface attachment.
-                terminalPanel.sendText(text)
-                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
-                queued = terminalPanel.surface.acceptsTerminalInput
+            let routed = Self.routeUnescapedInput(text, to: terminalPanel)
+            // Ensure we present a new frame after injecting input so snapshot-based tests (and
+            // socket-driven agents) can observe the updated terminal without requiring a focus
+            // change to trigger a draw.
+            if routed.shouldForceRefresh {
+                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText")
             }
 #if DEBUG
             let sendMs = (ProcessInfo.processInfo.systemUptime - sendStart) * 1000.0
             cmuxDebugLog(
-                "socket.surface.send_text workspace=\(ws.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) queued=\(queued ? 1 : 0) chars=\(text.count) ms=\(String(format: "%.2f", sendMs))"
+                "socket.surface.send_text workspace=\(ws.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) queued=\(routed.queued ? 1 : 0) chars=\(text.count) ms=\(String(format: "%.2f", sendMs))"
             )
 #endif
             result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
@@ -15454,6 +15444,26 @@ class TerminalController {
         }
     }
 
+    private struct RoutedTerminalInputResult {
+        let queued: Bool
+        let shouldForceRefresh: Bool
+    }
+
+    private static func routeUnescapedInput(_ text: String, to terminalPanel: TerminalPanel) -> RoutedTerminalInputResult {
+        if terminalPanel.surface.surface != nil {
+            let acceptsInput = terminalPanel.surface.acceptsTerminalInput
+            terminalPanel.surface.sendInput(text)
+            return RoutedTerminalInputResult(queued: false, shouldForceRefresh: acceptsInput)
+        }
+
+        terminalPanel.sendText(text)
+        terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+        return RoutedTerminalInputResult(
+            queued: terminalPanel.surface.acceptsTerminalInput,
+            shouldForceRefresh: false
+        )
+    }
+
     private func sendInput(_ text: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
@@ -15474,12 +15484,7 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            if terminalPanel.surface.surface != nil {
-                terminalPanel.surface.sendInput(unescaped)
-            } else {
-                terminalPanel.sendText(unescaped)
-                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
-            }
+            _ = Self.routeUnescapedInput(unescaped, to: terminalPanel)
             success = true
         }
         if let error { return error }
@@ -15547,12 +15552,7 @@ class TerminalController {
             // existing workspace. Return once the input is queued on main so a long
             // payload does not hold the control-socket response open in CI.
             TerminalMutationBus.shared.enqueueMainActorMutation {
-                if terminalPanel.surface.surface != nil {
-                    terminalPanel.surface.sendInput(unescaped)
-                } else {
-                    terminalPanel.sendText(unescaped)
-                    terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
-                }
+                _ = Self.routeUnescapedInput(unescaped, to: terminalPanel)
             }
             success = true
         }
@@ -15616,12 +15616,7 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            if terminalPanel.surface.surface != nil {
-                terminalPanel.surface.sendInput(unescaped)
-            } else {
-                terminalPanel.sendText(unescaped)
-                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
-            }
+            _ = Self.routeUnescapedInput(unescaped, to: terminalPanel)
             success = true
         }
 

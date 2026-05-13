@@ -1635,9 +1635,15 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
             "-f",
             "-c",
             """
-            source \(shellSingleQuoted(integrationPath)) >/dev/null 2>&1 || true
+            if ! source \(shellSingleQuoted(integrationPath)) >/dev/null; then
+              print -u2 "failed to source cmux zsh integration"
+              exit 1
+            fi
             if (( $+functions[_cmux_reset_terminal_keyboard_protocols] )); then
               _cmux_reset_terminal_keyboard_protocols
+            else
+              print -u2 "_cmux_reset_terminal_keyboard_protocols is missing"
+              exit 2
             fi
             """
         ]
@@ -1645,12 +1651,41 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
             "CMUX_TEST_FORCE_KEYBOARD_RESET": "1"
         ]
         let output = Pipe()
+        let standardError = Pipe()
         process.standardOutput = output
-        process.standardError = Pipe()
+        process.standardError = standardError
 
         try process.run()
         process.waitUntilExit()
-        return output.fileHandleForReading.readDataToEndOfFile()
+        let outputData = output.fileHandleForReading.readDataToEndOfFile()
+        let errorData = standardError.fileHandleForReading.readDataToEndOfFile()
+        let outputText = String(decoding: outputData, as: UTF8.self)
+        let errorText = String(decoding: errorData, as: UTF8.self)
+
+        guard process.terminationStatus == 0 else {
+            throw NSError(
+                domain: "CJKIMEInputTests",
+                code: Int(process.terminationStatus),
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "cmux zsh keyboard reset helper failed with status \(process.terminationStatus); stdout=\(outputText.debugDescription) stderr=\(errorText.debugDescription)"
+                ]
+            )
+        }
+
+        let expected = Data("\u{1B}[>m\u{1B}[<8u".utf8)
+        guard outputData == expected else {
+            throw NSError(
+                domain: "CJKIMEInputTests",
+                code: 3,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "cmux zsh keyboard reset helper emitted \(outputData as NSData), expected \(expected as NSData); stdout=\(outputText.debugDescription) stderr=\(errorText.debugDescription)"
+                ]
+            )
+        }
+
+        return outputData
     }
 
     private func processTerminalOutput(_ data: Data, in terminal: HostedTerminalWindow) throws {
