@@ -25,7 +25,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 
     deinit {
-        // Explicit for the required_deinit lint; AnyCancellable tears down the observation.
+        // Explicit no-op so future teardown has a single home.
     }
 
     var fileExplorerStore: FileExplorerStore {
@@ -214,11 +214,24 @@ struct RightSidebarToolPanelView: View {
     let appearance: PanelAppearance
     let onRequestPanelFocus: () -> Void
 
+    @State private var focusFlashOpacity: Double = 0.0
+    @State private var focusFlashAnimationGeneration: Int = 0
+
     var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: appearance.backgroundColor))
+            .overlay {
+                RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
+                    .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
+                    .shadow(color: cmuxAccentColor().opacity(focusFlashOpacity * 0.35), radius: 10)
+                    .padding(FocusFlashPattern.ringInset)
+                    .allowsHitTesting(false)
+            }
             .simultaneousGesture(TapGesture().onEnded { requestPanelFocusIfNeeded() })
+            .onChange(of: panel.focusFlashToken) { _ in
+                triggerFocusFlashAnimation()
+            }
     }
 
     @ViewBuilder
@@ -264,14 +277,51 @@ struct RightSidebarToolPanelView: View {
         guard !panel.isFocusedInWorkspace else { return }
         onRequestPanelFocus()
     }
+
+    private func triggerFocusFlashAnimation() {
+        focusFlashAnimationGeneration &+= 1
+        let generation = focusFlashAnimationGeneration
+        focusFlashOpacity = FocusFlashPattern.values.first ?? 0
+
+        for segment in FocusFlashPattern.segments {
+            DispatchQueue.main.asyncAfter(deadline: .now() + segment.delay) {
+                guard focusFlashAnimationGeneration == generation else { return }
+                withAnimation(focusFlashAnimation(for: segment.curve, duration: segment.duration)) {
+                    focusFlashOpacity = segment.targetOpacity
+                }
+            }
+        }
+    }
+
+    private func focusFlashAnimation(for curve: FocusFlashCurve, duration: TimeInterval) -> Animation {
+        switch curve {
+        case .easeIn:
+            return .easeIn(duration: duration)
+        case .easeOut:
+            return .easeOut(duration: duration)
+        }
+    }
 }
 
 private struct RightSidebarToolFocusAnchor: NSViewRepresentable {
     final class Coordinator {
         var onViewChange: (RightSidebarToolFocusAnchorView?) -> Void
+        weak var attachedView: RightSidebarToolFocusAnchorView?
 
         init(onViewChange: @escaping (RightSidebarToolFocusAnchorView?) -> Void) {
             self.onViewChange = onViewChange
+        }
+
+        func attach(_ view: RightSidebarToolFocusAnchorView) {
+            guard attachedView !== view else { return }
+            attachedView = view
+            onViewChange(view)
+        }
+
+        func detach(_ view: RightSidebarToolFocusAnchorView) {
+            guard attachedView === view else { return }
+            attachedView = nil
+            onViewChange(nil)
         }
     }
 
@@ -283,18 +333,17 @@ private struct RightSidebarToolFocusAnchor: NSViewRepresentable {
 
     func makeNSView(context: Context) -> RightSidebarToolFocusAnchorView {
         let view = RightSidebarToolFocusAnchorView()
-        context.coordinator.onViewChange(view)
+        context.coordinator.attach(view)
         return view
     }
 
     func updateNSView(_ nsView: RightSidebarToolFocusAnchorView, context: Context) {
         context.coordinator.onViewChange = onViewChange
-        context.coordinator.onViewChange(nsView)
+        context.coordinator.attach(nsView)
     }
 
     static func dismantleNSView(_ nsView: RightSidebarToolFocusAnchorView, coordinator: Coordinator) {
-        _ = nsView
-        coordinator.onViewChange(nil)
+        coordinator.detach(nsView)
     }
 }
 

@@ -8220,10 +8220,6 @@ final class Workspace: Identifiable, ObservableObject {
         panels[panelId] as? FilePreviewPanel
     }
 
-    func rightSidebarToolPanel(for panelId: UUID) -> RightSidebarToolPanel? {
-        panels[panelId] as? RightSidebarToolPanel
-    }
-
     private func surfaceKind(for panel: any Panel) -> String {
         switch panel.panelType {
         case .terminal:
