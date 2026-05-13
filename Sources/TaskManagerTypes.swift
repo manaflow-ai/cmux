@@ -467,7 +467,9 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
             arguments: []
         )
         return basenames.contains { candidate in
-            argumentHostBasenames.contains(candidate) || ambiguousDirectBasenames.contains(candidate)
+            argumentHostBasenames.contains(candidate)
+                || ambiguousDirectBasenames.contains(candidate)
+                || isVersionedExecutableBasename(candidate)
         }
     }
 
@@ -538,6 +540,14 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
     private static func appendBasename(_ value: String, to values: inout Set<String>) {
         guard let normalized = normalized((value as NSString).lastPathComponent) else { return }
         values.insert(normalized)
+    }
+
+    private static func isVersionedExecutableBasename(_ value: String) -> Bool {
+        let parts = value.split(separator: ".", omittingEmptySubsequences: false)
+        guard (2...4).contains(parts.count) else { return false }
+        return parts.allSatisfy { part in
+            !part.isEmpty && part.unicodeScalars.allSatisfy { CharacterSet.decimalDigits.contains($0) }
+        }
     }
 
     private static func normalized(_ value: String?) -> String? {

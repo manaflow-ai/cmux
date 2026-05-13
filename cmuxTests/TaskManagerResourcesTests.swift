@@ -287,10 +287,23 @@ final class TaskManagerResourcesTests: XCTestCase {
             processName: "2.1.140",
             processPath: "/Users/lawrence/.local/share/claude/versions/2.1.140"
         ))
+        XCTAssertTrue(CmuxTaskManagerCodingAgentDefinition.shouldReadArguments(
+            processName: "2.1.140",
+            processPath: nil
+        ))
         XCTAssertEqual(
             CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "2.1.140",
                 processPath: "/Users/lawrence/.local/share/claude/versions/2.1.140",
+                arguments: ["/Users/lawrence/.local/bin/claude", "--resume", "session-id"],
+                environment: [:]
+            )?.id,
+            "claude"
+        )
+        XCTAssertEqual(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                processName: "2.1.140",
+                processPath: nil,
                 arguments: ["/Users/lawrence/.local/bin/claude", "--resume", "session-id"],
                 environment: [:]
             )?.id,
@@ -305,6 +318,12 @@ final class TaskManagerResourcesTests: XCTestCase {
             )?.id,
             "claude"
         )
+        XCTAssertNil(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: "2.1.140",
+            processPath: nil,
+            arguments: [],
+            environment: [:]
+        ))
         XCTAssertEqual(
             CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "node",

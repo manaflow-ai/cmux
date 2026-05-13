@@ -3428,9 +3428,15 @@ class TerminalController {
             browserPIDOccurrences: browserPIDOccurrences,
             includeProcesses: includeProcesses
         )
+        let aggregates = (
+            programs: processSnapshot.programSummaryPayload(for: totalPIDs),
+            codingAgents: processSnapshot.codingAgentSummaryPayload(for: totalPIDs)
+        )
 
         payload["sample"] = processSnapshot.samplePayload()
         payload["totals"] = processSnapshot.summaryPayload(for: totalPIDs)
+        payload["program_totals"] = aggregates.programs
+        payload["coding_agents"] = aggregates.codingAgents
         payload["windows"] = windowNodes
         return .ok(payload)
     }
