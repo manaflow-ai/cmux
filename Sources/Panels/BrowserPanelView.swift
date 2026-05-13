@@ -3834,7 +3834,9 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 object: editor,
                 queue: .main
             ) { [weak self] _ in
-                self?.publishSelectionState()
+                MainActor.assumeIsolated {
+                    self?.publishSelectionState()
+                }
             }
         }
 

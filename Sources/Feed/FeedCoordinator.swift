@@ -1,7 +1,7 @@
 import AppKit
 import CMUXWorkstream
 import Foundation
-import UserNotifications
+@preconcurrency import UserNotifications
 
 /// App-level coordinator that owns the shared `WorkstreamStore` and
 /// mediates between the socket thread (which processes `feed.*` V2
@@ -563,15 +563,22 @@ private func deliverFeedNotification(
 ) {
     guard effects.desktop || effects.sound || effects.command else { return }
 
+    let shouldPlaySound = effects.sound
+    let shouldRunCommand = effects.command
+    let notificationTitle = title
+    let notificationSubtitle = subtitle
+    let notificationBody = body
+    let workstreamId = event.sessionId
+
     func runFallbackEffects() {
-        if effects.sound {
+        if shouldPlaySound {
             NotificationSoundSettings.playSelectedSound()
         }
-        if effects.command {
+        if shouldRunCommand {
             NotificationSoundSettings.runCustomCommand(
-                title: title,
-                subtitle: subtitle,
-                body: body
+                title: notificationTitle,
+                subtitle: notificationSubtitle,
+                body: notificationBody
             )
         }
     }
@@ -581,56 +588,50 @@ private func deliverFeedNotification(
         return
     }
 
-    let content = UNMutableNotificationContent()
-    content.title = title
-    content.subtitle = subtitle
-    content.body = body
-    content.sound = effects.sound ? NotificationSoundSettings.sound() : nil
-    content.categoryIdentifier = categoryId
-    content.userInfo = [
-        "requestId": requestId,
-        "workstreamId": event.sessionId,
-    ]
+    Task { @MainActor in
+        let content = UNMutableNotificationContent()
+        content.title = notificationTitle
+        content.subtitle = notificationSubtitle
+        content.body = notificationBody
+        content.sound = shouldPlaySound ? NotificationSoundSettings.sound() : nil
+        content.categoryIdentifier = categoryId
+        content.userInfo = [
+            "requestId": requestId,
+            "workstreamId": workstreamId,
+        ]
 
-    let request = UNNotificationRequest(
-        identifier: "feed.\(requestId)",
-        content: content,
-        trigger: nil
-    )
+        let request = UNNotificationRequest(
+            identifier: "feed.\(requestId)",
+            content: content,
+            trigger: nil
+        )
 
-    let center = UNUserNotificationCenter.current()
-    center.getNotificationSettings { settings in
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
         switch settings.authorizationStatus {
         case .authorized, .provisional:
-            center.add(request) { _ in
-                if effects.command {
-                    NotificationSoundSettings.runCustomCommand(
-                        title: content.title,
-                        subtitle: content.subtitle,
-                        body: content.body
-                    )
-                }
-            }
+            try? await center.add(request)
+            runCommandEffectIfNeeded()
         case .notDetermined:
-            center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-                if granted {
-                    center.add(request) { _ in
-                        if effects.command {
-                            NotificationSoundSettings.runCustomCommand(
-                                title: content.title,
-                                subtitle: content.subtitle,
-                                body: content.body
-                            )
-                        }
-                    }
-                }
-                if !granted {
-                    runFallbackEffects()
-                }
+            let granted = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
+            if granted {
+                try? await center.add(request)
+                runCommandEffectIfNeeded()
+            } else {
+                runFallbackEffects()
             }
         default:
             runFallbackEffects()
         }
+    }
+
+    func runCommandEffectIfNeeded() {
+        guard shouldRunCommand else { return }
+        NotificationSoundSettings.runCustomCommand(
+            title: notificationTitle,
+            subtitle: notificationSubtitle,
+            body: notificationBody
+        )
     }
 }
 
