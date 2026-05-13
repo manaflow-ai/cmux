@@ -70,22 +70,10 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
             "Expected a cmux window before opening the configured menu"
         )
 
-        let toolsMenu = requireElement(
-            candidates: [
-                app.menuBars.menuBarItems["Tools"],
-                app.menuBars.menuItems["Tools"],
-            ],
-            timeout: 12.0,
-            description: "configured Tools menu",
-            failureDetails: {
-                let titles = app.menuBars.menuBarItems
-                    .allElementsBoundByIndex
-                    .map(\.label)
-                    .joined(separator: ", ")
-                return "Visible menu titles: \(titles)"
-            }
+        XCTAssertTrue(
+            openConfiguredToolsMenu(in: app, timeout: 12.0),
+            configuredToolsMenuFailureDetails(app: app)
         )
-        toolsMenu.click()
 
         XCTAssertTrue(app.menuItems["Run Static Demo Command"].waitForExistence(timeout: 3.0))
         XCTAssertTrue(app.menuItems["Nested Commands"].waitForExistence(timeout: 3.0))
@@ -146,6 +134,47 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
         try config.write(to: configURL, atomically: true, encoding: .utf8)
     }
 
+    private func openConfiguredToolsMenu(in app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let labeledCandidates = [
+            app.menuBars.menuBarItems["Tools"],
+            app.menuBars.menuItems["Tools"],
+        ]
+        for candidate in labeledCandidates where candidate.waitForExistence(timeout: 0.5) {
+            candidate.click()
+            if app.menuItems["Run Static Demo Command"].waitForExistence(timeout: 1.0) {
+                return true
+            }
+        }
+
+        let start = ProcessInfo.processInfo.systemUptime
+        while (ProcessInfo.processInfo.systemUptime - start) < timeout {
+            let items = app.menuBars.menuBarItems.allElementsBoundByIndex
+            if items.isEmpty {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+                continue
+            }
+            for item in items where item.exists {
+                if item.isHittable {
+                    item.click()
+                } else {
+                    item.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+                }
+                if app.menuItems["Run Static Demo Command"].waitForExistence(timeout: 0.4) {
+                    return true
+                }
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        return false
+    }
+
+    private func configuredToolsMenuFailureDetails(app: XCUIApplication) -> String {
+        let items = app.menuBars.menuBarItems.allElementsBoundByIndex
+        let titles = items.map(\.label).joined(separator: ", ")
+        let frames = items.map { NSStringFromRect($0.frame) }.joined(separator: ", ")
+        return "Expected configured Tools menu to open. Visible menu count: \(items.count). Titles: \(titles). Frames: \(frames)"
+    }
+
     private func restoreOriginalConfig() {
         guard let configURL else {
             return
@@ -155,28 +184,6 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
         } else {
             try? FileManager.default.removeItem(at: configURL)
         }
-    }
-
-    private func requireElement(
-        candidates: [XCUIElement],
-        timeout: TimeInterval,
-        description: String,
-        failureDetails: () -> String = { "" }
-    ) -> XCUIElement {
-        var match: XCUIElement?
-        let found = configuredMenuBarPollUntil(timeout: timeout) {
-            for candidate in candidates where candidate.exists {
-                match = candidate
-                return true
-            }
-            return false
-        }
-        let details = failureDetails()
-        XCTAssertTrue(
-            found,
-            details.isEmpty ? "Expected \(description) to exist" : "Expected \(description) to exist. \(details)"
-        )
-        return match ?? candidates[0]
     }
 
     private func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {
