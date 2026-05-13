@@ -12149,13 +12149,6 @@ private struct TabItemView: View, Equatable {
         (showsModifierShortcutHints || alwaysShowShortcutHints) && workspaceShortcutLabel != nil
     }
 
-    private var trailingAccessoryWidth: CGFloat {
-        guard showCloseButton || showsWorkspaceShortcutHint else { return 0 }
-        return SidebarTrailingAccessoryWidthPolicy.width(
-            canCloseWorkspace: canCloseWorkspace
-        )
-    }
-
     private var remoteWorkspaceSidebarText: String? {
         guard tab.hasActiveRemoteTerminalSessions else { return nil }
         let trimmedTarget = tab.remoteDisplayTarget?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -12300,37 +12293,6 @@ private struct TabItemView: View, Equatable {
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
-
-                if trailingAccessoryWidth > 0 {
-                    ZStack(alignment: .trailing) {
-                        Button(action: {
-                            #if DEBUG
-                            cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
-                            #endif
-                            tabManager.closeWorkspaceWithConfirmation(tab)
-                        }) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundColor(activeSecondaryColor(0.7))
-                        }
-                        .buttonStyle(.plain)
-                        .safeHelp(closeButtonTooltip)
-                        .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
-                        .opacity(showCloseButton && !showsWorkspaceShortcutHint ? 1 : 0)
-                        .allowsHitTesting(showCloseButton && !showsWorkspaceShortcutHint)
-
-                        if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
-                            ShortcutHintPill(text: workspaceShortcutLabel, fontSize: 10, emphasis: shortcutHintEmphasis)
-                                .offset(
-                                    x: ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset),
-                                    y: ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)
-                                )
-                                .shortcutHintTransition()
-                        }
-                    }
-                    .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
-                    .frame(width: trailingAccessoryWidth, height: 16, alignment: .trailing)
-                }
             }
 
             if let description = workspaceSnapshot.customDescription {
@@ -12536,6 +12498,35 @@ private struct TabItemView: View, Equatable {
                     }
                 }
         )
+        .overlay(alignment: .topTrailing) {
+            if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
+                ShortcutHintPill(text: workspaceShortcutLabel, fontSize: 10, emphasis: shortcutHintEmphasis)
+                    .offset(
+                        x: ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset),
+                        y: ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)
+                    )
+                    .padding(.top, 6)
+                    .padding(.trailing, 10)
+                    .shortcutHintTransition()
+            } else if showCloseButton {
+                Button(action: {
+                    #if DEBUG
+                    cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
+                    #endif
+                    tabManager.closeWorkspaceWithConfirmation(tab)
+                }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(activeSecondaryColor(0.7))
+                }
+                .buttonStyle(.plain)
+                .safeHelp(closeButtonTooltip)
+                .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
+                .padding(.top, 8)
+                .padding(.trailing, 10)
+            }
+        }
+        .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, 6)
         .background {
             GeometryReader { proxy in
