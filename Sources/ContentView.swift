@@ -11871,12 +11871,6 @@ enum SidebarWorkspaceShortcutHintMetrics {
 
 enum SidebarTrailingAccessoryWidthPolicy {
     static let closeButtonWidth: CGFloat = 16
-
-    static func width(
-        canCloseWorkspace: Bool
-    ) -> CGFloat {
-        return canCloseWorkspace ? closeButtonWidth : 0
-    }
 }
 
 // PERF: TabItemView is Equatable so SwiftUI skips body re-evaluation when
