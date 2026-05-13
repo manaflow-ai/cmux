@@ -2838,6 +2838,10 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         surfaceView.debugEnqueueScrollbarUpdateAfterKeyboardScrollIntent(
             makeScrollbar(total: 100, offset: 40, len: 10)
         )
+        surfaceView.enqueueScrollbarUpdate(
+            makeScrollbar(total: 100, offset: 40, len: 10),
+            wasKeyboardInitiated: false
+        )
         RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         XCTAssertEqual(scrollView.contentView.bounds.origin.y, 500, accuracy: 0.01)
         XCTAssertEqual(

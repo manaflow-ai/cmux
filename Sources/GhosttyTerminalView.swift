@@ -6134,7 +6134,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         defer { _scrollbarLock.unlock() }
         // Store the latest value (always overwrites — only the newest matters).
         _pendingScrollbar = newValue
-        _pendingScrollbarWasKeyboardInitiated = wasKeyboardInitiated
+        _pendingScrollbarWasKeyboardInitiated =
+            _pendingScrollbarWasKeyboardInitiated || wasKeyboardInitiated
         let needsSchedule = !_scrollbarFlushScheduled
         if needsSchedule { _scrollbarFlushScheduled = true }
 
