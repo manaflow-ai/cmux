@@ -12,7 +12,7 @@
 	<true/>
 	<key>keychain-access-groups</key>
 	<array>
-		<string>$(AppIdentifierPrefix)com.cmuxterm.app</string>
+		<string>7WLXT3NR37.com.cmuxterm.app</string>
 	</array>
 	<key>com.apple.security.device.camera</key>
 	<true/>
