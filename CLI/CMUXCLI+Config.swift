@@ -98,7 +98,10 @@ extension CMUXCLI {
             "primary": Self.primarySettingsDisplayPath,
             "legacy": Self.legacySettingsDisplayPath,
             "fallback": Self.fallbackSettingsDisplayPath,
-            "ghostty_config": Self.ghosttyConfigDisplayPath,
+            "ghostty_config": [
+                "path": Self.ghosttyConfigDisplayPath,
+                "note": "Not cmux-owned, but cmux reads it. Use for terminal transparency (background-opacity), blur, font, theme, etc.",
+            ],
             "docs_url": Self.settingsDocsURL,
             "schema_url": Self.settingsSchemaURL,
             "reload_command": "cmux reload-config",
