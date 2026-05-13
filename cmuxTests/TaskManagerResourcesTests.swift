@@ -264,12 +264,30 @@ final class TaskManagerResourcesTests: XCTestCase {
         )
         XCTAssertEqual(
             CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                processName: "claude_code",
+                processPath: nil,
+                arguments: [],
+                environment: [:]
+            )?.id,
+            "claude"
+        )
+        XCTAssertEqual(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "node",
                 processPath: nil,
                 arguments: ["node", "agent.js"],
                 environment: ["CMUX_AGENT_LAUNCH_KIND": "claudeTeams"]
             )?.id,
             "claude"
+        )
+        XCTAssertEqual(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                processName: "bun",
+                processPath: nil,
+                arguments: ["bun", "opencode"],
+                environment: ["CMUX_AGENT_LAUNCH_KIND": "omo"]
+            )?.id,
+            "opencode"
         )
         XCTAssertEqual(
             CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
@@ -280,12 +298,54 @@ final class TaskManagerResourcesTests: XCTestCase {
             )?.id,
             "codex"
         )
+        XCTAssertEqual(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                processName: "node",
+                processPath: nil,
+                arguments: ["node", "agent.js"],
+                environment: ["CMUX_AGENT_LAUNCH_KIND": "omx"]
+            )?.id,
+            "codex"
+        )
         XCTAssertNil(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
             processName: "node",
             processPath: nil,
             arguments: ["node", "api/server.js"],
             environment: [:]
         ))
+    }
+
+    func testCodingAgentMatcherCoversSupportedAgentExecutableNames() {
+        let cases: [(processName: String, expectedId: String)] = [
+            ("claude_code", "claude"),
+            ("codex", "codex"),
+            ("opencode", "opencode"),
+            ("pi", "pi"),
+            ("pi-coding-agent", "pi"),
+            ("amp", "amp"),
+            ("cursor-agent", "cursor"),
+            ("gemini", "gemini"),
+            ("hermes", "hermes-agent"),
+            ("hermes-agent", "hermes-agent"),
+            ("copilot", "copilot"),
+            ("codebuddy", "codebuddy"),
+            ("droid", "factory"),
+            ("factory", "factory"),
+            ("qodercli", "qoder"),
+        ]
+
+        for testCase in cases {
+            XCTAssertEqual(
+                CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                    processName: testCase.processName,
+                    processPath: nil,
+                    arguments: [],
+                    environment: [:]
+                )?.id,
+                testCase.expectedId,
+                testCase.processName
+            )
+        }
     }
 
     private func resourceSummary() -> CmuxTopResourceSummary {

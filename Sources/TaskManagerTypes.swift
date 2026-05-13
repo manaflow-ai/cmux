@@ -342,33 +342,33 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
                 id: "claude",
                 displayName: String(localized: "taskManager.agent.claudeCode", defaultValue: "Claude Code"),
                 assetName: "AgentIcons/Claude",
-                launchKinds: ["claude", "claudeteams", "claude-teams", "omc", "omx"],
-                directBasenames: ["claude", "claude-code", "claude-teams", "omc"],
-                argumentNeedles: ["claude-code", "claude-teams", "@anthropic-ai/claude-code", "oh-my-claude", "omc"]
+                launchKinds: ["claude", "claudeteams", "claude-teams", "omc"],
+                directBasenames: ["claude", "claude-code", "claude_code", "claude-teams", "omc"],
+                argumentNeedles: ["claude-code", "claude_code", "claude-teams", "@anthropic-ai/claude-code", "oh-my-claude", "omc"]
             ),
             CmuxTaskManagerCodingAgentDefinition(
                 id: "codex",
                 displayName: String(localized: "taskManager.agent.codex", defaultValue: "Codex"),
                 assetName: "AgentIcons/Codex",
-                launchKinds: ["codex"],
-                directBasenames: ["codex"],
-                argumentNeedles: ["codex", "@openai/codex"]
+                launchKinds: ["codex", "omx"],
+                directBasenames: ["codex", "omx"],
+                argumentNeedles: ["codex", "@openai/codex", "oh-my-codex"]
             ),
             CmuxTaskManagerCodingAgentDefinition(
                 id: "opencode",
                 displayName: String(localized: "taskManager.agent.opencode", defaultValue: "OpenCode"),
                 assetName: "AgentIcons/OpenCode",
-                launchKinds: ["opencode"],
-                directBasenames: ["opencode"],
-                argumentNeedles: ["opencode"]
+                launchKinds: ["opencode", "omo"],
+                directBasenames: ["opencode", "opencode-ai", "open-code"],
+                argumentNeedles: ["opencode", "opencode-ai", "open-code", "oh-my-openagent"]
             ),
             CmuxTaskManagerCodingAgentDefinition(
                 id: "pi",
                 displayName: String(localized: "taskManager.agent.pi", defaultValue: "Pi"),
                 assetName: "AgentIcons/Pi",
                 launchKinds: ["pi"],
-                directBasenames: ["pi"],
-                argumentNeedles: []
+                directBasenames: ["pi", "pi-coding-agent"],
+                argumentNeedles: ["@mariozechner/pi-coding-agent", "pi-coding-agent"]
             ),
             CmuxTaskManagerCodingAgentDefinition(
                 id: "amp",
@@ -431,7 +431,7 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
                 displayName: String(localized: "taskManager.agent.factory", defaultValue: "Factory"),
                 assetName: nil,
                 launchKinds: ["factory"],
-                directBasenames: ["droid"],
+                directBasenames: ["droid", "factory"],
                 argumentNeedles: ["factory"]
             ),
             CmuxTaskManagerCodingAgentDefinition(
