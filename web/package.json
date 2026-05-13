@@ -74,6 +74,13 @@
     "tailwindcss": "^4",
     "typescript": "^5"
   },
+  "overrides": {
+    "fast-xml-builder": "^1.2.0",
+    "flatted": "^3.4.2",
+    "minimatch": "^10.2.5",
+    "picomatch": "^4.0.4",
+    "protobufjs": "^7.5.8"
+  },
   "ignoreScripts": [
     "sharp",
     "unrs-resolver"

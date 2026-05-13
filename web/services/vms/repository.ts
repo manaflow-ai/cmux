@@ -305,7 +305,13 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           destroyedAt: input.status === "destroyed" ? new Date() : null,
           updatedAt: new Date(),
         })
-        .where(and(eq(cloudVms.id, input.id), eq(cloudVms.providerVmId, input.providerVmId)));
+        .where(
+          and(
+            eq(cloudVms.id, input.id),
+            eq(cloudVms.providerVmId, input.providerVmId),
+            ne(cloudVms.status, "destroyed"),
+          ),
+        );
     }),
 
   markCreateRunning: (input) =>

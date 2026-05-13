@@ -462,6 +462,71 @@ describe("VM Effect workflows", () => {
     expect(oldVm?.status).toBe("running");
   });
 
+  dbTest("does not overwrite a VM destroyed during provider status refresh", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const testSql = sql;
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
+      values ('user-workflow-provider-destroy-race-old', 'team-workflow-provider-destroy-race', 'free', 'freestyle', 'provider-vm-provider-destroy-race-old', 'snapshot-test', 'running')
+    `;
+
+    let createCalls = 0;
+    let statusCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.sync(() => {
+          createCalls += 1;
+          return {
+            provider: "freestyle" as const,
+            providerVmId: "provider-vm-provider-destroy-race-new",
+            status: "running" as const,
+            image: "snapshot-test",
+            createdAt: Date.now(),
+          };
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+      getStatus: () =>
+        Effect.promise(async () => {
+          statusCalls += 1;
+          await testSql`
+            update cloud_vms
+            set status = 'destroyed', destroyed_at = now(), updated_at = now()
+            where provider_vm_id = 'provider-vm-provider-destroy-race-old'
+          `;
+          return "paused" as const;
+        }),
+    };
+
+    const created = await Effect.runPromise(
+      createVm({
+        userId: "user-workflow-provider-destroy-race-new",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-provider-destroy-race",
+        billingPlanId: "free",
+        maxActiveVms: 1,
+        provider: "freestyle",
+        image: "snapshot-test",
+        idempotencyKey: "provider-destroy-race-new",
+      }).pipe(Effect.provide(providerLayer(provider))),
+    );
+
+    expect(created.providerVmId).toBe("provider-vm-provider-destroy-race-new");
+    expect(statusCalls).toBe(1);
+    expect(createCalls).toBe(1);
+
+    const [oldVm] = await sql<{ status: string; destroyedAt: Date | null }[]>`
+      select status, destroyed_at as "destroyedAt" from cloud_vms
+      where provider_vm_id = 'provider-vm-provider-destroy-race-old'
+    `;
+    expect(oldVm?.status).toBe("destroyed");
+    expect(oldVm?.destroyedAt).toBeInstanceOf(Date);
+  });
+
   dbTest("returns in-progress for concurrent same-key creates before active limit checks", async () => {
     if (!sql) throw new Error("test database not initialized");
     const testSql = sql;
