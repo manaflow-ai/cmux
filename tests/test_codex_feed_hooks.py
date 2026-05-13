@@ -575,6 +575,50 @@ def test_install_codex_hooks_only_edits_real_features_table(cli_path: str, root:
         raise AssertionError(f"codex_hooks should be inserted into [features]: {config_toml!r}")
 
 
+def test_uninstall_codex_hooks_removes_empty_features_table_from_install(cli_path: str, root: Path) -> None:
+    codex_home = root / "codex-home-empty-features-uninstall"
+    codex_home.mkdir()
+    config_path = codex_home / "config.toml"
+    original_config = 'model = "gpt-5.1-codex"\n'
+    config_path.write_text(original_config, encoding="utf-8")
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "install", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex install failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    installed_config = config_path.read_text(encoding="utf-8")
+    if "[features]" not in installed_config or "codex_hooks = true" not in installed_config:
+        raise AssertionError(f"install should add the codex_hooks feature table: {installed_config!r}")
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "uninstall", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex uninstall failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    config_toml = config_path.read_text(encoding="utf-8")
+    if config_toml != original_config:
+        raise AssertionError(f"uninstall should remove the empty [features] table: {config_toml!r}")
+
+
 def test_uninstall_codex_hooks_removes_legacy_managed_block(cli_path: str, root: Path) -> None:
     codex_home = root / "codex-home-legacy-uninstall"
     codex_home.mkdir()
@@ -755,6 +799,7 @@ def main() -> int:
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_install_codex_hooks_only_edits_real_features_table(cli_path, root)
+            test_uninstall_codex_hooks_removes_empty_features_table_from_install(cli_path, root)
             test_uninstall_codex_hooks_removes_legacy_managed_block(cli_path, root)
             test_install_codex_hooks_preserves_config_when_toml_read_fails(cli_path, root)
             test_permission_reply_uses_codex_permission_request_schema(cli_path, root)

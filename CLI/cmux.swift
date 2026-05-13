@@ -17917,7 +17917,44 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             filteredLines.append(line)
         }
+        removeEmptyFeaturesTable(from: &filteredLines)
         return tomlContent(from: filteredLines)
+    }
+
+    private static func removeEmptyFeaturesTable(from lines: inout [String]) {
+        var index = 0
+        while index < lines.count {
+            guard tomlLineIsTable("features", line: lines[index]) else {
+                index += 1
+                continue
+            }
+
+            let bodyStart = index + 1
+            var bodyEnd = bodyStart
+            while bodyEnd < lines.count, tomlTableName(in: lines[bodyEnd]) == nil {
+                bodyEnd += 1
+            }
+
+            let bodyIsEmpty = lines[bodyStart..<bodyEnd].allSatisfy { line in
+                line.trimmingCharacters(in: .whitespaces).isEmpty
+            }
+            guard bodyIsEmpty else {
+                index = bodyEnd
+                continue
+            }
+
+            lines.removeSubrange(index..<bodyEnd)
+            if index == lines.count, index > 0,
+               lines[index - 1].trimmingCharacters(in: .whitespaces).isEmpty
+            {
+                lines.remove(at: index - 1)
+            } else if index > 0, index < lines.count,
+                      lines[index - 1].trimmingCharacters(in: .whitespaces).isEmpty,
+                      lines[index].trimmingCharacters(in: .whitespaces).isEmpty
+            {
+                lines.remove(at: index)
+            }
+        }
     }
 
     private static func removeLegacyCodexHooksFeatureBlock(from lines: inout [String]) {
