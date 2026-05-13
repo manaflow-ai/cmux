@@ -3994,6 +3994,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private struct WindowMoveTargetSnapshotCacheKey: Hashable {
         let referenceWindowId: UUID?
+        let orderingFingerprint: String
     }
 
     struct WorkspaceMoveTarget: Identifiable {
@@ -4011,12 +4012,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func windowMoveTargetSnapshots(referenceWindowId: UUID?) -> [WindowMoveTargetSnapshot] {
-        let cacheKey = WindowMoveTargetSnapshotCacheKey(referenceWindowId: referenceWindowId)
+        let orderedSummaries = orderedMainWindowSummaries(referenceWindowId: referenceWindowId)
+        let cacheKey = WindowMoveTargetSnapshotCacheKey(
+            referenceWindowId: referenceWindowId,
+            orderingFingerprint: windowMoveTargetOrderingFingerprint(orderedSummaries)
+        )
         if let cached = windowMoveTargetSnapshotCache[cacheKey] {
             return cached
         }
 
-        let orderedSummaries = orderedMainWindowSummaries(referenceWindowId: referenceWindowId)
         let labels = windowLabelsById(orderedSummaries: orderedSummaries, referenceWindowId: referenceWindowId)
         let snapshots = orderedSummaries.map { summary in
             WindowMoveTargetSnapshot(
@@ -5072,6 +5076,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if lhs.isVisible != rhs.isVisible { return lhs.isVisible }
             return lhs.windowId.uuidString < rhs.windowId.uuidString
         }
+    }
+
+    private func windowMoveTargetOrderingFingerprint(_ summaries: [MainWindowSummary]) -> String {
+        summaries.map { summary in
+            [
+                summary.windowId.uuidString,
+                summary.isKeyWindow ? "key" : "not-key",
+                summary.isVisible ? "visible" : "hidden",
+                String(summary.workspaceCount),
+                summary.selectedWorkspaceId?.uuidString ?? "none",
+            ].joined(separator: ":")
+        }.joined(separator: "|")
     }
 
     private func windowLabelsById(orderedSummaries: [MainWindowSummary], referenceWindowId: UUID?) -> [UUID: String] {

@@ -16907,7 +16907,12 @@ struct CMUXCLI {
                     "codex-hook.monitor.invalid-owner-pid",
                     data: ["raw": rawOwnerPID]
                 )
-                return
+                throw CLIError(
+                    message: String(
+                        localized: "cli.error.codexMonitorInvalidOwnerPID",
+                        defaultValue: "hooks codex monitor: --owner-pid must be an integer greater than 1"
+                    )
+                )
             }
             ownerPID = parsedOwnerPID
         } else {

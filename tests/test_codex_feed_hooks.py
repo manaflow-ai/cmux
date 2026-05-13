@@ -543,9 +543,9 @@ def test_codex_monitor_rejects_invalid_owner_pid(cli_path: str, root: Path) -> N
             env=env,
             timeout=3,
         )
-    if result.returncode != 0:
+    if result.returncode == 0:
         raise AssertionError(
-            f"hooks codex monitor failed exit={result.returncode}\n"
+            "hooks codex monitor accepted invalid --owner-pid\n"
             f"stdout={result.stdout}\nstderr={result.stderr}"
         )
     if any(frame.get("method") == "surface.list" for frame in fake.frames):
