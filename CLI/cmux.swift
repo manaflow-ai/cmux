@@ -16229,7 +16229,34 @@ struct CMUXCLI {
             guard !trimmed.isEmpty,
                   let data = trimmed.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-                  (object["type"] as? String) == "event_msg",
+                  let objectType = object["type"] as? String else {
+                continue
+            }
+
+            if objectType == "turn_context",
+               let payload = object["payload"] as? [String: Any] {
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                if let turnId {
+                    sawRelevantTurn = payloadTurnId == turnId
+                } else {
+                    sawRelevantTurn = true
+                }
+                continue
+            }
+
+            if objectType == "response_item",
+               let payload = object["payload"] as? [String: Any],
+               let userInput = codexUserInputFunctionCallCandidate(
+                   from: payload,
+                   turnId: turnId,
+                   sawRelevantTurn: sawRelevantTurn,
+                   excluding: publishedCallIds
+               ) {
+                candidate = userInput
+                continue
+            }
+
+            guard objectType == "event_msg",
                   let payload = object["payload"] as? [String: Any],
                   let eventType = payload["type"] as? String else {
                 continue
@@ -16245,21 +16272,14 @@ struct CMUXCLI {
                 }
 
             case "request_user_input":
-                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
-                if let turnId {
-                    if let payloadTurnId {
-                        guard payloadTurnId == turnId else { continue }
-                    } else {
-                        guard sawRelevantTurn else { continue }
-                    }
+                if let userInput = codexUserInputEventCandidate(
+                    from: payload,
+                    turnId: turnId,
+                    sawRelevantTurn: sawRelevantTurn,
+                    excluding: publishedCallIds
+                ) {
+                    candidate = userInput
                 }
-
-                let question = codexUserInputQuestionText(from: payload)
-                let rawCallId = firstString(in: payload, keys: ["call_id", "callId"])
-                let callId = rawCallId?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    ?? "\(payloadTurnId ?? turnId ?? "session"):\(question ?? "request_user_input")"
-                guard !publishedCallIds.contains(callId) else { continue }
-                candidate = CodexHookUserInputCandidate(callId: callId, question: question)
 
             case "task_complete", "turn_complete":
                 let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
@@ -16275,6 +16295,86 @@ struct CMUXCLI {
         }
 
         return candidate
+    }
+
+    private func codexUserInputEventCandidate(
+        from payload: [String: Any],
+        turnId: String?,
+        sawRelevantTurn: Bool,
+        excluding publishedCallIds: Set<String>
+    ) -> CodexHookUserInputCandidate? {
+        let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+        if let turnId {
+            if let payloadTurnId {
+                guard payloadTurnId == turnId else { return nil }
+            } else {
+                guard sawRelevantTurn else { return nil }
+            }
+        }
+        return codexUserInputCandidate(
+            from: payload,
+            payloadTurnId: payloadTurnId,
+            turnId: turnId,
+            excluding: publishedCallIds
+        )
+    }
+
+    private func codexUserInputFunctionCallCandidate(
+        from payload: [String: Any],
+        turnId: String?,
+        sawRelevantTurn: Bool,
+        excluding publishedCallIds: Set<String>
+    ) -> CodexHookUserInputCandidate? {
+        guard (payload["type"] as? String) == "function_call",
+              (payload["name"] as? String) == "request_user_input" else {
+            return nil
+        }
+
+        let arguments = codexFunctionCallArgumentsObject(from: payload)
+        let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+            ?? arguments.flatMap { firstString(in: $0, keys: ["turn_id", "turnId"]) }
+        if let turnId {
+            if let payloadTurnId {
+                guard payloadTurnId == turnId else { return nil }
+            } else {
+                guard sawRelevantTurn else { return nil }
+            }
+        }
+
+        return codexUserInputCandidate(
+            from: arguments ?? payload,
+            payloadTurnId: payloadTurnId,
+            turnId: turnId,
+            fallbackCallId: firstString(in: payload, keys: ["call_id", "callId"]),
+            excluding: publishedCallIds
+        )
+    }
+
+    private func codexFunctionCallArgumentsObject(from payload: [String: Any]) -> [String: Any]? {
+        if let arguments = payload["arguments"] as? [String: Any] {
+            return arguments
+        }
+        guard let rawArguments = payload["arguments"] as? String,
+              let data = rawArguments.data(using: .utf8),
+              let arguments = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+            return nil
+        }
+        return arguments
+    }
+
+    private func codexUserInputCandidate(
+        from payload: [String: Any],
+        payloadTurnId: String?,
+        turnId: String?,
+        fallbackCallId: String? = nil,
+        excluding publishedCallIds: Set<String>
+    ) -> CodexHookUserInputCandidate? {
+        let question = codexUserInputQuestionText(from: payload)
+        let rawCallId = firstString(in: payload, keys: ["call_id", "callId"]) ?? fallbackCallId
+        let callId = rawCallId?.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? "\(payloadTurnId ?? turnId ?? "session"):\(question ?? "request_user_input")"
+        guard !publishedCallIds.contains(callId) else { return nil }
+        return CodexHookUserInputCandidate(callId: callId, question: question)
     }
 
     private func codexUserInputQuestionText(from payload: [String: Any]) -> String? {
