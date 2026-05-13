@@ -10,6 +10,71 @@ private func fileExplorerDebugResponder(_ responder: NSResponder?) -> String {
 }
 #endif
 
+private final class FileExplorerExternalOpenRequest: NSObject {
+    let fileURL: URL
+    let applicationURL: URL?
+
+    init(fileURL: URL, applicationURL: URL?) {
+        self.fileURL = fileURL
+        self.applicationURL = applicationURL
+    }
+}
+
+private func addFileExplorerExternalOpenItems(
+    to menu: NSMenu,
+    fileURL: URL,
+    target: AnyObject,
+    action: Selector
+) {
+    let applications = FileExternalOpenApplicationResolver.live.applications(for: fileURL)
+    let primaryApplication = applications.first { $0.isDefault } ?? applications.first
+    let otherApplications = applications.filter { application in
+        application.id != primaryApplication?.id
+    }
+
+    if let primaryApplication {
+        let openItem = NSMenuItem(
+            title: FileExternalOpenText.openInApplication(primaryApplication.displayName),
+            action: action,
+            keyEquivalent: ""
+        )
+        openItem.target = target
+        openItem.representedObject = FileExplorerExternalOpenRequest(
+            fileURL: fileURL,
+            applicationURL: primaryApplication.url
+        )
+        menu.addItem(openItem)
+
+        guard !otherApplications.isEmpty else { return }
+        let openWithMenu = NSMenu(title: FileExternalOpenText.openWithMenu)
+        for application in otherApplications {
+            let appItem = NSMenuItem(
+                title: application.displayName,
+                action: action,
+                keyEquivalent: ""
+            )
+            appItem.target = target
+            appItem.representedObject = FileExplorerExternalOpenRequest(
+                fileURL: fileURL,
+                applicationURL: application.url
+            )
+            openWithMenu.addItem(appItem)
+        }
+        let openWithItem = NSMenuItem(title: FileExternalOpenText.openWithMenu, action: nil, keyEquivalent: "")
+        openWithItem.submenu = openWithMenu
+        menu.addItem(openWithItem)
+    } else {
+        let openItem = NSMenuItem(
+            title: FileExternalOpenText.openExternally,
+            action: action,
+            keyEquivalent: ""
+        )
+        openItem.target = target
+        openItem.representedObject = FileExplorerExternalOpenRequest(fileURL: fileURL, applicationURL: nil)
+        menu.addItem(openItem)
+    }
+}
+
 // MARK: - File Explorer Panel (single NSViewRepresentable)
 
 enum FileExplorerPanelPresentation: Equatable {
@@ -510,14 +575,12 @@ struct FileExplorerPanelView: NSViewRepresentable {
             let isLocal = store.provider is LocalFileExplorerProvider
 
             if !node.isDirectory && isLocal {
-                let openItem = NSMenuItem(
-                    title: String(localized: "fileExplorer.contextMenu.openDefault", defaultValue: "Open in Default Editor"),
-                    action: #selector(contextMenuOpenInDefaultEditor(_:)),
-                    keyEquivalent: ""
+                addFileExplorerExternalOpenItems(
+                    to: menu,
+                    fileURL: URL(fileURLWithPath: node.path),
+                    target: self,
+                    action: #selector(contextMenuOpenExternally(_:))
                 )
-                openItem.target = self
-                openItem.representedObject = node
-                menu.addItem(openItem)
             }
 
             if isLocal {
@@ -554,9 +617,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
             menu.addItem(copyRelItem)
         }
 
-        @objc private func contextMenuOpenInDefaultEditor(_ sender: NSMenuItem) {
-            guard let node = sender.representedObject as? FileExplorerNode else { return }
-            NSWorkspace.shared.open(URL(fileURLWithPath: node.path))
+        @objc private func contextMenuOpenExternally(_ sender: NSMenuItem) {
+            guard let request = sender.representedObject as? FileExplorerExternalOpenRequest else { return }
+            FileExternalOpenAction.open(fileURL: request.fileURL, applicationURL: request.applicationURL)
         }
 
         @objc private func contextMenuRevealInFinder(_ sender: NSMenuItem) {
@@ -1372,9 +1435,9 @@ final class FileExplorerContainerView: NSView {
         coordinator.onOpenFilePreview(result.path)
     }
 
-    @objc private func contextMenuOpenSearchResultInDefaultEditor(_ sender: NSMenuItem) {
-        guard let result = searchResult(forMenuItem: sender) else { return }
-        PreferredEditorSettings.open(URL(fileURLWithPath: result.path))
+    @objc private func contextMenuOpenSearchResultExternally(_ sender: NSMenuItem) {
+        guard let request = sender.representedObject as? FileExplorerExternalOpenRequest else { return }
+        FileExternalOpenAction.open(fileURL: request.fileURL, applicationURL: request.applicationURL)
     }
 
     @objc private func contextMenuRevealSearchResultInFinder(_ sender: NSMenuItem) {
@@ -1510,14 +1573,12 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         openInCmuxItem.representedObject = NSNumber(value: row)
         menu.addItem(openInCmuxItem)
 
-        let openDefaultItem = NSMenuItem(
-            title: String(localized: "fileExplorer.contextMenu.openDefault", defaultValue: "Open in Default Editor"),
-            action: #selector(contextMenuOpenSearchResultInDefaultEditor(_:)),
-            keyEquivalent: ""
+        addFileExplorerExternalOpenItems(
+            to: menu,
+            fileURL: URL(fileURLWithPath: searchSnapshot.results[row].path),
+            target: self,
+            action: #selector(contextMenuOpenSearchResultExternally(_:))
         )
-        openDefaultItem.target = self
-        openDefaultItem.representedObject = NSNumber(value: row)
-        menu.addItem(openDefaultItem)
 
         let revealItem = NSMenuItem(
             title: String(localized: "fileExplorer.contextMenu.revealInFinder", defaultValue: "Reveal in Finder"),

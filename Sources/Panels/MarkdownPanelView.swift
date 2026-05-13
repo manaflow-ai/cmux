@@ -88,6 +88,11 @@ struct MarkdownPanelView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
+            FileExternalOpenMenu(
+                fileURL: URL(fileURLWithPath: panel.filePath),
+                isDisabled: panel.isFileUnavailable
+            )
+            .foregroundStyle(.secondary)
         }
     }
 

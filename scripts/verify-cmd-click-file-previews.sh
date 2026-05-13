@@ -171,6 +171,7 @@ printf 'Directory: %s\n\n' "$fixture_dir"
 printf 'Run this inside the tagged cmux build, then Cmd-click each path below.\n'
 printf 'Expected: supported files open in a cmux split. After Cmd Shift P -> Disable Cmd-click File Previews, the same paths should fall back to the external opener.\n\n'
 
+paths=()
 for file in \
   "Generated PNG Fixture.png" \
   "Sample JPEG Fixture.jpg" \
@@ -185,9 +186,39 @@ for file in \
   "Bonsplit Sample Video.mov"; do
   path="$fixture_dir/$file"
   if [[ -f "$path" ]]; then
+    paths+=("$path")
     printf '%s\n' "$path"
   fi
 done
+
+if command -v swift >/dev/null 2>&1 && ((${#paths[@]} > 0)); then
+  printf '\nmacOS external app detection:\n'
+  swift - "${paths[@]}" <<'SWIFT'
+import AppKit
+import Foundation
+
+func appName(_ applicationURL: URL) -> String {
+    let bundle = Bundle(url: applicationURL)
+    let bundleName = bundle?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+        ?? bundle?.object(forInfoDictionaryKey: "CFBundleName") as? String
+    var name = bundleName ?? FileManager.default.displayName(atPath: applicationURL.path)
+    if name.lowercased().hasSuffix(".app") {
+        name = String(name.dropLast(4))
+    }
+    return name.isEmpty ? applicationURL.deletingPathExtension().lastPathComponent : name
+}
+
+for argument in CommandLine.arguments.dropFirst() {
+    let fileURL = URL(fileURLWithPath: argument)
+    let defaultName = NSWorkspace.shared.urlForApplication(toOpen: fileURL).map(appName) ?? "none"
+    let candidateNames = NSWorkspace.shared.urlsForApplications(toOpen: fileURL)
+        .prefix(5)
+        .map(appName)
+    let candidates = candidateNames.isEmpty ? "none" : candidateNames.joined(separator: ", ")
+    print("\(fileURL.lastPathComponent): default=\(defaultName); openWith=\(candidates)")
+}
+SWIFT
+fi
 
 printf '\nfile:// URL route checks:\n'
 for file in "Generated PNG Fixture.png" "Generated PDF Fixture.pdf" "CMUX Sample Video.mp4"; do
