@@ -8097,10 +8097,15 @@ class TerminalController {
         }
 
         var markedCount = 0
+        var selectedNotificationExists = true
         v2MainSync {
             let store = TerminalNotificationStore.shared
             let before = store.notifications
             if let id {
+                guard before.contains(where: { $0.id == id }) else {
+                    selectedNotificationExists = false
+                    return
+                }
                 store.markRead(id: id)
             } else if let tabId {
                 if hasSurfaceSelector {
@@ -8113,6 +8118,14 @@ class TerminalController {
             }
             let afterById = Dictionary(uniqueKeysWithValues: store.notifications.map { ($0.id, $0.isRead) })
             markedCount = before.filter { !$0.isRead && afterById[$0.id] == true }.count
+        }
+
+        if !selectedNotificationExists, let id {
+            return .err(
+                code: "not_found",
+                message: String(localized: "socket.notification.notFound", defaultValue: "Notification not found"),
+                data: ["id": id.uuidString]
+            )
         }
 
         var result: [String: Any] = ["marked_read": markedCount]
