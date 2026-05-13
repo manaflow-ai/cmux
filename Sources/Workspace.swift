@@ -7298,11 +7298,11 @@ final class WorkspaceDockLayout: ObservableObject {
         }
         switch edge {
         case .left:
-            left.append(dock)
+            left = left + [dock]
         case .right:
-            right.append(dock)
+            right = right + [dock]
         case .bottom:
-            bottom.append(dock)
+            bottom = bottom + [dock]
         }
         openEdge(edge)
         return dock
@@ -7375,22 +7375,28 @@ final class WorkspaceDockLayout: ObservableObject {
             _ = addDock(edge: edge)
             return
         }
-        openEdges.insert(edge)
+        guard !openEdges.contains(edge) else { return }
+        var nextOpenEdges = openEdges
+        nextOpenEdges.insert(edge)
+        openEdges = nextOpenEdges
     }
 
     func closeEdge(_ edge: WorkspaceDockEdge) {
-        openEdges.remove(edge)
+        guard openEdges.contains(edge) else { return }
+        var nextOpenEdges = openEdges
+        nextOpenEdges.remove(edge)
+        openEdges = nextOpenEdges
     }
 
     func removeDock(_ dock: WorkspaceDock) {
         guard dock.controller.allTabIds.isEmpty else { return }
         switch dock.edge {
         case .left:
-            left.removeAll { $0.id == dock.id }
+            left = left.filter { $0.id != dock.id }
         case .right:
-            right.removeAll { $0.id == dock.id }
+            right = right.filter { $0.id != dock.id }
         case .bottom:
-            bottom.removeAll { $0.id == dock.id }
+            bottom = bottom.filter { $0.id != dock.id }
         }
         if docks(for: dock.edge).isEmpty {
             closeEdge(dock.edge)
@@ -7408,11 +7414,11 @@ final class WorkspaceDockLayout: ObservableObject {
     func removeEmptyDocks(edge: WorkspaceDockEdge) {
         switch edge {
         case .left:
-            left.removeAll { $0.controller.allTabIds.isEmpty }
+            left = left.filter { !$0.controller.allTabIds.isEmpty }
         case .right:
-            right.removeAll { $0.controller.allTabIds.isEmpty }
+            right = right.filter { !$0.controller.allTabIds.isEmpty }
         case .bottom:
-            bottom.removeAll { $0.controller.allTabIds.isEmpty }
+            bottom = bottom.filter { !$0.controller.allTabIds.isEmpty }
         }
         if docks(for: edge).isEmpty {
             closeEdge(edge)
@@ -7456,11 +7462,11 @@ final class WorkspaceDockLayout: ObservableObject {
     private func removeDocks(withIds ids: Set<UUID>, edge: WorkspaceDockEdge) {
         switch edge {
         case .left:
-            left.removeAll { ids.contains($0.id) }
+            left = left.filter { !ids.contains($0.id) }
         case .right:
-            right.removeAll { ids.contains($0.id) }
+            right = right.filter { !ids.contains($0.id) }
         case .bottom:
-            bottom.removeAll { ids.contains($0.id) }
+            bottom = bottom.filter { !ids.contains($0.id) }
         }
     }
 

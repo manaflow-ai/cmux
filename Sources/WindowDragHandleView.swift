@@ -884,6 +884,16 @@ func windowDragHandleShouldCaptureHit(
         return false
     }
 
+    if let dragHandleWindow {
+        let locationInWindow = dragHandleView.convert(point, to: nil)
+        if isMinimalModeTitlebarControlHit(window: dragHandleWindow, locationInWindow: locationInWindow) {
+            #if DEBUG
+            cmuxDebugLog("titlebar.dragHandle.hitTest capture=false reason=registeredControl point=\(windowDragHandleFormatPoint(point))")
+            #endif
+            return false
+        }
+    }
+
     guard let superview = dragHandleView.superview else {
         #if DEBUG
         cmuxDebugLog("titlebar.dragHandle.hitTest capture=true reason=noSuperview point=\(windowDragHandleFormatPoint(point))")

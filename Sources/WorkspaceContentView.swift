@@ -880,15 +880,17 @@ struct WorkspaceDockToggleCluster: View {
                     WorkspaceDockToggleIcon(edge: edge, isOpen: layout.isEdgeOpen(edge))
                 }
                 .buttonStyle(.plain)
-                .help(helpTitle(edge: edge))
+                .frame(width: 22, height: 18)
+                .contentShape(Rectangle())
+                .help(WorkspaceDockToggleText.helpTitle(edge: edge))
                 .contextMenu {
-                    Button(layout.isEdgeOpen(edge) ? closeTitle(edge: edge) : openTitle(edge: edge)) {
+                    Button(layout.isEdgeOpen(edge) ? WorkspaceDockToggleText.closeTitle(edge: edge) : WorkspaceDockToggleText.openTitle(edge: edge)) {
                         layout.toggleEdge(edge)
                     }
 
                     Menu(String(localized: "workspaceDock.count.menu", defaultValue: "Dock Count")) {
                         ForEach(layout.dockCountChoices(for: edge), id: \.self) { count in
-                            Button(dockCountTitle(count: count)) {
+                            Button(WorkspaceDockToggleText.dockCountTitle(count: count)) {
                                 layout.setDockCount(edge: edge, count: count)
                             }
                             .disabled(!layout.canSetDockCount(edge: edge, count: count))
@@ -897,7 +899,7 @@ struct WorkspaceDockToggleCluster: View {
 
                     if layout.hasEmptyDocks(edge: edge) {
                         Divider()
-                        Button(removeEmptyDocksTitle(edge: edge), role: .destructive) {
+                        Button(WorkspaceDockToggleText.removeEmptyDocksTitle(edge: edge), role: .destructive) {
                             layout.removeEmptyDocks(edge: edge)
                         }
                     }
@@ -906,15 +908,68 @@ struct WorkspaceDockToggleCluster: View {
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
-        .background(Color.primary.opacity(0.045))
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .frame(width: 72, height: 22)
+        .background {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.primary.opacity(0.045))
+            MinimalModeTitlebarControlHitRegionView()
+        }
         .overlay {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .stroke(Color.primary.opacity(0.11), lineWidth: 1)
         }
     }
+}
 
-    private func helpTitle(edge: WorkspaceDockEdge) -> String {
+struct WorkspaceDockTitlebarStateBinder: NSViewRepresentable {
+    @ObservedObject var layout: WorkspaceDockLayout
+
+    func makeNSView(context: Context) -> BinderView {
+        BinderView(layout: layout)
+    }
+
+    func updateNSView(_ nsView: BinderView, context: Context) {
+        nsView.layout = layout
+        nsView.bindToWindow()
+    }
+
+    @MainActor
+    final class BinderView: NSView {
+        var layout: WorkspaceDockLayout {
+            didSet {
+                bindToWindow()
+            }
+        }
+        private weak var boundWindow: CmuxMainWindow?
+
+        init(layout: WorkspaceDockLayout) {
+            self.layout = layout
+            super.init(frame: .zero)
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            bindToWindow()
+        }
+
+        func bindToWindow() {
+            if boundWindow !== window as? CmuxMainWindow {
+                if boundWindow?.workspaceDockTitlebarLayout === layout {
+                    boundWindow?.workspaceDockTitlebarLayout = nil
+                }
+                boundWindow = window as? CmuxMainWindow
+            }
+            boundWindow?.workspaceDockTitlebarLayout = layout
+        }
+    }
+}
+
+private enum WorkspaceDockToggleText {
+    static func helpTitle(edge: WorkspaceDockEdge) -> String {
         switch edge {
         case .left:
             return String(localized: "workspaceDock.toggle.left.help", defaultValue: "Toggle Left Dock")
@@ -925,7 +980,7 @@ struct WorkspaceDockToggleCluster: View {
         }
     }
 
-    private func openTitle(edge: WorkspaceDockEdge) -> String {
+    static func openTitle(edge: WorkspaceDockEdge) -> String {
         switch edge {
         case .left:
             return String(localized: "workspaceDock.open.left", defaultValue: "Open Left Dock")
@@ -936,7 +991,7 @@ struct WorkspaceDockToggleCluster: View {
         }
     }
 
-    private func closeTitle(edge: WorkspaceDockEdge) -> String {
+    static func closeTitle(edge: WorkspaceDockEdge) -> String {
         switch edge {
         case .left:
             return String(localized: "workspaceDock.close.left", defaultValue: "Close Left Dock")
@@ -947,22 +1002,11 @@ struct WorkspaceDockToggleCluster: View {
         }
     }
 
-    private func addDockTitle(edge: WorkspaceDockEdge) -> String {
-        switch edge {
-        case .left:
-            return String(localized: "workspaceDock.add.left", defaultValue: "Add Left Dock")
-        case .right:
-            return String(localized: "workspaceDock.add.right", defaultValue: "Add Right Dock")
-        case .bottom:
-            return String(localized: "workspaceDock.add.bottom", defaultValue: "Add Bottom Dock")
-        }
-    }
-
-    private func dockCountTitle(count: Int) -> String {
+    static func dockCountTitle(count: Int) -> String {
         String(count)
     }
 
-    private func removeEmptyDocksTitle(edge: WorkspaceDockEdge) -> String {
+    static func removeEmptyDocksTitle(edge: WorkspaceDockEdge) -> String {
         switch edge {
         case .left:
             return String(localized: "workspaceDock.removeEmpty.left", defaultValue: "Remove Empty Left Docks")

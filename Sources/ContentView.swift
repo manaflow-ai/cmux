@@ -2289,42 +2289,51 @@ struct ContentView: View {
     private func customTitlebar(appearance: WindowAppearanceSnapshot) -> some View {
         let titlebarContentHeight = max(1, WindowChromeMetrics.appTitlebarHeight - 2)
         return ZStack {
-            // Enable window dragging from the titlebar strip without making the entire content
-            // view draggable (which breaks drag gestures like tab reordering).
-            WindowDragHandleView()
-
             TitlebarLeadingInsetReader(inset: $titlebarLeadingInset)
                 .allowsHitTesting(false)
 
             HStack(spacing: 8) {
-                if isFullScreen && !sidebarState.isVisible {
-                    fullscreenControls
+                HStack(spacing: 8) {
+                    if isFullScreen && !sidebarState.isVisible {
+                        fullscreenControls
+                    }
+
+                    // Draggable folder icon + focused command name
+                    if let directory = focusedDirectory {
+                        DetachedFolderDragIcon(directory: directory)
+                            .frame(width: 16, height: 16)
+                            .padding(.leading, -6)
+                    }
+
+                    Text(titlebarText)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
+                        .lineLimit(1)
+                        .allowsHitTesting(false)
+
+                    Spacer()
                 }
-
-                // Draggable folder icon + focused command name
-                if let directory = focusedDirectory {
-                    DetachedFolderDragIcon(directory: directory)
-                        .frame(width: 16, height: 16)
-                        .padding(.leading, -6)
-                }
-
-                Text(titlebarText)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
-                    .lineLimit(1)
-                    .allowsHitTesting(false)
-
-                Spacer()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Enable window dragging from the titlebar strip without making the entire content
+                // view draggable (which breaks drag gestures like tab reordering). Keep this out
+                // from under the dock buttons so their normal hit testing stays intact.
+                .background(WindowDragHandleView())
 
                 if let selectedWorkspace = tabManager.selectedWorkspace {
                     WorkspaceDockToggleCluster(layout: selectedWorkspace.dockLayout)
+                        .frame(width: 68, height: 20)
                 }
-
             }
             .frame(height: titlebarContentHeight)
             .padding(.top, 2)
             .padding(.leading, (isFullScreen && !sidebarState.isVisible) ? 8 : (sidebarState.isVisible ? 12 : titlebarLeadingInset))
             .padding(.trailing, 8)
+
+            if let selectedWorkspace = tabManager.selectedWorkspace {
+                WorkspaceDockTitlebarStateBinder(layout: selectedWorkspace.dockLayout)
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false)
+            }
         }
         .frame(height: WindowChromeMetrics.appTitlebarHeight)
         .frame(maxWidth: .infinity)
