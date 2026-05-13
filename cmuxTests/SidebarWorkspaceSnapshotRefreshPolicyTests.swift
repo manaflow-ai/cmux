@@ -15,7 +15,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             isPinned: false,
             customColorHex: nil,
             remoteConnectionStatusText: "Connected",
-            latestSubmittedMessage: "old message",
+            latestConversationMessage: "old message",
             listeningPorts: [3000]
         )
         let next = Self.snapshot(
@@ -23,7 +23,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             isPinned: true,
             customColorHex: nil,
             remoteConnectionStatusText: "Disconnected",
-            latestSubmittedMessage: "new message",
+            latestConversationMessage: "new message",
             listeningPorts: [3000, 4000]
         )
 
@@ -39,7 +39,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(decision.workspaceSnapshotStorage, expectedDisplayed)
         XCTAssertTrue(decision.workspaceSnapshotStorage?.isPinned == true)
         XCTAssertEqual(decision.workspaceSnapshotStorage?.remoteConnectionStatusText, "Connected")
-        XCTAssertEqual(decision.workspaceSnapshotStorage?.latestSubmittedMessage, "old message")
+        XCTAssertEqual(decision.workspaceSnapshotStorage?.latestConversationMessage, "old message")
         XCTAssertEqual(decision.workspaceSnapshotStorage?.listeningPorts, [3000])
         XCTAssertEqual(decision.pendingWorkspaceSnapshot, next)
         XCTAssertTrue(decision.hasDeferredWorkspaceObservationInvalidation)
@@ -94,7 +94,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         isPinned: Bool = false,
         customColorHex: String? = nil,
         remoteConnectionStatusText: String = "Disconnected",
-        latestSubmittedMessage: String? = nil,
+        latestConversationMessage: String? = nil,
         listeningPorts: [Int] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
@@ -107,7 +107,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: "",
             copyableSidebarSSHError: nil,
-            latestSubmittedMessage: latestSubmittedMessage,
+            latestConversationMessage: latestConversationMessage,
             metadataEntries: [],
             metadataBlocks: [],
             latestLog: nil,

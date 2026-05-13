@@ -56,6 +56,7 @@ const settingsFileExample = `{
   //   "appearance": "dark",
   //   "menuBarOnly": false,
   //   "newWorkspacePlacement": "afterCurrent",
+  //   "openSupportedFilesInCmux": true,
   //   "workspaceInheritWorkingDirectory": true,
   //   "iMessageMode": true
   // },

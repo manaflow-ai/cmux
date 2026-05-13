@@ -251,12 +251,17 @@
         "preferredEditor": {
           "type": "string",
           "default": "",
-          "description": "Custom editor command used by cmux where applicable. Leave empty to use the default."
+          "description": "Custom editor command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty to use the default."
+        },
+        "openSupportedFilesInCmux": {
+          "type": "boolean",
+          "default": true,
+          "description": "When enabled, Cmd-clicking readable local files opens supported previews in cmux, including text, code, PDFs, images, audio, video, and Quick Look files. Preview headers include an Open With menu based on the user's default and compatible macOS apps for that file."
         },
         "openMarkdownInCmuxViewer": {
           "type": "boolean",
           "default": false,
-          "description": "When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files in the terminal opens them in the cmux markdown viewer panel (with live reload) instead of the preferred editor."
+          "description": "When enabled together with openSupportedFilesInCmux, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview."
         },
         "reorderOnNotification": {
           "type": "boolean",
@@ -725,6 +730,7 @@
               "openSettings",
               "reloadConfiguration",
               "showHideAllWindows",
+              "globalSearch",
               "newWindow",
               "closeWindow",
               "toggleFullScreen",

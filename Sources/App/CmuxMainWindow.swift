@@ -30,6 +30,27 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
 @MainActor
 final class CmuxMainWindow: NSWindow {
     private var isSoftHiddenForVisibilityController = false
+    private var isClearingNativeTitlebarProxyIcon = false
+
+    // cmux renders the workspace directory icon inside its custom titlebar, whose layout follows
+    // the sidebar. AppKit's native proxy icon is positioned in the standard titlebar instead.
+    override var representedURL: URL? {
+        get { nil }
+        set { clearNativeTitlebarProxyIcon() }
+    }
+
+    override var representedFilename: String {
+        get { "" }
+        set { clearNativeTitlebarProxyIcon() }
+    }
+
+    private func clearNativeTitlebarProxyIcon() {
+        guard !isClearingNativeTitlebarProxyIcon else { return }
+        isClearingNativeTitlebarProxyIcon = true
+        defer { isClearingNativeTitlebarProxyIcon = false }
+        super.representedURL = nil
+        super.representedFilename = ""
+    }
 
     func setSoftHiddenForVisibilityController(_ isSoftHidden: Bool) {
         isSoftHiddenForVisibilityController = isSoftHidden

@@ -179,13 +179,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diagnostic file saved to ~/.local/state/ghostty/crash/"
+            "value": "Diagnostic file saved to ~/.local/state/cmux/crash/"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "診断ファイルは ~/.local/state/ghostty/crash/ に保存されました"
+            "value": "診断ファイルは ~/.local/state/cmux/crash/ に保存されました"
           }
         }
       }
@@ -21208,6 +21208,23 @@
         }
       }
     },
+    "command.supportedFileRouting.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルプレビュー"
+          }
+        }
+      }
+    },
     "command.disableBrowser.title": {
       "extractionState": "manual",
       "localizations": {
@@ -21221,6 +21238,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmuxブラウザを無効にする"
+          }
+        }
+      }
+    },
+    "command.disableSupportedFileRouting.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable Cmd-click File Previews"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+クリックのファイルプレビューを無効にする"
           }
         }
       }
@@ -21267,6 +21301,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmuxブラウザを有効にする"
+          }
+        }
+      }
+    },
+    "command.enableSupportedFileRouting.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Cmd-click File Previews"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+クリックのファイルプレビューを有効にする"
           }
         }
       }
@@ -72903,6 +72954,23 @@
             }
         }
     },
+    "settings.search.alias.setting.app.supported-file-previews": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external ファイルプレビュー PDF 画像 動画 音声 エディタ 外部"
+                }
+            }
+        }
+    },
     "settings.search.alias.setting.app.terminal-config": {
         "extractionState": "manual",
         "localizations": {
@@ -101562,6 +101630,57 @@
         }
       }
     },
+    "filePreview.openExternally": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Externally"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外部アプリで開く"
+          }
+        }
+      }
+    },
+    "filePreview.openInApplication": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@で開く"
+          }
+        }
+      }
+    },
+    "filePreview.openWith.menu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open With"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリケーションで開く"
+          }
+        }
+      }
+    },
     "markdown.copyConfirm.html": {
       "extractionState": "manual",
       "localizations": {
@@ -105937,6 +106056,57 @@
         }
       }
     },
+    "settings.app.preferredEditor.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty for system default."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+クリックのファイルプレビューが無効な場合、またはファイルが未対応の場合に使うコマンドです。空欄のままにするとシステムの既定で開きます。"
+          }
+        }
+      }
+    },
+    "settings.app.openSupportedFilesInCmux": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Supported Files in cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対応ファイルを cmux で開く"
+          }
+        }
+      }
+    },
+    "settings.app.openSupportedFilesInCmux.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-clicking readable files opens text, code, PDFs, images, audio, video, and Quick Look previews in cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取り可能なファイルを Cmd+クリックすると、テキスト、コード、PDF、画像、音声、動画、Quick Look プレビューを cmux で開きます。"
+          }
+        }
+      }
+    },
     "settings.app.openMarkdownInCmuxViewer": {
       "extractionState": "manual",
       "localizations": {
@@ -106002,13 +106172,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd-clicking .md/.markdown/.mkd/.mdx files opens the cmux markdown viewer panel instead of the preferred editor."
+            "value": "When supported file routing is on, Cmd-clicking Markdown files opens the rendered cmux markdown viewer instead of the generic file preview."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": ".md/.markdown/.mkd/.mdx ファイルを Cmd+クリックすると、優先エディタの代わりに cmux マークダウンビューアパネルが開きます。"
+            "value": "対応ファイルのルーティングが有効な場合、Markdown ファイルを Cmd+クリックすると、汎用ファイルプレビューではなくレンダリング済みの cmux マークダウンビューアで開きます。"
           }
         },
         "ko": {
@@ -111662,6 +111832,76 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Process" } },
         "ja": { "stringUnit": { "state": "translated", "value": "プロセス" } }
+      }
+    },
+    "shortcut.globalSearch.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Global Search" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "グローバル検索" } }
+      }
+    },
+    "statusMenu.searchAllWindows": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Search All Windows..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのウィンドウを検索..." } }
+      }
+    },
+    "globalSearch.palette.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Search all windows, panels, browser tabs..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのウィンドウ、パネル、ブラウザタブを検索..." } }
+      }
+    },
+    "globalSearch.empty.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Type to search" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "入力して検索" } }
+      }
+    },
+    "globalSearch.empty.noResults": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No results" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "結果がありません" } }
+      }
+    },
+    "globalSearch.empty.noOpenPanels": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No open panels" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "開いているパネルがありません" } }
+      }
+    },
+    "globalSearch.kind.browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ" } }
+      }
+    },
+    "globalSearch.kind.markdown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Markdown" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Markdown" } }
+      }
+    },
+    "globalSearch.kind.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Title" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タイトル" } }
+      }
+    },
+    "globalSearch.untitled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Untitled" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無題" } }
       }
     },
     "cli.rightSidebar.usage": {
