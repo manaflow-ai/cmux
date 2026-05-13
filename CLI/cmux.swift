@@ -16622,7 +16622,7 @@ struct CMUXCLI {
 
     // MARK: Generic hook install/uninstall
     func hookCommand(for def: AgentHookDef, event: AgentHookDef.HookEvent) -> String {
-        "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks \(def.name) \(event.cmuxSubcommand) || echo '{}'"
+        Self.hookCommandString(for: def, event: event)
     }
 
     /// Shell command the agent runs for a Feed bridge event. 120s timeout
@@ -16630,7 +16630,7 @@ struct CMUXCLI {
     /// nested hook config (see `buildHooksDict`); the shell command
     /// itself just dispatches.
     func feedHookCommand(for def: AgentHookDef, agentEvent: String) -> String {
-        "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks feed --source \(def.name) --event \(agentEvent) || echo '{}'"
+        Self.feedHookCommandString(for: def, agentEvent: agentEvent)
     }
 
     private func buildHooksDict(for def: AgentHookDef) -> [String: Any] {
@@ -17328,8 +17328,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // same group as a cmux hook, we only prune our own entries
         // within that group so the user's stays put.
         let isCmuxOwnedCommand: (String) -> Bool = { cmd in
-            Self.hookMarkers(for: def).contains { cmd.contains($0) }
-                || Self.feedHookMarkers(for: def).contains { cmd.contains($0) }
+            Self.isCmuxOwnedHookCommand(cmd, for: def)
         }
         var cmuxInsertionIndexes: [String: Int] = [:]
         for (event, value) in hooks {
@@ -17524,8 +17523,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         var removed = 0
 
         let isCmuxOwnedCommand: (String) -> Bool = { cmd in
-            Self.hookMarkers(for: def).contains { cmd.contains($0) }
-                || Self.feedHookMarkers(for: def).contains { cmd.contains($0) }
+            Self.isCmuxOwnedHookCommand(cmd, for: def)
         }
         for (event, value) in hooks {
             switch def.format {

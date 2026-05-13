@@ -39,11 +39,15 @@ CODEX_HOOK_EVENTS_WITH_MATCHERS = {
     "SessionStart",
 }
 
-CMUX_CODEX_HOOK_MARKERS = (
-    "cmux hooks codex",
-    "cmux codex-hook",
-    "cmux hooks feed --source",
-    "cmux feed-hook --source",
+CMUX_CODEX_HOOK_SUBCOMMANDS = (
+    "session-start",
+    "prompt-submit",
+    "stop",
+)
+
+CMUX_CODEX_FEED_EVENTS = (
+    "PreToolUse",
+    "PermissionRequest",
 )
 
 
@@ -547,6 +551,27 @@ def codex_command_hook_hash(
     return f"sha256:{hashlib.sha256(canonical).hexdigest()}"
 
 
+def cmux_codex_hook_command(subcommand: str) -> str:
+    return (
+        '[ -n "$CMUX_SURFACE_ID" ] && [ "$CMUX_CODEX_HOOKS_DISABLED" != "1" ] '
+        f"&& command -v cmux >/dev/null 2>&1 && cmux hooks codex {subcommand} || echo '{{}}'"
+    )
+
+
+def cmux_codex_feed_command(agent_event: str) -> str:
+    return (
+        '[ -n "$CMUX_SURFACE_ID" ] && [ "$CMUX_CODEX_HOOKS_DISABLED" != "1" ] '
+        f"&& command -v cmux >/dev/null 2>&1 && cmux hooks feed --source codex --event {agent_event} "
+        "|| echo '{}'"
+    )
+
+
+def is_cmux_codex_hook_command(command: str) -> bool:
+    return command in {cmux_codex_hook_command(subcommand) for subcommand in CMUX_CODEX_HOOK_SUBCOMMANDS} or command in {
+        cmux_codex_feed_command(agent_event) for agent_event in CMUX_CODEX_FEED_EVENTS
+    }
+
+
 def toml_basic_string_unescape(value: str) -> str:
     escaped = {
         "b": "\b",
@@ -626,7 +651,7 @@ def expected_cmux_codex_hook_trust(hooks: dict, hooks_path: Path) -> dict[str, s
             matcher = group.get("matcher") if event_name in CODEX_HOOK_EVENTS_WITH_MATCHERS else None
             for handler_index, hook in enumerate(group.get("hooks", [])):
                 command = hook.get("command", "")
-                if not any(marker in command for marker in CMUX_CODEX_HOOK_MARKERS):
+                if not is_cmux_codex_hook_command(command):
                     continue
                 key = f"{hooks_path}:{event_label}:{group_index}:{handler_index}"
                 expected[key] = codex_command_hook_hash(
@@ -1031,6 +1056,45 @@ def test_uninstall_preserves_unowned_hook_trust_when_cmux_marker_is_unclosed(
         raise AssertionError(f"unowned hook trust was removed: {config_toml!r}")
 
 
+def test_install_does_not_append_hook_trust_when_cmux_marker_is_unclosed(
+    cli_path: str, root: Path
+) -> None:
+    codex_home = root / "codex-home-unclosed-trust-install"
+    codex_home.mkdir()
+    stale_key = f"{(codex_home / 'hooks.json').resolve()}:pre_tool_use:0:0"
+    (codex_home / "config.toml").write_text(
+        "[features]\n"
+        "hooks = true\n"
+        "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin\n"
+        f'[hooks.state."{stale_key}"]\n'
+        'trusted_hash = "sha256:stale"\n',
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "install", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex install failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
+    if config_toml.count("# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin") != 1:
+        raise AssertionError(f"install appended a second cmux hook trust marker: {config_toml!r}")
+    if "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end" in config_toml:
+        raise AssertionError(f"install appended a new hook trust block after malformed marker: {config_toml!r}")
+    if config_toml.count("[hooks.state.") != 1:
+        raise AssertionError(f"install appended duplicate hook trust tables: {config_toml!r}")
+
+
 def test_uninstall_recovers_orphaned_codex_hooks_marker(cli_path: str, root: Path) -> None:
     codex_home = root / "codex-home-orphaned-marker"
     codex_home.mkdir()
@@ -1236,6 +1300,7 @@ def main() -> int:
             test_install_scans_features_past_bracketed_array(cli_path, root)
             test_uninstall_removes_cmux_owned_codex_hooks_feature(cli_path, root)
             test_uninstall_preserves_unowned_hook_trust_when_cmux_marker_is_unclosed(cli_path, root)
+            test_install_does_not_append_hook_trust_when_cmux_marker_is_unclosed(cli_path, root)
             test_uninstall_recovers_orphaned_codex_hooks_marker(cli_path, root)
             test_install_surfaces_invalid_codex_config_encoding(cli_path, root)
             test_uninstall_surfaces_invalid_codex_config_encoding(cli_path, root)

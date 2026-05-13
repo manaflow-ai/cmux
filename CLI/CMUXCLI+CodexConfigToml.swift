@@ -22,6 +22,12 @@ extension CMUXCLI {
         let trustedHash: String
     }
 
+    private enum CodexHookTrustBlockRemovalResult {
+        case notFound
+        case removed
+        case malformed
+    }
+
     static func codexConfigTomlInstallingHooksFeature(in existingContent: String) -> String {
         var lines = tomlLines(from: existingContent)
         removeCmuxCodexHooksFeatureBlock(from: &lines)
@@ -102,7 +108,10 @@ extension CMUXCLI {
         entries: [CodexHookTrustEntry]
     ) -> String {
         var lines = tomlLines(from: existingContent)
-        removeCmuxCodexHookTrustBlock(from: &lines)
+        let removalResult = removeCmuxCodexHookTrustBlock(from: &lines)
+        guard removalResult != .malformed else {
+            return tomlContent(from: lines)
+        }
         guard !entries.isEmpty else {
             return tomlContent(from: lines)
         }
@@ -125,9 +134,8 @@ extension CMUXCLI {
         def: AgentHookDef
     ) -> [CodexHookTrustEntry] {
         guard def.name == "codex" else { return [] }
-        let ownedMarkers = hookMarkers(for: def) + feedHookMarkers(for: def)
         let isOwnedCommand: (String) -> Bool = { command in
-            ownedMarkers.contains { command.contains($0) }
+            isCmuxOwnedHookCommand(command, for: def)
         }
         var entries: [CodexHookTrustEntry] = []
         let keySource = codexNormalizedHookSourcePath(hooksFilePath)
@@ -411,7 +419,9 @@ extension CMUXCLI {
         }
     }
 
-    private static func removeCmuxCodexHookTrustBlock(from lines: inout [String]) {
+    @discardableResult
+    private static func removeCmuxCodexHookTrustBlock(from lines: inout [String]) -> CodexHookTrustBlockRemovalResult {
+        var ranges: [ClosedRange<Int>] = []
         var index = 0
         while index < lines.count {
             guard lines[index] == cmuxCodexHookTrustBegin else {
@@ -419,13 +429,17 @@ extension CMUXCLI {
                 continue
             }
 
-            if let endIndex = lines[index...].firstIndex(of: cmuxCodexHookTrustEnd) {
-                lines.removeSubrange(index...endIndex)
-            } else {
-                // Leave malformed cmux blocks intact rather than risking unrelated hooks.state tables.
-                index += 1
+            guard let endIndex = lines[index...].firstIndex(of: cmuxCodexHookTrustEnd) else {
+                return .malformed
             }
+            ranges.append(index...endIndex)
+            index = endIndex + 1
         }
+
+        for range in ranges.reversed() {
+            lines.removeSubrange(range)
+        }
+        return ranges.isEmpty ? .notFound : .removed
     }
 
     private static func tomlLineIsCodexHooksFeatureBegin(_ line: String) -> Bool {

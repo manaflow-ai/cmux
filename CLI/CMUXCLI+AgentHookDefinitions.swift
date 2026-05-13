@@ -245,6 +245,19 @@ extension CMUXCLI {
         return agentDefs.first { $0.name == normalized || $0.aliases.contains(normalized) }
     }
 
+    static func hookCommandString(for def: AgentHookDef, event: AgentHookDef.HookEvent) -> String {
+        "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks \(def.name) \(event.cmuxSubcommand) || echo '{}'"
+    }
+
+    static func feedHookCommandString(for def: AgentHookDef, agentEvent: String) -> String {
+        "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks feed --source \(def.name) --event \(agentEvent) || echo '{}'"
+    }
+
+    static func isCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef) -> Bool {
+        def.events.contains { hookCommandString(for: def, event: $0) == command }
+            || def.feedHookEvents.contains { feedHookCommandString(for: def, agentEvent: $0) == command }
+    }
+
     static func hookMarkers(for def: AgentHookDef) -> [String] {
         var markers = [def.hookMarker]
         if def.name == "codex" {
