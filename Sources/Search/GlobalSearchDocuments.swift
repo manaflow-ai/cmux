@@ -27,6 +27,32 @@ struct BrowserPagePayload: Decodable {
 
 @MainActor
 enum GlobalSearchDocuments {
+    static func browseHit(for context: GlobalSearchPanelContext) -> SearchIndexHit {
+        let kind: GlobalSearchKind
+        switch context.panel.panelType {
+        case .browser:
+            kind = .browser
+        case .markdown:
+            kind = .markdown
+        case .terminal, .filePreview:
+            kind = .title
+        }
+
+        return SearchIndexHit(
+            id: SearchIndexDocument.panelStableID(panelID: context.panelID, kind: kind, subtype: "browse"),
+            windowID: context.windowID,
+            workspaceID: context.workspaceID,
+            panelID: context.panelID,
+            kind: kind,
+            title: context.panelTitle,
+            location: "",
+            anchor: "panel",
+            snippet: context.location,
+            rank: 0,
+            timestamp: .now
+        )
+    }
+
     static func titleDocument(for context: GlobalSearchPanelContext) -> SearchIndexDocument {
         let text = [
             context.windowTitle,

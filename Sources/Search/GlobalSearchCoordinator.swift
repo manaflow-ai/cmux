@@ -66,6 +66,14 @@ final class GlobalSearchCoordinator {
         }
     }
 
+    func browseOpenPanels(limit: Int = 20) -> [SearchIndexHit] {
+        guard let appDelegate = AppDelegate.shared else { return [] }
+        return appDelegate
+            .globalSearchPanelContexts()
+            .prefix(limit)
+            .map { GlobalSearchDocuments.browseHit(for: $0) }
+    }
+
     func activate(_ hit: SearchIndexHit, query: String) {
         popover.dismiss()
         AppDelegate.shared?.openGlobalSearchHit(hit, query: query)

@@ -6,6 +6,14 @@ extension AppDelegate {
         var contexts: [GlobalSearchPanelContext] = []
         var seenPanelKeys = Set<String>()
         var windowOrdinal = 1
+        var orderedWindowRanks: [UUID: Int] = [:]
+        for window in NSApp.orderedWindows {
+            guard let windowID = mainWindowId(from: window),
+                  orderedWindowRanks[windowID] == nil else {
+                continue
+            }
+            orderedWindowRanks[windowID] = orderedWindowRanks.count
+        }
 
         func append(windowID: UUID, tabManager: TabManager, window: NSWindow?) {
             let fallbackWindowTitle = String(localized: "menu.windowNumber", defaultValue: "Window \(windowOrdinal)")
@@ -15,7 +23,14 @@ extension AppDelegate {
                 return trimmed.isEmpty ? fallbackWindowTitle : trimmed
             }()
 
-            for workspace in tabManager.tabs {
+            let orderedWorkspaces = tabManager.tabs.enumerated().sorted { lhs, rhs in
+                let lhsSelected = lhs.element.id == tabManager.selectedTabId
+                let rhsSelected = rhs.element.id == tabManager.selectedTabId
+                if lhsSelected != rhsSelected { return lhsSelected }
+                return lhs.offset < rhs.offset
+            }.map(\.element)
+
+            for workspace in orderedWorkspaces {
                 let workspaceTitle = {
                     let trimmed = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
                     return trimmed.isEmpty
@@ -23,7 +38,14 @@ extension AppDelegate {
                         : trimmed
                 }()
 
-                for panel in workspace.panels.values {
+                let orderedPanelIDs = workspace.sidebarOrderedPanelIds()
+                var seenPanelIDs = Set<UUID>()
+                let remainingPanelIDs = workspace.panels.keys
+                    .filter { !orderedPanelIDs.contains($0) }
+                    .sorted { $0.uuidString < $1.uuidString }
+
+                for panelID in orderedPanelIDs + remainingPanelIDs where seenPanelIDs.insert(panelID).inserted {
+                    guard let panel = workspace.panels[panelID] else { continue }
                     let key = "\(windowID.uuidString):\(workspace.id.uuidString):\(panel.id.uuidString)"
                     guard seenPanelKeys.insert(key).inserted else { continue }
                     let panelTitle = panel.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -42,7 +64,14 @@ extension AppDelegate {
             }
         }
 
-        for context in mainWindowContexts.values {
+        let liveContexts = mainWindowContexts.values.sorted { lhs, rhs in
+            let lhsRank = orderedWindowRanks[lhs.windowId] ?? Int.max
+            let rhsRank = orderedWindowRanks[rhs.windowId] ?? Int.max
+            if lhsRank != rhsRank { return lhsRank < rhsRank }
+            return lhs.windowId.uuidString < rhs.windowId.uuidString
+        }
+
+        for context in liveContexts {
             append(
                 windowID: context.windowId,
                 tabManager: context.tabManager,
@@ -50,7 +79,14 @@ extension AppDelegate {
             )
         }
 
-        for route in recoverableMainWindowRoutes() {
+        let recoverableRoutes = recoverableMainWindowRoutes().sorted { lhs, rhs in
+            let lhsRank = orderedWindowRanks[lhs.windowId] ?? Int.max
+            let rhsRank = orderedWindowRanks[rhs.windowId] ?? Int.max
+            if lhsRank != rhsRank { return lhsRank < rhsRank }
+            return lhs.windowId.uuidString < rhs.windowId.uuidString
+        }
+
+        for route in recoverableRoutes {
             guard let tabManager = route.tabManager else { continue }
             let alreadySeen = contexts.contains { $0.windowID == route.windowId }
             guard !alreadySeen else { continue }

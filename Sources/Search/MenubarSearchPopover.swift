@@ -66,6 +66,7 @@ private struct GlobalSearchPaletteView: View {
     @FocusState private var searchFieldFocused: Bool
 
     private let searchDebounceMilliseconds = 80
+    private let browseResultLimit = 20
 
     var body: some View {
         VStack(spacing: 0) {
@@ -92,7 +93,7 @@ private struct GlobalSearchPaletteView: View {
             if results.isEmpty {
                 GlobalSearchEmptyStateView(
                     title: query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        ? String(localized: "globalSearch.empty.prompt", defaultValue: "Type to search")
+                        ? String(localized: "globalSearch.empty.noOpenPanels", defaultValue: "No open panels")
                         : String(localized: "globalSearch.empty.noResults", defaultValue: "No results")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -150,8 +151,7 @@ private struct GlobalSearchPaletteView: View {
         let trimmed = nextQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             isSearching = false
-            results = []
-            selectedIndex = 0
+            reloadBrowseResults()
             return
         }
 
@@ -198,12 +198,20 @@ private struct GlobalSearchPaletteView: View {
         selectedIndex = 0
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            results = []
+            reloadBrowseResults()
             isSearching = false
         } else {
             results = []
             isSearching = true
         }
+    }
+
+    private func reloadBrowseResults() {
+        let hits = coordinator.browseOpenPanels(limit: browseResultLimit)
+        results = hits.enumerated().map { offset, hit in
+            GlobalSearchResultRow(hit: hit, query: "", index: offset)
+        }
+        selectedIndex = 0
     }
 
     private func installKeyMonitorIfNeeded() {

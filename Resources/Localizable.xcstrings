@@ -111512,6 +111512,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "結果がありません" } }
       }
     },
+    "globalSearch.empty.noOpenPanels": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No open panels" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "開いているパネルがありません" } }
+      }
+    },
     "globalSearch.kind.browser": {
       "extractionState": "manual",
       "localizations": {
