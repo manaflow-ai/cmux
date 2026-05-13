@@ -238,7 +238,9 @@ function nodeOptionsWithCmuxPreload(existing) {
       continue;
     }
     if (token === "--max-old-space-size") {
-      index += 1;
+      if (index + 1 < tokens.length) {
+        index += 1;
+      }
       continue;
     }
     if (token === `--require=${preloadPath}` || token === `-r=${preloadPath}`) {
@@ -951,6 +953,68 @@ normalize_node_options_for_restore() {
 settings_json_has_cmux_hooks() {
     local value="$1"
     [[ "$value" == "$HOOKS_JSON" ]] && return 0
+
+    if command -v node >/dev/null 2>&1; then
+        if printf '%s' "$value" | node -e '
+const fs = require("node:fs");
+
+let settings;
+try {
+  settings = JSON.parse(fs.readFileSync(0, "utf8"));
+} catch {
+  process.exit(1);
+}
+
+if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+  process.exit(1);
+}
+const hooks = settings.hooks;
+if (!hooks || typeof hooks !== "object" || Array.isArray(hooks)) {
+  process.exit(1);
+}
+
+function isCmuxHookCommand(command) {
+  if (typeof command !== "string") {
+    return false;
+  }
+  const trimmed = command.trim();
+  return trimmed.startsWith("\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude ")
+    || trimmed === "\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude"
+    || trimmed.startsWith("cmux hooks claude ")
+    || trimmed === "cmux hooks feed --source claude";
+}
+
+for (const groups of Object.values(hooks)) {
+  if (!Array.isArray(groups)) {
+    continue;
+  }
+  for (const group of groups) {
+    if (!group || typeof group !== "object" || Array.isArray(group)) {
+      continue;
+    }
+    const hookEntries = group.hooks;
+    if (!Array.isArray(hookEntries)) {
+      continue;
+    }
+    for (const hook of hookEntries) {
+      if (
+        hook
+        && typeof hook === "object"
+        && !Array.isArray(hook)
+        && hook.type === "command"
+        && isCmuxHookCommand(hook.command)
+      ) {
+        process.exit(0);
+      }
+    }
+  }
+}
+process.exit(1);
+'; then
+            return 0
+        fi
+    fi
+
     command -v python3 >/dev/null 2>&1 || return 1
     printf '%s' "$value" | python3 -c '
 import json
@@ -1034,11 +1098,12 @@ claude_option_consumes_value() {
         --add-dir|--agent|--agents|--allowedTools|--allowed-tools|\
         --append-system-prompt|--betas|--dangerously-load-development-channels|\
         --debug-file|--disallowedTools|--disallowed-tools|--effort|--fallback-model|--file|\
-        --fork-session|\
+        --fork-session|--from-pr|\
         --input-format|--json-schema|--max-budget-usd|--mcp-config|\
         --model|-m|-n|--name|--output-format|--permission-mode|--plugin-dir|\
-        --plugin-url|--remote-control-session-name-prefix|--setting-sources|\
-        --settings|--system-prompt|--teammate-mode|--tmux|--tools)
+        --plugin-url|--remote-control-session-name-prefix|--resume|-r|--session-id|\
+        --setting-sources|--settings|--system-prompt|--teammate-mode|--tmux|--tools|\
+        --worktree|-w)
             return 0
             ;;
     esac
@@ -1086,6 +1151,7 @@ should_inject_claude_hooks() {
 
     local -a args=("$@")
     local arg
+    local option_name
     local index=0
     while (( index < ${#args[@]} )); do
         arg="${args[$index]}"
@@ -1094,15 +1160,22 @@ should_inject_claude_hooks() {
                 return 0
                 ;;
             -*)
+                option_name="${arg%%=*}"
+                if claude_option_consumes_value "$option_name"; then
+                    if [[ "$arg" == *=* ]]; then
+                        index=$((index + 1))
+                    else
+                        index=$((index + 2))
+                    fi
+                    continue
+                fi
                 if claude_interactive_entry_flag "$arg"; then
                     return 0
                 fi
-                if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
-                    index=$((index + 2))
-                    continue
-                fi
-                if [[ "$arg" != *=* ]] && claude_option_consumes_optional_value "$arg"; then
-                    if (( index + 1 < ${#args[@]} )) && claude_should_consume_optional_value "${args[$((index + 1))]}"; then
+                if claude_option_consumes_optional_value "$option_name"; then
+                    if [[ "$arg" == *=* ]]; then
+                        index=$((index + 1))
+                    elif (( index + 1 < ${#args[@]} )) && claude_should_consume_optional_value "${args[$((index + 1))]}"; then
                         index=$((index + 2))
                     else
                         index=$((index + 1))
@@ -1124,6 +1197,7 @@ should_inject_claude_hooks() {
 claude_first_subcommand() {
     local -a args=("$@")
     local arg
+    local option_name
     local index=0
     while (( index < ${#args[@]} )); do
         arg="${args[$index]}"
@@ -1132,12 +1206,19 @@ claude_first_subcommand() {
                 return 1
                 ;;
             -*)
-                if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
-                    index=$((index + 2))
+                option_name="${arg%%=*}"
+                if claude_option_consumes_value "$option_name"; then
+                    if [[ "$arg" == *=* ]]; then
+                        index=$((index + 1))
+                    else
+                        index=$((index + 2))
+                    fi
                     continue
                 fi
-                if [[ "$arg" != *=* ]] && claude_option_consumes_optional_value "$arg"; then
-                    if (( index + 1 < ${#args[@]} )) && claude_should_consume_optional_value "${args[$((index + 1))]}"; then
+                if claude_option_consumes_optional_value "$option_name"; then
+                    if [[ "$arg" == *=* ]]; then
+                        index=$((index + 1))
+                    elif (( index + 1 < ${#args[@]} )) && claude_should_consume_optional_value "${args[$((index + 1))]}"; then
                         index=$((index + 2))
                     else
                         index=$((index + 1))

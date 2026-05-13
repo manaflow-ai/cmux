@@ -46,6 +46,7 @@ def run_wrapper(
     node_options: str | None = None,
     tmpdir: str | None = None,
     hooks_disabled: bool = False,
+    shadow_python3: bool = False,
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
@@ -59,6 +60,13 @@ def run_wrapper(
         wrapper = wrapper_dir / "claude"
         shutil.copy2(SOURCE_WRAPPER, wrapper)
         wrapper.chmod(0o755)
+        if shadow_python3:
+            make_executable(
+                wrapper_dir / "python3",
+                """#!/usr/bin/env bash
+exit 127
+""",
+            )
 
         real_args_log = tmp / "real-args.log"
         real_claudecode_log = tmp / "real-claudecode.log"
@@ -802,8 +810,18 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
     env_only_value_options = [
         ("development channel", ["--dangerously-load-development-channels", "beta", "agents"]),
         ("fork session", ["--fork-session", "fork-123", "agents"]),
+        ("from pr", ["--from-pr", "3887", "agents"]),
+        ("from pr inline", ["--from-pr=3887", "agents"]),
+        ("resume", ["--resume", "session-123", "agents"]),
+        ("short resume", ["-r", "session-123", "agents"]),
+        ("session id", ["--session-id", "session-123", "agents"]),
+        ("session id inline", ["--session-id=session-123", "agents"]),
         ("teammate mode", ["--teammate-mode", "review", "agents"]),
         ("tmux", ["--tmux", "pane:%1", "agents"]),
+        ("worktree", ["--worktree", "feature-worktree", "agents"]),
+        ("worktree inline", ["--worktree=feature-worktree", "agents"]),
+        ("short worktree", ["-w", "feature-worktree", "agents"]),
+        ("short worktree inline", ["-w=feature-worktree", "agents"]),
         ("debug flag", ["--debug", "agents"]),
         ("debug value", ["--debug", "verbose", "agents"]),
         ("debug flag daemon", ["--debug", "daemon", "run", "--origin", "transient"]),
@@ -815,8 +833,8 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
         )
         expect(code == 0, f"{label} agents passthrough: wrapper exited {code}: {stderr}", failures)
         expect(real_argv == argv, f"{label} agents passthrough: expected raw argv, got {real_argv}", failures)
-        expect("--settings" not in real_argv, f"{label} agents passthrough: expected no --settings injection, got {real_argv}", failures)
-        expect("--session-id" not in real_argv, f"{label} agents passthrough: expected no --session-id injection, got {real_argv}", failures)
+        expect(real_argv.count("--settings") == argv.count("--settings"), f"{label} agents passthrough: expected no injected --settings, got {real_argv}", failures)
+        expect(real_argv.count("--session-id") == argv.count("--session-id"), f"{label} agents passthrough: expected no injected --session-id, got {real_argv}", failures)
         expect(
             "--require=" in node_options and "--max-old-space-size=4096" in node_options,
             f"{label} agents passthrough: expected env-only preload NODE_OPTIONS, got {node_options!r}",
@@ -866,6 +884,38 @@ def test_foreground_claude_settings_detection_parses_hooks_json(failures: list[s
         )
     expect("--session-id" in real_argv, f"foreground settings parse: expected session id injection, got {real_argv}", failures)
     expect(real_argv[-len(argv):] == argv, f"foreground settings parse: expected original args preserved, got {real_argv}", failures)
+
+
+def test_foreground_claude_settings_detection_does_not_require_python(failures: list[str]) -> None:
+    existing_cmux_settings = json.dumps(
+        {
+            "hooks": {
+                "PermissionRequest": [
+                    {
+                        "hooks": [
+                            {
+                                "command": "cmux hooks feed --source claude",
+                                "type": "command",
+                            }
+                        ],
+                        "matcher": "",
+                    }
+                ]
+            }
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    argv = ["--settings", existing_cmux_settings, "--print", "hello"]
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=argv,
+        shadow_python3=True,
+    )
+    expect(code == 0, f"foreground settings parse without python: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv.count("--settings") == 1, f"foreground settings parse without python: expected existing cmux settings to dedupe injection, got {real_argv}", failures)
+    expect("--session-id" in real_argv, f"foreground settings parse without python: expected session id injection, got {real_argv}", failures)
+    expect(real_argv[-len(argv):] == argv, f"foreground settings parse without python: expected original args preserved, got {real_argv}", failures)
 
 
 def test_background_claude_child_launches_inherit_cmux_hooks(failures: list[str]) -> None:
@@ -1137,6 +1187,52 @@ def test_background_claude_env_only_subcommands_after_options_get_env_without_se
         if launch_argv:
             expect(launch_argv[0].endswith("/child-bin/claude"), f"background {label}: expected child executable in launch argv, got {launch_argv}", failures)
         expect(launch_argv[1:] == child_args, f"background {label}: expected env-only launch argv recorded, got {launch_argv}", failures)
+
+
+def test_background_claude_wrapper_exec_env_only_subcommands_after_value_options(failures: list[str]) -> None:
+    cases = [
+        ("session id agents", ["--session-id", "agent-session-123", "agents"]),
+        ("session id inline agents", ["--session-id=agent-session-123", "agents"]),
+        ("resume agents", ["--resume", "resume-session-123", "agents"]),
+        ("short resume agents", ["-r", "resume-session-123", "agents"]),
+        ("worktree agents", ["--worktree", "feature-worktree", "agents"]),
+        ("short worktree agents", ["-w", "feature-worktree", "agents"]),
+        ("from pr daemon", ["--from-pr", "3887", "daemon", "run", "--origin", "transient"]),
+    ]
+    launch_methods = ["execCallback", "execSync"]
+    for label, child_args in cases:
+        for launch_method in launch_methods:
+            code, _, child_argv, child_node_options_env, child_runtime_node_options, child_cmux_pid, child_launch_argv_b64, execfile_callback, stderr = run_wrapper_background_child_spawn(
+                child_args=child_args,
+                child_command="claude",
+                launch_method=launch_method,
+            )
+            case_label = f"{label} via {launch_method}"
+            expect(code == 0, f"background wrapper exec {case_label}: wrapper exited {code}: {stderr}", failures)
+            expect(child_argv == child_args, f"background wrapper exec {case_label}: expected env-only args to stay raw, got {child_argv}", failures)
+            expect("--settings" not in child_argv, f"background wrapper exec {case_label}: expected no --settings injection, got {child_argv}", failures)
+            expect(
+                "--require=" in child_node_options_env and "--max-old-space-size=4096" in child_node_options_env,
+                f"background wrapper exec {case_label}: expected preload NODE_OPTIONS, got {child_node_options_env!r}",
+                failures,
+            )
+            expect(
+                child_runtime_node_options == "__UNSET__",
+                f"background wrapper exec {case_label}: expected runtime NODE_OPTIONS restored, got {child_runtime_node_options!r}",
+                failures,
+            )
+            expect(
+                child_cmux_pid.isdigit() and int(child_cmux_pid) > 0,
+                f"background wrapper exec {case_label}: expected child preload to reset CMUX_CLAUDE_PID to its own pid, got {child_cmux_pid!r}",
+                failures,
+            )
+            launch_argv = decode_nul_argv(child_launch_argv_b64)
+            expect(bool(launch_argv), f"background wrapper exec {case_label}: expected non-empty launch argv, got {launch_argv}", failures)
+            if launch_argv:
+                expect(launch_argv[0].endswith("/real-bin/claude"), f"background wrapper exec {case_label}: expected real executable in launch argv, got {launch_argv}", failures)
+            expect(launch_argv[1:] == child_args, f"background wrapper exec {case_label}: expected env-only launch argv recorded, got {launch_argv}", failures)
+            if launch_method == "execCallback":
+                expect(execfile_callback == "called", f"background wrapper exec {case_label}: expected exec callback to run, got {execfile_callback!r}", failures)
 
 
 def test_background_claude_child_short_model_value_does_not_skip_hook_injection(failures: list[str]) -> None:
@@ -1624,6 +1720,7 @@ def main() -> int:
     test_value_options_before_print_do_not_hide_interactive_entry(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_foreground_claude_settings_detection_parses_hooks_json(failures)
+    test_foreground_claude_settings_detection_does_not_require_python(failures)
     test_background_claude_child_launches_inherit_cmux_hooks(failures)
     test_background_claude_child_through_wrapper_deduplicates_injection(failures)
     test_background_claude_child_preserves_explicit_node_options_override(failures)
@@ -1633,6 +1730,7 @@ def main() -> int:
     test_background_claude_child_settings_detection_parses_hooks_json(failures)
     test_background_claude_daemon_child_gets_env_without_settings(failures)
     test_background_claude_env_only_subcommands_after_options_get_env_without_settings(failures)
+    test_background_claude_wrapper_exec_env_only_subcommands_after_value_options(failures)
     test_background_claude_child_short_model_value_does_not_skip_hook_injection(failures)
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
