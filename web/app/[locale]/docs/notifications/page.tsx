@@ -80,6 +80,61 @@ afplay /path/to/sound.aiff
 echo "$CMUX_NOTIFICATION_TITLE: $CMUX_NOTIFICATION_BODY" >> ~/notifications.log`}</CodeBlock>
       <p>{t("customCommandNote")}</p>
 
+      <h2 id="notification-hooks">{t("hooksTitle")}</h2>
+      <p>
+        {t.rich("hooksIntro", {
+          config: (chunks) => <code>{chunks}</code>,
+          hooksMode: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+      <CodeBlock title={t("hooksJsonTitle")} lang="json">{`{
+  "notifications": {
+    "hooks": [
+      {
+        "id": "quiet-docs",
+        "command": "sed 's/\"desktop\":true/\"desktop\":false/'",
+        "timeoutSeconds": 20
+      }
+    ]
+  }
+}`}</CodeBlock>
+      <CodeBlock title={t("hooksIOTitle")} lang="json">{`{
+  "version": 1,
+  "notification": {
+    "workspaceId": "3B3F0D83-...",
+    "surfaceId": "7E9C1A02-...",
+    "title": "Codex",
+    "subtitle": "Waiting",
+    "body": "Agent needs input"
+  },
+  "context": {
+    "cwd": "/path/to/project",
+    "configPath": "/path/to/project/.cmux/cmux.json",
+    "hookId": "quiet-docs",
+    "appFocused": false,
+    "focusedPanel": false
+  },
+  "effects": {
+    "record": true,
+    "markUnread": true,
+    "reorderWorkspace": true,
+    "desktop": true,
+    "sound": true,
+    "command": true,
+    "paneFlash": true
+  }
+}`}</CodeBlock>
+      <p>
+        {t.rich("hooksDetails", {
+          globalConfig: (chunks) => <code>{chunks}</code>,
+          projectConfig: (chunks) => <code>{chunks}</code>,
+          config: (chunks) => <code>{chunks}</code>,
+          desktop: (chunks) => <code>{chunks}</code>,
+          hooksMode: (chunks) => <code>{chunks}</code>,
+          replace: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+
       <h2>{t("sending")}</h2>
 
       <h3 id="cli-usage">{t("cli")}</h3>
