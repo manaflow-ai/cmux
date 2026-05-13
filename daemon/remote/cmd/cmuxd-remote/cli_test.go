@@ -944,6 +944,27 @@ func TestCLIBrowserFindNthConsumesSelectorAfterIndexFlag(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserFindNthRejectsExtraPositionalsWhenFlagsPrefillKeys(t *testing.T) {
+	t.Setenv("CMUX_SOCKET_PATH", "")
+	t.Setenv("HOME", t.TempDir())
+
+	var code int
+	output := captureStderr(t, func() {
+		code = runCLI([]string{
+			"browser", "surface:2", "find", "nth",
+			"--index", "2",
+			"--selector", ".item",
+			"extra",
+		})
+	})
+	if code != 2 {
+		t.Fatalf("browser find nth with prefilled keys and extra positional should return 2, got %d", code)
+	}
+	if !strings.Contains(output, `cmux browser: unrecognized extra positional argument "extra"`) {
+		t.Fatalf("expected extra positional error, got %q", output)
+	}
+}
+
 func TestCLIBrowserWaitUsesSurfaceEnvAndForwardsOptions(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	t.Setenv("CMUX_SURFACE_ID", "env-sf")

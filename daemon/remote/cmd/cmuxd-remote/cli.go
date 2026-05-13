@@ -732,8 +732,14 @@ func applyBrowserPositionals(params map[string]any, positionals []string, spec b
 			params["index"] = positionals[positionalIndex]
 			positionalIndex++
 		}
-		if _, ok := params["selector"]; !ok && positionalIndex < len(positionals) {
-			params["selector"] = strings.Join(positionals[positionalIndex:], " ")
+		if _, ok := params["selector"]; !ok {
+			if positionalIndex < len(positionals) {
+				params["selector"] = strings.Join(positionals[positionalIndex:], " ")
+			}
+			return nil
+		}
+		if positionalIndex < len(positionals) {
+			return fmt.Errorf("unrecognized extra positional argument %q", positionals[positionalIndex])
 		}
 		return nil
 	case browserSpecialTabTarget:
