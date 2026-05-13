@@ -2117,6 +2117,12 @@ class GhosttyApp {
                 logLabel: "renderer background (fallback)"
             )
             loadInlineGhosttyConfig(
+                "macos-titlebar-proxy-icon = hidden",
+                into: fallbackConfig,
+                prefix: "cmux-titlebar-proxy-icon",
+                logLabel: "titlebar proxy icon (fallback)"
+            )
+            loadInlineGhosttyConfig(
                 "shell-integration = none",
                 into: fallbackConfig,
                 prefix: "cmux-shell-integration-override",
@@ -2273,6 +2279,8 @@ class GhosttyApp {
             prefix: "cmux-renderer-bg",
             logLabel: "renderer background"
         )
+        // Hide Ghostty's native AppKit proxy icon at the source instead of
+        // overriding NSWindow.representedURL on every cmux main window.
         loadInlineGhosttyConfig(
             "macos-titlebar-proxy-icon = hidden",
             into: config,
