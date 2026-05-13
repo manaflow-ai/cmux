@@ -237,6 +237,7 @@ describe("VM Effect workflows", () => {
     `;
 
     let createCalls = 0;
+    let statusCalls = 0;
     const provider: VmProviderGatewayShape = {
       create: () =>
         Effect.sync(() => {
@@ -254,6 +255,11 @@ describe("VM Effect workflows", () => {
       openAttach: () => Effect.fail(new Error("unused") as never),
       openSSH: () => Effect.fail(new Error("unused") as never),
       revokeSSHIdentity: () => Effect.void,
+      getStatus: () =>
+        Effect.sync(() => {
+          statusCalls += 1;
+          return "running" as const;
+        }),
     };
 
     const created = await Effect.runPromise(
@@ -271,6 +277,7 @@ describe("VM Effect workflows", () => {
 
     expect(created.providerVmId).toBe("provider-vm-paused-new");
     expect(createCalls).toBe(1);
+    expect(statusCalls).toBe(0);
   });
 
   dbTest("refreshes Freestyle running rows before active limit enforcement", async () => {
@@ -283,12 +290,7 @@ describe("VM Effect workflows", () => {
 
     let createCalls = 0;
     let statusCalls = 0;
-    const provider: VmProviderGatewayShape & {
-      readonly getStatus: (
-        provider: "freestyle",
-        vmId: string,
-      ) => Effect.Effect<"paused", never>;
-    } = {
+    const provider: VmProviderGatewayShape = {
       create: () =>
         Effect.sync(() => {
           createCalls += 1;
