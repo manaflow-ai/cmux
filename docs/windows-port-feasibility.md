@@ -1,6 +1,7 @@
 # Windows Port Feasibility
 
-Tracking issue: https://github.com/manaflow-ai/cmux/issues/3794
+- Tracking issue: https://github.com/manaflow-ai/cmux/issues/3794
+- Related user demand: https://github.com/manaflow-ai/cmux/issues/1012
 
 ## Status
 
@@ -12,6 +13,11 @@ automation, browser automation, agent hooks, and remote sessions.
 The practical path is to extract and stabilize those shared contracts, then
 build a separate Windows host that implements them with Windows-native UI,
 terminal, browser, notification, and packaging primitives.
+
+The Windows request covers several distinct asks: a full native Windows desktop
+app, a WSL/Linux path, and MSYS2/MinGW-style CLI artifacts for use from Windows
+Terminal or Git Bash. Those should share the same command semantics, but they
+are not the same deliverable.
 
 ## Current Platform Boundary
 
@@ -71,6 +77,25 @@ Build Windows as a sibling native host around a stable cmux protocol boundary.
 5. Add Windows release artifacts only after the host can open a workspace, run a
    local terminal, show an attention notification, and execute a small browser
    automation flow.
+
+## Native Windows, WSL, and MSYS2 Scope
+
+The first feasibility decision is to keep the protocol shared while treating
+each Windows-adjacent runtime as a separate host or transport target.
+
+1. A native Windows app is the path for Windows Terminal, PowerShell, ConPTY,
+   WebView2, native notifications, installation, signing, and updates.
+2. WSL support is closer to a Linux CLI/controller target. It can reuse the
+   protocol and remote-daemon ideas, but it does not provide the native Windows
+   UI, browser, notification, or packaging layer by itself.
+3. MSYS2/MinGW artifacts could make the CLI and helper tools easier to run from
+   Git Bash or Windows Terminal, but they do not remove the need for a Windows
+   host because the current app depends on AppKit, `NSView`, `WKWebView`, and a
+   macOS `GhosttyKit.xcframework`.
+4. Any first implementation should prove transport compatibility before UI
+   parity: the same command contract should work through a macOS Unix socket, a
+   Windows named pipe or TCP endpoint, and any WSL/MSYS2 bridge that is accepted
+   into scope.
 
 ## Portability Boundary
 
@@ -142,25 +167,33 @@ agent-facing contract that scripts and hooks depend on today.
 
 1. Create a platform inventory that classifies source areas as shared protocol,
    macOS host, remote daemon, web, or test-only.
-2. Move protocol fixtures and command contract tests behind a transport-agnostic
+2. Classify the requests from issue #1012 into native Windows, WSL/Linux, and
+   MSYS2/MinGW deliverables so the project does not promise one artifact that
+   cannot satisfy all three environments.
+3. Move protocol fixtures and command contract tests behind a transport-agnostic
    harness so future Windows code can prove compatibility without launching the
    macOS app.
-3. Teach `daemon/remote` to build and test Windows artifacts if product scope
+4. Teach `daemon/remote` to build and test Windows artifacts if product scope
    includes controlling remote Windows machines.
-4. Prototype the Windows control endpoint and CLI transport before building the
+5. Prototype the Windows control endpoint and CLI transport before building the
    full UI.
-5. Prototype one terminal pane and one browser pane in a Windows host.
+6. Prototype one terminal pane and one browser pane in a Windows host.
 
 ## Open Questions
 
 1. Should the first Windows deliverable be a full desktop app, a CLI/controller
    for remote or cloud workspaces, or a smaller companion for agent hooks?
-2. Should the Windows terminal renderer use ConPTY plus a Windows-native
+2. Is WSL support a separate Linux/remote milestone, or should it be bridged to
+   a native Windows endpoint from the start?
+3. Are MSYS2/MinGW artifacts useful enough to support before a full native
+   Windows host exists, or would they create a partial product with confusing
+   missing UI/browser/notification behavior?
+4. Should the Windows terminal renderer use ConPTY plus a Windows-native
    frontend first, or wait for a production-ready Ghostty renderer path on
    Windows?
-3. Should browser automation compatibility prioritize WebView2 parity with the
+5. Should browser automation compatibility prioritize WebView2 parity with the
    current `WKWebView` API, or a narrower command subset first?
-4. What update and signing channel should be used: MSIX, winget, a standalone
+6. What update and signing channel should be used: MSIX, winget, a standalone
    installer, or a managed enterprise distribution path?
 
 ## Non-Goals For The First Pass
