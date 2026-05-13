@@ -2273,6 +2273,12 @@ class GhosttyApp {
             prefix: "cmux-renderer-bg",
             logLabel: "renderer background"
         )
+        loadInlineGhosttyConfig(
+            "macos-titlebar-proxy-icon = hidden",
+            into: config,
+            prefix: "cmux-titlebar-proxy-icon",
+            logLabel: "titlebar proxy icon"
+        )
         // Save the user's preference before we force it to none.
         userGhosttyShellIntegrationMode = "detect"
         do {
