@@ -7,7 +7,7 @@ struct BetaFeaturesSettingsView: View {
         if dockEnabled {
             return String(
                 localized: "settings.betaFeatures.dock.subtitleOn",
-                defaultValue: "Shows Dock in the right sidebar mode switcher for custom terminal controls."
+                defaultValue: "Shows Dock in the right sidebar mode switcher for composable terminal and browser entries."
             )
         }
         return String(

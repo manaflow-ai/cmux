@@ -10385,6 +10385,38 @@ final class Workspace: Identifiable, ObservableObject {
         return browserPanel
     }
 
+    /// Create a browser panel for the right-sidebar Dock without inserting it into Bonsplit.
+    /// This intentionally mirrors `newBrowserSurface`'s browser/profile/proxy setup so Dock
+    /// browsers share the same WebKit process pool, profile data stores, DevTools, and remote
+    /// proxy behavior as main-split browser panes.
+    func newDockBrowserPanel(
+        url: URL? = nil,
+        preferredProfileID: UUID? = nil
+    ) -> BrowserPanel? {
+        let browserEnabled = BrowserAvailabilitySettings.isEnabled()
+        guard browserEnabled else {
+            if let url {
+                _ = NSWorkspace.shared.open(url)
+            }
+            return nil
+        }
+
+        let browserPanel = BrowserPanel(
+            workspaceId: id,
+            profileID: resolvedNewBrowserProfileID(
+                preferredProfileID: preferredProfileID,
+                sourcePanelId: focusedPanelId
+            ),
+            initialURL: url,
+            proxyEndpoint: remoteProxyEndpoint,
+            isRemoteWorkspace: isRemoteWorkspace,
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
+        )
+        setPreferredBrowserProfileID(browserPanel.profileID)
+        browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
+        return browserPanel
+    }
+
     /// Open the markdown viewer for `filePath`, reusing an existing
     /// `MarkdownPanel` in this workspace that already shows the same file.
     /// Paths are compared after symlink resolution so `./README.md` and a
@@ -12909,6 +12941,9 @@ final class Workspace: Identifiable, ObservableObject {
         if let entry = FilePreviewDragRegistry.shared.consume(id: request.tabId.uuid) {
             return handleFilePreviewDrop(entry: entry, destination: request.destination)
         }
+        if let entry = DockSurfaceDragRegistry.shared.consume(id: request.tabId.uuid) {
+            return handleDockSurfaceDrop(entry: entry, destination: request.destination)
+        }
 
         guard let app = AppDelegate.shared else { return false }
 #if DEBUG
@@ -12961,6 +12996,52 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
         return moved
+    }
+
+    private func handleDockSurfaceDrop(
+        entry: DockSurfaceDragEntry,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool {
+        let targetPane: PaneID
+        let targetIndex: Int?
+        let splitTarget: (orientation: SplitOrientation, insertFirst: Bool)?
+
+        switch destination {
+        case .insert(let paneId, let index):
+            targetPane = paneId
+            targetIndex = index
+            splitTarget = nil
+        case .split(let paneId, let orientation, let insertFirst):
+            targetPane = paneId
+            targetIndex = nil
+            splitTarget = (orientation, insertFirst)
+        }
+
+        let shouldFocusOnAttach = splitTarget == nil
+        guard attachDetachedSurface(
+            entry.transfer,
+            inPane: targetPane,
+            atIndex: targetIndex,
+            focus: shouldFocusOnAttach
+        ) != nil else {
+            return false
+        }
+
+        if let splitTarget,
+           let movedTabId = surfaceIdFromPanelId(entry.transfer.panelId),
+           bonsplitController.splitPane(
+            targetPane,
+            orientation: splitTarget.orientation,
+            movingTab: movedTabId,
+            insertFirst: splitTarget.insertFirst
+           ) != nil {
+            focusPanel(entry.transfer.panelId)
+        } else if splitTarget != nil {
+            focusPanel(entry.transfer.panelId)
+        }
+
+        entry.onAttached()
+        return true
     }
 
 }

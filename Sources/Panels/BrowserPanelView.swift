@@ -389,6 +389,9 @@ struct BrowserPanelView: View {
     let isVisibleInUI: Bool
     let portalPriority: Int
     let onRequestPanelFocus: () -> Void
+    var paneDropContextOverride: BrowserPaneDropContext? = nil
+    var isPanelFocusedInModelOverride: Bool? = nil
+    var allowsPaneDropRouting: Bool = true
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openWindow) private var openWindow
     @Environment(\.paneDropZone) private var paneDropZone
@@ -543,6 +546,9 @@ struct BrowserPanelView: View {
     }
 
     private var isCurrentPaneOwner: Bool {
+        if let paneDropContextOverride {
+            return paneDropContextOverride.paneId.id == paneId.id
+        }
         guard let currentPaneId = owningWorkspace?.paneId(forPanelId: panel.id) else {
             return false
         }
@@ -1287,7 +1293,9 @@ struct BrowserPanelView: View {
                             onFieldDidFocus: { panel.noteFindFieldFocused() }
                         )
                     },
-                    paneTopChromeHeight: addressBarHeight
+                    paneTopChromeHeight: addressBarHeight,
+                    paneDropContextOverride: paneDropContextOverride,
+                    allowsPaneDropRouting: allowsPaneDropRouting
                 )
                 .accessibilityIdentifier("BrowserWebViewSurface")
                 // Keep the host stable for normal pane churn, but force a remount when
@@ -1421,6 +1429,9 @@ struct BrowserPanelView: View {
     }
 
     private func isPanelFocusedInModel() -> Bool {
+        if let isPanelFocusedInModelOverride {
+            return isPanelFocusedInModelOverride
+        }
         guard let app = AppDelegate.shared,
               let manager = app.tabManagerFor(tabId: panel.workspaceId),
               manager.selectedTabId == panel.workspaceId,
@@ -4465,6 +4476,8 @@ struct WebViewRepresentable: NSViewRepresentable {
     let paneDropZone: DropZone?
     let searchOverlay: BrowserPortalSearchOverlayConfiguration?
     let paneTopChromeHeight: CGFloat
+    let paneDropContextOverride: BrowserPaneDropContext?
+    let allowsPaneDropRouting: Bool
 
     final class Coordinator {
         weak var panel: BrowserPanel?
@@ -6484,7 +6497,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         coordinator.desiredPortalZPriority = portalZPriority
         coordinator.attachGeneration += 1
         let generation = coordinator.attachGeneration
-        let activePaneDropContext = coordinator.desiredPortalVisibleInUI ? paneDropContext : nil
+        let activePaneDropContext = coordinator.desiredPortalVisibleInUI && allowsPaneDropRouting ? paneDropContext : nil
         let activeSearchOverlay = coordinator.desiredPortalVisibleInUI ? searchOverlay : nil
         let portalAnchorView = panel.portalAnchorView
         let portalHideReason = !isCurrentPaneOwner ? "lostPaneOwnership" : "hidden"
@@ -6847,6 +6860,9 @@ struct WebViewRepresentable: NSViewRepresentable {
     }
 
     private func currentPaneDropContext() -> BrowserPaneDropContext? {
+        if let paneDropContextOverride {
+            return paneDropContextOverride
+        }
         guard let app = AppDelegate.shared,
               let manager = app.tabManagerFor(tabId: panel.workspaceId),
               let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }),
