@@ -27,7 +27,7 @@ struct MobileHostServiceStatus {
 @MainActor
 final class MobileHostService {
     static let shared = MobileHostService()
-    static let preferredPort = 4865
+    static let preferredPort = CmxMobileDefaults.defaultHostPort
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
     private let routeResolver = MobileRouteResolver()

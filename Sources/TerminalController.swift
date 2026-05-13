@@ -7188,19 +7188,19 @@ class TerminalController {
         if let vtOutput = readTerminalTextFromVTExportForSnapshot(
             terminalPanel: terminalPanel,
             bindingAction: "write_screen_file:copy,vt",
-            lineLimit: lineLimit
+            lineLimit: nil
         ) {
-            return MobileTerminalSnapshotText(text: vtOutput, fidelity: "ansi_vt")
+            return MobileTerminalSnapshotText(text: headTerminalLines(vtOutput, maxLines: lineLimit), fidelity: "ansi_vt")
         }
 
         guard let plainText = readPlainTerminalTextForSnapshot(
             terminalPanel: terminalPanel,
             includeScrollback: false,
-            lineLimit: lineLimit
+            lineLimit: nil
         ) else {
             return nil
         }
-        return MobileTerminalSnapshotText(text: plainText, fidelity: "plain_text")
+        return MobileTerminalSnapshotText(text: headTerminalLines(plainText, maxLines: lineLimit), fidelity: "plain_text")
     }
 
     private func readPlainTerminalTextForSnapshot(
@@ -12914,6 +12914,13 @@ class TerminalController {
         return lines.suffix(maxLines).joined(separator: "\n")
     }
 
+    private func headTerminalLines(_ text: String, maxLines: Int) -> String {
+        guard maxLines > 0 else { return "" }
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        guard lines.count > maxLines else { return text }
+        return lines.prefix(maxLines).joined(separator: "\n")
+    }
+
     private func readTerminalTextBase64(surfaceArg: String, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
@@ -17931,6 +17938,7 @@ class TerminalController {
                 viewportText: viewportText.text,
                 maxScrollbackRows: maxScrollbackRows,
                 activeScreen: .primary,
+                modes: MobileTerminalGhosttyModes(),
                 streamOffset: 0,
                 generatedAt: Date()
             )

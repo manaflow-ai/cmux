@@ -179,7 +179,7 @@ import Testing
 
 @MainActor
 @Test func manualHostPairingUsesNetworkRouteForTailscaleAddress() async throws {
-    let attachRoute = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: 4865)
+    let attachRoute = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
     let responses = ScriptedTransportResponses([
         try rpcAttachTicketFrame(route: attachRoute, workspaceID: "live-workspace"),
         try rpcWorkspaceListFrame(workspaceID: "live-workspace", title: "Live Workspace"),
@@ -191,7 +191,7 @@ import Testing
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
-    await store.connectManualHost(name: "Work Mac", host: "100.71.210.41", port: 4865)
+    await store.connectManualHost(name: "Work Mac", host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
 
     let route = try #require(store.activeRoute)
     #expect(store.phase == .workspaces)
@@ -199,7 +199,7 @@ import Testing
     #expect(route.kind == .tailscale)
     if case let .hostPort(host, port) = route.endpoint {
         #expect(host == "100.71.210.41")
-        #expect(port == 4865)
+        #expect(port == CmxMobileDefaults.defaultHostPort)
     } else {
         Issue.record("manual Tailscale route should use host/port")
     }
@@ -298,7 +298,7 @@ import Testing
     let route = try CmxAttachRoute(
         id: "tailscale",
         kind: .tailscale,
-        endpoint: .hostPort(host: "100.71.210.41", port: 4865)
+        endpoint: .hostPort(host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
     )
     let runtime = CMUXMobileRuntime(
         supportedRouteKinds: [.tailscale],
@@ -308,7 +308,7 @@ import Testing
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
-    await store.connectManualHost(name: "Slow Mac", host: "100.71.210.41", port: 4865)
+    await store.connectManualHost(name: "Slow Mac", host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
 
     #expect(route.kind == .tailscale)
     #expect(store.phase == .pairing)
@@ -318,7 +318,7 @@ import Testing
 
 @MainActor
 @Test func manualHostPairingUsesLoopbackRouteForLocalhost() async throws {
-    let attachRoute = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 4865)
+    let attachRoute = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
     let responses = ScriptedTransportResponses([
         try rpcAttachTicketFrame(route: attachRoute, workspaceID: "local-workspace"),
         try rpcWorkspaceListFrame(workspaceID: "local-workspace", title: "Local Workspace"),
@@ -330,7 +330,7 @@ import Testing
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
-    await store.connectManualHost(name: "", host: "127.0.0.1", port: 4865)
+    await store.connectManualHost(name: "", host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
 
     let route = try #require(store.activeRoute)
     #expect(store.phase == .workspaces)
@@ -338,7 +338,7 @@ import Testing
     #expect(route.kind == .debugLoopback)
     if case let .hostPort(host, port) = route.endpoint {
         #expect(host == "127.0.0.1")
-        #expect(port == 4865)
+        #expect(port == CmxMobileDefaults.defaultHostPort)
     } else {
         Issue.record("manual loopback route should use host/port")
     }
@@ -349,7 +349,7 @@ import Testing
     let store = CMUXMobileShellStore.preview()
 
     store.signIn()
-    await store.connectManualHost(name: "Bad Host", host: "dev box.local", port: 4865)
+    await store.connectManualHost(name: "Bad Host", host: "dev box.local", port: CmxMobileDefaults.defaultHostPort)
 
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
@@ -374,7 +374,7 @@ import Testing
 
 @MainActor
 @Test func terminalSurfaceNotReadyReplacesPlaceholderWithoutPairingError() async throws {
-    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 4865)
+    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
     let responses = ScriptedTransportResponses([
         try rpcAttachTicketFrame(route: route, workspaceID: "local-workspace"),
         try rpcResultFrame(
@@ -406,7 +406,7 @@ import Testing
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
-    await store.connectManualHost(name: "", host: "127.0.0.1", port: 4865)
+    await store.connectManualHost(name: "", host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
 
     #expect(store.connectionError == nil)
     #expect(store.selectedWorkspace?.terminals.first?.lines.first == "Terminal surface is still starting.")
@@ -414,7 +414,7 @@ import Testing
 
 @MainActor
 @Test func workspaceListPrefersReadyTerminalBeforeSnapshotRefresh() async throws {
-    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 4865)
+    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
     let responses = ScriptedTransportResponses([
         try rpcAttachTicketFrame(route: route, workspaceID: "local-workspace"),
         try rpcResultFrame(
@@ -458,7 +458,7 @@ import Testing
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
-    await store.connectManualHost(name: "", host: "127.0.0.1", port: 4865)
+    await store.connectManualHost(name: "", host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
 
     #expect(store.connectionError == nil)
     #expect(store.selectedWorkspace?.id.rawValue == "local-workspace")
@@ -468,7 +468,7 @@ import Testing
 
 @MainActor
 @Test func notReadySelectedTerminalFallsBackToReadyTerminalInAnotherWorkspace() async throws {
-    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 4865)
+    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
     let responses = ScriptedTransportResponses([
         try rpcAttachTicketFrame(route: route, workspaceID: "stale-workspace"),
         try rpcResultFrame(
@@ -521,7 +521,7 @@ import Testing
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
-    await store.connectManualHost(name: "", host: "127.0.0.1", port: 4865)
+    await store.connectManualHost(name: "", host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
 
     #expect(store.connectionError == nil)
     #expect(store.selectedWorkspace?.id.rawValue == "ready-workspace")
@@ -818,6 +818,87 @@ import Testing
 }
 
 @MainActor
+@Test func duplicateViewportReportRefreshesSnapshotWhenCurrentSnapshotHasNoViewportFit() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let viewportFit: [String: Any] = [
+        "effective": ["columns": 52, "rows": 24],
+        "client": ["columns": 52, "rows": 24],
+        "is_current_client_limiting": true,
+    ]
+    var responseFrames = [
+        try rpcWorkspaceListFrame(
+            workspaceID: "live-workspace",
+            title: "Live Workspace",
+            terminalID: "live-terminal"
+        ),
+        try rpcSnapshotResultFrame(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            visibleLines: ["mac-sized first snapshot"]
+        ),
+        try rpcSnapshotResultFrame(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            visibleLines: ["viewport-sized refresh"],
+            viewportFit: viewportFit
+        ),
+    ]
+    for _ in 0..<10 {
+        responseFrames.append(
+            try rpcSnapshotResultFrame(
+                workspaceID: "live-workspace",
+                terminalID: "live-terminal",
+                visibleLines: ["settled viewport refresh"],
+                viewportFit: viewportFit
+            )
+        )
+    }
+    let responses = ScriptedTransportResponses(responseFrames)
+    let runtime = CMUXMobileRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    store.reportTerminalViewport(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        viewportSize: MobileTerminalViewportSize(columns: 52, rows: 24)
+    )
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    store.reportTerminalViewport(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        viewportSize: MobileTerminalViewportSize(columns: 52, rows: 24)
+    )
+    var requests = try await responses.sentRequests()
+    for _ in 0..<40
+        where requests.filter({ $0.method == "terminal.snapshot" }).count < 3
+            || store.selectedWorkspace?.terminals.first?.lines.first != "settled viewport refresh" {
+        try await Task.sleep(nanoseconds: 10_000_000)
+        requests = try await responses.sentRequests()
+    }
+    let snapshotRequests = requests.filter { $0.method == "terminal.snapshot" }
+    #expect(snapshotRequests.count >= 3)
+    #expect(snapshotRequests.last?.viewportColumns == 52)
+    #expect(snapshotRequests.last?.viewportRows == 24)
+    #expect(store.selectedWorkspace?.terminals.first?.lines.first == "settled viewport refresh")
+}
+
+@MainActor
 @Test func terminalSnapshotStoresViewportFitForVisibleAreaBorder() async throws {
     let route = try CmxAttachRoute(
         id: "debug_loopback",
@@ -868,7 +949,7 @@ import Testing
 @Test func terminalVisibleAreaBorderPolicyHidesOnLimitingDevices() {
     let limitingFit = MobileTerminalViewportFit(
         effective: MobileTerminalViewportSize(columns: 52, rows: 24),
-        client: MobileTerminalViewportSize(columns: 52, rows: 40),
+        client: MobileTerminalViewportSize(columns: 52, rows: 24),
         isCurrentClientLimiting: true
     )
     let nonLimitingFit = MobileTerminalViewportFit(
@@ -876,10 +957,23 @@ import Testing
         client: MobileTerminalViewportSize(columns: 120, rows: 40),
         isCurrentClientLimiting: false
     )
+    let heightLimitingFit = MobileTerminalViewportFit(
+        effective: MobileTerminalViewportSize(columns: 52, rows: 24),
+        client: MobileTerminalViewportSize(columns: 120, rows: 24),
+        isCurrentClientLimiting: true
+    )
+    let widthLimitingFit = MobileTerminalViewportFit(
+        effective: MobileTerminalViewportSize(columns: 52, rows: 24),
+        client: MobileTerminalViewportSize(columns: 52, rows: 40),
+        isCurrentClientLimiting: true
+    )
 
     #expect(TerminalVisibleAreaBorderPolicy.shouldDraw(viewportFit: nil) == false)
     #expect(TerminalVisibleAreaBorderPolicy.shouldDraw(viewportFit: limitingFit) == false)
     #expect(TerminalVisibleAreaBorderPolicy.shouldDraw(viewportFit: nonLimitingFit) == true)
+    #expect(TerminalVisibleAreaBorderPolicy.edges(viewportFit: heightLimitingFit) == TerminalVisibleAreaBorderEdges(drawRight: true, drawBottom: false))
+    #expect(TerminalVisibleAreaBorderPolicy.edges(viewportFit: widthLimitingFit) == TerminalVisibleAreaBorderEdges(drawRight: false, drawBottom: true))
+    #expect(TerminalVisibleAreaBorderPolicy.edges(viewportFit: nonLimitingFit) == TerminalVisibleAreaBorderEdges(drawRight: true, drawBottom: true))
 }
 
 @Test func terminalInputAccessoryMatchesZigReferenceMetrics() {
@@ -1035,7 +1129,7 @@ private func rpcHostStatusFrame(routes: [[String: Any]]) throws -> Data {
     try rpcResultFrame(
         result: [
             "is_running": true,
-            "port": 4865,
+            "port": CmxMobileDefaults.defaultHostPort,
             "routes": routes,
             "active_connection_count": 1,
             "last_error": NSNull(),

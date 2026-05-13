@@ -74,8 +74,8 @@
     "mobile.addDevice.portPlaceholder" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "4865" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "4865" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "58465" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "58465" } }
       }
     },
     "mobile.addDevice.title" : {

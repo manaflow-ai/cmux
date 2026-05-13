@@ -177,6 +177,50 @@ public struct MobileTerminalGhosttyModes: Codable, Equatable, Sendable {
         self.mouseTracking = mouseTracking
         self.cursorVisible = cursorVisible
     }
+
+    func applyingCursorVisibility(from text: String) -> MobileTerminalGhosttyModes {
+        guard let cursorVisible = Self.cursorVisibility(from: text) else {
+            return self
+        }
+        var modes = self
+        modes.cursorVisible = cursorVisible
+        return modes
+    }
+
+    private static func cursorVisibility(from text: String) -> Bool? {
+        var searchStart = text.startIndex
+        var cursorVisible: Bool?
+        let prefix = "\u{001B}[?"
+
+        while let range = text.range(of: prefix, range: searchStart..<text.endIndex) {
+            var cursor = range.upperBound
+            let parametersStart = cursor
+
+            while cursor < text.endIndex {
+                let scalar = text[cursor].unicodeScalars.first?.value ?? 0
+                if scalar >= 0x40, scalar <= 0x7E {
+                    let final = text[cursor]
+                    if final == "h" || final == "l" {
+                        let parameters = text[parametersStart..<cursor]
+                            .split(separator: ";")
+                            .compactMap { Int($0) }
+                        if parameters.contains(25) {
+                            cursorVisible = final == "h"
+                        }
+                    }
+                    searchStart = text.index(after: cursor)
+                    break
+                }
+                cursor = text.index(after: cursor)
+            }
+
+            if cursor >= text.endIndex {
+                searchStart = text.endIndex
+            }
+        }
+
+        return cursorVisible
+    }
 }
 
 public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
@@ -307,24 +351,25 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
         // This rehydrates styles from Ghostty VT/ANSI exports. It is not a
         // true Ghostty grid exporter: plain text snapshots have already lost
         // cell colors, width metadata, hyperlinks, and unsupported attributes.
-        let visibleRows = styledRows(from: viewportText, columns: columns)
+        let visibleGrid = styledGrid(from: viewportText, columns: columns)
         var scrollbackRows = styledRows(from: scrollbackText ?? "", columns: columns)
         if let maxScrollbackRows {
             scrollbackRows = Array(scrollbackRows.suffix(max(0, maxScrollbackRows)))
         }
+        let resolvedModes = modes.applyingCursorVisibility(from: viewportText)
         let resolvedCursor = cursor ?? MobileTerminalGhosttyCursor(
-            column: 0,
-            row: max(0, rows - 1),
-            isVisible: modes.cursorVisible
+            column: min(max(visibleGrid.cursorColumn, 0), max(columns - 1, 0)),
+            row: min(max(visibleGrid.cursorRow, 0), max(rows - 1, 0)),
+            isVisible: resolvedModes.cursorVisible
         )
         return try MobileTerminalGhosttySnapshot(
             terminalID: terminalID,
             gridSize: MobileTerminalGridSize(columns: columns, rows: rows),
             activeScreen: activeScreen,
             scrollbackRows: scrollbackRows,
-            visibleRows: paddedRows(rows: visibleRows, columns: columns, count: rows),
+            visibleRows: paddedRows(rows: visibleGrid.rows, columns: columns, count: rows),
             cursor: resolvedCursor,
-            modes: modes,
+            modes: resolvedModes,
             streamOffset: streamOffset,
             generatedAt: generatedAt
         )
@@ -397,42 +442,154 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
         return lines
     }
 
+    private struct StyledTerminalGrid {
+        var rows: [MobileTerminalGhosttyRow]
+        var cursorColumn: Int
+        var cursorRow: Int
+    }
+
     private static func styledRows(from text: String, columns: Int) -> [MobileTerminalGhosttyRow] {
+        styledGrid(from: text, columns: columns).rows
+    }
+
+    private static func styledGrid(from text: String, columns: Int) -> StyledTerminalGrid {
+        let resolvedColumns = max(1, columns)
         let text = text
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
-        guard !text.isEmpty else { return [] }
+        guard !text.isEmpty else {
+            return StyledTerminalGrid(rows: [], cursorColumn: 0, cursorRow: 0)
+        }
 
-        var rows: [MobileTerminalGhosttyRow] = []
-        var cells: [MobileTerminalGhosttyCell] = []
+        var rows: [[MobileTerminalGhosttyCell]] = [[]]
+        var row = 0
         var column = 0
         var style = MobileTerminalGhosttyCellStyle()
         var index = text.startIndex
 
-        func setCell(_ cell: MobileTerminalGhosttyCell, at column: Int) {
-            guard column < columns else { return }
-            while cells.count < column {
-                cells.append(.blank)
-            }
-            if cells.indices.contains(column) {
-                cells[column] = cell
-            } else {
-                cells.append(cell)
+        func ensureRow(_ rowIndex: Int) {
+            guard rowIndex >= 0 else { return }
+            while rows.count <= rowIndex {
+                rows.append([])
             }
         }
 
-        func appendRow() {
-            while cells.count < columns {
-                cells.append(.blank)
+        func ensureCellStorage(row rowIndex: Int, through columnIndex: Int) {
+            ensureRow(rowIndex)
+            guard columnIndex >= 0 else { return }
+            while rows[rowIndex].count <= columnIndex {
+                rows[rowIndex].append(.blank)
             }
-            rows.append(MobileTerminalGhosttyRow(cells: Array(cells.prefix(columns))))
-            cells.removeAll(keepingCapacity: true)
+        }
+
+        func setCell(_ cell: MobileTerminalGhosttyCell, atRow rowIndex: Int, column columnIndex: Int) {
+            guard columnIndex >= 0, columnIndex < resolvedColumns else { return }
+            ensureCellStorage(row: rowIndex, through: columnIndex)
+            rows[rowIndex][columnIndex] = cell
+        }
+
+        func eraseLine(mode: Int) {
+            ensureRow(row)
+            switch mode {
+            case 1:
+                guard column >= 0 else { return }
+                ensureCellStorage(row: row, through: min(column, max(columns - 1, 0)))
+                let end = min(column, rows[row].count - 1)
+                guard end >= 0 else { return }
+                for index in 0...end {
+                    rows[row][index] = .blank
+                }
+            case 2:
+                rows[row].removeAll(keepingCapacity: true)
+            default:
+                guard column < resolvedColumns else { return }
+                ensureCellStorage(row: row, through: max(column, 0))
+                let start = max(column, 0)
+                guard start < rows[row].count else { return }
+                for index in start..<rows[row].count {
+                    rows[row][index] = .blank
+                }
+            }
+        }
+
+        func eraseDisplay(mode: Int) {
+            switch mode {
+            case 1:
+                guard row >= 0 else { return }
+                ensureRow(row)
+                if row > 0 {
+                    for rowIndex in 0..<row {
+                        rows[rowIndex].removeAll(keepingCapacity: true)
+                    }
+                }
+                let savedColumn = column
+                column = 0
+                eraseLine(mode: 1)
+                column = savedColumn
+            case 2, 3:
+                rows = [[]]
+                row = 0
+                column = 0
+            default:
+                guard row >= 0 else { return }
+                ensureRow(row)
+                eraseLine(mode: 0)
+                if row + 1 < rows.count {
+                    rows.removeSubrange((row + 1)..<rows.count)
+                }
+            }
+        }
+
+        func moveCursor(row newRow: Int, column newColumn: Int) {
+            row = max(0, newRow)
+            column = max(0, newColumn)
+            ensureRow(row)
+        }
+
+        func applyEscapeAction(_ action: TerminalEscapeAction) {
+            switch action {
+            case .none:
+                return
+            case let .cursorPosition(newRow, newColumn):
+                moveCursor(row: newRow, column: newColumn)
+            case let .cursorMove(rowDelta, columnDelta):
+                moveCursor(row: row + rowDelta, column: column + columnDelta)
+            case let .cursorColumn(newColumn):
+                moveCursor(row: row, column: newColumn)
+            case let .cursorRow(newRow):
+                moveCursor(row: newRow, column: column)
+            case let .eraseDisplay(mode):
+                eraseDisplay(mode: mode)
+            case let .eraseLine(mode):
+                eraseLine(mode: mode)
+            }
+        }
+
+        func normalizedRows() -> [MobileTerminalGhosttyRow] {
+            rows.map { rowCells in
+                var cells = Array(rowCells.prefix(resolvedColumns))
+                while cells.count < resolvedColumns {
+                    cells.append(.blank)
+                }
+                return MobileTerminalGhosttyRow(cells: cells)
+            }
+        }
+
+        func appendLine() {
+            row += 1
             column = 0
+            ensureRow(row)
+        }
+
+        func setCell(_ cell: MobileTerminalGhosttyCell, at column: Int) {
+            guard column < resolvedColumns else { return }
+            setCell(cell, atRow: row, column: column)
         }
 
         while index < text.endIndex {
             if text[index] == "\u{001B}",
-               consumeEscapeSequence(in: text, index: &index, style: &style) {
+               let action = consumeEscapeSequence(in: text, index: &index, style: &style) {
+                applyEscapeAction(action)
                 continue
             }
 
@@ -441,11 +598,11 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
 
             switch character {
             case "\n":
-                appendRow()
+                appendLine()
             case "\r":
                 column = 0
             case "\t":
-                let nextTabStop = min(columns, ((column / 8) + 1) * 8)
+                let nextTabStop = min(resolvedColumns, ((column / 8) + 1) * 8)
                 while column < nextTabStop {
                     setCell(MobileTerminalGhosttyCell(text: " ", style: style), at: column)
                     column += 1
@@ -456,30 +613,46 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
             }
         }
 
-        if !cells.isEmpty || !text.hasSuffix("\n") {
-            appendRow()
+        if text.hasSuffix("\n"), rows.last?.isEmpty == true {
+            rows.removeLast()
         }
 
-        return rows
+        return StyledTerminalGrid(
+            rows: normalizedRows(),
+            cursorColumn: min(max(column, 0), resolvedColumns - 1),
+            cursorRow: max(row, 0)
+        )
+    }
+
+    private enum TerminalEscapeAction {
+        case none
+        case cursorPosition(row: Int, column: Int)
+        case cursorMove(rowDelta: Int, columnDelta: Int)
+        case cursorColumn(Int)
+        case cursorRow(Int)
+        case eraseDisplay(Int)
+        case eraseLine(Int)
     }
 
     private static func consumeEscapeSequence(
         in text: String,
         index: inout String.Index,
         style: inout MobileTerminalGhosttyCellStyle
-    ) -> Bool {
+    ) -> TerminalEscapeAction? {
         var cursor = text.index(after: index)
         guard cursor < text.endIndex else {
-            return false
+            return nil
         }
 
         if text[cursor] == "]" {
             return consumeOSCSequence(in: text, index: &index, cursor: text.index(after: cursor))
+                ? TerminalEscapeAction.none
+                : nil
         }
 
         guard text[cursor] == "[" else {
             index = text.index(after: cursor)
-            return true
+            return TerminalEscapeAction.none
         }
 
         cursor = text.index(after: cursor)
@@ -488,16 +661,67 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
             let scalar = text[cursor].unicodeScalars.first?.value ?? 0
             if scalar >= 0x40, scalar <= 0x7E {
                 let final = text[cursor]
+                let parameters = String(text[parametersStart..<cursor])
                 if final == "m" {
-                    applySGRParameters(String(text[parametersStart..<cursor]), to: &style)
+                    applySGRParameters(parameters, to: &style)
                 }
                 index = text.index(after: cursor)
-                return true
+                return terminalEscapeAction(final: final, parameters: parameters)
             }
             cursor = text.index(after: cursor)
         }
 
-        return false
+        return nil
+    }
+
+    private static func terminalEscapeAction(final: Character, parameters: String) -> TerminalEscapeAction {
+        guard !parameters.hasPrefix("?") else {
+            return .none
+        }
+
+        let values = parameters
+            .split(separator: ";", omittingEmptySubsequences: false)
+            .map { Int($0) ?? 0 }
+
+        func value(at index: Int, default defaultValue: Int) -> Int {
+            guard values.indices.contains(index), values[index] > 0 else {
+                return defaultValue
+            }
+            return values[index]
+        }
+
+        func mode(default defaultValue: Int = 0) -> Int {
+            guard values.indices.contains(0) else {
+                return defaultValue
+            }
+            return values[0]
+        }
+
+        switch final {
+        case "H", "f":
+            return .cursorPosition(
+                row: value(at: 0, default: 1) - 1,
+                column: value(at: 1, default: 1) - 1
+            )
+        case "A":
+            return .cursorMove(rowDelta: -value(at: 0, default: 1), columnDelta: 0)
+        case "B":
+            return .cursorMove(rowDelta: value(at: 0, default: 1), columnDelta: 0)
+        case "C":
+            return .cursorMove(rowDelta: 0, columnDelta: value(at: 0, default: 1))
+        case "D":
+            return .cursorMove(rowDelta: 0, columnDelta: -value(at: 0, default: 1))
+        case "G":
+            return .cursorColumn(value(at: 0, default: 1) - 1)
+        case "d":
+            return .cursorRow(value(at: 0, default: 1) - 1)
+        case "J":
+            return .eraseDisplay(mode())
+        case "K":
+            return .eraseLine(mode())
+        default:
+            return .none
+        }
     }
 
     private static func consumeOSCSequence(

@@ -1,5 +1,9 @@
 import Foundation
 
+public enum CmxMobileDefaults {
+    public static let defaultHostPort = 58_465
+}
+
 public enum CmxAttachTransportKind: String, Codable, Sendable {
     case tailscale
     case iroh

@@ -761,7 +761,7 @@ struct PairingView: View {
     @State private var deviceName = UITestConfig.addDeviceName
         ?? L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac")
     @State private var host = UITestConfig.addDeviceHost ?? ""
-    @State private var port = UITestConfig.addDevicePort ?? "4865"
+    @State private var port = UITestConfig.addDevicePort ?? "\(CmxMobileDefaults.defaultHostPort)"
     @State private var validationError: String?
     @State private var isPairing = false
     @FocusState private var focusedField: AddDeviceField?
@@ -789,7 +789,7 @@ struct PairingView: View {
                     .accessibilityIdentifier("MobileAddDeviceHostField")
 
                     TextField(
-                        L10n.string("mobile.addDevice.portPlaceholder", defaultValue: "4865"),
+                        L10n.string("mobile.addDevice.portPlaceholder", defaultValue: "58465"),
                         text: $port
                     )
                     .focused($focusedField, equals: .port)
@@ -1535,52 +1535,69 @@ struct WorkspaceDetailView: View {
     let createTerminal: () -> Void
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var bottomActionModifierState = MobileTerminalModifierState()
     @State private var terminalFontScale: CGFloat = 1
+    @State private var isTerminalKeyboardVisible = false
 
     private var selectedTerminal: MobileTerminalPreview? {
         workspace.terminals.first { $0.id == selectedTerminalID } ?? workspace.terminals.first
     }
 
     var body: some View {
-        TerminalPreviewSurface(
-            terminal: selectedTerminal,
-            fontScale: terminalFontScale,
-            modifierState: $bottomActionModifierState,
-            sendTerminalInput: sendTerminalInput,
-            onViewportChange: { viewportSize in
-                guard let terminalID = selectedTerminal?.id else { return }
-                reportTerminalViewport(workspace.id, terminalID, viewportSize)
-            }
-        )
+        VStack(spacing: 0) {
+            TerminalPreviewSurface(
+                terminal: selectedTerminal,
+                fontScale: terminalFontScale,
+                modifierState: $bottomActionModifierState,
+                isKeyboardVisible: $isTerminalKeyboardVisible,
+                sendTerminalInput: sendTerminalInput,
+                onViewportChange: { viewportSize in
+                    guard let terminalID = selectedTerminal?.id else { return }
+                    reportTerminalViewport(workspace.id, terminalID, viewportSize)
+                }
+            )
+            .padding(.top, compactLandscapeTerminalTopInset)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(TerminalPalette.background)
-            .navigationTitle(workspace.name)
-            .mobileTerminalNavigationChrome()
-            .toolbar {
-                #if os(iOS)
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    terminalToolbarButtons
-                }
-                #else
-                ToolbarItem {
-                    terminalToolbarButtons
-                }
-                #endif
+
+            TerminalBottomActionBar(
+                modifierState: bottomActionModifierState,
+                canDecreaseFont: terminalFontScale > Self.minimumTerminalFontScale,
+                canIncreaseFont: terminalFontScale < Self.maximumTerminalFontScale,
+                performAction: performBottomAction
+            )
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        #if os(iOS)
+        .mobileTerminalSafeAreaExpansion()
+        #endif
+        .background(TerminalPalette.background)
+        .navigationTitle(workspace.name)
+        .mobileTerminalNavigationChrome()
+        .toolbar {
+            #if os(iOS)
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                terminalToolbarButtons
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                TerminalBottomActionBar(
-                    modifierState: bottomActionModifierState,
-                    canDecreaseFont: terminalFontScale > Self.minimumTerminalFontScale,
-                    canIncreaseFont: terminalFontScale < Self.maximumTerminalFontScale,
-                    performAction: performBottomAction
-                )
+            #else
+            ToolbarItem {
+                terminalToolbarButtons
             }
+            #endif
+        }
     }
 
     private static let minimumTerminalFontScale: CGFloat = 0.8
     private static let maximumTerminalFontScale: CGFloat = 1.5
     private static let terminalFontScaleStep: CGFloat = 0.1
+
+    private var compactLandscapeTerminalTopInset: CGFloat {
+        #if os(iOS)
+        verticalSizeClass == .compact ? TerminalViewportMetrics.preferredRowHeight : 0
+        #else
+        0
+        #endif
+    }
 
     private func performBottomAction(_ action: MobileTerminalBottomAction) {
         if let modifier = action.modifier {
@@ -1590,6 +1607,7 @@ struct WorkspaceDetailView: View {
 
         switch action {
         case .hideKeyboard:
+            isTerminalKeyboardVisible = false
             dismissKeyboard()
             bottomActionModifierState.clear()
         case .zoomOut:
@@ -2087,7 +2105,23 @@ enum TerminalInputAccessoryVisualMetrics {
 
 enum TerminalVisibleAreaBorderPolicy {
     static func shouldDraw(viewportFit: MobileTerminalViewportFit?) -> Bool {
-        viewportFit?.shouldDrawVisibleAreaBorder == true
+        edges(viewportFit: viewportFit).hasVisibleEdge
+    }
+
+    static func edges(viewportFit: MobileTerminalViewportFit?) -> TerminalVisibleAreaBorderEdges {
+        TerminalVisibleAreaBorderEdges(
+            drawRight: viewportFit?.shouldDrawVisibleAreaRightBorder == true,
+            drawBottom: viewportFit?.shouldDrawVisibleAreaBottomBorder == true
+        )
+    }
+}
+
+struct TerminalVisibleAreaBorderEdges: Equatable, Sendable {
+    var drawRight: Bool
+    var drawBottom: Bool
+
+    var hasVisibleEdge: Bool {
+        drawRight || drawBottom
     }
 }
 
@@ -2157,8 +2191,10 @@ private struct TerminalBottomActionBar: View {
                 .padding(.vertical, (TerminalInputAccessoryVisualMetrics.barHeight - TerminalInputAccessoryVisualMetrics.buttonHeight) / 2)
             }
             .scrollIndicators(.hidden)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(height: TerminalInputAccessoryVisualMetrics.barHeight)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(TerminalPalette.background)
         .overlay(alignment: .top) {
             Rectangle()
@@ -2168,6 +2204,9 @@ private struct TerminalBottomActionBar: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileTerminalBottomActionBar")
         .accessibilityValue(modifierState.accessibilityValue)
+        #if os(iOS)
+        .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+        #endif
     }
 
     private func isEnabled(_ action: MobileTerminalBottomAction) -> Bool {
@@ -2500,6 +2539,7 @@ struct TerminalPreviewSurface: View {
     let terminal: MobileTerminalPreview?
     var fontScale: CGFloat = 1
     var modifierState: Binding<MobileTerminalModifierState>?
+    var isKeyboardVisible: Binding<Bool>?
     var sendTerminalInput: (String) -> Void = { _ in }
     var onViewportChange: (MobileTerminalViewportSize) -> Void = { _ in }
     @Environment(\.displayScale) private var displayScale
@@ -2520,6 +2560,8 @@ struct TerminalPreviewSurface: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let visibleSize = visibleTerminalSize(proxy: proxy)
+            let viewportSize = TerminalViewportMetrics.viewportSize(for: visibleSize, fontScale: fontScale)
             let metrics = TerminalViewportMetrics(
                 size: proxy.size,
                 columns: columnCount,
@@ -2536,8 +2578,10 @@ struct TerminalPreviewSurface: View {
                     fontScale: fontScale
                 )
 
-                if TerminalVisibleAreaBorderPolicy.shouldDraw(viewportFit: terminal?.viewportFit) {
+                let borderEdges = TerminalVisibleAreaBorderPolicy.edges(viewportFit: terminal?.viewportFit)
+                if borderEdges.hasVisibleEdge {
                     TerminalVisibleAreaBorder(
+                        edges: borderEdges,
                         metrics: metrics,
                         containerSize: proxy.size,
                         displayScale: displayScale
@@ -2546,15 +2590,25 @@ struct TerminalPreviewSurface: View {
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             .task(id: viewportReportKey(proxy: proxy)) {
-                onViewportChange(TerminalViewportMetrics.viewportSize(for: visibleTerminalSize(proxy: proxy), fontScale: fontScale))
+                onViewportChange(viewportSize)
+            }
+            .onAppear {
+                onViewportChange(viewportSize)
+            }
+            .onChange(of: visibleSize) { _, _ in
+                onViewportChange(viewportSize)
+            }
+            .onChange(of: fontScale) { _, _ in
+                onViewportChange(viewportSize)
             }
         }
         .foregroundStyle(TerminalPalette.foreground)
         .overlay {
             #if os(iOS)
-            if let modifierState {
+            if let modifierState, let isKeyboardVisible {
                 TerminalHiddenInputProxy(
                     modifierState: modifierState,
+                    isKeyboardVisible: isKeyboardVisible,
                     sendTerminalInput: sendTerminalInput
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2580,13 +2634,35 @@ struct TerminalPreviewSurface: View {
 }
 
 #if os(iOS)
+private struct MobileCompactLandscapeTerminalSafeAreaCompensation: ViewModifier {
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    func body(content: Content) -> some View {
+        if verticalSizeClass == .compact {
+            content
+                .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+        } else {
+            content
+                .ignoresSafeArea(.container, edges: .bottom)
+        }
+    }
+}
+
+private extension View {
+    func mobileTerminalSafeAreaExpansion() -> some View {
+        modifier(MobileCompactLandscapeTerminalSafeAreaCompensation())
+    }
+}
+
 private struct TerminalHiddenInputProxy: UIViewRepresentable {
     @Binding var modifierState: MobileTerminalModifierState
+    @Binding var isKeyboardVisible: Bool
     let sendTerminalInput: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
             modifierState: $modifierState,
+            isKeyboardVisible: $isKeyboardVisible,
             sendTerminalInput: sendTerminalInput
         )
     }
@@ -2602,26 +2678,44 @@ private struct TerminalHiddenInputProxy: UIViewRepresentable {
         textView.onRawInput = { input in
             context.coordinator.emitRawInput(input)
         }
+        textView.onFocusRequested = {
+            context.coordinator.requestKeyboard()
+        }
         textView.accessibilityLabel = L10n.string("mobile.terminal.inputProxy.label", defaultValue: "Terminal input")
         return textView
     }
 
     func updateUIView(_ uiView: TerminalHiddenInputTextView, context: Context) {
         context.coordinator.modifierState = $modifierState
+        context.coordinator.isKeyboardVisible = $isKeyboardVisible
         context.coordinator.sendTerminalInput = sendTerminalInput
         uiView.accessibilityLabel = L10n.string("mobile.terminal.inputProxy.label", defaultValue: "Terminal input")
+        if isKeyboardVisible {
+            if !uiView.isFirstResponder {
+                uiView.becomeFirstResponder()
+            }
+        } else if uiView.isFirstResponder {
+            uiView.resignFirstResponder()
+        }
     }
 
     final class Coordinator {
         var modifierState: Binding<MobileTerminalModifierState>
+        var isKeyboardVisible: Binding<Bool>
         var sendTerminalInput: (String) -> Void
 
         init(
             modifierState: Binding<MobileTerminalModifierState>,
+            isKeyboardVisible: Binding<Bool>,
             sendTerminalInput: @escaping (String) -> Void
         ) {
             self.modifierState = modifierState
+            self.isKeyboardVisible = isKeyboardVisible
             self.sendTerminalInput = sendTerminalInput
+        }
+
+        func requestKeyboard() {
+            isKeyboardVisible.wrappedValue = true
         }
 
         func emitText(_ text: String) {
@@ -2655,6 +2749,7 @@ private final class TerminalHiddenInputTextView: UITextView, UITextViewDelegate 
     var onText: ((String) -> Void)?
     var onBackspace: (() -> Void)?
     var onRawInput: ((String) -> Void)?
+    var onFocusRequested: (() -> Void)?
 
     override var canBecomeFirstResponder: Bool { true }
 
@@ -2709,6 +2804,7 @@ private final class TerminalHiddenInputTextView: UITextView, UITextViewDelegate 
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        onFocusRequested?()
         becomeFirstResponder()
         super.touchesBegan(touches, with: event)
     }
@@ -2858,25 +2954,30 @@ private struct TerminalFittedViewportGrid: View {
 }
 
 private struct TerminalVisibleAreaBorder: View {
+    let edges: TerminalVisibleAreaBorderEdges
     let metrics: TerminalViewportMetrics
     let containerSize: CGSize
     let displayScale: CGFloat
 
     var body: some View {
-        let lineWidth = 1 / max(1, displayScale)
+        let lineWidth = max(2 / max(1, displayScale), 1.25)
         let width = min(metrics.gridWidth, containerSize.width)
         let height = min(metrics.gridHeight, containerSize.height)
 
         ZStack(alignment: .topLeading) {
-            Rectangle()
-                .fill(PlatformPalette.separator.opacity(0.7))
-                .frame(width: lineWidth, height: height)
-                .frame(width: width, height: height, alignment: .topTrailing)
+            if edges.drawRight {
+                Rectangle()
+                    .fill(PlatformPalette.separator.opacity(0.9))
+                    .frame(width: lineWidth, height: height)
+                    .frame(width: width, height: height, alignment: .topTrailing)
+            }
 
-            Rectangle()
-                .fill(PlatformPalette.separator.opacity(0.7))
-                .frame(width: width, height: lineWidth)
-                .frame(width: width, height: height, alignment: .bottomLeading)
+            if edges.drawBottom {
+                Rectangle()
+                    .fill(PlatformPalette.separator.opacity(0.9))
+                    .frame(width: width, height: lineWidth)
+                    .frame(width: width, height: height, alignment: .bottomLeading)
+            }
         }
         .frame(width: width, height: height, alignment: .topLeading)
         .allowsHitTesting(false)

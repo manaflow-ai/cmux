@@ -118,7 +118,17 @@ public struct MobileTerminalViewportFit: Codable, Equatable, Sendable {
     }
 
     public var shouldDrawVisibleAreaBorder: Bool {
-        !isCurrentClientLimiting
+        shouldDrawVisibleAreaRightBorder || shouldDrawVisibleAreaBottomBorder
+    }
+
+    public var shouldDrawVisibleAreaRightBorder: Bool {
+        guard let client else { return false }
+        return client.columns > effective.columns
+    }
+
+    public var shouldDrawVisibleAreaBottomBorder: Bool {
+        guard let client else { return false }
+        return client.rows > effective.rows
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -167,6 +177,9 @@ public struct CMUXMobileRuntime: Sendable {
 @MainActor
 @Observable
 public final class CMUXMobileShellStore {
+    private static let viewportSettlingRefreshCount = 8
+    private static let workspaceOpenSettlingRefreshCount = 2
+
     public private(set) var isSignedIn: Bool
     public private(set) var connectionState: MobileConnectionState
     public private(set) var connectedHostName: String
@@ -189,7 +202,10 @@ public final class CMUXMobileShellStore {
     private let clientID: String
     private var remoteClient: MobileCoreRPCClient?
     private var isSuppressingSelectedWorkspaceRefresh: Bool
+    private var isRefreshingSelectedTerminalSnapshot: Bool
+    private var needsSelectedTerminalSnapshotRefresh: Bool
     private var reportedViewportSizesByTerminalID: [MobileTerminalPreview.ID: MobileTerminalViewportSize]
+    private var viewportSettlingRefreshesByTerminalID: [MobileTerminalPreview.ID: Int]
 
     public var phase: MobileShellPhase {
         if !isSignedIn {
@@ -206,6 +222,17 @@ public final class CMUXMobileShellStore {
             return workspaces.first
         }
         return workspaces.first { $0.id == selectedWorkspaceID } ?? workspaces.first
+    }
+
+    private var selectedTerminal: MobileTerminalPreview? {
+        guard let selectedWorkspace else {
+            return nil
+        }
+        if let selectedTerminalID,
+           let terminal = selectedWorkspace.terminals.first(where: { $0.id == selectedTerminalID }) {
+            return terminal
+        }
+        return selectedWorkspace.preferredTerminal
     }
 
     public init(
@@ -231,7 +258,10 @@ public final class CMUXMobileShellStore {
         self.selectedTerminalID = workspaces.first?.terminals.first?.id
         self.remoteClient = nil
         self.isSuppressingSelectedWorkspaceRefresh = false
+        self.isRefreshingSelectedTerminalSnapshot = false
+        self.needsSelectedTerminalSnapshotRefresh = false
         self.reportedViewportSizesByTerminalID = [:]
+        self.viewportSettlingRefreshesByTerminalID = [:]
     }
 
     public static func preview(runtime: CMUXMobileRuntime? = nil) -> CMUXMobileShellStore {
@@ -266,7 +296,10 @@ public final class CMUXMobileShellStore {
         activeTicket = nil
         activeRoute = nil
         remoteClient = nil
+        isRefreshingSelectedTerminalSnapshot = false
+        needsSelectedTerminalSnapshotRefresh = false
         reportedViewportSizesByTerminalID = [:]
+        viewportSettlingRefreshesByTerminalID = [:]
         workspaces = PreviewMobileHost.workspaces
         selectedWorkspaceID = workspaces.first?.id
         selectedTerminalID = workspaces.first?.terminals.first?.id
@@ -554,13 +587,19 @@ public final class CMUXMobileShellStore {
         terminalID: MobileTerminalPreview.ID,
         viewportSize: MobileTerminalViewportSize
     ) {
-        guard reportedViewportSizesByTerminalID[terminalID] != viewportSize else {
+        let previousViewportSize = reportedViewportSizesByTerminalID[terminalID]
+        reportedViewportSizesByTerminalID[terminalID] = viewportSize
+        let currentSnapshotClientSize = selectedTerminal?.viewportFit?.client
+        if previousViewportSize != viewportSize || currentSnapshotClientSize != viewportSize {
+            viewportSettlingRefreshesByTerminalID[terminalID] = max(
+                viewportSettlingRefreshesByTerminalID[terminalID] ?? 0,
+                Self.viewportSettlingRefreshCount
+            )
+        }
+        guard remoteClient != nil else {
             return
         }
-        reportedViewportSizesByTerminalID[terminalID] = viewportSize
-        guard remoteClient != nil,
-              selectedWorkspaceID == workspaceID,
-              selectedTerminalID == terminalID else {
+        guard previousViewportSize != viewportSize || currentSnapshotClientSize != viewportSize else {
             return
         }
         scheduleSelectedTerminalSnapshotRefresh()
@@ -568,6 +607,13 @@ public final class CMUXMobileShellStore {
 
     public func openWorkspace(_ id: MobileWorkspacePreview.ID) async {
         setSelectedWorkspaceID(id, refreshSnapshot: false)
+        if let terminalID = selectedTerminalID,
+           reportedViewportSizesByTerminalID[terminalID] != nil {
+            viewportSettlingRefreshesByTerminalID[terminalID] = max(
+                viewportSettlingRefreshesByTerminalID[terminalID] ?? 0,
+                Self.workspaceOpenSettlingRefreshCount
+            )
+        }
         await refreshSelectedTerminalSnapshot()
     }
 
@@ -611,7 +657,6 @@ public final class CMUXMobileShellStore {
 
         activeTicket = ticket
         activeRoute = route
-        reportedViewportSizesByTerminalID = [:]
         connectedHostName = ticket.macDisplayName ?? ticket.macDeviceID
         mobileShellLog.info("pairing selected route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .public)")
 
@@ -692,6 +737,18 @@ public final class CMUXMobileShellStore {
         guard let client = remoteClient,
               let workspace = selectedWorkspace,
               let terminalID = selectedTerminalID?.rawValue else { return }
+        guard !isRefreshingSelectedTerminalSnapshot else {
+            needsSelectedTerminalSnapshotRefresh = true
+            return
+        }
+        isRefreshingSelectedTerminalSnapshot = true
+        defer {
+            isRefreshingSelectedTerminalSnapshot = false
+            if needsSelectedTerminalSnapshotRefresh {
+                needsSelectedTerminalSnapshotRefresh = false
+                scheduleSelectedTerminalSnapshotRefresh()
+            }
+        }
         do {
             mobileShellLog.info("refreshing terminal snapshot workspace=\(workspace.id.rawValue, privacy: .public) terminal=\(terminalID, privacy: .public)")
             let resultData = try await client.sendRequest(
@@ -711,6 +768,9 @@ public final class CMUXMobileShellStore {
                 isReady: true,
                 viewportFit: response.viewportFit
             )
+            scheduleViewportSettlingRefreshIfNeeded(
+                terminalID: MobileTerminalPreview.ID(rawValue: response.surfaceID ?? terminalID)
+            )
         } catch {
             mobileShellLog.error("terminal snapshot refresh failed: \(String(describing: error), privacy: .public)")
             if Self.isTerminalSurfaceNotReady(error) {
@@ -729,6 +789,7 @@ public final class CMUXMobileShellStore {
                     ),
                     isReady: false
                 )
+                viewportSettlingRefreshesByTerminalID[MobileTerminalPreview.ID(rawValue: terminalID)] = nil
                 connectionError = nil
                 return
             }
@@ -845,6 +906,19 @@ public final class CMUXMobileShellStore {
     private func scheduleSelectedTerminalSnapshotRefresh() {
         guard remoteClient != nil else { return }
         Task { await refreshSelectedTerminalSnapshot() }
+    }
+
+    private func scheduleViewportSettlingRefreshIfNeeded(terminalID: MobileTerminalPreview.ID) {
+        guard let remaining = viewportSettlingRefreshesByTerminalID[terminalID],
+              remaining > 0 else {
+            viewportSettlingRefreshesByTerminalID[terminalID] = nil
+            return
+        }
+        viewportSettlingRefreshesByTerminalID[terminalID] = remaining - 1
+        Task {
+            await Task.yield()
+            await refreshSelectedTerminalSnapshot()
+        }
     }
 
     private func setSelectedWorkspaceID(

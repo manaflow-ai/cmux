@@ -92,7 +92,8 @@ import Testing
     #expect(snapshot.scrollbackRows.map(\.trimmedPlainText) == ["middle", "new"])
     #expect(snapshot.renderedVisibleLines == ["prompt", "", "", ""])
     #expect(snapshot.activeScreen == .alternate)
-    #expect(snapshot.cursor.row == 3)
+    #expect(snapshot.cursor.row == 1)
+    #expect(snapshot.cursor.column == 0)
 }
 
 @Test func ghosttyTextBuilderParsesSGRColorsAndFormatting() throws {
@@ -125,6 +126,55 @@ import Testing
     #expect(snapshot.visibleRows[0].cells[0].style.foreground == MobileTerminalGhosttyColor(red: 204, green: 102, blue: 102))
     #expect(snapshot.visibleRows[0].cells[4].style.foreground == nil)
     #expect(snapshot.visibleRows[1].cells[0].style.background == MobileTerminalGhosttyColor(red: 36, green: 114, blue: 200))
+}
+
+@Test func ghosttyTextBuilderAppliesCursorAddressingSequences() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-cursor-addressed",
+        columns: 6,
+        rows: 4,
+        scrollbackText: nil,
+        viewportText: "\u{001B}[2J\u{001B}[1;1H1----2\u{001B}[3;4Hmid\u{001B}[4;1H3----4"
+    )
+
+    #expect(snapshot.renderedVisibleLines == ["1----2", "", "   mid", "3----4"])
+}
+
+@Test func ghosttyTextBuilderPreservesFinalCursorPosition() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-cursor-position",
+        columns: 12,
+        rows: 4,
+        scrollbackText: nil,
+        viewportText: "\u{001B}[2J\u{001B}[1;1Hcursor target\u{001B}[3;5H@\u{001B}[3;5H"
+    )
+
+    #expect(snapshot.renderedVisibleLines == ["cursor targe", "", "    @", ""])
+    #expect(snapshot.cursor.column == 4)
+    #expect(snapshot.cursor.row == 2)
+    #expect(snapshot.cursor.isVisible == true)
+}
+
+@Test func ghosttyTextBuilderHonorsCursorVisibilitySequences() throws {
+    let hiddenSnapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-hidden-cursor",
+        columns: 8,
+        rows: 2,
+        scrollbackText: nil,
+        viewportText: "\u{001B}[?25lhidden"
+    )
+    let visibleSnapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-visible-cursor",
+        columns: 8,
+        rows: 2,
+        scrollbackText: nil,
+        viewportText: "\u{001B}[?25lhidden\u{001B}[?25hshown"
+    )
+
+    #expect(hiddenSnapshot.cursor.isVisible == false)
+    #expect(hiddenSnapshot.modes.cursorVisible == false)
+    #expect(visibleSnapshot.cursor.isVisible == true)
+    #expect(visibleSnapshot.modes.cursorVisible == true)
 }
 
 @Test func ghosttyTextBuilderParsesSGRUnderlineSubparameters() throws {
