@@ -3574,7 +3574,7 @@ class GhosttyApp {
         #endif
 
         let openedInBrowser: Bool
-        if let targetPane = workspace.preferredBrowserTargetPane(fromPanelId: sourcePanelId) {
+        if let targetPane = workspace.preferredRightSideTargetPane(fromPanelId: sourcePanelId) {
             #if DEBUG
             cmuxDebugLog("link.openURL opening in existing browser pane=\(targetPane)")
             #endif
@@ -4024,19 +4024,16 @@ class GhosttyApp {
                 #endif
                 return false
             }
-            // Route markdown file URLs into the cmux viewer when the toggle is
-            // on AND the link is local. URL fragments/queries are stripped (the
-            // panel only needs the file path), so links emitted by tools like
-            // Claude Code (`foo.md#L42`) still route into the viewer. Anything
-            // else (toggle off, hosted file URL, non-markdown, remote workspace,
-            // unreadable file, split creation failure) falls through to the
-            // existing NSWorkspace path below so the default-off behavior and
+            // Route local file URLs into cmux when the file-routing toggle is on.
+            // URL fragments/queries are stripped (the panel only needs the file
+            // path), so links emitted by tools like Claude Code (`foo.md#L42`)
+            // still route into the viewer. Anything else (toggle off, hosted
+            // file URL, remote workspace, unreadable file, split creation
+            // failure) falls through to the existing NSWorkspace path below so
             // URL semantics are preserved.
             let fileURLHost = target.url.host
-            if CmdClickMarkdownRouteSettings.isEnabled(),
-               target.url.isFileURL,
-               fileURLHost == nil || fileURLHost?.isEmpty == true || fileURLHost == "localhost",
-               CmdClickMarkdownRouteSettings.isMarkdownPath(target.url.path) {
+            if target.url.isFileURL,
+               fileURLHost == nil || fileURLHost?.isEmpty == true || fileURLHost == "localhost" {
                 let fileURL = target.url
                 let routed: Bool = performOnMain {
                     // Remote-surface guard runs before shouldRoute so we never
@@ -4044,7 +4041,7 @@ class GhosttyApp {
                     guard let termSurface = surfaceView.terminalSurface,
                           let workspace = termSurface.owningWorkspace(),
                           !workspace.isRemoteTerminalSurface(termSurface.id),
-                          CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path) else {
+                          CommandClickFileOpenRouter.shouldRouteInCmux(path: fileURL.path) else {
                         return false
                     }
                     // Defer the split creation. Ghostty's Surface.openUrl holds
@@ -4084,16 +4081,19 @@ class GhosttyApp {
                         }
                         // TOCTOU re-check: file may have been removed/renamed
                         // since the synchronous gate. Fall through if so.
-                        guard CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path) else {
+                        guard CommandClickFileOpenRouter.shouldRouteInCmux(path: fileURL.path) else {
                             NSWorkspace.shared.open(fileURL)
                             return
                         }
-                        guard resolvedWorkspace.openOrFocusMarkdownSplit(
-                            from: surfaceId,
+                        if CommandClickFileOpenRouter.openInCmux(
+                            workspace: resolvedWorkspace,
+                            sourcePanelId: surfaceId,
                             filePath: fileURL.path
-                        ) == nil else { return }
+                        ) {
+                            return
+                        }
                         // Split creation failed (source pane gone between
-                        // commit and dispatch) — surface via system opener so
+                        // commit and dispatch). Surface via system opener so
                         // the click is not silently lost.
                         NSWorkspace.shared.open(fileURL)
                     }
@@ -8810,14 +8810,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         #endif
 
         // Remote-surface guard runs before shouldRoute so we never stat a local
-        // path on the main thread for a remote workspace. When the viewer path
+        // path on the main thread for a remote workspace. When the cmux route
         // is applicable but split creation fails, fall back to the preferred
         // editor so the click never silently no-ops.
         if let termSurface = terminalSurface,
            let workspace = termSurface.owningWorkspace(),
            !workspace.isRemoteTerminalSurface(termSurface.id),
-           CmdClickMarkdownRouteSettings.shouldRoute(path: resolution.path),
-           workspace.openOrFocusMarkdownSplit(from: termSurface.id, filePath: resolution.path) != nil {
+           CommandClickFileOpenRouter.openInCmux(
+               workspace: workspace,
+               sourcePanelId: termSurface.id,
+               filePath: resolution.path
+           ) {
             return resolution
         }
 
