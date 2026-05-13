@@ -631,6 +631,7 @@ private struct CommandPaletteRenderResultRow: Identifiable, Equatable {
 }
 
 private struct CommandPaletteCommandListRenderState: Equatable {
+    var resultsVersion: UInt64 = 0
     var emptyStateText: String = ""
     var listIdentity: String = "switcher"
     var rows: [CommandPaletteRenderResultRow] = []
@@ -647,6 +648,7 @@ private final class CommandPaletteOverlayRenderModel: ObservableObject {
     @Published private(set) var commandList = CommandPaletteCommandListRenderState.empty
     private var scheduledCommandListSequence: UInt64 = 0
     private var appliedCommandListSequence: UInt64 = 0
+    private var appliedCommandListResultsVersion: UInt64 = 0
 
     func scheduleCommandListUpdate(_ state: CommandPaletteCommandListRenderState) {
         scheduledCommandListSequence &+= 1
@@ -655,7 +657,9 @@ private final class CommandPaletteOverlayRenderModel: ObservableObject {
         Task { @MainActor in
             await Task.yield()
             guard sequence >= appliedCommandListSequence else { return }
+            guard state.resultsVersion >= appliedCommandListResultsVersion else { return }
             appliedCommandListSequence = sequence
+            appliedCommandListResultsVersion = max(appliedCommandListResultsVersion, state.resultsVersion)
             updateCommandList(state)
         }
     }
@@ -1156,6 +1160,7 @@ struct ContentView: View {
     @State private var commandPaletteSearchCommandsByID: [String: CommandPaletteCommand] = [:]
     @State private var cachedCommandPaletteResults: [CommandPaletteSearchResult] = []
     @State private var commandPaletteVisibleResults: [CommandPaletteSearchResult] = []
+    @State private var commandPaletteVisibleResultsVersion: UInt64 = 0
     @State private var commandPaletteVisibleResultsScope: CommandPaletteListScope?
     @State private var commandPaletteVisibleResultsFingerprint: Int?
     @State private var cachedCommandPaletteScope: CommandPaletteListScope?
@@ -3838,6 +3843,7 @@ struct ContentView: View {
                 commandPaletteVisibleResults = []
                 commandPaletteVisibleResultsScope = nil
                 commandPaletteVisibleResultsFingerprint = nil
+                commandPaletteVisibleResultsVersion &+= 1
                 syncCommandPaletteOverlayCommandListState()
             }
             scheduleCommandPaletteResultsRefresh(query: newValue)
@@ -5224,6 +5230,7 @@ struct ContentView: View {
         commandPaletteVisibleResults = results
         commandPaletteVisibleResultsScope = scope
         commandPaletteVisibleResultsFingerprint = fingerprint
+        commandPaletteVisibleResultsVersion &+= 1
         syncCommandPaletteOverlayCommandListState()
     }
 
@@ -5250,6 +5257,7 @@ struct ContentView: View {
         }
         let selectedIndex = commandPaletteSelectedIndex(resultCount: rows.count)
         return CommandPaletteCommandListRenderState(
+            resultsVersion: commandPaletteVisibleResultsVersion,
             emptyStateText: commandPaletteEmptyStateText,
             listIdentity: Self.commandPaletteListIdentity(for: commandPaletteQuery),
             rows: rows,
@@ -8302,6 +8310,7 @@ struct ContentView: View {
         commandPaletteVisibleResults = []
         commandPaletteVisibleResultsScope = nil
         commandPaletteVisibleResultsFingerprint = nil
+        commandPaletteVisibleResultsVersion &+= 1
         cachedCommandPaletteScope = nil
         cachedCommandPaletteFingerprint = nil
         commandPalettePendingTextSelectionBehavior = nil
