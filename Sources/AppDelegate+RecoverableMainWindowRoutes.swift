@@ -203,9 +203,12 @@ extension AppDelegate {
 
     func recoverableMainWindowSnapshotsForSessionSnapshot(
         includeScrollback: Bool,
-        restorableAgentIndex: RestorableAgentSessionIndex
+        restorableAgentIndex: RestorableAgentSessionIndex,
+        excludingWindowIds excludedWindowIds: Set<UUID> = []
     ) -> [(windowId: UUID, snapshot: SessionWindowSnapshot)] {
-        sortedRecoverableMainWindowRoutes().map { route in
+        sortedRecoverableMainWindowRoutes().compactMap { route in
+            guard !excludedWindowIds.contains(route.windowId) else { return nil }
+
             let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window)
             if let window {
                 route.window = window

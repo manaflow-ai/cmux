@@ -3602,7 +3602,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if includeRecoverableRoutes {
             for recoverable in recoverableMainWindowSnapshotsForSessionSnapshot(
                 includeScrollback: includeScrollback,
-                restorableAgentIndex: restorableAgentIndex
+                restorableAgentIndex: restorableAgentIndex,
+                excludingWindowIds: seenWindowIds
             ) where seenWindowIds.insert(recoverable.windowId).inserted {
                 windows.append(recoverable.snapshot)
             }
