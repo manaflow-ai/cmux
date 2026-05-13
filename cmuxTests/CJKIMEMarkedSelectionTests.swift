@@ -106,6 +106,14 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         ["Home", "End"]
     }
 
+    private var zhuyinCandidateCommandProbeNames: Set<String> {
+        ["Left", "Right", "Up", "Down", "PageUp", "PageDown", "Space"]
+    }
+
+    private var zhuyinNonCandidateCommandProbeNames: Set<String> {
+        ["Home", "End", "Tab"]
+    }
+
     private var nonTextInputCommandModifierProbes: [(name: String, flags: NSEvent.ModifierFlags)] {
         [
             ("Command", [.command]),
@@ -756,26 +764,64 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
-    func testZhuyinPreCompositionStillUsesNoMarkedTextSuppression() throws {
+    func testZhuyinCandidateCommandsStayInTextInputWithoutMarkedText() throws {
         let view = GhosttyNSView(frame: .zero)
-        let event = try keyEvent(
-            text: "\u{F701}",
-            keyCode: UInt16(kVK_DownArrow),
-            windowNumber: 0
-        )
 
-        XCTAssertTrue(
-            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
-                markedTextBefore: "",
-                markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
-                markedTextAfter: "",
-                markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
-                accumulatedText: [],
-                event: event,
-                textInputHandledEvent: true,
-                inputSourceId: "com.apple.inputmethod.TCIM.Zhuyin"
+        for probe in noMarkedNavigationKeyProbes where zhuyinCandidateCommandProbeNames.contains(probe.name) {
+            let event = try keyEvent(text: probe.text, keyCode: probe.keyCode, windowNumber: 0)
+
+            XCTAssertTrue(
+                view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                    markedTextBefore: "",
+                    markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
+                    markedTextAfter: "",
+                    markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                    accumulatedText: [],
+                    event: event,
+                    textInputHandledEvent: true,
+                    inputSourceId: "com.apple.inputmethod.TCIM.Zhuyin"
+                ),
+                "Zhuyin candidate \(probe.name) handled by NSTextInputContext must not leak to Ghostty"
             )
-        )
+        }
+    }
+
+    func testRoutesZhuyinCandidateCommandsThroughKeyDownWithoutMarkedText() throws {
+        let view = GhosttyNSView(frame: .zero)
+
+        for probe in noMarkedNavigationKeyProbes where zhuyinCandidateCommandProbeNames.contains(probe.name) {
+            let event = try keyEvent(text: probe.text, keyCode: probe.keyCode, windowNumber: 0)
+
+            XCTAssertTrue(
+                view.shouldRouteTextInputKeyEquivalentToKeyDown(
+                    event,
+                    inputSourceId: "com.apple.inputmethod.TCIM.Zhuyin"
+                ),
+                "Zhuyin candidate \(probe.name) should reach NSTextInputContext before terminal routing"
+            )
+        }
+    }
+
+    func testZhuyinHandledNonCandidateCommandsForwardWithoutMarkedText() throws {
+        let view = GhosttyNSView(frame: .zero)
+
+        for probe in noMarkedNavigationKeyProbes where zhuyinNonCandidateCommandProbeNames.contains(probe.name) {
+            let event = try keyEvent(text: probe.text, keyCode: probe.keyCode, windowNumber: 0)
+
+            XCTAssertFalse(
+                view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                    markedTextBefore: "",
+                    markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
+                    markedTextAfter: "",
+                    markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                    accumulatedText: [],
+                    event: event,
+                    textInputHandledEvent: true,
+                    inputSourceId: "com.apple.inputmethod.TCIM.Zhuyin"
+                ),
+                "Zhuyin handled non-candidate \(probe.name) should still forward to Ghostty"
+            )
+        }
     }
 
     func testZhuyinNumpadInputForwardsWithoutMarkedText() throws {

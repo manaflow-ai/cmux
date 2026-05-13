@@ -164,7 +164,8 @@ extension GhosttyNSView {
                 return false
             case .bopomofoCandidate:
                 switch keyCode {
-                case kVK_DownArrow, kVK_PageUp, kVK_PageDown, kVK_Space:
+                case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow,
+                     kVK_PageUp, kVK_PageDown, kVK_Space:
                     return true
                 default:
                     return false
