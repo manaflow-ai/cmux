@@ -40,12 +40,13 @@ enum UIScaleSettings {
         if persistToSettingsFile {
             let requestIdentifier = UUID().uuidString
             let store = settingsFileStore ?? KeyboardShortcutSettings.settingsFileStore
+            let defaultsHandle = UIScaleSettingsDefaultsHandle(defaults: defaults)
             recordPendingPersistence(value: next, identifier: requestIdentifier, defaults: defaults)
             Task {
                 await persistenceCoordinator.schedule(
                     value: next,
                     identifier: requestIdentifier,
-                    defaults: defaults,
+                    defaults: defaultsHandle,
                     settingsFileStore: store
                 )
             }
@@ -156,6 +157,13 @@ enum UIScaleSettings {
     }
 }
 
+// Sendable safety: UserDefaults is the existing synchronized storage boundary for
+// volatile pending-write state. The handle is only dereferenced from main-actor
+// coordination closures while the persistence actor owns debounce cancellation.
+private struct UIScaleSettingsDefaultsHandle: @unchecked Sendable {
+    let defaults: UserDefaults
+}
+
 private actor UIScaleSettingsPersistenceCoordinator {
     private static let debounceDuration: Duration = .milliseconds(150)
 
@@ -164,13 +172,13 @@ private actor UIScaleSettingsPersistenceCoordinator {
     func schedule(
         value: Double,
         identifier: String,
-        defaults: UserDefaults,
+        defaults: UIScaleSettingsDefaultsHandle,
         settingsFileStore: CmuxSettingsFileStore
     ) async {
         let isCurrent = await MainActor.run {
             UIScaleSettings.isPendingPersistenceCurrent(
                 identifier: identifier,
-                defaults: defaults
+                defaults: defaults.defaults
             )
         }
         guard isCurrent else { return }
@@ -182,7 +190,7 @@ private actor UIScaleSettingsPersistenceCoordinator {
                 let shouldWrite = await MainActor.run {
                     UIScaleSettings.isPendingPersistenceCurrent(
                         identifier: identifier,
-                        defaults: defaults
+                        defaults: defaults.defaults
                     )
                 }
                 guard shouldWrite else { return }
@@ -191,7 +199,7 @@ private actor UIScaleSettingsPersistenceCoordinator {
                 await MainActor.run {
                     UIScaleSettings.completePendingPersistence(
                         identifier: identifier,
-                        defaults: defaults,
+                        defaults: defaults.defaults,
                         settingsFileStore: settingsFileStore
                     )
                 }
@@ -200,7 +208,7 @@ private actor UIScaleSettingsPersistenceCoordinator {
                 await MainActor.run {
                     UIScaleSettings.failPendingPersistence(
                         identifier: identifier,
-                        defaults: defaults,
+                        defaults: defaults.defaults,
                         error: error
                     )
                 }
