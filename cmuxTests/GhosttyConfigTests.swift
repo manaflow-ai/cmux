@@ -3235,6 +3235,41 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         )
 
         XCTAssertEqual(output, "READY", output)
+
+        let deadline = Date().addingTimeInterval(1)
+        var log = ""
+        while Date() < deadline {
+            log = (try? String(contentsOf: logPath, encoding: .utf8)) ?? ""
+            if log.contains("set-environment") {
+                break
+            }
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertTrue(log.contains("set-environment"), log)
+    }
+
+    func testShellIntegrationDetectsTmuxInCompoundPreexecCommand() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            _cmux_command_starts_tmux 'git status && tmux attach' && print -r -- compound-tmux=yes || print -r -- compound-tmux=no
+            _cmux_command_starts_tmux 'env FOO=bar command tmux new' && print -r -- wrapped-tmux=yes || print -r -- wrapped-tmux=no
+            _cmux_command_starts_nested_shell 'echo ok || nix develop' && print -r -- compound-nested=yes || print -r -- compound-nested=no
+            _cmux_command_starts_tmux 'echo tmux' && print -r -- echo-tmux=yes || print -r -- echo-tmux=no
+            """
+        )
+
+        XCTAssertEqual(
+            output,
+            [
+                "compound-tmux=yes",
+                "wrapped-tmux=yes",
+                "compound-nested=yes",
+                "echo-tmux=no",
+            ].joined(separator: "\n"),
+            output
+        )
     }
 
     func testShellIntegrationPublishesOnlyWorkspaceScopedCmuxEnvironmentToTmuxServerAutomatically() throws {

@@ -232,7 +232,11 @@ typeset -g _CMUX_WINCH_GUARD_INSTALLED=0
 typeset -g _CMUX_TMUX_PUSH_SIGNATURE=""
 typeset -g _CMUX_TMUX_PUSH_PENDING_SIGNATURE=""
 typeset -g _CMUX_TMUX_PUSH_JOB_PID=""
+typeset -g _CMUX_TMUX_PUSH_SUCCESS_MARKER=""
 typeset -g _CMUX_TMUX_PULL_SIGNATURE=""
+typeset -g _CMUX_RESOLVED_COMMAND_BASE=""
+typeset -g _CMUX_RESOLVED_COMMAND_INDEX=0
+typeset -ga _CMUX_RESOLVED_COMMAND_WORDS=()
 typeset -g _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=${_CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT:-0}
 typeset -ga _CMUX_TMUX_SYNC_KEYS=(
     CMUX_BUNDLED_CLI_PATH
@@ -301,17 +305,24 @@ _cmux_tmux_finish_completed_publish_job() {
     [[ -n "$_CMUX_TMUX_PUSH_PENDING_SIGNATURE" ]] || return 0
     _cmux_tmux_publish_job_is_running && return 0
 
-    _CMUX_TMUX_PUSH_SIGNATURE="$_CMUX_TMUX_PUSH_PENDING_SIGNATURE"
+    if [[ -n "$_CMUX_TMUX_PUSH_SUCCESS_MARKER" && -f "$_CMUX_TMUX_PUSH_SUCCESS_MARKER" ]]; then
+        _CMUX_TMUX_PUSH_SIGNATURE="$_CMUX_TMUX_PUSH_PENDING_SIGNATURE"
+    fi
+    [[ -n "$_CMUX_TMUX_PUSH_SUCCESS_MARKER" ]] && /bin/rm -f -- "$_CMUX_TMUX_PUSH_SUCCESS_MARKER" >/dev/null 2>&1 || true
     _CMUX_TMUX_PUSH_PENDING_SIGNATURE=""
     _CMUX_TMUX_PUSH_JOB_PID=""
+    _CMUX_TMUX_PUSH_SUCCESS_MARKER=""
 }
 
 _cmux_tmux_cancel_publish_job() {
     if _cmux_tmux_publish_job_is_running; then
         kill "$_CMUX_TMUX_PUSH_JOB_PID" >/dev/null 2>&1 || true
     fi
+    [[ -n "$_CMUX_TMUX_PUSH_SUCCESS_MARKER" ]] && /bin/rm -f -- "$_CMUX_TMUX_PUSH_SUCCESS_MARKER" >/dev/null 2>&1 || true
+    _CMUX_TMUX_PUSH_SIGNATURE=""
     _CMUX_TMUX_PUSH_PENDING_SIGNATURE=""
     _CMUX_TMUX_PUSH_JOB_PID=""
+    _CMUX_TMUX_PUSH_SUCCESS_MARKER=""
 }
 
 _cmux_tmux_publish_cmux_environment() {
@@ -327,6 +338,9 @@ _cmux_tmux_publish_cmux_environment() {
 
     if [[ "$mode" == "sync" ]]; then
         if [[ "$signature" == "$_CMUX_TMUX_PUSH_SIGNATURE" && "$signature" != "$_CMUX_TMUX_PUSH_PENDING_SIGNATURE" ]]; then
+            if [[ -n "$_CMUX_TMUX_PUSH_PENDING_SIGNATURE" ]] || _cmux_tmux_publish_job_is_running; then
+                _cmux_tmux_cancel_publish_job
+            fi
             return 0
         fi
         _cmux_tmux_cancel_publish_job
@@ -335,15 +349,27 @@ _cmux_tmux_publish_cmux_environment() {
         return 0
     fi
 
-    [[ "$signature" == "$_CMUX_TMUX_PUSH_SIGNATURE" ]] && return 0
+    if [[ "$signature" == "$_CMUX_TMUX_PUSH_SIGNATURE" ]]; then
+        if [[ -n "$_CMUX_TMUX_PUSH_PENDING_SIGNATURE" ]] || _cmux_tmux_publish_job_is_running; then
+            _cmux_tmux_cancel_publish_job
+        fi
+        return 0
+    fi
     if [[ "$signature" == "$_CMUX_TMUX_PUSH_PENDING_SIGNATURE" ]] && _cmux_tmux_publish_job_is_running; then
         return 0
     fi
 
     _cmux_tmux_cancel_publish_job
     _CMUX_TMUX_PUSH_PENDING_SIGNATURE="$signature"
+    _CMUX_TMUX_PUSH_SUCCESS_MARKER="${TMPDIR:-/tmp}/cmux-tmux-publish-${$}-${RANDOM}-${RANDOM}.ok"
+    /bin/rm -f -- "$_CMUX_TMUX_PUSH_SUCCESS_MARKER" >/dev/null 2>&1 || true
+    local success_marker="$_CMUX_TMUX_PUSH_SUCCESS_MARKER"
     {
-        _cmux_tmux_publish_cmux_environment_apply
+        if _cmux_tmux_publish_cmux_environment_apply; then
+            : >| "$success_marker"
+        else
+            /bin/rm -f -- "$success_marker" >/dev/null 2>&1 || true
+        fi
     } >/dev/null 2>&1 &!
     _CMUX_TMUX_PUSH_JOB_PID=$!
 }
@@ -622,16 +648,17 @@ _cmux_report_git_branch_for_path() {
     fi
 }
 
-_cmux_record_pr_command_hint() {
+_cmux_resolve_leading_command() {
     local cmd="$1"
-    _CMUX_LAST_PR_ACTION=""
-    _CMUX_LAST_PR_TARGET=""
-
     local -a words
     words=("${(z)cmd}")
 
+    _CMUX_RESOLVED_COMMAND_BASE=""
+    _CMUX_RESOLVED_COMMAND_INDEX=0
+    _CMUX_RESOLVED_COMMAND_WORDS=("${words[@]}")
+
     local index=1
-    local word base
+    local word
     while (( index <= ${#words} )); do
         word="${words[index]}"
 
@@ -656,11 +683,78 @@ _cmux_record_pr_command_hint() {
                 continue ;;
         esac
 
-        base="${word:t}"
-        [[ "$base" == "gh" ]] || return 0
-        index=$(( index + 1 ))
-        break
+        _CMUX_RESOLVED_COMMAND_BASE="${word:t}"
+        _CMUX_RESOLVED_COMMAND_INDEX="$index"
+        return 0
     done
+
+    return 1
+}
+
+_cmux_command_segment_matches_kind() {
+    local kind="$1"
+    local segment="$2"
+    _cmux_resolve_leading_command "$segment" || return 1
+
+    local base="$_CMUX_RESOLVED_COMMAND_BASE"
+    case "$kind" in
+        tmux)
+            [[ "$base" == "tmux" ]] && return 0 ;;
+        nested)
+            case "$base" in
+                bash|zsh|sh|fish|nu|nix-shell)
+                    return 0 ;;
+                nix)
+                    local next_index=$(( _CMUX_RESOLVED_COMMAND_INDEX + 1 ))
+                    local next_word="${_CMUX_RESOLVED_COMMAND_WORDS[next_index]}"
+                    case "$next_word" in
+                        develop|shell)
+                            return 0 ;;
+                    esac ;;
+            esac ;;
+    esac
+
+    return 1
+}
+
+_cmux_command_any_segment_matches_kind() {
+    local kind="$1"
+    local cmd="$2"
+    local -a words segment
+    words=("${(z)cmd}")
+    segment=()
+
+    local word
+    for word in "${words[@]}"; do
+        case "$word" in
+            '&&'|'||'|';'|'|'|'|&'|'&')
+                if (( ${#segment} )); then
+                    _cmux_command_segment_matches_kind "$kind" "${(j: :)segment}" && return 0
+                    segment=()
+                fi
+                continue ;;
+        esac
+        segment+=("$word")
+    done
+
+    if (( ${#segment} )); then
+        _cmux_command_segment_matches_kind "$kind" "${(j: :)segment}" && return 0
+    fi
+    return 1
+}
+
+_cmux_record_pr_command_hint() {
+    local cmd="$1"
+    _CMUX_LAST_PR_ACTION=""
+    _CMUX_LAST_PR_TARGET=""
+
+    _cmux_resolve_leading_command "$cmd" || return 0
+    [[ "$_CMUX_RESOLVED_COMMAND_BASE" == "gh" ]] || return 0
+
+    local -a words
+    words=("${_CMUX_RESOLVED_COMMAND_WORDS[@]}")
+    local index=$(( _CMUX_RESOLVED_COMMAND_INDEX + 1 ))
+    local word
 
     (( index + 1 <= ${#words} )) || return 0
     [[ "${words[index]}" == "pr" ]] || return 0
@@ -1097,92 +1191,11 @@ _cmux_start_git_head_watch() {
 }
 
 _cmux_command_starts_nested_shell() {
-    local cmd="$1"
-    local -a words
-    words=("${(z)cmd}")
-
-    local index=1
-    local word base
-    while (( index <= ${#words} )); do
-        word="${words[index]}"
-
-        case "$word" in
-            *=*)
-                index=$(( index + 1 ))
-                continue ;;
-            exec|command|builtin|noglob|time)
-                index=$(( index + 1 ))
-                continue ;;
-            env)
-                index=$(( index + 1 ))
-                while (( index <= ${#words} )); do
-                    word="${words[index]}"
-                    case "$word" in
-                        -*|*=*)
-                            index=$(( index + 1 ))
-                            continue ;;
-                    esac
-                    break
-                done
-                continue ;;
-        esac
-
-        base="${word:t}"
-        case "$base" in
-            bash|zsh|sh|fish|nu|nix-shell)
-                return 0 ;;
-            nix)
-                local next_index=$(( index + 1 ))
-                local next_word="${words[next_index]}"
-                case "$next_word" in
-                    develop|shell)
-                        return 0 ;;
-                esac ;;
-        esac
-
-        return 1
-    done
-
-    return 1
+    _cmux_command_any_segment_matches_kind nested "$1"
 }
 
 _cmux_command_starts_tmux() {
-    local cmd="$1"
-    local -a words
-    words=("${(z)cmd}")
-
-    local index=1
-    local word base
-    while (( index <= ${#words} )); do
-        word="${words[index]}"
-
-        case "$word" in
-            *=*)
-                index=$(( index + 1 ))
-                continue ;;
-            exec|command|builtin|noglob|time)
-                index=$(( index + 1 ))
-                continue ;;
-            env)
-                index=$(( index + 1 ))
-                while (( index <= ${#words} )); do
-                    word="${words[index]}"
-                    case "$word" in
-                        -*|*=*)
-                            index=$(( index + 1 ))
-                            continue ;;
-                    esac
-                    break
-                done
-                continue ;;
-        esac
-
-        base="${word:t}"
-        [[ "$base" == "tmux" ]] && return 0
-        return 1
-    done
-
-    return 1
+    _cmux_command_any_segment_matches_kind tmux "$1"
 }
 
 _cmux_preexec() {
