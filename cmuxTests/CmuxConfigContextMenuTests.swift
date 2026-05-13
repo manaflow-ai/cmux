@@ -83,6 +83,82 @@ final class CmuxConfigContextMenuTests: XCTestCase {
         }
     }
 
+    func testDecodeMenuBarSupportsActionRefsInlineCommandsAndSubmenus() throws {
+        let json = """
+        {
+          "actions": {
+            "run-tests": { "type": "command", "command": "npm test" }
+          },
+          "ui": {
+            "menuBar": {
+              "menus": [
+                {
+                  "title": "Project",
+                  "items": [
+                    "run-tests",
+                    { "type": "separator" },
+                    {
+                      "title": "Tools",
+                      "items": [
+                        {
+                          "title": "Lint",
+                          "command": "npm run lint",
+                          "target": "currentTerminal"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+        """
+        let config = try decode(json)
+        let menu = try XCTUnwrap(config.ui?.menuBar?.menus.first)
+        XCTAssertEqual(menu.title, "Project")
+        XCTAssertEqual(menu.items.count, 3)
+        if case .action(let first) = menu.items[0] {
+            XCTAssertEqual(first.action, "run-tests")
+        } else {
+            XCTFail("Expected first menu item to be an action reference.")
+        }
+        if case .separator = menu.items[1] {
+        } else {
+            XCTFail("Expected second menu item to be a separator.")
+        }
+        if case .submenu(let submenu) = menu.items[2] {
+            XCTAssertEqual(submenu.title, "Tools")
+            guard case .action(let item) = submenu.items.first else {
+                return XCTFail("Expected nested inline command.")
+            }
+            XCTAssertEqual(item.title, "Lint")
+            XCTAssertEqual(item.inlineAction?.action?.terminalCommand, "npm run lint")
+            XCTAssertEqual(item.inlineAction?.terminalCommandTarget, .currentTerminal)
+        } else {
+            XCTFail("Expected third menu item to be a submenu.")
+        }
+    }
+
+    func testDecodeMenuBarAcceptsArrayShorthand() throws {
+        let json = """
+        {
+          "ui": {
+            "menuBar": [
+              {
+                "title": "Project",
+                "items": [
+                  { "title": "Format", "command": "npm run format" }
+                ]
+              }
+            ]
+          }
+        }
+        """
+        let config = try decode(json)
+        XCTAssertEqual(config.ui?.menuBar?.menus.first?.title, "Project")
+    }
+
     @MainActor
     func testDefaultNewWorkspaceContextMenuIncludesCloudVM() throws {
         let store = try loadStore()
@@ -415,5 +491,101 @@ final class CmuxConfigContextMenuTests: XCTestCase {
         }
         XCTAssertEqual(item.title, "Menu")
         XCTAssertEqual(item.tooltip, "Tip")
+    }
+
+    @MainActor
+    func testResolvedMenuBarSupportsActionRefsInlineCommandsAndSubmenus() throws {
+        let store = try loadStore(localJSON: """
+        {
+          "actions": {
+            "run-tests": {
+              "type": "command",
+              "title": "Run Tests",
+              "command": "npm test",
+              "target": "newTabInCurrentPane"
+            }
+          },
+          "ui": {
+            "menuBar": {
+              "menus": [
+                {
+                  "title": "Project",
+                  "items": [
+                    "run-tests",
+                    { "type": "separator" },
+                    {
+                      "title": "Tools",
+                      "items": [
+                        {
+                          "title": "Lint",
+                          "command": "npm run lint",
+                          "target": "currentTerminal"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+        """)
+
+        XCTAssertEqual(store.menuBarMenus.count, 1)
+        let menu = try XCTUnwrap(store.menuBarMenus.first)
+        XCTAssertEqual(menu.title, "Project")
+        XCTAssertEqual(menu.items.count, 3)
+        guard case .action(let first) = menu.items[0] else {
+            return XCTFail("Expected first menu item to resolve to an action.")
+        }
+        XCTAssertEqual(first.title, "Run Tests")
+        XCTAssertEqual(first.action.terminalCommand, "npm test")
+        guard case .separator = menu.items[1] else {
+            return XCTFail("Expected second menu item to be a separator.")
+        }
+        guard case .submenu(let submenu) = menu.items[2] else {
+            return XCTFail("Expected third menu item to resolve to a submenu.")
+        }
+        XCTAssertEqual(submenu.title, "Tools")
+        guard case .action(let nested) = submenu.items.first else {
+            return XCTFail("Expected nested menu item to resolve to an action.")
+        }
+        XCTAssertEqual(nested.title, "Lint")
+        XCTAssertEqual(nested.action.terminalCommand, "npm run lint")
+        XCTAssertEqual(nested.action.terminalCommandTarget, .currentTerminal)
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
+    func testResolvedMenuBarFiltersMissingActions() throws {
+        let store = try loadStore(localJSON: """
+        {
+          "actions": {
+            "run-tests": { "type": "command", "command": "npm test" }
+          },
+          "ui": {
+            "menuBar": [
+              {
+                "title": "Project",
+                "items": [
+                  "missing-action",
+                  "run-tests"
+                ]
+              }
+            ]
+          }
+        }
+        """)
+
+        XCTAssertEqual(store.menuBarMenus.count, 1)
+        let menu = try XCTUnwrap(store.menuBarMenus.first)
+        XCTAssertEqual(menu.items.count, 1)
+        guard case .action(let item) = menu.items.first else {
+            return XCTFail("Expected valid action to remain.")
+        }
+        XCTAssertEqual(item.action.terminalCommand, "npm test")
+        XCTAssertEqual(store.configurationIssues.first?.kind, .newWorkspaceActionNotFound)
+        XCTAssertEqual(store.configurationIssues.first?.settingName, "ui.menuBar.menus[0].items[0]")
+        XCTAssertEqual(store.configurationIssues.first?.commandName, "missing-action")
     }
 }

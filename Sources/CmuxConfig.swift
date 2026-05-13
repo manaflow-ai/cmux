@@ -7,6 +7,10 @@ extension CodingUserInfoKey {
     static let cmuxWorkspaceColorDefaults = CodingUserInfoKey(rawValue: "cmuxWorkspaceColorDefaults")!
 }
 
+extension Notification.Name {
+    static let cmuxConfigStoreDidChange = Notification.Name("cmux.configStoreDidChange")
+}
+
 struct CmuxConfigFile: Codable, Sendable {
     var actions: [String: CmuxConfigActionDefinition]
     var ui: CmuxConfigUIDefinition?
@@ -1702,6 +1706,7 @@ final class CmuxConfigStore: ObservableObject {
     @Published private(set) var newWorkspaceCommandName: String?
     @Published private(set) var newWorkspaceActionID: String?
     @Published private(set) var newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem] = []
+    @Published private(set) var menuBarMenus: [CmuxResolvedMenuBarMenu] = []
     @Published private(set) var surfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
     @Published private(set) var configurationIssues: [CmuxConfigIssue] = []
     @Published private(set) var configRevision: UInt64 = 0
@@ -1740,6 +1745,16 @@ final class CmuxConfigStore: ObservableObject {
 
     private struct ResolvedContextMenuItems {
         let items: [CmuxResolvedConfigContextMenuItem]
+        let issues: [CmuxConfigIssue]
+    }
+
+    private struct ResolvedMenuBarMenus {
+        let menus: [CmuxResolvedMenuBarMenu]
+        let issues: [CmuxConfigIssue]
+    }
+
+    private struct ResolvedMenuBarItems {
+        let items: [CmuxResolvedMenuBarItem]
         let issues: [CmuxConfigIssue]
     }
 
@@ -1914,6 +1929,8 @@ final class CmuxConfigStore: ObservableObject {
         var configuredNewWorkspaceActionSourcePath: String?
         var configuredNewWorkspaceContextMenu: [CmuxConfigContextMenuItem]?
         var configuredNewWorkspaceContextMenuSourcePath: String?
+        var configuredMenuBarMenus: [CmuxConfigMenuDefinition]?
+        var configuredMenuBarSourcePath: String?
         var configuredSurfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
         var configuredSurfaceTabBarButtonSourcePath: String?
         let localPath = localConfigPath
@@ -1940,6 +1957,10 @@ final class CmuxConfigStore: ObservableObject {
             if let contextMenu = localConfig.ui?.newWorkspace?.contextMenu {
                 configuredNewWorkspaceContextMenu = contextMenu
                 configuredNewWorkspaceContextMenuSourcePath = localPath
+            }
+            if let menus = localConfig.ui?.menuBar?.menus {
+                configuredMenuBarMenus = menus
+                configuredMenuBarSourcePath = localPath
             }
             if configuredNewWorkspaceActionID == nil,
                let newWorkspaceCommand = localConfig.newWorkspaceCommand {
@@ -1973,6 +1994,11 @@ final class CmuxConfigStore: ObservableObject {
                let contextMenu = globalConfig.ui?.newWorkspace?.contextMenu {
                 configuredNewWorkspaceContextMenu = contextMenu
                 configuredNewWorkspaceContextMenuSourcePath = globalConfigPath
+            }
+            if configuredMenuBarMenus == nil,
+               let menus = globalConfig.ui?.menuBar?.menus {
+                configuredMenuBarMenus = menus
+                configuredMenuBarSourcePath = globalConfigPath
             }
             if configuredNewWorkspaceActionID == nil,
                configuredNewWorkspaceCommandName == nil,
@@ -2040,6 +2066,14 @@ final class CmuxConfigStore: ObservableObject {
             settingName: "ui.newWorkspace.contextMenu",
             settingSourcePath: configuredNewWorkspaceContextMenuSourcePath
         )
+        let resolvedMenuBarMenus = resolvedMenuBarMenus(
+            configuredMenuBarMenus,
+            actions: resolvedActionLookup,
+            commands: commands,
+            sourcePaths: sourcePaths,
+            settingName: "ui.menuBar.menus",
+            settingSourcePath: configuredMenuBarSourcePath
+        )
 
         loadedCommands = commands
         loadedActions = resolvedActions
@@ -2049,6 +2083,7 @@ final class CmuxConfigStore: ObservableObject {
         newWorkspaceActionSourcePath = configuredNewWorkspaceActionSourcePath
         newWorkspaceCommandName = configuredNewWorkspaceCommandName
         newWorkspaceContextMenuItems = resolvedNewWorkspaceContextMenuItems.items
+        menuBarMenus = resolvedMenuBarMenus.menus
         surfaceTabBarButtonSourcePath = configuredSurfaceTabBarButtonSourcePath
         surfaceTabBarCommandSourcePaths = resolvedButtons.terminalCommandSourcePaths
         surfaceTabBarWorkspaceCommands = resolvedWorkspaceButtons.workspaceCommands
@@ -2059,9 +2094,11 @@ final class CmuxConfigStore: ObservableObject {
             issues.append(issue)
         }
         issues.append(contentsOf: resolvedNewWorkspaceContextMenuItems.issues)
+        issues.append(contentsOf: resolvedMenuBarMenus.issues)
         configurationIssues = issues
         applySurfaceTabBarButtonsToCurrentManager()
         configRevision &+= 1
+        NotificationCenter.default.post(name: .cmuxConfigStoreDidChange, object: self)
     }
 
     private func actionEntries(
@@ -2466,6 +2503,207 @@ final class CmuxConfigStore: ObservableObject {
             resolvedItems.removeLast()
         }
         return ResolvedContextMenuItems(items: resolvedItems, issues: issues)
+    }
+
+    private func resolvedMenuBarMenus(
+        _ configuredMenus: [CmuxConfigMenuDefinition]?,
+        actions: [String: CmuxResolvedConfigAction],
+        commands: [CmuxCommandDefinition],
+        sourcePaths: [String: String],
+        settingName: String,
+        settingSourcePath: String?
+    ) -> ResolvedMenuBarMenus {
+        guard let configuredMenus, !configuredMenus.isEmpty else {
+            return ResolvedMenuBarMenus(menus: [], issues: [])
+        }
+
+        var menus: [CmuxResolvedMenuBarMenu] = []
+        var issues: [CmuxConfigIssue] = []
+        menus.reserveCapacity(configuredMenus.count)
+
+        for (index, menu) in configuredMenus.enumerated() {
+            let menuSettingName = "\(settingName)[\(index)]"
+            let resolvedItems = resolvedMenuBarItems(
+                menu.items,
+                actions: actions,
+                commands: commands,
+                sourcePaths: sourcePaths,
+                settingName: "\(menuSettingName).items",
+                settingSourcePath: settingSourcePath
+            )
+            issues.append(contentsOf: resolvedItems.issues)
+            guard !resolvedItems.items.isEmpty else { continue }
+
+            let fallbackID = menu.id ?? Self.generatedMenuID(title: menu.title, index: index)
+            menus.append(
+                CmuxResolvedMenuBarMenu(
+                    id: "\(menuSettingName).\(sanitizeConfigText(fallbackID, fallback: String(index)))",
+                    title: sanitizeConfigText(menu.title, fallback: fallbackID),
+                    items: resolvedItems.items
+                )
+            )
+        }
+
+        return ResolvedMenuBarMenus(menus: menus, issues: issues)
+    }
+
+    private func resolvedMenuBarItems(
+        _ configuredItems: [CmuxConfigMenuBarItem],
+        actions: [String: CmuxResolvedConfigAction],
+        commands: [CmuxCommandDefinition],
+        sourcePaths: [String: String],
+        settingName: String,
+        settingSourcePath: String?
+    ) -> ResolvedMenuBarItems {
+        guard !configuredItems.isEmpty else {
+            return ResolvedMenuBarItems(items: [], issues: [])
+        }
+
+        var resolvedItems: [CmuxResolvedMenuBarItem] = []
+        var issues: [CmuxConfigIssue] = []
+        resolvedItems.reserveCapacity(configuredItems.count)
+
+        for (index, configuredItem) in configuredItems.enumerated() {
+            let itemSettingName = "\(settingName)[\(index)]"
+            switch configuredItem {
+            case .separator:
+                appendMenuBarSeparatorIfNeeded(to: &resolvedItems, id: "\(itemSettingName).separator")
+            case .submenu(let submenu):
+                let nested = resolvedMenuBarItems(
+                    submenu.items,
+                    actions: actions,
+                    commands: commands,
+                    sourcePaths: sourcePaths,
+                    settingName: "\(itemSettingName).items",
+                    settingSourcePath: settingSourcePath
+                )
+                issues.append(contentsOf: nested.issues)
+                guard !nested.items.isEmpty else { continue }
+                let fallbackID = submenu.id ?? Self.generatedMenuID(title: submenu.title, index: index)
+                resolvedItems.append(
+                    .submenu(
+                        CmuxResolvedMenuBarMenu(
+                            id: "\(itemSettingName).\(sanitizeConfigText(fallbackID, fallback: String(index)))",
+                            title: sanitizeConfigText(submenu.title, fallback: fallbackID),
+                            items: nested.items
+                        )
+                    )
+                )
+            case .action(let item):
+                let resolved = resolvedMenuBarAction(
+                    item,
+                    actions: actions,
+                    commands: commands,
+                    sourcePaths: sourcePaths,
+                    settingName: itemSettingName,
+                    settingSourcePath: settingSourcePath
+                )
+                if let issue = resolved.issue {
+                    issues.append(issue)
+                    continue
+                }
+                guard let action = resolved.action else { continue }
+                resolvedItems.append(
+                    .action(
+                        CmuxResolvedConfigMenuAction(
+                            id: "\(itemSettingName).\(action.id)",
+                            title: sanitizeConfigText(item.title ?? action.title, fallback: action.id),
+                            icon: item.icon ?? action.icon,
+                            tooltip: (item.tooltip ?? action.tooltip).map(sanitizeConfigText),
+                            action: action
+                        )
+                    )
+                )
+            }
+        }
+
+        if let last = resolvedItems.last, case .separator = last {
+            resolvedItems.removeLast()
+        }
+        return ResolvedMenuBarItems(items: resolvedItems, issues: issues)
+    }
+
+    private func appendMenuBarSeparatorIfNeeded(
+        to items: inout [CmuxResolvedMenuBarItem],
+        id: String
+    ) {
+        guard !items.isEmpty else { return }
+        if let last = items.last, case .separator = last {
+            return
+        }
+        items.append(.separator(id: id))
+    }
+
+    private func resolvedMenuBarAction(
+        _ item: CmuxConfigMenuBarActionItem,
+        actions: [String: CmuxResolvedConfigAction],
+        commands: [CmuxCommandDefinition],
+        sourcePaths: [String: String],
+        settingName: String,
+        settingSourcePath: String?
+    ) -> (action: CmuxResolvedConfigAction?, issue: CmuxConfigIssue?) {
+        let action: CmuxResolvedConfigAction
+
+        if let actionReference = item.action {
+            let resolvedActionID = canonicalActionID(actionReference)
+            guard let resolved = actions[resolvedActionID] else {
+                let issue = CmuxConfigIssue(
+                    kind: .newWorkspaceActionNotFound,
+                    settingName: settingName,
+                    commandName: actionReference,
+                    sourcePath: settingSourcePath
+                )
+                NSLog("[CmuxConfig] %@", issue.logMessage)
+                return (nil, issue)
+            }
+            action = resolved
+        } else if let inlineAction = item.inlineAction {
+            let id = "cmux.menuBar." + Self.generatedMenuID(
+                title: [settingName, item.title].compactMap { $0 }.joined(separator: "."),
+                index: 0
+            )
+            guard let resolved = CmuxResolvedConfigAction.fromDefinition(
+                id: id,
+                definition: inlineAction,
+                sourcePath: settingSourcePath
+            ) else {
+                let issue = CmuxConfigIssue(
+                    kind: .newWorkspaceActionNotFound,
+                    settingName: settingName,
+                    commandName: item.title,
+                    sourcePath: settingSourcePath
+                )
+                NSLog("[CmuxConfig] %@", issue.logMessage)
+                return (nil, issue)
+            }
+            action = resolved
+        } else {
+            return (nil, nil)
+        }
+
+        if let actionCommandName = action.workspaceCommandName {
+            let commandResolution = resolvedConfiguredNewWorkspaceCommand(
+                named: actionCommandName,
+                settingName: settingName,
+                settingSourcePath: action.actionSourcePath ?? settingSourcePath,
+                commands: commands,
+                sourcePaths: sourcePaths
+            )
+            if let issue = commandResolution.issue {
+                return (nil, issue)
+            }
+            guard commandResolution.command != nil else {
+                return (nil, nil)
+            }
+        }
+
+        return (action, nil)
+    }
+
+    private static func generatedMenuID(title: String, index: Int) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        let encoded = title.addingPercentEncoding(withAllowedCharacters: allowed) ?? title
+        return encoded.isEmpty ? "menu.\(index)" : encoded
     }
 
     private func canonicalActionID(_ id: String) -> String {
