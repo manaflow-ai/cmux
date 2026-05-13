@@ -64,6 +64,13 @@ final class SettingsSearchIndexTests: XCTestCase {
         )
     }
 
+    func testSettingsPathAnchorIncludesShortcutBindings() {
+        XCTAssertEqual(
+            SettingsSearchIndex.anchorID(forSettingsPath: "shortcuts.bindings"),
+            SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcuts")
+        )
+    }
+
     private func assertSearch(
         _ query: String,
         contains expectedID: String,
