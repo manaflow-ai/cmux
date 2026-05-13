@@ -9089,10 +9089,12 @@ enum SidebarWorkspaceDirectInteractionPolicy {
     static func shouldDismissUnreadNotification(
         wasSelected: Bool,
         modifierFlags: NSEvent.ModifierFlags,
-        event: NSEvent?
+        event: NSEvent?,
+        contextMenuPointerDownPending: Bool = false
     ) -> Bool {
         guard wasSelected else { return false }
         guard !modifierFlags.contains(.command), !modifierFlags.contains(.shift) else { return false }
+        guard !contextMenuPointerDownPending else { return false }
         guard let event else { return true }
         switch event.type {
         case .rightMouseDown, .rightMouseUp:
@@ -13151,10 +13153,12 @@ private struct TabItemView: View, Equatable {
 
         lastSidebarSelectionIndex = index
         tabManager.selectTab(tab)
+        let contextMenuPointerDownPending = rowInteractionState.consumePendingContextMenuPointerDown()
         if SidebarWorkspaceDirectInteractionPolicy.shouldDismissUnreadNotification(
             wasSelected: wasSelected,
             modifierFlags: modifiers,
-            event: NSApp.currentEvent
+            event: NSApp.currentEvent,
+            contextMenuPointerDownPending: contextMenuPointerDownPending
         ) {
             tabManager.dismissNotificationOnDirectInteraction(
                 tabId: tab.id,
