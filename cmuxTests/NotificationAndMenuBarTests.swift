@@ -296,6 +296,9 @@ final class AppIconSettingsTests: XCTestCase {
             setApplicationIconImage: { icon in
                 receivedRuntimeIcon = icon
             },
+            resetApplicationIconImage: {
+                XCTFail("Dark mode should set a runtime icon, not reset to the bundle icon")
+            },
             startAppearanceObservation: {
                 startObservationCallCount += 1
             },
@@ -315,10 +318,14 @@ final class AppIconSettingsTests: XCTestCase {
         XCTAssertEqual(stopObservationCallCount, 1)
     }
 
-    func testApplyAutomaticStartsObservationAndNotifiesDockTilePlugin() {
+    func testApplyAutomaticResetsRuntimeIconAndNotifiesDockTilePlugin() {
+        // Automatic mode must defer entirely to the bundle's layered AppIcon so
+        // macOS can apply tinted/clear/dark icon treatments natively. See
+        // https://github.com/manaflow-ai/cmux/issues/2873.
         var dockTileNotificationCount = 0
         var startObservationCallCount = 0
         var stopObservationCallCount = 0
+        var resetCallCount = 0
 
         let environment = AppIconSettings.Environment(
             isApplicationFinishedLaunching: { true },
@@ -327,7 +334,10 @@ final class AppIconSettingsTests: XCTestCase {
                 return nil
             },
             setApplicationIconImage: { _ in
-                XCTFail("Automatic mode should delegate live updates to the appearance observer")
+                XCTFail("Automatic mode must not replace the bundle's layered icon with a flat NSImage")
+            },
+            resetApplicationIconImage: {
+                resetCallCount += 1
             },
             startAppearanceObservation: {
                 startObservationCallCount += 1
@@ -342,9 +352,10 @@ final class AppIconSettingsTests: XCTestCase {
 
         AppIconSettings.applyIcon(.automatic, environment: environment)
 
+        XCTAssertEqual(resetCallCount, 1)
         XCTAssertEqual(dockTileNotificationCount, 1)
-        XCTAssertEqual(startObservationCallCount, 1)
-        XCTAssertEqual(stopObservationCallCount, 0)
+        XCTAssertEqual(startObservationCallCount, 0)
+        XCTAssertEqual(stopObservationCallCount, 1)
     }
 
     func testApplyDarkBeforeLaunchDoesNotTouchRuntimeIconState() {
@@ -353,6 +364,7 @@ final class AppIconSettingsTests: XCTestCase {
         var dockTileNotificationCount = 0
         var startObservationCallCount = 0
         var stopObservationCallCount = 0
+        var resetCallCount = 0
 
         let environment = AppIconSettings.Environment(
             isApplicationFinishedLaunching: { false },
@@ -362,6 +374,9 @@ final class AppIconSettingsTests: XCTestCase {
             },
             setApplicationIconImage: { _ in
                 runtimeIconSetCount += 1
+            },
+            resetApplicationIconImage: {
+                resetCallCount += 1
             },
             startAppearanceObservation: {
                 startObservationCallCount += 1
@@ -378,6 +393,7 @@ final class AppIconSettingsTests: XCTestCase {
 
         XCTAssertEqual(imageRequestCount, 0)
         XCTAssertEqual(runtimeIconSetCount, 0)
+        XCTAssertEqual(resetCallCount, 0)
         XCTAssertEqual(dockTileNotificationCount, 0)
         XCTAssertEqual(startObservationCallCount, 0)
         XCTAssertEqual(stopObservationCallCount, 0)
