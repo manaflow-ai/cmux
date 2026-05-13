@@ -200,6 +200,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         let lines = outputLines(result.stdout)
+        XCTAssertGreaterThanOrEqual(lines.count, 4, result.stdout)
         XCTAssertTrue(lines[2].contains("workspace workspace:high"), result.stdout)
         XCTAssertTrue(lines[3].contains("workspace workspace:low"), result.stdout)
     }
@@ -241,6 +242,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         let lines = outputLines(result.stdout)
+        XCTAssertGreaterThanOrEqual(lines.count, 5, result.stdout)
         XCTAssertTrue(lines[3].contains("pane pane:1"), result.stdout)
         XCTAssertTrue(lines[4].contains("tag codex"), result.stdout)
     }

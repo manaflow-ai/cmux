@@ -3397,10 +3397,7 @@ class TerminalController {
             browserPIDOccurrences: browserPIDOccurrences,
             includeProcesses: includeProcesses
         )
-        let aggregates = (
-            programs: processSnapshot.programSummaryPayload(for: totalPIDs),
-            codingAgents: processSnapshot.codingAgentSummaryPayload(for: totalPIDs)
-        )
+        let aggregates = processAggregates(from: processSnapshot, totalPIDs: totalPIDs)
 
         return [
             "active": focused.isEmpty ? (NSNull() as Any) : focused,
@@ -3411,6 +3408,16 @@ class TerminalController {
             "coding_agents": aggregates.codingAgents,
             "windows": annotatedWindows
         ]
+    }
+
+    private nonisolated func processAggregates(
+        from processSnapshot: CmuxTopProcessSnapshot,
+        totalPIDs: Set<Int>
+    ) -> (programs: [[String: Any]], codingAgents: [[String: Any]]) {
+        (
+            programs: processSnapshot.programSummaryPayload(for: totalPIDs),
+            codingAgents: processSnapshot.codingAgentSummaryPayload(for: totalPIDs)
+        )
     }
 
     private nonisolated func v2SystemTop(params: [String: Any]) -> V2CallResult {
@@ -3432,10 +3439,7 @@ class TerminalController {
             browserPIDOccurrences: browserPIDOccurrences,
             includeProcesses: includeProcesses
         )
-        let aggregates = (
-            programs: processSnapshot.programSummaryPayload(for: totalPIDs),
-            codingAgents: processSnapshot.codingAgentSummaryPayload(for: totalPIDs)
-        )
+        let aggregates = processAggregates(from: processSnapshot, totalPIDs: totalPIDs)
 
         payload["sample"] = processSnapshot.samplePayload()
         payload["totals"] = processSnapshot.summaryPayload(for: totalPIDs)
