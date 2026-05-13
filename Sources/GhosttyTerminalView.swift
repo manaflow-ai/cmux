@@ -5251,7 +5251,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let baseConfig = configTemplate ?? CmuxSurfaceConfigTemplate()
         var surfaceConfig = ghostty_surface_config_new()
         surfaceConfig.font_size = baseConfig.fontSize
-        surfaceConfig.wait_after_command = baseConfig.waitAfterCommand
+        // cmux closes or replaces child-exited terminal panels itself. Leaving
+        // Ghostty wait-after-command enabled makes an exited PTY remain focusable.
+        surfaceConfig.wait_after_command = false
         surfaceConfig.platform_tag = GHOSTTY_PLATFORM_MACOS
         surfaceConfig.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
             nsview: Unmanaged.passUnretained(view).toOpaque()

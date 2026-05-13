@@ -7749,19 +7749,6 @@ final class Workspace: Identifiable, ObservableObject {
         // Remove the default "Welcome" tab that bonsplit creates
         let welcomeTabIds = bonsplitController.allTabIds
 
-        // When the workspace boots with an explicit initial command (`cmux ssh` /
-        // `cmux vm new` both funnel their ssh startup script through this path),
-        // hold the PTY open after that command exits. Without this Ghostty
-        // silently respawns a local login shell and the user can't tell a dead
-        // VM apart from a healthy local prompt.
-        var resolvedConfigTemplate = configTemplate
-        if let trimmedCommand = initialTerminalCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !trimmedCommand.isEmpty {
-            var template = resolvedConfigTemplate ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
-            resolvedConfigTemplate = template
-        }
-
         var initialTabId: TabID?
         if let initialDetachedSurface {
             if let initialPaneId = bonsplitController.allPaneIds.first,
@@ -7773,7 +7760,7 @@ final class Workspace: Identifiable, ObservableObject {
             let terminalPanel = TerminalPanel(
                 workspaceId: id,
                 context: GHOSTTY_SURFACE_CONTEXT_TAB,
-                configTemplate: resolvedConfigTemplate,
+                configTemplate: configTemplate,
                 workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
                 portOrdinal: portOrdinal,
                 initialCommand: initialTerminalCommand,
@@ -9972,21 +9959,11 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         guard let paneId = sourcePaneId else { return nil }
-        var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
+        let inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
-        // Hold the pane open after the remote session ends so the user can read the
-        // "ssh exited …" message the startup script prints. Otherwise Ghostty silently
-        // respawns a local login shell when the command exits (the PTY falls through
-        // to $SHELL), and a dead VM looks identical to a healthy workspace with a
-        // local prompt — which is what we saw during dogfood.
-        if startupCommand != nil {
-            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
-            inheritedConfig = template
-        }
 #if DEBUG
         dlog(
             "split.timing workspace=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
@@ -10139,20 +10116,11 @@ final class Workspace: Identifiable, ObservableObject {
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
-        var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+        let inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
-        // See the comment at the other call site: hold the PTY open after the remote
-        // command exits so the user sees the error rather than a silently-respawned
-        // local login shell.
-        if startupCommand != nil {
-            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
-            inheritedConfig = template
-        }
-
         // Create new terminal panel
         let newPanel = TerminalPanel(
             workspaceId: id,
