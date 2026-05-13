@@ -417,6 +417,11 @@ private extension FeedCoordinator {
                 return
             }
 
+            // Don't pester users while the app is already up front.
+            if NSApp.isActive {
+                return
+            }
+
             #if DEBUG
             let handledByTestObserver = MainActor.assumeIsolated {
                 if let observer = FeedCoordinatorTestHooks.notificationPostObserver {
@@ -429,11 +434,6 @@ private extension FeedCoordinator {
                 return
             }
             #endif
-
-            // Don't pester users while the app is already up front.
-            if NSApp.isActive {
-                return
-            }
 
             let categoryId: String
             let title: String
