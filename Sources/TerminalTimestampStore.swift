@@ -55,6 +55,8 @@ final class TerminalTimestampStore {
     private var timestampsByRow: [Int: Date] = [:]
     private var oldestTrackedRow: Int?
     private var newestTrackedRow: Int?
+    private var pruneCursor = 0
+    private var rowsBelowRetention: Set<Int> = []
     private var lastScrollbar: TerminalTimestampScrollbarState?
 
     init(maxRetainedRows: Int = 20_000) {
@@ -107,37 +109,66 @@ final class TerminalTimestampStore {
         timestampsByRow[row] = date
 
         guard isNewRow else { return }
+        if row < pruneCursor {
+            rowsBelowRetention.insert(row)
+        }
         oldestTrackedRow = min(oldestTrackedRow ?? row, row)
         newestTrackedRow = max(newestTrackedRow ?? row, row)
     }
 
     private func prune(forTotalRows totalRows: Int, preserving preservedRows: Range<Int>) {
         let minimumRow = max(0, totalRows - maxRetainedRows)
-        guard let oldestTrackedRow, oldestTrackedRow < minimumRow else { return }
-
         let previousNewestTrackedRow = newestTrackedRow
-        var preservedOldestRow: Int?
-        var preservedNewestRow: Int?
-        for row in oldestTrackedRow..<minimumRow {
-            if preservedRows.contains(row), timestampsByRow[row] != nil {
-                preservedOldestRow = min(preservedOldestRow ?? row, row)
-                preservedNewestRow = max(preservedNewestRow ?? row, row)
-                continue
-            }
-            timestampsByRow.removeValue(forKey: row)
-        }
 
         guard !timestampsByRow.isEmpty else {
             clearTrackedBounds()
+            pruneCursor = minimumRow
             return
         }
 
-        if let preservedOldestRow {
+        var didChangeTrackedRows = false
+        for row in Array(rowsBelowRetention) {
+            guard row < minimumRow, timestampsByRow[row] != nil else {
+                rowsBelowRetention.remove(row)
+                continue
+            }
+            guard preservedRows.contains(row) else {
+                timestampsByRow.removeValue(forKey: row)
+                rowsBelowRetention.remove(row)
+                didChangeTrackedRows = true
+                continue
+            }
+        }
+
+        let firstPossibleTrackedRow = min(oldestTrackedRow ?? minimumRow, minimumRow)
+        let scanStart = max(pruneCursor, firstPossibleTrackedRow)
+        if scanStart < minimumRow {
+            for row in scanStart..<minimumRow {
+                guard timestampsByRow[row] != nil else { continue }
+                if preservedRows.contains(row) {
+                    rowsBelowRetention.insert(row)
+                } else {
+                    timestampsByRow.removeValue(forKey: row)
+                }
+                didChangeTrackedRows = true
+            }
+        }
+        pruneCursor = max(pruneCursor, minimumRow)
+
+        guard didChangeTrackedRows else { return }
+
+        guard !timestampsByRow.isEmpty else {
+            clearTrackedBounds()
+            pruneCursor = minimumRow
+            return
+        }
+
+        if let preservedOldestRow = rowsBelowRetention.min() {
             self.oldestTrackedRow = preservedOldestRow
             if let previousNewestTrackedRow, previousNewestTrackedRow >= minimumRow {
                 newestTrackedRow = previousNewestTrackedRow
             } else {
-                newestTrackedRow = preservedNewestRow
+                newestTrackedRow = rowsBelowRetention.max()
             }
             return
         }
@@ -190,6 +221,8 @@ final class TerminalTimestampStore {
     private func clearTrackedBounds() {
         oldestTrackedRow = nil
         newestTrackedRow = nil
+        pruneCursor = 0
+        rowsBelowRetention.removeAll(keepingCapacity: true)
     }
 
     private func clearRows() {

@@ -288,4 +288,53 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
             []
         )
     }
+
+    @MainActor
+    func testTerminalTimestampStoreRetainsVisibleRowsAcrossAdvancingPruneCursor() {
+        let store = TerminalTimestampStore(maxRetainedRows: 3)
+        let tailTimestamp = Date(timeIntervalSince1970: 100)
+        let visibleTimestamp = Date(timeIntervalSince1970: 200)
+        let outputTimestamp = Date(timeIntervalSince1970: 300)
+        let scrollTimestamp = Date(timeIntervalSince1970: 400)
+
+        store.record(
+            scrollbar: TerminalTimestampScrollbarState(total: 5, offset: 2, len: 3),
+            at: tailTimestamp,
+            markVisibleRows: true
+        )
+        store.record(
+            scrollbar: TerminalTimestampScrollbarState(total: 5, offset: 0, len: 2),
+            at: visibleTimestamp,
+            markVisibleRows: true
+        )
+        store.record(
+            scrollbar: TerminalTimestampScrollbarState(total: 7, offset: 0, len: 2),
+            at: outputTimestamp,
+            markVisibleRows: false
+        )
+        store.record(
+            scrollbar: TerminalTimestampScrollbarState(total: 8, offset: 0, len: 2),
+            at: outputTimestamp,
+            markVisibleRows: false
+        )
+
+        XCTAssertEqual(
+            store.visibleRows(for: TerminalTimestampScrollbarState(total: 8, offset: 0, len: 2)),
+            [
+                TerminalTimestampVisibleRow(row: 0, timestamp: visibleTimestamp),
+                TerminalTimestampVisibleRow(row: 1, timestamp: visibleTimestamp),
+            ]
+        )
+
+        store.record(
+            scrollbar: TerminalTimestampScrollbarState(total: 8, offset: 5, len: 3),
+            at: scrollTimestamp,
+            markVisibleRows: false
+        )
+
+        XCTAssertEqual(
+            store.visibleRows(for: TerminalTimestampScrollbarState(total: 8, offset: 0, len: 2)),
+            []
+        )
+    }
 }

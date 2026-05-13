@@ -10415,6 +10415,7 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.synchronizeScrollView()
+            self?.refreshTimestampGutter()
         })
 
         observers.append(NotificationCenter.default.addObserver(
