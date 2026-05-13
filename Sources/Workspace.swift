@@ -6650,7 +6650,6 @@ private struct SidebarLogRingBuffer {
     }
 
     mutating func removeAll() {
-        storage = Array(repeating: nil, count: limit)
         head = 0
         count = 0
     }
@@ -9888,7 +9887,9 @@ final class Workspace: Identifiable, ObservableObject {
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + Self.sidebarLogFlushDelay)
         timer.setEventHandler { [weak self] in
-            self?.flushPendingSidebarLogEntries()
+            Task { @MainActor in
+                self?.flushPendingSidebarLogEntries()
+            }
         }
         sidebarLogFlushTimer = timer
         timer.resume()
