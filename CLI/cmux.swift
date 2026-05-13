@@ -13125,7 +13125,7 @@ struct CMUXCLI {
             "--codex-path",
             codexExecutableForShell,
             "--launch-path",
-            launcherEnvironment["PATH"] ?? "",
+            codexTeamsSubagentLaunchPath(launcherEnvironment["PATH"]),
             "--max-auto-depth",
             String(Self.codexTeamsMaxAutoDepth)
         ]
@@ -13208,6 +13208,17 @@ struct CMUXCLI {
         )
 
         return entries.joined(separator: ":")
+    }
+
+    private func codexTeamsSubagentLaunchPath(_ path: String?) -> String {
+        let whitespace = CharacterSet.whitespacesAndNewlines
+        return path?
+            .split(separator: ":")
+            .map(String.init)
+            .filter { entry in
+                !entry.isEmpty && entry.rangeOfCharacter(from: whitespace) == nil
+            }
+            .joined(separator: ":") ?? ""
     }
 
     private func codexTeamsAppendPathEntry(
