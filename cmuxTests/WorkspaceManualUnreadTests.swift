@@ -308,6 +308,50 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         }
     }
 
+    func testSidebarRightClickDoesNotDismissUnreadBeforeContextMenuOpens() {
+        let rightMouseEvent = NSEvent.mouseEvent(
+            with: .rightMouseDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        )
+
+        XCTAssertFalse(
+            SidebarWorkspaceDirectInteractionPolicy.shouldDismissUnreadNotification(
+                wasSelected: true,
+                modifierFlags: [],
+                event: rightMouseEvent
+            )
+        )
+    }
+
+    func testSidebarPrimaryClickStillDismissesUnreadForSelectedWorkspace() {
+        let leftMouseEvent = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        )
+
+        XCTAssertTrue(
+            SidebarWorkspaceDirectInteractionPolicy.shouldDismissUnreadNotification(
+                wasSelected: true,
+                modifierFlags: [],
+                event: leftMouseEvent
+            )
+        )
+    }
+
     private func withTabContextMenuFixture(
         _ body: (
             TabManager,

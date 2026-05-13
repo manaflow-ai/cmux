@@ -9085,6 +9085,26 @@ struct SidebarTabItemPresentationResolutionPolicy {
     }
 }
 
+enum SidebarWorkspaceDirectInteractionPolicy {
+    static func shouldDismissUnreadNotification(
+        wasSelected: Bool,
+        modifierFlags: NSEvent.ModifierFlags,
+        event: NSEvent?
+    ) -> Bool {
+        guard wasSelected else { return false }
+        guard !modifierFlags.contains(.command), !modifierFlags.contains(.shift) else { return false }
+        guard let event else { return true }
+        switch event.type {
+        case .rightMouseDown, .rightMouseUp:
+            return false
+        case .leftMouseDown, .leftMouseUp:
+            return !event.modifierFlags.contains(.control)
+        default:
+            return true
+        }
+    }
+}
+
 struct VerticalTabsSidebar: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     @ObservedObject var fileExplorerState: FileExplorerState
@@ -13131,7 +13151,11 @@ private struct TabItemView: View, Equatable {
 
         lastSidebarSelectionIndex = index
         tabManager.selectTab(tab)
-        if wasSelected, !isCommand, !isShift {
+        if SidebarWorkspaceDirectInteractionPolicy.shouldDismissUnreadNotification(
+            wasSelected: wasSelected,
+            modifierFlags: modifiers,
+            event: NSApp.currentEvent
+        ) {
             tabManager.dismissNotificationOnDirectInteraction(
                 tabId: tab.id,
                 surfaceId: tabManager.focusedSurfaceId(for: tab.id)
