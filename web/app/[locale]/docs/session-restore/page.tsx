@@ -60,13 +60,13 @@ cmux hooks setup --agent opencode`}</CodeBlock>
             <td>Claude Code</td>
             <td><code>claude</code></td>
             <td><code>claude --resume &lt;id&gt;</code></td>
-            <td>PermissionRequest</td>
+            <td>{t("feedPermissionRequest")}</td>
           </tr>
           <tr>
             <td>Codex</td>
             <td><code>codex</code></td>
             <td><code>codex resume &lt;id&gt;</code></td>
-            <td>PreToolUse, PermissionRequest</td>
+            <td>{t("feedPreToolUsePermissionRequest")}</td>
           </tr>
           <tr>
             <td>OpenCode</td>
@@ -90,13 +90,13 @@ cmux hooks setup --agent opencode`}</CodeBlock>
             <td>Cursor CLI</td>
             <td><code>cursor-agent</code></td>
             <td><code>cursor-agent --resume &lt;id&gt;</code></td>
-            <td>beforeShellExecution</td>
+            <td>{t("feedBeforeShellExecution")}</td>
           </tr>
           <tr>
             <td>Gemini</td>
             <td><code>gemini</code></td>
             <td><code>gemini --resume &lt;id&gt;</code></td>
-            <td>PreToolUse</td>
+            <td>{t("feedPreToolUse")}</td>
           </tr>
           <tr>
             <td>Rovo Dev</td>
@@ -108,25 +108,25 @@ cmux hooks setup --agent opencode`}</CodeBlock>
             <td>Copilot</td>
             <td><code>copilot</code></td>
             <td><code>copilot --resume &lt;id&gt;</code></td>
-            <td>PreToolUse</td>
+            <td>{t("feedPreToolUse")}</td>
           </tr>
           <tr>
             <td>CodeBuddy</td>
             <td><code>codebuddy</code></td>
             <td><code>codebuddy --resume &lt;id&gt;</code></td>
-            <td>PreToolUse</td>
+            <td>{t("feedPreToolUse")}</td>
           </tr>
           <tr>
             <td>Factory</td>
             <td><code>droid</code></td>
             <td><code>droid --resume &lt;id&gt;</code></td>
-            <td>PreToolUse</td>
+            <td>{t("feedPreToolUse")}</td>
           </tr>
           <tr>
             <td>Qoder</td>
             <td><code>qodercli</code></td>
             <td><code>qodercli --resume &lt;id&gt;</code></td>
-            <td>PreToolUse</td>
+            <td>{t("feedPreToolUse")}</td>
           </tr>
         </tbody>
       </table>

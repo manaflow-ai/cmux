@@ -2,6 +2,7 @@ import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
 import { Link } from "../../../../i18n/navigation";
+import { CodeBlock } from "../../components/code-block";
 
 export async function generateMetadata({
   params,
@@ -76,7 +77,7 @@ export default function SessionRestoreBlogPage() {
           code: (chunks) => <code>{chunks}</code>,
         })}
       </p>
-      <pre><code>{`cmux hooks setup`}</code></pre>
+      <CodeBlock lang="bash">{`cmux hooks setup`}</CodeBlock>
       <p>{t("agentP2")}</p>
 
       <h2>{t("implementationTitle")}</h2>
