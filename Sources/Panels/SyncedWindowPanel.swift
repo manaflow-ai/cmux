@@ -174,16 +174,16 @@ private struct SyncedWindowAccessibilityController {
             _ = AXUIElementPerformAction(axWindow, kAXRaiseAction as CFString)
         }
 
-        let fittedFrame = fittedFrame(for: readFrame(from: axWindow)?.size ?? window.frame.size, inside: targetFrame.integral)
-        if readFrame(from: axWindow)?.size.isApproximatelyEqual(to: fittedFrame.size) != true {
-            let sizeResult = setSize(fittedFrame.size, on: axWindow)
+        let paneFrame = targetFrame.integral
+        if readFrame(from: axWindow)?.size.isApproximatelyEqual(to: paneFrame.size) != true {
+            let sizeResult = setSize(paneFrame.size, on: axWindow)
             guard sizeResult == .success else {
                 return .failed(sizeResult)
             }
         }
 
-        if readFrame(from: axWindow)?.origin.isApproximatelyEqual(to: fittedFrame.origin) != true {
-            let positionResult = setPosition(fittedFrame.origin, on: axWindow)
+        if readFrame(from: axWindow)?.origin.isApproximatelyEqual(to: paneFrame.origin) != true {
+            let positionResult = setPosition(paneFrame.origin, on: axWindow)
             guard positionResult == .success else {
                 return .failed(positionResult)
             }
@@ -304,23 +304,6 @@ private struct SyncedWindowAccessibilityController {
         AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
     }
 
-    private func fittedFrame(for windowSize: CGSize, inside containerFrame: CGRect) -> CGRect {
-        guard windowSize.width > 0, windowSize.height > 0 else {
-            return containerFrame
-        }
-
-        let scale = min(containerFrame.width / windowSize.width, containerFrame.height / windowSize.height, 1)
-        let fittedSize = CGSize(
-            width: max((windowSize.width * scale).rounded(.down), 1),
-            height: max((windowSize.height * scale).rounded(.down), 1)
-        )
-        return CGRect(
-            x: containerFrame.midX - fittedSize.width / 2,
-            y: containerFrame.midY - fittedSize.height / 2,
-            width: fittedSize.width,
-            height: fittedSize.height
-        ).integral
-    }
 }
 
 @MainActor
@@ -491,6 +474,10 @@ final class SyncedWindowPanel: Panel, ObservableObject {
             return
         }
 
+        if isSynced {
+            isSynced = false
+            projectionController.stop()
+        }
         selectedWindowID = windows.first?.id
         updateTitleForSelection()
     }
@@ -502,6 +489,12 @@ final class SyncedWindowPanel: Panel, ObservableObject {
             projectionController.start(window: selectedWindow)
             placeSelectedWindow(reportFailures: true)
         }
+    }
+
+    func syncWindow(_ id: CGWindowID) {
+        selectedWindowID = id
+        updateTitleForSelection()
+        syncSelectedWindow()
     }
 
     func syncSelectedWindow() {
@@ -530,6 +523,14 @@ final class SyncedWindowPanel: Panel, ObservableObject {
         isSynced = false
         projectionController.stop()
         statusMessage = String(localized: "syncedWindow.status.detached", defaultValue: "Pane detached.")
+        statusIsError = false
+        updateTitleForSelection()
+    }
+
+    func returnToWindowList() {
+        isSynced = false
+        projectionController.stop()
+        statusMessage = nil
         statusIsError = false
         updateTitleForSelection()
     }
@@ -755,16 +756,7 @@ struct SyncedWindowPanelView: View {
     var body: some View {
         ZStack {
             if panel.isAccessibilityTrusted {
-                HStack(spacing: 0) {
-                    windowList
-                        .frame(minWidth: 210, idealWidth: 250, maxWidth: 300)
-                        .background(Color(nsColor: .underPageBackgroundColor))
-
-                    Divider()
-
-                    syncedPane
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+                syncedWindowFlow
             } else {
                 fullPaneAccessibilityOnboarding
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -779,7 +771,18 @@ struct SyncedWindowPanelView: View {
         }
     }
 
-    private var windowList: some View {
+    private var syncedWindowFlow: some View {
+        Group {
+            if panel.isSynced, let selectedWindow = panel.selectedWindow {
+                syncedWindowPage(selectedWindow)
+            } else {
+                windowPickerPage
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var windowPickerPage: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Text(String(localized: "syncedWindow.sidebar.title", defaultValue: "Windows"))
@@ -795,47 +798,58 @@ struct SyncedWindowPanelView: View {
             }
             .padding(12)
 
-            List(selection: Binding(
-                get: { panel.selectedWindowID },
-                set: { panel.selectWindow($0) }
-            )) {
-                ForEach(panel.windows) { window in
-                    SyncedWindowRow(window: window)
-                        .tag(Optional(window.id))
+            if panel.windows.isEmpty {
+                ContentUnavailableView(
+                    String(localized: "syncedWindow.empty.title", defaultValue: "Select a window"),
+                    systemImage: "macwindow"
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List(panel.windows) { window in
+                    Button {
+                        panel.syncWindow(window.id)
+                        onRequestPanelFocus()
+                    } label: {
+                        SyncedWindowRow(window: window, showsDisclosure: true)
+                    }
+                    .buttonStyle(.plain)
                 }
+                .listStyle(.plain)
             }
-            .listStyle(.sidebar)
         }
+        .background(Color(nsColor: .underPageBackgroundColor))
     }
 
-    private var syncedPane: some View {
+    private func syncedWindowPage(_ selectedWindow: SyncedHostWindow) -> some View {
         VStack(spacing: 0) {
             header
             Divider()
             ZStack {
                 Color(nsColor: .controlBackgroundColor)
-                if let selectedWindow = panel.selectedWindow {
-                    selectedWindowPlaceholder(selectedWindow)
-                    SyncedWindowDockView(onFrameChange: panel.updateSlotFrame)
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .strokeBorder(
-                            isEffectivelySynced ? Color.accentColor.opacity(0.7) : Color.secondary.opacity(0.35),
-                            style: StrokeStyle(lineWidth: 1, dash: isEffectivelySynced ? [7, 5] : [])
-                        )
-                        .padding(14)
-                        .allowsHitTesting(false)
-                } else {
-                    ContentUnavailableView(
-                        String(localized: "syncedWindow.empty.title", defaultValue: "Select a window"),
-                        systemImage: "macwindow"
+                selectedWindowPlaceholder(selectedWindow)
+                SyncedWindowDockView(onFrameChange: panel.updateSlotFrame, slotInset: 0)
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .strokeBorder(
+                        isEffectivelySynced ? Color.accentColor.opacity(0.7) : Color.secondary.opacity(0.35),
+                        style: StrokeStyle(lineWidth: 1, dash: isEffectivelySynced ? [7, 5] : [])
                     )
-                }
+                    .allowsHitTesting(false)
             }
         }
     }
 
     private var header: some View {
         HStack(spacing: 10) {
+            Button {
+                panel.returnToWindowList()
+            } label: {
+                Label(
+                    String(localized: "syncedWindow.button.allWindows", defaultValue: "All Windows"),
+                    systemImage: "chevron.left"
+                )
+            }
+            .buttonStyle(.borderless)
+
             Image(systemName: headerIconName)
                 .foregroundStyle(headerIconColor)
             VStack(alignment: .leading, spacing: 2) {
@@ -848,28 +862,6 @@ struct SyncedWindowPanelView: View {
                     .lineLimit(1)
             }
             Spacer()
-            if !panel.isAccessibilityTrusted {
-                Button {
-                    panel.requestAccessibilityPermission()
-                } label: {
-                    Label(
-                        String(localized: "syncedWindow.button.openSettings", defaultValue: "Open Settings"),
-                        systemImage: "gearshape"
-                    )
-                }
-            }
-            Button {
-                panel.isSynced ? panel.detach() : panel.syncSelectedWindow()
-                onRequestPanelFocus()
-            } label: {
-                Label(
-                    panel.isSynced
-                        ? String(localized: "syncedWindow.button.detach", defaultValue: "Detach")
-                        : String(localized: "syncedWindow.button.sync", defaultValue: "Sync Into Pane"),
-                    systemImage: panel.isSynced ? "rectangle.portrait.and.arrow.right" : "link"
-                )
-            }
-            .disabled(panel.selectedWindow == nil || !panel.isAccessibilityTrusted)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -895,18 +887,11 @@ struct SyncedWindowPanelView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 380)
-            Text(String(localized: "syncedWindow.onboarding.findAppInstructions", defaultValue: "If cmux does not appear in the list, copy the app path. In the file picker, press Command-Shift-G, paste the path, press Return, then choose Open."))
+            Text(String(localized: "syncedWindow.onboarding.findAppInstructions", defaultValue: "If cmux is missing, copy the app path, then press Command-Shift-G in the file picker and paste it."))
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: 520)
-            Text(panel.appBundlePath)
-                .font(.caption.monospaced())
-                .foregroundStyle(.tertiary)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .textSelection(.enabled)
-                .frame(maxWidth: 620)
+                .frame(maxWidth: 460)
             HStack(spacing: 10) {
                 Button {
                     panel.requestAccessibilityPermission()
@@ -997,7 +982,7 @@ struct SyncedWindowPanelView: View {
                 .font(.title3.weight(.semibold))
             Text(isEffectivelySynced
                 ? String(localized: "syncedWindow.placeholder.synced", defaultValue: "The native app window is aligned here.")
-                : String(localized: "syncedWindow.placeholder.preview", defaultValue: "Press Sync Into Pane to align the native app window here.")
+                : String(localized: "syncedWindow.placeholder.preview", defaultValue: "Select a window to align it here.")
             )
             .font(.callout)
             .foregroundStyle(.secondary)
@@ -1010,6 +995,7 @@ struct SyncedWindowPanelView: View {
 
 private struct SyncedWindowRow: View {
     let window: SyncedHostWindow
+    var showsDisclosure = false
 
     var body: some View {
         HStack(spacing: 9) {
@@ -1023,28 +1009,43 @@ private struct SyncedWindowRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+            Spacer()
+            if showsDisclosure {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
         }
-        .padding(.vertical, 3)
+        .contentShape(Rectangle())
+        .padding(.vertical, 6)
     }
 }
 
 private struct SyncedWindowDockView: NSViewRepresentable {
     let onFrameChange: (SyncedWindowSlotFrame) -> Void
+    var slotInset: CGFloat = 14
 
     func makeNSView(context: Context) -> SyncedWindowDockNSView {
         let view = SyncedWindowDockNSView()
         view.onFrameChange = onFrameChange
+        view.slotInset = slotInset
         return view
     }
 
     func updateNSView(_ nsView: SyncedWindowDockNSView, context: Context) {
         nsView.onFrameChange = onFrameChange
+        nsView.slotInset = slotInset
         nsView.reportFrame()
     }
 }
 
 private final class SyncedWindowDockNSView: NSView {
     var onFrameChange: ((SyncedWindowSlotFrame) -> Void)?
+    var slotInset: CGFloat = 14 {
+        didSet {
+            reportFrame()
+        }
+    }
 
     private var lastFrame: SyncedWindowSlotFrame?
     private var windowMoveObserver: NSObjectProtocol?
@@ -1098,7 +1099,7 @@ private final class SyncedWindowDockNSView: NSView {
             return
         }
 
-        let insetBounds = bounds.insetBy(dx: 14, dy: 14)
+        let insetBounds = bounds.insetBy(dx: slotInset, dy: slotInset)
         guard insetBounds.width > 0, insetBounds.height > 0 else {
             return
         }
