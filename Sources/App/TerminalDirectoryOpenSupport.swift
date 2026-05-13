@@ -304,13 +304,15 @@ enum TerminalDirectoryOpenLauncher {
     static func currentDirectoryURL(in tabManager: TabManager?) -> URL? {
         guard let workspace = tabManager?.selectedWorkspace else { return nil }
         let focusedPanelDirectory = workspace.focusedPanelId.flatMap { workspace.panelDirectories[$0] }
-        for rawDirectory in [focusedPanelDirectory, workspace.currentDirectory] {
-            let trimmed = rawDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard !trimmed.isEmpty else { continue }
-            guard FileManager.default.fileExists(atPath: trimmed) else { continue }
-            return URL(fileURLWithPath: trimmed, isDirectory: true)
+        let rawDirectory = focusedPanelDirectory ?? workspace.currentDirectory
+        let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: trimmed, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return nil
         }
-        return nil
+        return URL(fileURLWithPath: trimmed, isDirectory: true)
     }
 
     static func openCurrentDirectory(
@@ -328,8 +330,7 @@ enum TerminalDirectoryOpenLauncher {
     ) -> Bool {
         switch target {
         case .finder:
-            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directoryURL.path)
-            return true
+            return NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directoryURL.path)
         case .vscodeInline:
             return AppDelegate.shared?.openDirectoryInInlineVSCode(directoryURL, tabManager: tabManager) ?? false
         default:
