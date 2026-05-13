@@ -8079,10 +8079,12 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func installMarkdownPanelSubscription(_ markdownPanel: MarkdownPanel) {
-        let subscription = markdownPanel.$displayTitle
-            .removeDuplicates()
+        let subscription = Publishers.CombineLatest(
+            markdownPanel.$displayTitle.removeDuplicates(),
+            markdownPanel.$isDirty.removeDuplicates()
+        )
             .receive(on: DispatchQueue.main)
-            .sink { [weak self, weak markdownPanel] newTitle in
+            .sink { [weak self, weak markdownPanel] newTitle, isDirty in
                 guard let self,
                       let markdownPanel,
                       let tabId = self.surfaceIdFromPanelId(markdownPanel.id) else { return }
@@ -8092,11 +8094,14 @@ final class Workspace: Identifiable, ObservableObject {
                     self.panelTitles[markdownPanel.id] = newTitle
                 }
                 let resolvedTitle = self.resolvedPanelTitle(panelId: markdownPanel.id, fallback: newTitle)
-                guard existing.title != resolvedTitle else { return }
+                let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
+                let dirtyUpdate: Bool? = existing.isDirty == isDirty ? nil : isDirty
+                guard titleUpdate != nil || dirtyUpdate != nil else { return }
                 self.bonsplitController.updateTab(
                     tabId,
-                    title: resolvedTitle,
-                    hasCustomTitle: self.panelCustomTitles[markdownPanel.id] != nil
+                    title: titleUpdate,
+                    hasCustomTitle: self.panelCustomTitles[markdownPanel.id] != nil,
+                    isDirty: dirtyUpdate
                 )
             }
         panelSubscriptions[markdownPanel.id] = subscription
@@ -10419,7 +10424,8 @@ final class Workspace: Identifiable, ObservableObject {
     func newMarkdownSurface(
         inPane paneId: PaneID,
         filePath: String,
-        focus: Bool? = nil
+        focus: Bool? = nil,
+        targetIndex: Int? = nil
     ) -> MarkdownPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -10444,6 +10450,9 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         surfaceIdToPanelId[newTabId] = markdownPanel.id
+        if let targetIndex {
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
         publishCmuxSurfaceCreated(markdownPanel.id, paneId: paneId, kind: "markdown", origin: "markdown_tab", focused: shouldFocusNewTab)
         if shouldFocusNewTab {
             bonsplitController.focusPane(paneId)
@@ -10457,6 +10466,47 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
 
+        installMarkdownPanelSubscription(markdownPanel)
+        return markdownPanel
+    }
+
+    @discardableResult
+    func splitPaneWithMarkdown(
+        targetPane paneId: PaneID,
+        orientation: SplitOrientation,
+        insertFirst: Bool,
+        filePath: String
+    ) -> MarkdownPanel? {
+        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath)
+        panels[markdownPanel.id] = markdownPanel
+        panelTitles[markdownPanel.id] = markdownPanel.displayTitle
+
+        let newTab = Bonsplit.Tab(
+            title: markdownPanel.displayTitle,
+            icon: markdownPanel.displayIcon,
+            kind: SurfaceKind.markdown,
+            isDirty: markdownPanel.isDirty,
+            isLoading: false,
+            isPinned: false
+        )
+        surfaceIdToPanelId[newTab.id] = markdownPanel.id
+
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard bonsplitController.splitPane(
+            paneId,
+            orientation: orientation,
+            withTab: newTab,
+            insertFirst: insertFirst
+        ) != nil else {
+            panels.removeValue(forKey: markdownPanel.id)
+            panelTitles.removeValue(forKey: markdownPanel.id)
+            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            return nil
+        }
+
+        bonsplitController.selectTab(newTab.id)
+        focusPanel(markdownPanel.id)
         installMarkdownPanelSubscription(markdownPanel)
         return markdownPanel
     }
@@ -12621,14 +12671,14 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> Bool {
         switch destination {
         case .insert(let paneId, let index):
-            return !openFilePreviewSurfaces(
+            return openDroppedFileSurfaces(
                 inPane: paneId,
                 filePaths: [entry.filePath],
                 focus: true,
                 targetIndex: index
-            ).isEmpty
+            )
         case .split(let paneId, let orientation, let insertFirst):
-            return splitPaneWithFilePreview(
+            return splitPaneWithDroppedFile(
                 targetPane: paneId,
                 orientation: orientation,
                 insertFirst: insertFirst,
@@ -12650,16 +12700,16 @@ final class Workspace: Identifiable, ObservableObject {
 
         switch request.destination {
         case .insert(let paneId, let index):
-            return !openFilePreviewSurfaces(
+            return openDroppedFileSurfaces(
                 inPane: paneId,
                 filePaths: entries.map(\.filePath),
                 focus: true,
                 targetIndex: index
-            ).isEmpty
+            )
 
         case .split(let sourcePaneId, let orientation, let insertFirst):
             guard let first = entries.first,
-                  let firstPanel = splitPaneWithFilePreview(
+                  let firstPanel = splitPaneWithDroppedFile(
                     targetPane: sourcePaneId,
                     orientation: orientation,
                     insertFirst: insertFirst,
@@ -12670,14 +12720,77 @@ final class Workspace: Identifiable, ObservableObject {
 
             let targetPane = paneId(forPanelId: firstPanel.id) ?? sourcePaneId
             var openedAny = true
-            let rest = openFilePreviewSurfaces(
+            let openedRest = openDroppedFileSurfaces(
                 inPane: targetPane,
                 filePaths: entries.dropFirst().map(\.filePath),
                 focus: true
             )
-            openedAny = openedAny || !rest.isEmpty
+            openedAny = openedAny || openedRest
             return openedAny
         }
+    }
+
+    @discardableResult
+    private func openDroppedFileSurfaces(
+        inPane paneId: PaneID,
+        filePaths: [String],
+        focus: Bool? = nil,
+        targetIndex: Int? = nil
+    ) -> Bool {
+        let shouldFocusNewTabs = focus ?? (bonsplitController.focusedPaneId == paneId)
+        var nextIndex = targetIndex
+        var openedAny = false
+
+        for filePath in filePaths {
+            let opened: Bool
+            if MarkdownPanelFileLinkResolver.isMarkdownPathLike(filePath) {
+                opened = newMarkdownSurface(
+                    inPane: paneId,
+                    filePath: filePath,
+                    focus: shouldFocusNewTabs,
+                    targetIndex: nextIndex
+                ) != nil
+            } else {
+                opened = newFilePreviewSurface(
+                    inPane: paneId,
+                    filePath: filePath,
+                    focus: shouldFocusNewTabs,
+                    targetIndex: nextIndex
+                ) != nil
+            }
+
+            if opened {
+                openedAny = true
+                if let index = nextIndex {
+                    nextIndex = index + 1
+                }
+            }
+        }
+
+        return openedAny
+    }
+
+    @discardableResult
+    private func splitPaneWithDroppedFile(
+        targetPane paneId: PaneID,
+        orientation: SplitOrientation,
+        insertFirst: Bool,
+        filePath: String
+    ) -> (any Panel)? {
+        if MarkdownPanelFileLinkResolver.isMarkdownPathLike(filePath) {
+            return splitPaneWithMarkdown(
+                targetPane: paneId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                filePath: filePath
+            )
+        }
+        return splitPaneWithFilePreview(
+            targetPane: paneId,
+            orientation: orientation,
+            insertFirst: insertFirst,
+            filePath: filePath
+        )
     }
 
     /// Split `paneId` and place a brand-new terminal in the resulting pane.
