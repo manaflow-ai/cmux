@@ -99,7 +99,7 @@ extension CMUXCLI {
 
         appendIfExisting(URL(fileURLWithPath: "/Applications/Ghostty.app/Contents/Resources/ghostty/themes", isDirectory: true))
         appendIfExisting(URL(fileURLWithPath: NSString(string: "~/.config/ghostty/themes").expandingTildeInPath, isDirectory: true))
-        for appSupportDirectory in userApplicationSupportDirectories(environment: processEnv) {
+        for appSupportDirectory in CmuxApplicationSupportDirectories.userDirectories(environment: processEnv) {
             appendIfExisting(
                 appSupportDirectory
                     .appendingPathComponent(Self.cmuxThemeOverrideBundleIdentifier, isDirectory: true)
@@ -111,39 +111,6 @@ extension CMUXCLI {
                 fileURLWithPath: NSString(
                     string: "~/Library/Application Support/com.mitchellh.ghostty/themes"
                 ).expandingTildeInPath,
-                isDirectory: true
-            )
-        )
-
-        return urls
-    }
-
-    private func userApplicationSupportDirectories(environment: [String: String]) -> [URL] {
-        let fileManager = FileManager.default
-        var urls: [URL] = []
-        var seen: Set<String> = []
-
-        func append(_ url: URL?) {
-            guard let url else { return }
-            let standardized = url.standardizedFileURL
-            if seen.insert(standardized.path).inserted {
-                urls.append(standardized)
-            }
-        }
-
-        append(fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first)
-
-        if let fixedHome = environment["CFFIXED_USER_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !fixedHome.isEmpty {
-            append(
-                URL(fileURLWithPath: fixedHome, isDirectory: true)
-                    .appendingPathComponent("Library/Application Support", isDirectory: true)
-            )
-        }
-
-        append(
-            URL(
-                fileURLWithPath: NSString(string: "~/Library/Application Support").expandingTildeInPath,
                 isDirectory: true
             )
         )
@@ -180,7 +147,9 @@ extension CMUXCLI {
             }
         }
 
-        for appSupportDirectory in userApplicationSupportDirectories(environment: ProcessInfo.processInfo.environment) {
+        for appSupportDirectory in CmuxApplicationSupportDirectories.userDirectories(
+            environment: ProcessInfo.processInfo.environment
+        ) {
             let ghosttyDirectory = appSupportDirectory.appendingPathComponent(
                 "com.mitchellh.ghostty",
                 isDirectory: true
