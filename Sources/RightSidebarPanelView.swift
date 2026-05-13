@@ -45,6 +45,16 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .dock: return .switchRightSidebarToDock
         }
     }
+
+    var builtInAction: CmuxSurfaceTabBarBuiltInAction {
+        switch self {
+        case .files: return .rightSidebarFiles
+        case .find: return .rightSidebarFind
+        case .sessions: return .rightSidebarSessions
+        case .feed: return .rightSidebarFeed
+        case .dock: return .rightSidebarDock
+        }
+    }
 }
 
 extension RightSidebarMode {

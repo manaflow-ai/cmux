@@ -5694,9 +5694,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applyRightSidebarRemoteCommand(
         _ command: RightSidebarRemoteCommand,
-        target: RightSidebarRemoteTarget = RightSidebarRemoteTarget()
+        target: RightSidebarRemoteTarget = RightSidebarRemoteTarget(),
+        preferredWindow: NSWindow? = nil
     ) -> RightSidebarRemoteApplyResult {
-        let context = rightSidebarRemoteContext(target: target)
+        let context = rightSidebarRemoteContext(target: target, preferredWindow: preferredWindow)
         if !target.isActiveTarget, context == nil {
             return .failure(String(localized: "rightSidebar.remote.error.targetNotFound", defaultValue: "ERROR: Right sidebar target not found"))
         }
@@ -5779,7 +5780,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func rightSidebarRemoteContext(target: RightSidebarRemoteTarget) -> MainWindowContext? {
+    @discardableResult
+    func executeBuiltInRightSidebarAction(
+        _ action: CmuxSurfaceTabBarBuiltInAction,
+        preferredWindow: NSWindow? = nil,
+        onExecuted: (() -> Void)? = nil
+    ) -> Bool {
+        guard let command = action.rightSidebarRemoteCommand else {
+            return false
+        }
+        switch applyRightSidebarRemoteCommand(command, preferredWindow: preferredWindow) {
+        case .ok:
+            onExecuted?()
+            return true
+        case .state, .failure:
+            return false
+        }
+    }
+
+    private func rightSidebarRemoteContext(
+        target: RightSidebarRemoteTarget,
+        preferredWindow: NSWindow? = nil
+    ) -> MainWindowContext? {
         if let windowId = target.windowId {
             return mainWindowContexts.values.first(where: { $0.windowId == windowId })
         }
@@ -5788,7 +5810,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 context.tabManager.tabs.contains(where: { $0.id == workspaceId })
             }
         }
-        return preferredRegisteredMainWindowContext()
+        return preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
     }
 
     @discardableResult
@@ -13065,6 +13087,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         switch action.action {
         case .builtIn(let builtIn):
+            if executeBuiltInRightSidebarAction(
+                builtIn,
+                preferredWindow: preferredWindow,
+                onExecuted: onExecuted
+            ) {
+                return true
+            }
             switch builtIn {
             case .newWorkspace:
                 context.tabManager.addWorkspace()
@@ -13117,6 +13146,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 if didSplit { onExecuted?() }
                 return didSplit
+            case .rightSidebarToggle, .rightSidebarShow, .rightSidebarHide, .rightSidebarFocus,
+                 .rightSidebarFiles, .rightSidebarFind, .rightSidebarVault, .rightSidebarSessions,
+                 .rightSidebarFeed, .rightSidebarDock:
+                return false
             }
         case .command, .agent, .workspaceCommand:
             guard let cmuxConfigStore = context.cmuxConfigStore else {

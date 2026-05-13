@@ -5921,6 +5921,10 @@ struct ContentView: View {
     }
 
     private func commandPaletteConfigActionID(for commandId: String) -> String? {
+        if let rightSidebarMode = Self.commandPaletteRightSidebarMode(forCommandID: commandId) {
+            return rightSidebarMode.builtInAction.configID
+        }
+
         switch commandId {
         case "palette.newTerminalTab":
             return CmuxSurfaceTabBarBuiltInAction.newTerminal.configID

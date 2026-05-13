@@ -185,8 +185,12 @@ extension ContentView {
     private static func commandPaletteRightSidebarModeShortcutAction(
         forCommandID commandID: String
     ) -> KeyboardShortcutSettings.Action? {
+        commandPaletteRightSidebarMode(forCommandID: commandID)?.shortcutAction
+    }
+
+    static func commandPaletteRightSidebarMode(forCommandID commandID: String) -> RightSidebarMode? {
         RightSidebarMode.availableModes().first { mode in
             Self.commandPaletteRightSidebarModeCommandID(mode) == commandID
-        }?.shortcutAction
+        }
     }
 }

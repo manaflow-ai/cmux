@@ -14194,6 +14194,13 @@ extension Workspace: BonsplitDelegate {
             ?? NSApp.mainWindow
 
         if let builtInAction = executable.builtInAction {
+            if builtInAction.rightSidebarRemoteCommand != nil {
+                _ = AppDelegate.shared?.executeBuiltInRightSidebarAction(
+                    builtInAction,
+                    preferredWindow: presentingWindow
+                )
+                return
+            }
             switch builtInAction {
             case .newWorkspace:
                 owningTabManager?.addWorkspace()
@@ -14203,7 +14210,10 @@ extension Workspace: BonsplitDelegate {
                     preferredWindow: presentingWindow,
                     debugSource: "surfaceTabBar.cloudVM"
                 )
-            case .newTerminal, .newBrowser, .splitRight, .splitDown:
+            case .newTerminal, .newBrowser, .splitRight, .splitDown,
+                 .rightSidebarToggle, .rightSidebarShow, .rightSidebarHide, .rightSidebarFocus,
+                 .rightSidebarFiles, .rightSidebarFind, .rightSidebarVault, .rightSidebarSessions,
+                 .rightSidebarFeed, .rightSidebarDock:
                 break
             }
             return

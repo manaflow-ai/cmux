@@ -335,6 +335,72 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
+    func testRightSidebarBuiltInActionsResolveFromRegistry() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-config-right-sidebar-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = root.appendingPathComponent("cmux.json")
+        try "{}".write(to: globalConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        for action in CmuxSurfaceTabBarBuiltInAction.rightSidebarActions {
+            let resolved = try XCTUnwrap(
+                store.resolvedAction(id: action.configID),
+                "Expected action registry entry for \(action.configID)"
+            )
+            XCTAssertEqual(resolved.id, action.configID)
+            XCTAssertEqual(resolved.action, .builtIn(action))
+            XCTAssertNil(resolved.terminalCommand)
+            XCTAssertEqual(resolved.icon, .symbol(action.defaultIcon))
+        }
+    }
+
+    @MainActor
+    func testSurfaceTabBarCanResolveRightSidebarToggleBuiltInAction() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-config-right-sidebar-button-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = root.appendingPathComponent("cmux.json")
+        let json = """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                "cmux.newTerminal",
+                "cmux.splitRight",
+                "cmux.splitDown",
+                "cmux.rightSidebar.toggle"
+              ]
+            }
+          }
+        }
+        """
+        try json.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.surfaceTabBarButtons.count, 4)
+        let button = store.surfaceTabBarButtons[3]
+        XCTAssertEqual(button.id, CmuxSurfaceTabBarBuiltInAction.rightSidebarToggle.configID)
+        XCTAssertEqual(button.action, .builtIn(.rightSidebarToggle))
+        XCTAssertNil(button.terminalCommand)
+        XCTAssertEqual(button.icon, .symbol(CmuxSurfaceTabBarBuiltInAction.rightSidebarToggle.defaultIcon))
+    }
+
+    @MainActor
     func testSurfaceTabBarActionReferenceUsesActionSourcePath() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-config-store-\(UUID().uuidString)", isDirectory: true)

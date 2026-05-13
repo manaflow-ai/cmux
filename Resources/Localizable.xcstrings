@@ -9880,6 +9880,57 @@
         }
       }
     },
+    "command.rightSidebarShow.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Right Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーを表示"
+          }
+        }
+      }
+    },
+    "command.rightSidebarHide.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Right Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーを非表示"
+          }
+        }
+      }
+    },
+    "command.rightSidebarFocus.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Right Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーにフォーカス"
+          }
+        }
+      }
+    },
     "command.openRightSidebarToolAsPane.subtitle": {
       "extractionState": "manual",
       "localizations": {

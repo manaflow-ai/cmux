@@ -451,6 +451,138 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         }
     }
 
+    func testRightSidebarBuiltInActionsMatchCLISubcommandEffects() throws {
+        try withSavedRightSidebarDockAvailability {
+            UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+
+            let cases: [(CmuxSurfaceTabBarBuiltInAction, [String], Bool, RightSidebarMode)] = [
+                (.rightSidebarToggle, ["toggle"], false, .files),
+                (.rightSidebarShow, ["show"], false, .files),
+                (.rightSidebarHide, ["hide"], true, .files),
+                (.rightSidebarFocus, ["focus"], false, .find),
+                (.rightSidebarFiles, ["files"], false, .find),
+                (.rightSidebarFind, ["find"], false, .files),
+                (.rightSidebarVault, ["vault"], false, .files),
+                (.rightSidebarSessions, ["sessions"], false, .files),
+                (.rightSidebarFeed, ["feed"], false, .files),
+                (.rightSidebarDock, ["dock"], false, .files)
+            ]
+
+            for (action, cliTokens, initialVisible, initialMode) in cases {
+                let cliState = try rightSidebarStateAfterCLI(
+                    tokens: cliTokens,
+                    initialVisible: initialVisible,
+                    initialMode: initialMode
+                )
+                let actionState = try rightSidebarStateAfterBuiltInAction(
+                    action,
+                    initialVisible: initialVisible,
+                    initialMode: initialMode
+                )
+
+                XCTAssertEqual(actionState.succeeded, cliState.succeeded, action.configID)
+                XCTAssertEqual(actionState.visible, cliState.visible, action.configID)
+                XCTAssertEqual(actionState.mode, cliState.mode, action.configID)
+            }
+        }
+    }
+
+    func testRightSidebarToggleBuiltInMatchesKeyboardShortcutToggleEffect() throws {
+        let shortcutState = try rightSidebarStateAfter(
+            initialVisible: false,
+            initialMode: .files
+        ) { appDelegate in
+            appDelegate.toggleRightSidebarInActiveMainWindow()
+        }
+        let actionState = try rightSidebarStateAfterBuiltInAction(
+            .rightSidebarToggle,
+            initialVisible: false,
+            initialMode: .files
+        )
+
+        XCTAssertEqual(actionState.succeeded, shortcutState.succeeded)
+        XCTAssertEqual(actionState.visible, shortcutState.visible)
+        XCTAssertEqual(actionState.mode, shortcutState.mode)
+    }
+
+    private func rightSidebarStateAfterCLI(
+        tokens: [String],
+        initialVisible: Bool,
+        initialMode: RightSidebarMode
+    ) throws -> (succeeded: Bool, visible: Bool, mode: RightSidebarMode) {
+        let request: RightSidebarRemoteRequest
+        switch RightSidebarRemoteRequest.parse(tokens: tokens) {
+        case .success(let parsed):
+            request = parsed
+        case .failure(let error):
+            XCTFail("Expected CLI tokens to parse: \(tokens.joined(separator: " ")) \(error.message)")
+            return (false, initialVisible, initialMode)
+        }
+
+        return rightSidebarStateAfter(
+            initialVisible: initialVisible,
+            initialMode: initialMode
+        ) { appDelegate in
+            switch appDelegate.applyRightSidebarRemoteCommand(request.command, target: request.target) {
+            case .ok:
+                return true
+            case .state, .failure:
+                return false
+            }
+        }
+    }
+
+    private func rightSidebarStateAfterBuiltInAction(
+        _ action: CmuxSurfaceTabBarBuiltInAction,
+        initialVisible: Bool,
+        initialMode: RightSidebarMode
+    ) throws -> (succeeded: Bool, visible: Bool, mode: RightSidebarMode) {
+        try rightSidebarStateAfter(
+            initialVisible: initialVisible,
+            initialMode: initialMode
+        ) { appDelegate in
+            appDelegate.executeBuiltInRightSidebarAction(action)
+        }
+    }
+
+    private func rightSidebarStateAfter(
+        initialVisible: Bool,
+        initialMode: RightSidebarMode,
+        apply: (AppDelegate) -> Bool
+    ) throws -> (succeeded: Bool, visible: Bool, mode: RightSidebarMode) {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        _ = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let state = FileExplorerState()
+        state.setVisible(initialVisible)
+        state.mode = initialMode
+
+        let windowId = appDelegate.registerMainWindowContextForTesting(
+            tabManager: manager,
+            fileExplorerState: state
+        )
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let succeeded = apply(appDelegate)
+        return (succeeded, state.isVisible, state.mode)
+    }
+
+    private func withSavedRightSidebarDockAvailability(_ body: () throws -> Void) throws {
+        let defaults = UserDefaults.standard
+        let previousDockEnabled = defaults.object(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        defer {
+            if let previousDockEnabled {
+                defaults.set(previousDockEnabled, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+            } else {
+                defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+            }
+        }
+        try body()
+    }
+
     func testNotificationCreateUsesExplicitSurfaceIDWhenProvided() async throws {
         let socketPath = makeSocketPath("notify-surface")
         let store = TerminalNotificationStore.shared

@@ -20,8 +20,16 @@
     },
     "actions": {
       "title": "actions",
-      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu.",
+      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Built-in IDs include cmux.newTerminal, cmux.newBrowser, cmux.splitRight, cmux.splitDown, cmux.rightSidebar.toggle, cmux.rightSidebar.show, cmux.rightSidebar.hide, cmux.rightSidebar.focus, cmux.rightSidebar.files, cmux.rightSidebar.find, cmux.rightSidebar.vault, cmux.rightSidebar.sessions, cmux.rightSidebar.feed, and cmux.rightSidebar.dock.",
       "type": "object",
+      "examples": [
+        {
+          "cmux.rightSidebar.toggle": {
+            "type": "builtin",
+            "builtin": "cmux.rightSidebar.toggle"
+          }
+        }
+      ],
       "additionalProperties": true
     },
     "ui": {
@@ -161,7 +169,7 @@
     },
     "surfaceTabBarButtons": {
       "title": "surfaceTabBarButtons",
-      "description": "Legacy root-level surface tab bar buttons. Prefer ui.surfaceTabBar.buttons for new configs.",
+      "description": "Legacy root-level surface tab bar buttons. Prefer ui.surfaceTabBar.buttons for new configs. Button strings may reference built-in action IDs such as cmux.newTerminal, cmux.splitRight, cmux.splitDown, and cmux.rightSidebar.toggle.",
       "type": "array",
       "items": {
         "oneOf": [
