@@ -1219,11 +1219,22 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         try writeLine(line, to: fd)
     }
 
-    private nonisolated func readLine(from fd: Int32) throws -> String {
+    private nonisolated func readLine(from fd: Int32, timeoutMilliseconds: Int32 = 10_000) throws -> String {
         var buffer = [UInt8](repeating: 0, count: 1)
         var data = Data()
 
         while true {
+            var descriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+            let ready = Darwin.poll(&descriptor, 1, timeoutMilliseconds)
+            guard ready >= 0 else {
+                throw posixError("poll")
+            }
+            guard ready > 0, (descriptor.revents & Int16(POLLIN)) != 0 else {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT), userInfo: [
+                    NSLocalizedDescriptionKey: "Timed out waiting for socket response"
+                ])
+            }
+
             let count = Darwin.read(fd, &buffer, 1)
             guard count >= 0 else {
                 throw posixError("read")

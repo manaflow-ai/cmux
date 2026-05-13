@@ -88,15 +88,18 @@ extension TerminalController {
                 guard writeEventsStreamLine(event, socket: socket, jsonRPC: usesJSONRPC) else { return }
             } else if snapshot.subscription.isClosed {
                 if let reason = snapshot.subscription.closeReason {
-                    _ = writeEventsStreamLine([
+                    var errorFrame: [String: Any] = [
                         "type": "error",
-                        "ok": false,
                         "error": [
                             "code": "slow_consumer",
                             "message": reason,
                             "latest_seq": NSNumber(value: CmuxEventBus.shared.latestSequence)
                         ]
-                    ], socket: socket, jsonRPC: usesJSONRPC)
+                    ]
+                    if !usesJSONRPC {
+                        errorFrame["ok"] = false
+                    }
+                    _ = writeEventsStreamLine(errorFrame, socket: socket, jsonRPC: usesJSONRPC)
                 }
                 return
             } else if includeHeartbeats {

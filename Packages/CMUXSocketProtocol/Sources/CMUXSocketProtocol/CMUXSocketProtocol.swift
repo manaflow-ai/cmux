@@ -353,29 +353,29 @@ nonisolated public enum CMUXSocketProtocol {
     }
 }
 
-public func v2OrNull(_ value: Any?) -> Any {
+nonisolated public func v2OrNull(_ value: Any?) -> Any {
     CMUXSocketProtocol.orNull(value)
 }
 
-public func v2Encode(_ object: Any) -> String {
+nonisolated public func v2Encode(_ object: Any) -> String {
     CMUXSocketProtocol.encode(object)
 }
 
-public func v2Ok(id: Any?, jsonRPC: Bool, result: Any) -> String {
+nonisolated public func v2Ok(id: Any?, jsonRPC: Bool, result: Any) -> String {
     CMUXSocketProtocol.ok(id: id, jsonRPC: jsonRPC, result: result)
 }
 
-public func v2Error(id: Any?, jsonRPC: Bool, code: String, message: String, data: Any? = nil) -> String {
+nonisolated public func v2Error(id: Any?, jsonRPC: Bool, code: String, message: String, data: Any? = nil) -> String {
     CMUXSocketProtocol.error(id: id, jsonRPC: jsonRPC, code: code, message: message, data: data)
 }
 
-public func v2Result(id: Any?, jsonRPC: Bool, _ result: V2CallResult) -> String {
+nonisolated public func v2Result(id: Any?, jsonRPC: Bool, _ result: V2CallResult) -> String {
     CMUXSocketProtocol.result(id: id, jsonRPC: jsonRPC, result)
 }
 
 /// Blocking bridge for the existing synchronous socket-worker dispatch path.
 /// Do not call from main-actor socket handlers.
-public func v2VmCall(
+nonisolated public func v2VmCall(
     id: Any?,
     jsonRPC: Bool,
     timeoutSeconds: TimeInterval = 17 * 60,

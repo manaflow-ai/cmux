@@ -21,6 +21,11 @@ nonisolated private struct SocketLineProcessingResult: Sendable {
     let shouldWriteResponse: Bool
 }
 
+nonisolated private enum V2SocketCommandDispatchParse {
+    case request(V2SocketRequest)
+    case response(String)
+}
+
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
 @MainActor
@@ -1506,9 +1511,77 @@ class TerminalController {
         return nil
     }
 
-    private nonisolated func socketWorkerV2ResponseIfNeeded(for command: String) -> String? {
-        guard let request = CMUXSocketProtocol.parseV2SocketRequest(command),
-              CMUXSocketProtocol.executionPolicy(forV2Method: request.method) == .socketWorker else {
+    private nonisolated func parseV2SocketCommandForDispatch(_ command: String) -> V2SocketCommandDispatchParse? {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{") || trimmed.hasPrefix("[") else {
+            return nil
+        }
+
+        guard let data = trimmed.data(using: .utf8) else {
+            return .response(CMUXSocketProtocol.malformedRequestError(
+                command: trimmed,
+                code: "invalid_utf8",
+                message: "Invalid UTF-8"
+            ))
+        }
+
+        let object: Any
+        do {
+            object = try JSONSerialization.jsonObject(with: data, options: [])
+        } catch {
+            return .response(CMUXSocketProtocol.malformedRequestError(
+                command: trimmed,
+                code: "parse_error",
+                message: "Invalid JSON"
+            ))
+        }
+
+        guard let dict = object as? [String: Any] else {
+            return .response(CMUXSocketProtocol.malformedRequestError(
+                command: trimmed,
+                code: "invalid_request",
+                message: "Expected JSON object"
+            ))
+        }
+
+        do {
+            return .request(try CMUXSocketProtocol.parseV2SocketRequestObject(dict))
+        } catch let error as V2SocketRequestParseError {
+            return .response(v2RequestParseErrorResponse(error, dict: dict))
+        } catch {
+            return .response(v2Error(
+                id: dict["id"],
+                jsonRPC: CMUXSocketProtocol.usesJSONRPC(dict),
+                code: "invalid_request",
+                message: "Invalid request"
+            ))
+        }
+    }
+
+    private nonisolated func v2RequestParseErrorResponse(
+        _ error: V2SocketRequestParseError,
+        dict: [String: Any]
+    ) -> String {
+        switch error {
+        case .invalidParams:
+            return v2Error(
+                id: dict["id"],
+                jsonRPC: CMUXSocketProtocol.usesJSONRPC(dict),
+                code: "invalid_params",
+                message: "params must be a JSON object"
+            )
+        case .missingMethod:
+            return v2Error(
+                id: dict["id"],
+                jsonRPC: CMUXSocketProtocol.usesJSONRPC(dict),
+                code: "invalid_request",
+                message: "Missing method"
+            )
+        }
+    }
+
+    private nonisolated func socketWorkerV2ResponseIfNeeded(for request: V2SocketRequest) -> String? {
+        guard CMUXSocketProtocol.executionPolicy(forV2Method: request.method) == .socketWorker else {
             return nil
         }
 
@@ -1985,19 +2058,25 @@ class TerminalController {
     }
 
     private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String {
-        if Thread.isMainThread,
-           let request = CMUXSocketProtocol.parseV2SocketRequest(command),
-           CMUXSocketProtocol.executionPolicy(forV2Method: request.method) == .socketWorker {
-            return v2Error(
-                id: request.id,
-                jsonRPC: request.usesJSONRPC,
-                code: "invalid_dispatch",
-                message: "\(request.method) must run off the main thread"
-            )
-        }
+        if let parsedRequest = parseV2SocketCommandForDispatch(command) {
+            switch parsedRequest {
+            case .response(let response):
+                return response
+            case .request(let request):
+                if Thread.isMainThread,
+                   CMUXSocketProtocol.executionPolicy(forV2Method: request.method) == .socketWorker {
+                    return v2Error(
+                        id: request.id,
+                        jsonRPC: request.usesJSONRPC,
+                        code: "invalid_dispatch",
+                        message: "\(request.method) must run off the main thread"
+                    )
+                }
 
-        if let response = socketWorkerV2ResponseIfNeeded(for: command) {
-            return response
+                if let response = socketWorkerV2ResponseIfNeeded(for: request) {
+                    return response
+                }
+            }
         }
 
         if command.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ping" {
@@ -2423,19 +2502,14 @@ class TerminalController {
         let request: V2SocketRequest
         do {
             request = try CMUXSocketProtocol.parseV2SocketRequestObject(dict)
-        } catch V2SocketRequestParseError.invalidParams {
-            return v2Error(
-                id: dict["id"],
-                jsonRPC: CMUXSocketProtocol.usesJSONRPC(dict),
-                code: "invalid_params",
-                message: "params must be a JSON object"
-            )
+        } catch let error as V2SocketRequestParseError {
+            return v2RequestParseErrorResponse(error, dict: dict)
         } catch {
             return v2Error(
                 id: dict["id"],
                 jsonRPC: CMUXSocketProtocol.usesJSONRPC(dict),
                 code: "invalid_request",
-                message: "Missing method"
+                message: "Invalid request"
             )
         }
         let id = request.id
