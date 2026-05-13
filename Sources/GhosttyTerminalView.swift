@@ -2117,6 +2117,12 @@ class GhosttyApp {
                 logLabel: "renderer background (fallback)"
             )
             loadInlineGhosttyConfig(
+                "macos-titlebar-proxy-icon = hidden",
+                into: fallbackConfig,
+                prefix: "cmux-titlebar-proxy-icon",
+                logLabel: "titlebar proxy icon (fallback)"
+            )
+            loadInlineGhosttyConfig(
                 "shell-integration = none",
                 into: fallbackConfig,
                 prefix: "cmux-shell-integration-override",
@@ -2272,6 +2278,14 @@ class GhosttyApp {
             into: config,
             prefix: "cmux-renderer-bg",
             logLabel: "renderer background"
+        )
+        // Hide Ghostty's native AppKit proxy icon at the source instead of
+        // overriding NSWindow.representedURL on every cmux main window.
+        loadInlineGhosttyConfig(
+            "macos-titlebar-proxy-icon = hidden",
+            into: config,
+            prefix: "cmux-titlebar-proxy-icon",
+            logLabel: "titlebar proxy icon"
         )
         // Save the user's preference before we force it to none.
         userGhosttyShellIntegrationMode = "detect"
@@ -13372,18 +13386,17 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
     enum HostCallbackPortalGeometrySynchronizationAction<Window> {
         case skip
-        case scheduleExternal(Window)
+        case synchronizeWithoutLayoutFlush(Window)
     }
 
     static func hostCallbackPortalGeometrySynchronizationAction<Window>(
         window: Window?
     ) -> HostCallbackPortalGeometrySynchronizationAction<Window> {
         // HostContainerView callbacks can fire while SwiftUI/AppKit is already
-        // rendering or laying out the representable. External AppKit resize
-        // observers own immediate live-resize flushing; host callbacks only
-        // schedule the portal owner.
+        // rendering or laying out the representable. Keep the immediate path,
+        // but forbid ancestor layout flushes from this callback.
         guard let window else { return .skip }
-        return .scheduleExternal(window)
+        return .synchronizeWithoutLayoutFlush(window)
     }
 
     private static func synchronizePortalGeometry(
@@ -13393,14 +13406,14 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let geometryRevision = host.geometryRevision
         guard coordinator.lastSynchronizedHostGeometryRevision != geometryRevision else { return }
         coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
-        // Avoid synchronizing the terminal portal while AppKit is still inside
-        // the current layout turn. Re-entrant syncs here can escalate from
-        // SwiftUI warnings to AppKit exceptions during CATransaction display
-        // link flushes.
-        guard case let .scheduleExternal(window) = hostCallbackPortalGeometrySynchronizationAction(
+        // Avoid forcing ancestor AppKit layout while SwiftUI is still inside
+        // the current update/layout turn. Reconcile the portal against the
+        // already-current host geometry so terminal content tracks resize
+        // without reopening the CATransaction display-link reentry path.
+        guard case .synchronizeWithoutLayoutFlush = hostCallbackPortalGeometrySynchronizationAction(
             window: host.window
         ) else { return }
-        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+        TerminalWindowPortalRegistry.synchronizeForAnchor(host, syncLayout: false)
     }
 
     func makeNSView(context: Context) -> NSView {

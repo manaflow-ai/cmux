@@ -2297,7 +2297,7 @@ struct ContentView: View {
             TitlebarLeadingInsetReader(inset: $titlebarLeadingInset)
                 .allowsHitTesting(false)
 
-            HStack(spacing: TitlebarFolderIconMetrics.iconTitleSpacing) {
+            HStack(spacing: 8) {
                 if isFullScreen && !sidebarState.isVisible {
                     fullscreenControls
                 }
@@ -2305,11 +2305,8 @@ struct ContentView: View {
                 // Draggable folder icon + focused command name
                 if let directory = focusedDirectory {
                     DetachedFolderDragIcon(directory: directory)
-                        .frame(
-                            width: TitlebarFolderIconMetrics.iconSize,
-                            height: TitlebarFolderIconMetrics.iconSize
-                        )
-                        .padding(.leading, TitlebarFolderIconMetrics.iconLeadingPadding)
+                        .frame(width: 16, height: 16)
+                        .padding(.leading, -6)
                 }
 
                 Text(titlebarText)
