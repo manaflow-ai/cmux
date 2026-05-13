@@ -14475,15 +14475,11 @@ extension Workspace {
         let statusKeyToClear = clearStatus ? agentStatusKey(forAgentPIDKey: key) : nil
 
         var didChange = false
-        var removedRuntime = false
-        var removedStatus = false
         if removeAgentPIDStorageValue(forKey: key) != nil {
             didChange = true
-            removedRuntime = true
         }
         if removeAgentProcessStateStorageValue(forKey: key) != nil {
             didChange = true
-            removedRuntime = true
         }
         if let watcher = agentPIDExitWatchers.removeValue(forKey: key) {
             watcher.cancel()
@@ -14503,12 +14499,9 @@ extension Workspace {
            !hasAgentRuntime(forStatusKey: statusKeyToClear),
            statusEntries.removeValue(forKey: statusKeyToClear) != nil {
             didChange = true
-            removedStatus = true
         }
         if clearStatus, clearNotifications, didChange, let effectivePanelId {
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: effectivePanelId)
-        } else if clearStatus, clearNotifications, didChange, removedRuntime || removedStatus {
-            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id)
         }
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()

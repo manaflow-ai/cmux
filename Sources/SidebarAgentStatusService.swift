@@ -280,6 +280,14 @@ extension TabManager {
     }
 
     func clearPanelAgentTitleRegistration(for key: PanelTitleUpdateKey) {
+        if let registration = panelAgentTitleRegistrations[key] {
+            let registrationKey = SidebarAgentStatusService.registrationDeduplicationKey(
+                workspaceId: key.tabId,
+                panelId: key.panelId,
+                statusKey: registration.statusKey
+            )
+            agentPIDDiscoveryLastStartedAtByRegistration.removeValue(forKey: registrationKey)
+        }
         panelAgentTitleRegistrations.removeValue(forKey: key)
         panelAgentTitleRegistrationSeenAt.removeValue(forKey: key)
     }
@@ -290,6 +298,11 @@ extension TabManager {
         }
         for key in Array(panelAgentTitleRegistrations.keys) where key.tabId == workspaceId {
             clearPanelAgentTitleRegistration(for: key)
+        }
+        let workspaceRegistrationPrefix = "\(workspaceId.uuidString):"
+        for registrationKey in Array(agentPIDDiscoveryLastStartedAtByRegistration.keys)
+            where registrationKey.hasPrefix(workspaceRegistrationPrefix) {
+            agentPIDDiscoveryLastStartedAtByRegistration.removeValue(forKey: registrationKey)
         }
     }
 

@@ -14913,9 +14913,10 @@ struct CMUXCLI {
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    value: "Running",
-                    icon: "bolt.fill",
-                    color: "#4C8DFF",
+                    value: ClaudeNotificationSidebarStatusStyle.runningValue,
+                    icon: ClaudeNotificationSidebarStatusStyle.runningIcon,
+                    color: ClaudeNotificationSidebarStatusStyle.runningColor,
+                    protocolValue: ClaudeNotificationSidebarStatusStyle.runningProtocolValue,
                     pid: claudePid
                 )
             }
@@ -14973,10 +14974,10 @@ struct CMUXCLI {
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    value: "Idle",
-                    icon: "pause.circle.fill",
-                    color: "#8E8E93",
-                    protocolValue: "idle"
+                    value: ClaudeNotificationSidebarStatusStyle.idleValue,
+                    icon: ClaudeNotificationSidebarStatusStyle.idleIcon,
+                    color: ClaudeNotificationSidebarStatusStyle.idleColor,
+                    protocolValue: ClaudeNotificationSidebarStatusStyle.idleProtocolValue
                 )
                 if let completion {
                     let title = String(
@@ -15044,9 +15045,9 @@ struct CMUXCLI {
                 client: client,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                value: "Running",
-                icon: "bolt.fill",
-                color: "#4C8DFF",
+                value: ClaudeNotificationSidebarStatusStyle.runningValue,
+                icon: ClaudeNotificationSidebarStatusStyle.runningIcon,
+                color: ClaudeNotificationSidebarStatusStyle.runningColor,
                 protocolValue: ClaudeNotificationSidebarStatusStyle.runningProtocolValue
             )
             print("OK")
@@ -15234,15 +15235,15 @@ struct CMUXCLI {
                let toolStatus = describeToolUse(parsedInput.object) {
                 statusValue = toolStatus
             } else {
-                statusValue = "Running"
+                statusValue = ClaudeNotificationSidebarStatusStyle.runningValue
             }
             try setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 value: statusValue,
-                icon: "bolt.fill",
-                color: "#4C8DFF",
+                icon: ClaudeNotificationSidebarStatusStyle.runningIcon,
+                color: ClaudeNotificationSidebarStatusStyle.runningColor,
                 protocolValue: ClaudeNotificationSidebarStatusStyle.runningProtocolValue,
                 pid: claudePid
             )
@@ -15306,7 +15307,7 @@ struct CMUXCLI {
         protocolValue: String? = nil,
         pid: Int? = nil
     ) throws {
-        var cmd = "set_status claude_code \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+        var cmd = "set_status claude_code \(socketQuote(value)) --icon=\(icon) --color=\(color) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
         if let protocolValue {
             cmd += " --protocol=\(protocolValue)"
         }
@@ -16741,7 +16742,7 @@ struct CMUXCLI {
             _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
         }
         _ = try? sendV1Command(
-            "set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+            "set_status codex \(socketQuote(summary.statusValue)) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
             client: client
         )
     }
@@ -16860,6 +16861,9 @@ struct CMUXCLI {
         static let needsInputIcon = "bell.fill"
         static let needsInputColor = "#4C8DFF"
         static let needsInputProtocolValue = "needs_input"
+        static let runningValue = String(localized: "sidebar.agentStatus.running", defaultValue: "Running")
+        static let runningIcon = "bolt.fill"
+        static let runningColor = "#4C8DFF"
         static let runningProtocolValue = "running"
         static let idleValue = String(localized: "sidebar.agentStatus.idle", defaultValue: "Idle")
         static let idleIcon = "pause.circle.fill"
@@ -18582,13 +18586,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 if let codexFailure {
                     _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        "set_status \(def.statusKey) \(socketQuote(codexFailure.statusValue)) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                         client: client
                     )
                 } else {
-                    let idleStatus = String(localized: "sidebar.agentStatus.idle", defaultValue: "Idle")
+                    let idleStatus = ClaudeNotificationSidebarStatusStyle.idleValue
                     _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        "set_status \(def.statusKey) \(socketQuote(idleStatus)) --icon=\(ClaudeNotificationSidebarStatusStyle.idleIcon) --color=\(ClaudeNotificationSidebarStatusStyle.idleColor) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                         client: client
                     )
                 }
