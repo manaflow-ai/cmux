@@ -124,6 +124,61 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         XCTAssertTrue(([fixture.parentPID] + fixture.childPIDs).allSatisfy { totalPIDs.contains($0) })
     }
 
+    @MainActor
+    func testSharedWebViewResourceRowsAreAttributedAcrossOccurrences() throws {
+        let fixture = try SpawnedProcessTree.start()
+        defer { fixture.terminate() }
+
+        let snapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+        var windows: [[String: Any]] = [[
+            "kind": "window",
+            "id": UUID().uuidString,
+            "index": 0,
+            "key": true,
+            "visible": true,
+            "app_process_pids": [],
+            "workspaces": [[
+                "kind": "workspace",
+                "id": UUID().uuidString,
+                "index": 0,
+                "title": "shared webview fixture",
+                "selected": true,
+                "pinned": false,
+                "tags": [],
+                "panes": [[
+                    "kind": "pane",
+                    "id": UUID().uuidString,
+                    "index": 0,
+                    "surfaces": [
+                        sharedWebViewSurface(pid: fixture.parentPID),
+                        sharedWebViewSurface(pid: fixture.parentPID)
+                    ]
+                ] as [String: Any]]
+            ] as [String: Any]]
+        ]]
+
+        let browserPIDOccurrences = TerminalController.shared.v2TopBrowserPIDOccurrences(in: windows)
+        XCTAssertEqual(browserPIDOccurrences[fixture.parentPID], 2)
+
+        _ = TerminalController.shared.v2AnnotateTopWindows(
+            &windows,
+            processSnapshot: snapshot,
+            browserPIDOccurrences: browserPIDOccurrences,
+            includeProcesses: false
+        )
+
+        let windowResources = try XCTUnwrap(windows[0]["resources"] as? [String: Any])
+        let windowResidentBytes = int64(windowResources["resident_bytes"])
+        let webViewResidentBytes = try annotatedWebViewResources(in: windows)
+            .map { int64($0["resident_bytes"]) }
+
+        XCTAssertGreaterThan(windowResidentBytes, 0)
+        XCTAssertEqual(webViewResidentBytes.count, 2)
+        for residentBytes in webViewResidentBytes {
+            XCTAssertLessThanOrEqual(abs(residentBytes * 2 - windowResidentBytes), 1)
+        }
+    }
+
     func testApplicationProcessAttachesToKeyWindow() {
         var windows: [[String: Any]] = [
             ["kind": "window", "id": "first", "key": false],
@@ -383,6 +438,35 @@ while allocations:
             throw XCTSkip("ps failed with status \(process.terminationStatus)")
         }
         return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    private func sharedWebViewSurface(pid: Int) -> [String: Any] {
+        let surfaceID = UUID().uuidString
+        return [
+            "kind": "surface",
+            "id": surfaceID,
+            "index": 0,
+            "type": "browser",
+            "title": "Browser",
+            "webviews": [[
+                "kind": "webview",
+                "id": "\(surfaceID):webview",
+                "index": 0,
+                "title": "Shared WebView",
+                "pid": pid
+            ] as [String: Any]]
+        ]
+    }
+
+    private func annotatedWebViewResources(in windows: [[String: Any]]) throws -> [[String: Any]] {
+        let workspaces = try XCTUnwrap(windows[0]["workspaces"] as? [[String: Any]])
+        let panes = try XCTUnwrap(workspaces[0]["panes"] as? [[String: Any]])
+        let surfaces = try XCTUnwrap(panes[0]["surfaces"] as? [[String: Any]])
+        return try surfaces.map { surface in
+            let webviews = try XCTUnwrap(surface["webviews"] as? [[String: Any]])
+            let webview = try XCTUnwrap(webviews.first)
+            return try XCTUnwrap(webview["resources"] as? [String: Any])
+        }
     }
 
     private func int64(_ raw: Any?) -> Int64 {

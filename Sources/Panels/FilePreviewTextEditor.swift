@@ -1,8 +1,19 @@
 import AppKit
 import SwiftUI
 
-struct FilePreviewTextEditor: NSViewRepresentable {
-    @ObservedObject var panel: FilePreviewPanel
+@MainActor
+protocol FilePreviewTextEditingPanel: AnyObject {
+    var textContent: String { get }
+
+    func attachTextView(_ textView: NSTextView)
+    func retryPendingFocus()
+    func updateTextContent(_ nextContent: String)
+    @discardableResult
+    func saveTextContent() -> Task<Void, Never>?
+}
+
+struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: ObservableObject & FilePreviewTextEditingPanel {
+    @ObservedObject var panel: PanelModel
     let isVisibleInUI: Bool
     let themeBackgroundColor: NSColor
     let themeForegroundColor: NSColor
@@ -80,10 +91,10 @@ struct FilePreviewTextEditor: NSViewRepresentable {
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
-        var panel: FilePreviewPanel
+        var panel: PanelModel
         var isApplyingPanelUpdate = false
 
-        init(panel: FilePreviewPanel) {
+        init(panel: PanelModel) {
             self.panel = panel
         }
 
@@ -119,7 +130,7 @@ final class SavingTextView: NSTextView {
     private static let minimumPreviewFontSize: CGFloat = 8
     private static let maximumPreviewFontSize: CGFloat = 36
 
-    weak var panel: FilePreviewPanel?
+    weak var panel: (any FilePreviewTextEditingPanel)?
     private var previewFontSize: CGFloat = 13
     private var pendingSaveShortcutChordPrefix: ShortcutStroke?
 
