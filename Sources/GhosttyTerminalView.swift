@@ -3846,7 +3846,10 @@ class GhosttyApp {
             }
         case GHOSTTY_ACTION_SCROLLBAR:
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
-            surfaceView.enqueueScrollbarUpdate(scrollbar)
+            surfaceView.enqueueScrollbarUpdate(
+                scrollbar,
+                wasKeyboardInitiated: surfaceView.isHandlingKeyboardInitiatedScrollAction()
+            )
             return true
         case GHOSTTY_ACTION_CELL_SIZE:
             let cellSize = CGSize(
@@ -6108,12 +6111,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     weak var terminalSurface: TerminalSurface?
+    private static let keyboardInitiatedScrollActionDepthKey = "cmux.keyboardInitiatedScrollActionDepth"
     var scrollbar: GhosttyScrollbar?
     /// Pending scrollbar value written from the action callback thread;
     /// read and cleared on the main thread by `flushPendingScrollbar()`.
     /// Access is guarded by `_scrollbarLock` because the action callback
     /// fires on Ghostty's I/O thread while the flush runs on main.
     private var _pendingScrollbar: GhosttyScrollbar?
+    private var _pendingScrollbarWasKeyboardInitiated = false
     private var _scrollbarFlushScheduled = false
     private let _scrollbarLock = NSLock()
     var cellSize: CGSize = .zero
@@ -6123,11 +6128,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// dispatch.  The action callback (which may fire thousands of times per
     /// second during bulk output like `seq 1 100000`) stores the latest value
     /// and schedules exactly one async flush.
-    func enqueueScrollbarUpdate(_ newValue: GhosttyScrollbar) {
+    func enqueueScrollbarUpdate(_ newValue: GhosttyScrollbar, wasKeyboardInitiated: Bool = false) {
         _scrollbarLock.lock()
         defer { _scrollbarLock.unlock() }
         // Store the latest value (always overwrites — only the newest matters).
         _pendingScrollbar = newValue
+        _pendingScrollbarWasKeyboardInitiated = wasKeyboardInitiated
         let needsSchedule = !_scrollbarFlushScheduled
         if needsSchedule { _scrollbarFlushScheduled = true }
 
@@ -6143,7 +6149,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _scrollbarLock.lock()
         _scrollbarFlushScheduled = false
         let pending = _pendingScrollbar
+        let pendingWasKeyboardInitiated = _pendingScrollbarWasKeyboardInitiated
         _pendingScrollbar = nil
+        _pendingScrollbarWasKeyboardInitiated = false
         _scrollbarLock.unlock()
 
         guard let pending else { return }
@@ -6151,8 +6159,37 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         NotificationCenter.default.post(
             name: .ghosttyDidUpdateScrollbar,
             object: self,
-            userInfo: [GhosttyNotificationKey.scrollbar: pending]
+            userInfo: [
+                GhosttyNotificationKey.scrollbar: pending,
+                GhosttyNotificationKey.scrollbarWasKeyboardInitiated: pendingWasKeyboardInitiated,
+            ]
         )
+    }
+
+    private func beginKeyboardInitiatedScrollAction() {
+        let dictionary = Thread.current.threadDictionary
+        let currentDepth = dictionary[Self.keyboardInitiatedScrollActionDepthKey] as? Int ?? 0
+        dictionary[Self.keyboardInitiatedScrollActionDepthKey] = currentDepth + 1
+    }
+
+    private func endKeyboardInitiatedScrollAction() {
+        let dictionary = Thread.current.threadDictionary
+        let currentDepth = dictionary[Self.keyboardInitiatedScrollActionDepthKey] as? Int ?? 0
+        if currentDepth <= 1 {
+            dictionary.removeObject(forKey: Self.keyboardInitiatedScrollActionDepthKey)
+        } else {
+            dictionary[Self.keyboardInitiatedScrollActionDepthKey] = currentDepth - 1
+        }
+    }
+
+    func isHandlingKeyboardInitiatedScrollAction() -> Bool {
+        (Thread.current.threadDictionary[Self.keyboardInitiatedScrollActionDepthKey] as? Int ?? 0) > 0
+    }
+
+    private func withKeyboardInitiatedScrollAction<T>(_ body: () -> T) -> T {
+        beginKeyboardInitiatedScrollAction()
+        defer { endKeyboardInitiatedScrollAction() }
+        return body()
     }
 
     var desiredFocus: Bool = false
@@ -6815,6 +6852,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    private func performKeyboardInitiatedScrollBindingAction(_ action: String) -> Bool {
+        withKeyboardInitiatedScrollAction {
+            performBindingAction(action)
+        }
+    }
+
     @discardableResult
     func toggleKeyboardCopyMode() -> Bool {
         guard surface != nil else { return false }
@@ -6848,6 +6891,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let count = terminalKeyboardCopyModeClampCount(repeatCount)
         for _ in 0 ..< count {
             _ = performBindingAction(action)
+        }
+    }
+
+    private func performKeyboardInitiatedScrollBindingAction(_ action: String, repeatCount: Int) {
+        let count = terminalKeyboardCopyModeClampCount(repeatCount)
+        for _ in 0 ..< count {
+            _ = performKeyboardInitiatedScrollBindingAction(action)
         }
     }
 
@@ -6989,34 +7039,37 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = ghostty_surface_clear_selection_compat(surface)
             setKeyboardCopyModeActive(false)
         case let .scrollLines(delta):
-            _ = performBindingAction("scroll_page_lines:\(delta * count)")
+            _ = performKeyboardInitiatedScrollBindingAction("scroll_page_lines:\(delta * count)")
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case let .scrollPage(delta):
-            performBindingAction(delta > 0 ? "scroll_page_down" : "scroll_page_up", repeatCount: count)
+            performKeyboardInitiatedScrollBindingAction(
+                delta > 0 ? "scroll_page_down" : "scroll_page_up",
+                repeatCount: count
+            )
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case let .scrollHalfPage(delta):
             let fraction = delta > 0 ? 0.5 : -0.5
-            performBindingAction("scroll_page_fractional:\(fraction)", repeatCount: count)
+            performKeyboardInitiatedScrollBindingAction("scroll_page_fractional:\(fraction)", repeatCount: count)
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case .scrollToTop:
             keyboardCopyModeViewportRow = 0
-            _ = performBindingAction("scroll_to_top")
+            _ = performKeyboardInitiatedScrollBindingAction("scroll_to_top")
         case .scrollToBottom:
             keyboardCopyModeViewportRow = max(Int(ghostty_surface_size(surface).rows) - 1, 0)
-            _ = performBindingAction("scroll_to_bottom")
+            _ = performKeyboardInitiatedScrollBindingAction("scroll_to_bottom")
         case let .jumpToPrompt(delta):
-            _ = performBindingAction("jump_to_prompt:\(delta * count)")
+            _ = performKeyboardInitiatedScrollBindingAction("jump_to_prompt:\(delta * count)")
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case .startSearch:
             _ = performBindingAction("start_search")
         case .searchNext:
-            performBindingAction("navigate_search:next", repeatCount: count)
+            performKeyboardInitiatedScrollBindingAction("navigate_search:next", repeatCount: count)
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case .searchPrevious:
-            performBindingAction("navigate_search:previous", repeatCount: count)
+            performKeyboardInitiatedScrollBindingAction("navigate_search:previous", repeatCount: count)
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case let .adjustSelection(direction):
-            performBindingAction("adjust_selection:\(direction.rawValue)", repeatCount: count)
+            performKeyboardInitiatedScrollBindingAction("adjust_selection:\(direction.rawValue)", repeatCount: count)
         }
         return true
     }
@@ -7614,6 +7667,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             increments: ["probeKeyDownCount": 1]
         )
 #endif
+
+        beginKeyboardInitiatedScrollAction()
+        defer { endKeyboardInitiatedScrollAction() }
 
         // Fast path for control-modified terminal input (for example Ctrl+D).
         //
@@ -11620,6 +11676,10 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.debugRegisteredDropTypes()
     }
 
+    func debugTimestampVisibleRows(for scrollbar: GhosttyScrollbar) -> [TerminalTimestampVisibleRow] {
+        timestampStore.visibleRows(for: TerminalTimestampScrollbarState(scrollbar))
+    }
+
     func debugInactiveOverlayState() -> (isHidden: Bool, alpha: CGFloat) {
         (
             inactiveOverlayView.isHidden,
@@ -12857,14 +12917,16 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
         let wasVisible = scrollView.hasVerticalScroller
-        let isUserInitiatedScroll = pendingExplicitWheelScroll || isLiveScrolling
+        let isKeyboardInitiatedScroll =
+            notification.userInfo?[GhosttyNotificationKey.scrollbarWasKeyboardInitiated] as? Bool ?? false
+        let isUserInitiatedScroll = pendingExplicitWheelScroll || isKeyboardInitiatedScroll || isLiveScrolling
         let shouldMarkVisibleTimestampRows = !isUserInitiatedScroll && !userScrolledAwayFromBottom
         timestampStore.record(
             scrollbar: TerminalTimestampScrollbarState(scrollbar),
             at: .now,
             markVisibleRows: shouldMarkVisibleTimestampRows
         )
-        if pendingExplicitWheelScroll {
+        if pendingExplicitWheelScroll || isKeyboardInitiatedScroll {
             userScrolledAwayFromBottom = scrollbar.offset + scrollbar.len < scrollbar.total
             allowExplicitScrollbarSync = true
             pendingExplicitWheelScroll = false
