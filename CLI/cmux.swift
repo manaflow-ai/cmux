@@ -11884,10 +11884,6 @@ struct CMUXCLI {
         let parentRef: String
         let title: String
         let ordinal: Int
-
-        var node: [String: Any] {
-            ["resources": resources]
-        }
     }
 
     private func renderTopFlatTSV(
@@ -11913,7 +11909,7 @@ struct CMUXCLI {
             )
         }
 
-        for window in windows {
+        for window in topSortedItems(windows, sortKey: sortKey, node: { $0 }) {
             let windowRef = topFlatHandle(window, fallback: "window", idFormat: idFormat)
             appendTopFlatNode(
                 window,
@@ -11925,7 +11921,7 @@ struct CMUXCLI {
                 to: &rows
             )
 
-            let workspaces = window["workspaces"] as? [[String: Any]] ?? []
+            let workspaces = topSortedItems(window["workspaces"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
             for workspace in workspaces {
                 let workspaceRef = topFlatHandle(workspace, fallback: "workspace", idFormat: idFormat)
                 appendTopFlatNode(
@@ -11938,99 +11934,100 @@ struct CMUXCLI {
                     to: &rows
                 )
 
-                for tag in workspace["tags"] as? [[String: Any]] ?? [] {
-                    let tagRef = topFlatHandle(tag, fallback: topLabelText(tag["key"] as? String), idFormat: idFormat)
-                    appendTopFlatNode(
-                        tag,
-                        kind: "tag",
-                        ref: tagRef,
-                        parentRef: workspaceRef,
-                        title: tag["value"] as? String ?? "",
-                        ordinal: &ordinal,
-                        to: &rows
-                    )
-                    if showProcesses {
-                        appendTopFlatProcesses(
-                            tag["processes"] as? [[String: Any]] ?? [],
-                            parentRef: tagRef,
-                            ordinal: &ordinal,
-                            to: &rows
-                        )
-                    }
-                }
-
-                for pane in workspace["panes"] as? [[String: Any]] ?? [] {
-                    let paneRef = topFlatHandle(pane, fallback: "pane", idFormat: idFormat)
-                    appendTopFlatNode(
-                        pane,
-                        kind: "pane",
-                        ref: paneRef,
-                        parentRef: workspaceRef,
-                        title: "",
-                        ordinal: &ordinal,
-                        to: &rows
-                    )
-
-                    for surface in pane["surfaces"] as? [[String: Any]] ?? [] {
-                        let surfaceRef = topFlatHandle(surface, fallback: "surface", idFormat: idFormat)
+                let tags = workspace["tags"] as? [[String: Any]] ?? []
+                let panes = workspace["panes"] as? [[String: Any]] ?? []
+                let workspaceChildren = topSortedItems(
+                    tags.map { TopWorkspaceChild.tag($0) } + panes.map { TopWorkspaceChild.pane($0) },
+                    sortKey: sortKey,
+                    node: { $0.node }
+                )
+                for workspaceChild in workspaceChildren {
+                    switch workspaceChild {
+                    case .tag(let tag):
+                        let tagRef = topFlatHandle(tag, fallback: topLabelText(tag["key"] as? String), idFormat: idFormat)
                         appendTopFlatNode(
-                            surface,
-                            kind: "surface",
-                            ref: surfaceRef,
-                            parentRef: paneRef,
-                            title: surface["title"] as? String ?? "",
+                            tag,
+                            kind: "tag",
+                            ref: tagRef,
+                            parentRef: workspaceRef,
+                            title: tag["value"] as? String ?? "",
+                            ordinal: &ordinal,
+                            to: &rows
+                        )
+                        if showProcesses {
+                            appendTopFlatProcesses(
+                                tag["processes"] as? [[String: Any]] ?? [],
+                                parentRef: tagRef,
+                                ordinal: &ordinal,
+                                to: &rows,
+                                sortKey: sortKey
+                            )
+                        }
+                    case .pane(let pane):
+                        let paneRef = topFlatHandle(pane, fallback: "pane", idFormat: idFormat)
+                        appendTopFlatNode(
+                            pane,
+                            kind: "pane",
+                            ref: paneRef,
+                            parentRef: workspaceRef,
+                            title: "",
                             ordinal: &ordinal,
                             to: &rows
                         )
 
-                        for webview in surface["webviews"] as? [[String: Any]] ?? [] {
-                            let fallback = topInt(webview["pid"]).map { "pid:\($0)" } ?? "webview"
-                            let webviewRef = topFlatHandle(webview, fallback: fallback, idFormat: idFormat)
+                        let surfaces = topSortedItems(pane["surfaces"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
+                        for surface in surfaces {
+                            let surfaceRef = topFlatHandle(surface, fallback: "surface", idFormat: idFormat)
                             appendTopFlatNode(
-                                webview,
-                                kind: "webview",
-                                ref: webviewRef,
-                                parentRef: surfaceRef,
-                                title: webview["title"] as? String ?? "",
+                                surface,
+                                kind: "surface",
+                                ref: surfaceRef,
+                                parentRef: paneRef,
+                                title: surface["title"] as? String ?? "",
                                 ordinal: &ordinal,
                                 to: &rows
                             )
-                            if showProcesses {
-                                appendTopFlatProcesses(
-                                    webview["processes"] as? [[String: Any]] ?? [],
-                                    parentRef: webviewRef,
+
+                            let webviews = topSortedItems(surface["webviews"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
+                            for webview in webviews {
+                                let fallback = topInt(webview["pid"]).map { "pid:\($0)" } ?? "webview"
+                                let webviewRef = topFlatHandle(webview, fallback: fallback, idFormat: idFormat)
+                                appendTopFlatNode(
+                                    webview,
+                                    kind: "webview",
+                                    ref: webviewRef,
+                                    parentRef: surfaceRef,
+                                    title: webview["title"] as? String ?? "",
                                     ordinal: &ordinal,
                                     to: &rows
                                 )
+                                if showProcesses {
+                                    appendTopFlatProcesses(
+                                        webview["processes"] as? [[String: Any]] ?? [],
+                                        parentRef: webviewRef,
+                                        ordinal: &ordinal,
+                                        to: &rows,
+                                        sortKey: sortKey
+                                    )
+                                }
                             }
-                        }
 
-                        if showProcesses {
-                            appendTopFlatProcesses(
-                                surface["processes"] as? [[String: Any]] ?? [],
-                                parentRef: surfaceRef,
-                                ordinal: &ordinal,
-                                to: &rows
-                            )
+                            if showProcesses {
+                                appendTopFlatProcesses(
+                                    surface["processes"] as? [[String: Any]] ?? [],
+                                    parentRef: surfaceRef,
+                                    ordinal: &ordinal,
+                                    to: &rows,
+                                    sortKey: sortKey
+                                )
+                            }
                         }
                     }
                 }
             }
         }
 
-        let outputRows: [TopFlatRow]
-        if let sortKey {
-            outputRows = rows.sorted { lhs, rhs in
-                let lhsValue = topSortValue(lhs.node, sortKey: sortKey)
-                let rhsValue = topSortValue(rhs.node, sortKey: sortKey)
-                guard lhsValue != rhsValue else { return lhs.ordinal < rhs.ordinal }
-                return lhsValue > rhsValue
-            }
-        } else {
-            outputRows = rows
-        }
-
-        return outputRows.map(topFlatTSVLine).joined(separator: "\n")
+        return rows.map(topFlatTSVLine).joined(separator: "\n")
     }
 
     private func appendTopFlatNode(
@@ -12057,9 +12054,10 @@ struct CMUXCLI {
         _ processes: [[String: Any]],
         parentRef: String,
         ordinal: inout Int,
-        to rows: inout [TopFlatRow]
+        to rows: inout [TopFlatRow],
+        sortKey: TopSortKey?
     ) {
-        for process in processes {
+        for process in topSortedItems(processes, sortKey: sortKey, node: { $0 }) {
             let processRef = topInt(process["pid"]).map(String.init)
                 ?? topFlatHandle(process, fallback: "process", idFormat: .refs)
             appendTopFlatNode(
@@ -12075,7 +12073,8 @@ struct CMUXCLI {
                 process["children"] as? [[String: Any]] ?? [],
                 parentRef: processRef,
                 ordinal: &ordinal,
-                to: &rows
+                to: &rows,
+                sortKey: sortKey
             )
         }
     }

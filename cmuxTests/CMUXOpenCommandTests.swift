@@ -265,7 +265,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         ])
     }
 
-    func testTopCommandSortsFlatTSVGloballyByMemory() throws {
+    func testTopCommandSortsFlatTSVSiblingsByMemory() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("top-tsv-sort")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -296,8 +296,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(outputLines(result.stdout), [
-            "3.0\t10000\t3\tworkspace\tworkspace:high\twindow:1\t",
             "2.0\t2000\t2\twindow\twindow:1\ttotal\t",
+            "3.0\t10000\t3\tworkspace\tworkspace:high\twindow:1\t",
             "1.0\t1000\t1\tworkspace\tworkspace:low\twindow:1\t",
         ])
     }

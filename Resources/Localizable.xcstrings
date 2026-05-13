@@ -111716,13 +111716,6 @@
         "ja": { "stringUnit": { "state": "translated", "value": "階層" } }
       }
     },
-    "taskManager.aggregate.processCount": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%lld processes" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%lld 個のプロセス" } }
-      }
-    },
     "taskManager.aggregate.processCount.one": {
       "extractionState": "manual",
       "localizations": {

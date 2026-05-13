@@ -3380,9 +3380,15 @@ class TerminalController {
         }
         v2AttachTopApplicationProcess(to: &windowNodes)
 
-        let processSnapshot = await Task.detached(priority: .utility) {
-            CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
-        }.value
+        let processSnapshot = await withTaskGroup(
+            of: CmuxTopProcessSnapshot.self,
+            returning: CmuxTopProcessSnapshot.self
+        ) { group in
+            group.addTask(priority: .utility) {
+                CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
+            }
+            return await group.next()!
+        }
         let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
         var annotatedWindows = windowNodes
         let totalPIDs = v2AnnotateTopWindows(
@@ -3391,12 +3397,10 @@ class TerminalController {
             browserPIDOccurrences: browserPIDOccurrences,
             includeProcesses: includeProcesses
         )
-        let aggregates = await Task.detached(priority: .utility) {
-            (
-                programs: processSnapshot.programSummaryPayload(for: totalPIDs),
-                codingAgents: processSnapshot.codingAgentSummaryPayload(for: totalPIDs)
-            )
-        }.value
+        let aggregates = (
+            programs: processSnapshot.programSummaryPayload(for: totalPIDs),
+            codingAgents: processSnapshot.codingAgentSummaryPayload(for: totalPIDs)
+        )
 
         return [
             "active": focused.isEmpty ? (NSNull() as Any) : focused,

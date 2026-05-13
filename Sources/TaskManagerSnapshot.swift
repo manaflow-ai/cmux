@@ -32,15 +32,30 @@ struct CmuxTaskManagerSnapshot {
     init(
         rows: [CmuxTaskManagerRow],
         agentRows: [CmuxTaskManagerRow] = [],
-        aggregateRows: [CmuxTaskManagerRow]? = nil,
+        aggregateRows: [CmuxTaskManagerRow],
         total: CmuxTaskManagerResources,
         sampledAt: Date?
     ) {
         self.rows = rows
         self.agentRows = agentRows
-        self.aggregateRows = aggregateRows ?? Self.programAggregateRows(from: rows)
+        self.aggregateRows = aggregateRows
         self.total = total
         self.sampledAt = sampledAt
+    }
+
+    init(
+        rows: [CmuxTaskManagerRow],
+        agentRows: [CmuxTaskManagerRow] = [],
+        total: CmuxTaskManagerResources,
+        sampledAt: Date?
+    ) {
+        self.init(
+            rows: rows,
+            agentRows: agentRows,
+            aggregateRows: Self.programAggregateRows(from: rows),
+            total: total,
+            sampledAt: sampledAt
+        )
     }
 
     init(payload: [String: Any]) {
@@ -61,7 +76,7 @@ struct CmuxTaskManagerSnapshot {
         self.agentRows = agentRows
         let programTotalPayloads = payload["program_totals"] as? [[String: Any]] ?? []
         self.aggregateRows = programTotalPayloads.isEmpty
-            ? Self.programAggregateRows(from: rows)
+            ? Self.programAggregateRows(from: self.rows)
             : Self.programAggregateRows(fromPayloads: programTotalPayloads)
     }
 
