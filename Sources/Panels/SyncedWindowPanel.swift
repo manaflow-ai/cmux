@@ -69,7 +69,7 @@ struct SyncedWindowSlotFrame: Equatable {
     let quartzFrame: CGRect
     let cocoaFrame: CGRect
     let owningWindowNumber: Int
-    let isLiveResize: Bool
+    let shouldDeferPlacement: Bool
 }
 
 private enum SyncedWindowActionResult: Equatable {
@@ -331,12 +331,12 @@ private final class SyncedWindowProjectionController {
         isPointerInTarget = false
     }
 
-    func place(window: SyncedHostWindow, in slot: SyncedWindowSlotFrame) -> SyncedWindowActionResult {
+    func place(window: SyncedHostWindow, in slot: SyncedWindowSlotFrame, raise: Bool) -> SyncedWindowActionResult {
         targetWindow = window
         targetSlot = slot
         installMouseMonitors()
         isPointerInTarget = slot.cocoaFrame.contains(NSEvent.mouseLocation)
-        let result = accessibilityController.place(window, frame: slot.quartzFrame, raise: true)
+        let result = accessibilityController.place(window, frame: slot.quartzFrame, raise: raise)
         if result == .succeeded {
             keepTargetAboveOwningWindow()
         }
@@ -389,8 +389,6 @@ private final class SyncedWindowProjectionController {
         }
 
         let isInside = targetSlot.cocoaFrame.contains(NSEvent.mouseLocation)
-        keepTargetAboveOwningWindow()
-
         guard isInside != isPointerInTarget else {
             return
         }
@@ -487,7 +485,7 @@ final class SyncedWindowPanel: Panel, ObservableObject {
         updateTitleForSelection()
         if isSynced, let selectedWindow {
             projectionController.start(window: selectedWindow)
-            placeSelectedWindow(reportFailures: true)
+            placeSelectedWindow(reportFailures: true, raise: true)
         }
     }
 
@@ -515,7 +513,7 @@ final class SyncedWindowPanel: Panel, ObservableObject {
 
         isSynced = true
         projectionController.start(window: selectedWindow)
-        placeSelectedWindow(reportFailures: true)
+        placeSelectedWindow(reportFailures: true, raise: true)
         updateTitleForSelection()
     }
 
@@ -541,10 +539,10 @@ final class SyncedWindowPanel: Panel, ObservableObject {
         }
         slotFrame = frame
         projectionController.updateSlot(frame)
-        guard !frame.isLiveResize else {
+        guard !frame.shouldDeferPlacement else {
             return
         }
-        placeSelectedWindow(reportFailures: false)
+        placeSelectedWindow(reportFailures: false, raise: false)
     }
 
     func requestAccessibilityPermission() {
@@ -569,7 +567,7 @@ final class SyncedWindowPanel: Panel, ObservableObject {
         if accessibilityTrusted {
             statusMessage = String(localized: "syncedWindow.status.accessibilityReady", defaultValue: "Accessibility ready.")
             statusIsError = false
-            placeSelectedWindow(reportFailures: true)
+            placeSelectedWindow(reportFailures: true, raise: true)
         } else {
             statusMessage = String(localized: "syncedWindow.status.accessibilityMissing", defaultValue: "Accessibility permission is needed to sync windows.")
             statusIsError = true
@@ -605,12 +603,12 @@ final class SyncedWindowPanel: Panel, ObservableObject {
         focusFlashToken += 1
     }
 
-    private func placeSelectedWindow(reportFailures: Bool) {
+    private func placeSelectedWindow(reportFailures: Bool, raise: Bool) {
         guard isSynced, let selectedWindow, let slotFrame else {
             return
         }
 
-        let result = projectionController.place(window: selectedWindow, in: slotFrame)
+        let result = projectionController.place(window: selectedWindow, in: slotFrame, raise: raise)
         handlePlacementResult(result, reportFailures: reportFailures)
     }
 
@@ -1050,6 +1048,7 @@ private final class SyncedWindowDockNSView: NSView {
     private var lastFrame: SyncedWindowSlotFrame?
     private var windowMoveObserver: NSObjectProtocol?
     private var windowResizeObserver: NSObjectProtocol?
+    private var mouseUpMonitor: Any?
 
     override var isFlipped: Bool {
         true
@@ -1069,12 +1068,14 @@ private final class SyncedWindowDockNSView: NSView {
         super.viewDidMoveToWindow()
         window?.acceptsMouseMovedEvents = true
         installWindowObservers()
+        installMouseUpMonitor()
         reportFrame()
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow == nil {
             removeWindowObservers()
+            removeMouseUpMonitor()
         }
         super.viewWillMove(toWindow: newWindow)
     }
@@ -1086,7 +1087,7 @@ private final class SyncedWindowDockNSView: NSView {
 
     override func viewWillStartLiveResize() {
         super.viewWillStartLiveResize()
-        reportFrame()
+        reportFrame(shouldDeferPlacement: true)
     }
 
     override func viewDidEndLiveResize() {
@@ -1094,7 +1095,7 @@ private final class SyncedWindowDockNSView: NSView {
         reportFrame()
     }
 
-    func reportFrame() {
+    func reportFrame(shouldDeferPlacement: Bool = false) {
         guard let window, bounds.width > 0, bounds.height > 0 else {
             return
         }
@@ -1110,7 +1111,7 @@ private final class SyncedWindowDockNSView: NSView {
             quartzFrame: quartzFrame(fromCocoaFrame: cocoaFrame),
             cocoaFrame: cocoaFrame,
             owningWindowNumber: window.windowNumber,
-            isLiveResize: inLiveResize
+            shouldDeferPlacement: shouldDeferPlacement || inLiveResize
         )
 
         guard lastFrame != slotFrame else {
@@ -1136,7 +1137,7 @@ private final class SyncedWindowDockNSView: NSView {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.reportFrame()
+                self?.reportFrame(shouldDeferPlacement: NSEvent.pressedMouseButtons != 0)
             }
         }
         windowResizeObserver = center.addObserver(
@@ -1160,6 +1161,26 @@ private final class SyncedWindowDockNSView: NSView {
         }
         windowMoveObserver = nil
         windowResizeObserver = nil
+    }
+
+    private func installMouseUpMonitor() {
+        guard mouseUpMonitor == nil else {
+            return
+        }
+
+        mouseUpMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp, .rightMouseUp, .otherMouseUp]) { [weak self] event in
+            Task { @MainActor in
+                self?.reportFrame()
+            }
+            return event
+        }
+    }
+
+    private func removeMouseUpMonitor() {
+        if let mouseUpMonitor {
+            NSEvent.removeMonitor(mouseUpMonitor)
+        }
+        mouseUpMonitor = nil
     }
 
     private func quartzFrame(fromCocoaFrame frame: CGRect) -> CGRect {
