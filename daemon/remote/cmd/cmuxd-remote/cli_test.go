@@ -1277,6 +1277,33 @@ func TestCLIBrowserGenericAdvertisedMethodDispatch(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserSelectorCommandJoinsRemainingPositionals(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "surface:2", "click", "#root", ".submit",
+	})
+	if code != 0 {
+		t.Fatalf("browser click with multi-word selector should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.click" {
+			t.Fatalf("expected browser.click, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "surface:2" {
+			t.Fatalf("expected surface_id surface:2, got %v", got)
+		}
+		if got := params["selector"]; got != "#root .submit" {
+			t.Fatalf("expected joined selector, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser click request")
+	}
+}
+
 func TestCLIBrowserFixedArityRejectsExtraPositionals(t *testing.T) {
 	t.Setenv("CMUX_SOCKET_PATH", "")
 	t.Setenv("HOME", t.TempDir())
