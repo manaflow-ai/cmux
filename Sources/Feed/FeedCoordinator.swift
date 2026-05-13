@@ -599,22 +599,19 @@ private extension FeedCoordinator {
                         effects: effects
                     )
                 case .notDetermined:
-                    center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-                        Task { @MainActor [weak self] in
-                            guard let self, self.isAwaitingDecision(requestId: requestId) else {
-                                return
-                            }
-                            if granted {
-                                self.addNotificationIfStillAwaiting(
-                                    center: center,
-                                    request: request,
-                                    requestId: requestId,
-                                    effects: effects
-                                )
-                            } else {
-                                runFallbackEffectsIfStillAwaiting()
-                            }
-                        }
+                    let granted = (
+                        try? await center.requestAuthorization(options: [.alert, .sound])
+                    ) ?? false
+                    guard self.isAwaitingDecision(requestId: requestId) else { return }
+                    if granted {
+                        self.addNotificationIfStillAwaiting(
+                            center: center,
+                            request: request,
+                            requestId: requestId,
+                            effects: effects
+                        )
+                    } else {
+                        runFallbackEffectsIfStillAwaiting()
                     }
                 default:
                     runFallbackEffectsIfStillAwaiting()
