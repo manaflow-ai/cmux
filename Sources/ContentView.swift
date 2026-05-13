@@ -13491,7 +13491,7 @@ private struct TabItemView: View, Equatable {
 
         let status: SidebarPullRequestStatus
         let color: Color
-        private static let frameSize: CGFloat = 13
+        private static let frameSize: CGFloat = 12
 
         var body: some View {
             switch status {

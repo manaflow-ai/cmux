@@ -165,7 +165,7 @@ final class CmuxSettingsFileStore {
 
     func writeAppUIScale(_ uiScale: Double) throws {
         let fileURL = settingsFileURLForEditing()
-        let data = fileManager.contents(atPath: fileURL.path) ?? Data("{}".utf8)
+        let data = try settingsFileDataForEditing(at: fileURL)
         let decodedSource = try JSONCParser.sourceString(from: data)
         let source = decodedSource.hasPrefix("\u{feff}") ? String(decodedSource.dropFirst()) : decodedSource
         let updated = try Self.updatingAppUIScalePreservingJSONC(
@@ -174,6 +174,17 @@ final class CmuxSettingsFileStore {
         )
         try Data(updated.utf8).write(to: fileURL, options: [.atomic])
         try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+    }
+
+    private func settingsFileDataForEditing(at fileURL: URL) throws -> Data {
+        do {
+            return try Data(contentsOf: fileURL)
+        } catch {
+            guard Self.isMissingFileError(error) else {
+                throw error
+            }
+            return Data("{}".utf8)
+        }
     }
 
     private static func updatingAppUIScalePreservingJSONC(
@@ -185,7 +196,7 @@ final class CmuxSettingsFileStore {
         let appObjectText = jsonObjectText(
             key: "uiScale",
             valueText: valueText,
-            memberIndent: rootMemberIndent + "  "
+            memberIndent: rootMemberIndent
         )
 
         if let appValueRange = try valueRange(forKey: "app", inObjectRange: rootRange, source: source) {
@@ -238,6 +249,15 @@ final class CmuxSettingsFileStore {
     ) -> String {
         let childIndent = memberIndent + "  "
         return "{\n\(childIndent)\"\(key)\": \(valueText)\n\(memberIndent)}"
+    }
+
+    private static func isMissingFileError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        guard nsError.domain == NSCocoaErrorDomain else {
+            return false
+        }
+        return nsError.code == NSFileNoSuchFileError ||
+            nsError.code == NSFileReadNoSuchFileError
     }
 
     private static func rootObjectRange(in source: String) throws -> Range<String.Index> {

@@ -127,6 +127,61 @@ final class UIScaleSettingsTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(appSection["uiScale"] as? Double), 1.4, accuracy: 0.001)
     }
 
+    func testWritingAppUIScaleAddsAppSectionWithRootIndent() throws {
+        let settingsFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-scale-new-app-\(UUID().uuidString).json", isDirectory: false)
+        try """
+        {
+          "schemaVersion": 1,
+          "terminal": {}
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+
+        try store.writeAppUIScale(1.4)
+
+        let updated = try String(contentsOf: settingsFileURL, encoding: .utf8)
+        XCTAssertTrue(updated.contains(#"""
+          "app": {
+            "uiScale": 1.4
+          }
+        """#))
+        let data = Data(updated.utf8)
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONCParser.preprocess(data: data)) as? [String: Any]
+        )
+        let appSection = try XCTUnwrap(json["app"] as? [String: Any])
+        XCTAssertEqual(try XCTUnwrap(appSection["uiScale"] as? Double), 1.4, accuracy: 0.001)
+    }
+
+    func testWritingAppUIScaleDoesNotReplaceUnreadableConfig() throws {
+        let settingsFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-scale-unreadable-\(UUID().uuidString).json", isDirectory: false)
+        let original = #"{"schemaVersion":1,"terminal":{"fontSize":13}}"#
+        try original.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: settingsFileURL.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: settingsFileURL.path)
+        }
+
+        XCTAssertThrowsError(try store.writeAppUIScale(1.6))
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: settingsFileURL.path)
+        let updated = try String(contentsOf: settingsFileURL, encoding: .utf8)
+        XCTAssertEqual(updated, original)
+    }
+
     func testSidebarViewReceivesUIScaleThroughEnvironment() throws {
         var capturedFontSize: CGFloat?
         var capturedControlHeight: CGFloat?
