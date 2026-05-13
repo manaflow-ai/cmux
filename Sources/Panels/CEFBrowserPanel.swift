@@ -77,6 +77,7 @@ final class CEFBrowserPanel: BrowserEngineBackedPanel {
     /// Held strongly; `close()` releases it.
     private var browser: CMUXCEF.CEFBrowser?
     #endif
+    private let renderInitialNavigation: Bool
 
     /// Bumped whenever the underlying CEF browser is (re)created so SwiftUI
     /// re-fetches `embeddableView` via `CEFBrowserPanelView`. SwiftUI keys
@@ -104,13 +105,13 @@ final class CEFBrowserPanel: BrowserEngineBackedPanel {
         self.profileID = profileID
         self.initialURL = initialURL
         self.currentURL = initialURL
+        self.renderInitialNavigation = renderInitialNavigation
         self.displayTitle = initialURL?.host ?? String(
             localized: "browser.tab.untitled",
             defaultValue: "New Tab")
         // proxy / remote-workspace knobs are accepted now and tracked
         // by follow-up PRs; CEF needs a different transport setup than
         // WKWebView's WKWebsiteDataStore.
-        _ = renderInitialNavigation
         _ = proxyEndpoint
         _ = isRemoteWorkspace
         _ = remoteWebsiteDataStoreIdentifier
@@ -155,11 +156,19 @@ final class CEFBrowserPanel: BrowserEngineBackedPanel {
             }
         }
         let profile = CMUXCEF.CEFProfileRegistry.shared.profile(named: profileID.uuidString)
-        let url = initialURL ?? URL(string: "chrome://extensions/")!
+        let url = renderInitialNavigation
+            ? (initialURL ?? URL(string: "chrome://extensions/")!)
+            : URL(string: "about:blank")!
         let createdBrowser = try engine.makeEmbeddableBrowser(profile: profile, initialURL: url)
         createdBrowser.delegate = self
         browser = createdBrowser
-        refreshNavigationState(from: createdBrowser, fallbackURL: url)
+        if renderInitialNavigation {
+            refreshNavigationState(from: createdBrowser, fallbackURL: url)
+        } else {
+            canGoBack = false
+            canGoForward = false
+            currentURL = initialURL
+        }
         activationRevision &+= 1
         #if DEBUG
         let viewDesc = createdBrowser.embeddableView.map { "\($0)" } ?? "nil"
@@ -331,7 +340,8 @@ extension CEFBrowserPanel: CMUXCEF.CEFBrowserDelegate {
         refreshNavigationState(from: browser)
         isLoading = true
         #if DEBUG
-        cmuxDebugLog("cef.panel.didStartLoading panel=\(id.uuidString.prefix(5)) url=\(browser.currentURL?.absoluteString ?? "?")")
+        let urlLength = browser.currentURL?.absoluteString.utf8.count ?? 0
+        cmuxDebugLog("cef.panel.didStartLoading panel=\(id.uuidString.prefix(5)) urlLength=\(urlLength)")
         #endif
     }
 
@@ -339,7 +349,9 @@ extension CEFBrowserPanel: CMUXCEF.CEFBrowserDelegate {
         refreshNavigationState(from: browser)
         isLoading = false
         #if DEBUG
-        cmuxDebugLog("cef.panel.didFinishLoading panel=\(id.uuidString.prefix(5)) url=\(browser.currentURL?.absoluteString ?? "?") title=\(browser.currentTitle ?? "?")")
+        let urlLength = browser.currentURL?.absoluteString.utf8.count ?? 0
+        let titleLength = browser.currentTitle?.utf8.count ?? 0
+        cmuxDebugLog("cef.panel.didFinishLoading panel=\(id.uuidString.prefix(5)) urlLength=\(urlLength) titleLength=\(titleLength)")
         #endif
     }
 
@@ -348,7 +360,7 @@ extension CEFBrowserPanel: CMUXCEF.CEFBrowserDelegate {
             ? (currentURL?.host ?? addressBarDisplayString)
             : title
         #if DEBUG
-        cmuxDebugLog("cef.panel.didChangeTitle panel=\(id.uuidString.prefix(5)) title=\(title)")
+        cmuxDebugLog("cef.panel.didChangeTitle panel=\(id.uuidString.prefix(5)) titleLength=\(title.utf8.count)")
         #endif
     }
 
@@ -356,7 +368,7 @@ extension CEFBrowserPanel: CMUXCEF.CEFBrowserDelegate {
         currentURL = url
         refreshNavigationState(from: browser, fallbackURL: url)
         #if DEBUG
-        cmuxDebugLog("cef.panel.didChangeURL panel=\(id.uuidString.prefix(5)) url=\(url)")
+        cmuxDebugLog("cef.panel.didChangeURL panel=\(id.uuidString.prefix(5)) urlLength=\(url.absoluteString.utf8.count)")
         #endif
     }
 
@@ -365,7 +377,7 @@ extension CEFBrowserPanel: CMUXCEF.CEFBrowserDelegate {
         refreshNavigationState(from: browser)
         isLoading = false
         #if DEBUG
-        cmuxDebugLog("cef.panel.didFailLoad panel=\(id.uuidString.prefix(5)) error=\(error)")
+        cmuxDebugLog("cef.panel.didFailLoad panel=\(id.uuidString.prefix(5)) errorType=\(String(describing: type(of: error)))")
         #endif
     }
 }

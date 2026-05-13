@@ -98,7 +98,7 @@ final class DemoController: NSObject, NSSplitViewDelegate {
         do {
             try CEFEngine.shared.start(config: CEFEngineConfig(
                 rootCachePath: root,
-                extensionDirectories: [],
+                extensionDirectories: pendingExtensionFolders,
                 logSeverity: 0,
                 userAgentProduct: "cmux-cef-demo/0",
                 frameworkDirectoryPath: frameworkDir,
@@ -277,11 +277,9 @@ final class DemoController: NSObject, NSSplitViewDelegate {
         let alert = NSAlert()
         alert.messageText = "Extension queued"
         alert.informativeText =
-            "Will load at next engine start:\n\(folder.path)\n\n" +
-            "Currently loaded extensions appear at chrome://extensions."
+            "Will load the next time the demo starts:\n\(folder.path)\n\n" +
+            "Restart the demo, then open chrome://extensions to inspect loaded extensions."
         alert.runModal()
-        // Live add: navigate every pane to chrome://extensions/ to surface
-        // the existing list so the user can see they exist.
         if let url = URL(string: "chrome://extensions") {
             activeBrowser()?.load(url)
         }
@@ -314,12 +312,12 @@ final class DemoController: NSObject, NSSplitViewDelegate {
 
     @objc private func removePaneAction() {
         guard let last = browsers.popLast() else { return }
-        last.embeddableView?.superview?.removeFromSuperview()
-        last.close()
-        if let lastSubview = splitView.arrangedSubviews.last {
-            splitView.removeArrangedSubview(lastSubview)
-            lastSubview.removeFromSuperview()
+        let paneView = last.embeddableView?.superview ?? paneContainers.last ?? splitView.arrangedSubviews.last
+        if let paneView {
+            splitView.removeArrangedSubview(paneView)
+            paneView.removeFromSuperview()
         }
+        last.close()
         if !paneContainers.isEmpty { paneContainers.removeLast() }
         activePaneIndex = max(0, browsers.count - 1)
         splitView.adjustSubviews()

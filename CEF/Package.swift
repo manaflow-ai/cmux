@@ -36,10 +36,10 @@ private let cefFrameworksDir: String = {
 let package = Package(
     name: "CMUXCEF",
     platforms: [
-        // CEF 146 requires macOS 14+ at runtime. We declare 14 to match cmux's
-        // deployment target so linking succeeds; CEFEngine.start() runtime-
-        // checks for macOS 15 features (menubar / window-controls) and
-        // throws CEFEngineError.unsupportedOperatingSystem on older hosts.
+        // Keep the package buildable at cmux's deployment target so the app can
+        // launch and fall back to WKWebView on older hosts. CEFEngine.start()
+        // and the helper bundles enforce the actual CEF runtime floor:
+        // macOS 15.0 or later.
         .macOS(.v14),
     ],
     products: [

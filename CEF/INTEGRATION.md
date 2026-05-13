@@ -48,6 +48,9 @@ size and SHA1, installs it under Application Support, and starts CEF from that
 installed framework. If install or startup fails, cmux leaves WKWebView
 available.
 
+CEF runtime startup and helper execution require macOS 15.0 or later. On older
+macOS versions, the browser engine selector falls back to WKWebView.
+
 The installed runtime is keyed by the app bundle ID, so tagged debug builds are
 isolated from each other. A given app bundle ID reuses the runtime on subsequent
 launches.

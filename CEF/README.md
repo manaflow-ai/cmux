@@ -21,6 +21,9 @@ runtime shipped to end users:
 This keeps the repository and app bundle small while still making the CEF
 runtime opt-in and repeatable.
 
+CEF runtime startup and helper execution require macOS 15.0 or later. On older
+macOS versions, cmux falls back to WKWebView.
+
 ## Local Build
 
 From the repo root:
