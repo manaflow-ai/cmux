@@ -29,22 +29,36 @@ body {
 }
 .markdown-body {
   background: transparent;
-  /* GitHub uses 16px on github.com for body text; keep that exact
-     metric so headings, line-height, and spacing match. */
-  font-size: 15px;
+  font-family: var(--cmux-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji");
+  /* cmux defaults to 15px for panel density, while cmux.json can
+     override the body and heading metrics below. */
+  font-size: var(--cmux-markdown-font-size, 15px);
   /* The package sets max-width via wrapper class on github.com; we
      let it span the panel and just cap it to a comfortable reading
      width on very wide splits. */
   max-width: 980px;
   margin: 0 auto;
 }
+.markdown-body h1 { font-size: var(--cmux-markdown-h1-font-size, 2em); }
+.markdown-body h2 { font-size: var(--cmux-markdown-h2-font-size, 1.5em); }
+.markdown-body h3 { font-size: var(--cmux-markdown-h3-font-size, 1.25em); }
+.markdown-body h4 { font-size: var(--cmux-markdown-h4-font-size, 1em); }
+.markdown-body h5 { font-size: var(--cmux-markdown-h5-font-size, .875em); }
+.markdown-body h6 { font-size: var(--cmux-markdown-h6-font-size, .85em); }
 /* Fenced code blocks: github-markdown-css already styles `pre`; we
    add highlight.js's hljs class so the syntax theme applies. */
 .markdown-body pre code.hljs {
   padding: 16px;
   background: transparent;
-  font-size: 13.5px;
+  font-family: var(--cmux-markdown-code-block-font-family, ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace);
+  font-size: var(--cmux-markdown-code-block-font-size, 13.5px);
   line-height: 1.5;
+}
+.markdown-body pre,
+.markdown-body pre code,
+.cmux-frontmatter pre,
+.cmux-frontmatter pre code.hljs {
+  font-family: var(--cmux-markdown-code-block-font-family, ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace);
 }
 .markdown-body pre {
   padding: 0; /* hljs class already pads */
@@ -164,7 +178,7 @@ body {
 .cmux-frontmatter pre code.hljs {
   padding: 10px 12px;
   background: transparent;
-  font-size: 12.5px;
+  font-size: var(--cmux-markdown-code-block-font-size, 12.5px);
   line-height: 1.45;
 }
 .cmux-render-error {

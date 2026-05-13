@@ -9,8 +9,12 @@ struct MarkdownWebTheme: Equatable {
     let neutralMutedBackground: String
     let border: String
     let mutedBorder: String
+    let typography: MarkdownWebTypography
 
-    static func resolve(backgroundColor: NSColor) -> MarkdownWebTheme {
+    static func resolve(
+        backgroundColor: NSColor,
+        typography: MarkdownWebTypography = .default
+    ) -> MarkdownWebTheme {
         let base = backgroundColor.markdownOpaqueSRGB
         let isDark = !base.isLightColor
         let overlayColor: NSColor = isDark ? .white : .black
@@ -32,8 +36,20 @@ struct MarkdownWebTheme: Equatable {
             mutedBackground: muted.markdownCSSColor,
             neutralMutedBackground: neutralMuted.markdownCSSColor,
             border: border.markdownCSSColor,
-            mutedBorder: border.withAlphaComponent(border.alphaComponent * 0.70).markdownCSSColor
+            mutedBorder: border.withAlphaComponent(border.alphaComponent * 0.70).markdownCSSColor,
+            typography: typography
         )
+    }
+
+    var cssVariables: [String: String] {
+        var payload = typography.cssVariables
+        payload["--bgColor-default"] = background
+        payload["--bgColor-muted"] = mutedBackground
+        payload["--bgColor-neutral-muted"] = neutralMutedBackground
+        payload["--borderColor-default"] = border
+        payload["--borderColor-muted"] = mutedBorder
+        payload["--borderColor-neutral-muted"] = mutedBorder
+        return payload
     }
 }
 
@@ -198,14 +214,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         private func applyTheme(_ theme: MarkdownWebTheme) {
             guard let webView else { return }
-            let payload = [
-                "--bgColor-default": theme.background,
-                "--bgColor-muted": theme.mutedBackground,
-                "--bgColor-neutral-muted": theme.neutralMutedBackground,
-                "--borderColor-default": theme.border,
-                "--borderColor-muted": theme.mutedBorder,
-                "--borderColor-neutral-muted": theme.mutedBorder
-            ]
+            let payload = theme.cssVariables
             guard let data = try? JSONSerialization.data(withJSONObject: payload),
                   let json = String(data: data, encoding: .utf8) else { return }
             let js = """

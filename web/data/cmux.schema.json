@@ -755,6 +755,81 @@
         }
       }
     },
+    "markdown": {
+      "title": "markdown",
+      "description": "Markdown preview typography settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fontFamily": {
+          "type": "string",
+          "default": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Noto Sans\", Helvetica, Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\"",
+          "description": "CSS font-family stack for markdown body text. Use a single family name or a full CSS stack."
+        },
+        "fontSize": {
+          "type": "number",
+          "minimum": 8,
+          "maximum": 32,
+          "default": 15,
+          "description": "Markdown body font size in pixels."
+        },
+        "headingSizes": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Markdown heading font sizes in pixels.",
+          "properties": {
+            "h1": {
+              "type": "number",
+              "minimum": 8,
+              "maximum": 72,
+              "default": 30
+            },
+            "h2": {
+              "type": "number",
+              "minimum": 8,
+              "maximum": 72,
+              "default": 22.5
+            },
+            "h3": {
+              "type": "number",
+              "minimum": 8,
+              "maximum": 72,
+              "default": 18.75
+            },
+            "h4": {
+              "type": "number",
+              "minimum": 8,
+              "maximum": 72,
+              "default": 15
+            },
+            "h5": {
+              "type": "number",
+              "minimum": 8,
+              "maximum": 72,
+              "default": 13.13
+            },
+            "h6": {
+              "type": "number",
+              "minimum": 8,
+              "maximum": 72,
+              "default": 12.75
+            }
+          }
+        },
+        "codeBlockFontFamily": {
+          "type": "string",
+          "default": "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", monospace",
+          "description": "CSS font-family stack for fenced code blocks and frontmatter blocks."
+        },
+        "codeBlockFontSize": {
+          "type": "number",
+          "minimum": 8,
+          "maximum": 32,
+          "default": 13.5,
+          "description": "Fenced code block font size in pixels."
+        }
+      }
+    },
     "shortcuts": {
       "title": "shortcuts",
       "description": "Keyboard shortcut settings from Settings > Keyboard Shortcuts.",

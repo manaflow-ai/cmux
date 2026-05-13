@@ -690,6 +690,18 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
 final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
+    private let markdownTypographyManagedKeys = [
+        MarkdownTypographySettings.fontFamilyKey,
+        MarkdownTypographySettings.fontSizeKey,
+        MarkdownTypographySettings.headingH1SizeKey,
+        MarkdownTypographySettings.headingH2SizeKey,
+        MarkdownTypographySettings.headingH3SizeKey,
+        MarkdownTypographySettings.headingH4SizeKey,
+        MarkdownTypographySettings.headingH5SizeKey,
+        MarkdownTypographySettings.headingH6SizeKey,
+        MarkdownTypographySettings.codeBlockFontFamilyKey,
+        MarkdownTypographySettings.codeBlockFontSizeKey,
+    ]
 
     func testShortcutConfigStringCanonicalizesNumberedDigitsWhenRequested() {
         let stroke = ShortcutStroke(
@@ -1596,6 +1608,147 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(restored.first(where: { $0.name == "Blue" })?.hex, "#010203")
         XCTAssertEqual(restored.first(where: { $0.name == "Custom 1" })?.hex, "#778899")
         XCTAssertNil(defaults.data(forKey: settingsFileBackupsDefaultsKey))
+    }
+
+    func testSettingsFileStoreAppliesMarkdownTypographySettings() throws {
+        let defaults = UserDefaults.standard
+        let managedKeys = markdownTypographyManagedKeys
+        var previousValues: [String: Any] = [:]
+        for key in managedKeys {
+            if let value = defaults.object(forKey: key) {
+                previousValues[key] = value
+            }
+        }
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            for key in managedKeys {
+                if let value = previousValues[key] {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        managedKeys.forEach { defaults.removeObject(forKey: $0) }
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "markdown": {
+                "fontFamily": "Avenir Next, sans-serif",
+                "fontSize": 16.25,
+                "headingSizes": {
+                  "h1": 34,
+                  "h2": 26,
+                  "h3": 21,
+                  "h4": 17,
+                  "h5": 14,
+                  "h6": 12
+                },
+                "codeBlockFontFamily": "JetBrains Mono, ui-monospace, monospace",
+                "codeBlockFontSize": 14.5
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        let typography = MarkdownTypographySettings.resolved(defaults: defaults)
+        XCTAssertEqual(typography.fontFamily, "Avenir Next, sans-serif")
+        XCTAssertEqual(typography.fontSize, 16.25)
+        XCTAssertEqual(typography.headingSizes.h1, 34)
+        XCTAssertEqual(typography.headingSizes.h2, 26)
+        XCTAssertEqual(typography.headingSizes.h3, 21)
+        XCTAssertEqual(typography.headingSizes.h4, 17)
+        XCTAssertEqual(typography.headingSizes.h5, 14)
+        XCTAssertEqual(typography.headingSizes.h6, 12)
+        XCTAssertEqual(typography.codeBlockFontFamily, "JetBrains Mono, ui-monospace, monospace")
+        XCTAssertEqual(typography.codeBlockFontSize, 14.5)
+    }
+
+    func testSettingsFileStoreIgnoresInvalidMarkdownTypographySettings() throws {
+        let defaults = UserDefaults.standard
+        let managedKeys = markdownTypographyManagedKeys
+        var previousValues: [String: Any] = [:]
+        for key in managedKeys {
+            if let value = defaults.object(forKey: key) {
+                previousValues[key] = value
+            }
+        }
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            for key in managedKeys {
+                if let value = previousValues[key] {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        managedKeys.forEach { defaults.removeObject(forKey: $0) }
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "markdown": {
+                "fontFamily": "Body; color: red",
+                "fontSize": 16.5,
+                "headingSizes": {
+                  "h1": 96,
+                  "h2": 24
+                },
+                "codeBlockFontFamily": "",
+                "codeBlockFontSize": 14.25
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        let typography = MarkdownTypographySettings.resolved(defaults: defaults)
+        XCTAssertEqual(typography.fontFamily, MarkdownTypographySettings.defaultFontFamily)
+        XCTAssertEqual(typography.fontSize, 16.5)
+        XCTAssertEqual(typography.headingSizes.h1, MarkdownTypographySettings.defaultHeadingSizes.h1)
+        XCTAssertEqual(typography.headingSizes.h2, 24)
+        XCTAssertEqual(typography.headingSizes.h3, MarkdownTypographySettings.defaultHeadingSizes.h3)
+        XCTAssertEqual(typography.codeBlockFontFamily, MarkdownTypographySettings.defaultCodeBlockFontFamily)
+        XCTAssertEqual(typography.codeBlockFontSize, 14.25)
     }
 
     @MainActor
