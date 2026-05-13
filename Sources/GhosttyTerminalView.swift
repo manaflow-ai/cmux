@@ -9768,7 +9768,7 @@ final class GhosttySurfaceScrollView: NSView {
         static let lineWidth = PanelOverlayRingMetrics.lineWidth
     }
 
-    private let sharedBackdropCutoutView: NSView
+    private var sharedBackdropCutoutView: NSView?
     private let backgroundView: NSView
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
@@ -10016,9 +10016,6 @@ final class GhosttySurfaceScrollView: NSView {
         #endif
 
         self.surfaceView = surfaceView
-        let sharedBackdropCutoutFilter = TerminalSharedBackdropCutoutFilter()
-        sharedBackdropCutoutFilter.name = "terminalSharedBackdropCutout"
-        sharedBackdropCutoutView = NSView(frame: .zero)
         backgroundView = NSView(frame: .zero)
         scrollView = GhosttyScrollView()
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
@@ -10055,13 +10052,6 @@ final class GhosttySurfaceScrollView: NSView {
         wantsLayer = true
         layer?.masksToBounds = true
 
-        sharedBackdropCutoutView.wantsLayer = true
-        sharedBackdropCutoutView.layerUsesCoreImageFilters = true
-        sharedBackdropCutoutView.compositingFilter = sharedBackdropCutoutFilter
-        sharedBackdropCutoutView.layer?.backgroundColor = NSColor.white.cgColor
-        sharedBackdropCutoutView.layer?.isOpaque = true
-        sharedBackdropCutoutView.isHidden = true
-        addSubview(sharedBackdropCutoutView)
         backgroundView.wantsLayer = true
         backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
         backgroundView.layer?.isOpaque = false
@@ -10459,7 +10449,9 @@ final class GhosttySurfaceScrollView: NSView {
 
         let didScrollbarAppearanceChange = synchronizeScrollbarAppearance()
         let previousSurfaceSize = surfaceView.frame.size
-        _ = setFrameIfNeeded(sharedBackdropCutoutView, to: bounds)
+        if let sharedBackdropCutoutView {
+            _ = setFrameIfNeeded(sharedBackdropCutoutView, to: bounds)
+        }
         _ = setFrameIfNeeded(backgroundView, to: bounds)
         _ = setFrameIfNeeded(scrollView, to: bounds)
         let targetSize = scrollView.bounds.size
@@ -10723,10 +10715,37 @@ final class GhosttySurfaceScrollView: NSView {
         guard let layer = backgroundView.layer else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        sharedBackdropCutoutView.isHidden = !clearsSharedWindowBackdrop
+        synchronizeSharedBackdropCutout(visible: clearsSharedWindowBackdrop)
         layer.backgroundColor = color.cgColor
         layer.isOpaque = color.alphaComponent >= 1.0
         CATransaction.commit()
+    }
+
+    private func synchronizeSharedBackdropCutout(visible: Bool) {
+        if visible {
+            let cutoutView = sharedBackdropCutoutView ?? makeSharedBackdropCutoutView()
+            _ = setFrameIfNeeded(cutoutView, to: bounds)
+            return
+        }
+
+        sharedBackdropCutoutView?.removeFromSuperview()
+        sharedBackdropCutoutView = nil
+    }
+
+    // AppKit requires layerUsesCoreImageFilters to be configured before display.
+    // Create the filtered view only while a pane-local cutout is needed.
+    private func makeSharedBackdropCutoutView() -> NSView {
+        let sharedBackdropCutoutFilter = TerminalSharedBackdropCutoutFilter()
+        sharedBackdropCutoutFilter.name = "terminalSharedBackdropCutout"
+        let cutoutView = NSView(frame: bounds)
+        cutoutView.wantsLayer = true
+        cutoutView.layerUsesCoreImageFilters = true
+        cutoutView.compositingFilter = sharedBackdropCutoutFilter
+        cutoutView.layer?.backgroundColor = NSColor.white.cgColor
+        cutoutView.layer?.isOpaque = true
+        addSubview(cutoutView, positioned: .below, relativeTo: backgroundView)
+        sharedBackdropCutoutView = cutoutView
+        return cutoutView
     }
 
     func setInactiveOverlay(color: NSColor, opacity: CGFloat, visible: Bool) {
