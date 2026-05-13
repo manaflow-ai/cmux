@@ -13041,7 +13041,15 @@ struct CMUXCLI {
         )
         var watcher: Process?
         var rootCodex: Process?
+        let originalForegroundProcessGroup = isatty(STDIN_FILENO) == 1 ? tcgetpgrp(STDIN_FILENO) : -1
+        var didForegroundRootCodex = false
+        func restoreRootCodexForegroundIfNeeded() {
+            guard didForegroundRootCodex else { return }
+            try? setTerminalForegroundProcessGroup(originalForegroundProcessGroup)
+            didForegroundRootCodex = false
+        }
         defer {
+            restoreRootCodexForegroundIfNeeded()
             codexTeamsTerminateProcess(watcher)
             codexTeamsTerminateProcess(rootCodex)
             codexTeamsTerminateProcess(appServer)
@@ -13092,6 +13100,15 @@ struct CMUXCLI {
             standardOutput: FileHandle.standardOutput,
             standardError: FileHandle.standardError
         )
+        if originalForegroundProcessGroup > 0,
+           let rootCodex {
+            let childProcessGroup = getpgid(rootCodex.processIdentifier)
+            if childProcessGroup > 0 && childProcessGroup != originalForegroundProcessGroup {
+                try setTerminalForegroundProcessGroup(childProcessGroup)
+                _ = Darwin.kill(-childProcessGroup, SIGCONT)
+                didForegroundRootCodex = true
+            }
+        }
 
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
         var watcherArguments = [
@@ -13130,6 +13147,7 @@ struct CMUXCLI {
 
         rootCodex?.waitUntilExit()
         let status = rootCodex?.terminationStatus ?? 0
+        restoreRootCodexForegroundIfNeeded()
         codexTeamsTerminateProcess(watcher)
         codexTeamsTerminateProcess(appServer)
         exit(status)
