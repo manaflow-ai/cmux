@@ -12506,16 +12506,10 @@ struct CMUXCLI {
     // MARK: - cmux codex-teams
 
     private static let codexTeamsMaxAutoDepth = 2
+    private static let codexTeamsReconcileInterval: TimeInterval = 1
     private static let codexTeamsProbeClientName = "codex_app_server_daemon"
     private static let codexTeamsWatcherClientName = "cmux-codex-teams"
     private static let codexTeamsClientVersion = "0.1.0"
-    private static let codexTeamsBackfillTriggerMethods: Set<String> = [
-        "thread/status/changed",
-        "turn/started",
-        "turn/completed",
-        "item/started",
-        "item/completed"
-    ]
 
     private struct CodexTeamsSpawn {
         let parentThreadId: String
@@ -12746,15 +12740,10 @@ struct CMUXCLI {
                 clientName: CMUXCLI.codexTeamsWatcherClientName,
                 version: CMUXCLI.codexTeamsClientVersion
             )
-            try backfillLoadedThreads(connection: connection)
-
+            let reconcileWaiter = DispatchSemaphore(value: 0)
             while true {
-                let message = try connection.receiveObject()
-                try handleNotification(message)
-                if let method = message["method"] as? String,
-                   CMUXCLI.codexTeamsBackfillTriggerMethods.contains(method) {
-                    try backfillLoadedThreads(connection: connection)
-                }
+                try backfillLoadedThreads(connection: connection)
+                _ = reconcileWaiter.wait(timeout: .now() + CMUXCLI.codexTeamsReconcileInterval)
             }
         }
 
