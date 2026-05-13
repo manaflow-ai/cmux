@@ -2019,6 +2019,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// The underlying web view
     private(set) var webView: WKWebView
     private var websiteDataStore: WKWebsiteDataStore
+    var webViewDidRequestClose: (() -> Void)?
 
     /// Monotonic identity for the current WKWebView instance.
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
@@ -2885,6 +2886,13 @@ final class BrowserPanel: Panel, ObservableObject {
         browserUIDelegate.openPopup = { [weak self] configuration, windowFeatures in
             self?.createFloatingPopup(configuration: configuration, windowFeatures: windowFeatures)
         }
+        browserUIDelegate.closeRequested = { [weak self] closedWebView in
+            guard let self, self.isCurrentWebView(closedWebView) else { return }
+#if DEBUG
+            cmuxDebugLog("browser.webViewDidClose panel=\(self.id.uuidString.prefix(5))")
+#endif
+            self.webViewDidRequestClose?()
+        }
         self.uiDelegate = browserUIDelegate
 
         bindWebView(webView)
@@ -3552,6 +3560,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.uiDelegate = nil
         navigationDelegate = nil
         uiDelegate = nil
+        webViewDidRequestClose = nil
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         faviconTask?.cancel()
@@ -6783,6 +6792,11 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     var openPopup: ((WKWebViewConfiguration, WKWindowFeatures) -> WKWebView?)?
+    var closeRequested: ((WKWebView) -> Void)?
+
+    func webViewDidClose(_ webView: WKWebView) {
+        closeRequested?(webView)
+    }
 
     private func javaScriptDialogTitle(for webView: WKWebView) -> String {
         if let absolute = webView.url?.absoluteString, !absolute.isEmpty {
