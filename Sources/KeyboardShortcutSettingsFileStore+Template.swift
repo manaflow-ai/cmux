@@ -66,6 +66,7 @@ extension CmuxSettingsFileStore {
                     "keepWorkspaceOpenWhenClosingLastSurface": !LastSurfaceCloseShortcutSettings.defaultValue,
                     "focusPaneOnFirstClick": PaneFirstClickFocusSettings.defaultEnabled,
                     "preferredEditor": "",
+                    "openSupportedFilesInCmux": CmdClickSupportedFileRouteSettings.defaultValue,
                     "openMarkdownInCmuxViewer": CmdClickMarkdownRouteSettings.defaultValue,
                     "reorderOnNotification": WorkspaceAutoReorderSettings.defaultValue,
                     "iMessageMode": IMessageModeSettings.defaultValue,
@@ -91,6 +92,8 @@ extension CmuxSettingsFileStore {
                     "sound": NotificationSoundSettings.defaultValue,
                     "customSoundFilePath": NotificationSoundSettings.defaultCustomFilePath,
                     "command": NotificationSoundSettings.defaultCustomCommand,
+                    "hooksMode": "append",
+                    "hooks": [],
                 ],
             ],
             [

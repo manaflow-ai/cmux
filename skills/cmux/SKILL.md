@@ -52,7 +52,9 @@ cmux-owned settings live in `~/.config/cmux/cmux.json`. Legacy `~/.config/cmux/s
 cmux reload-config
 ```
 
-Use cmux settings for app behavior, sidebar, notifications, browser behavior, automation, workspace colors, and cmux-owned shortcuts. Terminal rendering settings such as font, cursor style, theme, and scrollback belong in Ghostty config.
+`cmux reload-config` reloads BOTH `cmux.json` and Ghostty config (`~/.config/ghostty/config`) and refreshes terminals in place. No app restart needed.
+
+Use cmux settings for app behavior, sidebar, notifications, browser behavior, automation, workspace colors, and cmux-owned shortcuts. Terminal rendering settings such as font, cursor style, theme, scrollback, background transparency (`background-opacity`), and blur (`background-blur`) belong in Ghostty config at `~/.config/ghostty/config`.
 
 Open the UI when useful:
 

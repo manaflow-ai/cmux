@@ -60,6 +60,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var textEncoding: String.Encoding = .utf8
     private var saveGeneration: Int = 0
     private var activeSaveGeneration: Int?
+    private var pendingSearchNeedle: String?
     private weak var textView: NSTextView?
     private var isClosed: Bool = false
     private let watchQueue = DispatchQueue(label: "com.cmux.markdown-file-watch", qos: .utility)
@@ -81,6 +82,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     func focus() {
         guard displayMode == .text else { return }
         _ = textView?.window?.makeFirstResponder(textView)
+        applyPendingSearchNeedleIfPossible()
     }
 
     func unfocus() {
@@ -89,6 +91,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func close() {
         isClosed = true
+        GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
         stopWatching()
     }
@@ -115,11 +118,20 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         focus()
     }
 
+    func applySearchNeedle(_ needle: String) {
+        let trimmed = needle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        pendingSearchNeedle = trimmed
+        setDisplayMode(.text)
+        applyPendingSearchNeedleIfPossible()
+    }
+
     func updateTextContent(_ nextContent: String) {
         guard textContent != nextContent else { return }
         textContent = nextContent
         content = nextContent
         isDirty = nextContent != originalTextContent
+        GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
     }
 
     @discardableResult
@@ -136,6 +148,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             textContent = currentContent
             content = currentContent
             isDirty = false
+            GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
             return nil
         }
 
@@ -146,6 +159,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         isDirty = true
         isSaving = true
         activeSaveGeneration = generation
+        GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
         let fileURL = URL(fileURLWithPath: filePath)
         let encoding = textEncoding
 
@@ -159,8 +173,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
                 self.originalTextContent = currentContent
                 self.isDirty = self.textContent != currentContent
                 self.isFileUnavailable = false
+                GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
             case .failed(let fileExists):
                 self.isFileUnavailable = !fileExists
+                GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
             }
         }
     }
@@ -174,6 +190,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         case .unavailable:
             guard replacingDirtyContent || !isDirty else {
                 isFileUnavailable = true
+                GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
                 return
             }
             content = ""
@@ -181,6 +198,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             originalTextContent = ""
             isDirty = false
             isFileUnavailable = true
+            GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
         }
     }
 
@@ -194,6 +212,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             textEncoding = encoding
             isDirty = textContent != newContent
             isFileUnavailable = false
+            GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
             return
         }
 
@@ -203,6 +222,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         textEncoding = encoding
         isDirty = false
         isFileUnavailable = false
+        GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
     }
 
     private static func loadMarkdownFile(at path: String) -> FilePreviewTextLoader.Result {
@@ -218,6 +238,27 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             return .loaded(content: decoded, encoding: .isoLatin1)
         }
         return .unavailable
+    }
+
+    private func applyPendingSearchNeedleIfPossible() {
+        guard let needle = pendingSearchNeedle,
+              let textView else {
+            return
+        }
+
+        let range = (textView.string as NSString).range(
+            of: needle,
+            options: [.caseInsensitive, .diacriticInsensitive]
+        )
+        guard range.location != NSNotFound else {
+            pendingSearchNeedle = nil
+            return
+        }
+
+        textView.window?.makeFirstResponder(textView)
+        textView.setSelectedRange(range)
+        textView.scrollRangeToVisible(range)
+        pendingSearchNeedle = nil
     }
 
     // MARK: - File watcher via DispatchSource

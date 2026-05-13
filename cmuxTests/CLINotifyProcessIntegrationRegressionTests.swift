@@ -33,6 +33,46 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeSessionStartRecordIsNotRestorableUntilPrompt() throws {
+        let context = try makeClaudeHookContext(name: "claude-session-restorable")
+        defer { context.cleanup() }
+
+        let sessionId = "startup-only-session"
+        let start = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","transcript_path":"\#(context.root.path)/projects/startup-only-session.jsonl","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        var record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(
+            record["isRestorable"] as? Bool,
+            false,
+            "Startup SessionStart records are only routing state until Claude creates a conversation."
+        )
+        XCTAssertEqual(
+            record["transcriptPath"] as? String,
+            "\(context.root.path)/projects/startup-only-session.jsonl"
+        )
+
+        let prompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(context.root.path)/projects/startup-only-session.jsonl","hook_event_name":"UserPromptSubmit"}"#
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(
+            record["isRestorable"] as? Bool,
+            true,
+            "UserPromptSubmit marks the session eligible for resume."
+        )
+    }
+
     func testClaudeStopFromPreviousSessionDoesNotClobberClearRunningStatus() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-stale-stop")
         defer { context.cleanup() }
@@ -994,6 +1034,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         wait(for: [serverHandled], timeout: 5)
         return result
+    }
+
+    private func readClaudeHookSession(_ sessionId: String, context: ClaudeHookContext) throws -> [String: Any] {
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
+        return try XCTUnwrap(sessions[sessionId] as? [String: Any])
     }
 
     func testBrowserImportDefaultsNonInteractiveInCodingAgent() throws {
