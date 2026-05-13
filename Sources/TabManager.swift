@@ -5429,6 +5429,12 @@ class TabManager: ObservableObject {
         selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: initialInput)
     }
 
+    @discardableResult
+    func newSyncedWindowSurface() -> UUID? {
+        selectedWorkspace?.clearSplitZoom()
+        return selectedWorkspace?.newSyncedWindowSurfaceInFocusedPane(focus: true)?.id
+    }
+
     // MARK: - Split Creation
 
     /// Create a new split in the current tab

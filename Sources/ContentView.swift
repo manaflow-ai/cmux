@@ -5847,6 +5847,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
         case .filePreview:
             return String(localized: "commandPalette.kind.filePreview", defaultValue: "File Preview")
+        case .syncedWindow:
+            return String(localized: "commandPalette.kind.syncedWindow", defaultValue: "Synced Window")
         }
     }
 
@@ -5860,6 +5862,8 @@ struct ContentView: View {
             return ["markdown", "note", "preview"]
         case .filePreview:
             return ["file", "preview", "text", "pdf", "image"]
+        case .syncedWindow:
+            return ["window", "app", "synced", "pane"]
         }
     }
 
@@ -6943,6 +6947,14 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.newSyncedWindowPane",
+                title: constant(String(localized: "command.newSyncedWindowPane.title", defaultValue: "New Synced Window Pane")),
+                subtitle: constant(String(localized: "command.newSyncedWindowPane.subtitle", defaultValue: "Window Manager")),
+                keywords: ["window", "app", "sync", "pane", "desktop"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.toggleSplitZoom",
                 title: constant(String(localized: "command.toggleSplitZoom.title", defaultValue: "Toggle Pane Zoom")),
                 subtitle: constant(String(localized: "command.toggleSplitZoom.subtitle", defaultValue: "Terminal Layout")),
@@ -7481,6 +7493,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalSplitBrowserDown") {
             _ = tabManager.createBrowserSplit(direction: .down)
+        }
+        registry.register(commandId: "palette.newSyncedWindowPane") {
+            if tabManager.newSyncedWindowSurface() == nil {
+                NSSound.beep()
+            }
         }
         registry.register(commandId: "palette.toggleSplitZoom") {
             if !tabManager.toggleFocusedSplitZoom() {

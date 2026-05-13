@@ -336,7 +336,7 @@ final class PaneDropTargetView: NSView {
                 return nil
             }
             return .editor
-        case .markdown:
+        case .markdown, .syncedWindow:
             return nil
         }
     }

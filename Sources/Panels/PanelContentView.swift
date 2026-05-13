@@ -77,6 +77,16 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .syncedWindow:
+            if let syncedWindowPanel = panel as? SyncedWindowPanel {
+                SyncedWindowPanelView(
+                    panel: syncedWindowPanel,
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI,
+                    portalPriority: portalPriority,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         }
     }
 
@@ -96,7 +106,7 @@ struct PanelContentView: View {
         switch panel.panelType {
         case .markdown, .filePreview:
             return true
-        case .terminal, .browser:
+        case .terminal, .browser, .syncedWindow:
             return false
         }
     }
