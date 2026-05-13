@@ -52674,6 +52674,57 @@
         }
       }
     },
+    "settings.app.workspaceInheritWorkingDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inherit Workspace Working Directory"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの作業ディレクトリを継承"
+          }
+        }
+      }
+    },
+    "settings.app.workspaceInheritWorkingDirectory.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New workspaces leave their working directory unset so Ghostty's working-directory setting can apply."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ワークスペースの作業ディレクトリを未設定にして、Ghostty の working-directory 設定を適用します。"
+          }
+        }
+      }
+    },
+    "settings.app.workspaceInheritWorkingDirectory.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New workspaces start in the focused workspace's working directory."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ワークスペースはフォーカス中のワークスペースの作業ディレクトリで開始します。"
+          }
+        }
+      }
+    },
     "settings.app.settingsFile.openButton": {
       "extractionState": "manual",
       "localizations": {
@@ -72389,6 +72440,23 @@
                 "stringUnit": {
                     "state": "translated",
                     "value": "app.newWorkspacePlacement new tab insert position order top bottom end програма загальні параметри поведінка док рядок меню статус бічна панель робочий простір вкладка кольори палітра значок вибрано підсвічування індикатор активний крапка нова Робоча область • %@ Розташування нової робочої області В кінці На початку"
+                }
+            }
+        }
+    },
+    "settings.search.alias.setting.app.workspace-inherit-working-directory": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.workspaceInheritWorkingDirectory workspace cwd directory inherit current focused ghostty working-directory"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.workspaceInheritWorkingDirectory workspace cwd directory inherit current focused ghostty working-directory 作業ディレクトリ 継承 現在 フォーカス Ghostty"
                 }
             }
         }
