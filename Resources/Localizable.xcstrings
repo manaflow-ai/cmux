@@ -179,13 +179,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diagnostic file saved to ~/.local/state/ghostty/crash/"
+            "value": "Diagnostic file saved to ~/.local/state/cmux/crash/"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "診断ファイルは ~/.local/state/ghostty/crash/ に保存されました"
+            "value": "診断ファイルは ~/.local/state/cmux/crash/ に保存されました"
           }
         }
       }
@@ -9876,6 +9876,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "右サイドバー"
+          }
+        }
+      }
+    },
+    "command.openRightSidebarToolAsPane.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペイン"
+          }
+        }
+      }
+    },
+    "command.openFilesPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Files as Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルをペインで開く"
+          }
+        }
+      }
+    },
+    "command.openFindPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Find as Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索をペインで開く"
+          }
+        }
+      }
+    },
+    "command.openVaultPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Vault as Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaultをペインで開く"
           }
         }
       }
@@ -20567,6 +20635,57 @@
         }
       }
     },
+    "agent.codex.input.body.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex is asking a question"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex が質問しています"
+          }
+        }
+      }
+    },
+    "agent.codex.input.status.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex needs input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 入力待ち"
+          }
+        }
+      }
+    },
+    "agent.codex.input.subtitle.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中"
+          }
+        }
+      }
+    },
     "agent.codex.status.idle": {
       "extractionState": "manual",
       "localizations": {
@@ -21140,6 +21259,23 @@
         }
       }
     },
+    "command.supportedFileRouting.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルプレビュー"
+          }
+        }
+      }
+    },
     "command.disableBrowser.title": {
       "extractionState": "manual",
       "localizations": {
@@ -21153,6 +21289,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmuxブラウザを無効にする"
+          }
+        }
+      }
+    },
+    "command.disableSupportedFileRouting.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable Cmd-click File Previews"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+クリックのファイルプレビューを無効にする"
           }
         }
       }
@@ -21199,6 +21352,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmuxブラウザを有効にする"
+          }
+        }
+      }
+    },
+    "command.enableSupportedFileRouting.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Cmd-click File Previews"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+クリックのファイルプレビューを有効にする"
           }
         }
       }
@@ -21675,6 +21845,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Перейти до останнього непрочитаного"
+          }
+        }
+      }
+    },
+    "command.markOldestUnreadAndJumpNext.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as Oldest Unread and Jump to Next Latest Unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最古の未読としてマークして次の最新未読にジャンプ"
           }
         }
       }
@@ -28834,6 +29021,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "마크다운"
+          }
+        }
+      }
+    },
+    "commandPalette.kind.rightSidebarTool": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tool"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツール"
           }
         }
       }
@@ -72818,6 +73022,23 @@
             }
         }
     },
+    "settings.search.alias.setting.app.supported-file-previews": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external ファイルプレビュー PDF 画像 動画 音声 エディタ 外部"
+                }
+            }
+        }
+    },
     "settings.search.alias.setting.app.terminal-config": {
         "extractionState": "manual",
         "localizations": {
@@ -82732,6 +82953,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Перейти до останнього непрочитаного"
+          }
+        }
+      }
+    },
+    "shortcut.markOldestUnreadAndJumpNext.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as Oldest Unread and Jump to Next Latest Unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最古の未読としてマークして次の最新未読にジャンプ"
           }
         }
       }
@@ -101477,6 +101715,57 @@
         }
       }
     },
+    "filePreview.openExternally": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Externally"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外部アプリで開く"
+          }
+        }
+      }
+    },
+    "filePreview.openInApplication": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@で開く"
+          }
+        }
+      }
+    },
+    "filePreview.openWith.menu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open With"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリケーションで開く"
+          }
+        }
+      }
+    },
     "markdown.copyConfirm.html": {
       "extractionState": "manual",
       "localizations": {
@@ -105852,6 +106141,57 @@
         }
       }
     },
+    "settings.app.preferredEditor.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty for system default."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+クリックのファイルプレビューが無効な場合、またはファイルが未対応の場合に使うコマンドです。空欄のままにするとシステムの既定で開きます。"
+          }
+        }
+      }
+    },
+    "settings.app.openSupportedFilesInCmux": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Supported Files in cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対応ファイルを cmux で開く"
+          }
+        }
+      }
+    },
+    "settings.app.openSupportedFilesInCmux.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-clicking readable files opens text, code, PDFs, images, audio, video, and Quick Look previews in cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取り可能なファイルを Cmd+クリックすると、テキスト、コード、PDF、画像、音声、動画、Quick Look プレビューを cmux で開きます。"
+          }
+        }
+      }
+    },
     "settings.app.openMarkdownInCmuxViewer": {
       "extractionState": "manual",
       "localizations": {
@@ -105917,13 +106257,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd-clicking .md/.markdown/.mkd/.mdx files opens the cmux markdown viewer panel instead of the preferred editor."
+            "value": "When supported file routing is on, Cmd-clicking Markdown files opens the rendered cmux markdown viewer instead of the generic file preview."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": ".md/.markdown/.mkd/.mdx ファイルを Cmd+クリックすると、優先エディタの代わりに cmux マークダウンビューアパネルが開きます。"
+            "value": "対応ファイルのルーティングが有効な場合、Markdown ファイルを Cmd+クリックすると、汎用ファイルプレビューではなくレンダリング済みの cmux マークダウンビューアで開きます。"
           }
         },
         "ko": {
@@ -105983,6 +106323,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "右サイドバーを閉じる"
+          }
+        }
+      }
+    },
+    "rightSidebar.openAsPane.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open %@ as Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@をペインで開く"
+          }
+        }
+      }
+    },
+    "rightSidebar.openAsPane.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open as pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインで開く"
           }
         }
       }
@@ -111321,6 +111695,139 @@
         "ja": { "stringUnit": { "state": "translated", "value": "プロセス" } }
       }
     },
+    "taskManager.section.codingAgents": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Coding Agents" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コーディングエージェント" } }
+      }
+    },
+    "taskManager.section.programTotals": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Program Totals" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プログラム合計" } }
+      }
+    },
+    "taskManager.section.hierarchy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hierarchy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "階層" } }
+      }
+    },
+    "taskManager.aggregate.processCount.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1 process" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1 個のプロセス" } }
+      }
+    },
+    "taskManager.aggregate.processCount.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld processes" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld 個のプロセス" } }
+      }
+    },
+    "taskManager.agent.claudeCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Claude Code" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Claude Code" } }
+      }
+    },
+    "taskManager.agent.codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Codex" } }
+      }
+    },
+    "taskManager.agent.opencode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OpenCode" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OpenCode" } }
+      }
+    },
+    "taskManager.agent.pi": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pi" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Pi" } }
+      }
+    },
+    "taskManager.agent.amp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Amp" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Amp" } }
+      }
+    },
+    "taskManager.agent.cursor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cursor" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Cursor" } }
+      }
+    },
+    "taskManager.agent.gemini": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Gemini" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Gemini" } }
+      }
+    },
+    "taskManager.agent.rovodev": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Rovo Dev" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Rovo Dev" } }
+      }
+    },
+    "taskManager.agent.hermesAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hermes Agent" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Hermes Agent" } }
+      }
+    },
+    "taskManager.agent.copilot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copilot" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Copilot" } }
+      }
+    },
+    "taskManager.agent.codebuddy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CodeBuddy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CodeBuddy" } }
+      }
+    },
+    "taskManager.agent.factory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Factory" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Factory" } }
+      }
+    },
+    "taskManager.agent.qoder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Qoder" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Qoder" } }
+      }
+    },
+    "taskManager.loading.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Loading resource usage" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リソース使用状況を読み込み中" } }
+      }
+    },
     "taskManager.error.title": {
       "extractionState": "manual",
       "localizations": {
@@ -111545,6 +112052,76 @@
         "ja": { "stringUnit": { "state": "translated", "value": "プロセス" } }
       }
     },
+    "shortcut.globalSearch.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Global Search" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "グローバル検索" } }
+      }
+    },
+    "statusMenu.searchAllWindows": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Search All Windows..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのウィンドウを検索..." } }
+      }
+    },
+    "globalSearch.palette.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Search all windows, panels, browser tabs..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのウィンドウ、パネル、ブラウザタブを検索..." } }
+      }
+    },
+    "globalSearch.empty.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Type to search" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "入力して検索" } }
+      }
+    },
+    "globalSearch.empty.noResults": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No results" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "結果がありません" } }
+      }
+    },
+    "globalSearch.empty.noOpenPanels": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No open panels" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "開いているパネルがありません" } }
+      }
+    },
+    "globalSearch.kind.browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ" } }
+      }
+    },
+    "globalSearch.kind.markdown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Markdown" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Markdown" } }
+      }
+    },
+    "globalSearch.kind.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Title" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タイトル" } }
+      }
+    },
+    "globalSearch.untitled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Untitled" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無題" } }
+      }
+    },
     "cli.rightSidebar.usage": {
       "extractionState": "manual",
       "localizations": {
@@ -111584,6 +112161,8 @@
     "rightSidebar.remote.error.unavailable": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Right sidebar not available" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 右サイドバーを利用できません" } } } },
     "rightSidebar.remote.error.focusFailed": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Failed to focus right sidebar" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 右サイドバーにフォーカスできませんでした" } } } },
     "rightSidebar.remote.error.modeUnavailable": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Right sidebar mode '%@' is not available" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 右サイドバーのモード '%@' は利用できません" } } } },
-    "rightSidebar.remote.error.appDelegateUnavailable": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: App delegate not available" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: アプリデリゲートを利用できません" } } } }
+    "rightSidebar.remote.error.appDelegateUnavailable": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: App delegate not available" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: アプリデリゲートを利用できません" } } } },
+    "notificationHook.failure.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Notification Hook Failed" } }, "ja": { "stringUnit": { "state": "translated", "value": "通知フックに失敗しました" } } } },
+    "notificationHook.failure.body": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "cmux used default notification behavior because '%@' failed." } }, "ja": { "stringUnit": { "state": "translated", "value": "'%@' が失敗したため、cmux は既定の通知動作を使用しました。" } } } }
   }
 }

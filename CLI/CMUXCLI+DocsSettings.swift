@@ -6,6 +6,7 @@ extension CMUXCLI {
     static let primarySettingsDisplayPath = "~/.config/cmux/cmux.json"
     static let legacySettingsDisplayPath = "~/.config/cmux/settings.json"
     static let fallbackSettingsDisplayPath = "~/Library/Application Support/com.cmuxterm.app/settings.json"
+    static let ghosttyConfigDisplayPath = "~/.config/ghostty/config"
 
     private struct DocsResource {
         let label: String
@@ -202,8 +203,13 @@ extension CMUXCLI {
                 "legacy": Self.legacySettingsDisplayPath,
                 "fallback": Self.fallbackSettingsDisplayPath,
             ]
+            payload["ghostty_config"] = [
+                "path": Self.ghosttyConfigDisplayPath,
+                "note": "Not cmux-owned, but cmux reads it. Use for terminal transparency (background-opacity), blur, font, theme, etc.",
+            ]
             payload["backup"] = "Back up any existing cmux.json file to a timestamped .bak copy before editing so the user can revert."
             payload["reload_command"] = "cmux reload-config"
+            payload["reload_scope"] = "Reloads Ghostty config + cmux.json and refreshes terminals in place. No app restart needed."
         }
         return payload
     }
@@ -250,11 +256,15 @@ extension CMUXCLI {
             print("  legacy config: \(Self.legacySettingsDisplayPath)")
             print("  legacy app support: \(Self.fallbackSettingsDisplayPath)")
             print()
+            print("Related (not cmux-owned, but cmux reads it for terminal behavior):")
+            print("  \(Self.ghosttyConfigDisplayPath)")
+            print("  Use this for terminal transparency (background-opacity), blur, font, theme, etc.")
+            print()
             print("Before editing cmux.json:")
             print("  Back up any existing cmux.json file to a timestamped .bak copy so the user can revert.")
             print()
-            print("After editing cmux.json:")
-            print("  cmux reload-config")
+            print("Reload after editing cmux.json or Ghostty config:")
+            print("  cmux reload-config   (reloads BOTH and refreshes terminals; no app restart needed)")
         }
     }
 
@@ -354,11 +364,14 @@ extension CMUXCLI {
           legacy config: \(Self.legacySettingsDisplayPath)
           legacy app support: \(Self.fallbackSettingsDisplayPath)
 
+        Related (not cmux-owned, but cmux reads it for terminal behavior):
+          \(Self.ghosttyConfigDisplayPath)
+
         Before editing cmux.json:
           Back up any existing cmux.json file to a timestamped .bak copy so the user can revert.
 
-        After editing cmux.json:
-          cmux reload-config
+        Reload after editing cmux.json or Ghostty config:
+          cmux reload-config   (reloads BOTH and refreshes terminals; no app restart needed)
         """
     }
 
