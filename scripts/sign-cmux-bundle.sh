@@ -91,8 +91,12 @@ echo "==> verifying"
 APP_ID="$(/usr/libexec/PlistBuddy -c "Print :com.apple.application-identifier" \
   /dev/stdin <<<"$(plutil -convert xml1 -o - "$APP_ENTITLEMENTS")" 2>/dev/null || true)"
 
+SIGNED_ENTITLEMENTS="$(
+  /usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>/dev/null \
+    | plutil -convert xml1 -o - - 2>/dev/null
+)"
+
 if [[ -n "$APP_ID" ]]; then
-  SIGNED_ENTITLEMENTS="$(/usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>/dev/null)"
   grep -Fq -- "$APP_ID" <<<"$SIGNED_ENTITLEMENTS" || {
     echo "error: signed app missing application-identifier $APP_ID" >&2
     exit 1
@@ -110,7 +114,6 @@ if [[ -n "$APP_ID" ]]; then
     exit 1
   }
 fi
-SIGNED_ENTITLEMENTS="${SIGNED_ENTITLEMENTS:-$(/usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>/dev/null)}"
 grep -Fq -- "com.apple.developer.web-browser.public-key-credential" <<<"$SIGNED_ENTITLEMENTS" || {
     echo "error: signed app missing web-browser entitlement" >&2
     exit 1
