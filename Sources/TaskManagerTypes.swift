@@ -344,7 +344,17 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
                 assetName: "AgentIcons/Claude",
                 launchKinds: ["claude", "claudeteams", "claude-teams", "omc"],
                 directBasenames: ["claude", "claude-code", "claude_code", "claude-teams", "omc"],
-                argumentNeedles: ["claude-code", "claude_code", "claude-teams", "@anthropic-ai/claude-code", "oh-my-claude", "omc"]
+                argumentNeedles: [
+                    "claude-code",
+                    "claude_code",
+                    "claude-teams",
+                    "@anthropic-ai/claude-code",
+                    "oh-my-claude",
+                    "omc",
+                    "/.local/bin/claude",
+                    "/.local/share/claude/versions/",
+                    "/library/application support/claude/claude-code/",
+                ]
             ),
             CmuxTaskManagerCodingAgentDefinition(
                 id: "codex",
@@ -446,6 +456,11 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
     }
 
     static func shouldReadArguments(processName: String, processPath: String?) -> Bool {
+        if let normalizedPath = normalized(processPath),
+           argumentInspectionPathNeedles.contains(where: { normalizedPath.contains($0) }) {
+            return true
+        }
+
         let basenames = candidateBasenames(
             processName: processName,
             processPath: processPath,
@@ -497,6 +512,11 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
 
     private static let ambiguousDirectBasenames: Set<String> = [
         "acli"
+    ]
+
+    private static let argumentInspectionPathNeedles = [
+        "/.local/share/claude/versions/",
+        "/library/application support/claude/claude-code/",
     ]
 
     private static func candidateBasenames(

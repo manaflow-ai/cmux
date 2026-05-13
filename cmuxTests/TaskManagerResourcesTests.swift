@@ -271,6 +271,28 @@ final class TaskManagerResourcesTests: XCTestCase {
             )?.id,
             "claude"
         )
+        XCTAssertTrue(CmuxTaskManagerCodingAgentDefinition.shouldReadArguments(
+            processName: "2.1.140",
+            processPath: "/Users/lawrence/.local/share/claude/versions/2.1.140"
+        ))
+        XCTAssertEqual(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                processName: "2.1.140",
+                processPath: "/Users/lawrence/.local/share/claude/versions/2.1.140",
+                arguments: ["/Users/lawrence/.local/bin/claude", "--resume", "session-id"],
+                environment: [:]
+            )?.id,
+            "claude"
+        )
+        XCTAssertEqual(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                processName: "2.1.140",
+                processPath: "/Users/lawrence/.local/share/claude/versions/2.1.140",
+                arguments: ["/Users/lawrence/.local/share/claude/versions/2.1.140", "--resume", "session-id"],
+                environment: [:]
+            )?.id,
+            "claude"
+        )
         XCTAssertEqual(
             CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "node",
