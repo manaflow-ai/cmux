@@ -1595,7 +1595,8 @@ final class SessionIndexStore: ObservableObject {
                 includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
                 options: [.skipsHiddenFiles]
             ) else {
-                if !home.isDefault {
+                let exists = fm.fileExists(atPath: root)
+                if !home.isDefault, exists {
                     let format = String(
                         localized: "sessionIndex.codexHome.warning.unavailable",
                         defaultValue: "Codex home \"%@\" is unavailable and was skipped."
