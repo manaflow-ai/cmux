@@ -4380,8 +4380,19 @@ final class TerminalSurfaceRegistry {
 }
 
 private final class TerminalSharedBackdropCutoutFilter: CIFilter {
+    private static let filterInputKeys = [kCIInputImageKey, kCIInputBackgroundImageKey]
+    private static let filterOutputKeys = [kCIOutputImageKey]
+
     @objc dynamic var inputImage: CIImage?
     @objc dynamic var inputBackgroundImage: CIImage?
+
+    override var inputKeys: [String] {
+        Self.filterInputKeys
+    }
+
+    override var outputKeys: [String] {
+        Self.filterOutputKeys
+    }
 
     override var outputImage: CIImage? {
         guard let inputImage, let inputBackgroundImage else { return nil }
