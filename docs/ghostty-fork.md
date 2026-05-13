@@ -192,12 +192,14 @@ tend to conflict together during rebases.
     required failing-test-then-fix history for issue #3369.
 
 The current cmux pin is the head listed above. It is reachable from
-`manaflow-ai/ghostty` through the `xcframework-fe972c09579a7943f6fe9607fdd24f0f7c999cb1`
-release tag and branch `issue-3369-metal-renderer-crash`.
-Published `xcframework-fe972c09579a7943f6fe9607fdd24f0f7c999cb1` and pinned its
-archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
-pin must be regenerated whenever this commit changes, even for comment-only
-amends, because the release tag is keyed by the Ghostty commit SHA.
+`manaflow-ai/ghostty` through the `xcframework-7e4cf8a2fd2539d68240aa046e2cc892d21d2e89`
+release tag.
+Published `xcframework-7e4cf8a2fd2539d68240aa046e2cc892d21d2e89` and pinned its
+`GhosttyKit.xcframework.tar.gz` archive checksum
+`6161b00fe4737abcdad9ec9cb456deb50e3cfdd2682cce2bdf83f024637c69d2` in
+`scripts/ghosttykit-checksums.txt`. The release and checksum pin must be
+regenerated whenever this commit changes, even for comment-only amends, because
+the release tag is keyed by the Ghostty commit SHA.
 
 ## Upstreamed fork changes
 
