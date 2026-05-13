@@ -40,6 +40,13 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         )
     }
 
+    func testBuiltInPiRegistrationUsesBrandedIconAsset() {
+        let agent = RegisteredSessionAgent(registration: CmuxVaultAgentRegistration.builtInPi)
+
+        XCTAssertEqual(agent.iconAssetName, "AgentIcons/Pi")
+        XCTAssertEqual(SessionAgent.registered(agent).assetName, "AgentIcons/Pi")
+    }
+
     func testRegisteredAgentTemplateFailsClosedWhenPlaceholderIsUnavailable() {
         let registration = CmuxVaultAgentRegistration(
             id: "acme-agent",
