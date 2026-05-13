@@ -127,21 +127,25 @@ nonisolated enum JSONCSettingsPatcher {
         if value is NSNull {
             return "null"
         }
-        if let value = value as? Bool {
-            return value ? "true" : "false"
-        }
-        if let value = value as? Int {
-            return String(value)
-        }
-        if let value = value as? Double {
-            guard value.isFinite else { throw CocoaError(.fileReadCorruptFile) }
-            return String(value)
+        if let number = value as? NSNumber {
+            if CFGetTypeID(number) == CFBooleanGetTypeID() {
+                return number.boolValue ? "true" : "false"
+            }
+            guard number.doubleValue.isFinite else { throw CocoaError(.fileReadCorruptFile) }
+            return try renderSerializedJSON(number, options: [.fragmentsAllowed])
         }
         if let value = value as? String {
             return try renderString(value)
         }
 
-        var options: JSONSerialization.WritingOptions = [.sortedKeys]
+        return try renderSerializedJSON(value, options: [.sortedKeys])
+    }
+
+    private static func renderSerializedJSON(
+        _ value: Any,
+        options: JSONSerialization.WritingOptions
+    ) throws -> String {
+        var options = options
         options.insert(.withoutEscapingSlashes)
         let data = try JSONSerialization.data(withJSONObject: value, options: options)
         guard let string = String(data: data, encoding: .utf8) else {
