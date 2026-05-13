@@ -842,9 +842,14 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func collapse(node: FileExplorerNode) {
+        let shouldRemoveExpansion = expandedPaths.contains(node.path)
+        let shouldClearPendingDescend = pendingDescendIntoFirstChildPath == node.path
+        guard shouldRemoveExpansion || shouldClearPendingDescend else { return }
         mutateOutline {
-            expandedPaths.remove(node.path)
-            if pendingDescendIntoFirstChildPath == node.path {
+            if shouldRemoveExpansion {
+                expandedPaths.remove(node.path)
+            }
+            if shouldClearPendingDescend {
                 pendingDescendIntoFirstChildPath = nil
             }
         }
@@ -892,7 +897,9 @@ final class FileExplorerStore: ObservableObject {
         prefetchWorkItems[path]?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
             Task { @MainActor [weak self] in
-                guard let self, node.children == nil, !self.loadingPaths.contains(path) else { return }
+                guard let self else { return }
+                defer { self.prefetchWorkItems.removeValue(forKey: path) }
+                guard node.children == nil, !self.loadingPaths.contains(path) else { return }
                 // Silent prefetch: don't show loading indicator
                 await self.loadChildren(for: node, at: path, silent: true)
             }
@@ -1002,20 +1009,26 @@ final class FileExplorerStore: ObservableObject {
                 }
             }
         } catch {
-            if !Task.isCancelled, !silent {
-                mutateOutline {
-                    if let parentNode {
-                        parentNode.isLoading = false
-                        parentNode.error = error.localizedDescription
-                    } else {
-                        isRootLoading = false
-                        setRootStatusMessage(error.localizedDescription)
-                    }
-                    loadingPaths.remove(path)
-                    loadTasks.removeValue(forKey: path)
-                }
-                objectWillChange.send()
+            guard !Task.isCancelled else { return }
+            if silent {
+#if DEBUG
+                NSLog("[FileExplorer] silent prefetch failed path=\(path): \(error.localizedDescription)")
+#endif
+                return
             }
+
+            mutateOutline {
+                if let parentNode {
+                    parentNode.isLoading = false
+                    parentNode.error = error.localizedDescription
+                } else {
+                    isRootLoading = false
+                    setRootStatusMessage(error.localizedDescription)
+                }
+                loadingPaths.remove(path)
+                loadTasks.removeValue(forKey: path)
+            }
+            objectWillChange.send()
         }
     }
 
