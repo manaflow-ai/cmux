@@ -54,6 +54,10 @@ cmux notify --title "Claude Code" --subtitle "Permission" --body "Approval neede
 cmux notify --title "Done" --tab 0 --panel 1
 ```
 
+## Navigation
+
+Use `Cmd+Shift+U` to jump to the latest unread notification. Use `Ctrl+Cmd+U` to mark the current item as oldest unread and jump to the next latest unread. Both shortcuts are configurable in Settings > Keyboard Shortcuts and in `~/.config/cmux/cmux.json`.
+
 ## Notification Hooks
 
 `cmux.json` can define composable hooks that receive every notification policy as JSON on stdin and return updated JSON on stdout. Hooks can filter native banners, sidebar history, sounds, custom commands, workspace reordering, and pane flashes.

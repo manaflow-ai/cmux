@@ -10596,7 +10596,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(
         preferredWindow: NSWindow? = nil
     ) -> TerminalNotification? {
-        let deferredNotificationId = markFocusedNotificationAsOldestUnread(preferredWindow: preferredWindow)
+        guard let deferredNotificationId = markFocusedNotificationAsOldestUnread(preferredWindow: preferredWindow) else {
+            return nil
+        }
         return jumpToLatestUnread(excludingNotificationId: deferredNotificationId)
     }
 

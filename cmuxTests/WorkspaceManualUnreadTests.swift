@@ -114,6 +114,45 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 1)
     }
 
+    func testMarkLatestNotificationAsOldestUnreadAppendsWhenNoOtherUnreadNotificationsRemain() {
+        let store = TerminalNotificationStore.shared
+        let currentWorkspaceId = UUID()
+        let currentNotificationId = UUID()
+        let readWorkspaceId = UUID()
+        let readNotificationId = UUID()
+        let now = Date()
+
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: currentNotificationId,
+                tabId: currentWorkspaceId,
+                surfaceId: nil,
+                title: "Current",
+                subtitle: "",
+                body: "",
+                createdAt: now,
+                isRead: true
+            ),
+            TerminalNotification(
+                id: readNotificationId,
+                tabId: readWorkspaceId,
+                surfaceId: nil,
+                title: "Read",
+                subtitle: "",
+                body: "",
+                createdAt: now.addingTimeInterval(-1),
+                isRead: true
+            ),
+        ])
+
+        XCTAssertEqual(
+            store.markLatestNotificationAsOldestUnread(forTabId: currentWorkspaceId, surfaceId: nil),
+            currentNotificationId
+        )
+        XCTAssertEqual(store.notifications.map(\.id), [readNotificationId, currentNotificationId])
+        XCTAssertFalse(store.notifications.last?.isRead ?? true)
+    }
+
     func testShouldClearManualUnreadWhenFocusMovesToDifferentPanel() {
         let previousFocusedPanelId = UUID()
         let nextFocusedPanelId = UUID()
