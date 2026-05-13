@@ -31,12 +31,12 @@ struct MarkdownPanelView: View {
     @State private var renderer = MarkdownWebRendererHandle()
     @AppStorage(MarkdownTypographySettings.fontFamilyKey) private var markdownFontFamily = MarkdownTypographySettings.defaultFontFamily
     @AppStorage(MarkdownTypographySettings.fontSizeKey) private var markdownFontSize = MarkdownTypographySettings.defaultFontSize
-    @AppStorage(MarkdownTypographySettings.headingH1SizeKey) private var markdownHeadingH1Size = MarkdownTypographySettings.defaultHeadingSizes.h1
-    @AppStorage(MarkdownTypographySettings.headingH2SizeKey) private var markdownHeadingH2Size = MarkdownTypographySettings.defaultHeadingSizes.h2
-    @AppStorage(MarkdownTypographySettings.headingH3SizeKey) private var markdownHeadingH3Size = MarkdownTypographySettings.defaultHeadingSizes.h3
-    @AppStorage(MarkdownTypographySettings.headingH4SizeKey) private var markdownHeadingH4Size = MarkdownTypographySettings.defaultHeadingSizes.h4
-    @AppStorage(MarkdownTypographySettings.headingH5SizeKey) private var markdownHeadingH5Size = MarkdownTypographySettings.defaultHeadingSizes.h5
-    @AppStorage(MarkdownTypographySettings.headingH6SizeKey) private var markdownHeadingH6Size = MarkdownTypographySettings.defaultHeadingSizes.h6
+    @AppStorage(MarkdownTypographySettings.headingH1SizeKey) private var markdownHeadingH1Size = MarkdownTypographySettings.unsetHeadingSize
+    @AppStorage(MarkdownTypographySettings.headingH2SizeKey) private var markdownHeadingH2Size = MarkdownTypographySettings.unsetHeadingSize
+    @AppStorage(MarkdownTypographySettings.headingH3SizeKey) private var markdownHeadingH3Size = MarkdownTypographySettings.unsetHeadingSize
+    @AppStorage(MarkdownTypographySettings.headingH4SizeKey) private var markdownHeadingH4Size = MarkdownTypographySettings.unsetHeadingSize
+    @AppStorage(MarkdownTypographySettings.headingH5SizeKey) private var markdownHeadingH5Size = MarkdownTypographySettings.unsetHeadingSize
+    @AppStorage(MarkdownTypographySettings.headingH6SizeKey) private var markdownHeadingH6Size = MarkdownTypographySettings.unsetHeadingSize
     @AppStorage(MarkdownTypographySettings.codeBlockFontFamilyKey) private var markdownCodeBlockFontFamily = MarkdownTypographySettings.defaultCodeBlockFontFamily
     @AppStorage(MarkdownTypographySettings.codeBlockFontSizeKey) private var markdownCodeBlockFontSize = MarkdownTypographySettings.defaultCodeBlockFontSize
 
@@ -209,17 +209,55 @@ struct MarkdownPanelView: View {
     }
 
     private var markdownTypography: MarkdownWebTypography {
-        _ = markdownFontFamily
-        _ = markdownFontSize
-        _ = markdownHeadingH1Size
-        _ = markdownHeadingH2Size
-        _ = markdownHeadingH3Size
-        _ = markdownHeadingH4Size
-        _ = markdownHeadingH5Size
-        _ = markdownHeadingH6Size
-        _ = markdownCodeBlockFontFamily
-        _ = markdownCodeBlockFontSize
-        return MarkdownTypographySettings.resolved()
+        let bodyFontSize = MarkdownTypographySettings.normalizedSize(
+            markdownFontSize,
+            range: MarkdownTypographySettings.fontSizeRange
+        ) ?? MarkdownTypographySettings.defaultFontSize
+        let derivedHeadingSizes = MarkdownTypographySettings.defaultHeadingSizes(forFontSize: bodyFontSize)
+        return MarkdownWebTypography(
+            fontFamily: MarkdownTypographySettings.normalizedFontFamily(markdownFontFamily)
+                ?? MarkdownTypographySettings.defaultFontFamily,
+            fontSize: bodyFontSize,
+            headingSizes: MarkdownWebTypography.HeadingSizes(
+                h1: markdownHeadingSize(
+                    markdownHeadingH1Size,
+                    fallback: derivedHeadingSizes.h1
+                ),
+                h2: markdownHeadingSize(
+                    markdownHeadingH2Size,
+                    fallback: derivedHeadingSizes.h2
+                ),
+                h3: markdownHeadingSize(
+                    markdownHeadingH3Size,
+                    fallback: derivedHeadingSizes.h3
+                ),
+                h4: markdownHeadingSize(
+                    markdownHeadingH4Size,
+                    fallback: derivedHeadingSizes.h4
+                ),
+                h5: markdownHeadingSize(
+                    markdownHeadingH5Size,
+                    fallback: derivedHeadingSizes.h5
+                ),
+                h6: markdownHeadingSize(
+                    markdownHeadingH6Size,
+                    fallback: derivedHeadingSizes.h6
+                )
+            ),
+            codeBlockFontFamily: MarkdownTypographySettings.normalizedFontFamily(markdownCodeBlockFontFamily)
+                ?? MarkdownTypographySettings.defaultCodeBlockFontFamily,
+            codeBlockFontSize: MarkdownTypographySettings.normalizedSize(
+                markdownCodeBlockFontSize,
+                range: MarkdownTypographySettings.codeBlockFontSizeRange
+            ) ?? MarkdownTypographySettings.defaultCodeBlockFontSize
+        )
+    }
+
+    private func markdownHeadingSize(_ raw: Double, fallback: Double) -> Double {
+        return MarkdownTypographySettings.normalizedSize(
+            raw,
+            range: MarkdownTypographySettings.headingSizeRange
+        ) ?? fallback
     }
 
     // MARK: - Copy actions

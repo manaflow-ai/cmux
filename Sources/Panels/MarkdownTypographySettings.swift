@@ -75,6 +75,7 @@ nonisolated enum MarkdownTypographySettings {
     static let fontSizeRange: ClosedRange<Double> = 8...32
     static let headingSizeRange: ClosedRange<Double> = 8...72
     static let codeBlockFontSizeRange: ClosedRange<Double> = 8...32
+    static let unsetHeadingSize = Double.nan
     static let defaultHeadingSizes = defaultHeadingSizes(forFontSize: defaultFontSize)
 
     static func resolved(defaults: UserDefaults = .standard) -> MarkdownWebTypography {
