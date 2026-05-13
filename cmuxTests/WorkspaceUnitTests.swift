@@ -4489,6 +4489,25 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    func testRightSidebarToolSurfaceRejectsNonPaneModes() {
+        let workspace = Workspace()
+        guard let paneId = workspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected focused pane")
+            return
+        }
+
+        for mode in RightSidebarMode.allCases where !mode.canOpenAsPane {
+            XCTAssertNil(
+                workspace.newRightSidebarToolSurface(inPane: paneId, mode: mode, focus: false),
+                "Expected \(mode.rawValue) to be rejected as a right sidebar tool pane"
+            )
+            XCTAssertNil(
+                workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: false),
+                "Expected \(mode.rawValue) to be rejected as a right sidebar tool pane"
+            )
+        }
+    }
+
     func testOpenOrFocusRightSidebarToolSurfaceReusesExistingMode() {
         let workspace = Workspace()
         guard let paneId = workspace.bonsplitController.focusedPaneId else {
