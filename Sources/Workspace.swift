@@ -7931,7 +7931,7 @@ final class Workspace: Identifiable, ObservableObject {
         activeRemoteSessionControllerID = nil
         remoteSessionController?.stop()
         sidebarLogFlushTimer?.cancel()
-        TerminalController.shared.stopCodexTranscriptMonitors(forWorkspaceId: id)
+        TerminalController.stopCodexTranscriptMonitors(forWorkspaceId: id)
     }
 
     func refreshSplitButtonTooltips() {

@@ -9319,7 +9319,7 @@ class TerminalController {
         return .ok(["stopped": true])
     }
 
-    func stopCodexTranscriptMonitors(forWorkspaceId workspaceId: UUID) {
+    nonisolated static func stopCodexTranscriptMonitors(forWorkspaceId workspaceId: UUID) {
         CodexTranscriptMonitorRegistry.shared.stopWorkspace(workspaceId)
     }
 
