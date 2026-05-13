@@ -144,6 +144,16 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
 }
 
 final class SidebarSelectedWorkspaceScrollPolicyTests: XCTestCase {
+    func testSkipsScrollWhenSelectedWorkspaceIdIsNil() {
+        XCTAssertFalse(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: nil as String?,
+                oldWorkspaceIds: ["a"],
+                newWorkspaceIds: ["a"]
+            )
+        )
+    }
+
     func testRequestsScrollWhenSelectedWorkspaceFirstAppears() {
         XCTAssertTrue(
             SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
@@ -164,8 +174,8 @@ final class SidebarSelectedWorkspaceScrollPolicyTests: XCTestCase {
         )
     }
 
-    func testRequestsScrollWhenAnotherReorderMovesSelectedWorkspaceIndex() {
-        XCTAssertTrue(
+    func testSkipsScrollWhenAnotherReorderOnlyShiftsSelectedWorkspaceIndex() {
+        XCTAssertFalse(
             SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
                 selectedWorkspaceId: "b",
                 oldWorkspaceIds: ["a", "b", "c"],

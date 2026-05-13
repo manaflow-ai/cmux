@@ -68,6 +68,11 @@ enum SidebarSelectedWorkspaceScrollPolicy {
             return true
         }
 
-        return oldIndex != newIndex
+        guard oldIndex != newIndex else {
+            return false
+        }
+
+        return oldWorkspaceIds.filter { $0 != selectedWorkspaceId } ==
+            newWorkspaceIds.filter { $0 != selectedWorkspaceId }
     }
 }

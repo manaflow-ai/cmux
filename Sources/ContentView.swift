@@ -9107,6 +9107,16 @@ struct VerticalTabsSidebar: View {
         )
     }
 
+    private func requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(_ notification: Notification) {
+        if let manager = notification.object as? TabManager, manager !== tabManager {
+            return
+        }
+        guard let selectedWorkspaceId = tabManager.selectedTabId else { return }
+        let movedWorkspaceIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
+        guard movedWorkspaceIds.contains(selectedWorkspaceId) else { return }
+        pendingSelectedWorkspaceScrollId = selectedWorkspaceId
+    }
+
     private struct WorkspaceListRenderContext {
         let tabs: [Workspace]
         let workspaceCount: Int
@@ -9339,8 +9349,14 @@ struct VerticalTabsSidebar: View {
                     guard shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
                         from: oldWorkspaceIds,
                         to: newWorkspaceIds
-                    ) else { return }
+                    ) else {
+                        flushPendingSelectedWorkspaceScroll(scrollProxy)
+                        return
+                    }
                     requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: newWorkspaceIds)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
+                    requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(notification)
                 }
                 .onPreferenceChange(SidebarWorkspaceRowIdsPreferenceKey.self) { rowIds in
                     laidOutWorkspaceRowIds = rowIds

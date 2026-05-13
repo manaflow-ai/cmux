@@ -60,6 +60,10 @@ enum WorkspaceAutoReorderSettings {
     }
 }
 
+enum WorkspaceOrderChangeNotificationKey {
+    static let movedWorkspaceIds = "movedWorkspaceIds"
+}
+
 enum LastSurfaceCloseShortcutSettings {
     static let key = "closeWorkspaceOnLastSurfaceShortcut"
     // Keep the legacy stored meaning so existing values still map to the same
@@ -3869,18 +3873,23 @@ class TabManager: ObservableObject {
         let pinnedCount = tabs.filter { $0.isPinned }.count
         let insertIndex = tab.isPinned ? 0 : pinnedCount
         tabs.insert(tab, at: insertIndex)
+        postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
     }
 
     func moveTabsToTop(_ tabIds: Set<UUID>) {
         guard !tabIds.isEmpty else { return }
         let selectedTabs = tabs.filter { tabIds.contains($0.id) }
         guard !selectedTabs.isEmpty else { return }
+        let previousOrder = tabs.map(\.id)
         let remainingTabs = tabs.filter { !tabIds.contains($0.id) }
         let selectedPinned = selectedTabs.filter { $0.isPinned }
         let selectedUnpinned = selectedTabs.filter { !$0.isPinned }
         let remainingPinned = remainingTabs.filter { $0.isPinned }
         let remainingUnpinned = remainingTabs.filter { !$0.isPinned }
         tabs = selectedPinned + remainingPinned + selectedUnpinned + remainingUnpinned
+        if tabs.map(\.id) != previousOrder {
+            postWorkspaceOrderDidChange(movedWorkspaceIds: selectedTabs.map(\.id))
+        }
     }
 
     func moveTabToTopForNotification(_ tabId: UUID) {
@@ -3891,6 +3900,7 @@ class TabManager: ObservableObject {
         guard !tab.isPinned else { return }
         tabs.remove(at: index)
         tabs.insert(tab, at: pinnedCount)
+        postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
     }
 
     @discardableResult
@@ -3904,7 +3914,17 @@ class TabManager: ObservableObject {
 
         tabs.remove(at: currentIndex)
         tabs.insert(workspace, at: clamped)
+        postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
         return true
+    }
+
+    private func postWorkspaceOrderDidChange(movedWorkspaceIds: [UUID]) {
+        guard !movedWorkspaceIds.isEmpty else { return }
+        NotificationCenter.default.post(
+            name: .workspaceOrderDidChange,
+            object: self,
+            userInfo: [WorkspaceOrderChangeNotificationKey.movedWorkspaceIds: movedWorkspaceIds]
+        )
     }
 
     @discardableResult
@@ -7522,4 +7542,5 @@ extension Notification.Name {
     static let webViewDidReceiveClick = Notification.Name("webViewDidReceiveClick")
     static let terminalPortalVisibilityDidChange = Notification.Name("cmux.terminalPortalVisibilityDidChange")
     static let browserPortalRegistryDidChange = Notification.Name("cmux.browserPortalRegistryDidChange")
+    static let workspaceOrderDidChange = Notification.Name("cmux.workspaceOrderDidChange")
 }
