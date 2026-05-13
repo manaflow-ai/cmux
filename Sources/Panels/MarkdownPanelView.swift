@@ -114,12 +114,6 @@ struct MarkdownPanelView: View {
             filePath: panel.filePath,
             foregroundColor: themeForegroundColor
         ) {
-            FileExternalOpenMenu(
-                fileURL: URL(fileURLWithPath: panel.filePath),
-                isDisabled: panel.isFileUnavailable
-            )
-            .foregroundStyle(.secondary)
-
             if panel.displayMode == .text {
                 PanelHeaderIconButton(
                     systemName: "arrow.counterclockwise",
@@ -140,6 +134,10 @@ struct MarkdownPanelView: View {
                 confirmation: copyConfirmation?.label,
                 onCopyMarkdown: { copyAsMarkdown() },
                 onCopyHTML: { copyAsHTML() }
+            )
+            FileExternalOpenMenu(
+                fileURL: URL(fileURLWithPath: panel.filePath),
+                isDisabled: panel.isFileUnavailable
             )
         }
     }
