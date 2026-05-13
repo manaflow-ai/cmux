@@ -450,6 +450,8 @@ final class SyncedWindowPanel: Panel, ObservableObject {
     private let accessibilityController = SyncedWindowAccessibilityController()
     private let projectionController = SyncedWindowProjectionController()
     private var slotFrame: SyncedWindowSlotFrame?
+    private var accessibilityStatusObservers: [(NotificationCenter, NSObjectProtocol)] = []
+    private var accessibilityRecheckMouseMonitor: Any?
 
     var displayIcon: String? {
         "rectangle.inset.filled.and.person.filled"
@@ -470,6 +472,7 @@ final class SyncedWindowPanel: Panel, ObservableObject {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.displayTitle = String(localized: "syncedWindow.title", defaultValue: "Synced Window")
+        installAccessibilityStatusObservers()
         reloadWindows()
     }
 
@@ -553,6 +556,13 @@ final class SyncedWindowPanel: Panel, ObservableObject {
         statusIsError = false
     }
 
+    func copyAppPathToClipboard() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(appBundlePath, forType: .string)
+        statusMessage = String(localized: "syncedWindow.status.appPathCopied", defaultValue: "App path copied.")
+        statusIsError = false
+    }
+
     func checkAccessibilityPermission() {
         refreshAccessibilityStatus()
         if accessibilityTrusted {
@@ -567,6 +577,11 @@ final class SyncedWindowPanel: Panel, ObservableObject {
 
     func refreshAccessibilityStatus() {
         accessibilityTrusted = accessibilityController.isTrusted
+        updateAccessibilityRecheckMouseMonitor()
+    }
+
+    var appBundlePath: String {
+        Bundle.main.bundleURL.path
     }
 
     func focus() {
@@ -579,6 +594,7 @@ final class SyncedWindowPanel: Panel, ObservableObject {
     func unfocus() {}
 
     func close() {
+        removeAccessibilityStatusObservers()
         projectionController.stop()
     }
 
@@ -627,6 +643,106 @@ final class SyncedWindowPanel: Panel, ObservableObject {
             displayTitle = String(localized: "syncedWindow.title", defaultValue: "Synced Window")
         }
     }
+
+    private func installAccessibilityStatusObservers() {
+        guard accessibilityStatusObservers.isEmpty else {
+            return
+        }
+
+        let appCenter = NotificationCenter.default
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        accessibilityStatusObservers = [
+            (
+                appCenter,
+                appCenter.addObserver(
+                    forName: NSApplication.didBecomeActiveNotification,
+                    object: NSApp,
+                    queue: .main
+                ) { [weak self] _ in
+                    Task { @MainActor in
+                        self?.handleAccessibilityStatusSignal()
+                    }
+                }
+            ),
+            (
+                appCenter,
+                appCenter.addObserver(
+                    forName: NSWindow.didBecomeKeyNotification,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] _ in
+                    Task { @MainActor in
+                        self?.handleAccessibilityStatusSignal()
+                    }
+                }
+            ),
+            (
+                workspaceCenter,
+                workspaceCenter.addObserver(
+                    forName: NSWorkspace.didActivateApplicationNotification,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] _ in
+                    Task { @MainActor in
+                        self?.handleAccessibilityStatusSignal()
+                    }
+                }
+            ),
+        ]
+    }
+
+    private func removeAccessibilityStatusObservers() {
+        for (center, observer) in accessibilityStatusObservers {
+            center.removeObserver(observer)
+        }
+        accessibilityStatusObservers.removeAll()
+        removeAccessibilityRecheckMouseMonitor()
+    }
+
+    private func handleAccessibilityStatusSignal() {
+        let wasTrusted = accessibilityTrusted
+        refreshAccessibilityStatus()
+        guard accessibilityTrusted != wasTrusted else {
+            return
+        }
+
+        if accessibilityTrusted {
+            statusMessage = String(localized: "syncedWindow.status.accessibilityReady", defaultValue: "Accessibility ready.")
+            statusIsError = false
+            reloadWindows()
+        } else {
+            isSynced = false
+            projectionController.stop()
+            statusMessage = String(localized: "syncedWindow.status.accessibilityMissing", defaultValue: "Accessibility permission is needed to sync windows.")
+            statusIsError = true
+        }
+    }
+
+    private func updateAccessibilityRecheckMouseMonitor() {
+        if accessibilityTrusted {
+            removeAccessibilityRecheckMouseMonitor()
+            return
+        }
+
+        guard accessibilityRecheckMouseMonitor == nil else {
+            return
+        }
+
+        accessibilityRecheckMouseMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseUp, .rightMouseUp, .otherMouseUp]
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.handleAccessibilityStatusSignal()
+            }
+        }
+    }
+
+    private func removeAccessibilityRecheckMouseMonitor() {
+        if let accessibilityRecheckMouseMonitor {
+            NSEvent.removeMonitor(accessibilityRecheckMouseMonitor)
+        }
+        accessibilityRecheckMouseMonitor = nil
+    }
 }
 
 struct SyncedWindowPanelView: View {
@@ -637,15 +753,22 @@ struct SyncedWindowPanelView: View {
     let onRequestPanelFocus: () -> Void
 
     var body: some View {
-        HStack(spacing: 0) {
-            windowList
-                .frame(minWidth: 210, idealWidth: 250, maxWidth: 300)
-                .background(Color(nsColor: .underPageBackgroundColor))
+        ZStack {
+            if panel.isAccessibilityTrusted {
+                HStack(spacing: 0) {
+                    windowList
+                        .frame(minWidth: 210, idealWidth: 250, maxWidth: 300)
+                        .background(Color(nsColor: .underPageBackgroundColor))
 
-            Divider()
+                    Divider()
 
-            syncedPane
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    syncedPane
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            } else {
+                fullPaneAccessibilityOnboarding
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
@@ -691,9 +814,7 @@ struct SyncedWindowPanelView: View {
             Divider()
             ZStack {
                 Color(nsColor: .controlBackgroundColor)
-                if !panel.isAccessibilityTrusted {
-                    accessibilityOnboarding
-                } else if let selectedWindow = panel.selectedWindow {
+                if let selectedWindow = panel.selectedWindow {
                     selectedWindowPlaceholder(selectedWindow)
                     SyncedWindowDockView(onFrameChange: panel.updateSlotFrame)
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -755,7 +876,14 @@ struct SyncedWindowPanelView: View {
         .background(.bar)
     }
 
-    private var accessibilityOnboarding: some View {
+    private var fullPaneAccessibilityOnboarding: some View {
+        ZStack {
+            Color(nsColor: .controlBackgroundColor)
+            accessibilityOnboardingContent
+        }
+    }
+
+    private var accessibilityOnboardingContent: some View {
         VStack(spacing: 14) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 34))
@@ -767,6 +895,18 @@ struct SyncedWindowPanelView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 380)
+            Text(String(localized: "syncedWindow.onboarding.findAppInstructions", defaultValue: "If cmux does not appear in the list, copy the app path. In the file picker, press Command-Shift-G, paste the path, press Return, then choose Open."))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 520)
+            Text(panel.appBundlePath)
+                .font(.caption.monospaced())
+                .foregroundStyle(.tertiary)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .textSelection(.enabled)
+                .frame(maxWidth: 620)
             HStack(spacing: 10) {
                 Button {
                     panel.requestAccessibilityPermission()
@@ -777,6 +917,14 @@ struct SyncedWindowPanelView: View {
                     )
                 }
                 Button {
+                    panel.copyAppPathToClipboard()
+                } label: {
+                    Label(
+                        String(localized: "syncedWindow.button.copyAppPath", defaultValue: "Copy App Path"),
+                        systemImage: "doc.on.doc"
+                    )
+                }
+                Button {
                     panel.checkAccessibilityPermission()
                 } label: {
                     Label(
@@ -784,6 +932,13 @@ struct SyncedWindowPanelView: View {
                         systemImage: "arrow.clockwise"
                     )
                 }
+            }
+            if let statusMessage = panel.statusMessage {
+                Text(statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(panel.statusIsError ? Color.red : .secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 420)
             }
         }
         .padding(28)
