@@ -20635,6 +20635,57 @@
         }
       }
     },
+    "agent.codex.input.body.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex is asking a question"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex が質問しています"
+          }
+        }
+      }
+    },
+    "agent.codex.input.status.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex needs input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 入力待ち"
+          }
+        }
+      }
+    },
+    "agent.codex.input.subtitle.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中"
+          }
+        }
+      }
+    },
     "agent.codex.status.idle": {
       "extractionState": "manual",
       "localizations": {
@@ -21794,6 +21845,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Перейти до останнього непрочитаного"
+          }
+        }
+      }
+    },
+    "command.markOldestUnreadAndJumpNext.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as Oldest Unread and Jump to Next Latest Unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最古の未読としてマークして次の最新未読にジャンプ"
           }
         }
       }
@@ -82885,6 +82953,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Перейти до останнього непрочитаного"
+          }
+        }
+      }
+    },
+    "shortcut.markOldestUnreadAndJumpNext.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as Oldest Unread and Jump to Next Latest Unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最古の未読としてマークして次の最新未読にジャンプ"
           }
         }
       }
