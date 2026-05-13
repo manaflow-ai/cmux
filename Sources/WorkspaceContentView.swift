@@ -2,6 +2,7 @@ import SwiftUI
 import Foundation
 import AppKit
 import Bonsplit
+import UniformTypeIdentifiers
 
 enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
     case surface
@@ -705,20 +706,38 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
     let usesWorkspacePaneOverlay: Bool
     let portalPriority: Int
     @ViewBuilder let mainContent: () -> MainContent
+    @State private var targetedRevealEdges: Set<WorkspaceDockEdge> = []
 
     private let sideDockWidth: CGFloat = 240
     private let bottomDockHeight: CGFloat = 220
+    private let tabTransferType = UTType(exportedAs: "com.splittabbar.tabtransfer", conformingTo: .data)
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                dockStrip(edge: .left, docks: layout.left)
-                mainContent()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                dockStrip(edge: .right, docks: layout.right)
+        ZStack {
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    if layout.isEdgeOpen(.left) {
+                        dockStrip(edge: .left, docks: layout.left)
+                    }
+                    mainContent()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if layout.isEdgeOpen(.right) {
+                        dockStrip(edge: .right, docks: layout.right)
+                    }
+                }
+                if layout.isEdgeOpen(.bottom) {
+                    Divider()
+                    bottomDockStrip
+                }
             }
-            Divider()
-            bottomDockStrip
+            dockRevealZone(edge: .left)
+            dockRevealZone(edge: .right)
+            dockRevealZone(edge: .bottom)
+        }
+        .overlay(alignment: .topTrailing) {
+            WorkspaceDockToggleCluster(layout: layout)
+                .padding(.top, 7)
+                .padding(.trailing, 12)
         }
     }
 
@@ -739,7 +758,7 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
                     usesWorkspacePaneOverlay: usesWorkspacePaneOverlay,
                     portalPriority: portalPriority
                 )
-                .frame(width: sideDockWidth)
+                .frame(width: dock.preferredSize ?? sideDockWidth)
                 if edge == .left {
                     Divider()
                 }
@@ -770,11 +789,156 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
                 Divider()
             }
         }
-        .frame(height: bottomDockHeight)
+        .frame(height: bottomDockHeightForOpenDocks)
         .contextMenu {
             Button(addDockTitle(edge: .bottom)) {
                 layout.addDock(edge: .bottom)
             }
+        }
+    }
+
+    private var bottomDockHeightForOpenDocks: CGFloat {
+        let configured = layout.bottom.compactMap(\.preferredSize).max() ?? bottomDockHeight
+        return max(120, configured)
+    }
+
+    @ViewBuilder
+    private func dockRevealZone(edge: WorkspaceDockEdge) -> some View {
+        if !layout.isEdgeOpen(edge) {
+            switch edge {
+            case .left:
+                HStack(spacing: 0) {
+                    dockRevealHitTarget(edge: edge)
+                        .frame(width: 10)
+                        .frame(maxHeight: .infinity)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .right:
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    dockRevealHitTarget(edge: edge)
+                        .frame(width: 10)
+                        .frame(maxHeight: .infinity)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .bottom:
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    dockRevealHitTarget(edge: edge)
+                        .frame(height: 10)
+                        .frame(maxWidth: .infinity)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    private func dockRevealHitTarget(edge: WorkspaceDockEdge) -> some View {
+        Rectangle()
+            .fill(Color.clear)
+            .contentShape(Rectangle())
+            .onDrop(of: [tabTransferType], isTargeted: revealBinding(edge: edge)) { _ in
+                layout.openEdge(edge)
+                return false
+            }
+    }
+
+    private func revealBinding(edge: WorkspaceDockEdge) -> Binding<Bool> {
+        Binding(
+            get: { targetedRevealEdges.contains(edge) },
+            set: { isTargeted in
+                if isTargeted {
+                    targetedRevealEdges.insert(edge)
+                    layout.openEdge(edge)
+                } else {
+                    targetedRevealEdges.remove(edge)
+                }
+            }
+        )
+    }
+
+    private func addDockTitle(edge: WorkspaceDockEdge) -> String {
+        switch edge {
+        case .left:
+            return String(localized: "workspaceDock.add.left", defaultValue: "Add Left Dock")
+        case .right:
+            return String(localized: "workspaceDock.add.right", defaultValue: "Add Right Dock")
+        case .bottom:
+            return String(localized: "workspaceDock.add.bottom", defaultValue: "Add Bottom Dock")
+        }
+    }
+}
+
+private struct WorkspaceDockToggleCluster: View {
+    @ObservedObject var layout: WorkspaceDockLayout
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(WorkspaceDockEdge.controlOrder) { edge in
+                Button {
+                    layout.toggleEdge(edge)
+                } label: {
+                    WorkspaceDockToggleIcon(edge: edge, isOpen: layout.isEdgeOpen(edge))
+                }
+                .buttonStyle(.plain)
+                .help(helpTitle(edge: edge))
+                .contextMenu {
+                    Button(layout.isEdgeOpen(edge) ? closeTitle(edge: edge) : openTitle(edge: edge)) {
+                        layout.toggleEdge(edge)
+                    }
+                    Button(addDockTitle(edge: edge)) {
+                        layout.addDock(edge: edge)
+                    }
+                    if layout.hasEmptyDocks(edge: edge) {
+                        Divider()
+                        Button(removeEmptyDocksTitle(edge: edge), role: .destructive) {
+                            layout.removeEmptyDocks(edge: edge)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 5)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.primary.opacity(0.16), lineWidth: 1)
+        }
+    }
+
+    private func helpTitle(edge: WorkspaceDockEdge) -> String {
+        switch edge {
+        case .left:
+            return String(localized: "workspaceDock.toggle.left.help", defaultValue: "Toggle Left Dock")
+        case .right:
+            return String(localized: "workspaceDock.toggle.right.help", defaultValue: "Toggle Right Dock")
+        case .bottom:
+            return String(localized: "workspaceDock.toggle.bottom.help", defaultValue: "Toggle Bottom Dock")
+        }
+    }
+
+    private func openTitle(edge: WorkspaceDockEdge) -> String {
+        switch edge {
+        case .left:
+            return String(localized: "workspaceDock.open.left", defaultValue: "Open Left Dock")
+        case .right:
+            return String(localized: "workspaceDock.open.right", defaultValue: "Open Right Dock")
+        case .bottom:
+            return String(localized: "workspaceDock.open.bottom", defaultValue: "Open Bottom Dock")
+        }
+    }
+
+    private func closeTitle(edge: WorkspaceDockEdge) -> String {
+        switch edge {
+        case .left:
+            return String(localized: "workspaceDock.close.left", defaultValue: "Close Left Dock")
+        case .right:
+            return String(localized: "workspaceDock.close.right", defaultValue: "Close Right Dock")
+        case .bottom:
+            return String(localized: "workspaceDock.close.bottom", defaultValue: "Close Bottom Dock")
         }
     }
 
@@ -788,6 +952,64 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
             return String(localized: "workspaceDock.add.bottom", defaultValue: "Add Bottom Dock")
         }
     }
+
+    private func removeEmptyDocksTitle(edge: WorkspaceDockEdge) -> String {
+        switch edge {
+        case .left:
+            return String(localized: "workspaceDock.removeEmpty.left", defaultValue: "Remove Empty Left Docks")
+        case .right:
+            return String(localized: "workspaceDock.removeEmpty.right", defaultValue: "Remove Empty Right Docks")
+        case .bottom:
+            return String(localized: "workspaceDock.removeEmpty.bottom", defaultValue: "Remove Empty Bottom Docks")
+        }
+    }
+}
+
+private struct WorkspaceDockToggleIcon: View {
+    let edge: WorkspaceDockEdge
+    let isOpen: Bool
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                .stroke(iconColor, lineWidth: 1.4)
+                .frame(width: 18, height: 14)
+            RoundedRectangle(cornerRadius: 1.4, style: .continuous)
+                .fill(iconColor.opacity(isOpen ? 0.95 : 0.45))
+                .frame(width: stripeSize.width, height: stripeSize.height)
+                .offset(stripeOffset)
+        }
+        .frame(width: 26, height: 24)
+        .background(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(isOpen ? Color.primary.opacity(0.13) : Color.clear)
+        )
+    }
+
+    private var iconColor: Color {
+        Color.primary.opacity(isOpen ? 0.9 : 0.58)
+    }
+
+    private var stripeSize: CGSize {
+        switch edge {
+        case .left, .right:
+            return CGSize(width: 5, height: 12)
+        case .bottom:
+            return CGSize(width: 16, height: 5)
+        }
+    }
+
+    private var stripeOffset: CGSize {
+        switch edge {
+        case .left:
+            return CGSize(width: -5.5, height: 0)
+        case .right:
+            return CGSize(width: 5.5, height: 0)
+        case .bottom:
+            return CGSize(width: 0, height: 4.5)
+        }
+    }
+
 }
 
 private struct WorkspaceDockPaneView: View {

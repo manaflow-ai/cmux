@@ -6251,31 +6251,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         debugSource: String,
         replacingInitialWorkspace initialWorkspace: Workspace? = nil
     ) -> Bool {
-        guard let cmuxConfigStore = context.cmuxConfigStore,
-              let action = cmuxConfigStore.resolvedNewWorkspaceAction() else {
+        guard let cmuxConfigStore = context.cmuxConfigStore else {
             return false
         }
         guard let window = resolvedWindow(for: context) else {
             discardOrphanedMainWindowContext(context)
             return false
         }
+        if let action = cmuxConfigStore.resolvedNewWorkspaceAction() {
 #if DEBUG
-        cmuxDebugLog(
-            "newWorkspace.configCommand source=\(debugSource) " +
-            "action=\(action.id) windowId=\(String(context.windowId.uuidString.prefix(8)))"
-        )
+            cmuxDebugLog(
+                "newWorkspace.configCommand source=\(debugSource) " +
+                "action=\(action.id) windowId=\(String(context.windowId.uuidString.prefix(8)))"
+            )
 #endif
+            let initialWorkspaceId = initialWorkspace?.id
+            let onExecuted: (() -> Void)? = action.workspaceCommandName == nil ? nil : { [weak self, weak context] in
+                self?.closeInitialWorkspaceIfNeeded(
+                    initialWorkspaceId: initialWorkspaceId,
+                    in: context
+                )
+            }
+            return executeConfiguredCmuxAction(
+                action,
+                context: context,
+                preferredWindow: window,
+                onExecuted: onExecuted
+            )
+        }
+
+        guard let workspaceDefinition = cmuxConfigStore.resolvedNewWorkspaceDefinition() else {
+            return false
+        }
         let initialWorkspaceId = initialWorkspace?.id
-        let onExecuted: (() -> Void)? = action.workspaceCommandName == nil ? nil : { [weak self, weak context] in
+        let onExecuted: (() -> Void)? = { [weak self, weak context] in
             self?.closeInitialWorkspaceIfNeeded(
                 initialWorkspaceId: initialWorkspaceId,
                 in: context
             )
         }
-        return executeConfiguredCmuxAction(
-            action,
-            context: context,
-            preferredWindow: window,
+        let rawCwd = context.tabManager.selectedWorkspace?.currentDirectory
+        let baseCwd = (rawCwd?.isEmpty == false) ? rawCwd!
+            : FileManager.default.homeDirectoryForCurrentUser.path
+#if DEBUG
+        cmuxDebugLog(
+            "newWorkspace.configTemplate source=\(debugSource) " +
+            "windowId=\(String(context.windowId.uuidString.prefix(8)))"
+        )
+#endif
+        return CmuxConfigExecutor.executeNewWorkspaceTemplate(
+            workspace: workspaceDefinition,
+            tabManager: context.tabManager,
+            baseCwd: baseCwd,
+            configSourcePath: cmuxConfigStore.newWorkspaceDefinitionSourcePath,
+            globalConfigPath: cmuxConfigStore.globalConfigPath,
+            presentingWindow: window,
             onExecuted: onExecuted
         )
     }
@@ -12898,6 +12928,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .builtIn(let builtIn):
             switch builtIn {
             case .newWorkspace:
+                if let cmuxConfigStore = context.cmuxConfigStore,
+                   let workspaceDefinition = cmuxConfigStore.resolvedNewWorkspaceDefinition() {
+                    let rawCwd = context.tabManager.selectedWorkspace?.currentDirectory
+                    let baseCwd = (rawCwd?.isEmpty == false) ? rawCwd!
+                        : FileManager.default.homeDirectoryForCurrentUser.path
+                    return CmuxConfigExecutor.executeNewWorkspaceTemplate(
+                        workspace: workspaceDefinition,
+                        tabManager: context.tabManager,
+                        baseCwd: baseCwd,
+                        configSourcePath: cmuxConfigStore.newWorkspaceDefinitionSourcePath,
+                        globalConfigPath: cmuxConfigStore.globalConfigPath,
+                        presentingWindow: preferredWindow,
+                        onExecuted: onExecuted
+                    )
+                }
                 context.tabManager.addWorkspace()
                 onExecuted?()
                 return true

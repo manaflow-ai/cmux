@@ -2481,6 +2481,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             workingDirectory: String?,
             portOrdinal: Int,
             configTemplate: CmuxSurfaceConfigTemplate?,
+            dockConfiguration: CmuxWorkspaceDockConfiguration?,
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
             initialTerminalEnvironment: [String: String]
@@ -2491,6 +2492,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
                 workingDirectory: workingDirectory,
                 portOrdinal: portOrdinal,
                 configTemplate: configTemplate,
+                dockConfiguration: dockConfiguration,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment
@@ -2742,6 +2744,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             workingDirectory: String?,
             portOrdinal: Int,
             configTemplate: CmuxSurfaceConfigTemplate?,
+            dockConfiguration: CmuxWorkspaceDockConfiguration?,
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
             initialTerminalEnvironment: [String: String]
@@ -2752,6 +2755,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
                 workingDirectory: workingDirectory,
                 portOrdinal: portOrdinal,
                 configTemplate: configTemplate,
+                dockConfiguration: dockConfiguration,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment

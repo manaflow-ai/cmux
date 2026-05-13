@@ -948,23 +948,56 @@ extension Workspace {
 extension Workspace {
 
     func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String) {
-        guard let rootPaneId = bonsplitController.allPaneIds.first else { return }
+        applyCustomLayout(layout, baseCwd: baseCwd, controller: bonsplitController)
+    }
+
+    private func applyDockConfiguration(_ configuration: CmuxWorkspaceDockConfiguration?, baseCwd: String) {
+        guard let configuration else { return }
+        for edge in WorkspaceDockEdge.allCases {
+            let definitions = configuration.definitions(for: edge)
+            let docks = dockLayout.docksSnapshot(for: edge)
+            for (definition, dock) in zip(definitions, docks) {
+                guard let layout = definition.layout else { continue }
+                applyCustomLayout(layout, baseCwd: baseCwd, controller: dock.controller, allowFocus: false)
+            }
+        }
+    }
+
+    private func applyCustomLayout(
+        _ layout: CmuxLayoutNode,
+        baseCwd: String,
+        controller: BonsplitController,
+        allowFocus: Bool = true
+    ) {
+        guard let rootPaneId = controller.allPaneIds.first else { return }
 
         var leaves: [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])] = []
-        buildCustomLayoutTree(layout, inPane: rootPaneId, leaves: &leaves)
+        buildCustomLayoutTree(
+            layout,
+            inPane: rootPaneId,
+            controller: controller,
+            baseCwd: baseCwd,
+            leaves: &leaves
+        )
 
         // First leaf reuses the initial terminal created by addWorkspace;
         // subsequent leaves were created via newTerminalSplit which also seeds
         // a placeholder terminal.
         var focusPanelId: UUID?
         for leaf in leaves {
-            populateCustomPane(leaf.paneId, surfaces: leaf.surfaces, baseCwd: baseCwd, focusPanelId: &focusPanelId)
+            populateCustomPane(
+                leaf.paneId,
+                controller: controller,
+                surfaces: leaf.surfaces,
+                baseCwd: baseCwd,
+                focusPanelId: &focusPanelId
+            )
         }
 
-        let liveRoot = bonsplitController.treeSnapshot()
-        applyCustomDividerPositions(configNode: layout, liveNode: liveRoot)
+        let liveRoot = controller.treeSnapshot()
+        applyCustomDividerPositions(configNode: layout, liveNode: liveRoot, controller: controller)
 
-        if let focusPanelId {
+        if allowFocus, let focusPanelId {
             focusPanel(focusPanelId)
         }
     }
@@ -972,6 +1005,8 @@ extension Workspace {
     private func buildCustomLayoutTree(
         _ node: CmuxLayoutNode,
         inPane paneId: PaneID,
+        controller: BonsplitController,
+        baseCwd: String,
         leaves: inout [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])]
     ) {
         switch node {
@@ -985,20 +1020,28 @@ extension Workspace {
                 return
             }
 
-            var anchorPanelId = bonsplitController
+            var anchorPanelId = controller
                 .tabs(inPane: paneId)
                 .compactMap { panelIdFromSurfaceId($0.id) }
                 .first
 
             if anchorPanelId == nil {
-                anchorPanelId = newTerminalSurface(inPane: paneId, focus: false)?.id
+                anchorPanelId = newTerminalSurface(
+                    inPane: paneId,
+                    controller: controller,
+                    focus: false,
+                    workingDirectory: baseCwd
+                )?.id
             }
 
             guard let anchorPanelId,
-                  let newSplitPanel = newTerminalSplit(
-                      from: anchorPanelId,
+                  let newSplitPanel = splitPaneWithNewTerminal(
+                      targetPane: paneId,
+                      controller: controller,
                       orientation: split.splitOrientation,
                       insertFirst: false,
+                      workingDirectory: baseCwd,
+                      initialInput: nil,
                       focus: false
                   ),
                   let secondPaneId = self.paneId(forPanelId: newSplitPanel.id) else {
@@ -1006,18 +1049,32 @@ extension Workspace {
                 return
             }
 
-            buildCustomLayoutTree(split.children[0], inPane: paneId, leaves: &leaves)
-            buildCustomLayoutTree(split.children[1], inPane: secondPaneId, leaves: &leaves)
+            _ = anchorPanelId
+            buildCustomLayoutTree(
+                split.children[0],
+                inPane: paneId,
+                controller: controller,
+                baseCwd: baseCwd,
+                leaves: &leaves
+            )
+            buildCustomLayoutTree(
+                split.children[1],
+                inPane: secondPaneId,
+                controller: controller,
+                baseCwd: baseCwd,
+                leaves: &leaves
+            )
         }
     }
 
     private func populateCustomPane(
         _ paneId: PaneID,
+        controller: BonsplitController,
         surfaces: [CmuxSurfaceDefinition],
         baseCwd: String,
         focusPanelId: inout UUID?
     ) {
-        let existingPanelIds = bonsplitController
+        let existingPanelIds = controller
             .tabs(inPane: paneId)
             .compactMap { panelIdFromSurfaceId($0.id) }
 
@@ -1028,6 +1085,15 @@ extension Workspace {
             configureExistingSurface(
                 panelId: placeholderPanelId,
                 inPane: paneId,
+                controller: controller,
+                surface: firstSurface,
+                baseCwd: baseCwd,
+                focusPanelId: &focusPanelId
+            )
+        } else {
+            createNewSurface(
+                inPane: paneId,
+                controller: controller,
                 surface: firstSurface,
                 baseCwd: baseCwd,
                 focusPanelId: &focusPanelId
@@ -1037,6 +1103,7 @@ extension Workspace {
         for surfaceIndex in 1..<surfaces.count {
             createNewSurface(
                 inPane: paneId,
+                controller: controller,
                 surface: surfaces[surfaceIndex],
                 baseCwd: baseCwd,
                 focusPanelId: &focusPanelId
@@ -1047,6 +1114,7 @@ extension Workspace {
     private func configureExistingSurface(
         panelId: UUID,
         inPane paneId: PaneID,
+        controller: BonsplitController,
         surface: CmuxSurfaceDefinition,
         baseCwd: String,
         focusPanelId: inout UUID?
@@ -1057,6 +1125,7 @@ extension Workspace {
             let resolvedCwd = CmuxConfigStore.resolveCwd(surface.cwd, relativeTo: baseCwd)
             if let panel = newTerminalSurface(
                 inPane: paneId,
+                controller: controller,
                 focus: false,
                 workingDirectory: resolvedCwd,
                 startupEnvironment: surface.env ?? [:]
@@ -1078,6 +1147,7 @@ extension Workspace {
             let url = surface.url.flatMap { URL(string: $0) }
             if let panel = newBrowserSurface(
                 inPane: paneId,
+                controller: controller,
                 url: url,
                 focus: false,
                 creationPolicy: .restoration
@@ -1091,6 +1161,7 @@ extension Workspace {
 
     private func createNewSurface(
         inPane paneId: PaneID,
+        controller: BonsplitController,
         surface: CmuxSurfaceDefinition,
         baseCwd: String,
         focusPanelId: inout UUID?
@@ -1100,6 +1171,7 @@ extension Workspace {
             let resolvedCwd = CmuxConfigStore.resolveCwd(surface.cwd, relativeTo: baseCwd)
             if let panel = newTerminalSurface(
                 inPane: paneId,
+                controller: controller,
                 focus: false,
                 workingDirectory: resolvedCwd,
                 startupEnvironment: surface.env ?? [:]
@@ -1113,6 +1185,7 @@ extension Workspace {
             let url = surface.url.flatMap { URL(string: $0) }
             if let panel = newBrowserSurface(
                 inPane: paneId,
+                controller: controller,
                 url: url,
                 focus: false,
                 creationPolicy: .restoration
@@ -1125,20 +1198,29 @@ extension Workspace {
 
     private func applyCustomDividerPositions(
         configNode: CmuxLayoutNode,
-        liveNode: ExternalTreeNode
+        liveNode: ExternalTreeNode,
+        controller: BonsplitController
     ) {
         switch (configNode, liveNode) {
         case (.split(let configSplit), .split(let liveSplit)):
             if let splitID = UUID(uuidString: liveSplit.id) {
-                _ = bonsplitController.setDividerPosition(
+                _ = controller.setDividerPosition(
                     CGFloat(configSplit.clampedSplitPosition),
                     forSplit: splitID,
                     fromExternal: true
                 )
             }
             if configSplit.children.count == 2 {
-                applyCustomDividerPositions(configNode: configSplit.children[0], liveNode: liveSplit.first)
-                applyCustomDividerPositions(configNode: configSplit.children[1], liveNode: liveSplit.second)
+                applyCustomDividerPositions(
+                    configNode: configSplit.children[0],
+                    liveNode: liveSplit.first,
+                    controller: controller
+                )
+                applyCustomDividerPositions(
+                    configNode: configSplit.children[1],
+                    liveNode: liveSplit.second,
+                    controller: controller
+                )
             }
         default:
             break
@@ -7115,12 +7197,14 @@ struct ClosedBrowserPanelRestoreSnapshot {
 
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
-enum WorkspaceDockEdge: String, CaseIterable, Identifiable {
+enum WorkspaceDockEdge: String, CaseIterable, Identifiable, Hashable {
     case left
     case right
     case bottom
 
     var id: String { rawValue }
+
+    static let controlOrder: [WorkspaceDockEdge] = [.left, .bottom, .right]
 }
 
 @MainActor
@@ -7128,11 +7212,18 @@ final class WorkspaceDock: ObservableObject, Identifiable {
     let id = UUID()
     let edge: WorkspaceDockEdge
     let ordinal: Int
+    let preferredSize: CGFloat?
     let controller: BonsplitController
 
-    init(edge: WorkspaceDockEdge, ordinal: Int, configuration: BonsplitConfiguration) {
+    init(
+        edge: WorkspaceDockEdge,
+        ordinal: Int,
+        preferredSize: CGFloat? = nil,
+        configuration: BonsplitConfiguration
+    ) {
         self.edge = edge
         self.ordinal = ordinal
+        self.preferredSize = preferredSize
         self.controller = BonsplitController(configuration: configuration)
 
         let welcomeTabIds = controller.allTabIds
@@ -7163,15 +7254,17 @@ final class WorkspaceDockLayout: ObservableObject {
     @Published private(set) var left: [WorkspaceDock]
     @Published private(set) var right: [WorkspaceDock]
     @Published private(set) var bottom: [WorkspaceDock]
+    @Published private(set) var openEdges: Set<WorkspaceDockEdge>
 
     private var configuration: BonsplitConfiguration
     private weak var workspace: Workspace?
 
-    init(configuration: BonsplitConfiguration) {
+    init(configuration: BonsplitConfiguration, dockConfiguration: CmuxWorkspaceDockConfiguration? = nil) {
         self.configuration = configuration
-        self.left = [WorkspaceDock(edge: .left, ordinal: 1, configuration: configuration)]
-        self.right = [WorkspaceDock(edge: .right, ordinal: 1, configuration: configuration)]
-        self.bottom = [WorkspaceDock(edge: .bottom, ordinal: 1, configuration: configuration)]
+        self.left = Self.makeDocks(edge: .left, definitions: dockConfiguration?.left, configuration: configuration)
+        self.right = Self.makeDocks(edge: .right, definitions: dockConfiguration?.right, configuration: configuration)
+        self.bottom = Self.makeDocks(edge: .bottom, definitions: dockConfiguration?.bottom, configuration: configuration)
+        self.openEdges = Self.initialOpenEdges(dockConfiguration: dockConfiguration)
     }
 
     var allDocks: [WorkspaceDock] {
@@ -7182,14 +7275,24 @@ final class WorkspaceDockLayout: ObservableObject {
         allDocks.map(\.controller)
     }
 
+    func docksSnapshot(for edge: WorkspaceDockEdge) -> [WorkspaceDock] {
+        docks(for: edge)
+    }
+
     func bind(to workspace: Workspace) {
         self.workspace = workspace
         allDocks.forEach { $0.bind(to: workspace) }
     }
 
-    func addDock(edge: WorkspaceDockEdge) {
+    @discardableResult
+    func addDock(edge: WorkspaceDockEdge, preferredSize: CGFloat? = nil) -> WorkspaceDock {
         let ordinal = docks(for: edge).count + 1
-        let dock = WorkspaceDock(edge: edge, ordinal: ordinal, configuration: configuration)
+        let dock = WorkspaceDock(
+            edge: edge,
+            ordinal: ordinal,
+            preferredSize: preferredSize,
+            configuration: configuration
+        )
         if let workspace {
             dock.bind(to: workspace)
         }
@@ -7201,24 +7304,69 @@ final class WorkspaceDockLayout: ObservableObject {
         case .bottom:
             bottom.append(dock)
         }
+        openEdge(edge)
+        return dock
+    }
+
+    func isEdgeOpen(_ edge: WorkspaceDockEdge) -> Bool {
+        openEdges.contains(edge)
+    }
+
+    func toggleEdge(_ edge: WorkspaceDockEdge) {
+        if isEdgeOpen(edge) {
+            closeEdge(edge)
+        } else {
+            openEdge(edge)
+        }
+    }
+
+    func openEdge(_ edge: WorkspaceDockEdge) {
+        if docks(for: edge).isEmpty {
+            _ = addDock(edge: edge)
+            return
+        }
+        openEdges.insert(edge)
+    }
+
+    func closeEdge(_ edge: WorkspaceDockEdge) {
+        openEdges.remove(edge)
     }
 
     func removeDock(_ dock: WorkspaceDock) {
         guard dock.controller.allTabIds.isEmpty else { return }
         switch dock.edge {
-        case .left where left.count > 1:
+        case .left:
             left.removeAll { $0.id == dock.id }
-        case .right where right.count > 1:
+        case .right:
             right.removeAll { $0.id == dock.id }
-        case .bottom where bottom.count > 1:
+        case .bottom:
             bottom.removeAll { $0.id == dock.id }
-        default:
-            break
+        }
+        if docks(for: dock.edge).isEmpty {
+            closeEdge(dock.edge)
         }
     }
 
     func canRemove(_ dock: WorkspaceDock) -> Bool {
-        docks(for: dock.edge).count > 1 && dock.controller.allTabIds.isEmpty
+        dock.controller.allTabIds.isEmpty
+    }
+
+    func hasEmptyDocks(edge: WorkspaceDockEdge) -> Bool {
+        docks(for: edge).contains { $0.controller.allTabIds.isEmpty }
+    }
+
+    func removeEmptyDocks(edge: WorkspaceDockEdge) {
+        switch edge {
+        case .left:
+            left.removeAll { $0.controller.allTabIds.isEmpty }
+        case .right:
+            right.removeAll { $0.controller.allTabIds.isEmpty }
+        case .bottom:
+            bottom.removeAll { $0.controller.allTabIds.isEmpty }
+        }
+        if docks(for: edge).isEmpty {
+            closeEdge(edge)
+        }
     }
 
     func updateAppearance(
@@ -7248,6 +7396,43 @@ final class WorkspaceDockLayout: ObservableObject {
             return right
         case .bottom:
             return bottom
+        }
+    }
+
+    private static func makeDocks(
+        edge: WorkspaceDockEdge,
+        definitions: [CmuxWorkspaceDockDefinition]?,
+        configuration: BonsplitConfiguration
+    ) -> [WorkspaceDock] {
+        guard let definitions else { return [] }
+        return definitions.enumerated().map { index, definition in
+            WorkspaceDock(
+                edge: edge,
+                ordinal: index + 1,
+                preferredSize: preferredSize(for: edge, definition: definition),
+                configuration: configuration
+            )
+        }
+    }
+
+    private static func initialOpenEdges(
+        dockConfiguration: CmuxWorkspaceDockConfiguration?
+    ) -> Set<WorkspaceDockEdge> {
+        guard let dockConfiguration else { return [] }
+        return Set(WorkspaceDockEdge.allCases.filter { edge in
+            dockConfiguration.definitions(for: edge).contains { $0.open == true }
+        })
+    }
+
+    private static func preferredSize(
+        for edge: WorkspaceDockEdge,
+        definition: CmuxWorkspaceDockDefinition
+    ) -> CGFloat? {
+        switch edge {
+        case .left, .right:
+            return definition.width.map { CGFloat($0) }
+        case .bottom:
+            return definition.height.map { CGFloat($0) }
         }
     }
 }
@@ -7860,6 +8045,7 @@ final class Workspace: Identifiable, ObservableObject {
         workingDirectory: String? = nil,
         portOrdinal: Int = 0,
         configTemplate: CmuxSurfaceConfigTemplate? = nil,
+        dockConfiguration: CmuxWorkspaceDockConfiguration? = nil,
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String] = [:], initialDetachedSurface: DetachedSurfaceTransfer? = nil
@@ -7903,7 +8089,7 @@ final class Workspace: Identifiable, ObservableObject {
             appearance: appearance
         )
         self.bonsplitController = BonsplitController(configuration: config)
-        self.dockLayout = WorkspaceDockLayout(configuration: config)
+        self.dockLayout = WorkspaceDockLayout(configuration: config, dockConfiguration: dockConfiguration)
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
 
         // Remove the default "Welcome" tab that bonsplit creates
@@ -7979,6 +8165,7 @@ final class Workspace: Identifiable, ObservableObject {
         // Set ourselves as delegate
         bonsplitController.delegate = self
         dockLayout.bind(to: self)
+        applyDockConfiguration(dockConfiguration, baseCwd: initialDirectory)
 
         // Ensure bonsplit has a focused pane and our didSelectTab handler runs for the
         // initial terminal. bonsplit's createTab selects internally but does not emit
@@ -13181,10 +13368,13 @@ final class Workspace: Identifiable, ObservableObject {
         orientation: SplitOrientation,
         insertFirst: Bool,
         workingDirectory: String?,
-        initialInput: String?
+        initialInput: String?,
+        focus: Bool = true
     ) -> TerminalPanel? {
         let controller = targetController ?? bonsplitController(containingPane: paneId) ?? bonsplitController
         let inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
 
         let newPanel = TerminalPanel(
             workspaceId: id,
@@ -13217,10 +13407,18 @@ final class Workspace: Identifiable, ObservableObject {
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
             return nil
         }
-        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "terminal_split", focused: true)
+        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "terminal_split", focused: focus)
 
-        controller.selectTab(newTab.id)
-        newPanel.focus()
+        if focus {
+            controller.selectTab(newTab.id)
+            newPanel.focus()
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: newPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
         return newPanel
     }
 

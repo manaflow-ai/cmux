@@ -122,6 +122,49 @@ struct CmuxConfigExecutor {
     }
 
     @discardableResult
+    static func executeNewWorkspaceTemplate(
+        workspace: CmuxWorkspaceDefinition,
+        tabManager: TabManager,
+        baseCwd: String,
+        configSourcePath: String?,
+        globalConfigPath: String,
+        presentingWindow: NSWindow? = nil,
+        onExecuted: (() -> Void)? = nil
+    ) -> Bool {
+        let command = CmuxCommandDefinition(
+            name: workspace.name ?? String(
+                localized: "command.cmuxConfig.newWorkspaceTemplateTitle",
+                defaultValue: "New Workspace"
+            ),
+            workspace: workspace
+        )
+        return authorizeProjectActionIfNeeded(
+            descriptor: workspaceTrustDescriptor(
+                command: command,
+                actionID: "cmux.config.newWorkspace",
+                configSourcePath: configSourcePath,
+                icon: nil,
+                iconSourcePath: nil,
+                globalConfigPath: globalConfigPath
+            ),
+            confirm: false,
+            configSourcePath: configSourcePath,
+            globalConfigPath: globalConfigPath,
+            displayCommand: command.name,
+            displayTitle: command.name,
+            presentingWindow: presentingWindow
+        ) {
+            _ = createWorkspace(
+                workspace: workspace,
+                workspaceName: workspace.name,
+                tabManager: tabManager,
+                baseCwd: baseCwd
+            )
+            onExecuted?()
+        }
+    }
+
+    @discardableResult
     static func prepareShellInputIfAuthorized(
         _ rawCommand: String,
         confirm: Bool,
@@ -467,20 +510,42 @@ struct CmuxConfigExecutor {
             }
         }
 
-        let resolvedCwd = CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: baseCwd)
-        let newWorkspace = tabManager.addWorkspace(workingDirectory: resolvedCwd)
-        newWorkspace.setCustomTitle(workspaceName)
-        if let color = wsDef.color {
-            newWorkspace.setCustomColor(color)
-        }
+        let newWorkspace = createWorkspace(
+            workspace: wsDef,
+            workspaceName: workspaceName,
+            tabManager: tabManager,
+            baseCwd: baseCwd
+        )
 
         if let existingWorkspaceToClose, existingWorkspaceToClose.id != newWorkspace.id {
             tabManager.closeWorkspace(existingWorkspaceToClose)
         }
 
+        return true
+    }
+
+    @discardableResult
+    private static func createWorkspace(
+        workspace wsDef: CmuxWorkspaceDefinition,
+        workspaceName: String?,
+        tabManager: TabManager,
+        baseCwd: String
+    ) -> Workspace {
+        let resolvedCwd = CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: baseCwd)
+        let newWorkspace = tabManager.addWorkspace(
+            title: workspaceName,
+            workingDirectory: resolvedCwd,
+            dockConfiguration: wsDef.docks
+        )
+        if let workspaceName {
+            newWorkspace.setCustomTitle(workspaceName)
+        }
+        if let color = wsDef.color {
+            newWorkspace.setCustomColor(color)
+        }
         if let layout = wsDef.layout {
             newWorkspace.applyCustomLayout(layout, baseCwd: resolvedCwd)
         }
-        return true
+        return newWorkspace
     }
 }

@@ -2028,6 +2028,7 @@ class TabManager: ObservableObject {
         workingDirectory: String?,
         portOrdinal: Int,
         configTemplate: CmuxSurfaceConfigTemplate?,
+        dockConfiguration: CmuxWorkspaceDockConfiguration? = nil,
         initialTerminalCommand: String?,
         initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String]
@@ -2037,6 +2038,7 @@ class TabManager: ObservableObject {
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
             configTemplate: configTemplate,
+            dockConfiguration: dockConfiguration,
             initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
             initialTerminalEnvironment: initialTerminalEnvironment
@@ -2108,6 +2110,7 @@ class TabManager: ObservableObject {
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
         placementOverride: NewWorkspacePlacement? = nil,
+        dockConfiguration: CmuxWorkspaceDockConfiguration? = nil,
         autoWelcomeIfNeeded: Bool = true
     ) -> Workspace {
         let sourceWorkspace = selectedWorkspace
@@ -2150,6 +2153,7 @@ class TabManager: ObservableObject {
                 workingDirectory: workingDirectory,
                 portOrdinal: ordinal,
                 configTemplate: inheritedConfig,
+                dockConfiguration: dockConfiguration,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment
