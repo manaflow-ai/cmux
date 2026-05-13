@@ -191,9 +191,10 @@ final class ExtensionPanel: NSObject, Panel, ObservableObject {
         let workspaceId = workspaceId
         let surfaceId = id
         let paneId = paneId
-        DispatchQueue.global(qos: .userInitiated).async { [method, paramsFragment, messageIdFragment, workspaceId, surfaceId, paneId] in
+        let terminalController = TerminalController.shared
+        DispatchQueue.global(qos: .userInitiated).async { [terminalController, method, paramsFragment, messageIdFragment, workspaceId, surfaceId, paneId] in
             let params = ExtensionBridgeCodec.decodeJSONFragment(paramsFragment) as? [String: Any] ?? [:]
-            let response = TerminalController.shared.performExtensionBridgeRPC(
+            let response = terminalController.performExtensionBridgeRPC(
                 method: method,
                 params: params,
                 workspaceId: workspaceId,

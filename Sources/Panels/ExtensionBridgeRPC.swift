@@ -9,22 +9,22 @@ protocol ExtensionBridgeHost: AnyObject {
         _ body: () -> T
     ) -> T
 
-    func v2RefreshKnownRefs()
-    func v2Capabilities() -> [String: Any]
-    func v2SystemTree(params: [String: Any]) -> TerminalController.V2CallResult
-    func v2WorkspaceList(params: [String: Any]) -> TerminalController.V2CallResult
-    func v2WorkspaceCurrent(params: [String: Any]) -> TerminalController.V2CallResult
-    func v2PaneList(params: [String: Any]) -> TerminalController.V2CallResult
-    func v2PaneSurfaces(params: [String: Any]) -> TerminalController.V2CallResult
-    func v2PaneCreate(params: [String: Any]) -> TerminalController.V2CallResult
-    func v2SurfaceList(params: [String: Any]) -> TerminalController.V2CallResult
-    func v2SurfaceCurrent(params: [String: Any]) -> TerminalController.V2CallResult
-    func v2SurfaceFocus(params: [String: Any]) -> TerminalController.V2CallResult
-    func v2SurfaceCreate(params: [String: Any]) -> TerminalController.V2CallResult
-    func v2SurfaceSplit(params: [String: Any]) -> TerminalController.V2CallResult
-    func v2SurfaceClose(params: [String: Any]) -> TerminalController.V2CallResult
-    func v2SurfaceSendText(params: [String: Any]) -> TerminalController.V2CallResult
-    func v2SurfaceSendKey(params: [String: Any]) -> TerminalController.V2CallResult
+    @MainActor func v2RefreshKnownRefs()
+    @MainActor func v2Capabilities() -> [String: Any]
+    @MainActor func v2SystemTree(params: [String: Any]) -> TerminalController.V2CallResult
+    @MainActor func v2WorkspaceList(params: [String: Any]) -> TerminalController.V2CallResult
+    @MainActor func v2WorkspaceCurrent(params: [String: Any]) -> TerminalController.V2CallResult
+    @MainActor func v2PaneList(params: [String: Any]) -> TerminalController.V2CallResult
+    @MainActor func v2PaneSurfaces(params: [String: Any]) -> TerminalController.V2CallResult
+    @MainActor func v2PaneCreate(params: [String: Any]) -> TerminalController.V2CallResult
+    @MainActor func v2SurfaceList(params: [String: Any]) -> TerminalController.V2CallResult
+    @MainActor func v2SurfaceCurrent(params: [String: Any]) -> TerminalController.V2CallResult
+    @MainActor func v2SurfaceFocus(params: [String: Any]) -> TerminalController.V2CallResult
+    @MainActor func v2SurfaceCreate(params: [String: Any]) -> TerminalController.V2CallResult
+    @MainActor func v2SurfaceSplit(params: [String: Any]) -> TerminalController.V2CallResult
+    @MainActor func v2SurfaceClose(params: [String: Any]) -> TerminalController.V2CallResult
+    @MainActor func v2SurfaceSendText(params: [String: Any]) -> TerminalController.V2CallResult
+    @MainActor func v2SurfaceSendKey(params: [String: Any]) -> TerminalController.V2CallResult
 }
 
 extension TerminalController: ExtensionBridgeHost {}
