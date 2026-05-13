@@ -1000,6 +1000,45 @@ def test_live_socket_strips_inherited_cmux_restore_module(failures: list[str]) -
     )
 
 
+def test_stale_socket_strips_inherited_cmux_restore_module_before_passthrough(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-stale-passthrough-") as td:
+        root = Path(td)
+        stale_tmpdir = root / "deleted-session-tmp"
+        home = root / "home"
+        home.mkdir()
+        inherited = (
+            f"--require={stale_tmpdir}/cmux-claude-node-options/restore-node-options.cjs "
+            "--max-old-space-size=4096 --trace-warnings"
+        )
+        code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options, hook_cmux_bin, _ = run_wrapper(
+            socket_state="stale",
+            argv=["hello"],
+            node_options=inherited,
+            tmpdir=str(stale_tmpdir),
+            home=str(home),
+        )
+    expect(code == 0, f"stale socket inherited restore module: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv == ["hello"], f"stale socket inherited restore module: expected passthrough args, got {real_argv}", failures)
+    expect(any(" ping" in line for line in cmux_log), f"stale socket inherited restore module: expected cmux ping probe, got {cmux_log}", failures)
+    expect(claudecode == "__UNSET__", f"stale socket inherited restore module: expected CLAUDECODE unset, got {claudecode!r}", failures)
+    expect(
+        node_options == "--trace-warnings",
+        f"stale socket inherited restore module: expected wrapper NODE_OPTIONS to drop cmux restore preload, got {node_options!r}",
+        failures,
+    )
+    expect(
+        runtime_node_options == "--trace-warnings",
+        f"stale socket inherited restore module: expected runtime NODE_OPTIONS to drop cmux restore preload, got {runtime_node_options!r}",
+        failures,
+    )
+    expect(
+        child_node_options == "--trace-warnings",
+        f"stale socket inherited restore module: expected child NODE_OPTIONS to drop cmux restore preload, got {child_node_options!r}",
+        failures,
+    )
+    expect(hook_cmux_bin == "__UNSET__", f"stale socket inherited restore module: expected hook cmux unset, got {hook_cmux_bin!r}", failures)
+
+
 def test_live_socket_preserves_explicit_bypass_availability_flag(failures: list[str]) -> None:
     cases = [
         ("allow/print", ["--allow-dangerously-skip-permissions", "--print", "hello"], True, "--allow-dangerously-skip-permissions"),
@@ -1124,6 +1163,7 @@ def main() -> int:
     test_live_socket_tmpdir_failure_uses_persistent_restore_module(failures)
     test_live_socket_restore_module_survives_session_tmpdir_cleanup(failures)
     test_live_socket_strips_inherited_cmux_restore_module(failures)
+    test_stale_socket_strips_inherited_cmux_restore_module_before_passthrough(failures)
     test_live_socket_preserves_explicit_bypass_availability_flag(failures)
     test_live_socket_stale_mktemp_literal_does_not_warn(failures)
     test_missing_socket_skips_hook_injection(failures)
