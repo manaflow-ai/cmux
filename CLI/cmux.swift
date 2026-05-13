@@ -1886,6 +1886,28 @@ struct CMUXCLI {
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
     private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
 
+    private final class CodexTranscriptChangeWaiter: @unchecked Sendable {
+        private let condition = NSCondition()
+        private var didObserveChange = false
+
+        func signal() {
+            condition.lock()
+            didObserveChange = true
+            condition.signal()
+            condition.unlock()
+        }
+
+        func wait(until deadline: Date) {
+            condition.lock()
+            while !didObserveChange, Date() < deadline {
+                if !condition.wait(until: deadline) {
+                    break
+                }
+            }
+            condition.unlock()
+        }
+    }
+
     private func captureSocketTransportError(telemetry: CLISocketSentryTelemetry, stage: String, error: Error, client: SocketClient) {
         if client.hasUnfinishedOperationTelemetry() {
             telemetry.captureError(stage: stage, error: error, data: client.operationTelemetryContext())
@@ -18630,7 +18652,8 @@ struct CMUXCLI {
     private func waitForCodexTranscriptChange(path: String?, leasePath: String?, timeout: TimeInterval) {
         guard timeout > 0 else { return }
 
-        let semaphore = DispatchSemaphore(value: 0)
+        let waiter = CodexTranscriptChangeWaiter()
+        let deadline = Date().addingTimeInterval(timeout)
         var sources: [DispatchSourceFileSystemObject] = []
 
         func addFileSource(path: String?, eventMask: DispatchSource.FileSystemEvent) {
@@ -18644,7 +18667,7 @@ struct CMUXCLI {
                 queue: DispatchQueue.global(qos: .utility)
             )
             source.setEventHandler {
-                semaphore.signal()
+                waiter.signal()
             }
             source.setCancelHandler {
                 close(fd)
@@ -18657,11 +18680,11 @@ struct CMUXCLI {
         addFileSource(path: leasePath, eventMask: [.write, .delete, .rename])
 
         guard !sources.isEmpty else {
-            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
+            waiter.wait(until: deadline)
             return
         }
 
-        _ = semaphore.wait(timeout: .now() + timeout)
+        waiter.wait(until: deadline)
         sources.forEach { $0.cancel() }
     }
 
