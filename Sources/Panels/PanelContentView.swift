@@ -6,7 +6,6 @@ import AppKit
 /// View that renders the appropriate panel view based on panel type
 struct PanelContentView: View {
     let panel: any Panel
-    let workspace: Workspace
     let workspaceId: UUID
     let paneId: PaneID
     let isFocused: Bool

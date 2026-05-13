@@ -12,6 +12,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     private weak var workspace: Workspace?
     private weak var fileExplorerContainerView: FileExplorerContainerView?
+    private weak var sessionIndexFocusAnchorView: RightSidebarToolFocusAnchorView?
     private var fileExplorerStoreStorage: FileExplorerStore?
     private var fileExplorerStateStorage: FileExplorerState?
     private var sessionIndexStoreStorage: SessionIndexStore?
@@ -68,6 +69,10 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         fileExplorerContainerView = container
     }
 
+    fileprivate func attachSessionIndexFocusAnchor(_ anchor: RightSidebarToolFocusAnchorView?) {
+        sessionIndexFocusAnchorView = anchor
+    }
+
     func syncWorkspaceRoot(from workspace: Workspace) {
         switch mode {
         case .files, .find:
@@ -95,6 +100,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     func close() {
         fileExplorerContainerView = nil
+        sessionIndexFocusAnchorView = nil
         fileExplorerStoreStorage?.applyWorkspaceRoot(.none)
         sessionIndexStoreStorage?.setCurrentDirectoryIfChanged(nil)
         workspaceObservationCancellable = nil
@@ -106,7 +112,11 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             _ = fileExplorerContainerView?.focusOutline()
         case .find:
             _ = fileExplorerContainerView?.focusSearchField()
-        case .sessions, .feed, .dock:
+        case .sessions:
+            guard let anchor = sessionIndexFocusAnchorView,
+                  let window = anchor.window else { return }
+            _ = window.makeFirstResponder(anchor)
+        case .feed, .dock:
             break
         }
     }
@@ -121,8 +131,16 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent? {
         _ = window
-        guard fileExplorerContainerView?.ownsKeyboardFocus(responder) == true else { return nil }
-        return .panel
+        switch mode {
+        case .files, .find:
+            guard fileExplorerContainerView?.ownsKeyboardFocus(responder) == true else { return nil }
+            return .panel
+        case .sessions:
+            guard sessionIndexFocusAnchorView?.ownsKeyboardFocus(responder) == true else { return nil }
+            return .panel
+        case .feed, .dock:
+            return nil
+        }
     }
 
     private func observeWorkspaceRootChanges(_ workspace: Workspace) {
@@ -233,6 +251,10 @@ struct RightSidebarToolPanelView: View {
                     SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
                 }
             )
+            .background(
+                RightSidebarToolFocusAnchor(onViewChange: panel.attachSessionIndexFocusAnchor)
+                    .frame(width: 0, height: 0)
+            )
         case .feed, .dock:
             EmptyView()
         }
@@ -241,5 +263,72 @@ struct RightSidebarToolPanelView: View {
     private func requestPanelFocusIfNeeded() {
         guard !panel.isFocusedInWorkspace else { return }
         onRequestPanelFocus()
+    }
+}
+
+private struct RightSidebarToolFocusAnchor: NSViewRepresentable {
+    final class Coordinator {
+        var onViewChange: (RightSidebarToolFocusAnchorView?) -> Void
+
+        init(onViewChange: @escaping (RightSidebarToolFocusAnchorView?) -> Void) {
+            self.onViewChange = onViewChange
+        }
+    }
+
+    let onViewChange: (RightSidebarToolFocusAnchorView?) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onViewChange: onViewChange)
+    }
+
+    func makeNSView(context: Context) -> RightSidebarToolFocusAnchorView {
+        let view = RightSidebarToolFocusAnchorView()
+        context.coordinator.onViewChange(view)
+        return view
+    }
+
+    func updateNSView(_ nsView: RightSidebarToolFocusAnchorView, context: Context) {
+        context.coordinator.onViewChange = onViewChange
+        context.coordinator.onViewChange(nsView)
+    }
+
+    static func dismantleNSView(_ nsView: RightSidebarToolFocusAnchorView, coordinator: Coordinator) {
+        _ = nsView
+        coordinator.onViewChange(nil)
+    }
+}
+
+fileprivate final class RightSidebarToolFocusAnchorView: NSView {
+    override var acceptsFirstResponder: Bool { true }
+
+    func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {
+        if responder === self { return true }
+        guard let responderView = Self.view(for: responder) else { return false }
+        guard let root = focusRootView else { return false }
+        return responderView === root || responderView.isDescendant(of: root)
+    }
+
+    private static func view(for responder: NSResponder) -> NSView? {
+        if let view = responder as? NSView {
+            return view
+        }
+        if let textView = responder as? NSTextView,
+           let delegateView = textView.delegate as? NSView {
+            return delegateView
+        }
+        return nil
+    }
+
+    private var focusRootView: NSView? {
+        guard let superview else { return nil }
+        var current: NSView? = superview
+        while let view = current {
+            let typeName = String(describing: type(of: view))
+            if typeName.contains("NSHosting") || typeName.contains("ViewHost") {
+                return view
+            }
+            current = view.superview
+        }
+        return superview
     }
 }

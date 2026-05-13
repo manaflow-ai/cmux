@@ -233,7 +233,6 @@ struct WorkspaceContentView: View {
                 )
                 PanelContentView(
                     panel: panel,
-                    workspace: workspace,
                     workspaceId: workspace.id,
                     paneId: paneId,
                     isFocused: isFocused,
