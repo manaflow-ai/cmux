@@ -1,7 +1,7 @@
 import Foundation
 
-struct MarkdownWebTypography: Equatable {
-    struct HeadingSizes: Equatable {
+nonisolated struct MarkdownWebTypography: Equatable, Sendable {
+    struct HeadingSizes: Equatable, Sendable {
         let h1: Double
         let h2: Double
         let h3: Double
@@ -55,16 +55,7 @@ struct MarkdownWebTypography: Equatable {
     }
 }
 
-enum MarkdownTypographySettings {
-    struct HeadingSizes: Equatable {
-        let h1: Double
-        let h2: Double
-        let h3: Double
-        let h4: Double
-        let h5: Double
-        let h6: Double
-    }
-
+nonisolated enum MarkdownTypographySettings {
     static let fontFamilyKey = "markdown.typography.fontFamily"
     static let fontSizeKey = "markdown.typography.fontSize"
     static let headingH1SizeKey = "markdown.typography.headingSizes.h1"
@@ -78,39 +69,34 @@ enum MarkdownTypographySettings {
 
     static let defaultFontFamily = "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Noto Sans\", Helvetica, Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\""
     static let defaultFontSize: Double = 15
-    static let defaultHeadingSizes = HeadingSizes(
-        h1: 30,
-        h2: 22.5,
-        h3: 18.75,
-        h4: 15,
-        h5: 13.13,
-        h6: 12.75
-    )
     static let defaultCodeBlockFontFamily = "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", monospace"
     static let defaultCodeBlockFontSize: Double = 13.5
 
     static let fontSizeRange: ClosedRange<Double> = 8...32
     static let headingSizeRange: ClosedRange<Double> = 8...72
     static let codeBlockFontSizeRange: ClosedRange<Double> = 8...32
+    static let defaultHeadingSizes = defaultHeadingSizes(forFontSize: defaultFontSize)
 
     static func resolved(defaults: UserDefaults = .standard) -> MarkdownWebTypography {
-        MarkdownWebTypography(
+        let bodyFontSize = resolvedSize(
+            defaults.object(forKey: fontSizeKey),
+            fallback: defaultFontSize,
+            range: fontSizeRange
+        )
+        let derivedHeadingSizes = defaultHeadingSizes(forFontSize: bodyFontSize)
+        return MarkdownWebTypography(
             fontFamily: resolvedFontFamily(
                 defaults.string(forKey: fontFamilyKey),
                 fallback: defaultFontFamily
             ),
-            fontSize: resolvedSize(
-                defaults.object(forKey: fontSizeKey),
-                fallback: defaultFontSize,
-                range: fontSizeRange
-            ),
+            fontSize: bodyFontSize,
             headingSizes: MarkdownWebTypography.HeadingSizes(
-                h1: resolvedSize(defaults.object(forKey: headingH1SizeKey), fallback: defaultHeadingSizes.h1, range: headingSizeRange),
-                h2: resolvedSize(defaults.object(forKey: headingH2SizeKey), fallback: defaultHeadingSizes.h2, range: headingSizeRange),
-                h3: resolvedSize(defaults.object(forKey: headingH3SizeKey), fallback: defaultHeadingSizes.h3, range: headingSizeRange),
-                h4: resolvedSize(defaults.object(forKey: headingH4SizeKey), fallback: defaultHeadingSizes.h4, range: headingSizeRange),
-                h5: resolvedSize(defaults.object(forKey: headingH5SizeKey), fallback: defaultHeadingSizes.h5, range: headingSizeRange),
-                h6: resolvedSize(defaults.object(forKey: headingH6SizeKey), fallback: defaultHeadingSizes.h6, range: headingSizeRange)
+                h1: resolvedSize(defaults.object(forKey: headingH1SizeKey), fallback: derivedHeadingSizes.h1, range: headingSizeRange),
+                h2: resolvedSize(defaults.object(forKey: headingH2SizeKey), fallback: derivedHeadingSizes.h2, range: headingSizeRange),
+                h3: resolvedSize(defaults.object(forKey: headingH3SizeKey), fallback: derivedHeadingSizes.h3, range: headingSizeRange),
+                h4: resolvedSize(defaults.object(forKey: headingH4SizeKey), fallback: derivedHeadingSizes.h4, range: headingSizeRange),
+                h5: resolvedSize(defaults.object(forKey: headingH5SizeKey), fallback: derivedHeadingSizes.h5, range: headingSizeRange),
+                h6: resolvedSize(defaults.object(forKey: headingH6SizeKey), fallback: derivedHeadingSizes.h6, range: headingSizeRange)
             ),
             codeBlockFontFamily: resolvedFontFamily(
                 defaults.string(forKey: codeBlockFontFamilyKey),
@@ -121,6 +107,17 @@ enum MarkdownTypographySettings {
                 fallback: defaultCodeBlockFontSize,
                 range: codeBlockFontSizeRange
             )
+        )
+    }
+
+    static func defaultHeadingSizes(forFontSize fontSize: Double) -> MarkdownWebTypography.HeadingSizes {
+        MarkdownWebTypography.HeadingSizes(
+            h1: scaledHeadingSize(fontSize, scale: 2),
+            h2: scaledHeadingSize(fontSize, scale: 1.5),
+            h3: scaledHeadingSize(fontSize, scale: 1.25),
+            h4: scaledHeadingSize(fontSize, scale: 1),
+            h5: scaledHeadingSize(fontSize, scale: 0.875),
+            h6: scaledHeadingSize(fontSize, scale: 0.85)
         )
     }
 
@@ -137,6 +134,11 @@ enum MarkdownTypographySettings {
     static func normalizedSize(_ raw: Double, range: ClosedRange<Double>) -> Double? {
         guard raw.isFinite, range.contains(raw) else { return nil }
         return (raw * 100).rounded() / 100
+    }
+
+    private static func scaledHeadingSize(_ fontSize: Double, scale: Double) -> Double {
+        let rounded = (fontSize * scale * 100).rounded() / 100
+        return min(max(rounded, headingSizeRange.lowerBound), headingSizeRange.upperBound)
     }
 
     private static func resolvedFontFamily(_ raw: String?, fallback: String) -> String {

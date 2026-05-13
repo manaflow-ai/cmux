@@ -65,7 +65,11 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(theme.cssVariables["--cmux-markdown-font-family"], "Avenir Next, sans-serif")
         XCTAssertEqual(theme.cssVariables["--cmux-markdown-font-size"], "16.25px")
         XCTAssertEqual(theme.cssVariables["--cmux-markdown-h1-font-size"], "34px")
+        XCTAssertEqual(theme.cssVariables["--cmux-markdown-h2-font-size"], "26px")
         XCTAssertEqual(theme.cssVariables["--cmux-markdown-h3-font-size"], "21px")
+        XCTAssertEqual(theme.cssVariables["--cmux-markdown-h4-font-size"], "17px")
+        XCTAssertEqual(theme.cssVariables["--cmux-markdown-h5-font-size"], "14px")
+        XCTAssertEqual(theme.cssVariables["--cmux-markdown-h6-font-size"], "12px")
         XCTAssertEqual(theme.cssVariables["--cmux-markdown-code-block-font-family"], "JetBrains Mono, ui-monospace, monospace")
         XCTAssertEqual(theme.cssVariables["--cmux-markdown-code-block-font-size"], "14.5px")
     }

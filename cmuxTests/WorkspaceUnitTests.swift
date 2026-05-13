@@ -1742,11 +1742,15 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
 
         let typography = MarkdownTypographySettings.resolved(defaults: defaults)
+        let derivedHeadingSizes = MarkdownTypographySettings.defaultHeadingSizes(forFontSize: 16.5)
         XCTAssertEqual(typography.fontFamily, MarkdownTypographySettings.defaultFontFamily)
         XCTAssertEqual(typography.fontSize, 16.5)
-        XCTAssertEqual(typography.headingSizes.h1, MarkdownTypographySettings.defaultHeadingSizes.h1)
+        XCTAssertEqual(typography.headingSizes.h1, derivedHeadingSizes.h1)
         XCTAssertEqual(typography.headingSizes.h2, 24)
-        XCTAssertEqual(typography.headingSizes.h3, MarkdownTypographySettings.defaultHeadingSizes.h3)
+        XCTAssertEqual(typography.headingSizes.h3, derivedHeadingSizes.h3)
+        XCTAssertEqual(typography.headingSizes.h4, derivedHeadingSizes.h4)
+        XCTAssertEqual(typography.headingSizes.h5, derivedHeadingSizes.h5)
+        XCTAssertEqual(typography.headingSizes.h6, derivedHeadingSizes.h6)
         XCTAssertEqual(typography.codeBlockFontFamily, MarkdownTypographySettings.defaultCodeBlockFontFamily)
         XCTAssertEqual(typography.codeBlockFontSize, 14.25)
     }

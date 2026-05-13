@@ -209,34 +209,17 @@ struct MarkdownPanelView: View {
     }
 
     private var markdownTypography: MarkdownWebTypography {
-        MarkdownWebTypography(
-            fontFamily: MarkdownTypographySettings.normalizedFontFamily(markdownFontFamily)
-                ?? MarkdownTypographySettings.defaultFontFamily,
-            fontSize: MarkdownTypographySettings.normalizedSize(
-                markdownFontSize,
-                range: MarkdownTypographySettings.fontSizeRange
-            ) ?? MarkdownTypographySettings.defaultFontSize,
-            headingSizes: MarkdownWebTypography.HeadingSizes(
-                h1: MarkdownTypographySettings.normalizedSize(markdownHeadingH1Size, range: MarkdownTypographySettings.headingSizeRange)
-                    ?? MarkdownTypographySettings.defaultHeadingSizes.h1,
-                h2: MarkdownTypographySettings.normalizedSize(markdownHeadingH2Size, range: MarkdownTypographySettings.headingSizeRange)
-                    ?? MarkdownTypographySettings.defaultHeadingSizes.h2,
-                h3: MarkdownTypographySettings.normalizedSize(markdownHeadingH3Size, range: MarkdownTypographySettings.headingSizeRange)
-                    ?? MarkdownTypographySettings.defaultHeadingSizes.h3,
-                h4: MarkdownTypographySettings.normalizedSize(markdownHeadingH4Size, range: MarkdownTypographySettings.headingSizeRange)
-                    ?? MarkdownTypographySettings.defaultHeadingSizes.h4,
-                h5: MarkdownTypographySettings.normalizedSize(markdownHeadingH5Size, range: MarkdownTypographySettings.headingSizeRange)
-                    ?? MarkdownTypographySettings.defaultHeadingSizes.h5,
-                h6: MarkdownTypographySettings.normalizedSize(markdownHeadingH6Size, range: MarkdownTypographySettings.headingSizeRange)
-                    ?? MarkdownTypographySettings.defaultHeadingSizes.h6
-            ),
-            codeBlockFontFamily: MarkdownTypographySettings.normalizedFontFamily(markdownCodeBlockFontFamily)
-                ?? MarkdownTypographySettings.defaultCodeBlockFontFamily,
-            codeBlockFontSize: MarkdownTypographySettings.normalizedSize(
-                markdownCodeBlockFontSize,
-                range: MarkdownTypographySettings.codeBlockFontSizeRange
-            ) ?? MarkdownTypographySettings.defaultCodeBlockFontSize
-        )
+        _ = markdownFontFamily
+        _ = markdownFontSize
+        _ = markdownHeadingH1Size
+        _ = markdownHeadingH2Size
+        _ = markdownHeadingH3Size
+        _ = markdownHeadingH4Size
+        _ = markdownHeadingH5Size
+        _ = markdownHeadingH6Size
+        _ = markdownCodeBlockFontFamily
+        _ = markdownCodeBlockFontSize
+        return MarkdownTypographySettings.resolved()
     }
 
     // MARK: - Copy actions

@@ -771,12 +771,12 @@
           "minimum": 8,
           "maximum": 32,
           "default": 15,
-          "description": "Markdown body font size in pixels."
+          "description": "Markdown body font size in pixels. Heading defaults scale from this size when headingSizes are omitted."
         },
         "headingSizes": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Markdown heading font sizes in pixels.",
+          "description": "Markdown heading font sizes in pixels. Omitted heading levels scale from fontSize using the default GitHub ratios.",
           "properties": {
             "h1": {
               "type": "number",
