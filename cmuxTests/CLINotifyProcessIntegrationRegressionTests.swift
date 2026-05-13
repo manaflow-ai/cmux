@@ -2153,21 +2153,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    private func memoryTelemetrySampleCount(in dbURL: URL) throws -> Int {
-        var db: OpaquePointer?
-        let openResult = sqlite3_open_v2(dbURL.path, &db, SQLITE_OPEN_READONLY, nil)
-        XCTAssertEqual(openResult, SQLITE_OK)
-        defer { sqlite3_close(db) }
-
-        var stmt: OpaquePointer?
-        let prepareResult = sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM workspace_memory_samples", -1, &stmt, nil)
-        XCTAssertEqual(prepareResult, SQLITE_OK)
-        defer { sqlite3_finalize(stmt) }
-
-        XCTAssertEqual(sqlite3_step(stmt), SQLITE_ROW)
-        return Int(sqlite3_column_int64(stmt, 0))
-    }
-
     private func insertMemoryTelemetrySample(
         in dbURL: URL,
         sampledAt: Date,
