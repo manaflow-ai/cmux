@@ -1624,6 +1624,7 @@ struct ContentView: View {
     )
     private static let commandPaletteUsageDefaultsKey = "commandPalette.commandUsage.v1"
     nonisolated private static let commandPaletteCommandsPrefix = ">"
+    nonisolated private static let commandPaletteResolvedResultLimit = 100
     private static let commandPaletteVisiblePreviewResultLimit = 48
     private static let commandPaletteVisiblePreviewCandidateLimit = 192
     private static let minimumSidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.minimumSidebarWidth)
@@ -5186,7 +5187,7 @@ struct ContentView: View {
         let results = CommandPaletteSearchEngine.search(
             entries: searchCorpus,
             query: query,
-            resultLimit: resultLimit,
+            resultLimit: resultLimit ?? Self.commandPaletteResolvedResultLimit,
             historyBoost: { commandId, _ in
                 Self.commandPaletteHistoryBoost(
                     for: commandId,

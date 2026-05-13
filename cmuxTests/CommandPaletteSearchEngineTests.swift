@@ -338,6 +338,35 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         }
     }
 
+    func testLimitedSearchStillFindsDeepWorkspaceMatch() {
+        let entries = makeLargeWorkspaceSwitcherEntries(count: 5_000)
+
+        let results = optimizedResults(
+            entries: entries,
+            query: "workspace 4913",
+            resultLimit: 10
+        )
+
+        XCTAssertEqual(results.first?.id, "workspace.large.4913")
+        XCTAssertLessThanOrEqual(results.count, 10)
+    }
+
+    func testLimitedSearchReturnsOnlyRequestedResultCountForBroadWorkspaceQuery() {
+        let entries = makeLargeWorkspaceSwitcherEntries(count: 1_200)
+
+        let results = optimizedResults(
+            entries: entries,
+            query: "workspace",
+            resultLimit: 100
+        )
+
+        XCTAssertEqual(results.count, 100)
+        XCTAssertEqual(
+            results,
+            Array(optimizedResults(entries: entries, query: "workspace").prefix(100))
+        )
+    }
+
     func testSearchCancellationReturnsNoResults() {
         let entries = makeCommandEntries(count: 512)
         let corpus = entries.map { entry in
@@ -1106,18 +1135,26 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
         for query in queries.prefix(8) {
             _ = CommandPaletteSearchEngine.search(entries: corpus, query: query) { _, _ in 0 }
+            _ = CommandPaletteSearchEngine.search(entries: corpus, query: query, resultLimit: 100) { _, _ in 0 }
             _ = CommandPaletteSearchEngine.search(entries: visibleCandidateCorpus, query: query, resultLimit: 48) { _, _ in 0 }
         }
 
         var fullDurationsMs: [Double] = []
+        var cappedFullDurationsMs: [Double] = []
         var previewDurationsMs: [Double] = []
         fullDurationsMs.reserveCapacity(queries.count)
+        cappedFullDurationsMs.reserveCapacity(queries.count)
         previewDurationsMs.reserveCapacity(queries.count)
 
         for query in queries {
             fullDurationsMs.append(
                 benchmarkElapsedMs {
                     _ = CommandPaletteSearchEngine.search(entries: corpus, query: query) { _, _ in 0 }
+                }
+            )
+            cappedFullDurationsMs.append(
+                benchmarkElapsedMs {
+                    _ = CommandPaletteSearchEngine.search(entries: corpus, query: query, resultLimit: 100) { _, _ in 0 }
                 }
             )
             previewDurationsMs.append(
@@ -1128,34 +1165,50 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         }
 
         let fullMs = fullDurationsMs.reduce(0, +)
+        let cappedFullMs = cappedFullDurationsMs.reduce(0, +)
         let previewMs = previewDurationsMs.reduce(0, +)
         let fullDroppedFrames = estimatedDroppedFrames(for: fullDurationsMs)
+        let cappedFullDroppedFrames = estimatedDroppedFrames(for: cappedFullDurationsMs)
         let previewDroppedFrames = estimatedDroppedFrames(for: previewDurationsMs)
         let maxFullMs = fullDurationsMs.max() ?? 0
+        let maxCappedFullMs = cappedFullDurationsMs.max() ?? 0
         let maxPreviewMs = previewDurationsMs.max() ?? 0
         let maxPreviewQuery = previewDurationsMs.enumerated().max(by: { $0.element < $1.element }).map {
             queries[$0.offset]
         } ?? ""
 
         print(String(
-            format: "BENCH cmd+p fast-typing full=%.2fms visiblePreview=%.2fms maxFull=%.2fms maxVisiblePreview=%.2fms maxVisiblePreviewQuery=%@ fullDroppedFrames=%d visiblePreviewDroppedFrames=%d",
+            format: "BENCH cmd+p fast-typing full=%.2fms cappedFull=%.2fms visiblePreview=%.2fms maxFull=%.2fms maxCappedFull=%.2fms maxVisiblePreview=%.2fms maxVisiblePreviewQuery=%@ fullDroppedFrames=%d cappedFullDroppedFrames=%d visiblePreviewDroppedFrames=%d",
             fullMs,
+            cappedFullMs,
             previewMs,
             maxFullMs,
+            maxCappedFullMs,
             maxPreviewMs,
             maxPreviewQuery,
             fullDroppedFrames,
+            cappedFullDroppedFrames,
             previewDroppedFrames
         ))
         XCTAssertLessThan(
-            previewMs,
+            cappedFullMs,
             fullMs,
-            "Visible-candidate preview search should avoid full-corpus work during fast typing: full=\(fullMs) preview=\(previewMs)"
+            "Capped full-corpus search should avoid preparing results the UI cannot render: full=\(fullMs) capped=\(cappedFullMs)"
+        )
+        XCTAssertLessThanOrEqual(
+            cappedFullDroppedFrames,
+            fullDroppedFrames,
+            "Capped full-corpus search should not increase estimated frame-budget misses: full=\(fullDroppedFrames) capped=\(cappedFullDroppedFrames)"
+        )
+        XCTAssertLessThan(
+            previewMs,
+            cappedFullMs,
+            "Visible-candidate preview search should avoid full-corpus work during fast typing: capped=\(cappedFullMs) preview=\(previewMs)"
         )
         XCTAssertLessThanOrEqual(
             previewDroppedFrames,
-            fullDroppedFrames,
-            "Preview search should not increase estimated frame-budget misses: full=\(fullDroppedFrames) preview=\(previewDroppedFrames)"
+            cappedFullDroppedFrames,
+            "Preview search should not increase estimated frame-budget misses: capped=\(cappedFullDroppedFrames) preview=\(previewDroppedFrames)"
         )
     }
 }
