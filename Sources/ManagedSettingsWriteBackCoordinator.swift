@@ -9,17 +9,17 @@ actor ManagedSettingsWriteBackCoordinator {
     }
 
     func schedule(
-        work: @escaping @Sendable () async throws -> Void
-    ) async -> Result<Void, Error>? {
+        work: @escaping @Sendable () async throws -> ManagedSettingsWriteBackOutcome
+    ) async -> Result<ManagedSettingsWriteBackOutcome, Error>? {
         generation &+= 1
         let currentGeneration = generation
         let previousWrite = writeTail
-        let task = Task.detached(priority: .utility) { () -> Result<Void, Error>? in
+        let task = Task.detached(priority: .utility) { () -> Result<ManagedSettingsWriteBackOutcome, Error>? in
             await previousWrite?.value
             guard await self.isCurrent(currentGeneration) else { return nil }
             do {
-                try await work()
-                return .success(())
+                let outcome = try await work()
+                return .success(outcome)
             } catch {
                 return .failure(error)
             }

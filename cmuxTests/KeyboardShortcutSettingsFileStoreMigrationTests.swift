@@ -564,13 +564,65 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         let plan = try XCTUnwrap(CmuxSettingsManagedEditWriter.makeWriteBackPlan(snapshot: snapshot))
         var loadCount = 0
 
-        try plan.write(fileManager: .default) {
+        let outcome = try plan.write(fileManager: .default) {
             loadCount += 1
             return "from-ui"
         }
 
+        XCTAssertEqual(outcome, .wroteChanges)
         XCTAssertEqual(loadCount, 1)
         XCTAssertEqual(try stringSetting(in: primaryURL, section: "automation", key: "socketPassword"), "from-ui")
+    }
+
+    func testSocketPasswordWriteBackReportsNoChangesWhenPasswordMatches() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "automation": {
+                "socketPassword": "from-config"
+              }
+            }
+            """,
+            to: primaryURL
+        )
+        let originalContents = try String(contentsOf: primaryURL, encoding: .utf8)
+
+        var snapshot = ResolvedSettingsSnapshot(path: primaryURL.path)
+        snapshot.managedCustomSettings.socketPassword = .set("from-config")
+        snapshot.managedCustomSettingSources[CmuxSettingsFileStore.socketPasswordWriteBackIdentifier] =
+            ManagedCustomSettingSource(
+                sourcePath: primaryURL.path,
+                jsonPath: "automation.socketPassword"
+            )
+        let plan = try XCTUnwrap(CmuxSettingsManagedEditWriter.makeWriteBackPlan(snapshot: snapshot))
+        var loadCount = 0
+
+        let outcome = try plan.write(fileManager: .default) {
+            loadCount += 1
+            return "from-config"
+        }
+
+        XCTAssertEqual(outcome, .noChanges)
+        XCTAssertEqual(loadCount, 1)
+        XCTAssertEqual(try String(contentsOf: primaryURL, encoding: .utf8), originalContents)
+    }
+
+    func testJSONCValueEditorFollowsExistingIndentationWhenInsertingMissingSetting() throws {
+        let edited = try JSONCValueEditor.settingValues(
+            [(jsonPath: "sidebarAppearance.matchTerminalBackground", literal: "true")],
+            in: """
+            {
+                "schemaVersion": 1
+            }
+            """
+        )
+
+        XCTAssertTrue(edited.contains("\n    \"sidebarAppearance\":"))
+        XCTAssertFalse(edited.contains("\n  \"sidebarAppearance\":"))
     }
 
     private func makeTemporaryDirectory() throws -> URL {

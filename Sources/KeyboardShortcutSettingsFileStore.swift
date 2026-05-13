@@ -264,8 +264,15 @@ final class CmuxSettingsFileStore {
                 guard let result else { return }
                 await MainActor.run {
                     switch result {
-                    case .success:
+                    case .success(.wroteChanges):
                         self?.reload()
+                    case .success(.noChanges):
+                        self?.applyManagedSettings(
+                            snapshot: snapshot,
+                            importedManagedDefaults: importedManagedDefaults,
+                            changedManagedDefaultKeys: [],
+                            updateBackups: false
+                        )
                     case .failure(let error):
                         logManagedSettingsWriteBackFailure(error)
                         self?.applyManagedSettings(

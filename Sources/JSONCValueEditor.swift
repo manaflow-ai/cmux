@@ -3,7 +3,6 @@ import Foundation
 enum JSONCValueEditor {
     enum EditError: Error, CustomStringConvertible {
         case invalidPath(String)
-        case missingPath(String)
         case expectedRootObject
         case expectedObject(String)
         case malformedJSONC(String)
@@ -12,8 +11,6 @@ enum JSONCValueEditor {
             switch self {
             case .invalidPath(let path):
                 return "invalid JSON path '\(path)'"
-            case .missingPath(let path):
-                return "missing JSON path '\(path)'"
             case .expectedRootObject:
                 return "expected root JSON object"
             case .expectedObject(let path):
@@ -183,7 +180,11 @@ private struct JSONCValueRangeFinder {
         let objectEnd = try scanBalanced(from: objectStart, open: "{", close: "}")
         let closingBrace = text.index(before: objectEnd)
         let closeIndent = indentation(containing: closingBrace)
-        let childIndent = closeIndent + "  "
+        let childIndent = try childIndentation(
+            inObjectAt: objectStart,
+            closingBrace: closingBrace,
+            closeIndent: closeIndent
+        )
         let quotedKey = try JSONCValueEditor.literal(for: key)
 
         if let tail = try lastObjectMemberTail(objectStart: objectStart, closingBrace: closingBrace) {
@@ -206,6 +207,24 @@ private struct JSONCValueRangeFinder {
         var output = text
         output.insert(contentsOf: inserted, at: insertionIndex)
         return output
+    }
+
+    private func childIndentation(
+        inObjectAt objectStart: String.Index,
+        closingBrace: String.Index,
+        closeIndent: String
+    ) throws -> String {
+        var cursor = text.index(after: objectStart)
+        while cursor < closingBrace {
+            cursor = skipTrivia(from: cursor)
+            guard cursor < closingBrace, text[cursor] != "}" else { break }
+            let memberIndent = indentation(containing: cursor)
+            if memberIndent.hasPrefix(closeIndent), memberIndent.count > closeIndent.count {
+                return memberIndent
+            }
+            return closeIndent + "  "
+        }
+        return closeIndent + "  "
     }
 
     private func objectLiteral(for components: [String], leafLiteral: String) throws -> String {

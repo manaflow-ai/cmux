@@ -3,7 +3,13 @@ import os
 
 nonisolated private let managedSettingsWriteBackPlanLog = Logger(subsystem: "com.cmuxterm.app", category: "SettingsFile")
 
+enum ManagedSettingsWriteBackOutcome: Equatable, Sendable {
+    case wroteChanges
+    case noChanges
+}
+
 // Plans capture UserDefaults values before background I/O; custom file-backed values resolve during write().
+// Safety: all captured values are immutable JSON-compatible values copied before detached background work runs.
 struct ManagedSettingsWriteBackPlan: @unchecked Sendable {
     private let changesBySourcePath: [String: [String: Any]]
     private let customSocketPasswordSources: [(sourcePath: String, jsonPath: String, managedValue: ManagedStringOverride)]
@@ -19,12 +25,16 @@ struct ManagedSettingsWriteBackPlan: @unchecked Sendable {
     func write(
         fileManager: FileManager,
         loadSocketPassword: () throws -> String? = { try SocketControlPasswordStore.loadPassword() }
-    ) throws {
+    ) throws -> ManagedSettingsWriteBackOutcome {
         var resolvedChangesBySourcePath = changesBySourcePath
         collectCustomSocketPasswordEdits(
             changesBySourcePath: &resolvedChangesBySourcePath,
             loadSocketPassword: loadSocketPassword
         )
+        resolvedChangesBySourcePath = resolvedChangesBySourcePath.filter { !$0.value.isEmpty }
+        guard !resolvedChangesBySourcePath.isEmpty else {
+            return .noChanges
+        }
         for sourcePath in resolvedChangesBySourcePath.keys.sorted() {
             let changesByPath = resolvedChangesBySourcePath[sourcePath] ?? [:]
             let changes = changesByPath.keys.sorted().map { jsonPath in
@@ -32,6 +42,7 @@ struct ManagedSettingsWriteBackPlan: @unchecked Sendable {
             }
             try CmuxSettingsJSONWriter.write(changes, to: sourcePath, fileManager: fileManager)
         }
+        return .wroteChanges
     }
 
     private func collectCustomSocketPasswordEdits(
@@ -66,7 +77,7 @@ struct ManagedSettingsFileIO: @unchecked Sendable {
         self.fileManager = fileManager
     }
 
-    func write(_ plan: ManagedSettingsWriteBackPlan) throws {
+    func write(_ plan: ManagedSettingsWriteBackPlan) throws -> ManagedSettingsWriteBackOutcome {
         try plan.write(fileManager: fileManager)
     }
 }
