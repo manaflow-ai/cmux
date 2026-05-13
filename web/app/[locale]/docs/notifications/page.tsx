@@ -80,14 +80,13 @@ afplay /path/to/sound.aiff
 echo "$CMUX_NOTIFICATION_TITLE: $CMUX_NOTIFICATION_BODY" >> ~/notifications.log`}</CodeBlock>
       <p>{t("customCommandNote")}</p>
 
-      <h2 id="notification-hooks">Notification hooks</h2>
+      <h2 id="notification-hooks">{t("hooksTitle")}</h2>
       <p>
-        <code>cmux.json</code> can define notification hooks that receive every notification policy
-        as JSON on stdin. Each hook returns JSON on stdout. cmux applies the returned notification
-        text and effects, so hooks can filter banners, keep or skip sidebar history, run sounds, or
-        stop later hooks.
+        {t.rich("hooksIntro", {
+          config: (chunks) => <code>{chunks}</code>,
+        })}
       </p>
-      <CodeBlock title="cmux.json" lang="json">{`{
+      <CodeBlock title={t("hooksJsonTitle")} lang="json">{`{
   "notifications": {
     "hooks": [
       {
@@ -98,7 +97,7 @@ echo "$CMUX_NOTIFICATION_TITLE: $CMUX_NOTIFICATION_BODY" >> ~/notifications.log`
     ]
   }
 }`}</CodeBlock>
-      <CodeBlock title="Hook input and output" lang="json">{`{
+      <CodeBlock title={t("hooksIOTitle")} lang="json">{`{
   "version": 1,
   "notification": {
     "workspaceId": "3B3F0D83-...",
@@ -125,14 +124,14 @@ echo "$CMUX_NOTIFICATION_TITLE: $CMUX_NOTIFICATION_BODY" >> ~/notifications.log`
   }
 }`}</CodeBlock>
       <p>
-        Hooks are inherited from global <code>~/.config/cmux/cmux.json</code> and project
-        <code>.cmux/cmux.json</code> files from parent directories to the current workspace.
-        Project hooks use the same trust prompt as other project <code>cmux.json</code> commands
-        before they run. Feed approval banners also pass through these hooks; disabling
-        <code>desktop</code> suppresses the native banner while keeping the Feed item available in
-        cmux. Set <code>notifications.hooksMode</code> to <code>replace</code> in a project config
-        to ignore inherited hooks. If a hook fails, times out, or returns invalid JSON, cmux uses
-        the default notification behavior and posts a hook failure alert.
+        {t.rich("hooksDetails", {
+          globalConfig: (chunks) => <code>{chunks}</code>,
+          projectConfig: (chunks) => <code>{chunks}</code>,
+          config: (chunks) => <code>{chunks}</code>,
+          desktop: (chunks) => <code>{chunks}</code>,
+          hooksMode: (chunks) => <code>{chunks}</code>,
+          replace: (chunks) => <code>{chunks}</code>,
+        })}
       </p>
 
       <h2>{t("sending")}</h2>

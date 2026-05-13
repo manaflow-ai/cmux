@@ -396,6 +396,7 @@
               "command": {
                 "type": "string",
                 "minLength": 1,
+                "pattern": ".*\\S.*",
                 "description": "Shell command run with notification policy JSON on stdin."
               },
               "timeoutSeconds": {

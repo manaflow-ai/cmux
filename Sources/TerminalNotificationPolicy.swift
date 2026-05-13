@@ -26,6 +26,29 @@ struct TerminalNotificationPolicyEffects: Codable, Sendable, Equatable {
     var sound: Bool = true
     var command: Bool = true
     var paneFlash: Bool = true
+
+    private enum CodingKeys: String, CodingKey {
+        case record
+        case markUnread
+        case reorderWorkspace
+        case desktop
+        case sound
+        case command
+        case paneFlash
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        record = try container.decodeIfPresent(Bool.self, forKey: .record) ?? true
+        markUnread = try container.decodeIfPresent(Bool.self, forKey: .markUnread) ?? true
+        reorderWorkspace = try container.decodeIfPresent(Bool.self, forKey: .reorderWorkspace) ?? true
+        desktop = try container.decodeIfPresent(Bool.self, forKey: .desktop) ?? true
+        sound = try container.decodeIfPresent(Bool.self, forKey: .sound) ?? true
+        command = try container.decodeIfPresent(Bool.self, forKey: .command) ?? true
+        paneFlash = try container.decodeIfPresent(Bool.self, forKey: .paneFlash) ?? true
+    }
 }
 
 struct TerminalNotificationPolicyEnvelope: Codable, Sendable, Equatable {
@@ -249,15 +272,24 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
     private let envelope: TerminalNotificationPolicyEnvelope
     private let inputData: Data
     private let maxOutputBytes: Int
-    private let process = Process()
-    private let stdinPipe = Pipe()
-    private let stdoutPipe = Pipe()
-    private let stderrPipe = Pipe()
+    private let queue = DispatchQueue(
+        label: "com.cmuxterm.notification-hook.process.\(UUID().uuidString)",
+        qos: .utility
+    )
     private let outputBuffer = NotificationHookPipeBuffer()
-    private let stateLock = NSLock()
     private var continuation: CheckedContinuation<Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure>, Never>?
+    private var processId: pid_t = -1
+    private var stdinWriteFD: Int32 = -1
+    private var stdoutReadFD: Int32 = -1
+    private var stderrReadFD: Int32 = -1
+    private var stdoutSource: DispatchSourceRead?
+    private var stderrSource: DispatchSourceRead?
+    private var waitSource: DispatchSourceProcess?
+    private var timeoutSource: DispatchSourceTimer?
+    private var killSource: DispatchSourceTimer?
     private var didComplete = false
-    private var didTimeout = false
+    private var didRequestTermination = false
+    private var pendingFailure: TerminalNotificationPolicyFailure?
 
     init(
         hook: CmuxResolvedNotificationHook,
@@ -273,44 +305,99 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
 
     func run() async -> Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure> {
         await withCheckedContinuation { continuation in
-            storeContinuation(continuation)
-            configureProcess()
-            installPipeHandlers()
-
-            process.terminationHandler = { [weak self] process in
-                self?.finish(terminationStatus: process.terminationStatus)
-            }
-
-            do {
-                try process.run()
-                stdinPipe.fileHandleForWriting.write(inputData)
-                stdinPipe.fileHandleForWriting.closeFile()
-            } catch {
-                complete(.failure(TerminalNotificationPolicyEngine.failure(
-                    hook: hook,
-                    message: "Could not launch notification hook: \(error.localizedDescription)"
-                )))
-                return
-            }
-
-            Task { [weak self] in
-                await self?.enforceTimeout()
+            queue.async { [self] in
+                self.continuation = continuation
+                self.start()
             }
         }
     }
 
-    private func storeContinuation(
-        _ continuation: CheckedContinuation<Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure>, Never>
-    ) {
-        stateLock.lock()
-        self.continuation = continuation
-        stateLock.unlock()
+    private func start() {
+        do {
+            try spawnHook()
+            installReadSources()
+            installWaitSource()
+            installTimeoutSource()
+            writeInputAndCloseStdin()
+        } catch {
+            closeOpenFileDescriptors()
+            complete(.failure(TerminalNotificationPolicyEngine.failure(
+                hook: hook,
+                message: "Could not launch notification hook: \(error.localizedDescription)"
+            )))
+        }
     }
 
-    private func configureProcess() {
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", hook.command]
-        process.currentDirectoryURL = URL(fileURLWithPath: hook.cwd, isDirectory: true)
+    private func spawnHook() throws {
+        var stdinFDs = [Int32](repeating: -1, count: 2)
+        var stdoutFDs = [Int32](repeating: -1, count: 2)
+        var stderrFDs = [Int32](repeating: -1, count: 2)
+        defer {
+            for fileDescriptor in stdinFDs + stdoutFDs + stderrFDs where fileDescriptor >= 0 {
+                close(fileDescriptor)
+            }
+        }
+        try throwIfPOSIXError(pipe(&stdinFDs), operation: "create stdin pipe")
+        try throwIfPOSIXError(pipe(&stdoutFDs), operation: "create stdout pipe")
+        try throwIfPOSIXError(pipe(&stderrFDs), operation: "create stderr pipe")
+
+        var fileActions: posix_spawn_file_actions_t?
+        try throwIfPOSIXError(posix_spawn_file_actions_init(&fileActions), operation: "initialize spawn file actions")
+        defer { posix_spawn_file_actions_destroy(&fileActions) }
+
+        try hook.cwd.withCString { cwd in
+            try throwIfPOSIXError(
+                posix_spawn_file_actions_addchdir_np(&fileActions, cwd),
+                operation: "set hook working directory"
+            )
+        }
+        try addDup2(&fileActions, from: stdinFDs[0], to: STDIN_FILENO)
+        try addDup2(&fileActions, from: stdoutFDs[1], to: STDOUT_FILENO)
+        try addDup2(&fileActions, from: stderrFDs[1], to: STDERR_FILENO)
+        for fileDescriptor in stdinFDs + stdoutFDs + stderrFDs {
+            try throwIfPOSIXError(
+                posix_spawn_file_actions_addclose(&fileActions, fileDescriptor),
+                operation: "close inherited hook pipe"
+            )
+        }
+
+        var attributes: posix_spawnattr_t?
+        try throwIfPOSIXError(posix_spawnattr_init(&attributes), operation: "initialize spawn attributes")
+        defer { posix_spawnattr_destroy(&attributes) }
+        var flags = Int16(POSIX_SPAWN_SETPGROUP)
+        try throwIfPOSIXError(posix_spawnattr_setflags(&attributes, flags), operation: "set spawn flags")
+        try throwIfPOSIXError(posix_spawnattr_setpgroup(&attributes, 0), operation: "set process group")
+
+        let arguments = ["/bin/sh", "-c", hook.command]
+        let environment = environmentStrings()
+        var spawnedPID: pid_t = 0
+        let spawnResult = try withCStringArray(arguments) { argv in
+            try withCStringArray(environment) { envp in
+                try "/bin/sh".withCString { executablePath in
+                    posix_spawn(&spawnedPID, executablePath, &fileActions, &attributes, argv, envp)
+                }
+            }
+        }
+        try throwIfPOSIXError(spawnResult, operation: "spawn notification hook")
+
+        processId = spawnedPID
+        stdinWriteFD = stdinFDs[1]
+        stdoutReadFD = stdoutFDs[0]
+        stderrReadFD = stderrFDs[0]
+        stdinFDs[1] = -1
+        stdoutFDs[0] = -1
+        stderrFDs[0] = -1
+        close(stdinFDs[0])
+        stdinFDs[0] = -1
+        close(stdoutFDs[1])
+        stdoutFDs[1] = -1
+        close(stderrFDs[1])
+        stderrFDs[1] = -1
+        makeNonBlocking(stdoutReadFD)
+        makeNonBlocking(stderrReadFD)
+    }
+
+    private func environmentStrings() -> [String] {
         var env = ProcessInfo.processInfo.environment
         env["CMUX_NOTIFICATION_TITLE"] = envelope.notification.title
         env["CMUX_NOTIFICATION_SUBTITLE"] = envelope.notification.subtitle
@@ -318,23 +405,38 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         env["CMUX_NOTIFICATION_WORKSPACE_ID"] = envelope.notification.workspaceId
         env["CMUX_NOTIFICATION_SURFACE_ID"] = envelope.notification.surfaceId ?? ""
         env["CMUX_NOTIFICATION_POLICY_JSON"] = String(data: inputData, encoding: .utf8) ?? ""
-        process.environment = env
-        process.standardInput = stdinPipe
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+        return env.map { "\($0.key)=\($0.value)" }
     }
 
-    private func installPipeHandlers() {
-        let stdoutHandle = stdoutPipe.fileHandleForReading
-        let stderrHandle = stderrPipe.fileHandleForReading
-        makeNonBlocking(stdoutHandle.fileDescriptor)
-        makeNonBlocking(stderrHandle.fileDescriptor)
+    private func addDup2(
+        _ fileActions: inout posix_spawn_file_actions_t?,
+        from source: Int32,
+        to destination: Int32
+    ) throws {
+        try throwIfPOSIXError(
+            posix_spawn_file_actions_adddup2(&fileActions, source, destination),
+            operation: "configure hook pipe"
+        )
+    }
 
-        stdoutHandle.readabilityHandler = { [weak self] handle in
-            self?.drain(fileDescriptor: handle.fileDescriptor, stream: .stdout)
+    private func throwIfPOSIXError(_ result: Int32, operation: String) throws {
+        guard result != 0 else { return }
+        throw POSIXError(.init(rawValue: result) ?? .EIO)
+    }
+
+    private func withCStringArray<T>(
+        _ strings: [String],
+        _ body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) throws -> T
+    ) rethrows -> T {
+        var cStrings = strings.map { strdup($0) }
+        cStrings.append(nil)
+        defer {
+            for cString in cStrings {
+                free(cString)
+            }
         }
-        stderrHandle.readabilityHandler = { [weak self] handle in
-            self?.drain(fileDescriptor: handle.fileDescriptor, stream: .stderr)
+        return try cStrings.withUnsafeMutableBufferPointer { buffer in
+            try body(buffer.baseAddress!)
         }
     }
 
@@ -344,49 +446,177 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         _ = fcntl(fileDescriptor, F_SETFL, flags | O_NONBLOCK)
     }
 
-    private func enforceTimeout() async {
-        let nanoseconds = timeoutNanoseconds(for: hook.timeoutSeconds)
-        try? await Task.sleep(nanoseconds: nanoseconds)
-        guard markTimedOutIfNeeded() else { return }
+    private func installReadSources() {
+        stdoutSource = makeReadSource(fileDescriptor: stdoutReadFD, stream: .stdout)
+        stderrSource = makeReadSource(fileDescriptor: stderrReadFD, stream: .stderr)
+    }
 
-        if process.isRunning {
-            process.terminate()
+    private func makeReadSource(
+        fileDescriptor: Int32,
+        stream: NotificationHookOutputStream
+    ) -> DispatchSourceRead {
+        let source = DispatchSource.makeReadSource(fileDescriptor: fileDescriptor, queue: queue)
+        source.setEventHandler { [self] in
+            let reachedEOF = self.drain(fileDescriptor: fileDescriptor, stream: stream)
+            if reachedEOF {
+                self.cancelReadSource(for: stream)
+            }
+            if self.outputBuffer.snapshot().stdoutExceededLimit {
+                self.requestTermination(TerminalNotificationPolicyEngine.failure(
+                    hook: self.hook,
+                    message: "Notification hook output exceeded \(self.maxOutputBytes) bytes"
+                ))
+            }
+        }
+        source.setCancelHandler {
+            close(fileDescriptor)
+        }
+        source.resume()
+        return source
+    }
+
+    private func installWaitSource() {
+        let source = DispatchSource.makeProcessSource(
+            identifier: processId,
+            eventMask: .exit,
+            queue: queue
+        )
+        source.setEventHandler { [self] in
+            self.processExited()
+        }
+        waitSource = source
+        source.resume()
+    }
+
+    private func installTimeoutSource() {
+        let source = DispatchSource.makeTimerSource(queue: queue)
+        source.schedule(deadline: .now() + hook.timeoutSeconds)
+        source.setEventHandler { [self] in
+            self.timeoutReached()
+        }
+        timeoutSource = source
+        source.resume()
+    }
+
+    private func writeInputAndCloseStdin() {
+        guard stdinWriteFD >= 0 else { return }
+        inputData.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return }
+            var offset = 0
+            while offset < inputData.count {
+                let written = write(stdinWriteFD, baseAddress.advanced(by: offset), inputData.count - offset)
+                if written > 0 {
+                    offset += Int(written)
+                    continue
+                }
+                if written == -1 && errno == EINTR {
+                    continue
+                }
+                break
+            }
+        }
+        closeAndInvalidate(&stdinWriteFD)
+    }
+
+    private func timeoutReached() {
+        guard !didComplete else { return }
+        if let status = reapProcessIfExited() {
+            finish(rawStatus: status)
+            return
+        }
+        requestTermination(TerminalNotificationPolicyEngine.failure(
+            hook: hook,
+            message: "Notification hook timed out after \(Int(hook.timeoutSeconds))s"
+        ))
+    }
+
+    private func requestTermination(_ failure: TerminalNotificationPolicyFailure) {
+        guard !didComplete else { return }
+        if pendingFailure == nil {
+            pendingFailure = failure
+        }
+        guard !didRequestTermination else { return }
+        didRequestTermination = true
+        signalProcessGroup(SIGTERM)
+        scheduleKillAfterGracePeriod()
+    }
+
+    private func scheduleKillAfterGracePeriod() {
+        let source = DispatchSource.makeTimerSource(queue: queue)
+        source.schedule(deadline: .now() + .milliseconds(750))
+        source.setEventHandler { [self] in
+            if self.processId > 0 {
+                self.signalProcessGroup(SIGKILL)
+            }
+            self.killSource?.cancel()
+            self.killSource = nil
+        }
+        killSource = source
+        source.resume()
+    }
+
+    private func signalProcessGroup(_ signal: Int32) {
+        guard processId > 0 else { return }
+        if kill(-processId, signal) != 0 {
+            kill(processId, signal)
+        }
+    }
+
+    private func processExited() {
+        guard let status = waitForProcessExit() else { return }
+        finish(rawStatus: status)
+    }
+
+    private func reapProcessIfExited() -> Int32? {
+        guard processId > 0 else { return nil }
+        var status: Int32 = 0
+        let result = waitpid(processId, &status, WNOHANG)
+        if result == processId {
+            processId = -1
+            return status
+        }
+        if result == -1 && errno == ECHILD {
+            processId = -1
+            return 0
+        }
+        return nil
+    }
+
+    private func waitForProcessExit() -> Int32? {
+        guard processId > 0 else { return nil }
+        var status: Int32 = 0
+        while true {
+            let result = waitpid(processId, &status, 0)
+            if result == processId {
+                processId = -1
+                return status
+            }
+            if result == -1 && errno == EINTR {
+                continue
+            }
+            if result == -1 && errno == ECHILD {
+                processId = -1
+                return 0
+            }
+            return nil
+        }
+    }
+
+    private func finish(rawStatus: Int32) {
+        if stdoutReadFD >= 0 {
+            drain(fileDescriptor: stdoutReadFD, stream: .stdout)
+        }
+        if stderrReadFD >= 0 {
+            drain(fileDescriptor: stderrReadFD, stream: .stderr)
         }
 
-        try? await Task.sleep(nanoseconds: 1_000_000_000)
-        if process.isRunning {
-            kill(process.processIdentifier, SIGKILL)
-        }
-    }
-
-    private func timeoutNanoseconds(for seconds: TimeInterval) -> UInt64 {
-        let maxSeconds = TimeInterval(UInt64.max / 1_000_000_000)
-        let clamped = min(seconds, maxSeconds)
-        return UInt64(clamped * 1_000_000_000)
-    }
-
-    private func markTimedOutIfNeeded() -> Bool {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        guard !didComplete else { return false }
-        didTimeout = true
-        return true
-    }
-
-    private func finish(terminationStatus: Int32) {
-        drain(fileDescriptor: stdoutPipe.fileHandleForReading.fileDescriptor, stream: .stdout)
-        drain(fileDescriptor: stderrPipe.fileHandleForReading.fileDescriptor, stream: .stderr)
-
-        let timedOut = stateLock.withLockedValue { didTimeout }
-        if timedOut {
-            complete(.failure(TerminalNotificationPolicyEngine.failure(
-                hook: hook,
-                message: "Notification hook timed out after \(Int(hook.timeoutSeconds))s"
-            )))
+        if let pendingFailure {
+            complete(.failure(pendingFailure))
             return
         }
 
         let output = outputBuffer.snapshot()
+        let terminationStatus = normalizedTerminationStatus(rawStatus)
         if terminationStatus != 0 {
             let detail = String(data: output.stderr, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -419,8 +649,8 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         }
         let outputData = Data(trimmedOutput.utf8)
         do {
-            let decoded = try JSONDecoder().decode(TerminalNotificationPolicyEnvelope.self, from: outputData)
-            complete(.success(decoded))
+            let patch = try JSONDecoder().decode(TerminalNotificationPolicyEnvelopePatch.self, from: outputData)
+            complete(.success(patch.merged(into: envelope)))
         } catch {
             complete(.failure(TerminalNotificationPolicyEngine.failure(
                 hook: hook,
@@ -429,7 +659,16 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         }
     }
 
-    private func drain(fileDescriptor: Int32, stream: NotificationHookOutputStream) {
+    private func normalizedTerminationStatus(_ rawStatus: Int32) -> Int32 {
+        let signal = rawStatus & 0x7f
+        if signal != 0 {
+            return 128 + signal
+        }
+        return (rawStatus >> 8) & 0xff
+    }
+
+    @discardableResult
+    private func drain(fileDescriptor: Int32, stream: NotificationHookOutputStream) -> Bool {
         var bytes = [UInt8](repeating: 0, count: 8192)
         while true {
             let readCount = read(fileDescriptor, &bytes, bytes.count)
@@ -442,13 +681,16 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
                 continue
             }
 
-            if readCount == 0 || errno == EAGAIN || errno == EWOULDBLOCK {
-                return
+            if readCount == 0 {
+                return true
+            }
+            if errno == EAGAIN || errno == EWOULDBLOCK {
+                return false
             }
             if errno == EINTR {
                 continue
             }
-            return
+            return false
         }
     }
 
@@ -456,34 +698,74 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         _ result: Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure>
     ) {
         let continuation: CheckedContinuation<Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure>, Never>?
-        stateLock.lock()
         if didComplete {
-            stateLock.unlock()
             return
         }
         didComplete = true
         continuation = self.continuation
         self.continuation = nil
-        stateLock.unlock()
 
         cleanup()
         continuation?.resume(returning: result)
     }
 
     private func cleanup() {
-        process.terminationHandler = nil
-        stdoutPipe.fileHandleForReading.readabilityHandler = nil
-        stderrPipe.fileHandleForReading.readabilityHandler = nil
-        stdoutPipe.fileHandleForReading.closeFile()
-        stderrPipe.fileHandleForReading.closeFile()
-        stdinPipe.fileHandleForWriting.closeFile()
+        timeoutSource?.cancel()
+        timeoutSource = nil
+        killSource?.cancel()
+        killSource = nil
+        waitSource?.cancel()
+        waitSource = nil
+        cancelReadSource(for: .stdout)
+        cancelReadSource(for: .stderr)
+        closeAndInvalidate(&stdinWriteFD)
+        closeOpenFileDescriptors()
+    }
+
+    private func cancelReadSource(for stream: NotificationHookOutputStream) {
+        switch stream {
+        case .stdout:
+            stdoutSource?.cancel()
+            stdoutSource = nil
+            stdoutReadFD = -1
+        case .stderr:
+            stderrSource?.cancel()
+            stderrSource = nil
+            stderrReadFD = -1
+        }
+    }
+
+    private func closeOpenFileDescriptors() {
+        closeAndInvalidate(&stdinWriteFD)
+        if stdoutSource == nil {
+            closeAndInvalidate(&stdoutReadFD)
+        }
+        if stderrSource == nil {
+            closeAndInvalidate(&stderrReadFD)
+        }
+    }
+
+    private func closeAndInvalidate(_ fileDescriptor: inout Int32) {
+        guard fileDescriptor >= 0 else { return }
+        close(fileDescriptor)
+        fileDescriptor = -1
     }
 }
 
-private extension NSLock {
-    func withLockedValue<T>(_ body: () throws -> T) rethrows -> T {
-        lock()
-        defer { unlock() }
-        return try body()
+private struct TerminalNotificationPolicyEnvelopePatch: Decodable {
+    var version: Int?
+    var notification: TerminalNotificationPolicyPayload?
+    var context: TerminalNotificationPolicyContext?
+    var effects: TerminalNotificationPolicyEffects?
+    var stop: Bool?
+
+    func merged(into envelope: TerminalNotificationPolicyEnvelope) -> TerminalNotificationPolicyEnvelope {
+        TerminalNotificationPolicyEnvelope(
+            version: version ?? envelope.version,
+            notification: notification ?? envelope.notification,
+            context: context ?? envelope.context,
+            effects: effects ?? envelope.effects,
+            stop: stop ?? envelope.stop
+        )
     }
 }

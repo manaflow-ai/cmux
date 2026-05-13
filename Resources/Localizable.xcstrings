@@ -111586,6 +111586,6 @@
     "rightSidebar.remote.error.modeUnavailable": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Right sidebar mode '%@' is not available" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 右サイドバーのモード '%@' は利用できません" } } } },
     "rightSidebar.remote.error.appDelegateUnavailable": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: App delegate not available" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: アプリデリゲートを利用できません" } } } },
     "notificationHook.failure.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Notification Hook Failed" } }, "ja": { "stringUnit": { "state": "translated", "value": "通知フックに失敗しました" } } } },
-    "notificationHook.failure.body": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "cmux used default notification behavior because '%@' failed: %@" } }, "ja": { "stringUnit": { "state": "translated", "value": "'%@' が失敗したため、cmux は既定の通知動作を使用しました: %@" } } } }
+    "notificationHook.failure.body": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "cmux used default notification behavior because '%@' failed." } }, "ja": { "stringUnit": { "state": "translated", "value": "'%@' が失敗したため、cmux は既定の通知動作を使用しました。" } } } }
   }
 }

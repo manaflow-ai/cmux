@@ -1,7 +1,13 @@
 import AppKit
 import Foundation
+import os
 import UserNotifications
 import Bonsplit
+
+nonisolated private let terminalNotificationLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "notification"
+)
 
 // UNUserNotificationCenter.removeDeliveredNotifications(withIdentifiers:) and
 // removePendingNotificationRequests(withIdentifiers:) perform synchronous XPC to
@@ -972,8 +978,12 @@ final class TerminalNotificationStore: ObservableObject {
            now.timeIntervalSince(lastNotificationDate) < resolvedCooldownInterval {
             return
         }
-        if let cooldownKey, resolvedCooldownInterval != nil {
-            lastNotificationDateByCooldownKey[cooldownKey] = now
+        let cooldownReservation = makeCooldownReservation(
+            key: cooldownKey,
+            interval: resolvedCooldownInterval
+        )
+        if let cooldownReservation {
+            lastNotificationDateByCooldownKey[cooldownReservation.key] = now
         }
 
         let policyContext = makeNotificationPolicyContext(
@@ -988,8 +998,7 @@ final class TerminalNotificationStore: ObservableObject {
                 request: policyContext.request,
                 effects: TerminalNotificationPolicyEffects(),
                 now: now,
-                cooldownKey: cooldownKey,
-                resolvedCooldownInterval: resolvedCooldownInterval
+                cooldownReservation: cooldownReservation
             )
             return
         }
@@ -1005,8 +1014,7 @@ final class TerminalNotificationStore: ObservableObject {
                     request: policyContext.request,
                     effects: TerminalNotificationPolicyEffects(),
                     now: Date(),
-                    cooldownKey: cooldownKey,
-                    resolvedCooldownInterval: resolvedCooldownInterval
+                    cooldownReservation: cooldownReservation
                 )
                 return
             }
@@ -1021,26 +1029,57 @@ final class TerminalNotificationStore: ObservableObject {
                     request: policyContext.request,
                     envelope: envelope,
                     now: Date(),
-                    cooldownKey: cooldownKey,
-                    resolvedCooldownInterval: resolvedCooldownInterval
+                    cooldownReservation: cooldownReservation
                 )
             case .failure(let failure):
                 self.applyNotification(
                     request: policyContext.request,
                     effects: TerminalNotificationPolicyEffects(),
                     now: Date(),
-                    cooldownKey: cooldownKey,
-                    resolvedCooldownInterval: resolvedCooldownInterval
+                    cooldownReservation: cooldownReservation
                 )
                 self.reportNotificationHookFailure(failure)
             }
         }
     }
 
+    private struct NotificationCooldownReservation: Sendable {
+        let key: String
+        let previousDate: Date?
+    }
+
     private struct NotificationPolicyContext: Sendable {
         let request: TerminalNotificationPolicyRequest
         let hooks: [CmuxResolvedNotificationHook]
         let globalConfigPath: String?
+    }
+
+    private func makeCooldownReservation(
+        key: String?,
+        interval: TimeInterval?
+    ) -> NotificationCooldownReservation? {
+        guard let key, interval != nil else { return nil }
+        return NotificationCooldownReservation(
+            key: key,
+            previousDate: lastNotificationDateByCooldownKey[key]
+        )
+    }
+
+    private func commitCooldownReservation(
+        _ reservation: NotificationCooldownReservation?,
+        at date: Date
+    ) {
+        guard let reservation else { return }
+        lastNotificationDateByCooldownKey[reservation.key] = date
+    }
+
+    private func restoreCooldownReservation(_ reservation: NotificationCooldownReservation?) {
+        guard let reservation else { return }
+        if let previousDate = reservation.previousDate {
+            lastNotificationDateByCooldownKey[reservation.key] = previousDate
+        } else {
+            lastNotificationDateByCooldownKey.removeValue(forKey: reservation.key)
+        }
     }
 
     private func makeNotificationPolicyContext(
@@ -1084,8 +1123,7 @@ final class TerminalNotificationStore: ObservableObject {
         request: TerminalNotificationPolicyRequest,
         envelope: TerminalNotificationPolicyEnvelope,
         now: Date,
-        cooldownKey: String?,
-        resolvedCooldownInterval: TimeInterval?
+        cooldownReservation: NotificationCooldownReservation?
     ) {
         let payload = envelope.notification
         applyNotification(
@@ -1101,8 +1139,7 @@ final class TerminalNotificationStore: ObservableObject {
             ),
             effects: envelope.effects,
             now: now,
-            cooldownKey: cooldownKey,
-            resolvedCooldownInterval: resolvedCooldownInterval
+            cooldownReservation: cooldownReservation
         )
     }
 
@@ -1110,10 +1147,12 @@ final class TerminalNotificationStore: ObservableObject {
         request: TerminalNotificationPolicyRequest,
         effects: TerminalNotificationPolicyEffects,
         now: Date,
-        cooldownKey: String?,
-        resolvedCooldownInterval: TimeInterval?
+        cooldownReservation: NotificationCooldownReservation?
     ) {
-        let shouldSuppressExternalDelivery = request.isAppFocused && request.isFocusedPanel
+        let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
+            tabId: request.tabId,
+            surfaceId: request.surfaceId
+        )
         let notification = TerminalNotification(
             id: UUID(),
             tabId: request.tabId,
@@ -1132,8 +1171,7 @@ final class TerminalNotificationStore: ObservableObject {
                 shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
                 effects: effects,
                 now: now,
-                cooldownKey: cooldownKey,
-                resolvedCooldownInterval: resolvedCooldownInterval
+                cooldownReservation: cooldownReservation
             )
             return
         }
@@ -1142,8 +1180,10 @@ final class TerminalNotificationStore: ObservableObject {
             AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
                 .moveTabToTopForNotification(notification.tabId)
         }
-        if let cooldownKey, resolvedCooldownInterval != nil, hasAnyNotificationEffect(effects) {
-            lastNotificationDateByCooldownKey[cooldownKey] = now
+        if hasAnyNotificationEffect(effects) {
+            commitCooldownReservation(cooldownReservation, at: now)
+        } else {
+            restoreCooldownReservation(cooldownReservation)
         }
         deliverNotificationSideEffects(
             notification,
@@ -1157,8 +1197,7 @@ final class TerminalNotificationStore: ObservableObject {
         shouldSuppressExternalDelivery: Bool,
         effects: TerminalNotificationPolicyEffects,
         now: Date,
-        cooldownKey: String?,
-        resolvedCooldownInterval: TimeInterval?
+        cooldownReservation: NotificationCooldownReservation?
     ) {
         var updated = notifications
         var idsToClear: [String] = []
@@ -1185,9 +1224,7 @@ final class TerminalNotificationStore: ObservableObject {
         updated.insert(notification, at: 0)
         setWorkspaceManualUnread(false, forTabId: notification.tabId)
         notifications = updated
-        if let cooldownKey, resolvedCooldownInterval != nil {
-            lastNotificationDateByCooldownKey[cooldownKey] = now
-        }
+        commitCooldownReservation(cooldownReservation, at: now)
         if !idsToClear.isEmpty {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
@@ -1197,6 +1234,16 @@ final class TerminalNotificationStore: ObservableObject {
             shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
             effects: effects
         )
+    }
+
+    private func shouldSuppressExternalDelivery(tabId: UUID, surfaceId: UUID?) -> Bool {
+        let appDelegate = AppDelegate.shared
+        let context = appDelegate?.contextContainingTabId(tabId)
+        let tabManager = context?.tabManager ?? appDelegate?.tabManagerFor(tabId: tabId) ?? appDelegate?.tabManager
+        let focusedSurfaceId = tabManager?.focusedSurfaceId(for: tabId)
+        let isActiveTab = tabManager?.selectedTabId == tabId
+        let isFocusedSurface = surfaceId == nil || focusedSurfaceId == surfaceId
+        return AppFocusState.isAppFocused() && isActiveTab && isFocusedSurface
     }
 
     private func deliverNotificationSideEffects(
@@ -1227,11 +1274,8 @@ final class TerminalNotificationStore: ObservableObject {
             return
         }
         lastNotificationHookFailureDateByKey[key] = now
-        NSLog(
-            "Notification hook '%@' failed from %@: %@",
-            failure.hookId,
-            failure.sourcePath ?? "<unknown>",
-            failure.message
+        terminalNotificationLogger.error(
+            "Notification hook failed hookId=\(failure.hookId, privacy: .public) sourcePath=\(failure.sourcePath ?? "<unknown>", privacy: .private) message=\(failure.message, privacy: .private)"
         )
 
         ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized in
@@ -1242,11 +1286,11 @@ final class TerminalNotificationStore: ObservableObject {
             )
             let format = String(
                 localized: "notificationHook.failure.body",
-                defaultValue: "cmux used default notification behavior because '%@' failed: %@"
+                defaultValue: "cmux used default notification behavior because '%@' failed."
             )
             let content = UNMutableNotificationContent()
             content.title = title
-            content.body = String(format: format, failure.hookId, failure.message)
+            content.body = String(format: format, failure.hookId)
             content.sound = NotificationSoundSettings.sound()
             content.categoryIdentifier = Self.categoryIdentifier
             let request = UNNotificationRequest(

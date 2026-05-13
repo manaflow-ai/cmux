@@ -1007,6 +1007,46 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
+    func testNotificationHooksIncludeExplicitLocalConfigOutsideDiscoveredHierarchy() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let explicitDirectory = root.appendingPathComponent("explicit", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: explicitDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
+        let explicitConfigURL = explicitDirectory.appendingPathComponent("custom-cmux.json")
+        try """
+        {
+          "notifications": {
+            "hooks": [{ "id": "global", "command": "cat" }]
+          }
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "notifications": {
+            "hooks": [{ "id": "explicit", "command": "cat" }]
+          }
+        }
+        """.write(to: explicitConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            localConfigPath: explicitConfigURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.notificationHooks.map(\.id), ["global", "explicit"])
+        XCTAssertEqual(store.notificationHooks[1].sourcePath, explicitConfigURL.path)
+    }
+
+    @MainActor
     func testNotificationHooksReplaceInheritedHooks() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",

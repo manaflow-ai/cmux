@@ -563,7 +563,7 @@ private func deliverFeedNotification(
 ) {
     guard effects.desktop || effects.sound || effects.command else { return }
 
-    if !effects.desktop {
+    func runFallbackEffects() {
         if effects.sound {
             NotificationSoundSettings.playSelectedSound()
         }
@@ -574,6 +574,10 @@ private func deliverFeedNotification(
                 body: body
             )
         }
+    }
+
+    if !effects.desktop {
+        runFallbackEffects()
         return
     }
 
@@ -620,9 +624,12 @@ private func deliverFeedNotification(
                         }
                     }
                 }
+                if !granted {
+                    runFallbackEffects()
+                }
             }
         default:
-            break
+            runFallbackEffects()
         }
     }
 }

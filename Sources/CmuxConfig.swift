@@ -2259,7 +2259,11 @@ final class CmuxConfigStore: ObservableObject {
 
     private func resolvedLocalNotificationHookPaths(fallbackLocalPath: String?) -> [String] {
         if let searchDirectory = localConfigSearchDirectory {
-            return findCmuxConfigHierarchy(startingFrom: searchDirectory)
+            var paths = findCmuxConfigHierarchy(startingFrom: searchDirectory)
+            if let fallbackLocalPath, !paths.contains(fallbackLocalPath) {
+                paths.append(fallbackLocalPath)
+            }
+            return paths
         }
         return fallbackLocalPath.map { [$0] } ?? []
     }
