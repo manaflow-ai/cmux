@@ -3,6 +3,18 @@
 - Tracking issue: https://github.com/manaflow-ai/cmux/issues/3794
 - Related user demand: https://github.com/manaflow-ai/cmux/issues/1012
 
+## Scope
+
+This note answers the narrower issue #3794 request by documenting feasibility
+and a first architecture direction. The broader demand remains issue #1012,
+where users have asked for native Windows, WSL/Linux, and MSYS2/MinGW/Git Bash
+paths. Treat those as related but separate product decisions until the protocol
+boundary and first Windows-adjacent deliverable are chosen.
+
+This is a planning note, not a support announcement. The README and release
+artifacts remain macOS-only until a Windows deliverable satisfies the minimum
+viable definition below.
+
 ## Status
 
 cmux does not currently have a Windows build. A Windows version is feasible, but
