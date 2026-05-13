@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from contextlib import suppress
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -87,10 +88,8 @@ def main() -> int:
     created_layout_ws_id: str | None = None
 
     for path in (marker, layout_left_marker, layout_right_marker):
-        try:
+        with suppress(OSError):
             path.unlink(missing_ok=True)
-        except OSError:
-            pass
 
     with cmux(SOCKET_PATH) as c:
         try:
@@ -169,22 +168,16 @@ def main() -> int:
             _wait_for_marker(layout_right_marker, layout_right_token)
             _must(c.current_workspace() == baseline_ws_id, "Layout command execution should not switch selected workspace")
         finally:
-            if created_layout_ws_id:
-                try:
+            with suppress(Exception):
+                if created_layout_ws_id:
                     c.close_workspace(created_layout_ws_id)
-                except Exception:
-                    pass
-            if created_ws_id:
-                try:
+            with suppress(Exception):
+                if created_ws_id:
                     c.close_workspace(created_ws_id)
-                except Exception:
-                    pass
 
     for path in (marker, layout_left_marker, layout_right_marker):
-        try:
+        with suppress(OSError):
             path.unlink(missing_ok=True)
-        except OSError:
-            pass
 
     print("PASS: new-workspace --command and --layout commands execute without opening the created workspace")
     return 0

@@ -4406,12 +4406,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     private enum PendingSocketInput {
         case text(Data)
+        case keyText(String)
         case key(PendingKeyEvent)
 
         var estimatedBytes: Int {
             switch self {
             case .text(let data):
                 return data.count
+            case .keyText(let text):
+                return max(text.utf8.count, 1)
             case .key(let event):
                 return max(event.label.utf8.count, 1)
             }
@@ -5040,34 +5043,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         attachedView = view
 
-        // If surface doesn't exist yet, create it once the view is in a real window so
-        // content scale and pixel geometry are derived from the actual backing context.
         if surface == nil {
-            guard allowsRuntimeSurfaceCreation() else {
-#if DEBUG
-                cmuxDebugLog(
-                    "surface.attach.skip surface=\(id.uuidString.prefix(5)) " +
-                    "reason=lifecycle.\(portalLifecycleState.rawValue)"
-                )
-#endif
-                return
-            }
-            guard view.window != nil else {
-#if DEBUG
-                cmuxDebugLog(
-                    "surface.attach.defer surface=\(id.uuidString.prefix(5)) reason=noWindow " +
-                    "bounds=\(String(format: "%.1fx%.1f", view.bounds.width, view.bounds.height))"
-                )
-#endif
-                return
-            }
-#if DEBUG
-            cmuxDebugLog("surface.attach.create surface=\(id.uuidString.prefix(5))")
-#endif
-            createSurface(for: view)
-#if DEBUG
-            cmuxDebugLog("surface.attach.create.done surface=\(id.uuidString.prefix(5)) hasSurface=\(surface != nil ? 1 : 0)")
-#endif
+            // Socket input can arrive before SwiftUI has attached the view.
+            // Start immediately on first attach so queued commands do not wait
+            // for focus just to get a PTY.
+            let hasPendingInput = !pendingSocketInputQueue.isEmpty
+            _ = createSurfaceForAttachedViewIfNeeded(
+                reason: hasPendingInput ? "attach_pending_input" : "attach",
+                allowOffWindow: hasPendingInput
+            )
         } else if let screen = view.window?.screen ?? NSScreen.main,
                   let displayID = screen.displayID,
                   displayID != 0,
@@ -5078,6 +5062,47 @@ final class TerminalSurface: Identifiable, ObservableObject {
             cmuxDebugLog("surface.attach.displayId surface=\(id.uuidString.prefix(5)) display=\(displayID)")
 #endif
         }
+    }
+
+    @discardableResult
+    private func createSurfaceForAttachedViewIfNeeded(reason: String, allowOffWindow: Bool) -> Bool {
+        guard surface == nil, let view = attachedView else { return false }
+        guard allowsRuntimeSurfaceCreation() else {
+#if DEBUG
+            cmuxDebugLog(
+                "surface.\(reason).skip surface=\(id.uuidString.prefix(5)) " +
+                "reason=lifecycle.\(portalLifecycleState.rawValue)"
+            )
+#endif
+            return false
+        }
+
+        // Passive attachment waits for an NSWindow so display metrics come from
+        // the real backing context. Explicit input-driven background starts are
+        // allowed off-window: the view has a non-zero bootstrap frame and later
+        // attachment/layout refreshes display and geometry through normal paths.
+        if !allowOffWindow, view.window == nil {
+#if DEBUG
+            cmuxDebugLog(
+                "surface.\(reason).defer surface=\(id.uuidString.prefix(5)) reason=noWindow " +
+                "bounds=\(String(format: "%.1fx%.1f", view.bounds.width, view.bounds.height))"
+            )
+#endif
+            return false
+        }
+
+#if DEBUG
+        cmuxDebugLog(
+            "surface.\(reason).create surface=\(id.uuidString.prefix(5)) inWindow=\(view.window != nil ? 1 : 0)"
+        )
+#endif
+        createSurface(for: view)
+#if DEBUG
+        cmuxDebugLog(
+            "surface.\(reason).create.done surface=\(id.uuidString.prefix(5)) hasSurface=\(surface != nil ? 1 : 0)"
+        )
+#endif
+        return surface != nil
     }
 
     private func createSurface(for view: GhosttyNSView) {
@@ -5609,35 +5634,62 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// events so the shell processes them, while regular text is sent via the
     /// normal key-text path.  Mirrors `TerminalController.sendSocketText`.
     func sendInput(_ text: String) {
-        guard let surface = surface else { return }
+        let targetSurface = surface
         var bufferedText = ""
         var previousWasCR = false
+
+        func flushBufferedText() {
+            guard !bufferedText.isEmpty else { return }
+            if let targetSurface {
+                flushText(&bufferedText, surface: targetSurface)
+            } else {
+                enqueuePendingSocketInput(.keyText(bufferedText))
+                bufferedText.removeAll(keepingCapacity: true)
+            }
+        }
+
+        func sendOrQueueKey(keycode: UInt32, label: String) {
+            if let targetSurface {
+                sendKeyEvent(surface: targetSurface, keycode: keycode)
+            } else {
+                enqueuePendingSocketInput(.key(PendingKeyEvent(
+                    keycode: keycode,
+                    mods: GHOSTTY_MODS_NONE,
+                    label: label
+                )))
+            }
+        }
+
         for scalar in text.unicodeScalars {
             switch scalar.value {
             case 0x0A: // \n — skip if preceded by \r (already sent Return)
                 if !previousWasCR {
-                    flushText(&bufferedText, surface: surface)
-                    sendKeyEvent(surface: surface, keycode: 0x24) // kVK_Return
+                    flushBufferedText()
+                    sendOrQueueKey(keycode: 0x24, label: "Return") // kVK_Return
                 }
                 previousWasCR = false
             case 0x0D:
-                flushText(&bufferedText, surface: surface)
-                sendKeyEvent(surface: surface, keycode: 0x24) // kVK_Return
+                flushBufferedText()
+                sendOrQueueKey(keycode: 0x24, label: "Return") // kVK_Return
                 previousWasCR = true
             case 0x09:
-                flushText(&bufferedText, surface: surface)
-                sendKeyEvent(surface: surface, keycode: 0x30) // kVK_Tab
+                flushBufferedText()
+                sendOrQueueKey(keycode: 0x30, label: "Tab") // kVK_Tab
                 previousWasCR = false
             case 0x1B:
-                flushText(&bufferedText, surface: surface)
-                sendKeyEvent(surface: surface, keycode: 0x35) // kVK_Escape
+                flushBufferedText()
+                sendOrQueueKey(keycode: 0x35, label: "Escape") // kVK_Escape
                 previousWasCR = false
             default:
                 bufferedText.unicodeScalars.append(scalar)
                 previousWasCR = false
             }
         }
-        flushText(&bufferedText, surface: surface)
+        flushBufferedText()
+
+        if targetSurface == nil {
+            requestBackgroundSurfaceStartIfNeeded()
+        }
     }
 
     private func flushText(_ buffer: inout String, surface: ghostty_surface_t) {
@@ -5689,23 +5741,19 @@ final class TerminalSurface: Identifiable, ObservableObject {
             guard let self else { return }
             self.backgroundSurfaceStartQueued = false
             guard self.allowsRuntimeSurfaceCreation() else { return }
-            guard self.surface == nil, let view = self.attachedView else { return }
-            guard view.window != nil else {
-                #if DEBUG
-                cmuxDebugLog(
-                    "surface.background_start.defer surface=\(self.id.uuidString.prefix(8)) reason=noWindow"
-                )
-                #endif
-                return
-            }
             #if DEBUG
             let startedAt = ProcessInfo.processInfo.systemUptime
             #endif
-            self.createSurface(for: view)
+            let didCreateSurface = self.createSurfaceForAttachedViewIfNeeded(
+                reason: "background_start",
+                allowOffWindow: true
+            )
             #if DEBUG
             let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
             cmuxDebugLog(
-                "surface.background_start surface=\(self.id.uuidString.prefix(8)) inWindow=\(view.window != nil ? 1 : 0) ready=\(self.surface != nil ? 1 : 0) ms=\(String(format: "%.2f", elapsedMs))"
+                "surface.background_start surface=\(self.id.uuidString.prefix(8)) " +
+                "created=\(didCreateSurface ? 1 : 0) ready=\(self.surface != nil ? 1 : 0) " +
+                "ms=\(String(format: "%.2f", elapsedMs))"
             )
             #endif
         }
@@ -5889,6 +5937,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             switch item {
             case .text(let chunk):
                 writeTextData(chunk, to: surface)
+            case .keyText(let text):
+                var buffer = text
+                flushText(&buffer, surface: surface)
             case .key(let event):
                 queuedKeys += 1
                 sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
