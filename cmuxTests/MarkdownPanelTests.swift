@@ -11,6 +11,47 @@ import XCTest
 
 @MainActor
 final class MarkdownPanelTests: XCTestCase {
+    func testFileOpenRoutesMarkdownFilesToPreviewMarkdownPanel() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-file-open-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            try? fileManager.removeItem(at: directoryURL)
+        }
+
+        let fileURL = directoryURL.appendingPathComponent("README.md")
+        try "# Title\n\nBody.\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let result = TerminalController.shared.v2FileOpen(params: [
+            "paths": [fileURL.path],
+            "workspace_id": workspace.id.uuidString,
+            "pane_id": pane.id.uuidString,
+            "focus": false
+        ])
+
+        guard case .ok(let rawPayload) = result,
+              let payload = rawPayload as? [String: Any],
+              let openedPanelIdString = payload["surface_id"] as? String,
+              let openedPanelId = UUID(uuidString: openedPanelIdString) else {
+            XCTFail("Expected file.open to succeed for markdown, got \(result)")
+            return
+        }
+
+        let panel = try XCTUnwrap(workspace.markdownPanel(for: openedPanelId))
+        XCTAssertEqual(panel.filePath, fileURL.path)
+        XCTAssertEqual(panel.displayMode, .preview)
+        XCTAssertNil(workspace.filePreviewPanel(for: openedPanelId))
+        XCTAssertEqual(payload["panel_type"] as? String, PanelType.markdown.rawValue)
+        XCTAssertEqual(payload["display_mode"] as? String, MarkdownPanelDisplayMode.preview.rawValue)
+    }
+
     func testOpenMarkdownPanelReloadsWhenFileChangesOnDisk() async throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory

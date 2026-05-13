@@ -10555,6 +10555,26 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    func openOrFocusMarkdownSurface(
+        inPane paneId: PaneID,
+        filePath: String,
+        focus: Bool = true
+    ) -> MarkdownPanel? {
+        let canonical = (filePath as NSString).resolvingSymlinksInPath
+        for (existingId, panel) in panels {
+            guard let markdownPanel = panel as? MarkdownPanel else { continue }
+            if (markdownPanel.filePath as NSString).resolvingSymlinksInPath == canonical {
+                if focus {
+                    focusPanel(existingId)
+                }
+                return markdownPanel
+            }
+        }
+
+        return newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
+    }
+
+    @discardableResult
     func splitPaneWithMarkdown(
         targetPane paneId: PaneID,
         orientation: SplitOrientation,
