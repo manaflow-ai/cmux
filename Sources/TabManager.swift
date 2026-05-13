@@ -3868,8 +3868,10 @@ class TabManager: ObservableObject {
 
     func moveTabToTop(_ tabId: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
-        guard index != 0 else { return }
-        let tab = tabs.remove(at: index)
+        let tab = tabs[index]
+        let targetIndex = tab.isPinned ? 0 : tabs.filter { $0.isPinned }.count
+        guard index != targetIndex else { return }
+        tabs.remove(at: index)
         let pinnedCount = tabs.filter { $0.isPinned }.count
         let insertIndex = tab.isPinned ? 0 : pinnedCount
         tabs.insert(tab, at: insertIndex)
