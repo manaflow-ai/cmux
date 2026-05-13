@@ -21,6 +21,29 @@ private func drainBrowserPanelMainQueue() {
     XCTWaiter().wait(for: [expectation], timeout: 1.0)
 }
 
+private final class BrowserPanelTestNavigationDelegate: NSObject, WKNavigationDelegate {
+    let expectation: XCTestExpectation
+    var error: Error?
+
+    init(expectation: XCTestExpectation) {
+        self.expectation = expectation
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        expectation.fulfill()
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        self.error = error
+        expectation.fulfill()
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        self.error = error
+        expectation.fulfill()
+    }
+}
+
 @MainActor
 private func makeTemporaryBrowserPanelProfile(named prefix: String) throws -> BrowserProfileDefinition {
     try XCTUnwrap(
@@ -61,6 +84,32 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.001, file: file, line: line)
         XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.001, file: file, line: line)
         XCTAssertEqual(actual.alphaComponent, expected.alphaComponent, accuracy: 0.001, file: file, line: line)
+    }
+}
+
+
+@MainActor
+final class BrowserPanelFileSystemAccessBridgeTests: XCTestCase {
+    func testShowOpenFilePickerIsInstalledInBrowserPages() async throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let baseURL = try XCTUnwrap(URL(string: "https://example.test/file-picker"))
+        let loaded = expectation(description: "browser panel test page loaded")
+        let previousDelegate = panel.webView.navigationDelegate
+        let loadDelegate = BrowserPanelTestNavigationDelegate(expectation: loaded)
+        panel.webView.navigationDelegate = loadDelegate
+        defer { panel.webView.navigationDelegate = previousDelegate }
+
+        panel.webView.loadHTMLString(
+            "<!doctype html><html><body>browser panel test page</body></html>",
+            baseURL: baseURL
+        )
+        await fulfillment(of: [loaded], timeout: 5)
+        if let error = loadDelegate.error {
+            throw error
+        }
+
+        let result = try await panel.evaluateJavaScript("typeof window.showOpenFilePicker")
+        XCTAssertEqual(result as? String, "function")
     }
 }
 
