@@ -111,10 +111,62 @@ write_last_socket_path() {
   local socket_path="$1"
   local marker_name="dev-last-socket-path"
   local tmp_marker="/tmp/cmux-dev-last-socket-path"
-  if [[ -n "${TAG_SLUG:-}" ]]; then
-    marker_name="dev-${TAG_SLUG}-last-socket-path"
-    tmp_marker="/tmp/cmux-dev-${TAG_SLUG}-last-socket-path"
-  fi
+  local bundle_id="${BUNDLE_ID:-}"
+  local slug=""
+
+  case "$bundle_id" in
+    com.cmuxterm.app)
+      marker_name="last-socket-path"
+      tmp_marker="/tmp/cmux-last-socket-path"
+      ;;
+    com.cmuxterm.app.nightly)
+      marker_name="nightly-last-socket-path"
+      tmp_marker="/tmp/cmux-nightly-last-socket-path"
+      ;;
+    com.cmuxterm.app.nightly.*)
+      slug="$(sanitize_path "${bundle_id#com.cmuxterm.app.nightly.}")"
+      if [[ -n "$slug" ]]; then
+        marker_name="nightly-${slug}-last-socket-path"
+        tmp_marker="/tmp/cmux-nightly-${slug}-last-socket-path"
+      else
+        marker_name="nightly-last-socket-path"
+        tmp_marker="/tmp/cmux-nightly-last-socket-path"
+      fi
+      ;;
+    com.cmuxterm.app.staging)
+      marker_name="staging-last-socket-path"
+      tmp_marker="/tmp/cmux-staging-last-socket-path"
+      ;;
+    com.cmuxterm.app.staging.*)
+      slug="$(sanitize_path "${bundle_id#com.cmuxterm.app.staging.}")"
+      if [[ -n "$slug" ]]; then
+        marker_name="staging-${slug}-last-socket-path"
+        tmp_marker="/tmp/cmux-staging-${slug}-last-socket-path"
+      else
+        marker_name="staging-last-socket-path"
+        tmp_marker="/tmp/cmux-staging-last-socket-path"
+      fi
+      ;;
+    com.cmuxterm.app.debug)
+      slug="${TAG_SLUG:-}"
+      if [[ -n "$slug" ]]; then
+        marker_name="dev-${slug}-last-socket-path"
+        tmp_marker="/tmp/cmux-dev-${slug}-last-socket-path"
+      fi
+      ;;
+    com.cmuxterm.app.debug.*)
+      slug="$(sanitize_path "${bundle_id#com.cmuxterm.app.debug.}")"
+      if [[ -n "$slug" ]]; then
+        marker_name="dev-${slug}-last-socket-path"
+        tmp_marker="/tmp/cmux-dev-${slug}-last-socket-path"
+      fi
+      ;;
+    *)
+      marker_name="last-socket-path"
+      tmp_marker="/tmp/cmux-last-socket-path"
+      ;;
+  esac
+
   mkdir -p "$LAST_SOCKET_PATH_DIR"
   echo "$socket_path" > "${LAST_SOCKET_PATH_DIR}/${marker_name}" || true
   echo "$socket_path" > "$tmp_marker" || true
