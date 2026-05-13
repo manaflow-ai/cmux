@@ -20218,42 +20218,41 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         if removeCmuxCodexHookTrustBlock(from: &lines) == .malformed {
             stripMalformedCmuxCodexHookTrustMarker(from: &lines)
         }
-        lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
-        lines.removeAll { tomlLineDefinesDottedFeaturesKey("codex_hooks", line: $0) }
+        removeLegacyCodexHooksTrueSettings(from: &lines)
 
         let insertedLines = [
             cmuxCodexHooksFeatureBegin,
-            "hooks = true",
+            "codex_hooks = true",
             cmuxCodexHooksFeatureEnd,
         ]
         let insertedDottedLines = [
             cmuxCodexHooksFeatureBegin,
-            "features.hooks = true",
+            "features.codex_hooks = true",
             cmuxCodexHooksFeatureEnd,
         ]
 
         if let featuresStart = lines.firstIndex(where: { tomlLineIsTable("features", line: $0) }) {
             let featuresEnd = tomlTableEndIndex(in: lines, after: featuresStart)
             if featuresStart + 1 < featuresEnd,
-               let hooksIndex = (featuresStart + 1..<featuresEnd)
-                .first(where: { tomlLineDefinesKey("hooks", line: lines[$0]) })
+               let codexHooksIndex = (featuresStart + 1..<featuresEnd)
+                .first(where: { tomlLineDefinesKey("codex_hooks", line: lines[$0]) })
             {
-                if !tomlLineDefinesTrueKey("hooks", line: lines[hooksIndex]) {
-                    let previousLine = lines[hooksIndex]
+                if !tomlLineDefinesTrueKey("codex_hooks", line: lines[codexHooksIndex]) {
+                    let previousLine = lines[codexHooksIndex]
                     lines.replaceSubrange(
-                        hooksIndex...hooksIndex,
-                        with: codexHooksFeatureLines(settingLine: "hooks = true", previousLine: previousLine)
+                        codexHooksIndex...codexHooksIndex,
+                        with: codexHooksFeatureLines(settingLine: "codex_hooks = true", previousLine: previousLine)
                     )
                 }
             } else {
                 lines.insert(contentsOf: insertedLines, at: featuresStart + 1)
             }
-        } else if let dottedHooksIndex = lines.firstIndex(where: { tomlLineDefinesDottedFeaturesKey("hooks", line: $0) }) {
-            if !tomlLineDefinesDottedFeaturesTrueKey("hooks", line: lines[dottedHooksIndex]) {
-                let previousLine = lines[dottedHooksIndex]
+        } else if let dottedCodexHooksIndex = lines.firstIndex(where: { tomlLineDefinesDottedFeaturesKey("codex_hooks", line: $0) }) {
+            if !tomlLineDefinesDottedFeaturesTrueKey("codex_hooks", line: lines[dottedCodexHooksIndex]) {
+                let previousLine = lines[dottedCodexHooksIndex]
                 lines.replaceSubrange(
-                    dottedHooksIndex...dottedHooksIndex,
-                    with: codexHooksFeatureLines(settingLine: "features.hooks = true", previousLine: previousLine)
+                    dottedCodexHooksIndex...dottedCodexHooksIndex,
+                    with: codexHooksFeatureLines(settingLine: "features.codex_hooks = true", previousLine: previousLine)
                 )
             }
         } else if let firstDottedFeaturesIndex = lines.firstIndex(where: { tomlLineDefinesAnyDottedFeaturesKey($0) }) {
@@ -20285,8 +20284,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         if removeCmuxCodexHookTrustBlock(from: &lines) == .malformed {
             stripMalformedCmuxCodexHookTrustMarker(from: &lines)
         }
-        lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
-        lines.removeAll { tomlLineDefinesDottedFeaturesKey("codex_hooks", line: $0) }
         removeEmptyFeaturesTable(from: &lines)
         return tomlContent(from: lines)
     }
@@ -20579,6 +20576,20 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         return lines.count
     }
 
+    private static func removeLegacyCodexHooksTrueSettings(from lines: inout [String]) {
+        if let featuresStart = lines.firstIndex(where: { tomlLineIsTable("features", line: $0) }) {
+            let featuresEnd = tomlTableEndIndex(in: lines, after: featuresStart)
+            let removableIndexes = (featuresStart + 1..<featuresEnd).filter {
+                tomlLineDefinesTrueKey("hooks", line: lines[$0])
+            }
+            for index in removableIndexes.reversed() {
+                lines.remove(at: index)
+            }
+        }
+
+        lines.removeAll { tomlLineDefinesDottedFeaturesTrueKey("hooks", line: $0) }
+    }
+
     private static func removeCmuxCodexHooksFeatureBlock(from lines: inout [String]) {
         var index = 0
         while index < lines.count {
@@ -20681,7 +20692,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     private static func tomlLineIsCodexHooksFeatureSetting(_ line: String) -> Bool {
-        tomlLineDefinesTrueKey("hooks", line: line)
+        tomlLineDefinesTrueKey("codex_hooks", line: line)
+            || tomlLineDefinesDottedFeaturesTrueKey("codex_hooks", line: line)
+            || tomlLineDefinesTrueKey("hooks", line: line)
             || tomlLineDefinesDottedFeaturesTrueKey("hooks", line: line)
     }
 
