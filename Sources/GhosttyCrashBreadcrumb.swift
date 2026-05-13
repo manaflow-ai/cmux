@@ -16,8 +16,7 @@ nonisolated enum GhosttyCrashBreadcrumb {
     }
 
     @Sendable
-    @concurrent
-    static func pendingCrashFromDefaultStorage() async -> PendingCrash? {
+    nonisolated static func pendingCrashFromDefaultStorage() async -> PendingCrash? {
         await Task.detached(priority: .utility) {
             pendingCrash()
         }.value
