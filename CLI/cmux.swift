@@ -18092,7 +18092,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let isCmuxOwnedCommand: (String) -> Bool = { cmd in
             Self.isCmuxOwnedHookCommand(cmd, for: def)
         }
-        var cmuxInsertionIndexes: [String: Int] = [:]
+        var cmuxInsertionIndexes: [String: [Int]] = [:]
         for (event, value) in hooks {
             switch def.format {
             case .flat:
@@ -18100,9 +18100,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 var rewrittenEntries: [[String: Any]] = []
                 for entry in entries {
                     if isCmuxOwnedCommand(entry["command"] as? String ?? "") {
-                        if cmuxInsertionIndexes[event] == nil {
-                            cmuxInsertionIndexes[event] = rewrittenEntries.count
-                        }
+                        cmuxInsertionIndexes[event, default: []].append(rewrittenEntries.count)
                         continue
                     }
                     rewrittenEntries.append(entry)
@@ -18118,9 +18116,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         rewrittenGroups.append(group)
                         continue
                     }
-                    if hookList.contains(where: { isCmuxOwnedCommand($0["command"] as? String ?? "") }),
-                       cmuxInsertionIndexes[event] == nil {
-                        cmuxInsertionIndexes[event] = rewrittenGroups.count
+                    if hookList.contains(where: { isCmuxOwnedCommand($0["command"] as? String ?? "") }) {
+                        cmuxInsertionIndexes[event, default: []].append(rewrittenGroups.count)
                     }
                     hookList.removeAll { isCmuxOwnedCommand($0["command"] as? String ?? "") }
                     if hookList.isEmpty {
@@ -18142,8 +18139,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             case .flat:
                 var entries = hooks[event] as? [[String: Any]] ?? []
                 if let newEntries = value as? [[String: Any]] {
-                    if let insertionIndex = cmuxInsertionIndexes[event] {
-                        entries.insert(contentsOf: newEntries, at: min(insertionIndex, entries.count))
+                    if let insertionIndexes = cmuxInsertionIndexes[event], !insertionIndexes.isEmpty {
+                        Self.insertCmuxHookValues(newEntries, into: &entries, atOriginalIndexes: insertionIndexes)
                     } else {
                         entries.append(contentsOf: newEntries)
                     }
@@ -18152,8 +18149,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             case .nested:
                 var groups = hooks[event] as? [[String: Any]] ?? []
                 if let newGroups = value as? [[String: Any]] {
-                    if let insertionIndex = cmuxInsertionIndexes[event] {
-                        groups.insert(contentsOf: newGroups, at: min(insertionIndex, groups.count))
+                    if let insertionIndexes = cmuxInsertionIndexes[event], !insertionIndexes.isEmpty {
+                        Self.insertCmuxHookValues(newGroups, into: &groups, atOriginalIndexes: insertionIndexes)
                     } else {
                         groups.append(contentsOf: newGroups)
                     }
@@ -18220,10 +18217,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     existingContent = ""
                 }
                 let featureContent = Self.codexConfigTomlInstallingHooksFeature(in: existingContent)
-                let newContent = Self.codexConfigTomlInstallingHookTrust(
+                let trustInstall = Self.codexConfigTomlInstallingHookTrust(
                     in: featureContent,
                     entries: codexHookTrustEntries
                 )
+                let newContent = trustInstall.content
                 if newContent != existingContent {
                     if !skipConfirm {
                         Self.printInstallPreview(
@@ -18239,7 +18237,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         }
                     }
                     try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
-                    if def.name == "codex", !codexHookTrustEntries.isEmpty {
+                    if def.name == "codex", !codexHookTrustEntries.isEmpty, trustInstall.installedTrust {
                         print("Enabled hooks and approved cmux hooks in \(configPath)")
                     } else {
                         print("Enabled hooks in \(configPath)")
@@ -18331,7 +18329,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 do {
                     content = try String(contentsOfFile: configPath, encoding: .utf8)
                 } catch {
-                    throw CLIError(message: "\(configPath) exists but could not be read. Fix permissions or remove it before uninstalling \(def.displayName) hooks.")
+                    throw CLIError(message: "\(configPath) exists but could not be read. Fix permissions or remove it before uninstalling \(def.displayName) hooks. \(String(describing: error))")
                 }
                 let newContent = Self.codexConfigTomlUninstallingHooksFeature(from: content)
                 if newContent != content {
@@ -18339,6 +18337,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     print("Removed Codex hooks feature from \(configPath)")
                 }
             }
+        }
+    }
+
+    private static func insertCmuxHookValues<T>(_ values: [T], into target: inout [T], atOriginalIndexes indexes: [Int]) {
+        var insertedCount = 0
+        for originalIndex in indexes {
+            let insertionIndex = min(max(originalIndex + insertedCount, 0), target.count)
+            target.insert(contentsOf: values, at: insertionIndex)
+            insertedCount += values.count
         }
     }
 
@@ -18360,6 +18367,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     struct CodexHookTrustEntry: Equatable {
         let key: String
         let trustedHash: String
+    }
+
+    private struct CodexHookTrustInstallResult: Equatable {
+        let content: String
+        let installedTrust: Bool
     }
 
     private enum CodexHookTrustBlockRemovalResult {
@@ -18443,17 +18455,17 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         return tomlContent(from: lines)
     }
 
-    static func codexConfigTomlInstallingHookTrust(
+    private static func codexConfigTomlInstallingHookTrust(
         in existingContent: String,
         entries: [CodexHookTrustEntry]
-    ) -> String {
+    ) -> CodexHookTrustInstallResult {
         var lines = tomlLines(from: existingContent)
         let removalResult = removeCmuxCodexHookTrustBlock(from: &lines)
         guard removalResult != .malformed else {
-            return tomlContent(from: lines)
+            return CodexHookTrustInstallResult(content: tomlContent(from: lines), installedTrust: false)
         }
         guard !entries.isEmpty else {
-            return tomlContent(from: lines)
+            return CodexHookTrustInstallResult(content: tomlContent(from: lines), installedTrust: false)
         }
 
         if !lines.isEmpty, lines.last?.isEmpty == false {
@@ -18465,7 +18477,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             lines.append("trusted_hash = \"\(tomlBasicStringContent(entry.trustedHash))\"")
         }
         lines.append(cmuxCodexHookTrustEnd)
-        return tomlContent(from: lines)
+        return CodexHookTrustInstallResult(content: tomlContent(from: lines), installedTrust: true)
     }
 
     static func codexHookTrustEntries(
@@ -18493,14 +18505,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                           isOwnedCommand(command) else {
                         continue
                     }
-                    let timeoutSec = max(intValue(hook["timeout"]) ?? 600, 1)
+                    let timeoutMs = max(intValue(hook["timeout"]) ?? 600, 1)
                     let statusMessage = hook["statusMessage"] as? String
                     let key = "\(keySource):\(eventLabel):\(groupIndex):\(handlerIndex)"
                     let trustedHash = codexCommandHookHash(
                         eventLabel: eventLabel,
                         matcher: matcher,
                         command: command,
-                        timeoutSec: timeoutSec,
+                        timeoutMs: timeoutMs,
                         statusMessage: statusMessage
                     )
                     entries.append(CodexHookTrustEntry(key: key, trustedHash: trustedHash))
@@ -18569,14 +18581,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         eventLabel: String,
         matcher: String?,
         command: String,
-        timeoutSec: Int,
+        timeoutMs: Int,
         statusMessage: String?
     ) -> String {
-        let normalizedTimeoutSec = max(timeoutSec, 1)
+        let normalizedTimeoutMs = max(timeoutMs, 1)
         var handler: [String: Any] = [
             "async": false,
             "command": command,
-            "timeout": normalizedTimeoutSec,
+            "timeout": normalizedTimeoutMs,
             "type": "command",
         ]
         if let statusMessage {

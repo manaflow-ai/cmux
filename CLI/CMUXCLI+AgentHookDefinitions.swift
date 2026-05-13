@@ -263,9 +263,12 @@ extension CMUXCLI {
     }
 
     private static func isLegacyCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef) -> Bool {
-        guard def.name == "codex",
-              let tokens = legacyCmuxCommandTokens(from: command, for: def),
-              !tokens.isEmpty,
+        // Legacy cmux codex-hook and feed-hook commands only existed for Codex hooks.
+        guard def.name == "codex" else {
+            return false
+        }
+        let tokens = legacyCmuxCommandTokens(from: command, for: def)
+        guard !tokens.isEmpty,
               URL(fileURLWithPath: String(tokens[0])).lastPathComponent == "cmux"
         else {
             return false
@@ -283,7 +286,7 @@ extension CMUXCLI {
         return false
     }
 
-    private static func legacyCmuxCommandTokens(from command: String, for def: AgentHookDef) -> [Substring]? {
+    private static func legacyCmuxCommandTokens(from command: String, for def: AgentHookDef) -> [Substring] {
         let guardedPrefix = "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && "
         let fallbackSuffix = " || echo '{}'"
         var body = command
@@ -294,7 +297,7 @@ extension CMUXCLI {
             body.removeLast(fallbackSuffix.count)
         }
         guard !body.contains(";"), !body.contains("|"), !body.contains("&"), !body.contains("`") else {
-            return nil
+            return []
         }
         return body.split(whereSeparator: { $0 == " " || $0 == "\t" })
     }

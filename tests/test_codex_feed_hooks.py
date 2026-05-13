@@ -808,6 +808,61 @@ def test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path: 
         raise AssertionError(f"third-party hook was not preserved after cmux hook: {groups!r}")
 
 
+def test_install_preserves_each_codex_hook_position_with_interleaved_third_party_hooks(
+    cli_path: str, root: Path
+) -> None:
+    codex_home = root / "codex-home-interleaved"
+    codex_home.mkdir()
+    cmux_pre_tool = cmux_codex_feed_command("PreToolUse")
+    user_hook_before = "printf before"
+    user_hook_middle = "printf middle"
+    user_hook_after = "printf after"
+    (codex_home / "hooks.json").write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "PreToolUse": [
+                        {"hooks": [{"type": "command", "command": user_hook_before}]},
+                        {"hooks": [{"type": "command", "command": cmux_pre_tool, "timeout": 120000}]},
+                        {"hooks": [{"type": "command", "command": user_hook_middle}]},
+                        {"hooks": [{"type": "command", "command": cmux_pre_tool, "timeout": 120000}]},
+                        {"hooks": [{"type": "command", "command": user_hook_after}]},
+                    ]
+                }
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "install", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex install failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    hooks = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
+    commands = [group["hooks"][0]["command"] for group in hooks["hooks"]["PreToolUse"]]
+    expected = [
+        user_hook_before,
+        cmux_pre_tool,
+        user_hook_middle,
+        cmux_pre_tool,
+        user_hook_after,
+    ]
+    if commands != expected:
+        raise AssertionError(f"interleaved cmux hook positions changed: {commands!r}")
+
+
 def test_install_replaces_legacy_codex_hook_commands(cli_path: str, root: Path) -> None:
     codex_home = root / "codex-home-legacy-hooks"
     codex_home.mkdir()
@@ -1249,6 +1304,8 @@ def test_install_does_not_append_hook_trust_when_cmux_marker_is_unclosed(
         )
 
     config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
+    if "approved cmux hooks" in result.stdout:
+        raise AssertionError(f"install falsely claimed hook trust approval: {result.stdout!r}")
     if config_toml.count("# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin") != 1:
         raise AssertionError(f"install appended a second cmux hook trust marker: {config_toml!r}")
     if "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end" in config_toml:
@@ -1499,6 +1556,7 @@ def main() -> int:
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_install_escapes_codex_hook_trust_state_keys(cli_path, root)
             test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path, root)
+            test_install_preserves_each_codex_hook_position_with_interleaved_third_party_hooks(cli_path, root)
             test_install_replaces_legacy_codex_hook_commands(cli_path, root)
             test_install_migrates_legacy_codex_hooks_feature(cli_path, root)
             test_install_migrates_dotted_codex_hooks_feature(cli_path, root)
