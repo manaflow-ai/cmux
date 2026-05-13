@@ -7563,7 +7563,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
             let dismissNotificationStart = ProcessInfo.processInfo.systemUptime
 #endif
-            AppDelegate.shared?.tabManager?.dismissNotificationOnDirectInteraction(
+            AppDelegate.shared?.tabManager?.dismissNotificationOnTerminalInteraction(
                 tabId: terminalSurface.tabId,
                 surfaceId: terminalSurface.id
             )
@@ -8367,7 +8367,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
         if let terminalSurface {
-            AppDelegate.shared?.tabManager?.dismissNotificationOnDirectInteraction(
+            AppDelegate.shared?.tabManager?.dismissNotificationOnTerminalInteraction(
                 tabId: terminalSurface.tabId,
                 surfaceId: terminalSurface.id
             )

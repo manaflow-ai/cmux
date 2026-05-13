@@ -8329,6 +8329,12 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitController.updateTab(tabId, showsNotificationBadge: shouldShowUnread)
     }
 
+    private func syncUnreadBadgeStateForAllPanels() {
+        for panelId in panels.keys {
+            syncUnreadBadgeStateForPanel(panelId)
+        }
+    }
+
     private func normalizePinnedTabs(in paneId: PaneID) {
         guard !isNormalizingPinnedTabOrder else { return }
         isNormalizingPinnedTabOrder = true
@@ -13344,7 +13350,11 @@ extension Workspace: BonsplitDelegate {
         let panelId = effectiveFocusedPanelId
 
         syncPinnedStateForTab(selectedTabId, panelId: selectedPanelId)
-        syncUnreadBadgeStateForPanel(selectedPanelId)
+        if previousFocusedPanelId != panelId {
+            syncUnreadBadgeStateForAllPanels()
+        } else {
+            syncUnreadBadgeStateForPanel(selectedPanelId)
+        }
 
         // Unfocus all other panels
         for (id, p) in panels where id != effectiveFocusedPanelId {

@@ -303,6 +303,9 @@ struct WorkspaceContentView: View {
         .onChange(of: isWorkspaceManuallyUnread) { _, _ in
             syncBonsplitNotificationBadges()
         }
+        .onChange(of: workspaceManualUnreadPanelId) { _, _ in
+            syncBonsplitNotificationBadges()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             refreshGhosttyAppearanceConfig(reason: "ghosttyConfigDidReload")
         }
