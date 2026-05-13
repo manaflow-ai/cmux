@@ -14705,10 +14705,10 @@ private extension NSWindow {
         }
 
         if let ghosttyView = firstResponderGhosttyView {
-            if ghosttyView.shouldRouteKoreanMarkedSelectionArrowKeyEquivalentToKeyDown(event) {
+            if ghosttyView.shouldRouteTextInputKeyEquivalentToKeyDown(event) {
                 ghosttyView.keyDown(with: event)
 #if DEBUG
-                cmuxDebugLog("  → Korean marked-selection arrow routed to terminal keyDown")
+                cmuxDebugLog("  → terminal text-input key equivalent routed to keyDown")
 #endif
                 return true
             }
@@ -14718,7 +14718,7 @@ private extension NSWindow {
             // process it. Cmd-based shortcuts should still work during composition since
             // Cmd is never part of IME input sequences.
             if ghosttyView.hasMarkedText(), !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
-                return cmux_performKeyEquivalent(with: event)
+                return false
             }
 
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)

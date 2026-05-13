@@ -36,13 +36,17 @@ extension GhosttyNSView {
         after: (text: String, selection: NSRange),
         accumulatedText: [String],
         event: NSEvent? = nil,
+        textInputHandledEvent: Bool = false,
         inputSourceId: String? = nil
     ) -> Bool {
         guard accumulatedText.isEmpty else { return false }
 
         let hadMarkedTextBefore = !before.text.isEmpty
         let hasMarkedTextAfter = !after.text.isEmpty
-        guard hadMarkedTextBefore || hasMarkedTextAfter else { return false }
+        guard hadMarkedTextBefore || hasMarkedTextAfter else {
+            guard textInputHandledEvent, isBopomofoInputSource(inputSourceId) else { return false }
+            return shouldKeepNoMarkedIMECommandInsideTextInput(event)
+        }
 
         if before.text != after.text {
             return true
@@ -55,15 +59,36 @@ extension GhosttyNSView {
             )
         }
 
-        return false
+        guard let event, isInputMethodSource(inputSourceId) else {
+            return false
+        }
+        guard !shouldForwardKoreanMarkedSelectionArrowToTerminal(
+            event: event,
+            inputSourceId: inputSourceId
+        ) else {
+            return false
+        }
+        return shouldKeepIMECompositionCommandInsideTextInput(event)
     }
 
-    func shouldRouteKoreanMarkedSelectionArrowKeyEquivalentToKeyDown(_ event: NSEvent) -> Bool {
-        guard hasMarkedText() else { return false }
-        return shouldForwardKoreanMarkedSelectionArrowToTerminal(
-            event: event,
-            inputSourceId: KeyboardLayout.id
-        )
+    /// Returns true when a window-level key-equivalent probe should re-enter
+    /// the terminal's keyDown path so AppKit's text input context sees the key
+    /// before terminal bindings or cursor escape sequences do.
+    func shouldRouteTextInputKeyEquivalentToKeyDown(_ event: NSEvent) -> Bool {
+        shouldRouteTextInputKeyEquivalentToKeyDown(event, inputSourceId: nil)
+    }
+
+    func shouldRouteTextInputKeyEquivalentToKeyDown(
+        _ event: NSEvent,
+        inputSourceId: String?
+    ) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let resolvedInputSourceId = inputSourceId ?? KeyboardLayout.id
+        if hasMarkedText() {
+            return false
+        }
+        return isBopomofoInputSource(resolvedInputSourceId)
+            && shouldKeepNoMarkedIMECommandInsideTextInput(event)
     }
 
     private func shouldForwardKoreanMarkedSelectionArrowToTerminal(
@@ -88,11 +113,74 @@ extension GhosttyNSView {
             || inputSourceId.localizedCaseInsensitiveContains("2SetKorean")
     }
 
+    private func isInputMethodSource(_ inputSourceId: String?) -> Bool {
+        guard let inputSourceId else { return false }
+        return inputSourceId.localizedCaseInsensitiveContains("inputmethod")
+    }
+
+    private func isBopomofoInputSource(_ inputSourceId: String?) -> Bool {
+        guard let inputSourceId else { return false }
+        return inputSourceId.localizedCaseInsensitiveContains("Zhuyin")
+            || inputSourceId.localizedCaseInsensitiveContains("Bopomofo")
+    }
+
     private func hasOnlyPlainTextInputModifiers(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
         return flags.isEmpty
+    }
+
+    /// Returns true for active-composition command keys that belong to AppKit's
+    /// text input manager even when marked text itself does not change.
+    private func shouldKeepIMECompositionCommandInsideTextInput(_ event: NSEvent) -> Bool {
+        guard hasOnlyTextInputCommandModifiers(event) else { return false }
+
+        switch Int(event.keyCode) {
+        case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow,
+             kVK_PageUp, kVK_PageDown, kVK_Home, kVK_End,
+             kVK_Space, kVK_Return, kVK_ANSI_KeypadEnter, kVK_Escape,
+             kVK_Tab, kVK_Delete, kVK_ForwardDelete:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func hasOnlyTextInputCommandModifiers(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        return flags.isEmpty || flags == [.shift]
+    }
+
+    private func shouldKeepNoMarkedIMECommandInsideTextInput(_ event: NSEvent?) -> Bool {
+        guard let event else { return false }
+        guard hasOnlyTextInputCommandModifiers(event) else { return false }
+
+        switch Int(event.keyCode) {
+        case kVK_DownArrow, kVK_PageUp, kVK_PageDown, kVK_Space:
+            return true
+        default:
+            return false
+        }
+    }
+
+    func shouldBufferBopomofoInsertedPreedit(_ text: String, inputSourceId: String? = nil) -> Bool {
+        guard !text.isEmpty else { return false }
+        guard isBopomofoInputSource(inputSourceId ?? KeyboardLayout.id) else { return false }
+        return text.unicodeScalars.allSatisfy(isBopomofoPreeditScalar)
+    }
+
+    private func isBopomofoPreeditScalar(_ scalar: UnicodeScalar) -> Bool {
+        switch scalar.value {
+        case 0x3100...0x312F, 0x31A0...0x31BF:
+            return true
+        case 0x02C7, 0x02C9, 0x02CA, 0x02CB, 0x02D9:
+            return true
+        default:
+            return false
+        }
     }
 
 #if DEBUG
@@ -103,6 +191,7 @@ extension GhosttyNSView {
         markedSelectionAfter: NSRange,
         accumulatedText: [String],
         event: NSEvent? = nil,
+        textInputHandledEvent: Bool = false,
         inputSourceId: String? = nil
     ) -> Bool {
         shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
@@ -110,6 +199,7 @@ extension GhosttyNSView {
             after: (markedTextAfter, markedSelectionAfter),
             accumulatedText: accumulatedText,
             event: event,
+            textInputHandledEvent: textInputHandledEvent,
             inputSourceId: inputSourceId
         )
     }

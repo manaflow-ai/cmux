@@ -297,6 +297,138 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
+    func testDoesNotConsumeZhuyinMarkedTextDownArrowAsKeyEquivalent() throws {
+        let view = GhosttyNSView(frame: .zero)
+        view.setMarkedText(
+            "ㄓㄨ",
+            selectedRange: NSRange(location: 2, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        let event = try keyEvent(
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: 0
+        )
+
+        XCTAssertFalse(
+            view.shouldRouteTextInputKeyEquivalentToKeyDown(
+                event,
+                inputSourceId: "com.apple.inputmethod.TCIM.Zhuyin"
+            ),
+            "Zhuyin Down while marked text is active should stay on AppKit's normal keyDown dispatch path"
+        )
+    }
+
+    func testSuppressesZhuyinMarkedTextDownArrowAfterTextInputHandling() throws {
+        let view = GhosttyNSView(frame: .zero)
+        let event = try keyEvent(
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: 0
+        )
+
+        XCTAssertTrue(
+            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                markedTextBefore: "ㄓㄨ",
+                markedSelectionBefore: NSRange(location: 2, length: 0),
+                markedTextAfter: "ㄓㄨ",
+                markedSelectionAfter: NSRange(location: 2, length: 0),
+                accumulatedText: [],
+                event: event,
+                textInputHandledEvent: true,
+                inputSourceId: "com.apple.inputmethod.TCIM.Zhuyin"
+            ),
+            "Zhuyin Down belongs to the IME candidate menu and should not also move the terminal cursor"
+        )
+    }
+
+    func testRoutesZhuyinNoMarkedDownArrowThroughKeyDown() throws {
+        let view = GhosttyNSView(frame: .zero)
+        let event = try keyEvent(
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: 0
+        )
+
+        XCTAssertTrue(
+            view.shouldRouteTextInputKeyEquivalentToKeyDown(
+                event,
+                inputSourceId: "com.apple.inputmethod.TCIM.Zhuyin"
+            ),
+            "Zhuyin Down should reach AppKit text input even when AppKit has not exposed marked text"
+        )
+    }
+
+    func testSuppressesZhuyinNoMarkedDownArrowAfterTextInputHandling() throws {
+        let view = GhosttyNSView(frame: .zero)
+        let event = try keyEvent(
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: 0
+        )
+
+        XCTAssertTrue(
+            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                markedTextBefore: "",
+                markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
+                markedTextAfter: "",
+                markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                accumulatedText: [],
+                event: event,
+                textInputHandledEvent: true,
+                inputSourceId: "com.apple.inputmethod.TCIM.Zhuyin"
+            ),
+            "A Zhuyin Down key consumed by text input must not also send terminal Down"
+        )
+    }
+
+    func testBuffersZhuyinComponentInsertTextAsPreedit() {
+        let view = GhosttyNSView(frame: .zero)
+        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        defer {
+            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+            view.setKeyTextAccumulatorForTesting(nil)
+        }
+
+        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
+        view.setKeyTextAccumulatorForTesting([])
+
+        view.insertText("ㄉ", replacementRange: NSRange(location: NSNotFound, length: 0))
+        view.insertText("ㄚ", replacementRange: NSRange(location: NSNotFound, length: 0))
+        view.insertText("ˋ", replacementRange: NSRange(location: NSNotFound, length: 0))
+
+        XCTAssertTrue(view.hasMarkedText(), "Zhuyin components inserted by Apple IME should stay in editable preedit")
+        XCTAssertEqual(view.attributedString().string, "ㄉㄚˋ")
+        XCTAssertEqual(view.selectedRange(), NSRange(location: 3, length: 0))
+        XCTAssertEqual(
+            view.keyTextAccumulatorForTesting,
+            [],
+            "Raw Zhuyin components must not be committed to the terminal before candidate selection"
+        )
+    }
+
+    func testCommittedZhuyinCandidateStillReachesTerminalAccumulator() {
+        let view = GhosttyNSView(frame: .zero)
+        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        defer {
+            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+            view.setKeyTextAccumulatorForTesting(nil)
+        }
+
+        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
+        view.setKeyTextAccumulatorForTesting([])
+        view.setMarkedText(
+            "ㄉㄚˋ",
+            selectedRange: NSRange(location: 3, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+
+        view.insertText("大", replacementRange: NSRange(location: 0, length: 3))
+
+        XCTAssertFalse(view.hasMarkedText(), "Committed Zhuyin candidate should end preedit")
+        XCTAssertEqual(view.keyTextAccumulatorForTesting, ["大"])
+    }
+
     func testSuppressesTerminalForwardingWhenZhuyinMarkedTextChanges() {
         let view = GhosttyNSView(frame: .zero)
 

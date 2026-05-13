@@ -6183,6 +6183,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")
     }()
     static var debugGhosttySurfaceKeyEventObserver: ((ghostty_input_key_s) -> Void)?
+    @MainActor static var debugTextInputEventHandler: ((GhosttyNSView, NSEvent) -> Bool)?
 #endif
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
@@ -7718,7 +7719,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let interpretTimingStart = CmuxTypingTiming.start()
         let interpretPhaseStart = ProcessInfo.processInfo.systemUptime
 #endif
-        interpretKeyEvents([translationEvent])
+        let textInputHandledEvent = handleTextInputKeyEvent(translationEvent)
 #if DEBUG
         interpretMs = (ProcessInfo.processInfo.systemUptime - interpretPhaseStart) * 1000.0
         CmuxTypingTiming.logDuration(
@@ -7757,6 +7758,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             after: (markedText.string, markedSelectedRange),
             accumulatedText: accumulatedText,
             event: translationEvent,
+            textInputHandledEvent: textInputHandledEvent,
             inputSourceId: keyboardIdBefore
         ) {
             imeConsumedKeyUps.insert(event.keyCode)
@@ -7945,6 +7947,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         // Rendering is driven by Ghostty's wakeups/renderer.
+    }
+
+    @discardableResult
+    private func handleTextInputKeyEvent(_ event: NSEvent) -> Bool {
+#if DEBUG
+        if let debugTextInputEventHandler = Self.debugTextInputEventHandler {
+            return debugTextInputEventHandler(self, event)
+        }
+#endif
+        guard inputContext != nil else {
+            interpretKeyEvents([event])
+            return false
+        }
+        interpretKeyEvents([event])
+        return true
     }
 
     @discardableResult
@@ -13207,6 +13224,12 @@ extension GhosttyNSView: NSTextInputClient {
             return
         }
 
+        if keyTextAccumulator != nil,
+           shouldBufferBopomofoInsertedPreedit(chars) {
+            insertBopomofoPreeditText(chars, replacementRange: replacementRange)
+            return
+        }
+
         // Clear marked text since we're inserting
         unmarkText()
 
@@ -13255,6 +13278,26 @@ extension GhosttyNSView: NSTextInputClient {
         sendTextToSurface(
             sanitizedChars,
             preserveLiteralEscape: !isExternalCommittedText
+        )
+    }
+
+    private func insertBopomofoPreeditText(_ chars: String, replacementRange: NSRange) {
+        if replacementRange.location != NSNotFound,
+           let range = Range(replacementRange, in: markedText.string) {
+            let next = markedText.string.replacingCharacters(in: range, with: chars)
+            markedText = NSMutableAttributedString(string: next)
+            let location = markedText.string.distance(from: markedText.string.startIndex, to: range.lowerBound) + chars.count
+            markedSelectedRange = normalizedMarkedSelectionRange(
+                NSRange(location: location, length: 0),
+                markedLength: markedText.length
+            )
+            return
+        }
+
+        markedText.append(NSAttributedString(string: chars))
+        markedSelectedRange = normalizedMarkedSelectionRange(
+            NSRange(location: markedText.length, length: 0),
+            markedLength: markedText.length
         )
     }
 }
