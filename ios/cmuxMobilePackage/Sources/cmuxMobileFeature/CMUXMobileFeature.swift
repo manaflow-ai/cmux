@@ -1636,31 +1636,25 @@ struct TerminalPreviewSurface: View {
         guard let terminal else {
             return []
         }
-        return terminal.snapshot.scrollbackRows + terminal.snapshot.visibleRows
+        return terminal.snapshot.visibleRows
     }
 
-    private var scrollbackRowCount: Int {
-        terminal?.snapshot.scrollbackRows.count ?? 0
+    private var columnCount: Int {
+        if let columns = terminal?.snapshot.gridSize.columns {
+            return max(1, columns)
+        }
+        return max(1, renderedRows.map(\.cells.count).max() ?? 1)
     }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             TerminalPalette.background
 
-            GeometryReader { proxy in
-                ScrollView([.vertical, .horizontal]) {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(renderedRows.indices, id: \.self) { index in
-                            TerminalStyledRowView(
-                                row: renderedRows[index],
-                                rowIndex: index,
-                                cursor: cursor(forRenderedRowAt: index)
-                            )
-                        }
-                    }
-                    .frame(minWidth: proxy.size.width, minHeight: proxy.size.height, alignment: .topLeading)
-                }
-            }
+            TerminalFittedViewportGrid(
+                rows: renderedRows,
+                columnCount: columnCount,
+                cursor: terminal?.snapshot.cursor
+            )
         }
         .foregroundStyle(TerminalPalette.foreground)
         .overlay {
@@ -1670,14 +1664,68 @@ struct TerminalPreviewSurface: View {
                 .allowsHitTesting(false)
         }
     }
+}
 
-    private func cursor(forRenderedRowAt index: Int) -> MobileTerminalGhosttyCursor? {
-        guard let cursor = terminal?.snapshot.cursor,
+private struct TerminalFittedViewportGrid: View {
+    let rows: [MobileTerminalGhosttyRow]
+    let columnCount: Int
+    let cursor: MobileTerminalGhosttyCursor?
+
+    var body: some View {
+        GeometryReader { proxy in
+            let metrics = TerminalViewportMetrics(
+                size: proxy.size,
+                columns: columnCount,
+                rows: max(1, rows.count)
+            )
+
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(rows.indices, id: \.self) { index in
+                    TerminalStyledRowView(
+                        row: rows[index],
+                        rowIndex: index,
+                        cursor: cursor(forVisibleRowAt: index),
+                        columnCount: columnCount,
+                        metrics: metrics
+                    )
+                }
+            }
+            .frame(width: metrics.gridWidth, height: metrics.gridHeight, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .clipped()
+        }
+    }
+
+    private func cursor(forVisibleRowAt index: Int) -> MobileTerminalGhosttyCursor? {
+        guard let cursor,
               cursor.isVisible,
-              index - scrollbackRowCount == cursor.row else {
+              index == cursor.row else {
             return nil
         }
         return cursor
+    }
+}
+
+private struct TerminalViewportMetrics {
+    let cellWidth: CGFloat
+    let rowHeight: CGFloat
+    let fontSize: CGFloat
+    let gridWidth: CGFloat
+    let gridHeight: CGFloat
+
+    init(size: CGSize, columns: Int, rows: Int) {
+        let resolvedColumns = max(1, columns)
+        let resolvedRows = max(1, rows)
+        let availableWidth = max(1, size.width)
+        let availableHeight = max(1, size.height)
+        let rawCellWidth = availableWidth / CGFloat(resolvedColumns)
+        let rawRowHeight = availableHeight / CGFloat(resolvedRows)
+
+        cellWidth = rawCellWidth
+        rowHeight = rawRowHeight
+        fontSize = max(3, min(14, rawCellWidth * 1.55, rawRowHeight * 0.78))
+        gridWidth = rawCellWidth * CGFloat(resolvedColumns)
+        gridHeight = rawRowHeight * CGFloat(resolvedRows)
     }
 }
 
@@ -1685,22 +1733,30 @@ private struct TerminalStyledRowView: View {
     let row: MobileTerminalGhosttyRow
     let rowIndex: Int
     let cursor: MobileTerminalGhosttyCursor?
+    let columnCount: Int
+    let metrics: TerminalViewportMetrics
 
     private var cells: [MobileTerminalGhosttyCell] {
-        TerminalRowCellProjection.cells(from: row, preservingCursorColumn: cursor?.column)
+        TerminalRowCellProjection.cells(
+            from: row,
+            preservingCursorColumn: cursor?.column,
+            minimumColumnCount: columnCount
+        )
     }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 0) {
-            ForEach(Array(cells.enumerated()), id: \.offset) { column, cell in
+        HStack(alignment: .center, spacing: 0) {
+            ForEach(Array(cells.prefix(columnCount).enumerated()), id: \.offset) { column, cell in
                 TerminalCellView(
                     cell: cell,
-                    cursorStyle: column == cursor?.column ? cursor?.style : nil
+                    cursorStyle: column == cursor?.column ? cursor?.style : nil,
+                    metrics: metrics
                 )
             }
         }
+        .frame(width: metrics.gridWidth, height: metrics.rowHeight, alignment: .leading)
         .lineLimit(1)
-        .fixedSize(horizontal: true, vertical: false)
+        .clipped()
         .textSelection(.enabled)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(row.trimmedPlainText)
@@ -1711,7 +1767,8 @@ private struct TerminalStyledRowView: View {
 struct TerminalRowCellProjection {
     static func cells(
         from row: MobileTerminalGhosttyRow,
-        preservingCursorColumn cursorColumn: Int?
+        preservingCursorColumn cursorColumn: Int?,
+        minimumColumnCount: Int = 1
     ) -> [MobileTerminalGhosttyCell] {
         var lastVisibleIndex: Int?
 
@@ -1733,17 +1790,24 @@ struct TerminalRowCellProjection {
             lastVisibleIndex = max(lastVisibleIndex ?? cursorColumn, cursorColumn)
         }
 
-        guard let lastVisibleIndex else {
-            return [MobileTerminalGhosttyCell(text: " ")]
+        let minimumLastIndex = max(0, minimumColumnCount - 1)
+        let resolvedLastIndex = max(lastVisibleIndex ?? 0, minimumLastIndex)
+
+        if row.cells.count > resolvedLastIndex {
+            return Array(row.cells.prefix(resolvedLastIndex + 1))
         }
 
-        return Array(row.cells.prefix(lastVisibleIndex + 1))
+        return row.cells + Array(
+            repeating: MobileTerminalGhosttyCell(text: " "),
+            count: resolvedLastIndex + 1 - row.cells.count
+        )
     }
 }
 
 private struct TerminalCellView: View {
     let cell: MobileTerminalGhosttyCell
     let cursorStyle: MobileTerminalGhosttyCursor.Style?
+    let metrics: TerminalViewportMetrics
 
     private var text: String {
         switch cell.width {
@@ -1788,22 +1852,23 @@ private struct TerminalCellView: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 14, weight: cell.style.bold ? .bold : .regular, design: .monospaced))
+            .font(.system(size: metrics.fontSize, weight: cell.style.bold ? .bold : .regular, design: .monospaced))
             .foregroundStyle(displayedForeground)
+            .frame(width: metrics.cellWidth, height: metrics.rowHeight, alignment: .center)
             .background(displayedBackground)
             .underline(cell.style.underline != .none, color: foreground)
             .overlay(alignment: .leading) {
                 if cursorStyle == .bar {
                     Rectangle()
                         .fill(TerminalPalette.foreground)
-                        .frame(width: 2)
+                        .frame(width: max(1, metrics.cellWidth * 0.18))
                 }
             }
             .overlay(alignment: .bottom) {
                 if cursorStyle == .underline {
                     Rectangle()
                         .fill(TerminalPalette.foreground)
-                        .frame(height: 2)
+                        .frame(height: max(1, metrics.rowHeight * 0.12))
                 }
             }
             .overlay {

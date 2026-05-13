@@ -179,20 +179,10 @@ import Testing
 
 @MainActor
 @Test func manualHostPairingUsesNetworkRouteForTailscaleAddress() async throws {
+    let attachRoute = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: 4865)
     let responses = ScriptedTransportResponses([
-        try rpcResultFrame(
-            result: [
-                "workspaces": [
-                    [
-                        "id": "live-workspace",
-                        "title": "Live Workspace",
-                        "current_directory": "/Users/test/project",
-                        "is_selected": true,
-                        "terminals": [],
-                    ],
-                ],
-            ]
-        ),
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "live-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "live-workspace", title: "Live Workspace"),
     ])
     let runtime = CMUXMobileRuntime(
         supportedRouteKinds: [.tailscale],
@@ -217,10 +207,12 @@ import Testing
 
 @MainActor
 @Test func manualHostPairingUsesHostPortRouteForLANAddressAndCustomPort() async throws {
+    let advertisedRoute = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: 15432, priority: 10)
     let responses = ScriptedTransportResponses([
         try rpcHostStatusFrame(routes: [
             try routePayload(kind: .tailscale, host: "100.71.210.41", port: 15432, priority: 10),
         ]),
+        try rpcAttachTicketFrame(route: advertisedRoute, workspaceID: "lan-workspace"),
         try rpcWorkspaceListFrame(workspaceID: "lan-workspace", title: "LAN Workspace"),
     ])
     let runtime = CMUXMobileRuntime(
@@ -246,15 +238,18 @@ import Testing
     let requests = try await responses.sentRequests()
     #expect(requests.first?.method == "mobile.host.status")
     #expect(requests.first?.hasAuth == false)
-    #expect(requests.dropFirst().first?.method == "workspace.list")
+    #expect(requests.dropFirst().first?.method == "mobile.attach_ticket.create")
+    #expect(requests.dropFirst(2).first?.method == "workspace.list")
 }
 
 @MainActor
 @Test func manualHostPairingUsesHostPortRouteForDNSNameAndCustomPort() async throws {
+    let advertisedRoute = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: 61234, priority: 10)
     let responses = ScriptedTransportResponses([
         try rpcHostStatusFrame(routes: [
             try routePayload(kind: .tailscale, host: "100.71.210.41", port: 61234, priority: 10),
         ]),
+        try rpcAttachTicketFrame(route: advertisedRoute, workspaceID: "dns-workspace"),
         try rpcWorkspaceListFrame(workspaceID: "dns-workspace", title: "DNS Workspace"),
     ])
     let runtime = CMUXMobileRuntime(
@@ -323,20 +318,10 @@ import Testing
 
 @MainActor
 @Test func manualHostPairingUsesLoopbackRouteForLocalhost() async throws {
+    let attachRoute = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 4865)
     let responses = ScriptedTransportResponses([
-        try rpcResultFrame(
-            result: [
-                "workspaces": [
-                    [
-                        "id": "local-workspace",
-                        "title": "Local Workspace",
-                        "current_directory": "/Users/test/project",
-                        "is_selected": true,
-                        "terminals": [],
-                    ],
-                ],
-            ]
-        ),
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "local-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "local-workspace", title: "Local Workspace"),
     ])
     let runtime = CMUXMobileRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -389,7 +374,9 @@ import Testing
 
 @MainActor
 @Test func terminalSurfaceNotReadyReplacesPlaceholderWithoutPairingError() async throws {
+    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 4865)
     let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: route, workspaceID: "local-workspace"),
         try rpcResultFrame(
             result: [
                 "workspaces": [
@@ -427,7 +414,9 @@ import Testing
 
 @MainActor
 @Test func workspaceListPrefersReadyTerminalBeforeSnapshotRefresh() async throws {
+    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 4865)
     let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: route, workspaceID: "local-workspace"),
         try rpcResultFrame(
             result: [
                 "workspaces": [
@@ -479,7 +468,9 @@ import Testing
 
 @MainActor
 @Test func notReadySelectedTerminalFallsBackToReadyTerminalInAnotherWorkspace() async throws {
+    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 4865)
     let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: route, workspaceID: "stale-workspace"),
         try rpcResultFrame(
             result: [
                 "workspaces": [
@@ -612,6 +603,23 @@ import Testing
     #expect(cursorPreserved.last?.text == "")
 }
 
+@Test func terminalRowProjectionPadsToViewportColumnCount() {
+    let row = MobileTerminalGhosttyRow(cells: [
+        MobileTerminalGhosttyCell(text: "|"),
+        MobileTerminalGhosttyCell(text: " "),
+    ])
+
+    let cells = TerminalRowCellProjection.cells(
+        from: row,
+        preservingCursorColumn: nil,
+        minimumColumnCount: 5
+    )
+
+    #expect(cells.count == 5)
+    #expect(cells.first?.text == "|")
+    #expect(cells.last?.text == " ")
+}
+
 private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
@@ -654,6 +662,26 @@ private func rpcWorkspaceListFrame(
     )
 }
 
+private func rpcAttachTicketFrame(
+    route: CmxAttachRoute,
+    workspaceID: String,
+    terminalID: String? = nil
+) throws -> Data {
+    let ticket = try CmxAttachTicket(
+        workspaceID: workspaceID,
+        terminalID: terminalID,
+        macDeviceID: "test-mac",
+        macDisplayName: nil,
+        routes: [route],
+        expiresAt: Date(timeIntervalSince1970: 2_000_000_000),
+        authToken: "ticket-secret"
+    )
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let ticketObject = try JSONSerialization.jsonObject(with: encoder.encode(ticket))
+    return try rpcResultFrame(result: ["ticket": ticketObject])
+}
+
 private func rpcHostStatusFrame(routes: [[String: Any]]) throws -> Data {
     try rpcResultFrame(
         result: [
@@ -663,6 +691,20 @@ private func rpcHostStatusFrame(routes: [[String: Any]]) throws -> Data {
             "active_connection_count": 1,
             "last_error": NSNull(),
         ]
+    )
+}
+
+private func hostPortRoute(
+    kind: CmxAttachTransportKind,
+    host: String,
+    port: Int,
+    priority: Int = 0
+) throws -> CmxAttachRoute {
+    try CmxAttachRoute(
+        id: kind.rawValue,
+        kind: kind,
+        endpoint: .hostPort(host: host, port: port),
+        priority: priority
     )
 }
 

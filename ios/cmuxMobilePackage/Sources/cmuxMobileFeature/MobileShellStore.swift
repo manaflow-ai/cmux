@@ -342,6 +342,12 @@ public final class CMUXMobileShellStore {
         )
         let displayName = name.isEmpty ? host : name
         if Self.routeAllowsStackAuth(directRoute) {
+            if let ticket = try? await requestManualAttachTicket(
+                route: directRoute,
+                displayName: displayName
+            ) {
+                return ticket
+            }
             return try Self.manualHostTicket(
                 displayName: displayName,
                 macDeviceID: "manual-\(host):\(port)",
@@ -353,6 +359,12 @@ public final class CMUXMobileShellStore {
             probeRoute: directRoute,
             displayName: displayName
         )
+        if let ticket = try? await requestManualAttachTicket(
+            route: discoveredRoute,
+            displayName: displayName
+        ) {
+            return ticket
+        }
         return try Self.manualHostTicket(
             displayName: displayName,
             macDeviceID: "manual-\(host):\(port)",
@@ -400,6 +412,29 @@ public final class CMUXMobileShellStore {
             throw MobileShellConnectionError.insecureManualRoute
         }
         return route
+    }
+
+    private func requestManualAttachTicket(
+        route: CmxAttachRoute,
+        displayName: String
+    ) async throws -> CmxAttachTicket {
+        guard let runtime else {
+            throw MobileShellConnectionError.insecureManualRoute
+        }
+        let probeTicket = try Self.manualHostTicket(
+            displayName: displayName,
+            macDeviceID: "manual-ticket-request",
+            route: route
+        )
+        let client = MobileCoreRPCClient(runtime: runtime, route: route, ticket: probeTicket)
+        let resultData = try await client.sendRequest(
+            MobileCoreRPCClient.requestData(
+                method: "mobile.attach_ticket.create",
+                params: ["ttl_seconds": 3600]
+            )
+        )
+        let response = try MobileManualAttachTicketCreateResponse.decode(resultData)
+        return try response.ticket.constrainingRoutes(to: [route], fallbackDisplayName: displayName)
     }
 
     public func createWorkspace() {
@@ -868,6 +903,33 @@ private struct MobileManualHostStatusResponse: Decodable, Sendable {
 
     static func decode(_ data: Data) throws -> MobileManualHostStatusResponse {
         try JSONDecoder().decode(MobileManualHostStatusResponse.self, from: data)
+    }
+}
+
+private struct MobileManualAttachTicketCreateResponse: Decodable, Sendable {
+    var ticket: CmxAttachTicket
+
+    static func decode(_ data: Data) throws -> MobileManualAttachTicketCreateResponse {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(MobileManualAttachTicketCreateResponse.self, from: data)
+    }
+}
+
+private extension CmxAttachTicket {
+    func constrainingRoutes(
+        to routes: [CmxAttachRoute],
+        fallbackDisplayName: String
+    ) throws -> CmxAttachTicket {
+        try CmxAttachTicket(
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            macDeviceID: macDeviceID,
+            macDisplayName: macDisplayName ?? fallbackDisplayName,
+            routes: routes,
+            expiresAt: expiresAt,
+            authToken: authToken
+        )
     }
 }
 
