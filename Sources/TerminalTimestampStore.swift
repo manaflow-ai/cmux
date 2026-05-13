@@ -133,7 +133,7 @@ final class TerminalTimestampStore {
         }
 
         if let preservedOldestRow {
-            oldestTrackedRow = preservedOldestRow
+            self.oldestTrackedRow = preservedOldestRow
             if let previousNewestTrackedRow, previousNewestTrackedRow >= minimumRow {
                 newestTrackedRow = previousNewestTrackedRow
             } else {
