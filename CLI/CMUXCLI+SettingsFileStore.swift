@@ -4,7 +4,7 @@ import CMUXSettingsCore
 extension CMUXCLI {
     enum ImportOperation {
         case setting(String, Any)
-        case shortcut(String, String)
+        case shortcut(CmuxSettingsRegistry.ShortcutActionDefinition, String)
     }
 
     struct SettingsFileStore {
@@ -138,7 +138,11 @@ extension CMUXCLI {
             root: [String: Any]
         ) throws -> CLIShortcut? {
             if let raw = value(forPath: "shortcuts.bindings.\(definition.action)", in: root) {
-                return try? CLIShortcut.parseJSONValue(raw, action: definition)
+                do {
+                    return try CLIShortcut.parseJSONValue(raw, action: definition)
+                } catch {
+                    return try CLIShortcut.parse(definition.defaultValue, action: definition)
+                }
             }
             return try CLIShortcut.parse(definition.defaultValue, action: definition)
         }
@@ -194,7 +198,7 @@ extension CMUXCLI {
                     }
                     shortcutImportKeysByAction[definition.action] = key
                     let shortcut = try CLIShortcut.parseJSONValue(value, action: definition)
-                    operations.append(.shortcut(definition.action, shortcut.configString))
+                    operations.append(.shortcut(definition, shortcut.configString))
                     continue
                 }
                 if knownIntermediateKeys.contains(key) {
@@ -223,6 +227,12 @@ extension CMUXCLI {
 
         func setValue(_ value: Any, forPath path: String, in root: inout [String: Any]) {
             var components = path.split(separator: ".").map(String.init)
+            guard let leaf = components.popLast() else { return }
+            setValue(value, components: components, leaf: leaf, in: &root)
+        }
+
+        private func setValue(_ value: Any, forComponents components: [String], in root: inout [String: Any]) {
+            var components = components
             guard let leaf = components.popLast() else { return }
             setValue(value, components: components, leaf: leaf, in: &root)
         }
@@ -303,9 +313,9 @@ extension CMUXCLI {
         }
 
         func tomlString(from root: [String: Any]) throws -> String {
-            try flatten(root)
-                .sorted { $0.key < $1.key }
-                .map { key, value in "\(key) = \(try tomlLiteral(value))" }
+            try flattenForTomlExport(root)
+                .sorted { tomlKeyPath($0.path) < tomlKeyPath($1.path) }
+                .map { path, value in "\(tomlKeyPath(path)) = \(try tomlLiteral(value))" }
                 .joined(separator: "\n") + "\n"
         }
 
@@ -344,6 +354,42 @@ extension CMUXCLI {
                 }
             }
             return result
+        }
+
+        private func flattenForTomlExport(_ root: [String: Any], prefix: [String] = []) -> [(path: [String], value: Any)] {
+            var result: [(path: [String], value: Any)] = []
+            for (key, value) in root {
+                let path = prefix + [key]
+                if let dictionary = value as? [String: Any],
+                   !dictionary.isEmpty {
+                    result.append(contentsOf: flattenForTomlExport(dictionary, prefix: path))
+                } else {
+                    result.append((path, value))
+                }
+            }
+            return result
+        }
+
+        private func tomlKeyPath(_ path: [String]) -> String {
+            path.map(tomlKey).joined(separator: ".")
+        }
+
+        private func tomlKey(_ value: String) -> String {
+            guard isTomlBareKey(value) else {
+                return "\"\(escapeToml(value))\""
+            }
+            return value
+        }
+
+        private func isTomlBareKey(_ value: String) -> Bool {
+            !value.isEmpty && value.unicodeScalars.allSatisfy { scalar in
+                switch scalar.value {
+                case 48...57, 65...90, 95, 97...122, 45:
+                    return true
+                default:
+                    return false
+                }
+            }
         }
 
         private func tomlLiteral(_ value: Any) throws -> String {
@@ -415,27 +461,116 @@ extension CMUXCLI {
                     tablePath = try parseTomlKeyPath(header, rawLine: rawLine)
                     continue
                 }
-                guard let equals = line.firstIndex(of: "=") else {
+                guard let equals = tomlAssignmentEquals(in: line) else {
                     throw CLIError(message: "Invalid TOML line: \(rawLine)")
                 }
                 let key = String(line[..<equals]).trimmingCharacters(in: .whitespacesAndNewlines)
                 let literal = String(line[line.index(after: equals)...]).trimmingCharacters(in: .whitespacesAndNewlines)
                 let keyPath = tablePath + (try parseTomlKeyPath(key, rawLine: rawLine))
                 let value = try parseTomlLiteral(String(literal))
-                setValue(value, forPath: keyPath.joined(separator: "."), in: &root)
+                setValue(value, forComponents: keyPath, in: &root)
             }
             return root
         }
 
         private func parseTomlKeyPath(_ raw: String, rawLine: String) throws -> [String] {
-            let components = raw
-                .split(separator: ".", omittingEmptySubsequences: false)
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            guard !components.isEmpty,
-                  components.allSatisfy({ !$0.isEmpty }) else {
+            var components: [String] = []
+            var index = raw.startIndex
+
+            func skipWhitespace() {
+                while index < raw.endIndex, raw[index].isWhitespace {
+                    index = raw.index(after: index)
+                }
+            }
+
+            func parseQuotedKey() throws -> String {
+                let quote = raw[index]
+                let contentStart = raw.index(after: index)
+                var contentEnd = contentStart
+                var escaped = false
+                while contentEnd < raw.endIndex {
+                    let character = raw[contentEnd]
+                    if escaped {
+                        escaped = false
+                        contentEnd = raw.index(after: contentEnd)
+                        continue
+                    }
+                    if quote == "\"", character == "\\" {
+                        escaped = true
+                        contentEnd = raw.index(after: contentEnd)
+                        continue
+                    }
+                    if character == quote {
+                        let inner = String(raw[contentStart..<contentEnd])
+                        index = raw.index(after: contentEnd)
+                        return quote == "\"" ? try unescapeTomlString(inner) : inner
+                    }
+                    contentEnd = raw.index(after: contentEnd)
+                }
                 throw CLIError(message: "Invalid TOML key path: \(rawLine)")
             }
-            return components
+
+            while true {
+                skipWhitespace()
+                guard index < raw.endIndex else {
+                    throw CLIError(message: "Invalid TOML key path: \(rawLine)")
+                }
+
+                let component: String
+                if raw[index] == "\"" || raw[index] == "'" {
+                    component = try parseQuotedKey()
+                } else {
+                    let start = index
+                    while index < raw.endIndex, raw[index] != "." {
+                        index = raw.index(after: index)
+                    }
+                    component = String(raw[start..<index]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard isTomlBareKey(component) else {
+                        throw CLIError(message: "Invalid TOML key path: \(rawLine)")
+                    }
+                }
+
+                guard !component.isEmpty else {
+                    throw CLIError(message: "Invalid TOML key path: \(rawLine)")
+                }
+                components.append(component)
+                skipWhitespace()
+                if index == raw.endIndex {
+                    return components
+                }
+                guard raw[index] == "." else {
+                    throw CLIError(message: "Invalid TOML key path: \(rawLine)")
+                }
+                index = raw.index(after: index)
+            }
+        }
+
+        private func tomlAssignmentEquals(in line: String) -> String.Index? {
+            var activeQuote: Character?
+            var escaped = false
+            for index in line.indices {
+                let character = line[index]
+                if escaped {
+                    escaped = false
+                    continue
+                }
+                if character == "\\" && activeQuote == "\"" {
+                    escaped = true
+                    continue
+                }
+                if character == "\"", activeQuote != "'" {
+                    activeQuote = activeQuote == "\"" ? nil : "\""
+                    continue
+                }
+                if character == "'", activeQuote != "\"" {
+                    activeQuote = activeQuote == "'" ? nil : "'"
+                    continue
+                }
+                if character == "=", activeQuote == nil {
+                    return index
+                }
+            }
+            return nil
         }
 
         private func stripTomlComment(_ rawLine: String) -> String {

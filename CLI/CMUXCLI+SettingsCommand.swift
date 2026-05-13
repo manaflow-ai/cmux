@@ -260,10 +260,8 @@ extension CMUXCLI {
             switch operation {
             case let .setting(key, value):
                 store.setValue(value, forPath: key, in: &root)
-            case let .shortcut(action, shortcut):
-                let definition = try CmuxSettingsRegistry.shortcutAction(for: action)
-                let parsedShortcut = try CLIShortcut.parse(shortcut, action: definition)
-                store.setValue(parsedShortcut.configString, forPath: "shortcuts.bindings.\(action)", in: &root)
+            case let .shortcut(definition, shortcut):
+                store.setValue(shortcut, forPath: "shortcuts.bindings.\(definition.action)", in: &root)
                 importedShortcutActions[definition.action] = definition
             }
         }

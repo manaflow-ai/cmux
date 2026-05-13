@@ -538,27 +538,40 @@ def main() -> int:
 
         object_import_path = home / "object-settings.json"
         object_import_path.write_text(
-            json.dumps({"workspaceColors": {"paletteOverrides": {"Work": "#123456"}}}),
+            json.dumps({"workspaceColors": {"paletteOverrides": {"Work Project": "#123456", "Ops.Team": "#654321"}}}),
             encoding="utf-8",
         )
         object_import = run_cli(cli_path, ["settings", "import", str(object_import_path)], home)
         assert_ok(failures, "settings import object setting", object_import)
         object_toml_export = run_cli(cli_path, ["settings", "export", "--format", "toml"], home)
-        assert_fails(
-            failures,
-            "settings export toml rejects object values",
-            object_toml_export,
-            "TOML format does not support object values",
-        )
+        assert_ok(failures, "settings export toml flattens object values", object_toml_export)
+        if 'workspaceColors.paletteOverrides."Work Project" = "#123456"' not in object_toml_export.stdout:
+            failures.append(f"settings export toml did not flatten object values: {object_toml_export.stdout!r}")
+        if 'workspaceColors.paletteOverrides."Ops.Team" = "#654321"' not in object_toml_export.stdout:
+            failures.append(f"settings export toml did not quote dotted object keys: {object_toml_export.stdout!r}")
         object_json_export = run_cli(cli_path, ["settings", "export", "--format", "json"], home)
         assert_ok(failures, "settings export json allows object values", object_json_export)
         object_json_payload = parse_json(failures, "settings export json allows object values", object_json_export)
         if isinstance(object_json_payload, dict):
             palette = object_json_payload.get("workspaceColors", {}).get("paletteOverrides")
-            if not isinstance(palette, dict) or palette.get("Work") != "#123456":
+            if (
+                not isinstance(palette, dict)
+                or palette.get("Work Project") != "#123456"
+                or palette.get("Ops.Team") != "#654321"
+            ):
                 failures.append(f"settings export json did not preserve paletteOverrides: {object_json_payload}")
         unset_object = run_cli(cli_path, ["settings", "unset", "workspaceColors.paletteOverrides"], home)
         assert_ok(failures, "settings unset object setting before TOML exports", unset_object)
+        object_toml_roundtrip_path = home / "object-settings-roundtrip.toml"
+        object_toml_roundtrip_path.write_text(object_toml_export.stdout, encoding="utf-8")
+        object_toml_roundtrip = run_cli(cli_path, ["settings", "import", str(object_toml_roundtrip_path)], home)
+        assert_ok(failures, "settings import TOML quoted object keys", object_toml_roundtrip)
+        object_toml_roundtrip_config = read_config(home)
+        roundtrip_palette = object_toml_roundtrip_config.get("workspaceColors", {}).get("paletteOverrides", {})
+        if roundtrip_palette.get("Work Project") != "#123456" or roundtrip_palette.get("Ops.Team") != "#654321":
+            failures.append(f"settings import TOML quoted object keys failed: {object_toml_roundtrip_config}")
+        unset_object_roundtrip = run_cli(cli_path, ["settings", "unset", "workspaceColors.paletteOverrides"], home)
+        assert_ok(failures, "settings unset object setting after TOML roundtrip", unset_object_roundtrip)
 
         primitive_string = run_cli(cli_path, ["settings", "set", "notifications.command", "true"], home)
         assert_ok(failures, "settings set string-looking bool", primitive_string)
@@ -906,6 +919,17 @@ openSettings = "cmd+option+,"
             home,
         )
         assert_ok(failures, "shortcut set skips unrelated malformed binding during conflict scan", set_with_unrelated_corrupt_binding)
+        set_default_conflict_with_corrupt_binding = run_cli(
+            cli_path,
+            ["settings", "shortcuts", "set", "renameTab", "cmd+,"],
+            home,
+        )
+        assert_fails(
+            failures,
+            "shortcut set checks default for malformed configured binding during conflict scan",
+            set_default_conflict_with_corrupt_binding,
+            "conflicts with openSettings",
+        )
         unset_corrupt_binding = run_cli(cli_path, ["settings", "shortcuts", "unset", "openSettings"], home)
         assert_ok(failures, "shortcut unset removes malformed binding", unset_corrupt_binding)
 
